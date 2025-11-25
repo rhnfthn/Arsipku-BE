@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { KlasifikasiEntity } from '../entity/klasifikasi.entity';
-import { CreateKlasifikasiDto } from '../dto/klasifikasi/create-klasifikasi.dto';
-import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update-klasifikasi.dto';
+import { CreateKlasifikasiDto } from '../dto/klasifikasi/create_klasifikasi.dto';
+import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update_klasifikasi.dto';
 
 @Injectable()
 export class KlasifikasiService {

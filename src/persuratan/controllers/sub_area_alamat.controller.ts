@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
-import { SubAreaAlamatService } from '../services/sub-area-alamat.service';
-import { CreateSubAreaAlamatDto } from '../dto/sub-area-alamat/create-sub-area-alamat.dto';
-import { UpdateSubAreaAlamatDto } from '../dto/sub-area-alamat/update-sub-area-alamat.dto';
+import { SubAreaAlamatService } from '../services/sub_area_alamat.service';
+import { CreateSubAreaAlamatDto } from '../dto/sub_area_alamat/create_sub_area_alamat.dto';
+import { UpdateSubAreaAlamatDto } from '../dto/sub_area_alamat/update_sub_area_alamat.dto';
 
 @Controller('persuratan/sub-area-alamat')
 export class SubAreaAlamatController {

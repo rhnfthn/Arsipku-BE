@@ -2,9 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { SubAreaAlamatEntity } from '../entity/sub-area-alamat.entity';
-import { CreateSubAreaAlamatDto } from '../dto/sub-area-alamat/create-sub-area-alamat.dto';
-import { UpdateSubAreaAlamatDto } from '../dto/sub-area-alamat/update-sub-area-alamat.dto';
+import { SubAreaAlamatEntity } from '../entity/sub_area_alamat.entity';
+import { CreateSubAreaAlamatDto } from '../dto/sub_area_alamat/create_sub_area_alamat.dto';
+import { UpdateSubAreaAlamatDto } from '../dto/sub_area_alamat/update_sub_area_alamat.dto';
 
 @Injectable()
 export class SubAreaAlamatService {
