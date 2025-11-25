@@ -1,0 +1,4 @@
+export enum Depart {
+  DIREKTORAT = 'DIREKTORAT',
+  DIVORCABANG = 'DIVORCABANG',
+}
