@@ -1,58 +1,68 @@
-import { Entity, Column, PrimaryColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity('naskah')
 export class NaskahEntity {
-  @PrimaryColumn({ type: 'char', length: 36 })
+  @PrimaryColumn('char', { length: 36 })
   id: string;
 
-  @Column({
-    type: 'enum',
+  @Column('enum', {
     enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
-    nullable: true,
+    comment: 'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif',
   })
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column('varchar', { length: 100, nullable: true })
   klasifikasi_text: string;
 
-  @Column({
-    type: 'enum',
-    enum: ['sangat_rahasia', 'rahasia', 'terbatas', 'terbuka'],
-    nullable: true,
+  @Column('enum', {
+    enum: ['sangat_rahasia', 'rahasia', 'terbatas', 'biasa', 'terbuka'],
+    comment: 'Tingkat kerahasiaan dokumen',
   })
-  sifat: 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'terbuka';
+  sifat: 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka';
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column('varchar', { length: 100, nullable: true })
   nomor: string;
 
-  @Column({ type: 'date', nullable: true })
+  @Column('date')
   tanggal: Date;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column('varchar', { length: 100, nullable: true })
   lampiran: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column('text', { nullable: true })
   perihal: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column('text', { nullable: true })
   konten: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column('varchar', { length: 100, nullable: true })
   tempat: string;
 
-  @Column({
-    type: 'enum',
+  @Column('enum', {
     enum: ['draf', 'final', 'final_tte'],
-    nullable: true,
+    default: 'draf',
+    comment: 'Status dokumen: draf=sedang dibuat, final=final tanpa tandatangan, final_tte=final dengan tandatangan elektronik',
   })
   status: 'draf' | 'final' | 'final_tte';
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column('varchar', { length: 255, nullable: true })
   final_pdf: string;
 
-  @Column({ type: 'boolean', default: false })
+  @Column('boolean', { default: false })
   english: boolean;
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 }

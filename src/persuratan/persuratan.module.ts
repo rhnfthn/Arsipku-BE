@@ -36,7 +36,13 @@ import { NaskahLampiranController } from './controllers/naskah_lampiran.controll
 import { NaskahReferensiController } from './controllers/naskah_referensi.controller';
 import { NaskahController } from './controllers/naskah.controller';
 
-@Module({
+import { Person } from 'src/person/entities/person.entity';
+import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
+import { RelationOsc } from 'src/relation_osc/entities/relation_osc.entity';
+import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
+import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
+import { OmPosition } from 'src/position/entities/om-position.entity';
+
   imports: [
     TypeOrmModule.forFeature([
       LabelEntity,
@@ -50,6 +56,12 @@ import { NaskahController } from './controllers/naskah.controller';
       NaskahLampiranEntity,
       NaskahReferensiEntity,
       NaskahEntity,
+      Person,
+      RelationSp,
+      RelationOsc,
+      RelationOa,
+      RelationOo,
+      OmPosition,
     ]),
   ],
   providers: [
