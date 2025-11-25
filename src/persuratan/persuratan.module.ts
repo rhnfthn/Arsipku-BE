@@ -43,6 +43,7 @@ import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
 import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
 import { OmPosition } from 'src/position/entities/om-position.entity';
 
+@Module({
   imports: [
     TypeOrmModule.forFeature([
       LabelEntity,
