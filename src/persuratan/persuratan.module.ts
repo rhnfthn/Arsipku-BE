@@ -23,6 +23,7 @@ import { NaskahSirkulasiService } from './services/naskah_sirkulasi.service';
 import { NaskahLampiranService } from './services/naskah_lampiran.service';
 import { NaskahReferensiService } from './services/naskah_referensi.service';
 import { NaskahService } from './services/naskah.service';
+import { NotaDinasService } from './services/nota-dinas.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -35,6 +36,7 @@ import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.contro
 import { NaskahLampiranController } from './controllers/naskah_lampiran.controller';
 import { NaskahReferensiController } from './controllers/naskah_referensi.controller';
 import { NaskahController } from './controllers/naskah.controller';
+import { NotaDinasController } from './controllers/nota-dinas.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -77,6 +79,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahLampiranService,
     NaskahReferensiService,
     NaskahService,
+    NotaDinasService,
   ],
   controllers: [
     LabelController,
@@ -90,6 +93,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahLampiranController,
     NaskahReferensiController,
     NaskahController,
+    NotaDinasController,
   ],
   exports: [
     LabelService,
@@ -103,6 +107,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahLampiranService,
     NaskahReferensiService,
     NaskahService,
+    NotaDinasService,
   ],
 })
 export class PersuratanModule {}
