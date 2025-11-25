@@ -8,6 +8,7 @@ import { EksternalEntity } from './entity/eksternal.entity';
 import { GrupPenerimaEntity } from './entity/grup-penerima.entity';
 import { GrupPenerimaDetailEntity } from './entity/grup-penerima-detail.entity';
 import { NaskahSirkulasi } from './entity/naskah_sirkulasi.entity';
+import { NaskahEntity } from './entity/naskah.entity';
 
 import { LabelService } from './services/label.service';
 import { KlasifikasiService } from './services/klasifikasi.service';
@@ -16,6 +17,7 @@ import { SubAreaAlamatService } from './services/sub-area-alamat.service';
 import { EksternalService } from './services/eksternal.service';
 import { GrupPenerimaService } from './services/grup-penerima.service';
 import { NaskahSirkulasiService } from './services/naskah_sirkulasi.service';
+import { NotaDinasService } from './services/nota-dinas.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -24,6 +26,14 @@ import { SubAreaAlamatController } from './controllers/sub-area-alamat.controlle
 import { EksternalController } from './controllers/eksternal.controller';
 import { GrupPenerimaController } from './controllers/grup-penerima.controller';
 import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.controller';
+import { NotaDinasController } from './controllers/nota-dinas.controller';
+
+import { Person } from 'src/person/entities/person.entity';
+import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
+import { RelationOsc } from 'src/relation_osc/entities/relation_osc.entity';
+import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
+import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
+import { OmPosition } from 'src/position/entities/om-position.entity';
 
 @Module({
   imports: [
@@ -36,6 +46,13 @@ import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.contro
       GrupPenerimaEntity,
       GrupPenerimaDetailEntity,
       NaskahSirkulasi,
+      NaskahEntity,
+      Person,
+      RelationSp,
+      RelationOsc,
+      RelationOa,
+      RelationOo,
+      OmPosition,
     ]),
   ],
   providers: [
@@ -46,6 +63,7 @@ import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.contro
     EksternalService,
     GrupPenerimaService,
     NaskahSirkulasiService,
+    NotaDinasService,
   ],
   controllers: [
     LabelController,
@@ -55,6 +73,7 @@ import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.contro
     EksternalController,
     GrupPenerimaController,
     NaskahSirkulasiController,
+    NotaDinasController,
   ],
   exports: [
     LabelService,
@@ -64,6 +83,7 @@ import { NaskahSirkulasiController } from './controllers/naskah_sirkulasi.contro
     EksternalService,
     GrupPenerimaService,
     NaskahSirkulasiService,
+    NotaDinasService,
   ],
 })
 export class PersuratanModule {}

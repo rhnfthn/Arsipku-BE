@@ -16,6 +16,7 @@ import { RelationOscModule } from './relation_osc/relation_osc.module';
 import { RelationSpModule } from './relation_sp/relation_sp.module';
 import { OrgDataModule } from './org_data/org_data.module';
 import { RelationOdModule } from './relation_od/relation_od.module';
+import { PersuratanModule } from './persuratan/persuratan.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { RelationOdModule } from './relation_od/relation_od.module';
     RelationSpModule,
     OrgDataModule,
     RelationOdModule,
+    PersuratanModule,
   ],
   controllers: [AppController],
   providers: [AppService],
