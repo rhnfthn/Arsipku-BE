@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
 import { KlasifikasiService } from '../services/klasifikasi.service';
-import { CreateKlasifikasiDto } from '../dto/klasifikasi/create-klasifikasi.dto';
-import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update-klasifikasi.dto';
+import { CreateKlasifikasiDto } from '../dto/klasifikasi/create_klasifikasi.dto';
+import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update_klasifikasi.dto';
 
 @Controller('persuratan/klasifikasi')
 export class KlasifikasiController {

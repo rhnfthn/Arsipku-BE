@@ -1,5 +1,5 @@
 import { Entity, Column, PrimaryColumn, OneToMany, JoinColumn } from 'typeorm';
-import { GrupPenerimaDetailEntity } from './grup-penerima-detail.entity';
+import { GrupPenerimaDetailEntity } from './grup_penerima_detail.entity';
 
 @Entity('grup_penerima')
 export class GrupPenerimaEntity {

@@ -2,11 +2,12 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { GrupPenerimaEntity } from '../entity/grup-penerima.entity';
-import { GrupPenerimaDetailEntity } from '../entity/grup-penerima-detail.entity';
-import { CreateGrupPenerimaDto } from '../dto/grup-penerima/create-grup-penerima.dto';
-import { UpdateGrupPenerimaDto } from '../dto/grup-penerima/update-grup-penerima.dto';
-import { AddMemberGrupPenerimaDto } from '../dto/grup-penerima/add-member.dto';
+import { GrupPenerimaEntity } from '../entity/grup_penerima.entity';
+import { GrupPenerimaDetailEntity } from '../entity/grup_penerima_detail.entity';
+import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
+import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
+import { CreateGrupPenerimaDetailDto } from '../dto/grup_penerima_detail/create_grup_penerima_detail.dto';
+import { UpdateGrupPenerimaDetailDto } from '../dto/grup_penerima_detail/update_grup_penerima_detail.dto';
 
 @Injectable()
 export class GrupPenerimaService {
@@ -83,28 +84,32 @@ export class GrupPenerimaService {
 
   async addMember(
     grupId: string,
-    addMemberDto: AddMemberGrupPenerimaDto,
+    createDetailDto: CreateGrupPenerimaDetailDto,
   ): Promise<GrupPenerimaDetailEntity> {
     const grupPenerima = await this.findOne(grupId);
-
-    // Check if member already exists
-    const existingMember = await this.grupPenerimaDetailRepository.findOne({
-      where: {
-        id_grup_penerima: grupId,
-        position: addMemberDto.position,
-      },
-    });
-
-    if (existingMember) {
-      throw new BadRequestException('Member sudah ada dalam grup ini');
-    }
 
     const detail = this.grupPenerimaDetailRepository.create({
       id: uuidv4(),
       id_grup_penerima: grupId,
-      ...addMemberDto,
+      position: createDetailDto.position,
     });
 
+    return await this.grupPenerimaDetailRepository.save(detail);
+  }
+
+  async updateMember(
+    detailId: string,
+    updateDetailDto: UpdateGrupPenerimaDetailDto,
+  ): Promise<GrupPenerimaDetailEntity> {
+    const detail = await this.grupPenerimaDetailRepository.findOne({
+      where: { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException('Member tidak ditemukan');
+    }
+
+    Object.assign(detail, updateDetailDto);
     return await this.grupPenerimaDetailRepository.save(detail);
   }
 

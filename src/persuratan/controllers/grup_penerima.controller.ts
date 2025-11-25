@@ -1,8 +1,9 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
-import { GrupPenerimaService } from '../services/grup-penerima.service';
-import { CreateGrupPenerimaDto } from '../dto/grup-penerima/create-grup-penerima.dto';
-import { UpdateGrupPenerimaDto } from '../dto/grup-penerima/update-grup-penerima.dto';
-import { AddMemberGrupPenerimaDto } from '../dto/grup-penerima/add-member.dto';
+import { GrupPenerimaService } from '../services/grup_penerima.service';
+import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
+import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
+import { CreateGrupPenerimaDetailDto } from '../dto/grup_penerima_detail/create_grup_penerima_detail.dto';
+import { UpdateGrupPenerimaDetailDto } from '../dto/grup_penerima_detail/update_grup_penerima_detail.dto';
 
 @Controller('persuratan/grup-penerima')
 export class GrupPenerimaController {
@@ -41,13 +42,18 @@ export class GrupPenerimaController {
   // ===== Member Management =====
 
   @Post(':id/members')
-  addMember(@Param('id') id: string, @Body() addMemberDto: AddMemberGrupPenerimaDto) {
-    return this.grupPenerimaService.addMember(id, addMemberDto);
+  addMember(@Param('id') id: string, @Body() createDetailDto: CreateGrupPenerimaDetailDto) {
+    return this.grupPenerimaService.addMember(id, createDetailDto);
   }
 
   @Get(':id/members')
   getMembers(@Param('id') id: string) {
     return this.grupPenerimaService.getMembers(id);
+  }
+
+  @Put('members/:detailId')
+  updateMember(@Param('detailId') detailId: string, @Body() updateDetailDto: UpdateGrupPenerimaDetailDto) {
+    return this.grupPenerimaService.updateMember(detailId, updateDetailDto);
   }
 
   @Delete(':id/members/:detailId')

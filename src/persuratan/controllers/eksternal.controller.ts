@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
 import { EksternalService } from '../services/eksternal.service';
-import { CreateEksternalDto } from '../dto/eksternal/create-eksternal.dto';
-import { UpdateEksternalDto } from '../dto/eksternal/update-eksternal.dto';
+import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
+import { UpdateEksternalDto } from '../dto/eksternal/update_eksternal.dto';
 
 @Controller('persuratan/eksternal')
 export class EksternalController {
