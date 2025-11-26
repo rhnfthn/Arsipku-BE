@@ -24,6 +24,7 @@ import { NaskahLampiranService } from './services/naskah_lampiran.service';
 import { NaskahReferensiService } from './services/naskah_referensi.service';
 import { NaskahService } from './services/naskah.service';
 import { NotaDinasService } from './services/nota-dinas.service';
+import { SuratDinasInternalService } from './services/surat-dinas-internal.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -37,6 +38,7 @@ import { NaskahLampiranController } from './controllers/naskah_lampiran.controll
 import { NaskahReferensiController } from './controllers/naskah_referensi.controller';
 import { NaskahController } from './controllers/naskah.controller';
 import { NotaDinasController } from './controllers/nota-dinas.controller';
+import { SuratDinasInternalController } from './controllers/surat-dinas-internal.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -44,6 +46,7 @@ import { RelationOsc } from 'src/relation_osc/entities/relation_osc.entity';
 import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
 import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
 import { OmPosition } from 'src/position/entities/om-position.entity';
+import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
 
 @Module({
   imports: [
@@ -65,6 +68,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
       RelationOa,
       RelationOo,
       OmPosition,
+      OmAreaSub,
     ]),
   ],
   providers: [
@@ -80,6 +84,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahReferensiService,
     NaskahService,
     NotaDinasService,
+    SuratDinasInternalService,
   ],
   controllers: [
     LabelController,
@@ -94,6 +99,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahReferensiController,
     NaskahController,
     NotaDinasController,
+    SuratDinasInternalController,
   ],
   exports: [
     LabelService,
@@ -108,6 +114,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahReferensiService,
     NaskahService,
     NotaDinasService,
+    SuratDinasInternalService,
   ],
 })
 export class PersuratanModule {}

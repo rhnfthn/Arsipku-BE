@@ -12,7 +12,6 @@ import {
   NotaDinasRecipientGroupDto,
 } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
 
-const MANAGERIAL_THRESHOLD = 70000000;
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
 
@@ -60,10 +59,24 @@ export class NotaDinasService {
 
   /**
    * PHASE 2: Verify user is managerial
-   * Check: position >= 70000000
+   * Check: position exists in om_relation_osc (meaning it's assigned to an organization)
+   * This ensures we're checking against actual organizational positions, not hardcoded thresholds
    */
   async verifyManagerial(position: number): Promise<boolean> {
-    return position >= MANAGERIAL_THRESHOLD;
+    try {
+      const managerialPosition = await this.relationOscRepository.findOne({
+        where: {
+          relation_position: position,
+          company: COMPANY_ID,
+          startDate: LessThanOrEqual(TODAY),
+          endDate: MoreThanOrEqual(TODAY),
+        },
+      });
+
+      return !!managerialPosition;
+    } catch (error) {
+      throw new BadRequestException(`Failed to verify managerial role: ${error.message}`);
+    }
   }
 
   /**
@@ -230,9 +243,9 @@ export class NotaDinasService {
           },
         });
 
-        // Filter managerial positions only
+        // All positions in om_relation_osc are considered valid organizational positions
         const managerialPositions = positions.filter(
-          (p) => p.relation_position && p.relation_position >= MANAGERIAL_THRESHOLD,
+          (p) => p.relation_position,
         );
 
         if (managerialPositions.length === 0) {
