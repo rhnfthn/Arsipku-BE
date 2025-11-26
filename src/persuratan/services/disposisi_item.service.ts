@@ -2,9 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { DisposisiItemEntity } from '../entity/disposisi-item.entity';
-import { CreateDisposisiItemDto } from '../dto/disposisi-item/create-disposisi-item.dto';
-import { UpdateDisposisiItemDto } from '../dto/disposisi-item/update-disposisi-item.dto';
+import { DisposisiItemEntity } from '../entity/disposisi_item.entity';
+import { CreateDisposisiItemDto } from '../dto/disposisi_item/create_disposisi_item.dto';
+import { UpdateDisposisiItemDto } from '../dto/disposisi_item/update_disposisi_item.dto';
 
 @Injectable()
 export class DisposisiItemService {

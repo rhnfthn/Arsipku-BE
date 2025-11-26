@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
 import { LabelService } from '../services/label.service';
-import { CreateLabelDto } from '../dto/label/create-label.dto';
-import { UpdateLabelDto } from '../dto/label/update-label.dto';
+import { CreateLabelDto } from '../dto/label/create_label.dto';
+import { UpdateLabelDto } from '../dto/label/update_label.dto';
 
 @Controller('persuratan/label')
 export class LabelController {

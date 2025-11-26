@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { EksternalEntity } from '../entity/eksternal.entity';
-import { CreateEksternalDto } from '../dto/eksternal/create-eksternal.dto';
-import { UpdateEksternalDto } from '../dto/eksternal/update-eksternal.dto';
+import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
+import { UpdateEksternalDto } from '../dto/eksternal/update_eksternal.dto';
 
 @Injectable()
 export class EksternalService {

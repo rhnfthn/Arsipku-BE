@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { LabelEntity } from '../entity/label.entity';
-import { CreateLabelDto } from '../dto/label/create-label.dto';
-import { UpdateLabelDto } from '../dto/label/update-label.dto';
+import { CreateLabelDto } from '../dto/label/create_label.dto';
+import { UpdateLabelDto } from '../dto/label/update_label.dto';
 
 @Injectable()
 export class LabelService {

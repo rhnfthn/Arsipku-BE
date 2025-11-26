@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
-import { DisposisiItemService } from '../services/disposisi-item.service';
-import { CreateDisposisiItemDto } from '../dto/disposisi-item/create-disposisi-item.dto';
-import { UpdateDisposisiItemDto } from '../dto/disposisi-item/update-disposisi-item.dto';
+import { DisposisiItemService } from '../services/disposisi_item.service';
+import { CreateDisposisiItemDto } from '../dto/disposisi_item/create_disposisi_item.dto';
+import { UpdateDisposisiItemDto } from '../dto/disposisi_item/update_disposisi_item.dto';
 
 @Controller('persuratan/disposisi-item')
 export class DisposisiItemController {
