@@ -32,7 +32,7 @@ import { PersuratanModule } from './persuratan/persuratan.module';
         password: config.get('DB_PASS'),
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true, // hanya untuk development
+        synchronize: false,
       }),
     }),
     CompanyModule,

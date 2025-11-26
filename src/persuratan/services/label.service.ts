@@ -62,10 +62,10 @@ export class LabelService {
   async update(id: string, updateLabelDto: UpdateLabelDto): Promise<LabelEntity> {
     const label = await this.findOne(id);
 
-    // Validate parent label if changed
-    if (updateLabelDto.id_parent && updateLabelDto.id_parent !== label.id_parent) {
+    // Validate parent label if label already has a parent
+    if (label.id_parent) {
       const parentLabel = await this.labelRepository.findOne({
-        where: { id: updateLabelDto.id_parent },
+        where: { id: label.id_parent },
       });
       if (!parentLabel) {
         throw new BadRequestException('Parent label tidak ditemukan');
