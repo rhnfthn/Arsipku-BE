@@ -27,6 +27,7 @@ import { NotaDinasService } from './services/nota-dinas.service';
 import { DisposisiService } from './services/disposisi.service';
 import { KajianService } from './services/kajian.service';
 import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.service';
+import { SuratDinasInternalService } from './services/surat-dinas-internal.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -43,6 +44,7 @@ import { NotaDinasController } from './controllers/nota-dinas.controller';
 import { DisposisiController } from './controllers/disposisi.controller';
 import { KajianController } from './controllers/kajian.controller';
 import { SuratDinasEksternalController } from './controllers/surat-dinas-eksternal.controller';
+import { SuratDinasInternalController } from './controllers/surat-dinas-internal.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -50,6 +52,7 @@ import { RelationOsc } from 'src/relation_osc/entities/relation_osc.entity';
 import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
 import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
 import { OmPosition } from 'src/position/entities/om-position.entity';
+import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
 
 @Module({
   imports: [
@@ -71,6 +74,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
       RelationOa,
       RelationOo,
       OmPosition,
+      OmAreaSub,
     ]),
   ],
   providers: [
@@ -89,6 +93,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     DisposisiService,
     KajianService,
     SuratDinasEksternalService,
+    SuratDinasInternalService,
   ],
   controllers: [
     LabelController,
@@ -106,6 +111,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     DisposisiController,
     KajianController,
     SuratDinasEksternalController,
+    SuratDinasInternalController,
   ],
   exports: [
     LabelService,
@@ -123,6 +129,7 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     DisposisiService,
     KajianService,
     SuratDinasEksternalService,
+    SuratDinasInternalService,
   ],
 })
 export class PersuratanModule {}

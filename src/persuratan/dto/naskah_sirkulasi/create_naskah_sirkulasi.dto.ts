@@ -93,22 +93,10 @@ export class CreateNaskahSirkulasiDto {
   @MaxLength(255)
   namaSirkuler?: string;
 
-  @IsDateString()
-  @IsOptional()
-  createAt?: string;
-
-  @IsDateString()
-  @IsOptional()
-  updateAt?: string;
-
   @IsString()
   @IsOptional()
-  @MaxLength(11)
-  uname?: string;
-
-  @IsInt()
-  @IsOptional()
-  company?: number;
+  @MaxLength(50)
+  company?: string;
 
   @IsString()
   @IsOptional()

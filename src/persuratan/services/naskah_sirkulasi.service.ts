@@ -13,9 +13,7 @@ export class NaskahSirkulasiService {
   ) {}
 
   async findAll(): Promise<NaskahSirkulasi[]> {
-    return this.naskahSirkulasiRepo.find({
-      order: { createAt: 'DESC' },
-    });
+    return this.naskahSirkulasiRepo.find();
   }
 
   async findOne(id: string): Promise<NaskahSirkulasi> {
