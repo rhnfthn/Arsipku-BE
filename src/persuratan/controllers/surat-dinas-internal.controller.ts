@@ -1,6 +1,8 @@
-import { Controller, Get, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
 import { SuratDinasInternalRecipientResponseDto } from '../dto/surat-dinas-internal/surat-dinas-internal-recipient-response.dto';
+import { CreateSuratDinasInternalDto } from '../dto/surat-dinas-internal/create-surat-dinas-internal.dto';
+import { SendMessageResponseDto } from '../dto/surat-dinas-internal/send-message-response.dto';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
@@ -40,6 +42,46 @@ export class SuratDinasInternalController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get Surat Dinas Internal recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /SDI/send-message
+   * Create and send Surat Dinas Internal
+   *
+   * Rules:
+   * - Pengirim must be managerial
+   * - Penerima must be in DIFFERENT sub-area within same area OR DIFFERENT area within same company
+   * - Tembusan follows the same rules as penerima
+   *
+   * @param dto - CreateSuratDinasInternalDto (request body)
+   * @returns SendMessageResponseDto
+   *
+   * @throws 400 - Bad Request (validation failed or same sub-area)
+   * @throws 404 - Not Found (person or position not found)
+   * @throws 403 - Forbidden (non-managerial role)
+   * @throws 500 - Internal Server Error
+   */
+  @Post('send-message')
+  async sendMessage(@Body() dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
+    try {
+      return await this.suratDinasInternalService.sendMessage(dto);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to send Surat Dinas Internal',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
