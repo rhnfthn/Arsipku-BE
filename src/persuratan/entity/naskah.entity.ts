@@ -2,8 +2,6 @@ import {
   Entity,
   PrimaryColumn,
   Column,
-  CreateDateColumn,
-  UpdateDateColumn,
 } from 'typeorm';
 
 @Entity('naskah')
@@ -59,10 +57,4 @@ export class NaskahEntity {
 
   @Column('boolean', { default: false })
   english: boolean;
-
-  @CreateDateColumn()
-  created_at: Date;
-
-  @UpdateDateColumn()
-  updated_at: Date;
 }

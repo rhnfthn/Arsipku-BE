@@ -1,6 +1,8 @@
-import { Controller, Get, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { NotaDinasRecipientResponseDto } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
+import { CreateNotaDinasDto } from '../dto/nota-dinas/create-nota-dinas.dto';
+import { SendMessageResponseDto } from '../dto/nota-dinas/send-message-response.dto';
 
 @Controller('ND')
 export class NotaDinasController {
@@ -35,6 +37,41 @@ export class NotaDinasController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /ND/send-message
+   * Create and send Nota Dinas
+   *
+   * @param dto - CreateNotaDinasDto
+   * @returns SendMessageResponseDto
+   *
+   * @throws 400 - Bad Request (validation error)
+   * @throws 404 - Not Found (pengirim/penerima not found)
+   * @throws 403 - Forbidden (pengirim is not managerial)
+   * @throws 500 - Internal Server Error
+   */
+  @Post('send-message')
+  async sendMessage(@Body() dto: CreateNotaDinasDto): Promise<SendMessageResponseDto> {
+    try {
+      return await this.notaDinasService.sendMessage(dto);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to send Nota Dinas',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
