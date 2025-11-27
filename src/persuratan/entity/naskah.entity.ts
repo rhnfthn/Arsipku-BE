@@ -11,7 +11,8 @@ export class NaskahEntity {
 
   @Column('enum', {
     enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
-    comment: 'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif',
+    comment:
+      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif',
   })
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
 
@@ -48,7 +49,8 @@ export class NaskahEntity {
   @Column('enum', {
     enum: ['draf', 'final', 'final_tte'],
     default: 'draf',
-    comment: 'Status dokumen: draf=sedang dibuat, final=final tanpa tandatangan, final_tte=final dengan tandatangan elektronik',
+    comment:
+      'Status dokumen: draf=sedang dibuat, final=final tanpa tandatangan, final_tte=final dengan tandatangan elektronik',
   })
   status: 'draf' | 'final' | 'final_tte';
 
