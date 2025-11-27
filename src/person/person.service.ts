@@ -4,12 +4,15 @@ import { UpdatePersonDto } from './dto/update-person.dto';
 import { Person } from './entities/person.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { NaskahSirkulasi } from 'src/persuratan/entity/naskah_sirkulasi.entity';
 
 @Injectable()
 export class PersonService {
   constructor(
     @InjectRepository(Person)
     private readonly cRepo: Repository<Person>,
+    @InjectRepository(NaskahSirkulasi)
+    private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
   ) {}
 
   async findAll(): Promise<Person[]> {
@@ -42,5 +45,33 @@ export class PersonService {
     const company = await this.findOne(id);
     await this.cRepo.remove(company);
     return { message: `Area ${id} deleted successfully` };
+  }
+
+  async countNaskahBySirkuler(
+    persnum: number,
+    type: 'pengirim' | 'penerima',
+  ): Promise<{
+    message: string;
+    data: {
+      persnum: number;
+      type: 'pengirim' | 'penerima';
+      count: number;
+    };
+  }> {
+    const count = await this.naskahSirkulasiRepo.count({
+      where: {
+        idSirkuler: persnum.toString(),
+        sirkuler: type,
+      },
+    });
+
+    return {
+      message: 'Data retrieved successfully',
+      data: {
+        persnum,
+        type,
+        count,
+      },
+    };
   }
 }
