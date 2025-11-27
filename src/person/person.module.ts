@@ -3,9 +3,10 @@ import { PersonService } from './person.service';
 import { PersonController } from './person.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Person } from './entities/person.entity';
+import { NaskahSirkulasi } from 'src/persuratan/entity/naskah_sirkulasi.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Person])],
+  imports: [TypeOrmModule.forFeature([Person, NaskahSirkulasi])],
   controllers: [PersonController],
   providers: [PersonService],
 })
