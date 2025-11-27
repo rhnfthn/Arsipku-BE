@@ -25,6 +25,8 @@ import { NaskahReferensiService } from './services/naskah_referensi.service';
 import { NaskahService } from './services/naskah.service';
 import { NotaDinasService } from './services/nota-dinas.service';
 import { DisposisiService } from './services/disposisi.service';
+import { KajianService } from './services/kajian.service';
+import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -39,6 +41,8 @@ import { NaskahReferensiController } from './controllers/naskah_referensi.contro
 import { NaskahController } from './controllers/naskah.controller';
 import { NotaDinasController } from './controllers/nota-dinas.controller';
 import { DisposisiController } from './controllers/disposisi.controller';
+import { KajianController } from './controllers/kajian.controller';
+import { SuratDinasEksternalController } from './controllers/surat-dinas-eksternal.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -83,6 +87,8 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahService,
     NotaDinasService,
     DisposisiService,
+    KajianService,
+    SuratDinasEksternalService,
   ],
   controllers: [
     LabelController,
@@ -98,6 +104,8 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahController,
     NotaDinasController,
     DisposisiController,
+    KajianController,
+    SuratDinasEksternalController,
   ],
   exports: [
     LabelService,
@@ -113,6 +121,8 @@ import { OmPosition } from 'src/position/entities/om-position.entity';
     NaskahService,
     NotaDinasService,
     DisposisiService,
+    KajianService,
+    SuratDinasEksternalService,
   ],
 })
 export class PersuratanModule {}

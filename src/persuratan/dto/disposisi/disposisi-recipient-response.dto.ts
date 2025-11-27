@@ -6,12 +6,21 @@ export class DisposisiRecipientDto {
   position: number;
   positionName: string;
   positionStatus: string;
-  level: number;
-  type: 'DIRECT_SUBORDINATE' | 'INDIRECT_SUBORDINATE';
+}
+
+/**
+ * Grouping recipients for Disposisi
+ * For DI: ONLY BAWAHAN is populated, ATASAN and REKAN are empty arrays
+ */
+export class DisposisiRecipientGroupDto {
+  ATASAN: DisposisiRecipientDto[];
+  BAWAHAN: DisposisiRecipientDto[];
+  REKAN: DisposisiRecipientDto[];
 }
 
 /**
  * For Disposisi: only BAWAHAN (direct subordinates from child organizations)
+ * Response structure matches NotaDinas but DI only uses BAWAHAN group
  */
 export class DisposisiRecipientResponseDto {
   persnum: number;
@@ -21,7 +30,7 @@ export class DisposisiRecipientResponseDto {
   organizationId: number;
   organizationName: string;
   subAreaId: number;
-  recipients: DisposisiRecipientDto[]; // ONLY recipients (bawahan)
+  recipients: DisposisiRecipientGroupDto; // ATASAN: [], BAWAHAN: [recipients], REKAN: []
   hierarchy: {
     maxDepth: number;
     totalOrganizations: number;

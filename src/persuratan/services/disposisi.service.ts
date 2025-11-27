@@ -237,13 +237,8 @@ export class DisposisiService {
     }>
   > {
     if (childOrgIds.length === 0) {
-      console.log(`[DisposisiService] No child organizations found`);
       return [];
     }
-
-    console.log(
-      `[DisposisiService] PHASE 5: child orgs: ${childOrgIds.join(', ')}`,
-    );
 
     // Batch query: Get all positions in child organizations (with org details)
     const positions = await this.relationOscRepository.find({
@@ -254,10 +249,6 @@ export class DisposisiService {
         endDate: MoreThanOrEqual(TODAY),
       },
     });
-
-    console.log(
-      `[DisposisiService] Found ${positions.length} positions in child orgs`,
-    );
 
     if (positions.length === 0) {
       return [];
@@ -278,10 +269,6 @@ export class DisposisiService {
       },
     });
 
-    console.log(
-      `[DisposisiService] Found ${personPositions.length} persons in positions`,
-    );
-
     // Extract person IDs
     const personIds = personPositions
       .map((p) => p.relation_persnum)
@@ -289,7 +276,6 @@ export class DisposisiService {
       .filter((id) => id !== userPersnum); // Skip self
 
     if (personIds.length === 0) {
-      console.log(`[DisposisiService] No recipients found`);
       return [];
     }
 
@@ -352,10 +338,6 @@ export class DisposisiService {
         positionName: posDet?.shortText || '',
         positionStatus: 'pyb', // Default status for Disposisi
       });
-
-      console.log(
-        `[DisposisiService] Added recipient: ${person.name} (pos: ${personPos.position}, org: ${posOrg.org})`,
-      );
     }
 
     // Sort by organization name, then by person name
@@ -404,13 +386,6 @@ export class DisposisiService {
     // PHASE 4: Get ONLY direct child organizations (no siblings, no self)
     const childOrgIds = await this.getChildOrganizations(senderOrgId);
 
-    console.log(
-      `[DisposisiService] DI Sender: ${person.name} (org: ${senderOrgId})`,
-    );
-    console.log(
-      `[DisposisiService] Child organizations: ${childOrgIds.join(', ')}`,
-    );
-
     // PHASE 5: Get recipients from child organizations only
     const recipients = await this.getRecipientsFromOrgStructure(
       childOrgIds,
@@ -427,11 +402,11 @@ export class DisposisiService {
       organizationId: senderOrg.organizationId,
       organizationName: senderOrg.organizationName,
       subAreaId: senderOrg.subAreaId || 0,
-      recipients: recipients.map((r) => ({
-        ...r,
-        level: 0,
-        type: 'DIRECT_SUBORDINATE',
-      })),
+      recipients: {
+        ATASAN: [], // DI: no ATASAN
+        BAWAHAN: recipients, // DI: only direct subordinates (bawahan)
+        REKAN: [], // DI: no REKAN
+      },
       hierarchy: {
         maxDepth,
         totalOrganizations: allOrgIds.length,
