@@ -18,6 +18,7 @@ import {
 } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto } from '../dto/nota-dinas/create-nota-dinas.dto';
 import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/nota-dinas/send-message-response.dto';
+import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto } from '../dto/nota-dinas/get-send-message.dto';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -813,6 +814,104 @@ export class NotaDinasService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  // ============================================================
+  // GET SEND MESSAGE - Get all sent messages by user
+  // ============================================================
+
+  /**
+   * Get all Nota Dinas sent by a user (where user is pengirim)
+   * Returns list of sent messages with recipient read status
+   */
+  async getSendMessage(persnum: number): Promise<GetSendMessageResponseDto> {
+    // Validate user exists
+    const person = await this.personRepository.findOne({
+      where: { persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(`User dengan persnum ${persnum} tidak ditemukan`);
+    }
+
+    const persnumStr = String(persnum);
+
+    // Get all naskah where user is pengirim and jenis = ND
+    const sentNaskahList = await this.naskahSirkulasiRepository
+      .createQueryBuilder('sirkulasi')
+      .innerJoin(NaskahEntity, 'naskah', 'naskah.id = sirkulasi.idNaskah')
+      .select([
+        'naskah.id AS id',
+        'naskah.nomor AS nomor',
+        'naskah.tanggal AS tanggal',
+        'naskah.perihal AS perihal',
+        'naskah.status AS status',
+        'naskah.sifat AS sifat',
+        'naskah.klasifikasi AS klasifikasi',
+        'naskah.klasifikasi_text AS klasifikasi_text',
+      ])
+      .where('sirkulasi.idSirkuler = :persnum', { persnum: persnumStr })
+      .andWhere('sirkulasi.sirkuler = :type', { type: 'pengirim' })
+      .andWhere('naskah.jenis = :jenis', { jenis: 'ND' })
+      .orderBy('naskah.tanggal', 'DESC')
+      .getRawMany();
+
+    // Build response with recipient info for each naskah
+    const results: SendMessageItemDto[] = [];
+
+    for (const naskah of sentNaskahList) {
+      // Get all penerima for this naskah
+      const penerimaList = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskah.id,
+          sirkuler: 'penerima',
+        },
+      });
+
+      // Build penerima info with read status
+      const penerimaInfoList: PenerimaInfoDto[] = [];
+      let jumlahDibaca = 0;
+
+      for (const penerima of penerimaList) {
+        const isRead = penerima.sendReadTime !== null;
+        if (isRead) jumlahDibaca++;
+
+        penerimaInfoList.push({
+          persnum: parseInt(penerima.idSirkuler || '0', 10),
+          nama: penerima.namaSirkuler || '',
+          organizationText: penerima.organizationText || '',
+          positionText: penerima.positionText || '',
+          status: isRead ? 'dibaca' : 'belum_dibaca',
+          readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
+        });
+      }
+
+      // Format tanggal
+      const tanggalStr = naskah.tanggal instanceof Date
+        ? naskah.tanggal.toISOString().split('T')[0]
+        : String(naskah.tanggal).split('T')[0];
+
+      results.push({
+        id: naskah.id,
+        nomor: naskah.nomor || '',
+        tanggal: tanggalStr,
+        perihal: naskah.perihal || '',
+        status: naskah.status,
+        sifat: naskah.sifat || '',
+        klasifikasi: naskah.klasifikasi || '',
+        penerima: penerimaInfoList,
+        jumlahPenerima: penerimaList.length,
+        jumlahDibaca,
+      });
+    }
+
+    return {
+      success: true,
+      data: results,
+      total: results.length,
+      persnum,
+      nama: person.name || '',
+    };
   }
 }
 
