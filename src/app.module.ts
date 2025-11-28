@@ -17,6 +17,7 @@ import { RelationSpModule } from './relation_sp/relation_sp.module';
 import { OrgDataModule } from './org_data/org_data.module';
 import { RelationOdModule } from './relation_od/relation_od.module';
 import { PersuratanModule } from './persuratan/persuratan.module';
+import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
 
 @Module({
   imports: [
@@ -49,8 +50,9 @@ import { PersuratanModule } from './persuratan/persuratan.module';
     OrgDataModule,
     RelationOdModule,
     PersuratanModule,
+    DashboardUserModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
