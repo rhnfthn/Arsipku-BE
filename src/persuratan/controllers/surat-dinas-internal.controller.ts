@@ -3,6 +3,7 @@ import { SuratDinasInternalService } from '../services/surat-dinas-internal.serv
 import { SuratDinasInternalRecipientResponseDto } from '../dto/surat-dinas-internal/surat-dinas-internal-recipient-response.dto';
 import { CreateSuratDinasInternalDto } from '../dto/surat-dinas-internal/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto } from '../dto/surat-dinas-internal/send-message-response.dto';
+import { GetSendMessageResponseDto } from '../dto/surat-dinas-internal/get-send-message.dto';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
@@ -82,6 +83,43 @@ export class SuratDinasInternalController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to send Surat Dinas Internal',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /SDI/get-send-message/:persnum
+   * Get all Surat Dinas Internal sent by user
+   *
+   * Returns list of sent SDI messages with:
+   * - Nomor surat
+   * - Tanggal
+   * - Perihal
+   * - Status (draf/final/final_tte)
+   * - List penerima dengan status baca dan info area/sub-area
+   *
+   * @param persnum - Personnel ID
+   * @returns GetSendMessageResponseDto
+   */
+  @Get('get-send-message/:persnum')
+  async getSendMessage(
+    @Param('persnum', ParseIntPipe) persnum: number,
+  ): Promise<GetSendMessageResponseDto> {
+    try {
+      return await this.suratDinasInternalService.getSendMessage(persnum);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get sent SDI messages',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
