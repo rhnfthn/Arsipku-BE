@@ -11,6 +11,7 @@ import { NaskahSirkulasi } from './entity/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from './entity/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from './entity/naskah_referensi.entity';
 import { NaskahEntity } from './entity/naskah.entity';
+import { NdEntity } from './entity/nd.entity';
 
 import { LabelService } from './services/label.service';
 import { KlasifikasiService } from './services/klasifikasi.service';
@@ -71,6 +72,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
       NaskahLampiranEntity,
       NaskahReferensiEntity,
       NaskahEntity,
+      NdEntity,
       Person,
       RelationSp,
       RelationOsc,
