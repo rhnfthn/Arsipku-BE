@@ -172,3 +172,89 @@ CREATE TABLE disposisi_item (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE nd (
+    id CHAR(36) PRIMARY KEY,
+    id_naskah CHAR(36),
+
+    -- kop naskah
+    kop_logo VARCHAR(255),
+    kop_nama VARCHAR(150),
+    alamat_perusahaan TEXT,
+
+    nomor VARCHAR(100),
+    kepada_yth VARCHAR(255),
+    dari VARCHAR(150),
+    perihal TEXT,
+    konten TEXT,
+    nama_tempat VARCHAR(150),
+    tanggal DATE,
+
+    nama_jabatan VARCHAR(150),
+    tanda_tangan VARCHAR(255),
+    nama_lengkap VARCHAR(150),
+
+    tembusan TEXT,
+
+    -- Sirkulasi Position IDs (untuk draft - belum masuk naskah_sirkulasi)
+    pengirim_position_id INT,
+    penerima_position_ids TEXT,
+    tembusan_position_ids TEXT,
+
+    INDEX idx_nd_id_naskah (id_naskah)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+CREATE TABLE sdi_sde (
+    id CHAR(36) PRIMARY KEY,
+    id_naskah CHAR(36),
+
+    -- kop naskah
+    kop_logo VARCHAR(255),
+    kop_nama VARCHAR(150),
+    alamat_perusahaan TEXT,
+
+    nama_tempat VARCHAR(150),
+    tanggal DATE,
+    nomor VARCHAR(100),
+    sifat VARCHAR(50),
+    lampiran VARCHAR(150),
+    perihal TEXT,
+
+    kepada_yth VARCHAR(255),
+    nama VARCHAR(150),
+    alamat TEXT,
+    konten TEXT,
+
+    nama_jabatan VARCHAR(150),
+    tanda_tangan VARCHAR(255),
+    nama_lengkap VARCHAR(150),
+
+    tembusan TEXT,
+
+    INDEX idx_sdi_sde_id_naskah (id_naskah)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+CREATE TABLE di (
+    id CHAR(36) PRIMARY KEY,
+    id_naskah CHAR(36),
+
+    -- kop naskah
+    kop_logo VARCHAR(255),
+    kop_judul VARCHAR(150),
+    nama_jabatan VARCHAR(150),
+
+    nomor_agenda VARCHAR(100),
+    tanggal_agenda DATE,
+    surat_dari VARCHAR(150),
+    tanggal DATE,
+    nomor VARCHAR(100),
+    perihal TEXT,
+    klasifikasi VARCHAR(100),
+
+    kepada_yth VARCHAR(255),
+    disposisi TEXT,
+    catatan TEXT,
+    paraf VARCHAR(100),
+
+    INDEX idx_di_id_naskah (id_naskah)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;

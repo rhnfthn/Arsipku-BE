@@ -87,4 +87,7 @@ export class NaskahSirkulasi {
 
   @Column('tinyint', { name: 'flag_arsip', nullable: true, default: 0 })
   flagArsip: number | null;
+
+  @Column('boolean', { name: 'is_draft', nullable: true, default: false })
+  isDraft: boolean | null;
 }
