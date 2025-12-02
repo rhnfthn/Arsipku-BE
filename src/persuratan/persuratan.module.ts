@@ -28,6 +28,7 @@ import { DisposisiService } from './services/disposisi.service';
 import { KajianService } from './services/kajian.service';
 import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.service';
 import { SuratDinasInternalService } from './services/surat-dinas-internal.service';
+import { DraftService } from './services/draft.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -45,6 +46,7 @@ import { DisposisiController } from './controllers/disposisi.controller';
 import { KajianController } from './controllers/kajian.controller';
 import { SuratDinasEksternalController } from './controllers/surat-dinas-eksternal.controller';
 import { SuratDinasInternalController } from './controllers/surat-dinas-internal.controller';
+import { DraftController } from './controllers/draft.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -96,6 +98,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     KajianService,
     SuratDinasEksternalService,
     SuratDinasInternalService,
+    DraftService,
   ],
   controllers: [
     LabelController,
@@ -114,6 +117,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     KajianController,
     SuratDinasEksternalController,
     SuratDinasInternalController,
+    DraftController,
   ],
   exports: [
     LabelService,
@@ -132,6 +136,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     KajianService,
     SuratDinasEksternalService,
     SuratDinasInternalService,
+    DraftService,
   ],
 })
 export class PersuratanModule {}

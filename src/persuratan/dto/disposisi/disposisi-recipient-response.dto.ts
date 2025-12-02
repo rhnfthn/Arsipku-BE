@@ -1,11 +1,30 @@
+/**
+ * Recipient DTO matching org_data position_json structure
+ */
 export class DisposisiRecipientDto {
-  organizationId: number;
-  organizationName: string;
-  persnum: number;
-  nama: string;
   position: number;
-  positionName: string;
-  positionStatus: string;
+  position_text: string;
+  position_abbreviation: string | null;
+  chief: number;
+  departType: string | null;
+  persnum_person: number | null;
+  persnum_person_text: string | null;
+  organization_id: number;
+  organization_text: string;
+  organization_abbreviation: string | null;
+  organization_parent: number | null;
+  organization_parent_text: string | null;
+  sub_area: number | null;
+  sub_area_text: string | null;
+  area: string | null;
+  area_text: string | null;
+  level: number;
+  divisi_id: number | null;
+  divisi_name: string | null;
+  direktorat_id: number | null;
+  direktorat_name: string | null;
+  company: number | null;
+  company_name: string | null;
 }
 
 /**
@@ -19,17 +38,41 @@ export class DisposisiRecipientGroupDto {
 }
 
 /**
+ * Sender info matching org_data position_json structure
+ */
+export class DisposisiSenderDto {
+  position: number;
+  position_text: string;
+  position_abbreviation: string | null;
+  chief: number;
+  departType: string | null;
+  persnum_person: number | null;
+  persnum_person_text: string | null;
+  organization_id: number;
+  organization_text: string;
+  organization_abbreviation: string | null;
+  organization_parent: number | null;
+  organization_parent_text: string | null;
+  sub_area: number | null;
+  sub_area_text: string | null;
+  area: string | null;
+  area_text: string | null;
+  level: number;
+  divisi_id: number | null;
+  divisi_name: string | null;
+  direktorat_id: number | null;
+  direktorat_name: string | null;
+  company: number | null;
+  company_name: string | null;
+}
+
+/**
  * For Disposisi: only BAWAHAN (direct subordinates from child organizations)
- * Response structure matches NotaDinas but DI only uses BAWAHAN group
+ * Response structure uses org_data position_json format
+ * Now uses position_id as primary identifier instead of persnum
  */
 export class DisposisiRecipientResponseDto {
-  persnum: number;
-  nama: string;
-  position: number;
-  positionStatus: string;
-  organizationId: number;
-  organizationName: string;
-  subAreaId: number;
+  sender: DisposisiSenderDto;
   recipients: DisposisiRecipientGroupDto; // ATASAN: [], BAWAHAN: [recipients], REKAN: []
   hierarchy: {
     maxDepth: number;

@@ -320,7 +320,7 @@ export class SuratDinasInternalService {
         organizationText: pengirimInfo.organizationText,
         position: String(pengirimInfo.position),
         positionText: pengirimInfo.positionText,
-        positionStatus: 'pyb',
+        positionStatus: 'ybs',
         idSirkuler: String(pengirimInfo.persnum),
         namaSirkuler: pengirimInfo.nama,
       });
@@ -343,7 +343,7 @@ export class SuratDinasInternalService {
           organizationText: penerima.organizationText,
           position: String(penerima.position),
           positionText: penerima.positionText,
-          positionStatus: 'pyb',
+          positionStatus: 'ybs',
           idSirkuler: String(penerima.persnum),
           namaSirkuler: penerima.nama,
         });
@@ -376,7 +376,7 @@ export class SuratDinasInternalService {
           organizationText: tembusan.organizationText,
           position: String(tembusan.position),
           positionText: tembusan.positionText,
-          positionStatus: 'pyb',
+          positionStatus: 'ybs',
           idSirkuler: String(tembusan.persnum),
           namaSirkuler: tembusan.nama,
         });

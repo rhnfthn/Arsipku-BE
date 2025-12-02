@@ -301,47 +301,43 @@ export class KajianService {
         nama: person.name,
         position: personPos.position,
         positionName: posDet?.shortText || '',
-        positionStatus: 'pyb',
+        positionStatus: 'ybs',
       });
     }
 
     return result;
   }
 
-  // NOTE: No actor rule filter for KA
-  // KA rules: Everyone in same SubArea can send/receive
-  // - Staff/Fungsional → Managerial (OK)
-  // - Staff/Fungsional → Staff/Fungsional (OK)
-  // - Managerial → Staff/Fungsional (OK)
-  // - Managerial → Managerial (OK)
-  // Filter is ONLY by SubArea and relationship (ATASAN/REKAN)
+  // KA rules: Hanya bisa mengirim ke ATASAN (langsung/tidak langsung)
+  // - Staff/Fungsional → Managerial ATASAN (OK)
+  // - Staff/Fungsional → Staff/Fungsional ATASAN (OK)
+  // - Managerial → Managerial ATASAN (OK)
+  // - TIDAK BISA ke REKAN (sesama level/setingkat)
+  // - TIDAK BISA ke BAWAHAN
+  // Filter by SubArea dan hanya ke ATASAN hierarchy
 
   /**
-   * Group recipients into ATASAN, BAWAHAN (empty for KA), REKAN
+   * Group recipients into ATASAN only (KA: hanya ke atasan)
+   * BAWAHAN dan REKAN selalu kosong untuk Kajian
    */
   groupRecipients(
     recipients: KajianRecipientDto[],
     parentOrgIds: number[],
-    siblingOrgIds: number[],
-    senderOrgId: number,
+    _siblingOrgIds: number[],
+    _senderOrgId: number,
   ): {
     ATASAN: KajianRecipientDto[];
     BAWAHAN: KajianRecipientDto[];
     REKAN: KajianRecipientDto[];
   } {
     const ATASAN: KajianRecipientDto[] = [];
-    const REKAN: KajianRecipientDto[] = [];
 
+    // KA: Hanya filter yang termasuk ATASAN (parent organization)
     for (const recipient of recipients) {
       if (parentOrgIds.includes(recipient.organizationId)) {
         ATASAN.push(recipient);
-      } else if (
-        siblingOrgIds.includes(recipient.organizationId) ||
-        recipient.organizationId === senderOrgId
-      ) {
-        // Siblings or same org = REKAN (sesama level)
-        REKAN.push(recipient);
       }
+      // REKAN dan BAWAHAN tidak dimasukkan untuk Kajian
     }
 
     // Sort by organization name, then by person name
@@ -355,14 +351,15 @@ export class KajianService {
     return {
       ATASAN: ATASAN.sort(sortFn),
       BAWAHAN: [], // KA: tidak boleh ke bawahan
-      REKAN: REKAN.sort(sortFn),
+      REKAN: [], // KA: tidak boleh ke rekan/sesama level
     };
   }
 
   /**
    * Main method: Get Kajian recipients
-   * Kajian (KA): Korespondensi dari fungsional/staf ke managerial/fungsional
-   * dalam Sub Area yang sama, dan atasan langsung/tidak langsung
+   * Kajian (KA): Korespondensi dari fungsional/staf ke ATASAN saja
+   * dalam Sub Area yang sama (atasan langsung/tidak langsung)
+   * TIDAK BISA ke sesama rekan atau setingkat
    */
   async getKajianRecipients(persnum: number): Promise<KajianRecipientResponseDto> {
     // PHASE 1: Get sender position & status
@@ -388,12 +385,9 @@ export class KajianService {
       senderOrg.subAreaId,
     );
 
-    // Combine orgs: parents + siblings + sender's own org (for REKAN in same org)
-    const eligibleOrgIds = [
-      ...hierarchy.parentOrgIds,
-      ...hierarchy.siblingOrgIds,
-      senderOrg.organizationId, // Include own org for REKAN
-    ];
+    // KA: Hanya ke ATASAN (parent organizations only)
+    // Tidak termasuk siblings (REKAN) dan sender's own org
+    const eligibleOrgIds = [...hierarchy.parentOrgIds];
 
     // Remove duplicates
     const uniqueOrgIds = [...new Set(eligibleOrgIds)];

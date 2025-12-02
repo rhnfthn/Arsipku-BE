@@ -22,6 +22,7 @@ export class SendMessageDataDto {
 
 export class SendMessageResponseDto {
   success: boolean;
+  message?: string;
   data: SendMessageDataDto;
 }
 
