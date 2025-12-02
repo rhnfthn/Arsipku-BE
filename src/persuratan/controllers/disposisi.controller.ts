@@ -4,7 +4,7 @@ import {
   Post,
   Put,
   Body,
-  Query,
+  Param,
   HttpException,
   HttpStatus,
   BadRequestException,
@@ -28,7 +28,7 @@ export class DisposisiController {
   constructor(private readonly disposisiService: DisposisiService) {}
 
   /**
-   * GET /DI/get-recipient?position_id=xxx
+   * GET /DI/get-recipient/:position_id
    * Get eligible recipients for Disposisi based on position_id
    *
    * Rules: Managerial ke managerial/fungsional/staf di bawahnya
@@ -40,23 +40,19 @@ export class DisposisiController {
    * - Manager (Level 2) → depth 1 (dapat kirim ke Level 3)
    * - Staff (Level 3) → tidak bisa kirim Disposisi
    *
-   * @param position_id - Position ID (query parameter, required)
+   * @param position_id - Position ID (path parameter)
    * @returns DisposisiRecipientResponseDto
    *
-   * @throws 400 - Bad Request (missing or invalid position_id)
+   * @throws 400 - Bad Request (invalid position_id)
    * @throws 404 - Not Found (position not found)
    * @throws 403 - Forbidden (non-managerial role or level 3)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient')
+  @Get('get-recipient/:position_id')
   async getDisposisiRecipients(
-    @Query('position_id') positionId?: string,
+    @Param('position_id') positionId: string,
   ): Promise<DisposisiRecipientResponseDto> {
     try {
-      // Validate position_id
-      if (!positionId) {
-        throw new BadRequestException('position_id is required');
-      }
       const position = parseInt(positionId, 10);
       if (isNaN(position)) {
         throw new BadRequestException('position_id must be a valid number');
@@ -164,22 +160,18 @@ export class DisposisiController {
    * Deskripsi: Untuk get semua pesan tipe Disposisi yang sudah dikirimkan
    * oleh user beserta statusnya
    *
-   * @param position_id - Position ID pengirim (query parameter, required)
+   * @param position_id - Position ID pengirim (path parameter)
    * @returns GetSendMessageResponseDto
    *
-   * @throws 400 - Bad Request (missing or invalid position_id)
+   * @throws 400 - Bad Request (invalid position_id)
    * @throws 404 - Not Found (position not found)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-send-message')
+  @Get('get-send-message/:position_id')
   async getSendMessage(
-    @Query('position_id') positionId?: string,
+    @Param('position_id') positionId: string,
   ): Promise<GetSendMessageResponseDto> {
     try {
-      // Validate position_id
-      if (!positionId) {
-        throw new BadRequestException('position_id is required');
-      }
       const position = parseInt(positionId, 10);
       if (isNaN(position)) {
         throw new BadRequestException('position_id must be a valid number');
