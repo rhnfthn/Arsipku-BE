@@ -14,11 +14,12 @@ import { NaskahReferensiEntity } from '../entity/naskah_referensi.entity';
 import { NaskahLampiranEntity } from '../entity/naskah_lampiran.entity';
 import {
   NotaDinasRecipientResponseDto,
-  NotaDinasRecipientGroupDto,
+  OrgDataPositionDto,
 } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto } from '../dto/nota-dinas/create-nota-dinas.dto';
 import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/nota-dinas/send-message-response.dto';
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto } from '../dto/nota-dinas/get-send-message.dto';
+import { OrgDataService } from 'src/org_data/org_data.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -50,382 +51,28 @@ export class NotaDinasService {
     @InjectRepository(NaskahLampiranEntity)
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     private readonly dataSource: DataSource,
+    private readonly orgDataService: OrgDataService,
   ) {}
-
-  /**
-   * PHASE 1: Get user position from om_relation_sp
-   * Query: WHERE relation_persnum = persnum AND company = COMPANY_ID AND TODAY between start_date/end_date
-   */
-  async getUserPosition(persnum: number): Promise<number | null> {
-    try {
-      const relationSp = await this.relationSpRepository.findOne({
-        where: {
-          relation_persnum: persnum,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY),
-          endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      if (!relationSp) {
-        return null;
-      }
-
-      return relationSp.position;
-    } catch (error) {
-      throw new BadRequestException(`Failed to get user position: ${error.message}`);
-    }
-  }
-
-  /**
-   * PHASE 2: Verify user is managerial
-   * Check: position exists in om_relation_osc (meaning it's assigned to an organization)
-   * This ensures we're checking against actual organizational positions, not hardcoded thresholds
-   */
-  async verifyManagerial(position: number): Promise<boolean> {
-    try {
-      const managerialPosition = await this.relationOscRepository.findOne({
-        where: {
-          relation_position: position,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY),
-          endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      return !!managerialPosition;
-    } catch (error) {
-      throw new BadRequestException(`Failed to verify managerial role: ${error.message}`);
-    }
-  }
-
-  /**
-   * PHASE 3: Get user organization and sub_area
-   * Query om_relation_osc: WHERE relation_position = position AND company = COMPANY_ID AND TODAY between dates
-   * Query om_relation_oa: WHERE organization = org_id AND company = COMPANY_ID AND TODAY between dates
-   */
-  async getUserOrganization(position: number): Promise<{
-    organizationId: number;
-    subAreaId: number;
-    organizationText: string;
-  }> {
-    try {
-      const relationOsc = await this.relationOscRepository.findOne({
-        where: {
-          relation_position: position,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY), endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      if (!relationOsc || !relationOsc.organization) {
-        throw new NotFoundException('User organization not found');
-      }
-
-      // Get sub_area from om_relation_oa
-      const relationOa = await this.relationOaRepository.findOne({
-        where: {
-          organization: relationOsc.organization,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY), endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      if (!relationOa || !relationOa.relation_sub_area) {
-        throw new NotFoundException('User sub-area not found');
-      }
-
-      return {
-        organizationId: relationOsc.organization,
-        subAreaId: relationOa.relation_sub_area,
-        organizationText: relationOsc.organization_text || '',
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException(`Failed to get user organization: ${error.message}`);
-    }
-  }
-
-  /**
-   * PHASE 4: Get eligible organizations (parent, children, siblings)
-   * No sub_area filtering needed - just get the hierarchy
-   */
-  async getEligibleOrganizations(userOrgId: number, userSubAreaId: number): Promise<{
-    parent: number | null;
-    children: number[];
-    siblings: number[];
-  }> {
-    try {
-      let parent: number | null = null;
-      const children: number[] = [];
-      const siblings: number[] = [];
-
-      // Get parent organization
-      const parentRelation = await this.relationOoRepository.findOne({
-        where: {
-          organization: userOrgId,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY),
-          endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      if (parentRelation && parentRelation.relation_organization) {
-        parent = parentRelation.relation_organization;
-      }
-
-      // Get children organizations
-      const childrenRelations = await this.relationOoRepository.find({
-        where: {
-          relation_organization: userOrgId,
-          company: COMPANY_ID,
-          startDate: LessThanOrEqual(TODAY),
-          endDate: MoreThanOrEqual(TODAY),
-        },
-      });
-
-      if (childrenRelations.length > 0) {
-        for (const childRelation of childrenRelations) {
-          if (childRelation.organization) {
-            children.push(childRelation.organization);
-          }
-        }
-      }
-
-      // Get sibling organizations (if parent exists)
-      if (parent) {
-        const siblingRelations = await this.relationOoRepository.find({
-          where: {
-            relation_organization: parent,
-            company: COMPANY_ID,
-            startDate: LessThanOrEqual(TODAY),
-            endDate: MoreThanOrEqual(TODAY),
-          },
-        });
-
-        if (siblingRelations.length > 0) {
-          for (const siblingRelation of siblingRelations) {
-            // Skip self
-            if (siblingRelation.organization === userOrgId) {
-              continue;
-            }
-
-            if (siblingRelation.organization) {
-              siblings.push(siblingRelation.organization);
-            }
-          }
-        }
-      }
-
-      return { parent, children, siblings };
-    } catch (error) {
-      throw new BadRequestException(`Failed to get eligible organizations: ${error.message}`);
-    }
-  }
-
-  /**
-   * PHASE 5: Get recipients from eligible organizations
-   * Return flat structure: organizationId, organizationName, persnum, nama, position, positionName
-   */
-  async getRecipients(
-    eligibleOrgIds: number[],
-    userPersnum: number,
-  ): Promise<
-    Array<{
-      organizationId: number;
-      organizationName: string;
-      persnum: number;
-      nama: string;
-      position: number;
-      positionName: string;
-    }>
-  > {
-    try {
-      const result: Array<{
-        organizationId: number;
-        organizationName: string;
-        persnum: number;
-        nama: string;
-        position: number;
-        positionName: string;
-      }> = [];
-
-      for (const orgId of eligibleOrgIds) {
-        // Get all managerial positions in this organization
-        const positions = await this.relationOscRepository.find({
-          where: {
-            organization: orgId,
-            company: COMPANY_ID,
-            startDate: LessThanOrEqual(TODAY),
-            endDate: MoreThanOrEqual(TODAY),
-          },
-        });
-
-        // All positions in om_relation_osc are considered valid organizational positions
-        const managerialPositions = positions.filter(
-          (p) => p.relation_position,
-        );
-
-        if (managerialPositions.length === 0) {
-          continue;
-        }
-
-        for (const posRecord of managerialPositions) {
-          if (!posRecord.relation_position) {
-            continue;
-          }
-
-          const personInPosition = await this.relationSpRepository.findOne({
-            where: {
-              position: posRecord.relation_position as any,
-              company: COMPANY_ID,
-              startDate: LessThanOrEqual(TODAY),
-              endDate: MoreThanOrEqual(TODAY),
-            },
-          });
-
-          if (!personInPosition || !personInPosition.relation_persnum) {
-            continue;
-          }
-
-          // Skip self
-          if (personInPosition.relation_persnum === userPersnum) {
-            continue;
-          }
-
-          // Get person details
-          const person = await this.personRepository.findOne({
-            where: {
-              persnum: personInPosition.relation_persnum as any,
-            },
-          });
-
-          if (!person || !person.persnum || !person.name) {
-            continue;
-          }
-
-          // Get position details for position name
-          const positionDetails = await this.positionRepository.findOne({
-            where: {
-              position: posRecord.relation_position,
-            },
-          });
-
-          result.push({
-            organizationId: orgId,
-            organizationName: posRecord.organization_text || '',
-            persnum: person.persnum,
-            nama: person.name,
-            position: posRecord.relation_position,
-            positionName: positionDetails?.shortText || '',
-          });
-        }
-      }
-
-      // Sort by organization name, then by person name
-      return result.sort((a, b) => {
-        if (a.organizationName !== b.organizationName) {
-          return a.organizationName.localeCompare(b.organizationName);
-        }
-        return a.nama.localeCompare(b.nama);
-      });
-    } catch (error) {
-      throw new BadRequestException(`Failed to get recipients: ${error.message}`);
-    }
-  }
-
-  /**
-   * Main endpoint: Get all eligible recipients for Nota Dinas
-   */
-  async getNotaDinasRecipients(persnum: number): Promise<NotaDinasRecipientResponseDto> {
-    try {
-      // Validate persnum exists in pa_personal
-      const person = await this.personRepository.findOne({
-        where: { persnum },
-      });
-
-      if (!person) {
-        throw new NotFoundException(`Person with persnum ${persnum} not found`);
-      }
-
-      if (!person.persnum || !person.name) {
-        throw new BadRequestException(`Invalid person data for persnum ${persnum}`);
-      }
-
-      // PHASE 1: Get user position
-      const position = await this.getUserPosition(persnum);
-
-      if (!position) {
-        throw new NotFoundException(`Active position not found for persnum ${persnum}`);
-      }
-
-      // PHASE 2: Verify user is managerial
-      const isManagerial = await this.verifyManagerial(position);
-
-      if (!isManagerial) {
-        throw new ForbiddenException(
-          `Person with position ${position} is not managerial. Only managerial roles can send Nota Dinas.`,
-        );
-      }
-
-      // PHASE 3: Get user organization and sub_area
-      const userOrgDetails = await this.getUserOrganization(position);
-
-      // PHASE 4: Get eligible organizations
-      const eligibleOrgs = await this.getEligibleOrganizations(
-        userOrgDetails.organizationId,
-        userOrgDetails.subAreaId,
-      );
-
-      // Combine all eligible org IDs
-      const allEligibleOrgIds: number[] = [];
-      if (eligibleOrgs.parent) {
-        allEligibleOrgIds.push(eligibleOrgs.parent);
-      }
-      allEligibleOrgIds.push(...eligibleOrgs.children);
-      allEligibleOrgIds.push(...eligibleOrgs.siblings);
-
-      // PHASE 5: Get recipients
-      const recipients: NotaDinasRecipientGroupDto = {
-        ATASAN: [],
-        BAWAHAN: [],
-        REKAN: [],
-      };
-
-      if (allEligibleOrgIds.length > 0) {
-        const recipientsList = await this.getRecipients(allEligibleOrgIds, persnum);
-
-        // Group by relationship type
-        for (const recipient of recipientsList) {
-          if (eligibleOrgs.parent === recipient.organizationId) {
-            recipients.ATASAN.push(recipient);
-          } else if (eligibleOrgs.children.includes(recipient.organizationId)) {
-            recipients.BAWAHAN.push(recipient);
-          } else if (eligibleOrgs.siblings.includes(recipient.organizationId)) {
-            recipients.REKAN.push(recipient);
-          }
-        }
-      }
-
-      return {
-        persnum: person.persnum,
-        nama: person.name,
-        position,
-        organizationId: userOrgDetails.organizationId,
-        organizationName: userOrgDetails.organizationText,
-        subAreaId: userOrgDetails.subAreaId,
-        recipients,
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
 
   // ============================================================
   // SEND MESSAGE METHODS
   // ============================================================
+
+  /**
+   * Verify user is managerial
+   * Check: position exists in om_relation_osc (meaning it's assigned to an organization)
+   */
+  private async verifyManagerial(position: number): Promise<boolean> {
+    const managerialPosition = await this.relationOscRepository.findOne({
+      where: {
+        relation_position: position,
+        company: COMPANY_ID,
+        startDate: LessThanOrEqual(TODAY),
+        endDate: MoreThanOrEqual(TODAY),
+      },
+    });
+    return !!managerialPosition;
+  }
 
   /**
    * Get complete user info for sirkulasi (position, organization, area, sub_area, name)
@@ -911,6 +558,133 @@ export class NotaDinasService {
       total: results.length,
       persnum,
       nama: person.name || '',
+    };
+  }
+
+  // ============================================================
+  // GET RECIPIENT - Using org_data (cached organization data)
+  // ============================================================
+
+  /**
+   * Filter recipients for Nota Dinas based on position hierarchy
+   * 
+   * Rules:
+   * - ATASAN: chief=1, level-1, organization_id = current.organization_parent, same sub_area
+   * - REKAN: chief=1, same level, same organization_parent (satu induk), same sub_area, bukan dirinya
+   * - BAWAHAN: chief=1, level+1, organization_parent = current.organization_id, same sub_area
+   */
+  private filterByPositionNodin(barisData: OrgDataPositionDto[], positionParam: number): {
+    ATASAN: OrgDataPositionDto[];
+    REKAN: OrgDataPositionDto[];
+    BAWAHAN: OrgDataPositionDto[];
+  } {
+    // Cari item current berdasarkan position
+    const current = barisData.find((x) => Number(x.position) === Number(positionParam));
+    if (!current) {
+      return { ATASAN: [], REKAN: [], BAWAHAN: [] };
+    }
+
+    const currentLevel = Number(current.level);
+
+    // Filter: chief=1, same sub_area
+    const filtered = barisData.filter(
+      (x) => x.chief === 1 && x.sub_area === current.sub_area,
+    );
+
+    // Debug log
+    console.log(`[filterByPositionNodin] Current:`, {
+      position: current.position,
+      position_text: current.position_text,
+      level: currentLevel,
+      organization_id: current.organization_id,
+      organization_parent: current.organization_parent,
+      sub_area: current.sub_area,
+      departType: current.departType,
+    });
+
+    // ATASAN: 1 level di atas, organization_id = current.organization_parent
+    const parentLevel = filtered.filter(
+      (x) =>
+        x.level === currentLevel - 1 &&
+        Number(x.organization_id) === Number(current.organization_parent),
+    );
+
+    // REKAN: same level, same organization_parent (satu induk), bukan dirinya
+    const sameLevel = filtered.filter(
+      (x) =>
+        x.level === currentLevel &&
+        Number(x.organization_parent) === Number(current.organization_parent) &&
+        Number(x.position) !== Number(positionParam),
+    );
+
+    // BAWAHAN: 1 level di bawah, organization_parent = current.organization_id
+    const potentialBawahan = filtered.filter((x) => x.level === currentLevel + 1);
+    
+    console.log(`[filterByPositionNodin] Potential bawahan (level ${currentLevel + 1}, count=${potentialBawahan.length}):`);
+    potentialBawahan.forEach((x) => {
+      console.log(`  - ${x.position_text}: org_parent=${x.organization_parent}, current.org_id=${current.organization_id}, match=${x.organization_parent == current.organization_id}`);
+    });
+
+    const downLevel = potentialBawahan.filter(
+      (x) => x.organization_parent == current.organization_id,
+    );
+
+    console.log(`[filterByPositionNodin] Results: ATASAN=${parentLevel.length}, REKAN=${sameLevel.length}, BAWAHAN=${downLevel.length}`);
+
+    return {
+      ATASAN: parentLevel,
+      REKAN: sameLevel,
+      BAWAHAN: downLevel,
+    };
+  }
+
+  /**
+   * Get recipients for Nota Dinas using org_data
+   * @param positionId - Position ID of the sender
+   * @param tgl - Optional date (default: today)
+   */
+  async getNotaDinasRecipients(
+    positionId: number,
+    tgl?: string,
+  ): Promise<NotaDinasRecipientResponseDto> {
+    // Use today's date if not provided
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    console.log(`[getNotaDinasRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`);
+
+    // Get cached org data from org_data service
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(`Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`);
+    }
+
+    const barisData: OrgDataPositionDto[] = orgData.position_json;
+
+    console.log(`[getNotaDinasRecipients] Total positions in org_data: ${barisData.length}`);
+
+    // Find sender's position data
+    const sender = barisData.find((x) => Number(x.position) === Number(positionId));
+
+    if (!sender) {
+      throw new NotFoundException(`Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`);
+    }
+
+    console.log(`[getNotaDinasRecipients] Found sender:`, sender.position_text);
+
+    // Verify sender is chief (managerial)
+    if (sender.chief !== 1) {
+      throw new ForbiddenException(
+        `Position ${positionId} bukan managerial (chief). Hanya managerial yang dapat mengirim Nota Dinas.`,
+      );
+    }
+
+    // Filter recipients using the same logic as org_data.controller
+    const recipients = this.filterByPositionNodin(barisData, positionId);
+
+    return {
+      sender,
+      recipients,
     };
   }
 }

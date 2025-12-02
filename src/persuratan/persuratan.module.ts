@@ -53,6 +53,7 @@ import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
 import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
 import { OmPosition } from 'src/position/entities/om-position.entity';
 import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
+import { OrgDataModule } from 'src/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
       OmPosition,
       OmAreaSub,
     ]),
+    OrgDataModule,
   ],
   providers: [
     LabelService,

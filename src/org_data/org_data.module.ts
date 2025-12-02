@@ -22,5 +22,6 @@ import { OrgDatum } from './entities/org_datum.entity';
   ],
   controllers: [OrgDataController],
   providers: [OrgDataService],
+  exports: [OrgDataService],
 })
 export class OrgDataModule {}

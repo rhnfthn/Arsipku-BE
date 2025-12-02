@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { NotaDinasService } from '../services/nota-dinas.service';
-import { NotaDinasRecipientResponseDto } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
+import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto } from '../dto/nota-dinas/create-nota-dinas.dto';
 import { SendMessageResponseDto } from '../dto/nota-dinas/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/nota-dinas/get-send-message.dto';
@@ -10,23 +10,28 @@ export class NotaDinasController {
   constructor(private readonly notaDinasService: NotaDinasService) {}
 
   /**
-   * GET /ND/get-recipient/{persnum}
-   * Get eligible recipients for Nota Dinas based on persnum
+   * GET /ND/get-recipient/{positionId}
+   * Get eligible recipients for Nota Dinas based on position ID (using org_data)
    *
-   * @param persnum - Personnel ID (path parameter)
+   * @param positionId - Position ID (path parameter)
+   * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
    * @returns NotaDinasRecipientResponseDto
    *
-   * @throws 400 - Bad Request (invalid persnum format)
-   * @throws 404 - Not Found (person or position not found)
-   * @throws 403 - Forbidden (non-managerial role)
+   * Response format mengikuti struktur position_json dari org_data:
+   * - sender: OrgDataPositionDto (data posisi pengirim)
+   * - recipients: { ATASAN, REKAN, BAWAHAN } (grouped recipients)
+   *
+   * @throws 404 - Not Found (position or org data not found)
+   * @throws 403 - Forbidden (non-managerial position)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:persnum')
+  @Get('get-recipient/:positionId')
   async getNotaDinasRecipients(
-    @Param('persnum', ParseIntPipe) persnum: number,
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetRecipientQueryDto,
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
-      return await this.notaDinasService.getNotaDinasRecipients(persnum);
+      return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
