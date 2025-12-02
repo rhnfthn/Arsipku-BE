@@ -11,6 +11,7 @@ import { NaskahSirkulasi } from './entity/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from './entity/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from './entity/naskah_referensi.entity';
 import { NaskahEntity } from './entity/naskah.entity';
+import { NdEntity } from './entity/nd.entity';
 
 import { LabelService } from './services/label.service';
 import { KlasifikasiService } from './services/klasifikasi.service';
@@ -53,6 +54,7 @@ import { RelationOa } from 'src/relation_oa/entities/relation_oa.entity';
 import { RelationOo } from 'src/relation_oo/entities/relation_oo.entity';
 import { OmPosition } from 'src/position/entities/om-position.entity';
 import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
+import { OrgDataModule } from 'src/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -68,6 +70,7 @@ import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
       NaskahLampiranEntity,
       NaskahReferensiEntity,
       NaskahEntity,
+      NdEntity,
       Person,
       RelationSp,
       RelationOsc,
@@ -76,6 +79,7 @@ import { OmAreaSub } from 'src/areasub/entities/om-areasub.entity';
       OmPosition,
       OmAreaSub,
     ]),
+    OrgDataModule,
   ],
   providers: [
     LabelService,

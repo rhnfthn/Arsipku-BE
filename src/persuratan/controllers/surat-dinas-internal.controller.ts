@@ -1,48 +1,50 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
-import { SuratDinasInternalRecipientResponseDto } from '../dto/surat-dinas-internal/surat-dinas-internal-recipient-response.dto';
 import { CreateSuratDinasInternalDto } from '../dto/surat-dinas-internal/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto } from '../dto/surat-dinas-internal/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/surat-dinas-internal/get-send-message.dto';
+import { GetSdiRecipientQueryDto, SdiRecipientResponseDto } from '../dto/surat-dinas-internal/surat-dinas-internal-recipient-response.dto';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
   constructor(private readonly suratDinasInternalService: SuratDinasInternalService) {}
 
   /**
-   * GET /SDI/get-recipient/{persnum}
-   * Get eligible recipients for Surat Dinas Internal based on persnum
+   * GET /SDI/get-recipient/:positionId
+   * Get eligible recipients for Surat Dinas Internal using org_data
    *
-   * Rules:
-   * - Managerial to managerial across DIFFERENT areas within same company
-   * - OR managerial to managerial across DIFFERENT sub-areas within same area
-   * - Recipients are treated as REKAN (peers) since it's horizontal distribution
+   * SDI Rules:
+   * - Hanya REKAN (tidak ada ATASAN/BAWAHAN)
+   * - SAMA organization_parent (satu induk organisasi)
+   * - BEDA sub_area
+   * - Managerial only (chief = 1)
+   * - Uses cached org_data for better performance
    *
-   * @param persnum - Personnel ID (path parameter)
-   * @returns NotaDinasRecipientResponseDto (with recipients in REKAN group)
+   * @param positionId - Position ID of the sender (path parameter)
+   * @param tgl - Optional date in format YYYY-MM-DD (query parameter)
+   * @returns SdiRecipientResponseDto
    *
-   * @throws 400 - Bad Request (invalid persnum format)
-   * @throws 404 - Not Found (person or position not found)
+   * @throws 400 - Bad Request (invalid positionId)
+   * @throws 404 - Not Found (position not found)
    * @throws 403 - Forbidden (non-managerial role)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:persnum')
-  async getSuratDinasInternalRecipients(
-    @Param('persnum', ParseIntPipe) persnum: number,
-  ): Promise<SuratDinasInternalRecipientResponseDto> {
+  @Get('get-recipient/:positionId')
+  async getSdiRecipients(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetSdiRecipientQueryDto,
+  ): Promise<SdiRecipientResponseDto> {
     try {
-      return await this.suratDinasInternalService.getSuratDinasInternalRecipients(persnum);
+      return await this.suratDinasInternalService.getSdiRecipients(positionId, query.tgl);
     } catch (error) {
-      // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
         throw error;
       }
 
-      // Generic error handler
       throw new HttpException(
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Surat Dinas Internal recipients',
+          message: 'Failed to get SDI recipients',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -56,7 +58,7 @@ export class SuratDinasInternalController {
    *
    * Rules:
    * - Pengirim must be managerial
-   * - Penerima must be in DIFFERENT sub-area within same area OR DIFFERENT area within same company
+   * - Penerima must be in DIFFERENT sub-area within same organization parent
    * - Tembusan follows the same rules as penerima
    *
    * @param dto - CreateSuratDinasInternalDto (request body)

@@ -1,27 +1,49 @@
-export class SuratDinasInternalRecipientDto {
-  organizationId: number;
-  organizationName: string;
-  areaId: string;
-  subAreaId: number;
-  persnum: number;
-  nama: string;
-  position: number;
-  positionName: string;
+import { IsOptional, IsString, Matches } from 'class-validator';
+
+/**
+ * Query DTO for SDI get-recipient endpoint
+ */
+export class GetSdiRecipientQueryDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
+  tgl?: string;
 }
 
-export class SuratDinasInternalRecipientGroupDto {
-  ATASAN: SuratDinasInternalRecipientDto[];
-  BAWAHAN: SuratDinasInternalRecipientDto[];
-  REKAN: SuratDinasInternalRecipientDto[];
-}
-
-export class SuratDinasInternalRecipientResponseDto {
+/**
+ * Position data from org_data.position_json
+ */
+export class SdiOrgDataPositionDto {
+  position: number;
+  position_text: string;
   persnum: number;
   nama: string;
-  position: number;
-  organizationId: number;
-  organizationName: string;
-  areaId: string;
-  subAreaId: number;
-  recipients: SuratDinasInternalRecipientGroupDto;
+  organization_id: number;
+  organization_text: string;
+  organization_parent: number | null;
+  sub_area: number;
+  sub_area_text: string;
+  area: string;
+  area_text: string;
+  level: number;
+  chief: number;
+  departType: string | null;
+}
+
+/**
+ * Recipient group for SDI
+ * SDI only has REKAN (no ATASAN/BAWAHAN)
+ */
+export class SdiRecipientGroupDto {
+  REKAN: SdiOrgDataPositionDto[];
+}
+
+/**
+ * Response DTO for SDI get-recipient
+ */
+export class SdiRecipientResponseDto {
+  sender: SdiOrgDataPositionDto;
+  recipients: SdiRecipientGroupDto;
 }
