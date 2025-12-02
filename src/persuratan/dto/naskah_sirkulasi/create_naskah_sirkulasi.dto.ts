@@ -23,9 +23,9 @@ export class CreateNaskahSirkulasiDto {
   @IsOptional()
   sirkuler?: 'pengirim' | 'penerima' | 'tembusan';
 
-  @IsEnum(['pyb', 'pt', 'ph', 'ext'])
+  @IsEnum(['ybs', 'pt', 'ph', 'ps', 'se', 'vi', 'ext'])
   @IsOptional()
-  positionStatus?: 'pyb' | 'pt' | 'ph' | 'ext';
+  positionStatus?: 'ybs' | 'pt' | 'ph' | 'ps' | 'se' | 'vi' | 'ext';
 
   @IsString()
   @IsOptional()

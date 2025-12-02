@@ -6,24 +6,24 @@ export class NaskahReferensiEntity {
   id: string;
 
   @Column({ type: 'char', length: 36, nullable: true })
-  id_naskah: string;
+  id_naskah: string | null;
 
   @Column({
     type: 'enum',
     enum: ['ND', 'SDI', 'SDE'],
     nullable: true,
   })
-  ref_jenis: 'ND' | 'SDI' | 'SDE';
+  ref_jenis: 'ND' | 'SDI' | 'SDE' | null;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
-  ref_pengirim: string;
+  ref_pengirim: string | null;
 
   @Column({ type: 'date', nullable: true })
-  ref_tanggal: Date;
+  ref_tanggal: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  ref_nomor: string;
+  ref_nomor: string | null;
 
   @Column({ type: 'text', nullable: true })
-  ref_perihal: string;
+  ref_perihal: string | null;
 }

@@ -173,7 +173,7 @@ export class SuratDinasEksternalService {
       nama: person.name || '',
       position: senderValidation.position,
       positionName: positionDetails?.shortText || '',
-      positionStatus: 'pyb',
+      positionStatus: 'ybs',
       organizationId: senderOrg.organizationId,
       organizationName: senderOrg.organizationName,
       subAreaId: senderOrg.subAreaId,

@@ -48,9 +48,10 @@ export class NaskahSirkulasi {
   @Column('enum', {
     name: 'position_status',
     nullable: true,
-    enum: ['pyb', 'pt', 'ph', 'ext'],
+    enum: ['ybs', 'pt', 'ph', 'ps', 'se', 'vi', 'ext'],
+    comment: 'ybs=definitif/interim, pt=pelaksana tugas, ph=pelaksana harian, ps=penugasan sementara, se=sekretaris, vi=viewer, ext=external',
   })
-  positionStatus: 'pyb' | 'pt' | 'ph' | 'ext' | null;
+  positionStatus: 'ybs' | 'pt' | 'ph' | 'ps' | 'se' | 'vi' | 'ext' | null;
 
   @Column('char', { name: 'id_sirkuler', nullable: true, length: 36 })
   idSirkuler: string | null;

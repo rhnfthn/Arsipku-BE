@@ -110,7 +110,7 @@ export class NotaDinasService {
       organizationText: pos.organization_text,
       position: String(pos.position),
       positionText: pos.position_text,
-      positionStatus: 'pyb',
+      positionStatus: 'ybs',
       idSirkuler: String(pos.persnum_person ?? ''),
       namaSirkuler: pos.persnum_person_text ?? '',
       isDraft: isDraft,
