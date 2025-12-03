@@ -22,6 +22,10 @@ import {
   UpdateDraftDisposisiDto,
   UpdateDraftDisposisiResponseDto,
 } from '../dto/disposisi/update-draft-disposisi.dto';
+import {
+  SendDraftDisposisiDto,
+  SendDraftDisposisiResponseDto,
+} from '../dto/disposisi/send-draft-disposisi.dto';
 
 @Controller('DI')
 export class DisposisiController {
@@ -231,6 +235,51 @@ export class DisposisiController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to update message status',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * PUT /DI/send-draft/:id
+   * Kirim draft disposisi (mengubah status dari draf ke final)
+   *
+   * Kondisi: User sudah membuat disposisi sebagai draft dan ingin mengirim
+   *
+   * Deskripsi: Untuk mengubah status disposisi dari 'draf' menjadi 'final'.
+   * - Hanya naskah dengan status 'draf' yang bisa dikirim
+   * - Hanya pengirim asli yang bisa mengirim
+   * - Akan set is_draft = false pada semua sirkulasi
+   *
+   * @param id - ID Naskah (UUID)
+   * @param dto - SendDraftDisposisiDto (pengirim_position_id)
+   * @returns SendDraftDisposisiResponseDto
+   *
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 403 - Forbidden (bukan draft atau bukan pengirim asli)
+   * @throws 500 - Internal Server Error
+   */
+  @Put('send-draft/:id')
+  async sendDraft(
+    @Param('id') id: string,
+    @Body() dto: SendDraftDisposisiDto,
+  ): Promise<SendDraftDisposisiResponseDto> {
+    try {
+      return await this.disposisiService.sendDraft(id, dto.pengirim_position_id);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to send draft disposisi',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

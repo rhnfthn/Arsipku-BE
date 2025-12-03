@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -18,6 +18,7 @@ import { OrgDataModule } from './org_data/org_data.module';
 import { RelationOdModule } from './relation_od/relation_od.module';
 import { PersuratanModule } from './persuratan/persuratan.module';
 import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
+import { DataSource } from 'typeorm';
 
 @Module({
   imports: [
@@ -34,6 +35,9 @@ import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: false, // hanya untuk development
+        extra: {
+          maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
+        },
       }),
     }),
     CompanyModule,
@@ -55,4 +59,16 @@ import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule implements OnModuleInit {
+  constructor(private readonly dataSource: DataSource) {}
+
+  async onModuleInit() {
+    try {
+      // Set max_allowed_packet untuk handle large org_data (256MB)
+      await this.dataSource.query('SET GLOBAL max_allowed_packet = 268435456');
+      console.log('✅ MySQL max_allowed_packet set to 256MB');
+    } catch (error) {
+      console.warn('⚠️ Could not set max_allowed_packet (might need SUPER privilege):', error.message);
+    }
+  }
+}

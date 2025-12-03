@@ -18,6 +18,7 @@ import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../entity/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../entity/naskah_referensi.entity';
 import { DisposisiItemEntity } from '../entity/disposisi_item.entity';
+import { DiEntity } from '../entity/di.entity';
 import { DisposisiRecipientResponseDto } from '../dto/disposisi/disposisi-recipient-response.dto';
 import { CreateDisposisiDto } from '../dto/disposisi/create-disposisi.dto';
 import {
@@ -97,6 +98,8 @@ export class DisposisiService {
     private readonly naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     @InjectRepository(DisposisiItemEntity)
     private readonly disposisiItemRepository: Repository<DisposisiItemEntity>,
+    @InjectRepository(DiEntity)
+    private readonly diRepository: Repository<DiEntity>,
     private readonly orgDataService: OrgDataService,
     private readonly dataSource: DataSource,
   ) {}
@@ -585,6 +588,7 @@ export class DisposisiService {
         positionStatus: 'ybs',
         idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
+        isDraft: false, // sendMessage = bukan draft
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -608,6 +612,7 @@ export class DisposisiService {
           positionStatus: 'ybs',
           idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
           namaSirkuler: penerima.persnum_person_text || '',
+          isDraft: false, // sendMessage = bukan draft
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -642,6 +647,43 @@ export class DisposisiService {
           });
         }
       }
+
+      // PHASE 7: Insert ke tabel DI (konten lengkap lembar disposisi)
+      // Build kepada_yth dari penerima
+      const kepadaYthList = penerimaDataList.map(
+        (p) => `${p.position_text} - ${p.organization_text}`,
+      );
+      const kepadaYth = kepadaYthList.join('; ');
+
+      // Build disposisi string dari petunjuk_disposisi
+      let disposisiText: string | null = null;
+      if (petunjukDisposisiJson && petunjukDisposisiJson.length > 0) {
+        disposisiText = petunjukDisposisiJson
+          .map((p: { label: string; catatan?: string }) => 
+            p.catatan ? `${p.label}: ${p.catatan}` : p.label
+          )
+          .join('\n');
+      }
+
+      const diEntity = this.diRepository.create({
+        id: uuidv4(),
+        idNaskah: naskahId,
+        kopLogo: dto.kop_logo ?? null,
+        kopJudul: dto.kop_judul ?? 'LEMBAR DISPOSISI',
+        namaJabatan: dto.nama_jabatan ?? pengirimData.position_text,
+        nomorAgenda: dto.nomor_agenda ?? null,
+        tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
+        suratDari: dto.surat_dari ?? null,
+        tanggal: tanggalDisposisi,
+        nomor: dto.ref_nomor_surat,
+        perihal: dto.ref_perihal_surat,
+        klasifikasi: dto.klasifikasi ?? null,
+        kepadaYth: kepadaYth,
+        disposisi: disposisiText,
+        catatan: dto.catatan ?? null,
+        paraf: dto.paraf ?? null,
+      });
+      await queryRunner.manager.save(diEntity);
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -787,7 +829,7 @@ export class DisposisiService {
       naskahReferensi.ref_perihal = dto.ref_perihal_surat;
       await queryRunner.manager.save(naskahReferensi);
 
-      // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim
+      // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim (dengan isDraft = true)
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -805,10 +847,11 @@ export class DisposisiService {
         positionStatus: 'ybs',
         idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
+        isDraft: true, // saveDraft = draft
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
-      // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima
+      // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (dengan isDraft = true)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
       for (const penerima of penerimaDataList) {
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
@@ -828,6 +871,7 @@ export class DisposisiService {
           positionStatus: 'ybs',
           idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
           namaSirkuler: penerima.persnum_person_text || '',
+          isDraft: true, // saveDraft = draft
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -862,6 +906,43 @@ export class DisposisiService {
           });
         }
       }
+
+      // PHASE 8: Insert ke tabel DI (konten lengkap lembar disposisi)
+      // Build kepada_yth dari penerima
+      const kepadaYthList = penerimaDataList.map(
+        (p) => `${p.position_text} - ${p.organization_text}`,
+      );
+      const kepadaYth = kepadaYthList.join('; ');
+
+      // Build disposisi string dari petunjuk_disposisi
+      let disposisiText: string | null = null;
+      if (petunjukDisposisiJson && petunjukDisposisiJson.length > 0) {
+        disposisiText = petunjukDisposisiJson
+          .map((p: { label: string; catatan?: string }) => 
+            p.catatan ? `${p.label}: ${p.catatan}` : p.label
+          )
+          .join('\n');
+      }
+
+      const diEntity = this.diRepository.create({
+        id: uuidv4(),
+        idNaskah: naskahId,
+        kopLogo: dto.kop_logo ?? null,
+        kopJudul: dto.kop_judul ?? 'LEMBAR DISPOSISI',
+        namaJabatan: dto.nama_jabatan ?? pengirimData.position_text,
+        nomorAgenda: dto.nomor_agenda ?? null,
+        tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
+        suratDari: dto.surat_dari ?? null,
+        tanggal: tanggalDisposisi,
+        nomor: dto.ref_nomor_surat,
+        perihal: dto.ref_perihal_surat,
+        klasifikasi: dto.klasifikasi ?? null,
+        kepadaYth: kepadaYth,
+        disposisi: disposisiText,
+        catatan: dto.catatan ?? null,
+        paraf: dto.paraf ?? null,
+      });
+      await queryRunner.manager.save(diEntity);
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -1224,7 +1305,7 @@ export class DisposisiService {
           sirkuler: 'penerima',
         });
 
-        // Insert penerima baru
+        // Insert penerima baru dengan isDraft berdasarkan action
         for (const penerima of penerimaDataList) {
           const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
             id: uuidv4(),
@@ -1243,8 +1324,27 @@ export class DisposisiService {
             positionStatus: 'ybs',
             idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
             namaSirkuler: penerima.persnum_person_text || '',
+            isDraft: isDraft, // isDraft based on action
           });
           await queryRunner.manager.save(penerimaSirkulasi);
+        }
+      }
+
+      // Update isDraft pada sirkulasi pengirim jika action = kirim
+      if (!isDraft) {
+        await queryRunner.manager.update(
+          NaskahSirkulasi,
+          { idNaskah: dto.id_naskah, sirkuler: 'pengirim' },
+          { isDraft: false },
+        );
+        
+        // Jika penerima tidak diupdate, update isDraft pada penerima yang sudah ada
+        if (!dto.penerima_position_ids || dto.penerima_position_ids.length === 0) {
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            { idNaskah: dto.id_naskah, sirkuler: 'penerima' },
+            { isDraft: false },
+          );
         }
       }
 
@@ -1267,6 +1367,68 @@ export class DisposisiService {
         }
       }
 
+      // PHASE 7: Update tabel "di" (jika ada perubahan field konten)
+      const hasDiFields =
+        dto.kop_logo !== undefined ||
+        dto.kop_judul !== undefined ||
+        dto.nama_jabatan !== undefined ||
+        dto.nomor_agenda !== undefined ||
+        dto.tanggal_agenda !== undefined ||
+        dto.surat_dari !== undefined ||
+        dto.klasifikasi !== undefined ||
+        dto.catatan !== undefined ||
+        dto.paraf !== undefined;
+
+      if (hasDiFields) {
+        // Cek apakah sudah ada data di tabel "di"
+        const existingDi = await this.diRepository.findOne({
+          where: { idNaskah: dto.id_naskah },
+        });
+
+        if (existingDi) {
+          // Update data yang ada
+          if (dto.kop_logo !== undefined) existingDi.kopLogo = dto.kop_logo;
+          if (dto.kop_judul !== undefined) existingDi.kopJudul = dto.kop_judul;
+          if (dto.nama_jabatan !== undefined) existingDi.namaJabatan = dto.nama_jabatan;
+          if (dto.nomor_agenda !== undefined) existingDi.nomorAgenda = dto.nomor_agenda;
+          if (dto.tanggal_agenda !== undefined) existingDi.tanggalAgenda = new Date(dto.tanggal_agenda);
+          if (dto.surat_dari !== undefined) existingDi.suratDari = dto.surat_dari;
+          if (dto.klasifikasi !== undefined) existingDi.klasifikasi = dto.klasifikasi;
+          if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
+          if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
+
+          // Update juga dari dto lainnya jika ada
+          if (dto.tanggal_disposisi) existingDi.tanggal = new Date(dto.tanggal_disposisi);
+          if (dto.ref_nomor_surat) existingDi.nomor = dto.ref_nomor_surat;
+          if (dto.ref_perihal_surat) existingDi.perihal = dto.ref_perihal_surat;
+          if (dto.petunjuk_disposisi) {
+            existingDi.disposisi = JSON.stringify(dto.petunjuk_disposisi);
+          }
+
+          await queryRunner.manager.save(existingDi);
+        } else {
+          // Insert data baru
+          const diEntity = this.diRepository.create({
+            idNaskah: dto.id_naskah,
+            kopLogo: dto.kop_logo || '',
+            kopJudul: dto.kop_judul || '',
+            namaJabatan: dto.nama_jabatan || '',
+            nomorAgenda: dto.nomor_agenda || '',
+            tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
+            suratDari: dto.surat_dari || '',
+            tanggal: dto.tanggal_disposisi ? new Date(dto.tanggal_disposisi) : naskah.tanggal || null,
+            nomor: dto.ref_nomor_surat || '',
+            perihal: dto.ref_perihal_surat || '',
+            klasifikasi: dto.klasifikasi || '',
+            kepadaYth: '', // Will be filled from penerima
+            disposisi: dto.petunjuk_disposisi ? JSON.stringify(dto.petunjuk_disposisi) : '',
+            catatan: dto.catatan || '',
+            paraf: dto.paraf || '',
+          });
+          await queryRunner.manager.save(diEntity);
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1278,6 +1440,108 @@ export class DisposisiService {
         data: {
           id_naskah: dto.id_naskah,
           status: isDraft ? 'draf' : 'final',
+          updated_at: new Date(),
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================
+  // SEND DRAFT - Kirim draft (ubah status draf ke final)
+  // ============================================================
+
+  /**
+   * Send Draft - Kirim disposisi yang masih draft (ubah status menjadi final)
+   *
+   * @param naskahId - ID Naskah yang akan dikirim
+   * @param pengirimPositionId - Position ID pengirim untuk validasi ownership
+   * @returns SendDraftDisposisiResponseDto
+   */
+  async sendDraft(
+    naskahId: string,
+    pengirimPositionId: number,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      id_naskah: string;
+      status: 'final';
+      updated_at: Date;
+    };
+  }> {
+    // PHASE 1: Validasi naskah exists dan status draft
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'draf') {
+      throw new ForbiddenException(
+        `Naskah tidak bisa dikirim karena status sudah '${naskah.status}'. Hanya naskah dengan status 'draf' yang bisa dikirim.`,
+      );
+    }
+
+    if (naskah.jenis !== 'DI') {
+      throw new ForbiddenException(
+        `Naskah ini bukan disposisi (jenis: ${naskah.jenis}). API ini hanya untuk kirim disposisi.`,
+      );
+    }
+
+    // PHASE 2: Validasi pengirim adalah owner naskah
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'pengirim',
+      },
+    });
+
+    if (!pengirimSirkulasi) {
+      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
+    }
+
+    if (String(pengirimSirkulasi.position) !== String(pengirimPositionId)) {
+      throw new ForbiddenException(
+        `Anda tidak memiliki akses untuk mengirim naskah ini. Hanya pengirim asli yang bisa mengirim.`,
+      );
+    }
+
+    // Start transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // PHASE 3: Update status naskah menjadi 'final'
+      await queryRunner.manager.update(
+        NaskahEntity,
+        { id: naskahId },
+        { status: 'final' },
+      );
+
+      // PHASE 4: Update isDraft = false pada semua sirkulasi
+      await queryRunner.manager.update(
+        NaskahSirkulasi,
+        { idNaskah: naskahId },
+        { isDraft: false },
+      );
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Draft disposisi berhasil dikirim',
+        data: {
+          id_naskah: naskahId,
+          status: 'final',
           updated_at: new Date(),
         },
       };

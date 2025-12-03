@@ -76,6 +76,53 @@ export class UpdateDraftDisposisiDto {
   @IsOptional()
   @IsEnum(['draft', 'kirim'], { message: 'Action harus draft atau kirim' })
   action?: 'draft' | 'kirim';
+
+  // ============================================================
+  // Field untuk tabel "di" (konten lengkap lembar disposisi)
+  // ============================================================
+
+  // Kop Naskah
+  @IsOptional()
+  @IsString()
+  kop_logo?: string;
+
+  @IsOptional()
+  @IsString()
+  kop_judul?: string;
+
+  // Penandatangan
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
+  // Nomor Agenda
+  @IsOptional()
+  @IsString()
+  nomor_agenda?: string;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'Format tanggal agenda tidak valid' })
+  tanggal_agenda?: string;
+
+  // Referensi Surat (surat_dari = pengirim surat asli yang didisposisi)
+  @IsOptional()
+  @IsString()
+  surat_dari?: string;
+
+  // Klasifikasi surat
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  // Catatan disposisi (selain petunjuk checkbox)
+  @IsOptional()
+  @IsString()
+  catatan?: string;
+
+  // Paraf
+  @IsOptional()
+  @IsString()
+  paraf?: string;
 }
 
 /**

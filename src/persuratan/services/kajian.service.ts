@@ -414,7 +414,7 @@ export class KajianService {
       persnum: person.persnum || 0,
       nama: person.name || '',
       position: senderInfo.position,
-      positionStatus: 'pyb',
+      positionStatus: 'ybs',
       organizationId: senderOrg.organizationId,
       organizationName: senderOrg.organizationName,
       subAreaId: senderOrg.subAreaId,
