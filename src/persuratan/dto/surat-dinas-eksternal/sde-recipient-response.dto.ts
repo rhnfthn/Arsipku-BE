@@ -1,5 +1,44 @@
+import { IsOptional, IsString, Matches } from 'class-validator';
+
+/**
+ * Query DTO for SDE get-recipient endpoint
+ */
+export class GetSdeRecipientQueryDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
+  tgl?: string;
+}
+
+/**
+ * Position data from org_data.position_json
+ * Same structure as SDI/ND
+ */
+export class SdeOrgDataPositionDto {
+  position: number;
+  position_text: string;
+  persnum: number;
+  // Optional fields when org_data provides person details for the position
+  persnum_person?: number | null;
+  persnum_person_text?: string | null;
+  nama: string;
+  organization_id: number;
+  organization_text: string;
+  organization_parent: number | null;
+  sub_area: number;
+  sub_area_text: string;
+  area: string;
+  area_text: string;
+  level: number;
+  chief: number;
+  departType: string | null;
+}
+
 /**
  * External recipient (pihak luar perusahaan)
+ * Dari tabel eksternal
  */
 export class EksternalRecipientDto {
   id: string;
@@ -11,25 +50,14 @@ export class EksternalRecipientDto {
 }
 
 /**
- * Sender info (internal LPPNPI)
- */
-export class SdeSenderDto {
-  persnum: number;
-  nama: string;
-  position: number;
-  positionName: string;
-  positionStatus: string;
-  organizationId: number;
-  organizationName: string;
-  subAreaId: number;
-  isAuthorized: boolean; // Apakah berwenang kirim surat eksternal
-}
-
-/**
- * Response untuk GET /SDE/get-recipient/:persnum
+ * Response DTO for SDE get-recipient
+ * 
+ * SDE (Surat Dinas Eksternal):
+ * - sender: dari org_data (positionId)
+ * - recipients: dari tabel eksternal (pihak luar)
  */
 export class SdeRecipientResponseDto {
-  sender: SdeSenderDto;
-  recipients: EksternalRecipientDto[]; // List pihak eksternal yang bisa dipilih
+  sender: SdeOrgDataPositionDto;
+  recipients: EksternalRecipientDto[];
   totalRecipients: number;
 }
