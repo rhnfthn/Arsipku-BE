@@ -10,11 +10,7 @@ import {
   IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  SifatNaskah,
-  PetunjukDisposisiDto,
-  LampiranDto,
-} from './create-disposisi.dto';
+import { SifatNaskah, LampiranDto } from './create-disposisi.dto';
 
 /**
  * DTO untuk mengirim draft disposisi (mengubah status dari draf ke final)
@@ -54,12 +50,23 @@ export class SendDraftDisposisiDto {
   @IsString()
   ref_perihal_surat?: string;
 
-  // Petunjuk Disposisi - array of selected checkboxes
+  // ============================================================
+  // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
+  // Field ini diisi oleh FE dengan format string yang sudah diformat
+  // Disimpan ke kolom "disposisi" di tabel "di"
+  // ============================================================
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PetunjukDisposisiDto)
-  petunjuk_disposisi?: PetunjukDisposisiDto[];
+  @IsString()
+  disposisi?: string;
+
+  // ============================================================
+  // CATATAN - Untuk checkbox "Lainnya"
+  // Jika user klik checkbox "Lainnya", isi catatan masuk ke sini
+  // Disimpan ke kolom "catatan" di tabel "di"
+  // ============================================================
+  @IsOptional()
+  @IsString()
+  catatan?: string;
 
   // Lampiran
   @IsOptional()
@@ -104,11 +111,6 @@ export class SendDraftDisposisiDto {
   @IsOptional()
   @IsString()
   klasifikasi?: string;
-
-  // Catatan disposisi (selain petunjuk checkbox)
-  @IsOptional()
-  @IsString()
-  catatan?: string;
 
   // Paraf
   @IsOptional()

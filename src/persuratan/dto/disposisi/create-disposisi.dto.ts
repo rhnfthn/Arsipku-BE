@@ -20,25 +20,6 @@ export enum SifatNaskah {
   TERBUKA = 'terbuka',
 }
 
-// Enum untuk petunjuk disposisi (15 checkbox)
-export enum PetunjukDisposisiEnum {
-  UNTUK_DIKETAHUI = 'untuk_diketahui',
-  PROSES_LANJUT = 'proses_lanjut',
-  KOORDINASIKAN = 'koordinasikan',
-  CEK = 'cek',
-  MONITOR = 'monitor',
-  EVALUASI = 'evaluasi',
-  DIKAJI_KEMUNGKINANNYA = 'dikaji_kemungkinannya',
-  LAPORKAN = 'laporkan',
-  UNTUK_MENJADI_PERHATIAN = 'untuk_menjadi_perhatian',
-  UNTUK_DIJADIKAN_ACUAN = 'untuk_dijadikan_acuan',
-  HARAP_MEWAKILI = 'harap_mewakili',
-  HARAP_MENDAMPINGI = 'harap_mendampingi',
-  TUNJUK_PERWAKILAN = 'tunjuk_perwakilan',
-  SIAPKAN_BAHAN_MATERI = 'siapkan_bahan_materi',
-  LAINNYA = 'lainnya',
-}
-
 // DTO untuk lampiran (jika ada file)
 export class LampiranDto {
   @IsNotEmpty({ message: 'Nama file harus diisi' })
@@ -52,17 +33,6 @@ export class LampiranDto {
   @IsOptional()
   @IsString()
   tipe?: string; // pdf/doc/img
-}
-
-// DTO untuk petunjuk disposisi yang dipilih
-export class PetunjukDisposisiDto {
-  @IsNotEmpty({ message: 'Kode petunjuk disposisi harus diisi' })
-  @IsEnum(PetunjukDisposisiEnum, { message: 'Kode petunjuk disposisi tidak valid' })
-  kode: PetunjukDisposisiEnum;
-
-  @IsOptional()
-  @IsString()
-  catatan?: string; // Untuk item "Lainnya" atau catatan tambahan
 }
 
 // Main DTO untuk send-message disposisi
@@ -98,12 +68,24 @@ export class CreateDisposisiDto {
   @IsString()
   ref_perihal_surat: string;
 
-  // Petunjuk Disposisi - array of selected checkboxes (disimpan ke kolom konten)
+  // ============================================================
+  // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
+  // Field ini diisi oleh FE dengan format string yang sudah diformat
+  // Contoh: "Untuk Diketahui\nProses Lanjut\nKoordinasikan"
+  // Disimpan ke kolom "disposisi" di tabel "di"
+  // ============================================================
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PetunjukDisposisiDto)
-  petunjuk_disposisi?: PetunjukDisposisiDto[];
+  @IsString()
+  disposisi?: string;
+
+  // ============================================================
+  // CATATAN - Untuk checkbox "Lainnya" 
+  // Jika user klik checkbox "Lainnya", isi catatan masuk ke sini
+  // Disimpan ke kolom "catatan" di tabel "di"
+  // ============================================================
+  @IsOptional()
+  @IsString()
+  catatan?: string;
 
   // Lampiran
   @IsOptional()
@@ -148,11 +130,6 @@ export class CreateDisposisiDto {
   @IsOptional()
   @IsString()
   klasifikasi?: string;
-
-  // Catatan disposisi (selain petunjuk checkbox)
-  @IsOptional()
-  @IsString()
-  catatan?: string;
 
   // Paraf
   @IsOptional()

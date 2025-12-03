@@ -21,6 +21,10 @@ import {
   InboxQueryDto,
   InboxResponseDto,
 } from '../dto/naskah_sirkulasi/inbox.dto';
+import {
+  SentMessageQueryDto,
+  SentMessageResponseDto,
+} from '../dto/naskah_sirkulasi/sent-message.dto';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 
 @Controller('naskah_sirkulasi')
@@ -61,11 +65,11 @@ export class NaskahSirkulasiController {
    * Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
    *
    * @param positionId - Position ID penerima
-   * @param query - Filter options (jenis, status_baca, page, limit)
+   * @param query - Filter options (jenis, status_baca)
    * @returns InboxResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/inbox/123?jenis=DI&status_baca=belum_terbaca&page=1&limit=10
+   * GET /naskah_sirkulasi/inbox/123?jenis=DI&status_baca=belum_terbaca
    */
   @Get('inbox/:position_id')
   async getInbox(
@@ -73,6 +77,33 @@ export class NaskahSirkulasiController {
     @Query() query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
     return this.naskahSirkulasiService.getInbox(positionId, query);
+  }
+
+  // ============================================================
+  // SENT MESSAGE - Kotak Keluar (Global untuk semua jenis naskah)
+  // ============================================================
+
+  /**
+   * GET /naskah_sirkulasi/sent/:position_id
+   *
+   * Mengambil kotak keluar (pesan terkirim) untuk position tertentu
+   * Termasuk status baca per penerima
+   *
+   * @param positionId - Position ID pengirim
+   * @param query - Filter options (jenis, status_baca)
+   * @returns SentMessageResponseDto
+   *
+   * @example
+   * GET /naskah_sirkulasi/sent/123
+   * GET /naskah_sirkulasi/sent/123?jenis=DI
+   * GET /naskah_sirkulasi/sent/123?status_baca=belum_terbaca
+   */
+  @Get('sent/:position_id')
+  async getSentMessage(
+    @Param('position_id') positionId: string,
+    @Query() query: SentMessageQueryDto,
+  ): Promise<SentMessageResponseDto> {
+    return this.naskahSirkulasiService.getSentMessage(positionId, query);
   }
 
   @Get()

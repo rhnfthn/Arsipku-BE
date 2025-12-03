@@ -24,7 +24,6 @@ import { CreateDisposisiDto } from '../dto/disposisi/create-disposisi.dto';
 import {
   SendDisposisiResponseDto,
   DisposisiSirkulasiInfoDto,
-  PetunjukDisposisiInfoDto,
 } from '../dto/disposisi/send-disposisi-response.dto';
 import {
   GetSendMessageResponseDto,
@@ -540,50 +539,8 @@ export class DisposisiService {
       const naskahId = uuidv4();
       const tanggalDisposisi = new Date(dto.tanggal_disposisi);
 
-      // Build petunjuk_disposisi JSON for kolom konten
-      let petunjukDisposisiJson: any[] | null = null;
-      const petunjukResponses: PetunjukDisposisiInfoDto[] = [];
-
-      // Mapping kode ke label
-      const petunjukLabels: Record<string, string> = {
-        untuk_diketahui: 'Untuk Diketahui',
-        proses_lanjut: 'Proses Lanjut',
-        koordinasikan: 'Koordinasikan',
-        cek: 'Cek',
-        monitor: 'Monitor',
-        evaluasi: 'Evaluasi',
-        dikaji_kemungkinannya: 'Dikaji Kemungkinannya',
-        laporkan: 'Laporkan',
-        untuk_menjadi_perhatian: 'Untuk Menjadi Perhatian',
-        untuk_dijadikan_acuan: 'Untuk Dijadikan Acuan/ Dipergunakan',
-        harap_mewakili: 'Harap Mewakili',
-        harap_mendampingi: 'Harap Mendampingi',
-        tunjuk_perwakilan: 'Tunjuk Perwakilan',
-        siapkan_bahan_materi: 'Siapkan Bahan/ Materi',
-        lainnya: 'Lainnya',
-      };
-
-      if (dto.petunjuk_disposisi && dto.petunjuk_disposisi.length > 0) {
-        petunjukDisposisiJson = [];
-        for (const petunjuk of dto.petunjuk_disposisi) {
-          const label = petunjukLabels[petunjuk.kode] || petunjuk.kode;
-
-          const petunjukData = {
-            kode: petunjuk.kode,
-            label: label,
-            catatan: petunjuk.catatan || null,
-          };
-
-          petunjukDisposisiJson.push(petunjukData);
-          petunjukResponses.push({
-            kode: petunjuk.kode,
-            label: label,
-            catatan: petunjuk.catatan,
-          });
-        }
-      }
-
       // Insert ke tabel NASKAH
+      // Kolom konten bisa dipakai untuk menyimpan disposisi juga jika diperlukan
       const naskah = this.naskahRepository.create({
         id: naskahId,
         jenis: 'DI',
@@ -592,9 +549,7 @@ export class DisposisiService {
         nomor: dto.ref_nomor_surat,
         tanggal: tanggalDisposisi,
         perihal: dto.ref_perihal_surat,
-        konten: petunjukDisposisiJson
-          ? JSON.stringify(petunjukDisposisiJson)
-          : undefined,
+        konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: 'final',
         lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
       });
@@ -697,16 +652,6 @@ export class DisposisiService {
       );
       const kepadaYth = kepadaYthList.join('; ');
 
-      // Build disposisi string dari petunjuk_disposisi
-      let disposisiText: string | null = null;
-      if (petunjukDisposisiJson && petunjukDisposisiJson.length > 0) {
-        disposisiText = petunjukDisposisiJson
-          .map((p: { label: string; catatan?: string }) => 
-            p.catatan ? `${p.label}: ${p.catatan}` : p.label
-          )
-          .join('\n');
-      }
-
       const diEntity = this.diRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -721,8 +666,8 @@ export class DisposisiService {
         perihal: dto.ref_perihal_surat,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
-        disposisi: disposisiText,
-        catatan: dto.catatan ?? null,
+        disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
+        catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
       });
       await queryRunner.manager.save(diEntity);
@@ -744,7 +689,8 @@ export class DisposisiService {
           ref_perihal_surat: dto.ref_perihal_surat,
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
-          petunjuk_disposisi: petunjukResponses.length > 0 ? petunjukResponses : undefined,
+          disposisi: dto.disposisi,
+          catatan: dto.catatan,
           lampiran: lampiranResponses.length > 0 ? lampiranResponses : undefined,
         },
       };
@@ -803,49 +749,6 @@ export class DisposisiService {
       const naskahId = uuidv4();
       const tanggalDisposisi = new Date(dto.tanggal_disposisi);
 
-      // Build petunjuk_disposisi JSON for kolom konten
-      let petunjukDisposisiJson: any[] | null = null;
-      const petunjukResponses: PetunjukDisposisiInfoDto[] = [];
-
-      // Mapping kode ke label
-      const petunjukLabels: Record<string, string> = {
-        untuk_diketahui: 'Untuk Diketahui',
-        proses_lanjut: 'Proses Lanjut',
-        koordinasikan: 'Koordinasikan',
-        cek: 'Cek',
-        monitor: 'Monitor',
-        evaluasi: 'Evaluasi',
-        dikaji_kemungkinannya: 'Dikaji Kemungkinannya',
-        laporkan: 'Laporkan',
-        untuk_menjadi_perhatian: 'Untuk Menjadi Perhatian',
-        untuk_dijadikan_acuan: 'Untuk Dijadikan Acuan/ Dipergunakan',
-        harap_mewakili: 'Harap Mewakili',
-        harap_mendampingi: 'Harap Mendampingi',
-        tunjuk_perwakilan: 'Tunjuk Perwakilan',
-        siapkan_bahan_materi: 'Siapkan Bahan/ Materi',
-        lainnya: 'Lainnya',
-      };
-
-      if (dto.petunjuk_disposisi && dto.petunjuk_disposisi.length > 0) {
-        petunjukDisposisiJson = [];
-        for (const petunjuk of dto.petunjuk_disposisi) {
-          const label = petunjukLabels[petunjuk.kode] || petunjuk.kode;
-
-          const petunjukData = {
-            kode: petunjuk.kode,
-            label: label,
-            catatan: petunjuk.catatan || null,
-          };
-
-          petunjukDisposisiJson.push(petunjukData);
-          petunjukResponses.push({
-            kode: petunjuk.kode,
-            label: label,
-            catatan: petunjuk.catatan,
-          });
-        }
-      }
-
       // Insert ke tabel NASKAH with status 'draf'
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -854,9 +757,7 @@ export class DisposisiService {
         nomor: dto.ref_nomor_surat,
         tanggal: tanggalDisposisi,
         perihal: dto.ref_perihal_surat,
-        konten: petunjukDisposisiJson
-          ? JSON.stringify(petunjukDisposisiJson)
-          : undefined,
+        konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: 'draf',
         lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
       });
@@ -959,16 +860,6 @@ export class DisposisiService {
       );
       const kepadaYth = kepadaYthList.join('; ');
 
-      // Build disposisi string dari petunjuk_disposisi
-      let disposisiText: string | null = null;
-      if (petunjukDisposisiJson && petunjukDisposisiJson.length > 0) {
-        disposisiText = petunjukDisposisiJson
-          .map((p: { label: string; catatan?: string }) => 
-            p.catatan ? `${p.label}: ${p.catatan}` : p.label
-          )
-          .join('\n');
-      }
-
       const diEntity = this.diRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -983,8 +874,8 @@ export class DisposisiService {
         perihal: dto.ref_perihal_surat,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
-        disposisi: disposisiText,
-        catatan: dto.catatan ?? null,
+        disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
+        catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
       });
       await queryRunner.manager.save(diEntity);
@@ -1006,7 +897,8 @@ export class DisposisiService {
           ref_perihal_surat: dto.ref_perihal_surat,
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
-          petunjuk_disposisi: petunjukResponses.length > 0 ? petunjukResponses : undefined,
+          disposisi: dto.disposisi,
+          catatan: dto.catatan,
           lampiran: lampiranResponses.length > 0 ? lampiranResponses : undefined,
         },
       };
@@ -1297,9 +1189,6 @@ export class DisposisiService {
     try {
       // PHASE 3: Update tabel naskah
       const isDraft = dto.action !== 'kirim';
-      const petunjukKonten = dto.petunjuk_disposisi
-        ? JSON.stringify(dto.petunjuk_disposisi)
-        : naskah.konten;
 
       if (dto.tanggal_disposisi) {
         naskah.tanggal = new Date(dto.tanggal_disposisi);
@@ -1307,8 +1196,8 @@ export class DisposisiService {
       if (dto.sifat) {
         naskah.sifat = dto.sifat;
       }
-      if (dto.petunjuk_disposisi) {
-        naskah.konten = petunjukKonten;
+      if (dto.disposisi) {
+        naskah.konten = dto.disposisi; // Simpan disposisi ke kolom konten
       }
       if (dto.lampiran) {
         naskah.lampiran = dto.lampiran.length > 0 ? `${dto.lampiran.length} file` : '';
@@ -1428,6 +1317,7 @@ export class DisposisiService {
         dto.tanggal_agenda !== undefined ||
         dto.surat_dari !== undefined ||
         dto.klasifikasi !== undefined ||
+        dto.disposisi !== undefined ||
         dto.catatan !== undefined ||
         dto.paraf !== undefined;
 
@@ -1446,6 +1336,7 @@ export class DisposisiService {
           if (dto.tanggal_agenda !== undefined) existingDi.tanggalAgenda = new Date(dto.tanggal_agenda);
           if (dto.surat_dari !== undefined) existingDi.suratDari = dto.surat_dari;
           if (dto.klasifikasi !== undefined) existingDi.klasifikasi = dto.klasifikasi;
+          if (dto.disposisi !== undefined) existingDi.disposisi = dto.disposisi;
           if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
           if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
 
@@ -1453,9 +1344,6 @@ export class DisposisiService {
           if (dto.tanggal_disposisi) existingDi.tanggal = new Date(dto.tanggal_disposisi);
           if (dto.ref_nomor_surat) existingDi.nomor = dto.ref_nomor_surat;
           if (dto.ref_perihal_surat) existingDi.perihal = dto.ref_perihal_surat;
-          if (dto.petunjuk_disposisi) {
-            existingDi.disposisi = JSON.stringify(dto.petunjuk_disposisi);
-          }
 
           await queryRunner.manager.save(existingDi);
         } else {
@@ -1473,7 +1361,7 @@ export class DisposisiService {
             perihal: dto.ref_perihal_surat || '',
             klasifikasi: dto.klasifikasi || '',
             kepadaYth: '', // Will be filled from penerima
-            disposisi: dto.petunjuk_disposisi ? JSON.stringify(dto.petunjuk_disposisi) : '',
+            disposisi: dto.disposisi || '',
             catatan: dto.catatan || '',
             paraf: dto.paraf || '',
           });
@@ -1527,7 +1415,8 @@ export class DisposisiService {
       sifat: dto.sifat,
       ref_nomor_surat: dto.ref_nomor_surat,
       ref_perihal_surat: dto.ref_perihal_surat,
-      petunjuk_disposisi: dto.petunjuk_disposisi,
+      disposisi: dto.disposisi,
+      catatan: dto.catatan,
       lampiran: dto.lampiran,
       action: 'kirim', // Force action = kirim untuk send-draft
       kop_logo: dto.kop_logo,
@@ -1537,7 +1426,6 @@ export class DisposisiService {
       tanggal_agenda: dto.tanggal_agenda,
       surat_dari: dto.surat_dari,
       klasifikasi: dto.klasifikasi,
-      catatan: dto.catatan,
       paraf: dto.paraf,
     };
 
