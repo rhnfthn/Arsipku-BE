@@ -286,6 +286,41 @@ export class DisposisiService {
   }
 
   // ============================================================
+  // HELPER - VALIDATE RECIPIENTS
+  // ============================================================
+
+  /**
+   * Validate that all penerima_position_ids are valid recipients
+   * based on filterByPositionDispo (only bawahan allowed)
+   * 
+   * @throws ForbiddenException if any penerima is not a valid recipient
+   */
+  private validateRecipients(
+    barisData: PositionData[],
+    pengirimPositionId: number,
+    penerimaPositionIds: number[],
+  ): void {
+    // Get valid recipients for this sender
+    const validRecipients = this.filterByPositionDispo(barisData, pengirimPositionId);
+    const validPositionIds = new Set(validRecipients.map((r) => Number(r.position)));
+
+    // Check each penerima
+    const invalidRecipients: number[] = [];
+    for (const penerimaId of penerimaPositionIds) {
+      if (!validPositionIds.has(Number(penerimaId))) {
+        invalidRecipients.push(penerimaId);
+      }
+    }
+
+    if (invalidRecipients.length > 0) {
+      throw new ForbiddenException(
+        `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
+        `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
+      );
+    }
+  }
+
+  // ============================================================
   // SEND MESSAGE METHODS
   // ============================================================
 
@@ -493,6 +528,9 @@ export class DisposisiService {
         }
         penerimaDataList.push(penerimaData);
       }
+
+      // Validate recipients: hanya bawahan yang valid (dari get-recipient)
+      this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
 
       // PHASE 3: Insert naskah
       const naskahId = uuidv4();
@@ -753,6 +791,9 @@ export class DisposisiService {
         }
         penerimaDataList.push(penerimaData);
       }
+
+      // Validate recipients: hanya bawahan yang valid (dari get-recipient)
+      this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
 
       // PHASE 3: Insert naskah with status 'draf'
       const naskahId = uuidv4();
@@ -1287,6 +1328,9 @@ export class DisposisiService {
 
       // PHASE 5: Update penerima (jika ada perubahan)
       if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+        // Validate recipients: hanya bawahan yang valid (dari get-recipient)
+        this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
+
         // Validasi semua penerima baru
         const penerimaDataList: PositionData[] = [];
         for (const penerimaId of dto.penerima_position_ids) {
