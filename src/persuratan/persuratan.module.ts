@@ -12,6 +12,7 @@ import { NaskahLampiranEntity } from './entity/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from './entity/naskah_referensi.entity';
 import { NaskahEntity } from './entity/naskah.entity';
 import { NdEntity } from './entity/nd.entity';
+import { DiEntity } from './entity/di.entity';
 import { SdiSdeEntity } from './entity/sdi_sde.entity';
 
 import { LabelService } from './services/label.service';
@@ -74,6 +75,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
       NaskahReferensiEntity,
       NaskahEntity,
       NdEntity,
+      DiEntity,
       SdiSdeEntity,
       Person,
       RelationSp,

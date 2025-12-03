@@ -22,6 +22,10 @@ import {
   UpdateDraftDisposisiDto,
   UpdateDraftDisposisiResponseDto,
 } from '../dto/disposisi/update-draft-disposisi.dto';
+import {
+  SendDraftDisposisiDto,
+  SendDraftDisposisiResponseDto,
+} from '../dto/disposisi/send-draft-disposisi.dto';
 
 @Controller('DI')
 export class DisposisiController {
@@ -239,7 +243,53 @@ export class DisposisiController {
   }
 
   /**
-   * PUT /DI/update-draft
+   * PUT /DI/send-draft/:id
+   * Kirim draft disposisi (mengubah status dari draf ke final)
+   *
+   * Kondisi: User sudah membuat disposisi sebagai draft dan ingin mengirim
+   *
+   * Deskripsi: Sama seperti update-draft tapi dengan status langsung 'final'.
+   * - Bisa update semua field sekaligus kirim
+   * - Hanya naskah dengan status 'draf' yang bisa dikirim
+   * - Hanya pengirim asli yang bisa mengirim
+   * - Akan set status = 'final' dan is_draft = false pada semua sirkulasi
+   *
+   * @param id - ID Naskah (UUID)
+   * @param dto - SendDraftDisposisiDto (sama seperti UpdateDraftDisposisiDto tanpa id_naskah dan action)
+   * @returns SendDraftDisposisiResponseDto
+   *
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 403 - Forbidden (bukan draft atau bukan pengirim asli)
+   * @throws 500 - Internal Server Error
+   */
+  @Put('send-draft/:id')
+  async sendDraft(
+    @Param('id') id: string,
+    @Body() dto: SendDraftDisposisiDto,
+  ): Promise<SendDraftDisposisiResponseDto> {
+    try {
+      return await this.disposisiService.sendDraft(id, dto);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to send draft disposisi',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * PUT /DI/update-draft/:id
    * Update disposisi yang masih berstatus draft
    *
    * Kondisi: User sudah membuat disposisi sebagai draft dan ingin mengupdate
@@ -249,6 +299,7 @@ export class DisposisiController {
    * - Hanya pengirim asli yang bisa mengupdate
    * - Jika action = 'kirim', status akan berubah menjadi 'final'
    *
+   * @param id - ID Naskah (UUID) dari path parameter
    * @param dto - UpdateDraftDisposisiDto
    * @returns UpdateDraftDisposisiResponseDto
    *
@@ -256,12 +307,13 @@ export class DisposisiController {
    * @throws 403 - Forbidden (bukan draft atau bukan pengirim asli)
    * @throws 500 - Internal Server Error
    */
-  @Put('update-draft')
+  @Put('update-draft/:id')
   async updateDraft(
+    @Param('id') id: string,
     @Body() dto: UpdateDraftDisposisiDto,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     try {
-      return await this.disposisiService.updateDraft(dto);
+      return await this.disposisiService.updateDraft(id, dto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
