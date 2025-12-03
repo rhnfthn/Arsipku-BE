@@ -8,7 +8,6 @@ import {
   ValidateNested,
   IsDateString,
   IsNumber,
-  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -19,13 +18,9 @@ import {
 
 /**
  * DTO untuk update disposisi yang masih draft
+ * id_naskah diambil dari path parameter
  */
 export class UpdateDraftDisposisiDto {
-  // ID Naskah yang akan diupdate
-  @IsNotEmpty({ message: 'ID Naskah harus diisi' })
-  @IsUUID('4', { message: 'ID Naskah harus berupa UUID' })
-  id_naskah: string;
-
   // Pengirim - menggunakan position_id (untuk validasi ownership)
   @IsNotEmpty({ message: 'Position ID pengirim harus diisi' })
   @IsNumber({}, { message: 'Position ID pengirim harus berupa number' })

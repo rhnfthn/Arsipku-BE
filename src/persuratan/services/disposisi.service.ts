@@ -38,6 +38,10 @@ import {
   UpdateDraftDisposisiDto,
   UpdateDraftDisposisiResponseDto,
 } from '../dto/disposisi/update-draft-disposisi.dto';
+import {
+  SendDraftDisposisiDto,
+  SendDraftDisposisiResponseDto,
+} from '../dto/disposisi/send-draft-disposisi.dto';
 import { OrgDataService } from 'src/org_data/org_data.service';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -1235,17 +1239,21 @@ export class DisposisiService {
    * 5. Update naskah_sirkulasi penerima (hapus lama, insert baru)
    * 6. Update naskah_lampiran (hapus lama, insert baru)
    * 7. Jika action = 'kirim', ubah status jadi 'final'
+   * 
+   * @param naskahId - ID Naskah dari path parameter
+   * @param dto - UpdateDraftDisposisiDto
    */
   async updateDraft(
+    naskahId: string,
     dto: UpdateDraftDisposisiDto,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     // PHASE 1: Validasi naskah exists dan status draft
     const naskah = await this.naskahRepository.findOne({
-      where: { id: dto.id_naskah },
+      where: { id: naskahId },
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${dto.id_naskah} tidak ditemukan`);
+      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
     }
 
     if (naskah.status !== 'draf') {
@@ -1263,13 +1271,13 @@ export class DisposisiService {
     // PHASE 2: Validasi pengirim adalah owner naskah
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: {
-        idNaskah: dto.id_naskah,
+        idNaskah: naskahId,
         sirkuler: 'pengirim',
       },
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${dto.id_naskah}`);
+      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
     }
 
     if (String(pengirimSirkulasi.position) !== String(dto.pengirim_position_id)) {
@@ -1312,7 +1320,7 @@ export class DisposisiService {
       // PHASE 4: Update naskah_referensi (jika ada perubahan)
       if (dto.ref_nomor_surat || dto.ref_perihal_surat) {
         const naskahReferensi = await this.naskahReferensiRepository.findOne({
-          where: { id_naskah: dto.id_naskah },
+          where: { id_naskah: naskahId },
         });
 
         if (naskahReferensi) {
@@ -1345,7 +1353,7 @@ export class DisposisiService {
 
         // Hapus penerima lama
         await queryRunner.manager.delete(NaskahSirkulasi, {
-          idNaskah: dto.id_naskah,
+          idNaskah: naskahId,
           sirkuler: 'penerima',
         });
 
@@ -1353,7 +1361,7 @@ export class DisposisiService {
         for (const penerima of penerimaDataList) {
           const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
             id: uuidv4(),
-            idNaskah: dto.id_naskah,
+            idNaskah: naskahId,
             sirkuler: 'penerima',
             company: String(penerima.company || COMPANY_ID),
             companyText: penerima.company_name || 'PERUM LPPNPI',
@@ -1378,7 +1386,7 @@ export class DisposisiService {
       if (!isDraft) {
         await queryRunner.manager.update(
           NaskahSirkulasi,
-          { idNaskah: dto.id_naskah, sirkuler: 'pengirim' },
+          { idNaskah: naskahId, sirkuler: 'pengirim' },
           { isDraft: false },
         );
         
@@ -1386,7 +1394,7 @@ export class DisposisiService {
         if (!dto.penerima_position_ids || dto.penerima_position_ids.length === 0) {
           await queryRunner.manager.update(
             NaskahSirkulasi,
-            { idNaskah: dto.id_naskah, sirkuler: 'penerima' },
+            { idNaskah: naskahId, sirkuler: 'penerima' },
             { isDraft: false },
           );
         }
@@ -1396,14 +1404,14 @@ export class DisposisiService {
       if (dto.lampiran) {
         // Hapus lampiran lama
         await queryRunner.manager.delete(NaskahLampiranEntity, {
-          id_naskah: dto.id_naskah,
+          id_naskah: naskahId,
         });
 
         // Insert lampiran baru
         for (const lamp of dto.lampiran) {
           const lampiran = new NaskahLampiranEntity();
           lampiran.id = uuidv4();
-          lampiran.id_naskah = dto.id_naskah;
+          lampiran.id_naskah = naskahId;
           lampiran.file_name = lamp.nama_file;
           lampiran.file_pdf = lamp.url;
           lampiran.jenis = 'DI';
@@ -1426,7 +1434,7 @@ export class DisposisiService {
       if (hasDiFields) {
         // Cek apakah sudah ada data di tabel "di"
         const existingDi = await this.diRepository.findOne({
-          where: { idNaskah: dto.id_naskah },
+          where: { idNaskah: naskahId },
         });
 
         if (existingDi) {
@@ -1453,7 +1461,7 @@ export class DisposisiService {
         } else {
           // Insert data baru
           const diEntity = this.diRepository.create({
-            idNaskah: dto.id_naskah,
+            idNaskah: naskahId,
             kopLogo: dto.kop_logo || '',
             kopJudul: dto.kop_judul || '',
             namaJabatan: dto.nama_jabatan || '',
@@ -1482,7 +1490,7 @@ export class DisposisiService {
           ? 'Draft disposisi berhasil diupdate'
           : 'Disposisi berhasil diupdate dan dikirim',
         data: {
-          id_naskah: dto.id_naskah,
+          id_naskah: naskahId,
           status: isDraft ? 'draf' : 'final',
           updated_at: new Date(),
         },
@@ -1501,99 +1509,50 @@ export class DisposisiService {
 
   /**
    * Send Draft - Kirim disposisi yang masih draft (ubah status menjadi final)
+   * Sama seperti updateDraft tapi dengan action = 'kirim' (status final)
    *
-   * @param naskahId - ID Naskah yang akan dikirim
-   * @param pengirimPositionId - Position ID pengirim untuk validasi ownership
+   * @param naskahId - ID Naskah yang akan dikirim (dari path param)
+   * @param dto - SendDraftDisposisiDto (sama seperti UpdateDraftDisposisiDto tanpa id_naskah dan action)
    * @returns SendDraftDisposisiResponseDto
    */
   async sendDraft(
     naskahId: string,
-    pengirimPositionId: number,
-  ): Promise<{
-    success: boolean;
-    message: string;
-    data?: {
-      id_naskah: string;
-      status: 'final';
-      updated_at: Date;
+    dto: SendDraftDisposisiDto,
+  ): Promise<SendDraftDisposisiResponseDto> {
+    // Konversi ke UpdateDraftDisposisiDto dengan action = 'kirim'
+    const updateDto: UpdateDraftDisposisiDto = {
+      pengirim_position_id: dto.pengirim_position_id,
+      penerima_position_ids: dto.penerima_position_ids,
+      tanggal_disposisi: dto.tanggal_disposisi,
+      sifat: dto.sifat,
+      ref_nomor_surat: dto.ref_nomor_surat,
+      ref_perihal_surat: dto.ref_perihal_surat,
+      petunjuk_disposisi: dto.petunjuk_disposisi,
+      lampiran: dto.lampiran,
+      action: 'kirim', // Force action = kirim untuk send-draft
+      kop_logo: dto.kop_logo,
+      kop_judul: dto.kop_judul,
+      nama_jabatan: dto.nama_jabatan,
+      nomor_agenda: dto.nomor_agenda,
+      tanggal_agenda: dto.tanggal_agenda,
+      surat_dari: dto.surat_dari,
+      klasifikasi: dto.klasifikasi,
+      catatan: dto.catatan,
+      paraf: dto.paraf,
     };
-  }> {
-    // PHASE 1: Validasi naskah exists dan status draft
-    const naskah = await this.naskahRepository.findOne({
-      where: { id: naskahId },
-    });
 
-    if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
-    }
+    // Panggil updateDraft dengan naskahId dan action = 'kirim'
+    const result = await this.updateDraft(naskahId, updateDto);
 
-    if (naskah.status !== 'draf') {
-      throw new ForbiddenException(
-        `Naskah tidak bisa dikirim karena status sudah '${naskah.status}'. Hanya naskah dengan status 'draf' yang bisa dikirim.`,
-      );
-    }
-
-    if (naskah.jenis !== 'DI') {
-      throw new ForbiddenException(
-        `Naskah ini bukan disposisi (jenis: ${naskah.jenis}). API ini hanya untuk kirim disposisi.`,
-      );
-    }
-
-    // PHASE 2: Validasi pengirim adalah owner naskah
-    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
-      where: {
-        idNaskah: naskahId,
-        sirkuler: 'pengirim',
-      },
-    });
-
-    if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
-    }
-
-    if (String(pengirimSirkulasi.position) !== String(pengirimPositionId)) {
-      throw new ForbiddenException(
-        `Anda tidak memiliki akses untuk mengirim naskah ini. Hanya pengirim asli yang bisa mengirim.`,
-      );
-    }
-
-    // Start transaction
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // PHASE 3: Update status naskah menjadi 'final'
-      await queryRunner.manager.update(
-        NaskahEntity,
-        { id: naskahId },
-        { status: 'final' },
-      );
-
-      // PHASE 4: Update isDraft = false pada semua sirkulasi
-      await queryRunner.manager.update(
-        NaskahSirkulasi,
-        { idNaskah: naskahId },
-        { isDraft: false },
-      );
-
-      // Commit transaction
-      await queryRunner.commitTransaction();
-
-      return {
-        success: true,
-        message: 'Draft disposisi berhasil dikirim',
-        data: {
-          id_naskah: naskahId,
-          status: 'final',
-          updated_at: new Date(),
-        },
-      };
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    // Return dengan format SendDraftDisposisiResponseDto
+    return {
+      success: result.success,
+      message: 'Draft disposisi berhasil dikirim',
+      data: result.data ? {
+        id_naskah: result.data.id_naskah,
+        status: 'final',
+        updated_at: result.data.updated_at,
+      } : undefined,
+    };
   }
 }
