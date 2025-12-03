@@ -147,17 +147,48 @@ export class NotaDinasService {
       throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`);
     }
 
-    // PHASE 3: Validate all penerima from org_data
+    // PHASE 3: Get valid recipients using filterByPositionNodin
+    // Nota Dinas hanya bisa dikirim ke: ATASAN langsung, BAWAHAN langsung, atau REKAN (satu induk, satu sub_area)
+    const validRecipients = this.filterByPositionNodin(barisData, dto.pengirim);
+    const allValidPositionIds = [
+      ...validRecipients.ATASAN.map((x) => Number(x.position)),
+      ...validRecipients.REKAN.map((x) => Number(x.position)),
+      ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
+    ];
+
+    // PHASE 4: Validate all penerima - must be in valid recipients list
     const penerimaList: OrgDataPositionDto[] = [];
     for (const posId of dto.penerima) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
       if (!penerima) {
         throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
       }
+      
+      // Check if penerima is managerial
+      if (penerima.chief !== 1) {
+        throw new ForbiddenException(
+          `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). Nota Dinas hanya dapat dikirim ke managerial.`
+        );
+      }
+      
+      // Check if penerima is in valid recipients (ATASAN/REKAN/BAWAHAN)
+      if (!allValidPositionIds.includes(Number(posId))) {
+        // Determine relationship for better error message
+        let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+        
+        // Check if different sub_area
+        if (penerima.sub_area !== pengirim.sub_area) {
+          errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
+        }
+        
+        throw new BadRequestException(errorMsg);
+      }
+      
       penerimaList.push(penerima);
     }
 
-    // PHASE 4: Validate tembusan from org_data (if any)
+    // PHASE 5: Validate tembusan from org_data (if any)
+    // Tembusan juga harus dalam valid recipients (ATASAN/REKAN/BAWAHAN)
     const tembusanList: OrgDataPositionDto[] = [];
     if (dto.tembusan && dto.tembusan.length > 0) {
       for (const posId of dto.tembusan) {
@@ -165,6 +196,25 @@ export class NotaDinasService {
         if (!tembusan) {
           throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
         }
+        
+        // Check if tembusan is managerial
+        if (tembusan.chief !== 1) {
+          throw new ForbiddenException(
+            `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`
+          );
+        }
+        
+        // Check if tembusan is in valid recipients (ATASAN/REKAN/BAWAHAN)
+        if (!allValidPositionIds.includes(Number(posId))) {
+          let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+          
+          if (tembusan.sub_area !== pengirim.sub_area) {
+            errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
+          }
+          
+          throw new BadRequestException(errorMsg);
+        }
+        
         tembusanList.push(tembusan);
       }
     }
@@ -175,12 +225,12 @@ export class NotaDinasService {
     await queryRunner.startTransaction();
 
     try {
-      // PHASE 5: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
+      // PHASE 6: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
       const nomorSurat = status === 'draf' 
         ? `DRAFT-${Date.now()}` 
         : await this.generateNomorSurat(dto.klasifikasi, pengirim.sub_area ?? 0);
 
-      // PHASE 6: Insert naskah
+      // PHASE 7: Insert naskah
       const naskahId = uuidv4();
       const tanggalHariIni = new Date();
 
@@ -204,11 +254,11 @@ export class NotaDinasService {
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
-      // PHASE 7: Insert sirkulasi - pengirim
+      // PHASE 8: Insert sirkulasi - pengirim
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft);
       await queryRunner.manager.save(pengirimSirkulasi);
 
-      // PHASE 8: Insert sirkulasi - penerima
+      // PHASE 9: Insert sirkulasi - penerima
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (const penerima of penerimaList) {
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft);
@@ -216,7 +266,7 @@ export class NotaDinasService {
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
 
-      // PHASE 9: Insert sirkulasi - tembusan
+      // PHASE 10: Insert sirkulasi - tembusan
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (const tembusan of tembusanList) {
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft);
@@ -224,7 +274,7 @@ export class NotaDinasService {
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
       }
 
-      // PHASE 10: Insert lampiran (if any)
+      // PHASE 11: Insert lampiran (if any)
       if (dto.lampiran_files && dto.lampiran_files.length > 0) {
         for (const filePath of dto.lampiran_files) {
           const fileName = filePath.split('/').pop() || filePath;
@@ -239,7 +289,7 @@ export class NotaDinasService {
         }
       }
 
-      // PHASE 11: Insert ke tabel nd (konten lengkap Nota Dinas)
+      // PHASE 12: Insert ke tabel nd (konten lengkap Nota Dinas)
       const kepadaYthList = penerimaList.map(
         (p) => `${p.position_text} - ${p.organization_text}`
       );
@@ -537,7 +587,19 @@ export class NotaDinasService {
           }
         }
 
-        // Validate penerima
+        // Get valid recipients based on pengirim position
+        // Nota Dinas hanya bisa dikirim ke: ATASAN langsung, BAWAHAN langsung, atau REKAN (satu induk, satu sub_area)
+        let allValidPositionIds: number[] = [];
+        if (pengirimPosition) {
+          const validRecipients = this.filterByPositionNodin(barisData, Number(pengirimPosition.position));
+          allValidPositionIds = [
+            ...validRecipients.ATASAN.map((x) => Number(x.position)),
+            ...validRecipients.REKAN.map((x) => Number(x.position)),
+            ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
+          ];
+        }
+
+        // Validate penerima - must be in valid recipients list
         let penerimaList: OrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -545,6 +607,25 @@ export class NotaDinasService {
             if (!penerima) {
               throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
             }
+            
+            // Check if penerima is managerial
+            if (penerima.chief !== 1) {
+              throw new ForbiddenException(
+                `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). Nota Dinas hanya dapat dikirim ke managerial.`
+              );
+            }
+            
+            // Check if penerima is in valid recipients (ATASAN/REKAN/BAWAHAN)
+            if (!allValidPositionIds.includes(Number(posId))) {
+              let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+              
+              if (pengirimPosition && penerima.sub_area !== pengirimPosition.sub_area) {
+                errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
+              }
+              
+              throw new BadRequestException(errorMsg);
+            }
+            
             penerimaList.push(penerima);
           }
         } else {
@@ -559,6 +640,7 @@ export class NotaDinasService {
         }
 
         // Validate tembusan - if not provided, tembusan will be EMPTY (destroyed)
+        // Tembusan juga harus dalam valid recipients (ATASAN/REKAN/BAWAHAN)
         let tembusanList: OrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -566,6 +648,25 @@ export class NotaDinasService {
             if (!tembusan) {
               throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
             }
+            
+            // Check if tembusan is managerial
+            if (tembusan.chief !== 1) {
+              throw new ForbiddenException(
+                `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`
+              );
+            }
+            
+            // Check if tembusan is in valid recipients (ATASAN/REKAN/BAWAHAN)
+            if (!allValidPositionIds.includes(Number(posId))) {
+              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+              
+              if (pengirimPosition && tembusan.sub_area !== pengirimPosition.sub_area) {
+                errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
+              }
+              
+              throw new BadRequestException(errorMsg);
+            }
+            
             tembusanList.push(tembusan);
           }
         }
@@ -946,7 +1047,7 @@ export class NotaDinasService {
 
     const positionIdStr = String(positionId);
 
-    // Get all naskah where position is pengirim and jenis = ND
+    // Get all naskah where position is pengirim, jenis = ND, and status = final or final_tte
     const sentNaskahList = await this.naskahSirkulasiRepository
       .createQueryBuilder('sirkulasi')
       .innerJoin(NaskahEntity, 'naskah', 'naskah.id = sirkulasi.idNaskah')
@@ -968,6 +1069,7 @@ export class NotaDinasService {
       .where('sirkulasi.position = :positionId', { positionId: positionIdStr })
       .andWhere('sirkulasi.sirkuler = :type', { type: 'pengirim' })
       .andWhere('naskah.jenis = :jenis', { jenis: 'ND' })
+      .andWhere('naskah.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .orderBy('naskah.tanggal', 'DESC')
       .getRawMany();
 
