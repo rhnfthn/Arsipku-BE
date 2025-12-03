@@ -96,7 +96,7 @@ export class NotaDinasService {
     pos: OrgDataPositionDto,
     isDraft: boolean = false,
   ): NaskahSirkulasi {
-    return this.naskahSirkulasiRepository.create({
+    const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
       sirkuler,
@@ -111,10 +111,23 @@ export class NotaDinasService {
       position: String(pos.position),
       positionText: pos.position_text,
       positionStatus: 'ybs',
-      idSirkuler: String(pos.persnum_person ?? ''),
-      namaSirkuler: pos.persnum_person_text ?? '',
+      // Ensure idSirkuler and namaSirkuleri are always populated.
+      // Prefer persnum_person/persnum_person_text, fallback to position/position_text if persnum/nama are missing.
+      idSirkuler: String(pos.persnum_person ?? pos.position ?? ''),
+      namaSirkuler: pos.persnum_person_text ?? pos.position_text ?? '',
       isDraft: isDraft,
     });
+
+    console.log('[ND createSirkulasiFromOrgData] sirkulasi ->', {
+      id: sirkulasi.id,
+      position: sirkulasi.position,
+      idSirkuler: sirkulasi.idSirkuler,
+      namaSirkuler: sirkulasi.namaSirkuler,
+      sirkuler: sirkulasi.sirkuler,
+      isDraft: sirkulasi.isDraft,
+    });
+
+    return sirkulasi;
   }
 
   /**

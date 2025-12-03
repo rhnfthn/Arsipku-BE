@@ -67,7 +67,7 @@ export class SuratDinasInternalService {
     pos: SdiOrgDataPositionDto,
     isDraft: boolean = false,
   ): NaskahSirkulasi {
-    return this.naskahSirkulasiRepository.create({
+    const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
       sirkuler,
@@ -82,10 +82,25 @@ export class SuratDinasInternalService {
       position: String(pos.position),
       positionText: pos.position_text,
       positionStatus: 'ybs',
-      idSirkuler: String(pos.persnum ?? ''),
-      namaSirkuler: pos.nama ?? '',
+      // Ensure idSirkuler and namaSirkuler are always populated.
+      // Prefer persnum_person/persnum_person_text, then persnum/nama, then fallback to position/position_text
+        // Use persnum_person if available (employee in the position), otherwise fall back to persnum or position
+        idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
+        namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
     });
+
+    // Debug log so we can quickly check what values are being saved
+    console.log('[createSirkulasiFromOrgData] sirkulasi ->', {
+      id: sirkulasi.id,
+      position: sirkulasi.position,
+      idSirkuler: sirkulasi.idSirkuler,
+      namaSirkuler: sirkulasi.namaSirkuler,
+      sirkuler: sirkulasi.sirkuler,
+      isDraft: sirkulasi.isDraft,
+    });
+
+    return sirkulasi;
   }
 
   /**
