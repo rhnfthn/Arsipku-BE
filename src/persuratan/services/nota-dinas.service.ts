@@ -9,7 +9,7 @@ import {
   NotaDinasRecipientResponseDto,
   OrgDataPositionDto,
 } from '../dto/nota-dinas/nota-dinas-recipient-response.dto';
-import { CreateNotaDinasDto, UpdateDraftDto } from '../dto/nota-dinas/create-nota-dinas.dto';
+import { CreateNotaDinasDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/nota-dinas/create-nota-dinas.dto';
 import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/nota-dinas/send-message-response.dto';
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto } from '../dto/nota-dinas/get-send-message.dto';
 import { OrgDataService } from 'src/org_data/org_data.service';
@@ -96,7 +96,7 @@ export class NotaDinasService {
     pos: OrgDataPositionDto,
     isDraft: boolean = false,
   ): NaskahSirkulasi {
-    return this.naskahSirkulasiRepository.create({
+    const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
       sirkuler,
@@ -111,10 +111,23 @@ export class NotaDinasService {
       position: String(pos.position),
       positionText: pos.position_text,
       positionStatus: 'ybs',
-      idSirkuler: String(pos.persnum_person ?? ''),
-      namaSirkuler: pos.persnum_person_text ?? '',
+      // Ensure idSirkuler and namaSirkuleri are always populated.
+      // Prefer persnum_person/persnum_person_text, fallback to position/position_text if persnum/nama are missing.
+      idSirkuler: String(pos.persnum_person ?? pos.position ?? ''),
+      namaSirkuler: pos.persnum_person_text ?? pos.position_text ?? '',
       isDraft: isDraft,
     });
+
+    console.log('[ND createSirkulasiFromOrgData] sirkulasi ->', {
+      id: sirkulasi.id,
+      position: sirkulasi.position,
+      idSirkuler: sirkulasi.idSirkuler,
+      namaSirkuler: sirkulasi.namaSirkuler,
+      sirkuler: sirkulasi.sirkuler,
+      isDraft: sirkulasi.isDraft,
+    });
+
+    return sirkulasi;
   }
 
   /**
@@ -365,14 +378,15 @@ export class NotaDinasService {
   }
 
   /**
-   * Finalize Draft - Update status dari draf ke final/final_tte
-   * - Generate nomor surat resmi
-   * - Update status naskah
-   * - Update tanda_tangan di tabel nd (jika ada)
+   * Finalize Draft - Clone dari updateDraft + finalization
+   * - Update semua data yang diinput (sama seperti updateDraft)
+   * - Generate nomor surat resmi (ganti DRAFT-xxx)
+   * - Update status: draf -> final (tanpa tanda_tangan) atau final_tte (dengan tanda_tangan)
+   * - Update isDraft = false pada semua sirkulasi
    */
   async finalizeDraft(
     naskahId: string,
-    tanda_tangan?: string,
+    dto: FinalizeDraftDto,
   ): Promise<SendMessageResponseDto> {
     // PHASE 1: Get existing naskah
     const naskah = await this.naskahRepository.findOne({
@@ -391,22 +405,64 @@ export class NotaDinasService {
       throw new BadRequestException(`Naskah bukan Nota Dinas (ND)`);
     }
 
-    // PHASE 2: Get pengirim from sirkulasi untuk generate nomor
-    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
-      where: { idNaskah: naskahId, sirkuler: 'pengirim' },
-    });
+    // Use provided date or today for org_data lookup
+    const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
-    if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
+    // PHASE 2: Get org_data if we need to update sirkulasi
+    let barisData: OrgDataPositionDto[] = [];
+    if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        throw new NotFoundException(
+          `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate via GET /org-data?tgl=${tanggal}`,
+        );
+      }
+      barisData = orgData.position_json;
     }
 
-    const subArea = parseInt(pengirimSirkulasi.subArea || '0', 10);
+    // PHASE 3: Get pengirim data for nomor surat generation
+    // First, determine final pengirim position
+    let pengirimPosition: OrgDataPositionDto | undefined;
+    if (dto.pengirim !== undefined) {
+      // Need to load org_data if not loaded yet
+      if (barisData.length === 0) {
+        const orgData = await this.orgDataService.findOrg(tanggal);
+        if (!orgData || !orgData.position_json) {
+          throw new NotFoundException(
+            `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate via GET /org-data?tgl=${tanggal}`,
+          );
+        }
+        barisData = orgData.position_json;
+      }
+      pengirimPosition = barisData.find((x) => Number(x.position) === Number(dto.pengirim));
+      if (!pengirimPosition) {
+        throw new NotFoundException(`Pengirim dengan positionId ${dto.pengirim} tidak ditemukan dalam org_data`);
+      }
+      if (pengirimPosition.chief !== 1) {
+        throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`);
+      }
+    } else {
+      // Get existing pengirim from sirkulasi
+      const existingPengirim = await this.naskahSirkulasiRepository.findOne({
+        where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+      });
+      if (!existingPengirim) {
+        throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
+      }
+      // Get subArea from existing sirkulasi
+      pengirimPosition = {
+        position: Number(existingPengirim.position),
+        sub_area: Number(existingPengirim.subArea),
+      } as OrgDataPositionDto;
+    }
 
-    // PHASE 3: Generate nomor surat resmi (before transaction)
-    const nomorSurat = await this.generateNomorSurat(naskah.klasifikasi || '', subArea);
+    // PHASE 4: Generate nomor surat resmi
+    const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
+    const subArea = pengirimPosition?.sub_area ?? 0;
+    const nomorSurat = await this.generateNomorSurat(klasifikasi, Number(subArea));
 
-    // PHASE 4: Determine new status
-    const newStatus = tanda_tangan ? 'final_tte' : 'final';
+    // PHASE 5: Determine new status
+    const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -414,32 +470,193 @@ export class NotaDinasService {
     await queryRunner.startTransaction();
 
     try {
-      // PHASE 5: Update naskah
-      await queryRunner.manager.update(
-        NaskahEntity,
-        { id: naskahId },
-        {
-          nomor: nomorSurat,
-          status: newStatus,
-        },
-      );
+      // PHASE 6: Update naskah table (all fields + finalization fields)
+      const naskahUpdateData: Partial<NaskahEntity> = {
+        nomor: nomorSurat,
+        status: newStatus,
+      };
+      if (dto.klasifikasi !== undefined) naskahUpdateData.klasifikasi = dto.klasifikasi;
+      if (dto.klasifikasi_text !== undefined) naskahUpdateData.klasifikasi_text = dto.klasifikasi_text;
+      if (dto.sifat !== undefined) naskahUpdateData.sifat = dto.sifat;
+      if (dto.perihal !== undefined) naskahUpdateData.perihal = dto.perihal;
+      if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
+      if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
+      if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
-      // PHASE 6: Update nd table (nomor dan tanda_tangan)
-      await queryRunner.manager.update(
-        NdEntity,
-        { idNaskah: naskahId },
-        {
-          nomor: nomorSurat,
-          tandaTangan: tanda_tangan || null,
-        },
-      );
+      await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
 
-      // PHASE 7: Update sirkulasi - set is_draft = false
-      await queryRunner.manager.update(
-        NaskahSirkulasi,
-        { idNaskah: naskahId },
-        { isDraft: false },
-      );
+      // PHASE 7: Update nd table
+      const ndUpdateData: Partial<NdEntity> = {
+        nomor: nomorSurat,
+        tandaTangan: dto.tanda_tangan || null,
+      };
+      if (dto.kop_logo !== undefined) ndUpdateData.kopLogo = dto.kop_logo;
+      if (dto.kop_nama !== undefined) ndUpdateData.kopNama = dto.kop_nama;
+      if (dto.alamat_perusahaan !== undefined) ndUpdateData.alamatPerusahaan = dto.alamat_perusahaan;
+      if (dto.perihal !== undefined) ndUpdateData.perihal = dto.perihal;
+      if (dto.konten !== undefined) ndUpdateData.konten = dto.konten;
+      if (dto.nama_tempat !== undefined) ndUpdateData.namaTempat = dto.nama_tempat;
+      if (dto.nama_jabatan !== undefined) ndUpdateData.namaJabatan = dto.nama_jabatan;
+      if (dto.nama_lengkap !== undefined) ndUpdateData.namaLengkap = dto.nama_lengkap;
+
+      await queryRunner.manager.update(NdEntity, { idNaskah: naskahId }, ndUpdateData);
+
+      // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
+      if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
+        // Get valid recipients based on pengirim position
+        let allValidPositionIds: number[] = [];
+        if (barisData.length > 0 && pengirimPosition) {
+          const validRecipients = this.filterByPositionNodin(barisData, Number(pengirimPosition.position));
+          allValidPositionIds = [
+            ...validRecipients.ATASAN.map((x) => Number(x.position)),
+            ...validRecipients.REKAN.map((x) => Number(x.position)),
+            ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
+          ];
+        }
+
+        // Validate penerima
+        let penerimaList: OrgDataPositionDto[] = [];
+        if (dto.penerima !== undefined) {
+          for (const posId of dto.penerima) {
+            const penerima = barisData.find((x) => Number(x.position) === Number(posId));
+            if (!penerima) {
+              throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
+            }
+            if (penerima.chief !== 1) {
+              throw new ForbiddenException(
+                `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). Nota Dinas hanya dapat dikirim ke managerial.`
+              );
+            }
+            if (!allValidPositionIds.includes(Number(posId))) {
+              let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+              if (pengirimPosition && penerima.sub_area !== pengirimPosition.sub_area) {
+                errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
+              }
+              throw new BadRequestException(errorMsg);
+            }
+            penerimaList.push(penerima);
+          }
+        } else {
+          // Get existing penerima from sirkulasi
+          const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+            where: { idNaskah: naskahId, sirkuler: 'penerima' },
+          });
+          for (const ep of existingPenerima) {
+            const pos = barisData.find((x) => String(x.position) === ep.position);
+            if (pos) penerimaList.push(pos);
+          }
+        }
+
+        // Validate tembusan
+        let tembusanList: OrgDataPositionDto[] = [];
+        if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
+          for (const posId of dto.tembusan) {
+            const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
+            if (!tembusan) {
+              throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
+            }
+            if (tembusan.chief !== 1) {
+              throw new ForbiddenException(
+                `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`
+              );
+            }
+            if (!allValidPositionIds.includes(Number(posId))) {
+              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
+              if (pengirimPosition && tembusan.sub_area !== pengirimPosition.sub_area) {
+                errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
+              }
+              throw new BadRequestException(errorMsg);
+            }
+            tembusanList.push(tembusan);
+          }
+        }
+
+        // Delete ALL sirkulasi for this naskah
+        await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId });
+
+        // Get full pengirim position data if we only have partial
+        let fullPengirimPosition: OrgDataPositionDto | undefined = pengirimPosition;
+        if (dto.pengirim === undefined && barisData.length > 0) {
+          fullPengirimPosition = barisData.find((x) => Number(x.position) === Number(pengirimPosition?.position));
+        }
+
+        // Re-insert pengirim with is_draft = FALSE (finalized!)
+        if (fullPengirimPosition && fullPengirimPosition.position_text) {
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, false);
+          await queryRunner.manager.save(pengirimSirkulasi);
+
+          // Update nd.dari
+          await queryRunner.manager.update(
+            NdEntity,
+            { idNaskah: naskahId },
+            { dari: `${fullPengirimPosition.position_text} - ${fullPengirimPosition.organization_text}` },
+          );
+        }
+
+        // Re-insert penerima with is_draft = FALSE
+        for (const penerima of penerimaList) {
+          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false);
+          await queryRunner.manager.save(penerimaSirkulasi);
+        }
+
+        // Update nd.kepadaYth
+        const kepadaYthList = penerimaList.map(
+          (p) => `${p.position_text} - ${p.organization_text}`,
+        );
+        await queryRunner.manager.update(
+          NdEntity,
+          { idNaskah: naskahId },
+          { kepadaYth: kepadaYthList.join('; ') },
+        );
+
+        // Re-insert tembusan with is_draft = FALSE
+        for (const tembusan of tembusanList) {
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false);
+          await queryRunner.manager.save(tembusanSirkulasi);
+        }
+
+        // Update nd.tembusan
+        if (tembusanList.length > 0) {
+          const tembusanTextList = tembusanList.map(
+            (t) => `${t.position_text} - ${t.organization_text}`,
+          );
+          await queryRunner.manager.update(
+            NdEntity,
+            { idNaskah: naskahId },
+            { tembusan: tembusanTextList.join('\n') },
+          );
+        } else {
+          await queryRunner.manager.update(
+            NdEntity,
+            { idNaskah: naskahId },
+            { tembusan: null },
+          );
+        }
+      } else {
+        // No sirkulasi changes - just update isDraft = false
+        await queryRunner.manager.update(
+          NaskahSirkulasi,
+          { idNaskah: naskahId },
+          { isDraft: false },
+        );
+      }
+
+      // PHASE 9: Update lampiran if provided
+      if (dto.lampiran_files !== undefined) {
+        await queryRunner.manager.delete(NaskahLampiranEntity, { id_naskah: naskahId });
+        for (const filePath of dto.lampiran_files) {
+          const fileName = filePath.split('/').pop() || filePath;
+          const lampiran = this.naskahLampiranRepository.create({
+            id: uuidv4(),
+            id_naskah: naskahId,
+            file_name: fileName,
+            file_pdf: filePath,
+            jenis: 'ND',
+          });
+          await queryRunner.manager.save(lampiran);
+        }
+      }
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -450,7 +667,11 @@ export class NotaDinasService {
       await queryRunner.release();
     }
 
-    // PHASE 7: Get all sirkulasi for response (after transaction)
+    // PHASE 10: Get updated data for response
+    const updatedNaskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
     });
@@ -459,14 +680,12 @@ export class NotaDinasService {
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
 
-    // Build response
-    // Handle tanggal - bisa Date object atau string
     let tanggalStr = '';
-    if (naskah.tanggal) {
-      if (naskah.tanggal instanceof Date) {
-        tanggalStr = naskah.tanggal.toISOString().split('T')[0];
+    if (updatedNaskah?.tanggal) {
+      if (updatedNaskah.tanggal instanceof Date) {
+        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
       } else {
-        tanggalStr = String(naskah.tanggal).split('T')[0];
+        tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
     }
 
@@ -478,7 +697,7 @@ export class NotaDinasService {
         nomor: nomorSurat,
         tanggal: tanggalStr,
         status: newStatus,
-        perihal: naskah.perihal || '',
+        perihal: updatedNaskah?.perihal || '',
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),

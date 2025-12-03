@@ -97,7 +97,7 @@ CREATE TABLE naskah_sirkulasi (
     organization_text VARCHAR(150),
     position VARCHAR(100),
     position_text VARCHAR(150),
-    position_status ENUM('pyb','pt','ph','ext'),
+    position_status ENUM('ybs','pt','ph','ps','se','vi','ext'),
     id_sirkuler CHAR(36),
     nama_sirkuler VARCHAR(150),
     alamat VARCHAR(255),
@@ -112,7 +112,8 @@ CREATE TABLE naskah_sirkulasi (
 
     flag_favorit BOOLEAN DEFAULT 0,
     flag_note BOOLEAN DEFAULT 0,
-    flag_arsip BOOLEAN DEFAULT 0
+    flag_arsip BOOLEAN DEFAULT 0,
+    is_draft BOOLEAN DEFAULT TRUE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
 -- ===========================================================
