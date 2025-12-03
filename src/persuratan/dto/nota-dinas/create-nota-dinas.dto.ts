@@ -112,11 +112,104 @@ export class CreateNotaDinasDto {
 
 /**
  * DTO untuk Finalize Draft (update status dari draf ke final/final_tte)
+ * Clone dari UpdateDraftDto - bisa update semua field sebelum finalize
+ * Status akan berubah dari draf ke final/final_tte dan isDraft jadi false
  */
 export class FinalizeDraftDto {
+  // ============================================
+  // SIRKULASI
+  // ============================================
+  @IsOptional()
+  pengirim?: number; // positionId pengirim
+
+  @IsOptional()
+  @IsArray()
+  penerima?: number[]; // array positionId penerima
+
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[]; // array positionId tembusan
+
+  // ============================================
+  // KOP NASKAH (KEPALA)
+  // ============================================
+  @IsOptional()
+  @IsString()
+  kop_logo?: string;
+
+  @IsOptional()
+  @IsString()
+  kop_nama?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat_perusahaan?: string;
+
+  // ============================================
+  // DATA NASKAH (KEPALA + BATANG TUBUH)
+  // ============================================
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi_text?: string;
+
+  @IsOptional()
+  @IsEnum(SifatSurat, { message: 'Sifat tidak valid' })
+  sifat?: SifatSurat;
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  konten?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  english?: boolean;
+
+  // ============================================
+  // KAKI SURAT
+  // ============================================
+  @IsOptional()
+  @IsString()
+  nama_tempat?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
   @IsOptional()
   @IsString()
   tanda_tangan?: string; // Jika diisi -> final_tte, jika tidak -> final
+
+  @IsOptional()
+  @IsString()
+  nama_lengkap?: string;
+
+  // ============================================
+  // LAMPIRAN
+  // ============================================
+  @IsOptional()
+  @IsString()
+  lampiran?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_files?: string[];
+
+  // ============================================
+  // OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  tgl?: string;
 }
 
 /**

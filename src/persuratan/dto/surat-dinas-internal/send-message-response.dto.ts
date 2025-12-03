@@ -1,11 +1,15 @@
 // Response DTO untuk send-message SDI
 export class SirkulasiInfoDto {
-  persnum: number;
-  nama: string;
   position: number;
-  positionText: string;
-  organization: number;
-  organizationText: string;
+  position_text: string;
+  persnum: number | null;
+  nama: string | null;
+  organization_id: number;
+  organization_text: string;
+  sub_area: number | null;
+  sub_area_text: string | null;
+  area: string | null;
+  area_text: string | null;
 }
 
 export class SendMessageDataDto {

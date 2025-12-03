@@ -158,11 +158,13 @@ export class NotaDinasController {
   /**
    * PUT /ND/send-draft/:id
    * Finalize draft Nota Dinas (update status dari draf ke final/final_tte)
+   * - Bisa update semua field sebelum finalize (clone dari update-draft)
    * - Generate nomor surat resmi
-   * - Update tanda_tangan jika ada
+   * - Update status: draf -> final (tanpa tanda_tangan) atau final_tte (dengan tanda_tangan)
+   * - Update isDraft = false pada semua sirkulasi
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeDraftDto (optional tanda_tangan)
+   * @param dto - FinalizeDraftDto (semua field optional, sama seperti UpdateDraftDto)
    * @returns SendMessageResponseDto
    *
    * Status:
@@ -179,7 +181,7 @@ export class NotaDinasController {
     @Body() dto: FinalizeDraftDto,
   ): Promise<SendMessageResponseDto> {
     try {
-      return await this.notaDinasService.finalizeDraft(id, dto.tanda_tangan);
+      return await this.notaDinasService.finalizeDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
