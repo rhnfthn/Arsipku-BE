@@ -1,0 +1,169 @@
+import { IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsNumber, IsNotEmpty } from 'class-validator';
+import { Type } from 'class-transformer';
+import { LampiranDto } from './create-konsep.dto';
+
+/**
+ * DTO untuk review/update konsep oleh pemeriksa
+ */
+export class ReviewKonsepDto {
+  @IsOptional()
+  @IsEnum(['approve', 'revisi', 'reject'])
+  action?: 'approve' | 'revisi' | 'reject';
+
+  @IsOptional()
+  @IsString()
+  catatan?: string; // Catatan reviewer
+
+  // ============ UPDATE KONTEN (jika revisi) ============
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  konten?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi_text?: string;
+
+  @IsOptional()
+  @IsEnum(['sangat_rahasia', 'rahasia', 'terbatas', 'biasa', 'terbuka'])
+  sifat?: 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka';
+
+  // ============ FORWARD KE PEMERIKSA LAIN ============
+
+  @IsOptional()
+  @IsNumber()
+  forward_to_position_id?: number; // Jika approve, forward ke pemeriksa/pengirim lain
+
+  @IsOptional()
+  @IsEnum(['pemeriksa', 'pengirim'])
+  forward_to_actor?: 'pemeriksa' | 'pengirim';
+
+  // ============ LAMPIRAN ============
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LampiranDto)
+  lampiran?: LampiranDto[];
+}
+
+/**
+ * DTO untuk finalisasi konsep oleh pengirim/penandatangan
+ * Setelah ini, naskah akan dikirim ke penerima final
+ * Body lengkap karena pengirim masih bisa mengubah value
+ */
+export class FinalizeKonsepDto {
+  // ============ WAJIB ============
+
+  @IsNotEmpty()
+  @IsNumber()
+  from_position_id: number; // Posisi penandatangan (yang finalize)
+
+  // ============ PENERIMA FINAL ============
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  penerima_position_ids?: number[]; // Penerima akhir surat
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  tembusan_position_ids?: number[]; // Tembusan surat
+
+  // ============ KONTEN NASKAH (bisa diubah) ============
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  konten?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi_text?: string;
+
+  @IsOptional()
+  @IsEnum(['sangat_rahasia', 'rahasia', 'terbatas', 'biasa', 'terbuka'])
+  sifat?: 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka';
+
+  // ============ KOP & TANDA TANGAN ============
+
+  @IsOptional()
+  @IsString()
+  kop_logo?: string;
+
+  @IsOptional()
+  @IsString()
+  kop_nama?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat_perusahaan?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_tempat?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_lengkap?: string;
+
+  // ============ TANDA TANGAN ============
+
+  @IsOptional()
+  @IsString()
+  tanda_tangan?: string; // URL tanda tangan digital, jika ada status jadi final_tte
+
+  // ============ LAMPIRAN ============
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LampiranDto)
+  lampiran?: LampiranDto[];
+
+  // ============ CATATAN ============
+
+  @IsOptional()
+  @IsString()
+  catatan?: string;
+
+  // ============ TAMBAHAN UNTUK SDI/SDE ============
+
+  @IsOptional()
+  @IsString()
+  kepada_yth?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat?: string;
+
+  // ============ REFERENSI (untuk ND) ============
+
+  @IsOptional()
+  @IsString()
+  dari?: string;
+
+  @IsOptional()
+  @IsString()
+  tembusan?: string; // Tembusan text
+}

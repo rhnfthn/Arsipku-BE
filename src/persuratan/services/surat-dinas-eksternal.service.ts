@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThanOrEqual } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { EksternalEntity } from '../entity/eksternal.entity';
 import { NaskahEntity } from '../entity/naskah.entity';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
@@ -14,6 +14,7 @@ import {
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/surat-dinas-eksternal/create-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto, SdeSirkulasiInfoDto, SdePenerimaInfoDto } from '../dto/surat-dinas-eksternal/send-message-response.dto';
 import { OrgDataService } from 'src/org_data/org_data.service';
+import { NomorSuratService } from './nomor-surat.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -36,6 +37,7 @@ export class SuratDinasEksternalService {
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
+    private readonly nomorSuratService: NomorSuratService,
   ) {}
 
   // ============================================================
@@ -121,35 +123,6 @@ export class SuratDinasEksternalService {
   // ============================================================
   // NOMOR SURAT GENERATION
   // ============================================================
-
-  /**
-   * Generate nomor surat SDE
-   * Format: SDE-{sequence}/{klasifikasi}/{sub_area_code}/{bulan_romawi}/{tahun}
-   */
-  async generateNomorSurat(klasifikasi: string, subArea: number): Promise<string> {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    
-    // Bulan romawi
-    const romawiMonths = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-    const bulanRomawi = romawiMonths[month - 1];
-
-    // Get sequence untuk bulan ini
-    const endOfMonth = new Date(year, month, 0);
-
-    const count = await this.naskahRepository.count({
-      where: {
-        jenis: 'SDE',
-        tanggal: LessThanOrEqual(endOfMonth),
-      },
-    });
-
-    const sequence = String(count + 1).padStart(3, '0');
-
-    // Format: SDE-001/HR.01/10020001/XI/2025
-    return `SDE-${sequence}/${klasifikasi}/${subArea}/${bulanRomawi}/${year}`;
-  }
 
   // ============================================================
   // GET RECIPIENT - Using org_data (cached)
@@ -294,7 +267,13 @@ export class SuratDinasEksternalService {
       // PHASE 4: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
       const nomorSurat = status === 'draf' 
         ? `DRAFT-${Date.now()}` 
-        : await this.generateNomorSurat(dto.klasifikasi, pengirim.sub_area ?? 0);
+        : (await this.nomorSuratService.generateNomor({
+            jenis: 'SDE',
+            positionText: pengirim.position_text || '',
+            areaText: pengirim.area_text || 'Pusat',
+            tanggal: new Date(),
+            klasifikasi: dto.klasifikasi,
+          })).nomor;
 
       // PHASE 5: Insert naskah
       const naskahId = uuidv4();
@@ -709,10 +688,38 @@ export class SuratDinasEksternalService {
       }
     }
 
-    // PHASE 4: Generate nomor surat resmi
-    const subArea = pengirimPosition?.sub_area ?? parseInt(existingPengirim?.subArea || '0', 10);
+    // PHASE 4: Get full pengirim data for nomor surat generation
+    let finalPengirimPosition = pengirimPosition;
+    if (!finalPengirimPosition && existingPengirim) {
+      // Get full data from org_data
+      if (barisData.length === 0) {
+        const orgData = await this.orgDataService.findOrg(tanggal);
+        if (orgData?.position_json) {
+          barisData = orgData.position_json;
+        }
+      }
+      finalPengirimPosition = barisData.find((x) => Number(x.position) === Number(existingPengirim.position));
+      if (!finalPengirimPosition) {
+        // Fallback jika tidak ditemukan di org_data
+        finalPengirimPosition = {
+          position: Number(existingPengirim.position),
+          position_text: existingPengirim.positionText || '',
+          sub_area: Number(existingPengirim.subArea),
+          area_text: existingPengirim.areaText || 'Pusat',
+        } as SdeOrgDataPositionDto;
+      }
+    }
+
+    // Generate nomor surat resmi
     const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
-    const nomorSurat = await this.generateNomorSurat(klasifikasi, subArea);
+    const generatedNomor = await this.nomorSuratService.generateNomor({
+      jenis: 'SDE',
+      positionText: finalPengirimPosition?.position_text || '',
+      areaText: finalPengirimPosition?.area_text || 'Pusat',
+      tanggal: new Date(),
+      klasifikasi: klasifikasi,
+    });
+    const nomorSurat = generatedNomor.nomor;
 
     // PHASE 5: Determine new status
     const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';

@@ -14,6 +14,7 @@ import { NaskahEntity } from './entity/naskah.entity';
 import { NdEntity } from './entity/nd.entity';
 import { DiEntity } from './entity/di.entity';
 import { SdiSdeEntity } from './entity/sdi_sde.entity';
+import { KonsepEntity } from './entity/konsep.entity';
 
 import { LabelService } from './services/label.service';
 import { KlasifikasiService } from './services/klasifikasi.service';
@@ -32,6 +33,8 @@ import { KajianService } from './services/kajian.service';
 import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.service';
 import { SuratDinasInternalService } from './services/surat-dinas-internal.service';
 import { DraftService } from './services/draft.service';
+import { KonsepService } from './services/konsep.service';
+import { NomorSuratService } from './services/nomor-surat.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -50,6 +53,7 @@ import { KajianController } from './controllers/kajian.controller';
 import { SuratDinasEksternalController } from './controllers/surat-dinas-eksternal.controller';
 import { SuratDinasInternalController } from './controllers/surat-dinas-internal.controller';
 import { DraftController } from './controllers/draft.controller';
+import { KonsepController } from './controllers/konsep.controller';
 
 import { Person } from 'src/person/entities/person.entity';
 import { RelationSp } from 'src/relation_sp/entities/relation_sp.entity';
@@ -77,6 +81,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
       NdEntity,
       DiEntity,
       SdiSdeEntity,
+      KonsepEntity,
       Person,
       RelationSp,
       RelationOsc,
@@ -105,6 +110,8 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     SuratDinasEksternalService,
     SuratDinasInternalService,
     DraftService,
+    KonsepService,
+    NomorSuratService,
   ],
   controllers: [
     LabelController,
@@ -124,6 +131,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     SuratDinasEksternalController,
     SuratDinasInternalController,
     DraftController,
+    KonsepController,
   ],
   exports: [
     LabelService,
@@ -143,6 +151,8 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     SuratDinasEksternalService,
     SuratDinasInternalService,
     DraftService,
+    KonsepService,
+    NomorSuratService,
   ],
 })
 export class PersuratanModule {}

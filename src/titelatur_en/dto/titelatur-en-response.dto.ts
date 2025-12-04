@@ -1,4 +1,4 @@
-export class LiteraturEnDto {
+export class TitelaturEnDto {
   id: string;
   company?: string;
   start_date?: string;
