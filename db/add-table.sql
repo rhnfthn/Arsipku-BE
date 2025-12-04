@@ -391,7 +391,7 @@ DEFAULT CHARSET=utf8mb3
 COLLATE=utf8mb3_general_ci;
 
 
-CREATE TABLE literatur_en (
+CREATE TABLE titelatur_en (
     id CHAR(36) PRIMARY KEY,
 
     company VARCHAR(50),
