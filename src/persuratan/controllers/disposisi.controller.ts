@@ -26,6 +26,10 @@ import {
   SendDraftDisposisiDto,
   SendDraftDisposisiResponseDto,
 } from '../dto/disposisi/send-draft-disposisi.dto';
+import {
+  ForwardDisposisiDto,
+  ForwardDisposisiResponseDto,
+} from '../dto/disposisi/forward-disposisi.dto';
 
 @Controller('DI')
 export class DisposisiController {
@@ -326,6 +330,58 @@ export class DisposisiController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to update draft disposisi',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /DI/forward
+   * Forward/Teruskan disposisi yang diterima ke bawahan
+   *
+   * Kondisi: User sudah menerima disposisi dan ingin meneruskan ke bawahannya
+   *
+   * Deskripsi: Endpoint khusus untuk disposisi lanjutan (forward).
+   * - User harus merupakan penerima dari naskah yang akan di-forward
+   * - User harus managerial (bisa kirim disposisi)
+   * - Penerima baru harus bawahan valid dari user
+   * - Otomatis membuat referensi ke naskah disposisi yang diterima
+   * - Nomor surat otomatis dari naskah sebelumnya
+   *
+   * Flow:
+   * 1. User A kirim disposisi ke User B (disposisi pertama)
+   * 2. User B menerima disposisi dari inbox
+   * 3. User B klik "Forward" dan pilih bawahan (User C)
+   * 4. Sistem buat naskah baru dengan referensi ke naskah yang diterima User B
+   *
+   * @param dto - ForwardDisposisiDto
+   * @returns ForwardDisposisiResponseDto
+   *
+   * @throws 400 - Bad Request (validation error / naskah bukan disposisi)
+   * @throws 403 - Forbidden (bukan penerima / bukan managerial)
+   * @throws 404 - Not Found (naskah/position not found)
+   * @throws 500 - Internal Server Error
+   */
+  @Post('forward')
+  async forwardDisposisi(
+    @Body() dto: ForwardDisposisiDto,
+  ): Promise<ForwardDisposisiResponseDto> {
+    try {
+      return await this.disposisiService.forwardDisposisi(dto);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to forward disposisi',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

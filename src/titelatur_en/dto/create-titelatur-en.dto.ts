@@ -1,6 +1,6 @@
 import { IsOptional, IsString, IsEnum, IsDateString } from 'class-validator';
 
-export class CreateLiteraturEnDto {
+export class CreateTitelaturEnDto {
   @IsOptional()
   @IsString()
   company?: string;

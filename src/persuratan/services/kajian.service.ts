@@ -15,6 +15,7 @@ import { NaskahEntity } from '../entity/naskah.entity';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../entity/naskah_lampiran.entity';
 import { OrgDataService } from 'src/org_data/org_data.service';
+import { NomorSuratService } from './nomor-surat.service';
 import { v4 as uuidv4 } from 'uuid';
 import {
   KajianRecipientResponseDto,
@@ -91,6 +92,7 @@ export class KajianService {
     @InjectRepository(NaskahLampiranEntity)
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     private readonly orgDataService: OrgDataService,
+    private readonly nomorSuratService: NomorSuratService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -628,7 +630,15 @@ export class KajianService {
       // Validate recipients: hanya ATASAN yang valid
       this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
 
-      // PHASE 3: Insert naskah
+      // PHASE 3: Auto-generate nomor surat
+      const generatedNomor = await this.nomorSuratService.generateNomor({
+        jenis: 'KA',
+        positionText: pengirimData.position_text,
+        areaText: pengirimData.area_text || '',
+        tanggal: new Date(dto.tanggal),
+      });
+
+      // PHASE 4: Insert naskah
       const naskahId = uuidv4();
       const tanggalKajian = new Date(dto.tanggal);
 
@@ -638,7 +648,7 @@ export class KajianService {
       naskah.klasifikasi = dto.klasifikasi || '';
       naskah.klasifikasi_text = dto.klasifikasi_text || '';
       naskah.sifat = dto.sifat;
-      naskah.nomor = dto.nomor || '';
+      naskah.nomor = generatedNomor.nomor; // Auto-generated nomor
       naskah.tanggal = tanggalKajian;
       naskah.perihal = dto.perihal;
       naskah.konten = dto.konten || '';
@@ -730,7 +740,7 @@ export class KajianService {
           sifat: dto.sifat,
           klasifikasi: dto.klasifikasi,
           klasifikasi_text: dto.klasifikasi_text,
-          nomor: dto.nomor,
+          nomor: generatedNomor.nomor, // Auto-generated nomor
           perihal: dto.perihal,
           konten: dto.konten,
           pengirim: this.toSirkulasiInfo(pengirimData),
@@ -1067,8 +1077,11 @@ export class KajianService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    const isDraft = dto.action !== 'kirim';
+
     try {
-      const isDraft = dto.action !== 'kirim';
+      // Get pengirim data for auto-generate nomor
+      const pengirimData = this.findByPosition(barisData, dto.pengirim_position_id);
 
       // Update naskah
       if (dto.tanggal) naskah.tanggal = new Date(dto.tanggal);
@@ -1077,7 +1090,18 @@ export class KajianService {
       if (dto.konten !== undefined) naskah.konten = dto.konten;
       if (dto.klasifikasi !== undefined) naskah.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text !== undefined) naskah.klasifikasi_text = dto.klasifikasi_text;
-      if (dto.nomor !== undefined) naskah.nomor = dto.nomor;
+
+      // Auto-generate nomor saat action = kirim dan nomor belum ada
+      if (!isDraft && (!naskah.nomor || naskah.nomor === '') && pengirimData) {
+        const generatedNomor = await this.nomorSuratService.generateNomor({
+          jenis: 'KA',
+          positionText: pengirimData.position_text,
+          areaText: pengirimData.area_text || '',
+          tanggal: naskah.tanggal,
+        });
+        naskah.nomor = generatedNomor.nomor;
+      }
+
       if (dto.lampiran) {
         naskah.lampiran = dto.lampiran.length > 0 ? `${dto.lampiran.length} file` : '';
       }
@@ -1168,24 +1192,89 @@ export class KajianService {
       }
 
       await queryRunner.commitTransaction();
-
-      return {
-        success: true,
-        message: isDraft
-          ? 'Draft kajian berhasil diupdate'
-          : 'Kajian berhasil diupdate dan dikirim',
-        data: {
-          id_naskah: naskahId,
-          status: isDraft ? 'draf' : 'final',
-          updated_at: new Date(),
-        },
-      };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
     } finally {
       await queryRunner.release();
     }
+
+    // Fetch updated data for response (outside transaction)
+    const updatedNaskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    const updatedSirkulasi = await this.naskahSirkulasiRepository.find({
+      where: { idNaskah: naskahId },
+    });
+
+    const updatedLampiran = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+
+    const pengirimSirk = updatedSirkulasi.find((s) => s.sirkuler === 'pengirim');
+    const penerimaSirk = updatedSirkulasi.filter((s) => s.sirkuler === 'penerima');
+
+    const sirkulasiToResponse = (s: NaskahSirkulasi): KajianSirkulasiInfoDto => ({
+      position_id: parseInt(s.position || '0', 10),
+      position_text: s.positionText || null,
+      persnum: s.idSirkuler ? parseInt(s.idSirkuler, 10) : null,
+      nama: s.namaSirkuler || null,
+      organization_id: parseInt(s.organization || '0', 10),
+      organization_text: s.organizationText || null,
+      sub_area: s.subArea ? parseInt(s.subArea, 10) : null,
+      sub_area_text: s.subAreaText || null,
+      area: s.area || null,
+      area_text: s.areaText || null,
+      company: parseInt(s.company || '0', 10),
+      company_name: s.companyText || null,
+    });
+
+    // Create default pengirim if not found
+    const defaultPengirim: KajianSirkulasiInfoDto = {
+      position_id: 0,
+      position_text: null,
+      persnum: null,
+      nama: null,
+      organization_id: 0,
+      organization_text: null,
+      sub_area: null,
+      sub_area_text: null,
+      area: null,
+      area_text: null,
+      company: 0,
+      company_name: null,
+    };
+
+    return {
+      success: true,
+      message: isDraft
+        ? 'Draft kajian berhasil diupdate'
+        : 'Kajian berhasil diupdate dan dikirim',
+      data: {
+        id: naskahId,
+        jenis: updatedNaskah?.jenis || 'KA',
+        tanggal: updatedNaskah?.tanggal
+          ? (updatedNaskah.tanggal instanceof Date
+              ? updatedNaskah.tanggal.toISOString().split('T')[0]
+              : String(updatedNaskah.tanggal).split('T')[0])
+          : '',
+        status: isDraft ? 'draf' : 'final',
+        sifat: updatedNaskah?.sifat || '',
+        klasifikasi: updatedNaskah?.klasifikasi || '',
+        klasifikasi_text: updatedNaskah?.klasifikasi_text || '',
+        nomor: updatedNaskah?.nomor || '',
+        perihal: updatedNaskah?.perihal || '',
+        konten: updatedNaskah?.konten || '',
+        pengirim: pengirimSirk ? sirkulasiToResponse(pengirimSirk) : defaultPengirim,
+        penerima: penerimaSirk.map(sirkulasiToResponse),
+        lampiran: updatedLampiran.map((l) => ({
+          id: l.id,
+          nama_file: l.file_name || '',
+          url: l.file_pdf || '',
+        })),
+      },
+    };
   }
 
   // ============================================================
@@ -1224,9 +1313,19 @@ export class KajianService {
       message: 'Draft kajian berhasil dikirim',
       data: result.data
         ? {
-            id_naskah: result.data.id_naskah,
-            status: 'final',
-            updated_at: result.data.updated_at,
+            id: result.data.id,
+            jenis: result.data.jenis,
+            tanggal: result.data.tanggal,
+            status: 'final' as const,
+            sifat: result.data.sifat,
+            klasifikasi: result.data.klasifikasi,
+            klasifikasi_text: result.data.klasifikasi_text,
+            nomor: result.data.nomor,
+            perihal: result.data.perihal,
+            konten: result.data.konten,
+            pengirim: result.data.pengirim,
+            penerima: result.data.penerima,
+            lampiran: result.data.lampiran,
           }
         : undefined,
     };
