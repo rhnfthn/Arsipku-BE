@@ -8,24 +8,18 @@ import {
   ValidateNested,
   IsDateString,
   IsNumber,
-  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
   SifatNaskah,
-  PetunjukDisposisiDto,
   LampiranDto,
 } from './create-disposisi.dto';
 
 /**
  * DTO untuk update disposisi yang masih draft
+ * id_naskah diambil dari path parameter
  */
 export class UpdateDraftDisposisiDto {
-  // ID Naskah yang akan diupdate
-  @IsNotEmpty({ message: 'ID Naskah harus diisi' })
-  @IsUUID('4', { message: 'ID Naskah harus berupa UUID' })
-  id_naskah: string;
-
   // Pengirim - menggunakan position_id (untuk validasi ownership)
   @IsNotEmpty({ message: 'Position ID pengirim harus diisi' })
   @IsNumber({}, { message: 'Position ID pengirim harus berupa number' })
@@ -58,12 +52,23 @@ export class UpdateDraftDisposisiDto {
   @IsString()
   ref_perihal_surat?: string;
 
-  // Petunjuk Disposisi - array of selected checkboxes
+  // ============================================================
+  // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
+  // Field ini diisi oleh FE dengan format string yang sudah diformat
+  // Disimpan ke kolom "disposisi" di tabel "di"
+  // ============================================================
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PetunjukDisposisiDto)
-  petunjuk_disposisi?: PetunjukDisposisiDto[];
+  @IsString()
+  disposisi?: string;
+
+  // ============================================================
+  // CATATAN - Untuk checkbox "Lainnya" 
+  // Jika user klik checkbox "Lainnya", isi catatan masuk ke sini
+  // Disimpan ke kolom "catatan" di tabel "di"
+  // ============================================================
+  @IsOptional()
+  @IsString()
+  catatan?: string;
 
   // Lampiran
   @IsOptional()
@@ -76,6 +81,48 @@ export class UpdateDraftDisposisiDto {
   @IsOptional()
   @IsEnum(['draft', 'kirim'], { message: 'Action harus draft atau kirim' })
   action?: 'draft' | 'kirim';
+
+  // ============================================================
+  // Field untuk tabel "di" (konten lengkap lembar disposisi)
+  // ============================================================
+
+  // Kop Naskah
+  @IsOptional()
+  @IsString()
+  kop_logo?: string;
+
+  @IsOptional()
+  @IsString()
+  kop_judul?: string;
+
+  // Penandatangan
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
+  // Nomor Agenda
+  @IsOptional()
+  @IsString()
+  nomor_agenda?: string;
+
+  @IsOptional()
+  @IsDateString({}, { message: 'Format tanggal agenda tidak valid' })
+  tanggal_agenda?: string;
+
+  // Referensi Surat (surat_dari = pengirim surat asli yang didisposisi)
+  @IsOptional()
+  @IsString()
+  surat_dari?: string;
+
+  // Klasifikasi surat
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  // Paraf
+  @IsOptional()
+  @IsString()
+  paraf?: string;
 }
 
 /**

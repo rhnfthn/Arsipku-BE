@@ -16,13 +16,6 @@ export class DisposisiSirkulasiInfoDto {
   company_name: string | null;
 }
 
-// Info petunjuk disposisi yang dipilih
-export class PetunjukDisposisiInfoDto {
-  kode: string;
-  label: string;
-  catatan?: string;
-}
-
 export class DisposisiDataDto {
   id: string;
   jenis: string;
@@ -33,7 +26,8 @@ export class DisposisiDataDto {
   ref_perihal_surat: string;
   pengirim: DisposisiSirkulasiInfoDto;
   penerima: DisposisiSirkulasiInfoDto[];
-  petunjuk_disposisi?: PetunjukDisposisiInfoDto[];
+  disposisi?: string; // Petunjuk disposisi dari checkbox (diformat FE)
+  catatan?: string; // Catatan untuk checkbox "Lainnya"
   lampiran?: {
     id: string;
     nama_file: string;

@@ -1,15 +1,43 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CreateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/create_naskah_sirkulasi.dto';
 import { UpdateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/update_naskah_sirkulasi.dto';
+import {
+  UpdateReadStatusDto,
+  UpdateReadStatusResponseDto,
+} from '../dto/naskah_sirkulasi/update-read-status.dto';
+import {
+  InboxQueryDto,
+  InboxResponseDto,
+  InboxItemDto,
+} from '../dto/naskah_sirkulasi/inbox.dto';
+import {
+  SentMessageQueryDto,
+  SentMessageResponseDto,
+  SentMessageItemDto,
+  PenerimaWithStatusDto,
+} from '../dto/naskah_sirkulasi/sent-message.dto';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
+import { NaskahEntity } from '../entity/naskah.entity';
+
+// Label untuk jenis naskah
+const JENIS_LABELS: Record<string, string> = {
+  ND: 'Nota Dinas',
+  SDI: 'Surat Dinas Internal',
+  SDE: 'Surat Dinas Eksternal',
+  DI: 'Disposisi',
+  KA: 'Kajian',
+};
 
 @Injectable()
 export class NaskahSirkulasiService {
   constructor(
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
+    @InjectRepository(NaskahEntity)
+    private readonly naskahRepo: Repository<NaskahEntity>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async findAll(): Promise<NaskahSirkulasi[]> {
@@ -44,5 +72,406 @@ export class NaskahSirkulasiService {
     const naskahSirkulasi = await this.findOne(id);
     await this.naskahSirkulasiRepo.remove(naskahSirkulasi);
     return { message: `Naskah Sirkulasi ${id} deleted successfully` };
+  }
+
+  // ============================================================
+  // UPDATE READ STATUS - Global untuk semua jenis naskah
+  // ============================================================
+
+  /**
+   * Update status baca pesan (global untuk semua jenis naskah: ND, DI, SDI, SDE, dll)
+   *
+   * Logic:
+   * - Cari sirkulasi berdasarkan id_naskah + position_id (penerima)
+   * - Jika sudah terbaca, return info sebelumnya
+   * - Jika belum, update send_read_time dan send_read_user
+   *
+   * @param dto - UpdateReadStatusDto
+   * @returns UpdateReadStatusResponseDto
+   */
+  async updateReadStatus(
+    dto: UpdateReadStatusDto,
+  ): Promise<UpdateReadStatusResponseDto> {
+    // Get naskah untuk info jenis
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: dto.id_naskah },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan ID ${dto.id_naskah} tidak ditemukan`);
+    }
+
+    // Find sirkulasi record for this naskah + position (penerima)
+    const sirkulasi = await this.naskahSirkulasiRepo.findOne({
+      where: {
+        idNaskah: dto.id_naskah,
+        position: dto.position_id,
+        sirkuler: 'penerima',
+      },
+    });
+
+    if (!sirkulasi) {
+      throw new NotFoundException(
+        `Pesan dengan id_naskah ${dto.id_naskah} untuk position ${dto.position_id} tidak ditemukan`,
+      );
+    }
+
+    // Check if already read
+    if (sirkulasi.sendReadTime) {
+      return {
+        success: true,
+        message: 'Pesan sudah terbaca sebelumnya',
+        data: {
+          id_naskah: dto.id_naskah,
+          position_id: dto.position_id,
+          jenis_naskah: naskah.jenis,
+          status_baca: 'terbaca',
+          read_time: sirkulasi.sendReadTime,
+          read_user: sirkulasi.sendReadUser,
+        },
+      };
+    }
+
+    // Update status to read
+    const now = new Date();
+    sirkulasi.sendReadTime = now;
+    sirkulasi.sendReadUser = dto.user_id || dto.position_id;
+
+    await this.naskahSirkulasiRepo.save(sirkulasi);
+
+    return {
+      success: true,
+      message: 'Status pesan berhasil diupdate menjadi terbaca',
+      data: {
+        id_naskah: dto.id_naskah,
+        position_id: dto.position_id,
+        jenis_naskah: naskah.jenis,
+        status_baca: 'terbaca',
+        read_time: now,
+        read_user: sirkulasi.sendReadUser,
+      },
+    };
+  }
+
+  // ============================================================
+  // INBOX - Kotak Masuk
+  // ============================================================
+
+  /**
+   * Get inbox (kotak masuk) untuk position tertentu
+   *
+   * Logic:
+   * - Ambil semua sirkulasi dimana position = position_id dan sirkuler = 'penerima'
+   * - Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
+   * - Filter berdasarkan jenis naskah dan status baca (optional)
+   * - Hanya tampilkan naskah dengan status 'final' atau 'final_tte' (bukan draft)
+   * - Hanya tampilkan sirkulasi dengan is_draft = false
+   *
+   * @param positionId - Position ID penerima
+   * @param query - Filter options (jenis, status_baca)
+   * @returns InboxResponseDto
+   */
+  async getInbox(
+    positionId: string,
+    query: InboxQueryDto,
+  ): Promise<InboxResponseDto> {
+    // Build query dengan raw SQL untuk performa dan fleksibilitas
+    let whereClause = `
+      WHERE s.position = ?
+      AND s.sirkuler = 'penerima'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const params: any[] = [positionId];
+
+    // Filter by jenis naskah
+    if (query.jenis) {
+      whereClause += ` AND n.jenis = ?`;
+      params.push(query.jenis);
+    }
+
+    // Filter by status baca
+    if (query.status_baca === 'terbaca') {
+      whereClause += ` AND s.send_read_time IS NOT NULL`;
+    } else if (query.status_baca === 'belum_terbaca') {
+      whereClause += ` AND s.send_read_time IS NULL`;
+    }
+
+    // Get inbox items with pengirim info
+    const selectQuery = `
+      SELECT 
+        s.id as id_sirkulasi,
+        s.id_naskah,
+        n.jenis,
+        n.nomor,
+        n.tanggal,
+        n.perihal,
+        n.sifat,
+        n.status,
+        n.lampiran,
+        s.send_read_time,
+        s.flag_favorit,
+        s.flag_arsip,
+        pengirim.position as pengirim_position_id,
+        pengirim.position_text as pengirim_position_text,
+        pengirim.organization_text as pengirim_organization_text,
+        pengirim.nama_sirkuler as pengirim_nama
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
+      ${whereClause}
+      ORDER BY n.tanggal DESC, s.id DESC
+    `;
+    const rows = await this.dataSource.query(selectQuery, params);
+
+    // Map to InboxItemDto
+    const items: InboxItemDto[] = rows.map((row: any) => ({
+      id_sirkulasi: row.id_sirkulasi,
+      id_naskah: row.id_naskah,
+      jenis: row.jenis,
+      jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+      nomor: row.nomor,
+      tanggal: row.tanggal,
+      perihal: row.perihal,
+      sifat: row.sifat,
+      status: row.status,
+      lampiran: row.lampiran,
+      pengirim: {
+        position_id: row.pengirim_position_id || '',
+        position_text: row.pengirim_position_text || '',
+        organization_text: row.pengirim_organization_text || '',
+        nama: row.pengirim_nama || '',
+      },
+      status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+      read_time: row.send_read_time,
+      is_favorit: row.flag_favorit === 1,
+      is_arsip: row.flag_arsip === 1,
+    }));
+
+    // Get summary counts
+    const summaryQuery = `
+      SELECT 
+        COUNT(*) as total_semua,
+        SUM(CASE WHEN s.send_read_time IS NULL THEN 1 ELSE 0 END) as total_belum_dibaca,
+        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
+        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
+        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'penerima'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summary = summaryResult[0] || {};
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil kotak masuk',
+      data: {
+        items,
+        summary: {
+          total_semua: parseInt(summary.total_semua || '0', 10),
+          total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
+          total_per_jenis: {
+            ND: parseInt(summary.total_nd || '0', 10),
+            SDI: parseInt(summary.total_sdi || '0', 10),
+            SDE: parseInt(summary.total_sde || '0', 10),
+            DI: parseInt(summary.total_di || '0', 10),
+            KA: parseInt(summary.total_ka || '0', 10),
+          },
+        },
+      },
+    };
+  }
+
+  // ============================================================
+  // SENT MESSAGE - Kotak Keluar (Global untuk semua jenis naskah)
+  // ============================================================
+
+  /**
+   * Get sent messages (kotak keluar) untuk position tertentu
+   *
+   * Logic:
+   * - Ambil semua sirkulasi dimana position = position_id dan sirkuler = 'pengirim'
+   * - Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
+   * - Hanya tampilkan naskah dengan status 'final' atau 'final_tte' (bukan draft)
+   * - Hanya tampilkan sirkulasi dengan is_draft = false
+   * - Untuk setiap naskah, ambil daftar penerima dan status baca mereka
+   *
+   * @param positionId - Position ID pengirim
+   * @param query - Filter options (jenis, status_baca)
+   * @returns SentMessageResponseDto
+   */
+  async getSentMessage(
+    positionId: string,
+    query: SentMessageQueryDto,
+  ): Promise<SentMessageResponseDto> {
+    // Build base query untuk mendapat naskah yang dikirim oleh position ini
+    let whereClause = `
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const params: any[] = [positionId];
+
+    // Filter by jenis naskah
+    if (query.jenis) {
+      whereClause += ` AND n.jenis = ?`;
+      params.push(query.jenis);
+    }
+
+    // Get naskah yang dikirim beserta info pengirim
+    const selectQuery = `
+      SELECT 
+        s.id as id_sirkulasi,
+        s.id_naskah,
+        n.jenis,
+        n.nomor,
+        n.tanggal,
+        n.perihal,
+        n.sifat,
+        n.status,
+        n.lampiran,
+        s.position as pengirim_position_id,
+        s.position_text as pengirim_position_text,
+        s.organization_text as pengirim_organization_text,
+        s.nama_sirkuler as pengirim_nama
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+      ORDER BY n.tanggal DESC, s.id DESC
+    `;
+    const rows = await this.dataSource.query(selectQuery, params);
+
+    if (rows.length === 0) {
+      return {
+        success: true,
+        message: 'Tidak ada pesan yang dikirim',
+        data: {
+          items: [],
+          summary: {
+            total_semua: 0,
+            total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
+          },
+        },
+      };
+    }
+
+    // Untuk setiap naskah, ambil daftar penerima
+    const items: SentMessageItemDto[] = [];
+    
+    for (const row of rows) {
+      // Get penerima list untuk naskah ini
+      const penerimaQuery = `
+        SELECT 
+          position as position_id,
+          position_text,
+          organization_text,
+          nama_sirkuler as nama,
+          send_read_time
+        FROM naskah_sirkulasi
+        WHERE id_naskah = ?
+        AND sirkuler = 'penerima'
+      `;
+      const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
+
+      // Map penerima dengan status baca
+      const penerima: PenerimaWithStatusDto[] = penerimaRows.map((p: any) => ({
+        position_id: p.position_id || '',
+        position_text: p.position_text || '',
+        organization_text: p.organization_text || '',
+        nama: p.nama || null,
+        status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
+        read_time: p.send_read_time || null,
+      }));
+
+      // Filter by status_baca jika diperlukan
+      // Jika filter status_baca ada, cek apakah ada penerima yang match
+      if (query.status_baca) {
+        const hasMatchingPenerima = penerima.some(
+          (p) => p.status_baca === query.status_baca,
+        );
+        if (!hasMatchingPenerima) {
+          continue; // Skip naskah ini jika tidak ada penerima yang match
+        }
+      }
+
+      // Hitung summary baca
+      const terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
+      const belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
+
+      // Get lampiran count
+      const lampiranCountResult = await this.dataSource.query(
+        `SELECT COUNT(*) as total FROM naskah_lampiran WHERE id_naskah = ?`,
+        [row.id_naskah],
+      );
+      const lampiranCount = parseInt(lampiranCountResult[0]?.total || '0', 10);
+
+      items.push({
+        id_naskah: row.id_naskah,
+        jenis: row.jenis,
+        jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+        nomor: row.nomor,
+        tanggal: row.tanggal,
+        perihal: row.perihal,
+        sifat: row.sifat,
+        status: row.status,
+        lampiran: lampiranCount,
+        pengirim: {
+          position_id: row.pengirim_position_id || '',
+          position_text: row.pengirim_position_text || '',
+          organization_text: row.pengirim_organization_text || '',
+          nama: row.pengirim_nama || null,
+        },
+        penerima,
+        summary_baca: {
+          total: penerima.length,
+          terbaca,
+          belum_terbaca: belumTerbaca,
+        },
+      });
+    }
+
+    // Get summary counts (untuk semua, tanpa filter status_baca)
+    const summaryQuery = `
+      SELECT 
+        COUNT(DISTINCT s.id_naskah) as total_semua,
+        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
+        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
+        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summary = summaryResult[0] || {};
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil kotak keluar',
+      data: {
+        items,
+        summary: {
+          total_semua: parseInt(summary.total_semua || '0', 10),
+          total_per_jenis: {
+            ND: parseInt(summary.total_nd || '0', 10),
+            SDI: parseInt(summary.total_sdi || '0', 10),
+            SDE: parseInt(summary.total_sde || '0', 10),
+            DI: parseInt(summary.total_di || '0', 10),
+            KA: parseInt(summary.total_ka || '0', 10),
+          },
+        },
+      },
+    };
   }
 }

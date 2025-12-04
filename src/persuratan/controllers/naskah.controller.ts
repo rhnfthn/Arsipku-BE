@@ -11,6 +11,7 @@ import {
 import { NaskahService } from '../services/naskah.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
+import { NaskahDetailResponseDto } from '../dto/naskah/naskah-detail.dto';
 
 @Controller('persuratan/naskah')
 export class NaskahController {
@@ -33,6 +34,15 @@ export class NaskahController {
   @Get('jenis/:jenis')
   findByJenis(@Param('jenis') jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') {
     return this.naskahService.findByJenis(jenis);
+  }
+
+  /**
+   * Get Detail Naskah - Global untuk semua jenis naskah
+   * Mengambil data lengkap: naskah, sirkulasi, lampiran, referensi, dan detail per jenis
+   */
+  @Get('detail/:id')
+  getDetail(@Param('id') id: string): Promise<NaskahDetailResponseDto> {
+    return this.naskahService.getDetail(id);
   }
 
   @Get(':id')
