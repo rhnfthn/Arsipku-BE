@@ -14,6 +14,7 @@ import {
   SifatNaskah,
   LampiranDto,
 } from './create-disposisi.dto';
+import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
 
 /**
  * DTO untuk update disposisi yang masih draft
@@ -42,15 +43,21 @@ export class UpdateDraftDisposisiDto {
   @IsEnum(SifatNaskah, { message: 'Sifat naskah tidak valid' })
   sifat?: SifatNaskah;
 
-  // Ref. Nomor Surat
+  // Ref. Nomor Surat (opsional)
   @IsOptional()
   @IsString()
   ref_nomor_surat?: string;
 
-  // Ref. Perihal Surat Disposisi
+  // Perihal (masuk ke tabel naskah)
   @IsOptional()
   @IsString()
-  ref_perihal_surat?: string;
+  perihal?: string;
+
+  // ID Naskah Disposisi Sebelumnya (opsional)
+  // Diisi jika ini adalah disposisi lanjutan dari disposisi yang diterima sebelumnya
+  @IsOptional()
+  @IsString()
+  id_naskah_sebelumnya?: string;
 
   // ============================================================
   // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
@@ -132,8 +139,23 @@ export class UpdateDraftDisposisiResponseDto {
   success: boolean;
   message: string;
   data?: {
-    id_naskah: string;
+    id: string;
+    jenis: string;
+    nomor: string | null;
+    tanggal: string;
     status: 'draf' | 'final';
-    updated_at: Date;
+    sifat: string;
+    perihal: string;
+    pengirim: DisposisiSirkulasiInfoDto;
+    penerima: DisposisiSirkulasiInfoDto[];
+    disposisi?: string;
+    catatan?: string;
+    lampiran?: {
+      id: string;
+      nama_file: string;
+      url: string;
+      tipe?: string;
+    }[];
+    id_naskah_sebelumnya?: string | null;
   };
 }

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, DataSource } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { NaskahEntity } from '../entity/naskah.entity';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../entity/naskah_lampiran.entity';
@@ -13,6 +13,7 @@ import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '.
 import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/surat-dinas-internal/send-message-response.dto';
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto, PengirimInfoDto } from '../dto/surat-dinas-internal/get-send-message.dto';
 import { OrgDataService } from 'src/org_data/org_data.service';
+import { NomorSuratService } from './nomor-surat.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -34,6 +35,7 @@ export class SuratDinasInternalService {
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
+    private readonly nomorSuratService: NomorSuratService,
   ) {}
 
   // ============================================================
@@ -138,35 +140,6 @@ export class SuratDinasInternalService {
   // ============================================================
   // SEND MESSAGE METHODS
   // ============================================================
-
-  /**
-   * Generate nomor surat SDI
-   * Format: SDI-{sequence}/{klasifikasi}/{sub_area_code}/{bulan_romawi}/{tahun}
-   */
-  async generateNomorSurat(klasifikasi: string, subArea: number): Promise<string> {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    
-    // Bulan romawi
-    const romawiMonths = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-    const bulanRomawi = romawiMonths[month - 1];
-
-    // Get sequence untuk bulan ini
-    const endOfMonth = new Date(year, month, 0);
-
-    const count = await this.naskahRepository.count({
-      where: {
-        jenis: 'SDI',
-        tanggal: LessThanOrEqual(endOfMonth),
-      },
-    });
-
-    const sequence = String(count + 1).padStart(3, '0');
-
-    // Format: SDI-001/HR.01/10020001/XI/2025
-    return `SDI-${sequence}/${klasifikasi}/${subArea}/${bulanRomawi}/${year}`;
-  }
 
   /**
    * Send Message - Kirim SDI
@@ -514,7 +487,13 @@ export class SuratDinasInternalService {
       // PHASE 6: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
       const nomorSurat = status === 'draf' 
         ? `DRAFT-${Date.now()}` 
-        : await this.generateNomorSurat(dto.klasifikasi, pengirim.sub_area ?? 0);
+        : (await this.nomorSuratService.generateNomor({
+            jenis: 'SDI',
+            positionText: pengirim.position_text || '',
+            areaText: pengirim.area_text || 'Pusat',
+            tanggal: new Date(),
+            klasifikasi: dto.klasifikasi,
+          })).nomor;
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
@@ -714,17 +693,35 @@ export class SuratDinasInternalService {
       if (!existingPengirim) {
         throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
       }
-      // Get subArea from existing sirkulasi
-      pengirimPosition = {
-        position: Number(existingPengirim.position),
-        sub_area: Number(existingPengirim.subArea),
-      } as SdiOrgDataPositionDto;
+      // Get full data from org_data
+      if (barisData.length === 0) {
+        const orgData = await this.orgDataService.findOrg(tanggal);
+        if (orgData?.position_json) {
+          barisData = orgData.position_json;
+        }
+      }
+      pengirimPosition = barisData.find((x) => Number(x.position) === Number(existingPengirim.position));
+      if (!pengirimPosition) {
+        // Fallback jika tidak ditemukan di org_data
+        pengirimPosition = {
+          position: Number(existingPengirim.position),
+          position_text: existingPengirim.positionText || '',
+          sub_area: Number(existingPengirim.subArea),
+          area_text: existingPengirim.areaText || 'Pusat',
+        } as SdiOrgDataPositionDto;
+      }
     }
 
     // PHASE 4: Generate nomor surat resmi
     const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
-    const subArea = pengirimPosition?.sub_area ?? 0;
-    const nomorSurat = await this.generateNomorSurat(klasifikasi, Number(subArea));
+    const generatedNomor = await this.nomorSuratService.generateNomor({
+      jenis: 'SDI',
+      positionText: pengirimPosition?.position_text || '',
+      areaText: pengirimPosition?.area_text || 'Pusat',
+      tanggal: new Date(),
+      klasifikasi: klasifikasi,
+    });
+    const nomorSurat = generatedNomor.nomor;
 
     // PHASE 5: Determine new status
     const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
