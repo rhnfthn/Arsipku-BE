@@ -259,3 +259,169 @@ CREATE TABLE di (
 
     INDEX idx_di_id_naskah (id_naskah)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+
+CREATE TABLE konsep (
+    id CHAR(36) PRIMARY KEY,
+    company VARCHAR(50),
+
+    id_naskah CHAR(36),
+    jenis ENUM('ND','SDI','SDE'),
+
+    -- =========================
+    -- FROM (PENGIRIM / KONSEPTOR / PEMERIKSA)
+    -- =========================
+    from_area VARCHAR(50),
+    from_area_text VARCHAR(150),
+
+    from_sub_area VARCHAR(50),
+    from_sub_area_text VARCHAR(150),
+
+    from_organization VARCHAR(100),
+    from_organization_text VARCHAR(150),
+
+    from_position VARCHAR(100),
+    from_position_text VARCHAR(150),
+    from_position_status ENUM('ybs','pt','ph'),
+
+    from_id_sirkuler VARCHAR(50),        -- persnum
+    from_nama_sirkuler VARCHAR(150),     -- name
+
+    from_telepon VARCHAR(50),
+    from_email VARCHAR(150),
+
+    from_actor ENUM('konseptor','pemeriksa'),
+
+    -- =========================
+    -- TO (PENERIMA / PEMERIKSA / PENGIRIM)
+    -- =========================
+    to_area VARCHAR(50),
+    to_area_text VARCHAR(150),
+
+    to_sub_area VARCHAR(50),
+    to_sub_area_text VARCHAR(150),
+
+    to_organization VARCHAR(100),
+    to_organization_text VARCHAR(150),
+
+    to_position VARCHAR(100),
+    to_position_text VARCHAR(150),
+    to_position_status ENUM('ybs','pt','ph'),
+
+    to_id_sirkuler VARCHAR(50),          -- persnum
+    to_nama_sirkuler VARCHAR(150),       -- name
+
+    to_telepon VARCHAR(50),
+    to_email VARCHAR(150),
+
+    to_actor ENUM('pemeriksa','pengirim'),
+
+    -- =========================
+    -- CATATAN & STATUS
+    -- =========================
+    catatan TEXT,
+
+    send_read_time DATETIME,
+    send_read_user VARCHAR(100),
+    id_label CHAR(36),
+
+    flag_favorit TINYINT(1) DEFAULT 0,
+    flag_note TINYINT(1) DEFAULT 0,
+    flag_arsip TINYINT(1) DEFAULT 0,
+
+    create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB 
+DEFAULT CHARSET=utf8mb3 
+COLLATE=utf8mb3_general_ci;
+
+
+CREATE TABLE delegasi (
+    id CHAR(36) PRIMARY KEY,
+
+    start_date DATE,
+    end_date DATE,
+
+    company VARCHAR(50),
+    company_text VARCHAR(150),
+
+    -- =========================
+    -- SEBAGAI (AS_)
+    -- =========================
+    as_area VARCHAR(50),
+    as_area_text VARCHAR(150),
+
+    as_sub_area VARCHAR(50),
+    as_sub_area_text VARCHAR(150),
+
+    as_organization VARCHAR(100),
+    as_organization_text VARCHAR(150),
+
+    as_position VARCHAR(100),
+    as_position_text VARCHAR(150),
+
+    as_persnum VARCHAR(50),
+    as_name VARCHAR(150),
+
+    position_status ENUM('PT','PH','PS','SE','VI'),
+
+    -- =========================
+    -- AKTUAL / REAL
+    -- =========================
+    area VARCHAR(50),
+    area_text VARCHAR(150),
+
+    sub_area VARCHAR(50),
+    sub_area_text VARCHAR(150),
+
+    organization VARCHAR(100),
+    organization_text VARCHAR(150),
+
+    position VARCHAR(100),
+    position_text VARCHAR(150),
+
+    persnum VARCHAR(50),
+    name VARCHAR(150),
+
+    create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb3
+COLLATE=utf8mb3_general_ci;
+
+
+CREATE TABLE literatur_en (
+    id CHAR(36) PRIMARY KEY,
+
+    company VARCHAR(50),
+
+    start_date DATE,
+    end_date DATE,
+
+    object_type ENUM('CO','PA','SA','S'),
+
+    long_text TEXT,
+    long_text_en TEXT,
+
+    create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb3
+COLLATE=utf8mb3_general_ci;
+
+
+CREATE TABLE template (
+    id CHAR(36) PRIMARY KEY,
+
+    tanggal DATE,
+    nama_template VARCHAR(150),
+    file VARCHAR(255),
+
+    create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb3
+COLLATE=utf8mb3_general_ci;

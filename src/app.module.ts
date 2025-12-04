@@ -18,6 +18,7 @@ import { OrgDataModule } from './org_data/org_data.module';
 import { RelationOdModule } from './relation_od/relation_od.module';
 import { PersuratanModule } from './persuratan/persuratan.module';
 import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
+import { TemplateModule } from './template/template.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
     RelationOdModule,
     PersuratanModule,
     DashboardUserModule,
+    TemplateModule,
   ],
   controllers: [AppController],
   providers: [AppService],
