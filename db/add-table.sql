@@ -147,7 +147,7 @@ CREATE TABLE klasifikasi (
 CREATE TABLE sub_area_alamat (
     id CHAR(36) PRIMARY KEY,
     start_date DATE,
-    end_date DATE,
+    end_date DATE DEFAULT '9999-12-31',
     company VARCHAR(50),
     area VARCHAR(50),
     sub_area VARCHAR(50),
@@ -340,7 +340,7 @@ CREATE TABLE delegasi (
     id CHAR(36) PRIMARY KEY,
 
     start_date DATE,
-    end_date DATE,
+    end_date DATE DEFAULT '9999-12-31',
 
     company VARCHAR(50),
     company_text VARCHAR(150),
