@@ -22,8 +22,8 @@ export class DisposisiDataDto {
   tanggal: string;
   status: string; // 'draf' atau 'final'
   sifat: string;
-  ref_nomor_surat: string;
-  ref_perihal_surat: string;
+  ref_nomor_surat: string | null; // Opsional: kosong untuk disposisi pertama
+  perihal: string; // Perihal masuk ke tabel naskah
   pengirim: DisposisiSirkulasiInfoDto;
   penerima: DisposisiSirkulasiInfoDto[];
   disposisi?: string; // Petunjuk disposisi dari checkbox (diformat FE)
@@ -34,6 +34,7 @@ export class DisposisiDataDto {
     url: string;
     tipe?: string;
   }[];
+  id_naskah_sebelumnya?: string | null; // ID naskah disposisi sebelumnya (untuk disposisi lanjutan)
 }
 
 export class SendDisposisiResponseDto {

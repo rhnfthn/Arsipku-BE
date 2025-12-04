@@ -18,6 +18,7 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
+import { ToggleFlagResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../entity/naskah.entity';
 
@@ -212,6 +213,7 @@ export class NaskahSirkulasiService {
         s.send_read_time,
         s.flag_favorit,
         s.flag_arsip,
+        s.flag_note,
         pengirim.position as pengirim_position_id,
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
@@ -246,6 +248,7 @@ export class NaskahSirkulasiService {
       read_time: row.send_read_time,
       is_favorit: row.flag_favorit === 1,
       is_arsip: row.flag_arsip === 1,
+      is_note: row.flag_note === 1,
     }));
 
     // Get summary counts
@@ -471,6 +474,72 @@ export class NaskahSirkulasiService {
             KA: parseInt(summary.total_ka || '0', 10),
           },
         },
+      },
+    };
+  }
+
+  // ============================================================
+  // TOGGLE FLAG - Favorit, Note, Arsip
+  // ============================================================
+
+  /**
+   * Toggle flag (favorit, note, arsip) pada naskah_sirkulasi
+   *
+   * @param idSirkulasi - ID sirkulasi
+   * @param flagType - Jenis flag: 'favorit' | 'note' | 'arsip'
+   * @returns ToggleFlagResponseDto
+   */
+  async toggleFlag(
+    idSirkulasi: string,
+    flagType: 'favorit' | 'note' | 'arsip',
+  ): Promise<ToggleFlagResponseDto> {
+    // Cari record
+    const sirkulasi = await this.naskahSirkulasiRepo.findOne({
+      where: { id: idSirkulasi },
+    });
+
+    if (!sirkulasi) {
+      return {
+        success: false,
+        message: 'Data sirkulasi tidak ditemukan',
+        data: null,
+      };
+    }
+
+    // Tentukan field yang akan di-toggle
+    let currentValue: number;
+    let fieldName: string;
+
+    switch (flagType) {
+      case 'favorit':
+        currentValue = sirkulasi.flagFavorit || 0;
+        fieldName = 'flagFavorit';
+        break;
+      case 'note':
+        currentValue = sirkulasi.flagNote || 0;
+        fieldName = 'flagNote';
+        break;
+      case 'arsip':
+        currentValue = sirkulasi.flagArsip || 0;
+        fieldName = 'flagArsip';
+        break;
+    }
+
+    // Toggle value
+    const newValue = currentValue === 1 ? 0 : 1;
+
+    // Update database
+    await this.naskahSirkulasiRepo.update(idSirkulasi, {
+      [fieldName]: newValue,
+    });
+
+    return {
+      success: true,
+      message: `Flag ${flagType} berhasil diubah`,
+      data: {
+        id_sirkulasi: idSirkulasi,
+        flag_type: flagType,
+        new_value: newValue === 1,
       },
     };
   }

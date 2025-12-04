@@ -1,19 +1,19 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseUUIDPipe, HttpException, HttpStatus } from '@nestjs/common';
-import { LiteraturEnService } from './literatur-en.service';
-import { CreateLiteraturEnDto } from './dto/create-literatur-en.dto';
-import { UpdateLiteraturEnDto } from './dto/update-literatur-en.dto';
+import { TitelaturEnService } from './titelatur-en.service';
+import { CreateTitelaturEnDto } from './dto/create-titelatur-en.dto';
+import { UpdateTitelaturEnDto } from './dto/update-titelatur-en.dto';
 
-@Controller('literatur-en')
-export class LiteraturEnController {
-  constructor(private readonly service: LiteraturEnService) {}
+@Controller('titelatur-en')
+export class TitelaturEnController {
+  constructor(private readonly service: TitelaturEnService) {}
 
   @Post()
-  async create(@Body() dto: CreateLiteraturEnDto) {
+  async create(@Body() dto: CreateTitelaturEnDto) {
     try {
       const created = await this.service.create(dto);
       return { success: true, data: created };
     } catch (err) {
-      throw new HttpException({ success: false, message: 'Failed to create literatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException({ success: false, message: 'Failed to create titelatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -30,12 +30,12 @@ export class LiteraturEnController {
   }
 
   @Put(':id')
-  async update(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Body() dto: UpdateLiteraturEnDto) {
+  async update(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Body() dto: UpdateTitelaturEnDto) {
     try {
       const updated = await this.service.update(id, dto);
       return { success: true, data: updated };
     } catch (err) {
-      throw new HttpException({ success: false, message: 'Failed to update literatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException({ success: false, message: 'Failed to update titelatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

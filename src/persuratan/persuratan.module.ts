@@ -34,6 +34,7 @@ import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.ser
 import { SuratDinasInternalService } from './services/surat-dinas-internal.service';
 import { DraftService } from './services/draft.service';
 import { KonsepService } from './services/konsep.service';
+import { NomorSuratService } from './services/nomor-surat.service';
 
 import { LabelController } from './controllers/label.controller';
 import { KlasifikasiController } from './controllers/klasifikasi.controller';
@@ -110,6 +111,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     SuratDinasInternalService,
     DraftService,
     KonsepService,
+    NomorSuratService,
   ],
   controllers: [
     LabelController,
@@ -150,6 +152,7 @@ import { OrgDataModule } from 'src/org_data/org_data.module';
     SuratDinasInternalService,
     DraftService,
     KonsepService,
+    NomorSuratService,
   ],
 })
 export class PersuratanModule {}

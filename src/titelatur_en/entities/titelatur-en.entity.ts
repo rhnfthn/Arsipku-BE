@@ -1,7 +1,7 @@
 import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-@Entity({ name: 'literatur_en' })
-export class LiteraturEnEntity {
+@Entity({ name: 'titelatur_en' })
+export class TitelaturEnEntity {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
 

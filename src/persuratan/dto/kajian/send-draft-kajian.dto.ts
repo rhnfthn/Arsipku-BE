@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SifatNaskah, LampiranKajianDto } from './create-kajian.dto';
+import { KajianSirkulasiInfoDto, KajianLampiranInfoDto } from './send-kajian-response.dto';
 
 /**
  * DTO untuk Send Draft Kajian (mengubah draft menjadi final)
@@ -96,8 +97,18 @@ export class SendDraftKajianResponseDto {
   success: boolean;
   message: string;
   data?: {
-    id_naskah: string;
+    id: string;
+    jenis: string;
+    tanggal: string;
     status: string; // 'final'
-    updated_at: Date;
+    sifat: string;
+    klasifikasi?: string | null;
+    klasifikasi_text?: string | null;
+    nomor?: string | null;
+    perihal: string;
+    konten?: string | null;
+    pengirim: KajianSirkulasiInfoDto;
+    penerima: KajianSirkulasiInfoDto[];
+    lampiran?: KajianLampiranInfoDto[];
   };
 }

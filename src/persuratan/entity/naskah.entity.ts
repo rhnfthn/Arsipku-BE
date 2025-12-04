@@ -29,7 +29,7 @@ export class NaskahEntity {
   sifat: 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka';
 
   @Column('varchar', { length: 100, nullable: true })
-  nomor: string;
+  nomor: string | null;
 
   @Column('date')
   tanggal: Date;
