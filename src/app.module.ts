@@ -19,7 +19,7 @@ import { RelationOdModule } from './relation_od/relation_od.module';
 import { PersuratanModule } from './persuratan/persuratan.module';
 import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
 import { TemplateModule } from './template/template.module';
-import { LiteraturEnModule } from './literatur_en/literatur-en.module';
+import { TitelaturEnModule } from './titelatur_en/titelatur-en.module';
 import { DataSource } from 'typeorm';
 
 @Module({
@@ -58,7 +58,7 @@ import { DataSource } from 'typeorm';
     PersuratanModule,
     DashboardUserModule,
     TemplateModule,
-    LiteraturEnModule,
+    TitelaturEnModule,
   ],
   controllers: [AppController],
   providers: [AppService],

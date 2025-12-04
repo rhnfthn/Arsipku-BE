@@ -58,15 +58,24 @@ export class CreateDisposisiDto {
   @IsEnum(SifatNaskah, { message: 'Sifat naskah tidak valid' })
   sifat: SifatNaskah;
 
-  // Ref. Nomor Surat (disimpan ke tabel naskah_referensi)
-  @IsNotEmpty({ message: 'Ref. Nomor Surat harus diisi' })
+  // Ref. Nomor Surat 
+  // OPSIONAL: Kosong/"-" untuk disposisi pertama
+  // WAJIB: Untuk disposisi lanjutan, otomatis terisi dari nomor naskah disposisi sebelumnya
+  @IsOptional()
   @IsString()
-  ref_nomor_surat: string;
+  ref_nomor_surat?: string;
 
-  // Ref. Perihal Surat Disposisi
-  @IsNotEmpty({ message: 'Ref. Perihal Surat harus diisi' })
+  // Ref. Perihal Surat Disposisi (disimpan ke tabel naskah.perihal)
+  @IsNotEmpty({ message: 'Perihal harus diisi' })
   @IsString()
-  ref_perihal_surat: string;
+  perihal: string;
+
+  // ID Naskah Disposisi Sebelumnya (opsional)
+  // Diisi jika ini adalah disposisi lanjutan dari disposisi yang diterima sebelumnya
+  // Jika diisi, maka akan otomatis insert ke naskah_referensi
+  @IsOptional()
+  @IsString()
+  id_naskah_sebelumnya?: string;
 
   // ============================================================
   // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)

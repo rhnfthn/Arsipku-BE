@@ -10,10 +10,10 @@ export class NaskahReferensiEntity {
 
   @Column({
     type: 'enum',
-    enum: ['ND', 'SDI', 'SDE'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
     nullable: true,
   })
-  ref_jenis: 'ND' | 'SDI' | 'SDE' | null;
+  ref_jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | null;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   ref_pengirim: string | null;
