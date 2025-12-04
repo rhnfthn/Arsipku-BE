@@ -56,6 +56,7 @@ export class InboxItemDto {
   // Flags
   is_favorit: boolean;
   is_arsip: boolean;
+  is_note: boolean;
 }
 
 /**

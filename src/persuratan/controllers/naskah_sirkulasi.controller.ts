@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Put,
+  Patch,
   Param,
   Delete,
   HttpCode,
@@ -25,6 +26,10 @@ import {
   SentMessageQueryDto,
   SentMessageResponseDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
+import {
+  ToggleFlagDto,
+  ToggleFlagResponseDto,
+} from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entity/naskah_sirkulasi.entity';
 
 @Controller('naskah_sirkulasi')
@@ -104,6 +109,31 @@ export class NaskahSirkulasiController {
     @Query() query: SentMessageQueryDto,
   ): Promise<SentMessageResponseDto> {
     return this.naskahSirkulasiService.getSentMessage(positionId, query);
+  }
+
+  // ============================================================
+  // TOGGLE FLAG - Favorit, Note, Arsip (Global untuk semua naskah)
+  // ============================================================
+
+  /**
+   * PATCH /naskah_sirkulasi/toggle-flag
+   *
+   * Toggle flag (favorit, note, arsip) pada item surat
+   * Global untuk semua jenis naskah: ND, SDI, SDE, DI, KA
+   *
+   * @param dto - ToggleFlagDto { id_sirkulasi, flag_type }
+   * @returns ToggleFlagResponseDto
+   *
+   * @example
+   * PATCH /naskah_sirkulasi/toggle-flag
+   * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit" }
+   */
+  @Patch('toggle-flag')
+  @HttpCode(HttpStatus.OK)
+  async toggleFlag(
+    @Body() dto: ToggleFlagDto,
+  ): Promise<ToggleFlagResponseDto> {
+    return this.naskahSirkulasiService.toggleFlag(dto.id_sirkulasi, dto.flag_type);
   }
 
   @Get()
