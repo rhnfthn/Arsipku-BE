@@ -20,6 +20,8 @@ import { PersuratanModule } from './persuratan/persuratan.module';
 import { DashboardUserModule } from './dashboard/user/dashboard-user.module';
 import { TemplateModule } from './template/template.module';
 import { TitelaturEnModule } from './titelatur_en/titelatur-en.module';
+import { StorageModule } from './storage/storage.module';
+import { UploadModule } from './upload/upload.module';
 import { DataSource } from 'typeorm';
 
 @Module({
@@ -59,6 +61,8 @@ import { DataSource } from 'typeorm';
     DashboardUserModule,
     TemplateModule,
     TitelaturEnModule,
+    StorageModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [AppService],
