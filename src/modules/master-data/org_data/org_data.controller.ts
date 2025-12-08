@@ -1,11 +1,11 @@
 import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
-import { RelationOoService } from 'src/modules/master-data/relation_oo/relation_oo.service';
-import { RelationOaService } from 'src/modules/master-data/relation_oa/relation_oa.service';
-import { RelationOsService } from 'src/modules/master-data/relation_os/relation_os.service';
-import { RelationOscService } from 'src/modules/master-data/relation_osc/relation_osc.service';
-import { RelationSpService } from 'src/modules/master-data/relation_sp/relation_sp.service';
+import { RelationOoService } from '../relation_oo/relation_oo.service';
+import { RelationOaService } from '../relation_oa/relation_oa.service';
+import { RelationOsService } from '../relation_os/relation_os.service';
+import { RelationOscService } from '../relation_osc/relation_osc.service';
+import { RelationSpService } from '../relation_sp/relation_sp.service';
 import { OrgDataQueryDto, OrgFilterQueryDto } from './dto/org-data-query.dto';
-import { RelationOdService } from 'src/modules/master-data/relation_od/relation_od.service';
+import { RelationOdService } from '../relation_od/relation_od.service';
 import { OrgDataService } from './org_data.service';
 
 type Org = {
@@ -25,6 +25,7 @@ type Org = {
     position: number;
     position_text: string;
     chief: number;
+    bod_tag: string;
     person: {
       persnum: number;
       persnum_text: string;
@@ -235,6 +236,13 @@ export class OrgDataController {
       tipeDepart.set(key, item.tipe);
     });
 
+    const bodTag = new Map<string, string>();
+
+    oscData.forEach((item) => {
+      const key = `${item.company}-${item.relation_position}`;
+      bodTag.set(key, item.bod_tag ?? '');
+    });
+
     const mergedData = (ooData as Org[]).map((org) => {
       const matchArea = (oaData as Area[]).find(
         (area) =>
@@ -254,13 +262,17 @@ export class OrgDataController {
               p.position === pos.relation_position && p.company === pos.company,
           );
 
+          const keybod = `${pos.company}-${pos.relation_position}`;
+
+          const tbod = bodTag.get(keybod) ?? '';
+
           return {
             abbreviation: pos.abbreviation,
             position: pos.relation_position,
             position_text: pos.relation_position_text,
-            chief: chiefPositions.has(`${pos.company}-${pos.relation_position}`)
-              ? 1
-              : 0,
+            // chief: chiefPositions.has(`${pos.company}-${pos.relation_position}`) ? 1 : 0,
+            chief: tbod!=='' ? 1 : 0,
+            bod_tag: tbod,
             person: matchedPerson
               ? {
                   persnum: matchedPerson.relation_persnum,
@@ -346,6 +358,7 @@ export class OrgDataController {
             position_text: pos.position_text,
             position_abbreviation: pos.abbreviation ?? null,
             chief: pos.chief,
+            bod_tag: pos.bod_tag,
             departType: node.departType,
 
             persnum_person: pos.person?.persnum ?? null,
