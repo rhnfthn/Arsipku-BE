@@ -36,6 +36,9 @@ export class RelationOsc {
   @Column("varchar", { name: "relation_position_text", nullable: true, length: 200 })
   relation_position_text: string | null;
 
+  @Column("varchar", { name: "bod_tag", nullable: true, length: 50 })
+  bod_tag: string | null;
+
   @Column("datetime", {
     name: "create_at",
     nullable: true,

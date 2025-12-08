@@ -37,6 +37,13 @@ export class CreateRelationOscDto {
   relation_position_text?: string;
 
   @IsString()
+  @MaxLength(50)
+  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
+    message: 'bod_tag hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
+  })
+  bod_tag?: string;
+
+  @IsString()
   @IsOptional()
   @MaxLength(11)
   uname?: string;
