@@ -39,6 +39,7 @@ import { TemplateModule } from './modules/template/template.module';
 import { TitelaturEnModule } from './modules/titelatur-en/titelatur-en.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { BerkasModule } from './modules/berkas/berkas.module';
 import { DataSource } from 'typeorm';
 
@@ -98,6 +99,7 @@ import { DataSource } from 'typeorm';
     TitelaturEnModule,
     StorageModule,
     UploadModule,
+    AuthModule,
     BerkasModule,
   ],
   controllers: [AppController],
