@@ -1,0 +1,36 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { HttpModule } from '@nestjs/axios';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Session } from './entities/session.entity';
+import { UserRole } from './entities/user-role.entity';
+import { SessionService } from './services/session.service';
+import { AuthService } from './services/auth.service';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { AuthController } from './controllers/auth.controller';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Session, UserRole]),
+    PassportModule,
+    HttpModule,
+    OrgDataModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET'),
+        signOptions: {
+          expiresIn: configService.get('JWT_EXPIRES_IN') || '24h',
+        },
+      }),
+      inject: [ConfigService],
+    }),
+  ],
+  providers: [SessionService, AuthService, JwtStrategy],
+  controllers: [AuthController],
+  exports: [SessionService, AuthService],
+})
+export class AuthModule {}
