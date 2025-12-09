@@ -19,6 +19,7 @@ export class GetSdeRecipientQueryDto {
 export class SdeOrgDataPositionDto {
   position: number;
   position_text: string;
+  position_abbreviation?: string | null;
   persnum: number;
   // Optional fields when org_data provides person details for the position
   persnum_person?: number | null;

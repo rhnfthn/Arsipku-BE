@@ -216,6 +216,7 @@ export class NotaDinasService {
         : (await this.nomorSuratService.generateNomor({
             jenis: 'ND',
             positionText: pengirim.position_text || '',
+            positionAbbreviation: pengirim.position_abbreviation || '',
             areaText: pengirim.area_text || 'Pusat',
             tanggal: new Date(),
             klasifikasi: dto.klasifikasi,
@@ -238,6 +239,7 @@ export class NotaDinasService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        final_pdf: dto.final_pdf || undefined,
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
@@ -440,6 +442,7 @@ export class NotaDinasService {
         pengirimPosition = {
           position: Number(existingPengirim.position),
           position_text: existingPengirim.positionText || '',
+          position_abbreviation: null,
           sub_area: Number(existingPengirim.subArea),
           area_text: existingPengirim.areaText || 'Pusat',
         } as OrgDataPositionDto;
@@ -451,6 +454,7 @@ export class NotaDinasService {
     const generatedNomor = await this.nomorSuratService.generateNomor({
       jenis: 'ND',
       positionText: pengirimPosition?.position_text || '',
+      positionAbbreviation: pengirimPosition?.position_abbreviation || undefined,
       areaText: pengirimPosition?.area_text || 'Pusat',
       tanggal: new Date(),
       klasifikasi: klasifikasi,
@@ -478,6 +482,7 @@ export class NotaDinasService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
@@ -756,6 +761,7 @@ export class NotaDinasService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       if (Object.keys(naskahUpdateData).length > 0) {

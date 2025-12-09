@@ -545,6 +545,7 @@ export class DisposisiService {
       const generatedNomor = await this.nomorSuratService.generateNomor({
         jenis: 'DI',
         positionText: pengirimData.position_text,
+        positionAbbreviation: pengirimData.position_abbreviation || undefined,
         areaText: pengirimData.area_text || 'Pusat',
         tanggal: tanggalDisposisi,
       });
@@ -1215,8 +1216,13 @@ export class DisposisiService {
       );
     }
 
-    // Get org data untuk validasi penerima baru
+    // Get org data untuk validasi penerima baru dan mendapatkan positionAbbreviation
     const barisData = await this.getPositionData();
+    
+    // Get pengirim data untuk position_abbreviation
+    const pengirimData = barisData.find(
+      (item) => String(item.position) === String(dto.pengirim_position_id),
+    );
 
     // Determine if this is a draft or final
     const isDraft = dto.action !== 'kirim';
@@ -1251,6 +1257,7 @@ export class DisposisiService {
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'DI',
           positionText: pengirimSirkulasi.positionText || '',
+          positionAbbreviation: pengirimData?.position_abbreviation || undefined,
           areaText: pengirimSirkulasi.areaText || 'Pusat',
           tanggal: naskah.tanggal || new Date(),
         });
@@ -1712,6 +1719,7 @@ export class DisposisiService {
       const generatedNomor = await this.nomorSuratService.generateNomor({
         jenis: 'DI',
         positionText: pengirimData.position_text,
+        positionAbbreviation: pengirimData.position_abbreviation || undefined,
         areaText: pengirimData.area_text || 'Pusat',
         tanggal: tanggalDisposisi,
       });
