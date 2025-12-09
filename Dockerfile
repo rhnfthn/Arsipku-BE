@@ -36,4 +36,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 
 # Run migrations and start the app with DNS fix
-CMD ["sh", "-c", "echo 'nameserver 8.8.8.8' > /etc/resolv.conf && echo 'nameserver 8.8.4.4' >> /etc/resolv.conf && echo '103.168.136.20 auth.airnavindonesia.co.id' >> /etc/hosts && node dist/src/main.js"]
+CMD ["sh", "-c", "echo 'nameserver 8.8.8.8' > /etc/resolv.conf && echo 'nameserver 8.8.4.4' >> /etc/resolv.conf && echo '103.168.136.20 auth.airnavindonesia.co.id' >> /etc/hosts && node dist/main.js"]
