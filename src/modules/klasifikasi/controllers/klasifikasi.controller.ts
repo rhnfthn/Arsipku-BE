@@ -32,9 +32,9 @@ export class KlasifikasiController {
     return this.klasifikasiService.update(id, updateKlasifikasiDto);
   }
 
-  @Put(':id/toggle-aktif')
-  toggleAktif(@Param('id') id: string) {
-    return this.klasifikasiService.toggleAktif(id);
+  @Put(':id/toggle-active')
+  toggleActive(@Param('id') id: string) {
+    return this.klasifikasiService.toggleActive(id);
   }
 
   @Delete(':id')

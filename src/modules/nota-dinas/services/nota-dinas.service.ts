@@ -216,6 +216,7 @@ export class NotaDinasService {
         : (await this.nomorSuratService.generateNomor({
             jenis: 'ND',
             positionText: pengirim.position_text || '',
+            positionAbbreviation: pengirim.position_abbreviation || '',
             areaText: pengirim.area_text || 'Pusat',
             tanggal: new Date(),
             klasifikasi: dto.klasifikasi,
@@ -441,6 +442,7 @@ export class NotaDinasService {
         pengirimPosition = {
           position: Number(existingPengirim.position),
           position_text: existingPengirim.positionText || '',
+          position_abbreviation: null,
           sub_area: Number(existingPengirim.subArea),
           area_text: existingPengirim.areaText || 'Pusat',
         } as OrgDataPositionDto;
@@ -452,6 +454,7 @@ export class NotaDinasService {
     const generatedNomor = await this.nomorSuratService.generateNomor({
       jenis: 'ND',
       positionText: pengirimPosition?.position_text || '',
+      positionAbbreviation: pengirimPosition?.position_abbreviation || undefined,
       areaText: pengirimPosition?.area_text || 'Pusat',
       tanggal: new Date(),
       klasifikasi: klasifikasi,
