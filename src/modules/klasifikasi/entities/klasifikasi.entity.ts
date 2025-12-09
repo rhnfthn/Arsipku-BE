@@ -1,16 +1,36 @@
-import { Entity, Column, PrimaryColumn } from 'typeorm';
+import { Entity, Column, PrimaryColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 
 @Entity('klasifikasi')
 export class KlasifikasiEntity {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
 
-  @Column({ type: 'varchar', length: 50 })
+  @Column({ type: 'varchar', length: 255 })
   company: string;
 
-  @Column({ type: 'varchar', length: 50 })
+  @Column({ type: 'varchar', length: 255 })
   klasifikasi: string;
 
-  @Column({ type: 'boolean', default: true })
-  aktif: boolean;
+  @Column({ type: 'text', nullable: true })
+  klasifikasi_text: string;
+
+  @Column({ type: 'text', nullable: true })
+  deskripsi: string;
+
+  @Column({ type: 'char', length: 36, nullable: true })
+  id_parent: string;
+
+  @Column({ type: 'tinyint', width: 1, default: 1 })
+  active: number;
+
+  // Relasi ke parent
+  @ManyToOne(() => KlasifikasiEntity, (klasifikasi) => klasifikasi.children, {
+    nullable: true,
+  })
+  @JoinColumn({ name: 'id_parent' })
+  parent: KlasifikasiEntity;
+
+  // Relasi ke children
+  @OneToMany(() => KlasifikasiEntity, (klasifikasi) => klasifikasi.parent)
+  children: KlasifikasiEntity[];
 }

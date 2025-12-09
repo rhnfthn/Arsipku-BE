@@ -490,6 +490,7 @@ export class SuratDinasInternalService {
         : (await this.nomorSuratService.generateNomor({
             jenis: 'SDI',
             positionText: pengirim.position_text || '',
+            positionAbbreviation: pengirim.position_abbreviation || undefined,
             areaText: pengirim.area_text || 'Pusat',
             tanggal: new Date(),
             klasifikasi: dto.klasifikasi,
@@ -717,6 +718,7 @@ export class SuratDinasInternalService {
     const generatedNomor = await this.nomorSuratService.generateNomor({
       jenis: 'SDI',
       positionText: pengirimPosition?.position_text || '',
+      positionAbbreviation: pengirimPosition?.position_abbreviation || undefined,
       areaText: pengirimPosition?.area_text || 'Pusat',
       tanggal: new Date(),
       klasifikasi: klasifikasi,
