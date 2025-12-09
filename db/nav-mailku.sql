@@ -28904,3 +28904,35 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+CREATE TABLE berkas (
+    id CHAR(36) PRIMARY KEY,
+
+    -- dari form
+    klasifikasi VARCHAR(50) NOT NULL,
+    judul_berkas VARCHAR(200) NOT NULL,
+
+    hitung_waktu_retensi_dari ENUM(
+        'Sejak Berkas Dibuat',
+        'Sejak Berkas Ditutup'
+    ) NOT NULL,
+
+    tindakan_penyusutan_akhir ENUM(
+        'Musnah',
+        'Dinilai Kembali',
+        'Permanen'
+    ) NOT NULL,
+
+    lokasi VARCHAR(255) NOT NULL,
+    isi_ringkas TEXT NOT NULL,
+
+    -- metadata
+    is_aktif BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb3
+COLLATE utf8mb3_general_ci;
