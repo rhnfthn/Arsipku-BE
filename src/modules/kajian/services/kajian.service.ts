@@ -634,6 +634,7 @@ export class KajianService {
       const generatedNomor = await this.nomorSuratService.generateNomor({
         jenis: 'KA',
         positionText: pengirimData.position_text,
+        positionAbbreviation: pengirimData.position_abbreviation || undefined,
         areaText: pengirimData.area_text || '',
         tanggal: new Date(dto.tanggal),
       });
@@ -1096,6 +1097,7 @@ export class KajianService {
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'KA',
           positionText: pengirimData.position_text,
+          positionAbbreviation: pengirimData.position_abbreviation || undefined,
           areaText: pengirimData.area_text || '',
           tanggal: naskah.tanggal,
         });
