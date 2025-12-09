@@ -238,6 +238,7 @@ export class NotaDinasService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        final_pdf: dto.final_pdf || undefined,
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
@@ -478,6 +479,7 @@ export class NotaDinasService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
@@ -756,6 +758,7 @@ export class NotaDinasService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       if (Object.keys(naskahUpdateData).length > 0) {
