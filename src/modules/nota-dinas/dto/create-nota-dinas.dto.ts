@@ -102,6 +102,13 @@ export class CreateNotaDinasDto {
   lampiran_files?: string[]; // Array file paths untuk lampiran
 
   // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string; // URL/path file PDF final
+
+  // ============================================
   // OPTIONS
   // ============================================
   @IsOptional()
@@ -204,6 +211,13 @@ export class FinalizeDraftDto {
   lampiran_files?: string[];
 
   // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string; // URL/path file PDF final
+
+  // ============================================
   // OPTIONS
   // ============================================
   @IsOptional()
@@ -303,6 +317,13 @@ export class UpdateDraftDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string; // URL/path file PDF final
 
   // ============================================
   // OPTIONS
