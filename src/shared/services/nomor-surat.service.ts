@@ -74,6 +74,7 @@ const BULAN_ROMAWI: Record<number, string> = {
 export interface GenerateNomorParams {
   jenis: 'DI' | 'ND' | 'SDI' | 'SDE' | 'KA';
   positionText: string;
+  positionAbbreviation?: string; // Abbreviation dari org_data (untuk semua jenis surat)
   areaText: string;
   tanggal: Date;
   klasifikasi?: string; // Kode klasifikasi arsip (contoh: PER.07, OPS.12)
@@ -194,13 +195,16 @@ export class NomorSuratService {
    *
    * Format: {NO_URUT}/{JABATAN}/{LOKASI}/{BULAN}/{TAHUN}
    * Contoh: 001/P/00/XII/2025
+   *
+   * JABATAN diambil dari position_abbreviation di org_data
    */
   async generateNomorDisposisi(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, areaText, tanggal } = params;
+    const { jenis, positionText, positionAbbreviation, areaText, tanggal } = params;
 
-    const jabatan = this.getKodeJabatan(positionText);
+    // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
+    const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
     const lokasi = this.getKodeLokasi(areaText);
     const bulan = this.getBulanRomawi(tanggal);
     const tahun = tanggal.getFullYear();
@@ -231,13 +235,15 @@ export class NomorSuratService {
    * Contoh: 001/P/PER.07/XII/2025
    *
    * Tidak ada kode lokasi dan instansi
+   * JABATAN diambil dari position_abbreviation di org_data
    */
   async generateNomorNotaDinas(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, tanggal, klasifikasi } = params;
+    const { jenis, positionText, positionAbbreviation, tanggal, klasifikasi } = params;
 
-    const jabatan = this.getKodeJabatan(positionText);
+    // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
+    const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
     const kodeKlasifikasi = klasifikasi || 'UMM.01'; // Default klasifikasi
     const bulan = this.getBulanRomawi(tanggal);
     const tahun = tanggal.getFullYear();
@@ -268,13 +274,15 @@ export class NomorSuratService {
    * Contoh: 001/P/00/PER.07/XII/2025
    *
    * Ada lokasi, tidak ada instansi
+   * JABATAN diambil dari position_abbreviation di org_data
    */
   async generateNomorSuratDinasInternal(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, areaText, tanggal, klasifikasi } = params;
+    const { jenis, positionText, positionAbbreviation, areaText, tanggal, klasifikasi } = params;
 
-    const jabatan = this.getKodeJabatan(positionText);
+    // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
+    const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
     const lokasi = this.getKodeLokasi(areaText);
     const kodeKlasifikasi = klasifikasi || 'UMM.01';
     const bulan = this.getBulanRomawi(tanggal);
@@ -307,13 +315,15 @@ export class NomorSuratService {
    * Contoh: 001/G/01/KRT.01.02/II/2019 atau 001/P/00/LPPNPI/PER.07/XII/2025
    *
    * Format lengkap dengan lokasi, instansi, dan klasifikasi
+   * JABATAN diambil dari position_abbreviation di org_data
    */
   async generateNomorSuratDinasEksternal(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, areaText, tanggal, klasifikasi } = params;
+    const { jenis, positionText, positionAbbreviation, areaText, tanggal, klasifikasi } = params;
 
-    const jabatan = this.getKodeJabatan(positionText);
+    // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
+    const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
     const lokasi = this.getKodeLokasi(areaText);
     const instansi = INSTANSI;
     const kodeKlasifikasi = klasifikasi || 'UMM.01';
