@@ -201,6 +201,10 @@ export class AuthController {
     const bearer = req.headers.authorization || '';
     const appToken = bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined;
 
+    if (!appToken) {
+      throw new UnauthorizedException('Authorization token required');
+    }
+
     const result = await this.authService.refreshWithSession(dto.sessionId, appToken);
 
     return {
