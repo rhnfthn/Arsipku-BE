@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Put, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
+import { UserLevelGuard } from '../../../common/guards';
+import { UserLevels } from '../../../common/decorators';
+import { UserLevel } from '../../../common/enums';
 
 @Controller('SDE')
 export class SuratDinasEksternalController {
@@ -40,6 +43,8 @@ export class SuratDinasEksternalController {
    * @param dto - CreateSuratDinasEksternalDto
    * @returns SdeSendMessageResponseDto
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(
     @Body() dto: CreateSuratDinasEksternalDto,
@@ -73,6 +78,8 @@ export class SuratDinasEksternalController {
    * @param dto - CreateSuratDinasEksternalDto
    * @returns SdeSendMessageResponseDto
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(
     @Body() dto: CreateSuratDinasEksternalDto,
@@ -110,6 +117,8 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.DIREKSI)
   @Put('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
@@ -149,6 +158,8 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.DIREKSI)
   @Put('send-draft/:id')
   async sendDraft(
     @Param('id') id: string,
