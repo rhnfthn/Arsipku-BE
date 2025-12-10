@@ -1,0 +1,269 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Like } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { UserRoleEntity, UserRole } from '../entities/user-role.entity';
+import { UserRoleHistoryEntity, RoleAction } from '../entities/user-role-history.entity';
+import { Person } from '../../master-data/person/entities/person.entity';
+import { SearchUsersDto, SearchUsersResponseDto, UserListItemDto } from '../dto/search-users.dto';
+import { AssignRoleDto, AssignRoleResponseDto } from '../dto/assign-role.dto';
+import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
+
+@Injectable()
+export class AdminService {
+  constructor(
+    @InjectRepository(UserRoleEntity)
+    private readonly userRoleRepo: Repository<UserRoleEntity>,
+    @InjectRepository(UserRoleHistoryEntity)
+    private readonly userRoleHistoryRepo: Repository<UserRoleHistoryEntity>,
+    @InjectRepository(Person)
+    private readonly personRepo: Repository<Person>,
+  ) {}
+
+  /**
+   * Get list of users with their roles
+   * Search by name, username, or persnum
+   * Filter by role
+   */
+  async searchUsers(query: SearchUsersDto): Promise<SearchUsersResponseDto> {
+    // Build query untuk pa_personal
+    const whereConditions: any[] = [];
+
+    // Active users only (end_date in future)
+    whereConditions.push({
+      endDate: '9999-12-31',
+    });
+
+    // Search filter
+    if (query.search) {
+      const searchTerm = `%${query.search}%`;
+      const persons = await this.personRepo.find({
+        where: [
+          { name: Like(searchTerm), endDate: '9999-12-31' },
+          { uname: Like(searchTerm), endDate: '9999-12-31' },
+        ],
+        order: { name: 'ASC' },
+      });
+
+      // Get user roles
+      const users: UserListItemDto[] = [];
+      for (const person of persons) {
+        if (!person.persnum) continue;
+
+        const userRole = await this.userRoleRepo.findOne({
+          where: { persnum: person.persnum },
+        });
+
+        // Filter by role if specified
+        if (query.role && (!userRole || userRole.role !== query.role)) {
+          continue;
+        }
+
+        users.push({
+          persnum: person.persnum,
+          name: person.name || '',
+          uname: person.uname || '',
+          role: userRole?.role || null,
+          status: 'aktif',
+          assigned_at: userRole?.createdAt || null,
+        });
+      }
+
+      // Count summary
+      const totalAdmin = users.filter(u => u.role === UserRole.ADMIN).length;
+      const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
+      const totalRegular = users.filter(u => !u.role).length;
+
+      return {
+        success: true,
+        message: 'Berhasil mengambil data pengguna',
+        data: {
+          users,
+          summary: {
+            total: users.length,
+            total_admin: totalAdmin,
+            total_superadmin: totalSuperadmin,
+            total_regular_users: totalRegular,
+          },
+        },
+      };
+    }
+
+    // No search term - get all active users with pagination
+    const persons = await this.personRepo.find({
+      where: { endDate: '9999-12-31' },
+      order: { name: 'ASC' },
+      take: 100, // Limit results
+    });
+
+    const users: UserListItemDto[] = [];
+    for (const person of persons) {
+      if (!person.persnum) continue;
+
+      const userRole = await this.userRoleRepo.findOne({
+        where: { persnum: person.persnum },
+      });
+
+      // Filter by role if specified
+      if (query.role && (!userRole || userRole.role !== query.role)) {
+        continue;
+      }
+
+      users.push({
+        persnum: person.persnum,
+        name: person.name || '',
+        uname: person.uname || '',
+        role: userRole?.role || null,
+        status: 'aktif',
+        assigned_at: userRole?.createdAt || null,
+      });
+    }
+
+    // Count summary
+    const totalAdmin = users.filter(u => u.role === UserRole.ADMIN).length;
+    const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
+    const totalRegular = users.filter(u => !u.role).length;
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil data pengguna',
+      data: {
+        users,
+        summary: {
+          total: users.length,
+          total_admin: totalAdmin,
+          total_superadmin: totalSuperadmin,
+          total_regular_users: totalRegular,
+        },
+      },
+    };
+  }
+
+  /**
+   * Assign role (admin/superadmin) to user
+   * Only superadmin can assign roles
+   */
+  async assignRole(
+    persnum: number,
+    dto: AssignRoleDto,
+    assignedBy: number,
+  ): Promise<AssignRoleResponseDto> {
+    // Validate user exists in pa_personal
+    const person = await this.personRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(`User dengan persnum ${persnum} tidak ditemukan`);
+    }
+
+    // Check if user is active
+    if (person.endDate !== '9999-12-31') {
+      throw new BadRequestException(`User dengan persnum ${persnum} tidak aktif`);
+    }
+
+    // Check if user already has a role
+    let userRole = await this.userRoleRepo.findOne({
+      where: { persnum },
+    });
+
+    if (userRole) {
+      // Update existing role
+      const oldRole = userRole.role;
+      userRole.role = dto.role;
+      await this.userRoleRepo.save(userRole);
+
+      // Log to history
+      await this.userRoleHistoryRepo.save({
+        id: uuidv4(),
+        persnum,
+        role: dto.role,
+        action: RoleAction.ASSIGNED,
+        assignedBy,
+      });
+
+      return {
+        success: true,
+        message: `Role berhasil diubah dari ${oldRole} menjadi ${dto.role}`,
+        data: {
+          persnum,
+          role: dto.role,
+          assigned_by: assignedBy,
+          assigned_at: new Date(),
+        },
+      };
+    }
+
+    // Create new role assignment
+    userRole = this.userRoleRepo.create({
+      id: uuidv4(),
+      persnum,
+      role: dto.role,
+    });
+
+    await this.userRoleRepo.save(userRole);
+
+    // Log to history
+    await this.userRoleHistoryRepo.save({
+      id: uuidv4(),
+      persnum,
+      role: dto.role,
+      action: RoleAction.ASSIGNED,
+      assignedBy,
+    });
+
+    return {
+      success: true,
+      message: `Role ${dto.role} berhasil diberikan kepada user`,
+      data: {
+        persnum,
+        role: dto.role,
+        assigned_by: assignedBy,
+        assigned_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Remove role from user (revert to regular user)
+   * Only superadmin can remove roles
+   */
+  async removeRole(
+    persnum: number,
+    removedBy: number,
+  ): Promise<RemoveRoleResponseDto> {
+    // Check if user has a role
+    const userRole = await this.userRoleRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!userRole) {
+      throw new NotFoundException(`User dengan persnum ${persnum} tidak memiliki role admin/superadmin`);
+    }
+
+    const previousRole = userRole.role;
+
+    // Remove role
+    await this.userRoleRepo.remove(userRole);
+
+    // Log to history
+    await this.userRoleHistoryRepo.save({
+      id: uuidv4(),
+      persnum,
+      role: previousRole,
+      action: RoleAction.REMOVED,
+      assignedBy: removedBy,
+    });
+
+    return {
+      success: true,
+      message: `Role ${previousRole} berhasil dihapus, user kembali menjadi user biasa`,
+      data: {
+        persnum,
+        previous_role: previousRole,
+        removed_by: removedBy,
+        removed_at: new Date(),
+      },
+    };
+  }
+}
