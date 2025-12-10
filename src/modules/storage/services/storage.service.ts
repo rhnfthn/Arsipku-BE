@@ -44,6 +44,13 @@ export class StorageService implements OnModuleInit {
     const accessKeyId = this.configService.get<string>('MINIO_ACCESS_KEY') || '';
     const secretAccessKey = this.configService.get<string>('MINIO_SECRET_KEY') || '';
 
+    this.logger.log(`📡 MinIO Configuration:`);
+    this.logger.log(`  - Endpoint: ${this.endpoint}`);
+    this.logger.log(`  - Public URL: ${this.publicUrl}`);
+    this.logger.log(`  - Use SSL: ${useSSL}`);
+    this.logger.log(`  - Access Key: ${accessKeyId ? '✓' : '✗'}`);
+    this.logger.log(`  - Secret Key: ${secretAccessKey ? '✓' : '✗'}`);
+
     // Handler untuk self-signed certificate
     const requestHandler = new NodeHttpHandler({
       httpsAgent: new https.Agent({
@@ -74,13 +81,20 @@ export class StorageService implements OnModuleInit {
    */
   private async ensureBucketExists(): Promise<void> {
     try {
+      this.logger.log(`🔍 Checking if bucket '${this.bucketName}' exists...`);
       await this.s3Client.send(
         new HeadBucketCommand({ Bucket: this.bucketName }),
       );
       this.logger.log(`✅ MinIO bucket '${this.bucketName}' exists`);
     } catch (error) {
+      this.logger.error(`❌ MinIO connection error: ${error.message}`);
+      this.logger.error(`   Error name: ${error.name}`);
+      this.logger.error(`   Error code: ${error.code || 'N/A'}`);
+      this.logger.error(`   Status code: ${error.$metadata?.httpStatusCode || 'N/A'}`);
+      
       if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
         try {
+          this.logger.log(`📦 Creating bucket '${this.bucketName}'...`);
           await this.s3Client.send(
             new CreateBucketCommand({ Bucket: this.bucketName }),
           );
@@ -91,7 +105,7 @@ export class StorageService implements OnModuleInit {
           );
         }
       } else {
-        this.logger.error(`❌ MinIO connection error: ${error.message}`);
+        this.logger.warn(`⚠️  MinIO may not be available. Service will continue but file uploads may fail.`);
       }
     }
   }
