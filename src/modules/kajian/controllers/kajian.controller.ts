@@ -6,8 +6,12 @@ import {
   Param,
   Body,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { KajianService } from '../services/kajian.service';
+import { UserLevelGuard } from '../../../common/guards';
+import { UserLevels } from '../../../common/decorators';
+import { UserLevel } from '../../../common/enums';
 import { KajianRecipientResponseDto } from '../dto/kajian-recipient-response.dto';
 import { CreateKajianDto } from '../dto/create-kajian.dto';
 import { SendKajianResponseDto } from '../dto/send-kajian-response.dto';
@@ -49,6 +53,8 @@ export class KajianController {
    * Mengirim kajian ke ATASAN dalam Sub Area yang sama
    * Status langsung 'final'
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(@Body() dto: CreateKajianDto): Promise<SendKajianResponseDto> {
     return this.kajianService.sendMessage(dto);
@@ -61,6 +67,8 @@ export class KajianController {
    * Menyimpan kajian sebagai draft (status 'draf')
    * Bisa diedit/dikirim nanti
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(@Body() dto: CreateKajianDto): Promise<SendKajianResponseDto> {
     return this.kajianService.saveDraft(dto);
@@ -88,6 +96,8 @@ export class KajianController {
    * - action: 'simpan' → tetap draft
    * - action: 'kirim' → ubah ke final dan kirim
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('update-draft/:id_naskah')
   async updateDraft(
     @Param('id_naskah') idNaskah: string,
@@ -103,6 +113,8 @@ export class KajianController {
    * Mengirimkan kajian yang sebelumnya disimpan sebagai draft
    * Status berubah dari 'draf' ke 'final'
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('send-draft/:id_naskah')
   async sendDraft(
     @Param('id_naskah') idNaskah: string,
