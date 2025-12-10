@@ -1,0 +1,313 @@
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
+import * as https from 'https';
+
+export interface UploadResult {
+  key: string;
+  url: string;
+  bucket: string;
+}
+
+@Injectable()
+export class StorageService implements OnModuleInit {
+  private readonly logger = new Logger(StorageService.name);
+  private s3Client: S3Client;
+  private bucketName: string;
+  private endpoint: string;
+  private publicUrl: string;
+
+  constructor(private readonly configService: ConfigService) {
+    const minioEndpoint = this.configService.get<string>('MINIO_ENDPOINT');
+    const port = this.configService.get<string>('MINIO_PORT');
+    const useSSL = this.configService.get<string>('MINIO_USE_SSL') === 'true';
+
+    const protocol = useSSL ? 'https' : 'http';
+    this.endpoint = port
+      ? `${protocol}://${minioEndpoint}:${port}`
+      : `${protocol}://${minioEndpoint}`;
+    
+    // Public URL untuk akses file (tanpa port, via reverse proxy)
+    this.publicUrl = this.configService.get<string>('MINIO_PUBLIC_URL') || this.endpoint;
+
+    const accessKeyId = this.configService.get<string>('MINIO_ACCESS_KEY') || '';
+    const secretAccessKey = this.configService.get<string>('MINIO_SECRET_KEY') || '';
+
+    // Handler untuk self-signed certificate
+    const requestHandler = new NodeHttpHandler({
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: false, // Untuk self-signed certificate
+      }),
+    });
+
+    this.s3Client = new S3Client({
+      endpoint: this.endpoint,
+      region: 'us-east-1', // MinIO tidak peduli region, tapi harus diisi
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+      forcePathStyle: true, // Wajib untuk MinIO
+      requestHandler: useSSL ? requestHandler : undefined,
+    });
+
+    this.bucketName = this.configService.get<string>('MINIO_BUCKET_NAME') || 'default';
+  }
+
+  async onModuleInit() {
+    await this.ensureBucketExists();
+  }
+
+  /**
+   * Memastikan bucket sudah ada, jika belum akan dibuat
+   */
+  private async ensureBucketExists(): Promise<void> {
+    try {
+      await this.s3Client.send(
+        new HeadBucketCommand({ Bucket: this.bucketName }),
+      );
+      this.logger.log(`✅ MinIO bucket '${this.bucketName}' exists`);
+    } catch (error) {
+      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        try {
+          await this.s3Client.send(
+            new CreateBucketCommand({ Bucket: this.bucketName }),
+          );
+          this.logger.log(`✅ MinIO bucket '${this.bucketName}' created`);
+        } catch (createError) {
+          this.logger.error(
+            `❌ Failed to create bucket: ${createError.message}`,
+          );
+        }
+      } else {
+        this.logger.error(`❌ MinIO connection error: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Upload file dari Multer ke MinIO
+   * @param file - File dari Multer (Express.Multer.File)
+   * @param folder - Folder tujuan (opsional)
+   * @returns UploadResult dengan key dan URL
+   */
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = '',
+  ): Promise<UploadResult> {
+    const sanitizedFileName = this.sanitizeFileName(file.originalname);
+    const key = folder
+      ? `${folder}/${Date.now()}-${sanitizedFileName}`
+      : `${Date.now()}-${sanitizedFileName}`;
+
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }),
+    );
+
+    this.logger.log(`✅ File uploaded: ${key}`);
+
+    return {
+      key,
+      url: await this.getFileUrl(key),
+      bucket: this.bucketName,
+    };
+  }
+
+  /**
+   * Upload buffer langsung ke MinIO
+   * @param buffer - Buffer data
+   * @param filename - Nama file
+   * @param contentType - MIME type
+   * @param folder - Folder tujuan (opsional)
+   * @returns UploadResult dengan key dan URL
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    filename: string,
+    contentType: string,
+    folder: string = '',
+  ): Promise<UploadResult> {
+    const sanitizedFileName = this.sanitizeFileName(filename);
+    const key = folder
+      ? `${folder}/${Date.now()}-${sanitizedFileName}`
+      : `${Date.now()}-${sanitizedFileName}`;
+
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+      }),
+    );
+
+    this.logger.log(`✅ Buffer uploaded: ${key}`);
+
+    return {
+      key,
+      url: await this.getFileUrl(key),
+      bucket: this.bucketName,
+    };
+  }
+
+  /**
+   * Get signed URL untuk akses file (menggunakan public URL)
+   * @param key - Key file di MinIO
+   * @param expiresIn - Waktu expired dalam detik (default 1 jam)
+   * @returns Signed URL dengan public endpoint
+   */
+  async getFileUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+    });
+
+    const signedUrl = await getSignedUrl(this.s3Client, command, { expiresIn });
+    
+    // Ganti internal endpoint dengan public URL
+    return signedUrl.replace(this.endpoint, this.publicUrl);
+  }
+
+  /**
+   * Get public URL (tanpa signature, untuk bucket public)
+   * @param key - Key file di MinIO
+   * @returns Public URL
+   */
+  getPublicUrl(key: string): string {
+    return `${this.publicUrl}/${this.bucketName}/${key}`;
+  }
+
+  /**
+   * Download file dari MinIO sebagai Buffer
+   * @param key - Key file di MinIO
+   * @returns Buffer data
+   */
+  async getFile(key: string): Promise<Buffer> {
+    const response = await this.s3Client.send(
+      new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      }),
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Download file dengan metadata
+   * @param key - Key file di MinIO
+   * @returns Object dengan buffer dan metadata
+   */
+  async getFileWithMetadata(
+    key: string,
+  ): Promise<{ buffer: Buffer; contentType: string; contentLength: number }> {
+    const response = await this.s3Client.send(
+      new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      }),
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+
+    return {
+      buffer: Buffer.concat(chunks),
+      contentType: response.ContentType || 'application/octet-stream',
+      contentLength: response.ContentLength || 0,
+    };
+  }
+
+  /**
+   * Delete file dari MinIO
+   * @param key - Key file di MinIO
+   */
+  async deleteFile(key: string): Promise<void> {
+    await this.s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      }),
+    );
+
+    this.logger.log(`✅ File deleted: ${key}`);
+  }
+
+  /**
+   * List files dalam folder
+   * @param prefix - Prefix/folder path
+   * @param maxKeys - Jumlah maksimum file (default 1000)
+   * @returns Array of file keys
+   */
+  async listFiles(prefix: string = '', maxKeys: number = 1000): Promise<string[]> {
+    const response = await this.s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucketName,
+        Prefix: prefix,
+        MaxKeys: maxKeys,
+      }),
+    );
+
+    return response.Contents?.map((item) => item.Key).filter((key): key is string => key !== undefined) || [];
+  }
+
+  /**
+   * Check apakah file exists
+   * @param key - Key file di MinIO
+   * @returns boolean
+   */
+  async fileExists(key: string): Promise<boolean> {
+    try {
+      await this.s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.bucketName,
+          Key: key,
+        }),
+      );
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Sanitize filename untuk menghindari karakter berbahaya
+   */
+  private sanitizeFileName(filename: string): string {
+    return filename
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .toLowerCase();
+  }
+
+  /**
+   * Generate unique filename dengan UUID
+   */
+  generateUniqueFileName(originalName: string): string {
+    const ext = originalName.split('.').pop();
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8);
+    return `${timestamp}-${random}.${ext}`;
+  }
+}
