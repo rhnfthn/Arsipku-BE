@@ -6,7 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { SessionService } from './session.service';
-import { UserRole } from '../entities/user-role.entity';
+import { UserRoleEntity } from '../../admin/entities/user-role.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import {
   JwtPayload,
@@ -22,8 +22,8 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly sessionService: SessionService,
     private readonly orgDataService: OrgDataService,
-    @InjectRepository(UserRole)
-    private userRoleRepo: Repository<UserRole>,
+    @InjectRepository(UserRoleEntity)
+    private userRoleRepo: Repository<UserRoleEntity>,
   ) {}
 
   /**
@@ -105,6 +105,10 @@ export class AuthService {
     const userRole = await this.userRoleRepo.findOne({
       where: { persnum },
     });
+
+    console.log('[AuthService] Persnum:', persnum);
+    console.log('[AuthService] UserRole from DB:', userRole);
+    console.log('[AuthService] Role value:', userRole?.role);
 
     const role = userRole?.role || 'user';
 
