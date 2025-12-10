@@ -329,7 +329,7 @@ export class AuthService {
     expiredToken: string;
     refreshToken: string;
     sessionId: string;
-    user: JwtPayload;
+    payloadRefresh: JwtPayload;
   }> {
     console.log('[AuthService] ===== Refresh Token Started =====');
     console.log('[AuthService] Session ID:', sessionId);
