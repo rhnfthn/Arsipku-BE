@@ -1,0 +1,283 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import { NomorService } from '../services/nomor.service';
+import {
+  CreateNomorRequestDto,
+  CreateNomorRequestResponseDto,
+} from '../dto/create-nomor-request.dto';
+import {
+  GetMyNomorRequestResponseDto,
+  GetAdminNomorRequestResponseDto,
+} from '../dto/get-nomor-request.dto';
+import {
+  BookingNomorRequestDto,
+  BookingNomorRequestResponseDto,
+  ApproveNomorRequestDetailDto,
+  ApproveNomorRequestDetailResponseDto,
+  RejectNomorRequestDetailResponseDto,
+  ApproveBulkNomorRequestDetailDto,
+  ApproveBulkNomorRequestDetailResponseDto,
+  RejectBulkNomorRequestDetailDto,
+  RejectBulkNomorRequestDetailResponseDto,
+} from '../dto/admin-nomor-request.dto';
+import {
+  GetNomorQueryDto,
+  GetNomorResponseDto,
+} from '../dto/get-nomor.dto';
+
+@Controller('/')
+export class NomorController {
+  constructor(private readonly nomorService: NomorService) {}
+
+  /**
+   * POST /nomor-request
+   * User membuat usulan nomor baru
+   */
+  @Post('nomor-request')
+  async createNomorRequest(
+    @Body() dto: CreateNomorRequestDto,
+  ): Promise<CreateNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.createNomorRequest(dto);
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to create nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /nomor-request/:positionId
+   * User melihat usulan nomor berdasarkan position ID
+   */
+  @Get('nomor-request/:positionId')
+  async getNomorRequestByPosition(
+    @Param('positionId') positionId: string,
+  ): Promise<GetMyNomorRequestResponseDto> {
+    try {
+      const positionIdNum = parseInt(positionId, 10);
+      if (isNaN(positionIdNum)) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'Position ID must be a valid number',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getNomorRequestByPosition(positionIdNum);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor request by position',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /admin/nomor-request
+   * Admin melihat semua usulan nomor
+   */
+  @Get('admin/nomor-request')
+  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.getAdminNomorRequest();
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get admin nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request/:id/booking
+   * Admin memproses usulan dan create booking
+   */
+  @Post('admin/nomor-request/:id/booking')
+  async bookingNomorRequest(
+    @Param('id') id: string,
+    @Body() dto: BookingNomorRequestDto,
+  ): Promise<BookingNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.bookingNomorRequest(id, dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to booking nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request-detail/:id/approve
+   * Admin menyetujui dan generate nomor
+   */
+  @Post('admin/nomor-request-detail/:id/approve')
+  async approveNomorRequestDetail(
+    @Param('id') id: string,
+    @Body() dto: ApproveNomorRequestDetailDto,
+  ): Promise<ApproveNomorRequestDetailResponseDto> {
+    try {
+      return await this.nomorService.approveNomorRequestDetail(id, dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to approve nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request-detail/:id/reject
+   * Admin menolak usulan
+   */
+  @Post('admin/nomor-request-detail/:id/reject')
+  async rejectNomorRequestDetail(
+    @Param('id') id: string,
+  ): Promise<RejectNomorRequestDetailResponseDto> {
+    try {
+      return await this.nomorService.rejectNomorRequestDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to reject nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request-detail/approve-bulk
+   * Admin menyetujui banyak detail sekaligus
+   */
+  @Post('admin/nomor-request-detail/approve-bulk')
+  async approveBulkNomorRequestDetail(
+    @Body() dto: ApproveBulkNomorRequestDetailDto,
+  ): Promise<ApproveBulkNomorRequestDetailResponseDto> {
+    try {
+      return await this.nomorService.approveBulkNomorRequestDetail(dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to approve bulk nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request-detail/reject-bulk
+   * Admin menolak banyak detail sekaligus
+   */
+  @Post('admin/nomor-request-detail/reject-bulk')
+  async rejectBulkNomorRequestDetail(
+    @Body() dto: RejectBulkNomorRequestDetailDto,
+  ): Promise<RejectBulkNomorRequestDetailResponseDto> {
+    try {
+      return await this.nomorService.rejectBulkNomorRequestDetail(dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to reject bulk nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /nomor
+   * Get semua nomor (user view)
+   */
+  @Get('nomor')
+  async getNomor(@Query() query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+    try {
+      return await this.nomorService.getNomor(query);
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /admin/nomor?tahun=YYYY
+   * Get semua nomor dengan filter tahun (admin view)
+   */
+  @Get('admin/nomor')
+  async getAdminNomor(@Query() query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+    try {
+      return await this.nomorService.getNomor(query);
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get admin nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+}
