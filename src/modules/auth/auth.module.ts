@@ -5,7 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Session } from './entities/session.entity';
-import { UserRoleEntity } from '../admin/entities/user-role.entity';
+import { UserRoleEntity } from '../superadmin/entities/user-role.entity';
 import { SessionService } from './services/session.service';
 import { AuthService } from './services/auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';

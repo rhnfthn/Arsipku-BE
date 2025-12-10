@@ -6,7 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { SessionService } from './session.service';
-import { UserRoleEntity } from '../../admin/entities/user-role.entity';
+import { UserRoleEntity } from '../../superadmin/entities/user-role.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import {
   JwtPayload,

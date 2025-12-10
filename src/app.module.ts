@@ -41,7 +41,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BerkasModule } from './modules/berkas/berkas.module';
-import { AdminModule } from './modules/admin/admin.module';
+import { SuperadminModule } from './modules/superadmin/superadmin.module';
 import { DataSource } from 'typeorm';
 
 @Module({
@@ -102,7 +102,7 @@ import { DataSource } from 'typeorm';
     UploadModule,
     AuthModule,
     BerkasModule,
-    AdminModule,
+    SuperadminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
