@@ -1,9 +1,12 @@
-import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
+import { UserLevelGuard } from '../../../common/guards';
+import { UserLevels } from '../../../common/decorators';
+import { UserLevel } from '../../../common/enums';
 
 @Controller('ND')
 export class NotaDinasController {
@@ -63,6 +66,8 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (pengirim is not managerial)
    * @throws 500 - Internal Server Error
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(@Body() dto: CreateNotaDinasDto): Promise<SendMessageResponseDto> {
     try {
@@ -97,6 +102,8 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (pengirim is not managerial)
    * @throws 500 - Internal Server Error
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(@Body() dto: CreateNotaDinasDto): Promise<SendMessageResponseDto> {
     try {
@@ -131,6 +138,8 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
@@ -175,6 +184,8 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
+  @UseGuards(UserLevelGuard)
+  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('send-draft/:id')
   async sendDraft(
     @Param('id') id: string,
