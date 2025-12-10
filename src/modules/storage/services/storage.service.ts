@@ -28,12 +28,13 @@ export class StorageService implements OnModuleInit {
   private publicUrl: string;
 
   constructor(private readonly configService: ConfigService) {
-    const minioEndpoint = this.configService.get<string>('MINIO_ENDPOINT');
+    const minioEndpoint = this.configService.get<string>('MINIO_ENDPOINT') || 'localhost';
     const port = this.configService.get<string>('MINIO_PORT');
     const useSSL = this.configService.get<string>('MINIO_USE_SSL') === 'true';
 
     const protocol = useSSL ? 'https' : 'http';
-    this.endpoint = port
+    // Jika port ada dan tidak kosong, tambahkan port ke endpoint
+    this.endpoint = port && port.trim() !== ''
       ? `${protocol}://${minioEndpoint}:${port}`
       : `${protocol}://${minioEndpoint}`;
     
