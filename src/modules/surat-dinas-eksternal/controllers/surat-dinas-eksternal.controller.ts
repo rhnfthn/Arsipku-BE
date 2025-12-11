@@ -43,8 +43,8 @@ export class SuratDinasEksternalController {
    * @param dto - CreateSuratDinasEksternalDto
    * @returns SdeSendMessageResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(
     @Body() dto: CreateSuratDinasEksternalDto,
@@ -78,8 +78,8 @@ export class SuratDinasEksternalController {
    * @param dto - CreateSuratDinasEksternalDto
    * @returns SdeSendMessageResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(
     @Body() dto: CreateSuratDinasEksternalDto,
@@ -117,8 +117,8 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Put('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
@@ -158,8 +158,8 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Put('send-draft/:id')
   async sendDraft(
     @Param('id') id: string,

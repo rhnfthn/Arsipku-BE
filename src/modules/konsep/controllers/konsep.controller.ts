@@ -79,8 +79,8 @@ export class KonsepController {
    * @param dto CreateKonsepDto
    * @returns CreateKonsepResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('create')
   async createKonsep(@Body() dto: CreateKonsepDto): Promise<CreateKonsepResponseDto> {
     try {
@@ -181,8 +181,8 @@ export class KonsepController {
    * @param dto ForwardKonsepDto
    * @returns ForwardKonsepResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('forward/:id')
   async forwardKonsep(
     @Param('id') id: string,
@@ -224,8 +224,8 @@ export class KonsepController {
    * @param dto ReviewKonsepDto
    * @returns ReviewKonsepResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('review/:id')
   async reviewKonsep(
     @Param('id') id: string,
@@ -268,8 +268,8 @@ export class KonsepController {
    * @param dto FinalizeKonsepDto (termasuk from_position_id)
    * @returns FinalizeKonsepResponseDto
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('finalize/:id')
   async finalizeKonsep(
     @Param('id') id: string,
