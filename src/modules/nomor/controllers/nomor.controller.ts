@@ -116,6 +116,31 @@ export class NomorController {
   }
 
   /**
+   * GET /admin/nomor-request/:id
+   * Admin melihat detail usulan nomor saja
+   */
+  @Get('admin/nomor-request/:id')
+  async getNomorRequestDetail(
+    @Param('id') id: string,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.getNomorRequestDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /admin/detail-nomor-request/:id
    * Admin melihat detail penomoran (usulan + nomor details)
    */
