@@ -1,5 +1,6 @@
 export interface JwtPayload {
   persnum: number;
+  nama: string;
   role: 'user' | 'admin' | 'superadmin';
   
   // Organization data from org_data
