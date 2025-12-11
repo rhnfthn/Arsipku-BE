@@ -119,7 +119,7 @@ export class NotaDinasService {
       // Data Naskah
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
-      sifat: body.sifat,
+      sifat: body.sifat || 'biasa',
       perihal: body.perihal,
       konten: body.konten,
       english: body.english === 'true' || body.english === true,
@@ -188,7 +188,7 @@ export class NotaDinasService {
 
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
-      sifat: body.sifat,
+      sifat: body.sifat || 'biasa',
       perihal: body.perihal,
       konten: body.konten,
       english: body.english === 'true' || body.english === true,
@@ -254,7 +254,7 @@ export class NotaDinasService {
 
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
-      sifat: body.sifat,
+      sifat: body.sifat || 'biasa',
       perihal: body.perihal,
       konten: body.konten,
       english: body.english === 'true' || body.english === true,
@@ -432,7 +432,7 @@ export class NotaDinasService {
         jenis: 'ND',
         klasifikasi: dto.klasifikasi,
         klasifikasi_text: dto.klasifikasi_text || undefined,
-        sifat: dto.sifat,
+        sifat: dto.sifat || 'biasa',
         nomor: nomorSurat,
         tanggal: tanggalHariIni,
         lampiran: dto.lampiran || undefined,
