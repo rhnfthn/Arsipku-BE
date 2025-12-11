@@ -37,11 +37,20 @@ export class AdminService {
     // Search filter
     if (query.search) {
       const searchTerm = `%${query.search}%`;
+      // Try to parse as number for persnum search
+      const persnumSearch = isNaN(Number(query.search)) ? null : Number(query.search);
+      
       const persons = await this.personRepo.find({
-        where: [
-          { name: Like(searchTerm), endDate: '9999-12-31' },
-          { uname: Like(searchTerm), endDate: '9999-12-31' },
-        ],
+        where: persnumSearch 
+          ? [
+              { persnum: persnumSearch, endDate: '9999-12-31' },
+              { name: Like(searchTerm), endDate: '9999-12-31' },
+              { uname: Like(searchTerm), endDate: '9999-12-31' },
+            ]
+          : [
+              { name: Like(searchTerm), endDate: '9999-12-31' },
+              { uname: Like(searchTerm), endDate: '9999-12-31' },
+            ],
         order: { name: 'ASC' },
       });
 
@@ -89,33 +98,27 @@ export class AdminService {
       };
     }
 
-    // No search term - get all active users with pagination
-    const persons = await this.personRepo.find({
-      where: { endDate: '9999-12-31' },
-      order: { name: 'ASC' },
-      take: 100, // Limit results
+    // No search term - get all admin users only (exclude superadmin and regular users)
+    const allUserRoles = await this.userRoleRepo.find({
+      where: { role: UserRole.ADMIN }, // Only get admin users
+      order: { createdAt: 'DESC' },
     });
 
     const users: UserListItemDto[] = [];
-    for (const person of persons) {
-      if (!person.persnum) continue;
-
-      const userRole = await this.userRoleRepo.findOne({
-        where: { persnum: person.persnum },
+    for (const userRole of allUserRoles) {
+      const person = await this.personRepo.findOne({
+        where: { persnum: userRole.persnum },
       });
 
-      // Filter by role if specified
-      if (query.role && (!userRole || userRole.role !== query.role)) {
-        continue;
-      }
+      if (!person || !person.persnum) continue;
 
       users.push({
         persnum: person.persnum,
         name: person.name || '',
         uname: person.uname || '',
-        role: userRole?.role || null,
+        role: userRole.role,
         status: 'aktif',
-        assigned_at: userRole?.createdAt || null,
+        assigned_at: userRole.createdAt || null,
       });
     }
 
@@ -135,6 +138,40 @@ export class AdminService {
           total_superadmin: totalSuperadmin,
           total_regular_users: totalRegular,
         },
+      },
+    };
+  }
+
+  /**
+   * Get user detail by persnum
+   * Check if user exists and return user info + current role
+   */
+  async getUserByPersnum(persnum: number): Promise<{
+    success: boolean;
+    data: UserListItemDto;
+  }> {
+    const person = await this.personRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!person || !person.persnum) {
+      throw new NotFoundException(`User dengan persnum ${persnum} tidak ditemukan`);
+    }
+
+    // Get user role if exists
+    const userRole = await this.userRoleRepo.findOne({
+      where: { persnum },
+    });
+
+    return {
+      success: true,
+      data: {
+        persnum: person.persnum,
+        name: person.name || '',
+        uname: person.uname || '',
+        role: userRole?.role || null,
+        status: person.endDate === '9999-12-31' ? 'aktif' : 'tidak_aktif',
+        assigned_at: userRole?.createdAt || null,
       },
     };
   }
