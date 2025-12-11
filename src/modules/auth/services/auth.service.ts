@@ -117,6 +117,7 @@ export class AuthService {
     // ================================================================
     const payload: JwtPayload = {
       persnum: orgData.persnum,
+      nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
 
       company: orgData.company?.toString() || '',
@@ -263,6 +264,7 @@ export class AuthService {
     // ================================================================
     const payload: JwtPayload = {
       persnum: orgData.persnum,
+      nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
 
       company: orgData.company?.toString() || '',
@@ -426,6 +428,7 @@ export class AuthService {
 
     const newPayload: JwtPayload = {
       persnum: orgData.persnum,
+      nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
 
       company: orgData.company?.toString() || '',

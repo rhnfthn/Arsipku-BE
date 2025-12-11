@@ -9,6 +9,7 @@ import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Public } from '../../../common/decorators/public.decorator';
+import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 
@@ -25,6 +26,7 @@ export class AuthController {
    * SSO Redirect - arahkan user ke AirNav SSO
    */
   @Public()
+  @SkipTransform()
   @Get('sso-redirect')
   @ApiOperation({
     summary: 'SSO Redirect',
