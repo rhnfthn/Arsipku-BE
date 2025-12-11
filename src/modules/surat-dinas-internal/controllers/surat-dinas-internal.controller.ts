@@ -1,11 +1,12 @@
-import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
 import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { GetSdiRecipientQueryDto, SdiRecipientResponseDto } from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard } from '../../../common/guards';
-import { UserLevels } from '../../../common/decorators';
+import { UserLevels, Public } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('SDI')
@@ -56,8 +57,55 @@ export class SuratDinasInternalController {
   }
 
   /**
+   * GET /SDI/:id
+   * Get detail Surat Dinas Internal by ID
+   * Menampilkan keseluruhan informasi surat termasuk PDF final
+   *
+   * @param id - Naskah ID (UUID)
+   * @returns Detail SDI lengkap
+   *
+   * Response includes:
+   * - Naskah info (id, nomor, tanggal, status, jenis)
+   * - SDI specific (kepada Yth, perihal, konten, tembusan)
+   * - Sirkulasi (pengirim, penerima, tembusan)
+   * - Lampiran files
+   * - Final PDF
+   *
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Get(':id')
+  async getSdiDetail(
+    @Param('id') id: string,
+  ): Promise<any> {
+    try {
+      return await this.suratDinasInternalService.getSdiDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDI detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * POST /SDI/send-message
    * Create and send Surat Dinas Internal (using org_data like ND)
+   *
+   * Form-data fields:
+   * - pengirim, penerima, tembusan, klasifikasi, sifat, perihal, konten, dll
+   * - lampiran_files: file[] (multiple files, optional)
+   * - final_pdf: file (optional)
    *
    * Rules:
    * - Pengirim must be managerial (chief=1)
@@ -65,23 +113,31 @@ export class SuratDinasInternalController {
    * - Penerima & tembusan must be managerial (chief=1)
    * - Tembusan follows the same rules as penerima
    *
-   * @param dto - CreateSuratDinasInternalDto (request body)
-   *   - pengirim: positionId
-   *   - penerima: array of positionId
-   *   - tembusan: array of positionId (optional)
-   *   - tgl: date in YYYY-MM-DD format (optional, for org_data lookup)
    * @returns SendMessageResponseDto
-   *
-   * @throws 400 - Bad Request (validation failed or same sub-area)
-   * @throws 404 - Not Found (position not found in org_data)
-   * @throws 403 - Forbidden (non-managerial role or invalid recipient)
-   * @throws 500 - Internal Server Error
    */
+  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
-  async sendMessage(@Body() dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+        { name: 'final_pdf', maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
+  async sendMessage(
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+  ): Promise<SendMessageResponseDto> {
     try {
+      const dto = await this.suratDinasInternalService.parseFormDataToDto(body, files);
       return await this.suratDinasInternalService.sendMessage(dto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -147,19 +203,36 @@ export class SuratDinasInternalController {
    * POST /SDI/save-draft
    * Save Surat Dinas Internal as draft
    *
-   * Same rules as send-message, but:
-   * - Status = 'draf'
-   * - No nomor surat generated (temporary DRAFT-xxx)
-   * - isDraft = true in sirkulasi
+   * Form-data fields:
+   * - pengirim, penerima, tembusan, klasifikasi, sifat, perihal, konten, dll (semua optional)
+   * - lampiran_files: file[] (multiple files, optional)
    *
-   * @param dto - CreateSuratDinasInternalDto
+   * Status = 'draf', isDraft = true
+   *
    * @returns SendMessageResponseDto with status='draf'
    */
+  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
-  async saveDraft(@Body() dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
+  async saveDraft(
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+  ): Promise<SendMessageResponseDto> {
     try {
+      const dto = await this.suratDinasInternalService.parseFormDataToDto(body, files);
       return await this.suratDinasInternalService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -182,24 +255,38 @@ export class SuratDinasInternalController {
    * PUT /SDI/update-draft/:id
    * Update existing draft Surat Dinas Internal
    *
-   * Partial update - only provided fields will be updated
+   * Form-data fields:
+   * - Semua field optional (partial update)
+   * - lampiran_files: file[] (multiple files, optional)
+   *
    * Status remains 'draf'
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - UpdateDraftDto (all fields optional)
    * @returns SendMessageResponseDto with updated data
-   *
-   * @throws 404 - Not Found (naskah not found)
-   * @throws 400 - Bad Request (not a draft or not SDI)
    */
+  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Put('update-draft/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
   async updateDraft(
     @Param('id') id: string,
-    @Body() dto: UpdateDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<SendMessageResponseDto> {
     try {
+      const dto = await this.suratDinasInternalService.parseFormDataToUpdateDraftDto(body, files);
       return await this.suratDinasInternalService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -256,26 +343,40 @@ export class SuratDinasInternalController {
    * PUT /SDI/send-draft/:id
    * Finalize and send a draft Surat Dinas Internal
    *
-   * - Generate official nomor surat
-   * - Update status to 'final' or 'final_tte' (if tanda_tangan provided)
-   * - Update sirkulasi jika penerima/tembusan diubah
-   * - Set isDraft = false in sirkulasi
+   * Form-data fields:
+   * - Semua field optional (dapat update sebelum finalize)
+   * - final_pdf: file (optional)
+   *
+   * Generate official nomor surat, update status to 'final' atau 'final_tte'
+   * Set isDraft = false in sirkulasi
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeDraftDto (penerima, tembusan, tanda_tangan, tgl)
    * @returns SendMessageResponseDto with finalized data
-   *
-   * @throws 404 - Not Found (naskah not found)
-   * @throws 400 - Bad Request (not a draft or not SDI)
    */
+  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Put('send-draft/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+        { name: 'final_pdf', maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
   async sendDraft(
     @Param('id') id: string,
-    @Body() dto: FinalizeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
   ): Promise<SendMessageResponseDto> {
     try {
+      const dto = await this.suratDinasInternalService.parseFormDataToFinalizeDraftDto(body, files);
       return await this.suratDinasInternalService.finalizeDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
