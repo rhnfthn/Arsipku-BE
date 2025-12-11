@@ -40,6 +40,8 @@ export class GetAdminNomorRequestResponseDto {
     sub_area: string;
     organization: string;
     position: string;
+    persnum: number | null;
+    nama: string | null;
     tanggal: Date;
     jenis: string;
     klasifikasi: string | null;
