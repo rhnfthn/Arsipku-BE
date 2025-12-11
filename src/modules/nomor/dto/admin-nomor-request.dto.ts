@@ -159,3 +159,31 @@ export class RejectBulkNomorRequestDetailResponseDto {
     }[];
   };
 }
+
+/**
+ * Response DTO untuk delete nomor request
+ */
+export class DeleteNomorRequestResponseDto {
+  success: boolean;
+  message: string;
+  data: {
+    id: string;
+    deleted_at: Date;
+  };
+}
+
+/**
+ * Response DTO untuk reject all nomor in request
+ */
+export class RejectAllNomorRequestResponseDto {
+  success: boolean;
+  message: string;
+  data: {
+    request_id: string;
+    total_rejected: number;
+    rejected_details: {
+      id: string;
+      status: string;
+    }[];
+  };
+}

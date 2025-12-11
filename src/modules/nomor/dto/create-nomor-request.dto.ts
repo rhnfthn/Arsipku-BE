@@ -31,6 +31,10 @@ export class CreateNomorRequestDto {
   @IsInt()
   @Min(1, { message: 'Jumlah minimal 1' })
   jumlah: number;
+
+  @IsOptional()
+  @IsString()
+  penandatangan?: string;
 }
 
 /**
@@ -51,6 +55,7 @@ export class CreateNomorRequestResponseDto {
     klasifikasi: string | null;
     perihal: string;
     jumlah: number;
+    penandatangan: string | null;
     created_at: Date;
   };
 }
