@@ -43,6 +43,7 @@ export class GetNomorDetailPenomoranResponseDto {
     klasifikasi: string | null;
     perihal: string;
     jumlah: number;
+    penandatangan: string | null;
     created_at: Date;
     status: string;
     details: {

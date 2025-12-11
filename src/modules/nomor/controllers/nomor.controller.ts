@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -28,6 +29,8 @@ import {
   ApproveBulkNomorRequestDetailResponseDto,
   RejectBulkNomorRequestDetailDto,
   RejectBulkNomorRequestDetailResponseDto,
+  DeleteNomorRequestResponseDto,
+  RejectAllNomorRequestResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -108,6 +111,26 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get admin nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /admin/nomor-request-submitted
+   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   */
+  @Get('admin/nomor-request-submitted')
+  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.getAdminNomorRequestSubmitted();
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get submitted nomor request',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -285,6 +308,56 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to reject bulk nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * DELETE /admin/nomor-request/:id
+   * Hapus usulan nomor
+   */
+  @Delete('admin/nomor-request/:id')
+  async deleteNomorRequest(
+    @Param('id') id: string,
+  ): Promise<DeleteNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.deleteNomorRequest(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to delete nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request/:id/reject-nomor
+   * Tolak nomor (set semua details status menjadi hangus)
+   */
+  @Post('admin/nomor-request/:id/reject-nomor')
+  async rejectAllNomorRequest(
+    @Param('id') id: string,
+  ): Promise<RejectAllNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.rejectAllNomorRequest(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to reject all nomor in request',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
