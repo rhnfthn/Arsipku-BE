@@ -120,6 +120,7 @@ export class NotaDinasController {
     FileFieldsInterceptor(
       [
         { name: 'lampiran_files', maxCount: 10 },
+        
       ],
       {
         limits: {

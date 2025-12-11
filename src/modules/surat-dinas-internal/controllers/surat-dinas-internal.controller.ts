@@ -77,8 +77,8 @@ export class SuratDinasInternalController {
    * @throws 403 - Forbidden (non-managerial role or invalid recipient)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(@Body() dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
     try {
@@ -155,8 +155,8 @@ export class SuratDinasInternalController {
    * @param dto - CreateSuratDinasInternalDto
    * @returns SendMessageResponseDto with status='draf'
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(@Body() dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
     try {
@@ -192,8 +192,8 @@ export class SuratDinasInternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDI)
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Put('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
@@ -268,8 +268,8 @@ export class SuratDinasInternalController {
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDI)
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.DIREKSI)
   @Put('send-draft/:id')
   async sendDraft(
     @Param('id') id: string,

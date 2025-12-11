@@ -101,8 +101,8 @@ export class DisposisiController {
    * @throws 403 - Forbidden (pengirim is not managerial)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('send-message')
   async sendMessage(
     @Body() dto: CreateDisposisiDto,
@@ -139,8 +139,8 @@ export class DisposisiController {
    * @throws 404 - Not Found (pengirim/penerima not found)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
   async saveDraft(
     @Body() dto: CreateDisposisiDto,
@@ -274,8 +274,8 @@ export class DisposisiController {
    * @throws 403 - Forbidden (bukan draft atau bukan pengirim asli)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('send-draft/:id')
   async sendDraft(
     @Param('id') id: string,
@@ -321,8 +321,8 @@ export class DisposisiController {
    * @throws 403 - Forbidden (bukan draft atau bukan pengirim asli)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
@@ -376,8 +376,8 @@ export class DisposisiController {
    * @throws 404 - Not Found (naskah/position not found)
    * @throws 500 - Internal Server Error
    */
-  @UseGuards(UserLevelGuard)
-  @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  // @UseGuards(UserLevelGuard)
+  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('forward')
   async forwardDisposisi(
     @Body() dto: ForwardDisposisiDto,
