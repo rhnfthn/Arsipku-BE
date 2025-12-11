@@ -27,6 +27,8 @@ import {
   ApproveBulkNomorRequestDetailResponseDto,
   RejectBulkNomorRequestDetailDto,
   RejectBulkNomorRequestDetailResponseDto,
+  DeleteNomorRequestResponseDto,
+  RejectAllNomorRequestResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -85,6 +87,7 @@ export class NomorService {
       klasifikasi: dto.klasifikasi || null,
       perihal: dto.perihal,
       jumlah: dto.jumlah,
+      penandatangan: dto.penandatangan || null,
     });
 
     await this.nomorRequestRepository.save(nomorRequest);
@@ -104,6 +107,7 @@ export class NomorService {
         klasifikasi: nomorRequest.klasifikasi,
         perihal: nomorRequest.perihal!,
         jumlah: nomorRequest.jumlah!,
+        penandatangan: nomorRequest.penandatangan,
         created_at: nomorRequest.createdAt,
       },
     };
@@ -150,6 +154,7 @@ export class NomorService {
           klasifikasi: request.klasifikasi,
           perihal: request.perihal!,
           jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
           created_at: request.createdAt,
           details: details.map((detail) => ({
             id: detail.id,
@@ -166,6 +171,93 @@ export class NomorService {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
       data,
+    };
+  }
+
+  /**
+   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   */
+  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+    const requests = await this.nomorRequestRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    // Get latest org_data to extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    const data = await Promise.all(
+      requests.map(async (request) => {
+        // Ambil detail untuk menentukan status
+        const details = await this.nomorRequestDetailRepository.find({
+          where: { idRequest: request.id },
+        });
+
+        let status = 'Belum Diajukan';
+        if (details.length > 0) {
+          const hasBooking = details.some((d) => d.status === 'booking');
+          const hasTerpakai = details.some((d) => d.status === 'terpakai');
+          const allHangus = details.every((d) => d.status === 'hangus');
+
+          if (hasTerpakai) {
+            status = 'Disetujui';
+          } else if (allHangus) {
+            status = 'Ditolak';
+          } else if (hasBooking) {
+            status = 'Menunggu Verifikasi';
+          }
+        }
+
+        // Get position data to extract persnum and nama
+        const positionNumber = parseInt(request.position!, 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        
+        const persnum = positionData?.persnum_person || null;
+        const nama = positionData?.persnum_person_text || null;
+
+        return {
+          id: request.id,
+          company: request.company!,
+          area: request.area!,
+          sub_area: request.subArea!,
+          organization: request.organization!,
+          position: request.position!,
+          persnum,
+          nama,
+          tanggal: request.tanggal!,
+          jenis: request.jenis!,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal!,
+          jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
+          created_at: request.createdAt,
+          status,
+        };
+      }),
+    );
+
+    // Filter only requests with status != 'Belum Diajukan'
+    const submittedData = data.filter((item) => item.status !== 'Belum Diajukan');
+
+    return {
+      success: true,
+      message: 'Data usulan nomor yang diajukan berhasil diambil',
+      data: submittedData,
     };
   }
 
@@ -239,6 +331,7 @@ export class NomorService {
           klasifikasi: request.klasifikasi,
           perihal: request.perihal!,
           jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
           created_at: request.createdAt,
           status,
         };
@@ -330,6 +423,7 @@ export class NomorService {
         klasifikasi: request.klasifikasi,
         perihal: request.perihal!,
         jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
       },
@@ -415,6 +509,7 @@ export class NomorService {
         klasifikasi: request.klasifikasi,
         perihal: request.perihal!,
         jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
         details: details.map((d) => ({
@@ -894,6 +989,87 @@ export class NomorService {
         created_at: nomor.createdAt,
         updated_at: nomor.updatedAt,
       })),
+    };
+  }
+
+  /**
+   * Hapus usulan nomor dan semua detailnya
+   */
+  async deleteNomorRequest(
+    requestId: string,
+  ): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Delete semua detail terkait
+    await this.nomorRequestDetailRepository.delete({ idRequest: requestId });
+
+    // Delete request
+    await this.nomorRequestRepository.delete({ id: requestId });
+
+    return {
+      success: true,
+      message: 'Usulan nomor berhasil dihapus',
+      data: {
+        id: requestId,
+        deleted_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Tolak semua nomor dalam satu request (set semua details status = 'hangus')
+   */
+  async rejectAllNomorRequest(
+    requestId: string,
+  ): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Get semua details untuk request ini
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId },
+    });
+
+    if (details.length === 0) {
+      throw new BadRequestException(
+        `Tidak ada nomor yang diajukan untuk usulan dengan ID ${requestId}`,
+      );
+    }
+
+    // Update semua details yang belum diproses menjadi hangus
+    const rejectedDetails: { id: string; status: string }[] = [];
+    
+    for (const detail of details) {
+      // Hanya set hangus jika status masih booking
+      if (detail.status === 'booking') {
+        detail.status = 'hangus';
+        await this.nomorRequestDetailRepository.save(detail);
+        rejectedDetails.push({
+          id: detail.id,
+          status: detail.status,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `${rejectedDetails.length} nomor berhasil ditolak`,
+      data: {
+        request_id: requestId,
+        total_rejected: rejectedDetails.length,
+        rejected_details: rejectedDetails,
+      },
     };
   }
 
