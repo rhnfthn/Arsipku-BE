@@ -5,6 +5,7 @@ import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NdEntity } from '../entities/nd.entity';
+import { NomorEntity } from '../../nomor/entities/nomor.entity';
 import {
   NotaDinasRecipientResponseDto,
   OrgDataPositionDto,
@@ -33,6 +34,8 @@ export class NotaDinasService {
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     @InjectRepository(NdEntity)
     private readonly ndRepository: Repository<NdEntity>,
+    @InjectRepository(NomorEntity)
+    private readonly nomorRepository: Repository<NomorEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
@@ -445,6 +448,22 @@ export class NotaDinasService {
       });
       await queryRunner.manager.save(naskah);
 
+      // PHASE 7b: Insert ke tabel nomor (hanya untuk final/final_tte, tidak untuk draft)
+      if (status !== 'draf') {
+        const nomorRecord = this.nomorRepository.create({
+          id: uuidv4(),
+          company: String(COMPANY_ID),
+          area: pengirim.area ?? '',
+          subArea: String(pengirim.sub_area ?? ''),
+          organization: String(pengirim.organization_id),
+          position: String(pengirim.position),
+          tahun: tanggalHariIni.getFullYear(),
+          jenis: 'ND',
+          nomor: nomorSurat,
+        });
+        await queryRunner.manager.save(nomorRecord);
+      }
+
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
@@ -726,6 +745,30 @@ export class NotaDinasService {
       if (dto.nama_lengkap !== undefined) ndUpdateData.namaLengkap = dto.nama_lengkap;
 
       await queryRunner.manager.update(NdEntity, { idNaskah: naskahId }, ndUpdateData);
+
+      // PHASE 7b: Insert ke tabel nomor (untuk finalize, jika belum ada draft nomor)
+      // Cek apakah sudah ada record di tabel nomor untuk naskah ini
+      const existingNomorRecord = await queryRunner.manager.findOne(NomorEntity, {
+        where: { nomor: nomorSurat },
+      });
+      
+      if (!existingNomorRecord && pengirimPosition) {
+        // Hanya insert jika belum ada dan nomor sudah final (bukan DRAFT)
+        if (!nomorSurat.startsWith('DRAFT-')) {
+          const nomorRecord = this.nomorRepository.create({
+            id: uuidv4(),
+            company: String(COMPANY_ID),
+            area: pengirimPosition.area ?? '',
+            subArea: String(pengirimPosition.sub_area ?? ''),
+            organization: String(pengirimPosition.organization_id),
+            position: String(pengirimPosition.position),
+            tahun: new Date().getFullYear(),
+            jenis: 'ND',
+            nomor: nomorSurat,
+          });
+          await queryRunner.manager.save(nomorRecord);
+        }
+      }
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
       if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
