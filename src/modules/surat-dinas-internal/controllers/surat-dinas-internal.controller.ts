@@ -57,6 +57,48 @@ export class SuratDinasInternalController {
   }
 
   /**
+   * GET /SDI/:id
+   * Get detail Surat Dinas Internal by ID
+   * Menampilkan keseluruhan informasi surat termasuk PDF final
+   *
+   * @param id - Naskah ID (UUID)
+   * @returns Detail SDI lengkap
+   *
+   * Response includes:
+   * - Naskah info (id, nomor, tanggal, status, jenis)
+   * - SDI specific (kepada Yth, perihal, konten, tembusan)
+   * - Sirkulasi (pengirim, penerima, tembusan)
+   * - Lampiran files
+   * - Final PDF
+   *
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Get(':id')
+  async getSdiDetail(
+    @Param('id') id: string,
+  ): Promise<any> {
+    try {
+      return await this.suratDinasInternalService.getSdiDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDI detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * POST /SDI/send-message
    * Create and send Surat Dinas Internal (using org_data like ND)
    *
