@@ -5,6 +5,8 @@ import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { SdiSdeEntity } from '../entities/sdi_sde.entity';
+import { NomorEntity } from '../../nomor/entities/nomor.entity';
+import { StorageService } from '../../storage/services/storage.service';
 import {
   SdiRecipientResponseDto,
   SdiOrgDataPositionDto,
@@ -33,10 +35,240 @@ export class SuratDinasInternalService {
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     @InjectRepository(SdiSdeEntity)
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
+    @InjectRepository(NomorEntity)
+    private readonly nomorRepository: Repository<NomorEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
+    private readonly storageService: StorageService,
   ) {}
+
+  // ============================================================
+  // FORM DATA PARSER
+  // ============================================================
+
+  /**
+   * Parse form-data body + uploaded files to CreateSuratDinasInternalDto
+   */
+  async parseFormDataToDto(
+    body: any,
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    } | Express.Multer.File[],
+  ): Promise<CreateSuratDinasInternalDto> {
+    // Helper: Parse array field
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload files to storage
+    let lampiranFilePaths: string[] = [];
+    let finalPdfPath: string | undefined;
+
+    if (files) {
+      if (!Array.isArray(files)) {
+        // Upload lampiran files
+        if (files.lampiran_files && files.lampiran_files.length > 0) {
+          const uploadPromises = files.lampiran_files.map(file =>
+            this.storageService.uploadFile(file, 'surat-dinas-internal/lampiran')
+          );
+          const uploadResults = await Promise.all(uploadPromises);
+          lampiranFilePaths = uploadResults.map(result => result.key);
+        }
+
+        // Upload final_pdf file
+        if (files.final_pdf && files.final_pdf.length > 0) {
+          const uploadResult = await this.storageService.uploadFile(
+            files.final_pdf[0],
+            'surat-dinas-internal/final'
+          );
+          finalPdfPath = uploadResult.key;
+        }
+      }
+    }
+
+    // Build DTO
+    const dto: CreateSuratDinasInternalDto = {
+      pengirim: Number(body.pengirim),
+      penerima: parseArray(body.penerima),
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat || 'biasa',
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      lampiran: body.lampiran,
+      lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      final_pdf: finalPdfPath || body.final_pdf,
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
+
+  /**
+   * Parse form-data for update-draft endpoint (only lampiran_files)
+   */
+  async parseFormDataToUpdateDraftDto(
+    body: any,
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+    },
+  ): Promise<UpdateDraftDto> {
+    // Helper: Parse array field
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload lampiran files
+    let lampiranFilePaths: string[] = [];
+    if (files?.lampiran_files && files.lampiran_files.length > 0) {
+      const uploadPromises = files.lampiran_files.map(file =>
+        this.storageService.uploadFile(file, 'surat-dinas-internal/lampiran')
+      );
+      const uploadResults = await Promise.all(uploadPromises);
+      lampiranFilePaths = uploadResults.map(result => result.key);
+    }
+
+    const dto: UpdateDraftDto = {
+      pengirim: body.pengirim ? Number(body.pengirim) : undefined,
+      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat || 'biasa',
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      lampiran: body.lampiran,
+      lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
+
+  /**
+   * Parse form-data for send-draft endpoint (only final_pdf)
+   */
+  async parseFormDataToFinalizeDraftDto(
+    body: any,
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
+  ): Promise<FinalizeDraftDto> {
+    // Helper: Parse array field
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload lampiran_files
+    let lampiranFilePaths: string[] = [];
+    if (files?.lampiran_files && files.lampiran_files.length > 0) {
+      const uploadPromises = files.lampiran_files.map(file =>
+        this.storageService.uploadFile(file, 'surat-dinas-internal/lampiran')
+      );
+      const uploadResults = await Promise.all(uploadPromises);
+      lampiranFilePaths = uploadResults.map(result => result.key);
+    }
+
+    // Upload final_pdf file
+    let finalPdfPath: string | undefined;
+    if (files?.final_pdf && files.final_pdf.length > 0) {
+      const uploadResult = await this.storageService.uploadFile(
+        files.final_pdf[0],
+        'surat-dinas-internal/final'
+      );
+      finalPdfPath = uploadResult.key;
+    }
+
+    // Build DTO - semua field optional untuk finalize
+    const dto: FinalizeDraftDto = {
+      pengirim: body.pengirim ? Number(body.pengirim) : undefined,
+      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat || 'biasa',
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      lampiran: body.lampiran,
+      lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      final_pdf: finalPdfPath || body.final_pdf,
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
 
   // ============================================================
   // HELPER METHODS
@@ -513,6 +745,7 @@ export class SuratDinasInternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        final_pdf: dto.final_pdf || undefined,
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
@@ -588,6 +821,22 @@ export class SuratDinasInternalService {
         alamat: null,
       });
       await queryRunner.manager.save(sdiSdeEntity);
+
+      // PHASE 12b: Insert to nomor table if not draft
+      if (status !== 'draf') {
+        const nomorRecord = this.nomorRepository.create({
+          id: uuidv4(),
+          company: String(COMPANY_ID),
+          area: pengirim.area ?? '',
+          subArea: String(pengirim.sub_area ?? ''),
+          organization: String(pengirim.organization_id),
+          position: String(pengirim.position),
+          tahun: tanggalHariIni.getFullYear(),
+          jenis: 'SDI',
+          nomor: nomorSurat,
+        });
+        await queryRunner.manager.save(nomorRecord);
+      }
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -746,9 +995,26 @@ export class SuratDinasInternalService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
+
+      // PHASE 6b: Update lampiran if provided
+      if (dto.lampiran_files !== undefined && dto.lampiran_files.length > 0) {
+        await queryRunner.manager.delete(NaskahLampiranEntity, { id_naskah: naskahId });
+        for (const filePath of dto.lampiran_files) {
+          const fileName = filePath.split('/').pop() || filePath;
+          const lampiran = this.naskahLampiranRepository.create({
+            id: crypto.randomUUID(),
+            id_naskah: naskahId,
+            file_name: fileName,
+            file_pdf: filePath,
+            jenis: 'SDI',
+          });
+          await queryRunner.manager.save(lampiran);
+        }
+      }
 
       // PHASE 7: Update sdi_sde table
       const sdiUpdateData: Partial<SdiSdeEntity> = {
@@ -913,6 +1179,27 @@ export class SuratDinasInternalService {
         }
       }
 
+      // PHASE 9b: Insert to nomor table with dupcheck (only if changing to final/final_tte)
+      const existingNomorRecord = await queryRunner.manager.findOne(NomorEntity, {
+        where: { nomor: nomorSurat },
+      });
+      if (!existingNomorRecord && pengirimPosition) {
+        if (!nomorSurat.startsWith('DRAFT-')) {
+          const nomorRecord = this.nomorRepository.create({
+            id: uuidv4(),
+            company: String(COMPANY_ID),
+            area: pengirimPosition.area ?? '',
+            subArea: String(pengirimPosition.sub_area ?? ''),
+            organization: String(pengirimPosition.organization_id),
+            position: String(pengirimPosition.position),
+            tahun: new Date().getFullYear(),
+            jenis: 'SDI',
+            nomor: nomorSurat,
+          });
+          await queryRunner.manager.save(nomorRecord);
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -1015,6 +1302,7 @@ export class SuratDinasInternalService {
       if (dto.konten !== undefined) naskahUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) naskahUpdateData.tempat = dto.nama_tempat;
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
+      if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       if (Object.keys(naskahUpdateData).length > 0) {

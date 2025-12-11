@@ -91,6 +91,13 @@ export class CreateSuratDinasInternalDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string; // URL/path file PDF final
 }
 
 /**
@@ -185,6 +192,13 @@ export class FinalizeDraftDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string;
 
   // ============================================
   // OPTIONS
@@ -286,6 +300,13 @@ export class UpdateDraftDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string;
 
   // ============================================
   // OPTIONS
