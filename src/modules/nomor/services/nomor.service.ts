@@ -253,6 +253,90 @@ export class NomorService {
   }
 
   /**
+   * Get detail usulan nomor berdasarkan ID (usulan saja, tanpa details)
+   */
+  async getNomorRequestDetail(
+    requestId: string,
+  ): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Get latest org_data untuk extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    // Get details untuk menentukan status
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId },
+    });
+
+    // Determine status
+    let status = 'Belum Diajukan';
+    if (details.length > 0) {
+      const hasBooking = details.some((d) => d.status === 'booking');
+      const hasTerpakai = details.some((d) => d.status === 'terpakai');
+      const allHangus = details.every((d) => d.status === 'hangus');
+
+      if (hasTerpakai) {
+        status = 'Disetujui';
+      } else if (allHangus) {
+        status = 'Ditolak';
+      } else if (hasBooking) {
+        status = 'Menunggu Verifikasi';
+      }
+    }
+
+    // Get position data
+    const positionNumber = parseInt(request.position!, 10);
+    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+    
+    const persnum = positionData?.persnum_person || null;
+    const nama = positionData?.persnum_person_text || null;
+
+    return {
+      success: true,
+      message: 'Detail usulan nomor berhasil diambil',
+      data: {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        created_at: request.createdAt,
+        status,
+      },
+    };
+  }
+
+  /**
    * Get detail penomoran (usulan + nomor request details)
    */
   async getNomorDetailPenomoran(
