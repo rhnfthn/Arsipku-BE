@@ -1751,4 +1751,153 @@ export class SuratDinasInternalService {
       nama: positionData.nama || '',
     };
   }
+
+  /**
+   * Get SDI detail by ID
+   * Menampilkan keseluruhan informasi surat termasuk PDF final
+   */
+  async getSdiDetail(naskahId: string): Promise<any> {
+    // Get naskah data
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+
+    if (naskah.jenis !== 'SDI') {
+      throw new NotFoundException(`Naskah bukan Surat Dinas Internal (SDI)`);
+    }
+
+    // Get SDI data (konten lengkap SDI)
+    const sdiData = await this.sdiSdeRepository.findOne({
+      where: { idNaskah: naskahId },
+    });
+
+    // Get pengirim sirkulasi
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'pengirim',
+      },
+    });
+
+    // Get all penerima sirkulasi
+    const penerimaList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'penerima',
+      },
+    });
+
+    // Get all tembusan sirkulasi
+    const tembusanList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+      },
+    });
+
+    // Get lampiran files
+    const lampiranFiles = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+
+    // Format tanggal
+    const tanggalStr = naskah.tanggal instanceof Date
+      ? naskah.tanggal.toISOString().split('T')[0]
+      : String(naskah.tanggal || '').split('T')[0];
+
+    // Build penerima info with read status
+    const penerimaInfoList = penerimaList.map((penerima) => ({
+      id: penerima.id,
+      persnum: parseInt(penerima.idSirkuler || '0', 10),
+      nama: penerima.namaSirkuler || '',
+      positionText: penerima.positionText || '',
+      organizationText: penerima.organizationText || '',
+      subAreaText: penerima.subAreaText || '',
+      areaText: penerima.areaText || '',
+      status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
+      readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
+    }));
+
+    // Build tembusan info
+    const tembusanInfoList = tembusanList.map((tembusan) => ({
+      id: tembusan.id,
+      persnum: parseInt(tembusan.idSirkuler || '0', 10),
+      nama: tembusan.namaSirkuler || '',
+      positionText: tembusan.positionText || '',
+      organizationText: tembusan.organizationText || '',
+      subAreaText: tembusan.subAreaText || '',
+      areaText: tembusan.areaText || '',
+    }));
+
+    // Build lampiran info
+    const lampiranInfoList = lampiranFiles.map((l) => ({
+      id: l.id,
+      fileName: l.file_name || '',
+      filePath: l.file_pdf || '',
+    }));
+
+    // Build response
+    return {
+      success: true,
+      data: {
+        // Naskah info
+        id: naskah.id,
+        jenis: naskah.jenis,
+        nomor: naskah.nomor,
+        tanggal: tanggalStr,
+        status: naskah.status,
+        perihal: naskah.perihal,
+        lampiran: naskah.lampiran || null,
+        english: !!naskah.english,
+
+        // SDI specific info
+        kepada_yth: sdiData?.kepadaYth || '',
+        tembusan_text: sdiData?.tembusan || null,
+
+        // Kop
+        kop_logo: sdiData?.kopLogo || null,
+        kop_nama: sdiData?.kopNama || null,
+        alamat_perusahaan: sdiData?.alamatPerusahaan || null,
+
+        // Header
+        klasifikasi: naskah.klasifikasi || '',
+        klasifikasi_text: naskah.klasifikasi_text || null,
+        sifat: naskah.sifat || '',
+
+        // Body
+        konten: sdiData?.konten || naskah.konten || null,
+
+        // Footer
+        nama_tempat: sdiData?.namaTempat || null,
+        nama_jabatan: sdiData?.namaJabatan || null,
+        tanda_tangan: sdiData?.tandaTangan || null,
+        nama_lengkap: sdiData?.namaLengkap || null,
+
+        // Sirkulasi
+        pengirim: {
+          id: pengirimSirkulasi?.id || '',
+          persnum: pengirimSirkulasi ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10) : 0,
+          nama: pengirimSirkulasi?.namaSirkuler || '',
+          positionText: pengirimSirkulasi?.positionText || '',
+          organizationText: pengirimSirkulasi?.organizationText || '',
+          subAreaText: pengirimSirkulasi?.subAreaText || '',
+          areaText: pengirimSirkulasi?.areaText || '',
+        },
+        penerima: penerimaInfoList,
+        tembusan: tembusanInfoList,
+
+        // Files
+        lampiran_files: lampiranInfoList,
+        final_pdf: naskah.final_pdf || null,
+
+        // Metadata
+        created_at: null,
+        updated_at: null,
+      },
+    };
+  }
 }
