@@ -21,6 +21,19 @@ export class RelationOscService {
   async findManyByDate(tgl: string): Promise<RelationOsc[]> {
     const result = await this.cRepo
       .createQueryBuilder('oo')
+      .select([
+        'oo.id',
+        'oo.company',
+        'oo.startDate',
+        'oo.endDate',
+        'oo.organization',
+        'oo.organization_text',
+        'oo.relation_position',
+        'oo.relation_position_text',
+        'oo.bod_tag',
+        'oo.createAt',
+        'oo.updateAt',
+      ])
       .where(':tgl BETWEEN oo.startDate AND oo.endDate', { tgl })
       .getMany();
 
