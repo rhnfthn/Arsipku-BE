@@ -4,12 +4,12 @@ import { SearchUsersDto, SearchUsersResponseDto } from '../dto/search-users.dto'
 import { AssignRoleDto, AssignRoleResponseDto } from '../dto/assign-role.dto';
 import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
 import { Roles } from '../../../common/decorators';
-import { RolesGuard } from '../../../common/guards';
+import { RolesGuard, JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('superadmin')
-@UseGuards(RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
@@ -29,6 +29,20 @@ export class AdminController {
     @Query() query: SearchUsersDto,
   ): Promise<SearchUsersResponseDto> {
     return this.adminService.searchUsers(query);
+  }
+
+  /**
+   * GET /superadmin/users/:persnum
+   * Get user detail by persnum
+   * 
+   * Access: Superadmin only
+   */
+  @Roles('superadmin')
+  @Get('users/:persnum')
+  async getUserByPersnum(
+    @Param('persnum', ParseIntPipe) persnum: number,
+  ) {
+    return this.adminService.getUserByPersnum(persnum);
   }
 
   /**
