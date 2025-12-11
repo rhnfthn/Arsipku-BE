@@ -35,6 +35,9 @@ export class NomorRequestEntity {
   @Column('int', { nullable: true })
   jumlah: number | null;
 
+  @Column('varchar', { length: 255, nullable: true })
+  penandatangan: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
