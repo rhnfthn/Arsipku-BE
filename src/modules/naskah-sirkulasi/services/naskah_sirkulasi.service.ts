@@ -217,7 +217,12 @@ export class NaskahSirkulasiService {
         pengirim.position as pengirim_position_id,
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
-        pengirim.nama_sirkuler as pengirim_nama
+        pengirim.nama_sirkuler as pengirim_nama,
+        s.position as penerima_position_id,
+        s.id_sirkuler as penerima_persnum,
+        s.nama_sirkuler as penerima_nama,
+        s.position_text as penerima_position_text,
+        s.organization_text as penerima_organization_text
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
@@ -243,6 +248,13 @@ export class NaskahSirkulasiService {
         position_text: row.pengirim_position_text || '',
         organization_text: row.pengirim_organization_text || '',
         nama: row.pengirim_nama || '',
+      },
+      penerima: {
+        position_id: row.penerima_position_id || '',
+        persnum: parseInt(row.penerima_persnum || '0', 10),
+        nama: row.penerima_nama || '',
+        position_text: row.penerima_position_text || '',
+        organization_text: row.penerima_organization_text || '',
       },
       status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
       read_time: row.send_read_time,
