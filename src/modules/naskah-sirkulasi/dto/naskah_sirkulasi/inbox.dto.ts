@@ -48,6 +48,15 @@ export class InboxItemDto {
     organization_text: string;
     nama: string;
   };
+
+  // Info Penerima (data user yang menerima)
+  penerima: {
+    position_id: string;
+    persnum: number;
+    nama: string;
+    position_text: string;
+    organization_text: string;
+  };
   
   // Status Baca
   status_baca: 'terbaca' | 'belum_terbaca';
