@@ -14,6 +14,7 @@ import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/send-message-re
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto } from '../dto/get-send-message.dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { StorageService } from '../../storage/services/storage.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -35,7 +36,241 @@ export class NotaDinasService {
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
+    private readonly storageService: StorageService,
   ) {}
+
+  // ============================================================
+  // FORM DATA PARSER
+  // ============================================================
+
+  /**
+   * Parse form-data body + uploaded files to CreateNotaDinasDto
+   */
+  async parseFormDataToDto(
+    body: any,
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    } | Express.Multer.File[],
+  ): Promise<CreateNotaDinasDto> {
+    // Helper: Parse array field (bisa JSON string atau comma-separated)
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          // Try parse as JSON
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          // Parse as comma-separated
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload files to storage
+    let lampiranFilePaths: string[] = [];
+    let finalPdfPath: string | undefined;
+
+    if (files) {
+      // Handle FileFieldsInterceptor format (object with named fields)
+      if (!Array.isArray(files)) {
+        // Upload lampiran files
+        if (files.lampiran_files && files.lampiran_files.length > 0) {
+          const uploadPromises = files.lampiran_files.map(file =>
+            this.storageService.uploadFile(file, 'nota-dinas/lampiran')
+          );
+          const uploadResults = await Promise.all(uploadPromises);
+          lampiranFilePaths = uploadResults.map(result => result.key);
+        }
+
+        // Upload final_pdf file
+        if (files.final_pdf && files.final_pdf.length > 0) {
+          const uploadResult = await this.storageService.uploadFile(
+            files.final_pdf[0],
+            'nota-dinas/final'
+          );
+          finalPdfPath = uploadResult.key;
+        }
+      } else {
+        // Legacy: Handle FilesInterceptor format (array)
+        const uploadPromises = files.map(file =>
+          this.storageService.uploadFile(file, 'nota-dinas/lampiran')
+        );
+        const uploadResults = await Promise.all(uploadPromises);
+        lampiranFilePaths = uploadResults.map(result => result.key);
+      }
+    }
+
+    // Build DTO
+    const dto: CreateNotaDinasDto = {
+      // Sirkulasi
+      pengirim: Number(body.pengirim),
+      penerima: parseArray(body.penerima),
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      // Kop
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      // Data Naskah
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat,
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      // Kaki
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      // Lampiran
+      lampiran: body.lampiran,
+      lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      // PDF & Tanggal
+      final_pdf: finalPdfPath || body.final_pdf,
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
+
+  /**
+   * Parse form-data for update-draft endpoint (only lampiran_files)
+   */
+  async parseFormDataToUpdateDraftDto(
+    body: any,
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+    },
+  ): Promise<UpdateDraftDto> {
+    // Helper: Parse array field
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload lampiran files
+    let lampiranFilePaths: string[] = [];
+    if (files?.lampiran_files && files.lampiran_files.length > 0) {
+      const uploadPromises = files.lampiran_files.map(file =>
+        this.storageService.uploadFile(file, 'nota-dinas/lampiran')
+      );
+      const uploadResults = await Promise.all(uploadPromises);
+      lampiranFilePaths = uploadResults.map(result => result.key);
+    }
+
+    // Build DTO - semua field optional untuk update
+    const dto: UpdateDraftDto = {
+      pengirim: body.pengirim ? Number(body.pengirim) : undefined,
+      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat,
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      lampiran: body.lampiran,
+      lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      final_pdf: body.final_pdf,
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
+
+  /**
+   * Parse form-data for send-draft endpoint (only final_pdf)
+   */
+  async parseFormDataToFinalizeDraftDto(
+    body: any,
+    files?: {
+      final_pdf?: Express.Multer.File[];
+    },
+  ): Promise<FinalizeDraftDto> {
+    // Helper: Parse array field
+    const parseArray = (value: any): number[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(Number);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => Number(v.trim()));
+        }
+      }
+      return [Number(value)];
+    };
+
+    // Upload final_pdf file
+    let finalPdfPath: string | undefined;
+    if (files?.final_pdf && files.final_pdf.length > 0) {
+      const uploadResult = await this.storageService.uploadFile(
+        files.final_pdf[0],
+        'nota-dinas/final'
+      );
+      finalPdfPath = uploadResult.key;
+    }
+
+    // Build DTO - semua field optional untuk finalize
+    const dto: FinalizeDraftDto = {
+      pengirim: body.pengirim ? Number(body.pengirim) : undefined,
+      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat,
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      lampiran: body.lampiran,
+      final_pdf: finalPdfPath || body.final_pdf,
+      tgl: body.tgl,
+    };
+
+    return dto;
+  }
 
   // ============================================================
   // SEND MESSAGE METHODS
@@ -132,16 +367,7 @@ export class NotaDinasService {
       throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`);
     }
 
-    // PHASE 3: Get valid recipients using filterByPositionNodin
-    // Nota Dinas hanya bisa dikirim ke: ATASAN langsung, BAWAHAN langsung, atau REKAN (satu induk, satu sub_area)
-    const validRecipients = this.filterByPositionNodin(barisData, dto.pengirim);
-    const allValidPositionIds = [
-      ...validRecipients.ATASAN.map((x) => Number(x.position)),
-      ...validRecipients.REKAN.map((x) => Number(x.position)),
-      ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
-    ];
-
-    // PHASE 4: Validate all penerima - must be in valid recipients list
+    // PHASE 3: Validate all penerima
     const penerimaList: OrgDataPositionDto[] = [];
     for (const posId of dto.penerima) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
@@ -156,24 +382,10 @@ export class NotaDinasService {
         );
       }
       
-      // Check if penerima is in valid recipients (ATASAN/REKAN/BAWAHAN)
-      if (!allValidPositionIds.includes(Number(posId))) {
-        // Determine relationship for better error message
-        let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-        
-        // Check if different sub_area
-        if (penerima.sub_area !== pengirim.sub_area) {
-          errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
-        }
-        
-        throw new BadRequestException(errorMsg);
-      }
-      
       penerimaList.push(penerima);
     }
 
-    // PHASE 5: Validate tembusan from org_data (if any)
-    // Tembusan juga harus dalam valid recipients (ATASAN/REKAN/BAWAHAN)
+    // PHASE 4: Validate tembusan from org_data (if any)
     const tembusanList: OrgDataPositionDto[] = [];
     if (dto.tembusan && dto.tembusan.length > 0) {
       for (const posId of dto.tembusan) {
@@ -187,17 +399,6 @@ export class NotaDinasService {
           throw new ForbiddenException(
             `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`
           );
-        }
-        
-        // Check if tembusan is in valid recipients (ATASAN/REKAN/BAWAHAN)
-        if (!allValidPositionIds.includes(Number(posId))) {
-          let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-          
-          if (tembusan.sub_area !== pengirim.sub_area) {
-            errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
-          }
-          
-          throw new BadRequestException(errorMsg);
         }
         
         tembusanList.push(tembusan);
@@ -461,8 +662,31 @@ export class NotaDinasService {
     });
     const nomorSurat = generatedNomor.nomor;
 
-    // PHASE 5: Determine new status
-    const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
+    // PHASE 5: Determine new status - check if tanda_tangan is provided
+    // Priority:
+    // 1. If dto.tanda_tangan is provided (not undefined), use it for status determination
+    // 2. Otherwise, get from existing nd data
+    let finalTandaTangan: string | null = null;
+    
+    if (dto.tanda_tangan !== undefined) {
+      // Explicitly set from DTO
+      finalTandaTangan = dto.tanda_tangan || null;
+    } else {
+      // Get from existing nd data
+      const existingNd = await this.ndRepository.findOne({
+        where: { idNaskah: naskahId },
+      });
+      finalTandaTangan = existingNd?.tandaTangan || null;
+    }
+
+    const newStatus = finalTandaTangan ? 'final_tte' : 'final';
+
+    console.log('[ND finalizeDraft] Status determination:', {
+      naskahId,
+      dtoTandaTangan: dto.tanda_tangan,
+      finalTandaTangan,
+      newStatus,
+    });
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -490,7 +714,7 @@ export class NotaDinasService {
       // PHASE 7: Update nd table
       const ndUpdateData: Partial<NdEntity> = {
         nomor: nomorSurat,
-        tandaTangan: dto.tanda_tangan || null,
+        tandaTangan: finalTandaTangan,
       };
       if (dto.kop_logo !== undefined) ndUpdateData.kopLogo = dto.kop_logo;
       if (dto.kop_nama !== undefined) ndUpdateData.kopNama = dto.kop_nama;
@@ -1552,6 +1776,160 @@ export class NotaDinasService {
     return {
       sender,
       recipients,
+    };
+  }
+
+  // ============================================================
+  // GET NOTA DINAS DETAIL
+  // ============================================================
+
+  /**
+   * Get detail Nota Dinas by ID
+   * Menampilkan keseluruhan informasi surat termasuk PDF final
+   */
+  async getNotaDinasDetail(naskahId: string): Promise<any> {
+    // Get naskah data
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+
+    if (naskah.jenis !== 'ND') {
+      throw new NotFoundException(`Naskah bukan Nota Dinas (ND)`);
+    }
+
+    // Get nd data (konten lengkap ND)
+    const ndData = await this.ndRepository.findOne({
+      where: { idNaskah: naskahId },
+    });
+
+    // Get pengirim sirkulasi
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'pengirim',
+      },
+    });
+
+    // Get all penerima sirkulasi
+    const penerimaList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'penerima',
+      },
+    });
+
+    // Get all tembusan sirkulasi
+    const tembusanList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+      },
+    });
+
+    // Get lampiran files
+    const lampiranFiles = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+
+    // Format tanggal
+    const tanggalStr = naskah.tanggal instanceof Date
+      ? naskah.tanggal.toISOString().split('T')[0]
+      : String(naskah.tanggal || '').split('T')[0];
+
+    // Build penerima info with read status
+    const penerimaInfoList = penerimaList.map((penerima) => ({
+      id: penerima.id,
+      persnum: parseInt(penerima.idSirkuler || '0', 10),
+      nama: penerima.namaSirkuler || '',
+      positionText: penerima.positionText || '',
+      organizationText: penerima.organizationText || '',
+      subAreaText: penerima.subAreaText || '',
+      areaText: penerima.areaText || '',
+      status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
+      readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
+    }));
+
+    // Build tembusan info
+    const tembusanInfoList = tembusanList.map((tembusan) => ({
+      id: tembusan.id,
+      persnum: parseInt(tembusan.idSirkuler || '0', 10),
+      nama: tembusan.namaSirkuler || '',
+      positionText: tembusan.positionText || '',
+      organizationText: tembusan.organizationText || '',
+      subAreaText: tembusan.subAreaText || '',
+      areaText: tembusan.areaText || '',
+    }));
+
+    // Build lampiran info
+    const lampiranInfoList = lampiranFiles.map((l) => ({
+      id: l.id,
+      fileName: l.file_name || '',
+      filePath: l.file_pdf || '',
+    }));
+
+    // Build response
+    return {
+      success: true,
+      data: {
+        // Naskah info
+        id: naskah.id,
+        jenis: naskah.jenis,
+        nomor: naskah.nomor,
+        tanggal: tanggalStr,
+        status: naskah.status,
+        perihal: naskah.perihal,
+        lampiran: naskah.lampiran || null,
+        english: !!naskah.english,
+
+        // ND specific info
+        kepada_yth: ndData?.kepadaYth || '',
+        dari: ndData?.dari || '',
+        tembusan_text: ndData?.tembusan || null,
+
+        // Kop
+        kop_logo: ndData?.kopLogo || null,
+        kop_nama: ndData?.kopNama || null,
+        alamat_perusahaan: ndData?.alamatPerusahaan || null,
+
+        // Header
+        klasifikasi: naskah.klasifikasi || '',
+        klasifikasi_text: naskah.klasifikasi_text || null,
+        sifat: naskah.sifat || '',
+
+        // Body
+        konten: ndData?.konten || naskah.konten || null,
+
+        // Footer
+        nama_tempat: ndData?.namaTempat || null,
+        nama_jabatan: ndData?.namaJabatan || null,
+        tanda_tangan: ndData?.tandaTangan || null,
+        nama_lengkap: ndData?.namaLengkap || null,
+
+        // Sirkulasi
+        pengirim: {
+          id: pengirimSirkulasi?.id || '',
+          persnum: pengirimSirkulasi ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10) : 0,
+          nama: pengirimSirkulasi?.namaSirkuler || '',
+          positionText: pengirimSirkulasi?.positionText || '',
+          organizationText: pengirimSirkulasi?.organizationText || '',
+          subAreaText: pengirimSirkulasi?.subAreaText || '',
+          areaText: pengirimSirkulasi?.areaText || '',
+        },
+        penerima: penerimaInfoList,
+        tembusan: tembusanInfoList,
+
+        // Files
+        lampiran_files: lampiranInfoList,
+        final_pdf: naskah.final_pdf || null,
+
+        // Metadata
+        created_at: null,
+        updated_at: null,
+      },
     };
   }
 }
