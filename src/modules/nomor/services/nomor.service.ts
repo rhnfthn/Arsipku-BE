@@ -675,8 +675,13 @@ export class NomorService {
       // 5. Update detail: status = 'terpakai', nomor = nomor baru
       detail.status = 'terpakai';
       detail.nomor = nomorBaru;
-      detail.fileName = dto.file_name || null;
-      detail.fileText = dto.file_text || null;
+      // Preserve existing file information, don't overwrite with null
+      if (dto.file_name !== undefined) {
+        detail.fileName = dto.file_name;
+      }
+      if (dto.file_text !== undefined) {
+        detail.fileText = dto.file_text;
+      }
       await queryRunner.manager.save(detail);
 
       // 6. Insert ke tabel nomor
@@ -691,6 +696,7 @@ export class NomorService {
         tahun,
         jenis: request.jenis,
         nomor: nomorBaru,
+        idRequest: detail.idRequest,
       });
       await queryRunner.manager.save(nomor);
 
@@ -833,8 +839,13 @@ export class NomorService {
           // 5. Update detail: status = 'terpakai', nomor = nomor baru
           detail.status = 'terpakai';
           detail.nomor = nomorBaru;
-          detail.fileName = dto.file_name || null;
-          detail.fileText = dto.file_text || null;
+          // Preserve existing file information, don't overwrite with null
+          if (dto.file_name !== undefined) {
+            detail.fileName = dto.file_name;
+          }
+          if (dto.file_text !== undefined) {
+            detail.fileText = dto.file_text;
+          }
           await queryRunner.manager.save(detail);
 
           // 6. Insert ke tabel nomor
@@ -849,6 +860,7 @@ export class NomorService {
             tahun,
             jenis: request.jenis,
             nomor: nomorBaru,
+            idRequest: detail.idRequest,
           });
           await queryRunner.manager.save(nomor);
 
@@ -973,22 +985,152 @@ export class NomorService {
       order: { createdAt: 'DESC' },
     });
 
+    // Get latest org_data for position information
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    // Get request data to fetch klasifikasi and perihal
+    const data = await Promise.all(
+      nomors.map(async (nomor) => {
+        let klasifikasi: string | null = null;
+        let perihal: string | null = null;
+        let tanggal: Date | null = null;
+
+        if (nomor.idRequest) {
+          const request = await this.nomorRequestRepository.findOne({
+            where: { id: nomor.idRequest },
+          });
+          if (request) {
+            klasifikasi = request.klasifikasi;
+            perihal = request.perihal;
+            tanggal = request.tanggal;
+          }
+        }
+
+        // Get position data to extract jabatan (position_text) and nama_pengirim (persnum_person_text)
+        const positionNumber = parseInt(nomor.position || '0', 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        
+        const jabatan = positionData?.position_text || null;
+        const namaPengirim = positionData?.persnum_person_text || null;
+
+        return {
+          id: nomor.id,
+          id_request: nomor.idRequest || null,
+          jenis: nomor.jenis,
+          jabatan,
+          klasifikasi,
+          perihal,
+          tanggal,
+          nomor: nomor.nomor,
+          nama_pengirim: namaPengirim,
+          waktu: nomor.createdAt,
+        };
+      }),
+    );
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: nomors.map((nomor) => ({
-        id: nomor.id,
-        company: nomor.company,
-        area: nomor.area,
-        sub_area: nomor.subArea,
-        organization: nomor.organization,
-        position: nomor.position,
-        tahun: nomor.tahun,
-        jenis: nomor.jenis,
-        nomor: nomor.nomor,
-        created_at: nomor.createdAt,
-        updated_at: nomor.updatedAt,
-      })),
+      data,
+    };
+  }
+
+  /**
+   * Get nomor by id request (menampilkan semua nomor dalam satu request)
+   */
+  async getNomorById(idRequest: string): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: idRequest },
+    });
+
+    if (!request) {
+      throw new Error('Nomor request not found');
+    }
+
+    // Get latest org_data untuk extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    // Get position data
+    const positionNumber = parseInt(request.position || '0', 10);
+    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+    
+    const jabatan = positionData?.position_text || null;
+
+    // Get all nomor for this request
+    const nomors = await this.nomorRepository.find({
+      where: { idRequest },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Get all request details for this request to extract file information
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Create a map of nomor to detail for quick lookup
+    const detailMap = new Map();
+    details.forEach((detail) => {
+      if (detail.nomor) {
+        detailMap.set(detail.nomor, detail);
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Data nomor berhasil diambil',
+      data: {
+        id: request.id,
+        jenis: request.jenis,
+        jabatan,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal,
+        tanggal: request.tanggal,
+        jumlah: request.jumlah,
+        nomor_list: nomors.map((n) => {
+          const detail = detailMap.get(n.nomor);
+          return {
+            id: n.id,
+            nomor: n.nomor,
+            status: 'terpakai',
+            file_name: detail?.fileName || null,
+            file_text: detail?.fileText || null,
+            created_at: n.createdAt,
+          };
+        }),
+      },
     };
   }
 
