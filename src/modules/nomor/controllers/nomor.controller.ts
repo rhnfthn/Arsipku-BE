@@ -35,6 +35,7 @@ import {
 import {
   GetNomorQueryDto,
   GetNomorResponseDto,
+  GetNomorByIdResponseDto,
 } from '../dto/get-nomor.dto';
 
 @Controller('/')
@@ -398,6 +399,26 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get admin nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /nomor/:id
+   * Get nomor by id (where id is id_request)
+   */
+  @Get('nomor/:id')
+  async getNomorById(@Param('id') id: string): Promise<GetNomorByIdResponseDto> {
+    try {
+      return await this.nomorService.getNomorById(id);
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
