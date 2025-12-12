@@ -12,6 +12,7 @@ import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { Person } from './entities/person.entity';
 import { GetMessageDto } from './dto/get-message.dto';
+import { PersonWithPositionDto } from './dto/person-with-position.dto';
 
 @Controller('person')
 export class PersonController {
@@ -20,6 +21,11 @@ export class PersonController {
   @Get()
   findAll(): Promise<Person[]> {
     return this.personService.findAll();
+  }
+
+  @Get('with-position/all')
+  findAllWithPosition(): Promise<PersonWithPositionDto[]> {
+    return this.personService.findAllWithPosition();
   }
 
   @Get(':id')
