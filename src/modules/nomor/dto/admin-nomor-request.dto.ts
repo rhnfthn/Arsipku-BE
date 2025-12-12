@@ -22,17 +22,15 @@ export class BookingFileDto {
 }
 
 /**
- * DTO untuk booking nomor request detail
+ * DTO untuk booking nomor request dengan file upload
+ * Menggunakan FormData tanpa file_text field
+ * Path folder diambil dari query parameter ?folder=...
  */
 export class BookingNomorRequestDto {
   @IsOptional()
   @IsInt()
   @Min(1)
   jumlah?: number; // Jika tidak diisi, gunakan jumlah dari request
-
-  @IsOptional()
-  @IsArray()
-  files?: BookingFileDto[]; // Array file yang akan dibooking
 }
 
 /**
