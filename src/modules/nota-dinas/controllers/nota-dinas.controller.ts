@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas-recipient-response.dto';
@@ -403,6 +404,43 @@ export class NotaDinasController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /ND/generate-pdf
+   * Generate PDF dari HTML content untuk preview/download
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * 
+   * @param body - { htmlContent: string, penerima: string[], dari: string, tanggal: string, penandatangan: string, tembusan?: string[] }
+   * @param res - Express Response untuk send PDF file
+   */
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: { htmlContent: string; penerima: string[]; dari: string; tanggal: string; penandatangan: string; tembusan?: string[] },
+    @Res() res: Response,
+  ) {
+    try {
+      const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
+        body.htmlContent,
+        body.penerima,
+        body.dari,
+        body.tanggal,
+        body.penandatangan,
+        body.tembusan || [],
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="nota-dinas-${Date.now()}.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate PDF', detail: error.message });
     }
   }
 }
