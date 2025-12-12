@@ -46,6 +46,27 @@ export class AuthController {
    
   }
 
+  @Public()
+  @SkipTransform()
+  @Get('sso-redirect-local')
+  @ApiOperation({
+    summary: 'SSO Redirect',
+    description: 'Redirect user ke halaman login AirNav SSO',
+  })
+  ssoRedirectlocal() {
+    const baseUrl = this.configService.get<string>('AIRNAV_BASE_URL');
+    const redirectUri = this.configService.get<string>('AIRNAV_CALLBACK_URL_LOCAL');
+
+    // const encoded = Buffer.from(redirectUri, 'utf-8').toString('base64');
+    const encoded = Buffer.from(redirectUri ?? '', 'utf-8').toString('base64');
+
+
+    const finalUrl = `${baseUrl}/?redirect_uri=${encoded}`;
+
+    return { url: finalUrl, statusCode: 302 };
+   
+  }
+
   /**
    * Get SSO URL - dapatkan URL login AirNav (untuk testing)
    */
