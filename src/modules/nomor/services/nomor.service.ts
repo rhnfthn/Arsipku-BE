@@ -9,6 +9,7 @@ import { Repository, DataSource } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
+import { StorageService } from '../../storage/services/storage.service';
 import {
   CreateNomorRequestDto,
   CreateNomorRequestResponseDto,
@@ -48,6 +49,7 @@ export class NomorService {
     private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -525,15 +527,22 @@ export class NomorService {
   }
 
   /**
-   * Admin memproses usulan dan memasukkannya ke tabel nomor_request_detail
-   * dengan status = 'booking' dan nomor = NULL
+   * Admin memproses usulan dan membuat booking nomor
+   * Dengan file upload ke storage menggunakan folder query parameter
+   * Mendukung multiple file upload
    * 
-   * Jika files disediakan, setiap file akan dibooking sebagai 1 detail
-   * Jika files tidak disediakan, booking berdasarkan jumlah
+   * Flow:
+   * 1. Validasi request ada
+   * 2. Jika ada files, upload semua ke storage dengan folder path
+   * 3. Buat detail record per file dengan status = 'booking' dan file key dari storage
+   * 4. Jika tidak ada file, buat berdasarkan jumlah
+   * 5. Return response dengan file information
    */
   async bookingNomorRequest(
     requestId: string,
     dto: BookingNomorRequestDto,
+    files?: Express.Multer.File | Express.Multer.File[],
+    folder: string = 'nomor',
   ): Promise<BookingNomorRequestResponseDto> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
@@ -545,22 +554,40 @@ export class NomorService {
 
     const details: NomorRequestDetailEntity[] = [];
 
-    // Jika ada files, booking per file
-    if (dto.files && dto.files.length > 0) {
-      for (const file of dto.files) {
+    // Normalize files ke array
+    const fileArray = files
+      ? Array.isArray(files)
+        ? files
+        : [files]
+      : [];
+
+    // Jika ada files, upload semua ke storage
+    if (fileArray && fileArray.length > 0) {
+      for (const file of fileArray) {
         const detailId = uuidv4();
+        let fileKey: string | null = null;
+        const fileName: string | null = file.originalname;
+
+        // Upload file ke storage dengan folder path
+        try {
+          const uploadResult = await this.storageService.uploadFile(file, folder);
+          fileKey = uploadResult.key;
+        } catch (error) {
+          throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+        }
+
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
           idRequest: requestId,
           nomor: null,
-          fileName: file.file_name || null,
-          fileText: file.file_text || null,
+          fileName: fileName,
+          fileText: fileKey, // Simpan file key dari storage
           status: 'booking',
         });
         details.push(detail);
       }
     } else {
-      // Jika tidak ada files, booking berdasarkan jumlah
+      // Jika tidak ada file, booking berdasarkan jumlah
       const jumlah = dto.jumlah || request.jumlah || 1;
       for (let i = 0; i < jumlah; i++) {
         const detailId = uuidv4();
