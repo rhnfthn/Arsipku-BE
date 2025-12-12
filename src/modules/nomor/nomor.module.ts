@@ -6,6 +6,7 @@ import { NomorRequestDetailEntity } from './entities/nomor-request-detail.entity
 import { NomorService } from './services/nomor.service';
 import { NomorController } from './controllers/nomor.controller';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       NomorRequestDetailEntity,
     ]),
     OrgDataModule,
+    StorageModule,
   ],
   controllers: [NomorController],
   providers: [NomorService],
