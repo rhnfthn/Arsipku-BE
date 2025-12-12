@@ -2,12 +2,16 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
   HttpException,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { NomorService } from '../services/nomor.service';
 import {
   CreateNomorRequestDto,
@@ -28,10 +32,13 @@ import {
   ApproveBulkNomorRequestDetailResponseDto,
   RejectBulkNomorRequestDetailDto,
   RejectBulkNomorRequestDetailResponseDto,
+  DeleteNomorRequestResponseDto,
+  RejectAllNomorRequestResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
   GetNomorResponseDto,
+  GetNomorByIdResponseDto,
 } from '../dto/get-nomor.dto';
 
 @Controller('/')
@@ -116,6 +123,26 @@ export class NomorController {
   }
 
   /**
+   * GET /admin/nomor-request-submitted
+   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   */
+  @Get('admin/nomor-request-submitted')
+  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.getAdminNomorRequestSubmitted();
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get submitted nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /admin/nomor-request/:id
    * Admin melihat detail usulan nomor saja
    */
@@ -167,15 +194,36 @@ export class NomorController {
 
   /**
    * POST /admin/nomor-request/:id/booking
-   * Admin memproses usulan dan create booking
+   * Admin memproses usulan dan create booking dengan file upload
+   * Mendukung multiple file upload via FormData
+   * 
+   * FormData fields:
+   * - file: binary files (optional, bisa multiple)
+   * - jumlah: number (optional, gunakan jika tidak ada file)
+   * 
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
    */
+  @UseInterceptors(FilesInterceptor('file', 10)) // Max 10 files
   @Post('admin/nomor-request/:id/booking')
   async bookingNomorRequest(
     @Param('id') id: string,
-    @Body() dto: BookingNomorRequestDto,
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
+    @Query('folder') folder?: string,
+    @Body() body?: any,
   ): Promise<BookingNomorRequestResponseDto> {
     try {
-      return await this.nomorService.bookingNomorRequest(id, dto);
+      // Parse body untuk ambil jumlah dari FormData
+      const dto: BookingNomorRequestDto = {
+        jumlah: body?.jumlah ? parseInt(body.jumlah) : undefined,
+      };
+      
+      return await this.nomorService.bookingNomorRequest(
+        id,
+        dto,
+        files,
+        folder,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -293,6 +341,56 @@ export class NomorController {
   }
 
   /**
+   * DELETE /admin/nomor-request/:id
+   * Hapus usulan nomor
+   */
+  @Delete('admin/nomor-request/:id')
+  async deleteNomorRequest(
+    @Param('id') id: string,
+  ): Promise<DeleteNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.deleteNomorRequest(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to delete nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request/:id/reject-nomor
+   * Tolak nomor (set semua details status menjadi hangus)
+   */
+  @Post('admin/nomor-request/:id/reject-nomor')
+  async rejectAllNomorRequest(
+    @Param('id') id: string,
+  ): Promise<RejectAllNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.rejectAllNomorRequest(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to reject all nomor in request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /nomor
    * Get semua nomor (user view)
    */
@@ -325,6 +423,26 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get admin nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /nomor/:id
+   * Get nomor by id (where id is id_request)
+   */
+  @Get('nomor/:id')
+  async getNomorById(@Param('id') id: string): Promise<GetNomorByIdResponseDto> {
+    try {
+      return await this.nomorService.getNomorById(id);
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
