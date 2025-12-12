@@ -10,6 +10,7 @@ import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { StorageModule } from '../storage/storage.module';
     ]),
     OrgDataModule,
     StorageModule,
+    GeneratePdfModule,
   ],
   controllers: [NotaDinasController],
   providers: [NotaDinasService, NomorSuratService],
