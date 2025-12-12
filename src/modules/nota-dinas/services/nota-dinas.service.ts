@@ -16,6 +16,7 @@ import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, Tembusa
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -40,11 +41,43 @@ export class NotaDinasService {
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
+    private readonly generatePdfService: GeneratePdfService,
   ) {}
 
   // ============================================================
   // FORM DATA PARSER
   // ============================================================
+
+  /**
+   * Generate PDF dari HTML content
+   * Menggunakan Puppeteer untuk render HTML ke PDF
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    penerima: string[],
+    dari: string,
+    tanggal: string,
+    penandatangan: string,
+    tembusan: string[] = [],
+  ): Promise<Buffer> {
+    try {
+      const pdfDto = {
+        html: Buffer.from(htmlContent, 'utf-8').toString('base64'),
+        filename: `nota-dinas-${Date.now()}.pdf`,
+        penerima: penerima,
+        dari: dari,
+        tanggal: tanggal,
+        penandatangan: penandatangan,
+        tembusan: tembusan,
+        perihal: '',
+      };
+
+      const pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
 
   /**
    * Parse form-data body + uploaded files to CreateNotaDinasDto
