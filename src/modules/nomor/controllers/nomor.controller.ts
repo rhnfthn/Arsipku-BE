@@ -8,7 +8,10 @@ import {
   Query,
   HttpException,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { NomorService } from '../services/nomor.service';
 import {
   CreateNomorRequestDto,
@@ -191,15 +194,36 @@ export class NomorController {
 
   /**
    * POST /admin/nomor-request/:id/booking
-   * Admin memproses usulan dan create booking
+   * Admin memproses usulan dan create booking dengan file upload
+   * Mendukung multiple file upload via FormData
+   * 
+   * FormData fields:
+   * - file: binary files (optional, bisa multiple)
+   * - jumlah: number (optional, gunakan jika tidak ada file)
+   * 
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
    */
+  @UseInterceptors(FilesInterceptor('file', 10)) // Max 10 files
   @Post('admin/nomor-request/:id/booking')
   async bookingNomorRequest(
     @Param('id') id: string,
-    @Body() dto: BookingNomorRequestDto,
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
+    @Query('folder') folder?: string,
+    @Body() body?: any,
   ): Promise<BookingNomorRequestResponseDto> {
     try {
-      return await this.nomorService.bookingNomorRequest(id, dto);
+      // Parse body untuk ambil jumlah dari FormData
+      const dto: BookingNomorRequestDto = {
+        jumlah: body?.jumlah ? parseInt(body.jumlah) : undefined,
+      };
+      
+      return await this.nomorService.bookingNomorRequest(
+        id,
+        dto,
+        files,
+        folder,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
