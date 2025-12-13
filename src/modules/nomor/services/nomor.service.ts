@@ -9,6 +9,8 @@ import { Repository, DataSource } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
+import { JenisEntity } from '../entities/jenis.entity';
+import { StorageService } from '../../storage/services/storage.service';
 import {
   CreateNomorRequestDto,
   CreateNomorRequestResponseDto,
@@ -27,6 +29,8 @@ import {
   ApproveBulkNomorRequestDetailResponseDto,
   RejectBulkNomorRequestDetailDto,
   RejectBulkNomorRequestDetailResponseDto,
+  DeleteNomorRequestResponseDto,
+  RejectAllNomorRequestResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -44,9 +48,119 @@ export class NomorService {
     private readonly nomorRequestRepository: Repository<NomorRequestEntity>,
     @InjectRepository(NomorRequestDetailEntity)
     private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
+    @InjectRepository(JenisEntity)
+    private readonly jenisRepository: Repository<JenisEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
+    private readonly storageService: StorageService,
   ) {}
+
+  /**
+   * Helper: Map position text to jabatan code
+   * P = Dir. SDM, U = Dirut, S = Dir. Keselamatan, O = Dir. Operasi, K = Dir. Keuangan
+   */
+  private mapPositionToJabatanCode(positionText: string | null | undefined): string {
+    if (!positionText) return '';
+    
+    const positionLower = positionText.toLowerCase().trim();
+    
+    // Hardcoded mapping sesuai contoh - cek berdasarkan text dengan berbagai variasi
+    if (
+      positionLower.includes('direktur sdm dan umum')
+    ) {
+      return 'P';
+    }
+    
+    if (
+      positionLower.includes('direktur utama')
+    ) {
+      return 'U';
+    }
+    
+    if (
+      positionLower.includes('direktur keselamatan, keamanan dan standardisasi')
+    ) {
+      return 'S';
+    }
+    
+    if (
+      positionLower.includes('direktur operasi')
+    ) {
+      return 'O';
+    }
+
+    if (
+      positionLower.includes('direktur teknik')
+    ) {
+      return 'T';
+    }
+    
+    if (
+      positionLower.includes('direktur keuangan dan manajemen risiko')
+    ) {
+      return 'K';
+    }
+    
+    return '';
+  }
+
+  /**
+   * Helper: Extract last 2 characters dari area code
+   * Contoh: "00" untuk Pusat, "01" untuk Cabang
+   */
+  private extractAreaCode(area: string | null | undefined): string {
+    if (!area) return '';
+    
+    // Ambil 2 karakter terakhir
+    if (area.length >= 2) {
+      return area.slice(-2);
+    }
+    
+    return area.padStart(2, '0');
+  }
+
+  /**
+   * Helper: Generate nomor berdasarkan format dari tabel jenis
+   * Placeholder yang didukung:
+   * - {TIPE} = jenis nomor (PER, KEP, INS, dll)
+   * - {NO_URUT} = nomor urut dengan padding 3 digit
+   * - {INSTANSI} = company code
+   * - {JABATAN} = position code
+   * - {LOKASI} = area code
+   * - {KLASIFIKASI} = klasifikasi code
+   * - {BULAN} = bulan dalam romawi
+   * - {TAHUN} = tahun 4 digit
+   */
+  private async generateNomorFromFormat(
+    format: string,
+    noUrut: number,
+    request: NomorRequestEntity,
+    tahun: number,
+    penandatanganPosition?: string | null,
+    penandatanganArea?: string | null,
+  ): Promise<string> {
+    const bulan = new Date(request.tanggal!).getMonth() + 1;
+    const bulanRomawi = this.getBulanRomawi(bulan);
+    const noUrutFormatted = noUrut.toString().padStart(3, '0');
+
+    // Jabatan, Lokasi, Instansi diambil dari penandatangan
+    const jabatanCode = this.mapPositionToJabatanCode(penandatanganPosition);
+    const lokasiCode = this.extractAreaCode(penandatanganArea);
+    const instansi = 'LPPNPI'; // Hardcoded
+
+    // Replace placeholders dengan nilai sebenarnya
+    let nomorBaru = format
+      .replace(/{TIPE}/g, request.jenis || '')
+      .replace(/{NO_URUT}/g, noUrutFormatted)
+      .replace(/{INSTANSI}/g, instansi)
+      .replace(/{JABATAN}/g, jabatanCode)
+      .replace(/{LOKASI}/g, lokasiCode)
+      .replace(/{KLASIFIKASI}/g, request.klasifikasi || '')
+      .replace(/{BULAN}/g, bulanRomawi)
+      .replace(/{TAHUN}/g, tahun.toString());
+
+    return nomorBaru;
+  }
 
   /**
    * User membuat usulan nomor baru
@@ -85,6 +199,8 @@ export class NomorService {
       klasifikasi: dto.klasifikasi || null,
       perihal: dto.perihal,
       jumlah: dto.jumlah,
+      penandatangan: dto.penandatangan || null,
+      idPositionPenandatangan: dto.id_position_penandatangan || null,
     });
 
     await this.nomorRequestRepository.save(nomorRequest);
@@ -104,6 +220,7 @@ export class NomorService {
         klasifikasi: nomorRequest.klasifikasi,
         perihal: nomorRequest.perihal!,
         jumlah: nomorRequest.jumlah!,
+        penandatangan: nomorRequest.penandatangan,
         created_at: nomorRequest.createdAt,
       },
     };
@@ -150,6 +267,7 @@ export class NomorService {
           klasifikasi: request.klasifikasi,
           perihal: request.perihal!,
           jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
           created_at: request.createdAt,
           details: details.map((detail) => ({
             id: detail.id,
@@ -166,6 +284,93 @@ export class NomorService {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
       data,
+    };
+  }
+
+  /**
+   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   */
+  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+    const requests = await this.nomorRequestRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    // Get latest org_data to extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    const data = await Promise.all(
+      requests.map(async (request) => {
+        // Ambil detail untuk menentukan status
+        const details = await this.nomorRequestDetailRepository.find({
+          where: { idRequest: request.id },
+        });
+
+        let status = 'Belum Diajukan';
+        if (details.length > 0) {
+          const hasBooking = details.some((d) => d.status === 'booking');
+          const hasTerpakai = details.some((d) => d.status === 'terpakai');
+          const allHangus = details.every((d) => d.status === 'hangus');
+
+          if (hasTerpakai) {
+            status = 'Disetujui';
+          } else if (allHangus) {
+            status = 'Ditolak';
+          } else if (hasBooking) {
+            status = 'Menunggu Verifikasi';
+          }
+        }
+
+        // Get position data to extract persnum and nama
+        const positionNumber = parseInt(request.position!, 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        
+        const persnum = positionData?.persnum_person || null;
+        const nama = positionData?.persnum_person_text || null;
+
+        return {
+          id: request.id,
+          company: request.company!,
+          area: request.area!,
+          sub_area: request.subArea!,
+          organization: request.organization!,
+          position: request.position!,
+          persnum,
+          nama,
+          tanggal: request.tanggal!,
+          jenis: request.jenis!,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal!,
+          jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
+          created_at: request.createdAt,
+          status,
+        };
+      }),
+    );
+
+    // Filter only requests with status != 'Belum Diajukan'
+    const submittedData = data.filter((item) => item.status !== 'Belum Diajukan');
+
+    return {
+      success: true,
+      message: 'Data usulan nomor yang diajukan berhasil diambil',
+      data: submittedData,
     };
   }
 
@@ -239,6 +444,7 @@ export class NomorService {
           klasifikasi: request.klasifikasi,
           perihal: request.perihal!,
           jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
           created_at: request.createdAt,
           status,
         };
@@ -313,6 +519,9 @@ export class NomorService {
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
 
+    // Generate template nomor
+    const templateNomor = await this.generateNomorTemplate(request);
+
     return {
       success: true,
       message: 'Detail usulan nomor berhasil diambil',
@@ -330,10 +539,106 @@ export class NomorService {
         klasifikasi: request.klasifikasi,
         perihal: request.perihal!,
         jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        template_nomor: templateNomor,
         created_at: request.createdAt,
         status,
       },
     };
+  }
+
+  /**
+   * Helper: Generate template nomor (preview format dengan nomor urut kosong)
+   */
+  private async generateNomorTemplate(
+    request: NomorRequestEntity,
+  ): Promise<string | null> {
+    try {
+      if (!request.jenis) return null;
+
+      // Ambil format dari jenis table
+      const jenisData = await this.jenisRepository.findOne({
+        where: { jenis: request.jenis },
+      });
+
+      if (!jenisData || !jenisData.formatPenomoran) {
+        return null;
+      }
+
+      // Ambil data penandatangan
+      let penandatanganPositionText: string | null = null;
+      let penandatanganArea: string | null = null;
+
+      if (request.idPositionPenandatangan) {
+        const tglFormatted = this.formatDate(request.tanggal!);
+        const orgData = await this.orgDataService.findOrg(tglFormatted);
+
+        if (orgData?.organization_json) {
+          const findPositionInOrg = (orgs: any[]): any => {
+            for (const org of orgs) {
+              if (org.positions && Array.isArray(org.positions)) {
+                const found = org.positions.find(
+                  (p: any) => p.position === request.idPositionPenandatangan,
+                );
+                if (found) {
+                  return {
+                    position_text: found.position_text,
+                    area: org.area,
+                  };
+                }
+              }
+              if (org.children && Array.isArray(org.children)) {
+                const result = findPositionInOrg(org.children);
+                if (result) return result;
+              }
+            }
+            return null;
+          };
+
+          const penandatanganData = findPositionInOrg(orgData.organization_json);
+          if (penandatanganData) {
+            penandatanganPositionText = penandatanganData.position_text || null;
+            penandatanganArea = penandatanganData.area || null;
+          }
+        }
+
+        if (!penandatanganPositionText && request.penandatangan) {
+          penandatanganPositionText = request.penandatangan;
+        }
+
+        if (!penandatanganArea && request.area) {
+          penandatanganArea = request.area;
+        }
+      } else if (request.penandatangan) {
+        penandatanganPositionText = request.penandatangan;
+        penandatanganArea = request.area;
+      }
+
+      // Generate template dengan nomor urut kosong
+      const tahun = new Date(request.tanggal!).getFullYear();
+      const bulan = new Date(request.tanggal!).getMonth() + 1;
+      const bulanRomawi = this.getBulanRomawi(bulan);
+
+      const jabatanCode = this.mapPositionToJabatanCode(penandatanganPositionText);
+      const lokasiCode = this.extractAreaCode(penandatanganArea);
+      const instansi = 'LPPNPI';
+
+      // Ganti {NO_URUT} dengan dots, replace placeholder lainnya
+      let template = jenisData.formatPenomoran
+        .replace(/{NO_URUT}/g, '.....')
+        .replace(/{TIPE}/g, request.jenis || '')
+        .replace(/{INSTANSI}/g, instansi)
+        .replace(/{JABATAN}/g, jabatanCode)
+        .replace(/{LOKASI}/g, lokasiCode)
+        .replace(/{KLASIFIKASI}/g, request.klasifikasi || '')
+        .replace(/{BULAN}/g, bulanRomawi)
+        .replace(/{TAHUN}/g, tahun.toString());
+
+      return template;
+    } catch (error) {
+      console.log('Error generating nomor template:', error);
+      return null;
+    }
   }
 
   /**
@@ -415,6 +720,7 @@ export class NomorService {
         klasifikasi: request.klasifikasi,
         perihal: request.perihal!,
         jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
         details: details.map((d) => ({
@@ -430,15 +736,22 @@ export class NomorService {
   }
 
   /**
-   * Admin memproses usulan dan memasukkannya ke tabel nomor_request_detail
-   * dengan status = 'booking' dan nomor = NULL
+   * Admin memproses usulan dan membuat booking nomor
+   * Dengan file upload ke storage menggunakan folder query parameter
+   * Mendukung multiple file upload
    * 
-   * Jika files disediakan, setiap file akan dibooking sebagai 1 detail
-   * Jika files tidak disediakan, booking berdasarkan jumlah
+   * Flow:
+   * 1. Validasi request ada
+   * 2. Jika ada files, upload semua ke storage dengan folder path
+   * 3. Buat detail record per file dengan status = 'booking' dan file key dari storage
+   * 4. Jika tidak ada file, buat berdasarkan jumlah
+   * 5. Return response dengan file information
    */
   async bookingNomorRequest(
     requestId: string,
     dto: BookingNomorRequestDto,
+    files?: Express.Multer.File | Express.Multer.File[],
+    folder: string = 'nomor',
   ): Promise<BookingNomorRequestResponseDto> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
@@ -450,22 +763,40 @@ export class NomorService {
 
     const details: NomorRequestDetailEntity[] = [];
 
-    // Jika ada files, booking per file
-    if (dto.files && dto.files.length > 0) {
-      for (const file of dto.files) {
+    // Normalize files ke array
+    const fileArray = files
+      ? Array.isArray(files)
+        ? files
+        : [files]
+      : [];
+
+    // Jika ada files, upload semua ke storage
+    if (fileArray && fileArray.length > 0) {
+      for (const file of fileArray) {
         const detailId = uuidv4();
+        let fileKey: string | null = null;
+        const fileName: string | null = file.originalname;
+
+        // Upload file ke storage dengan folder path
+        try {
+          const uploadResult = await this.storageService.uploadFile(file, folder);
+          fileKey = uploadResult.key;
+        } catch (error) {
+          throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+        }
+
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
           idRequest: requestId,
           nomor: null,
-          fileName: file.file_name || null,
-          fileText: file.file_text || null,
+          fileName: fileName,
+          fileText: fileKey, // Simpan file key dari storage
           status: 'booking',
         });
         details.push(detail);
       }
     } else {
-      // Jika tidak ada files, booking berdasarkan jumlah
+      // Jika tidak ada file, booking berdasarkan jumlah
       const jumlah = dto.jumlah || request.jumlah || 1;
       for (let i = 0; i < jumlah; i++) {
         const detailId = uuidv4();
@@ -546,17 +877,33 @@ export class NomorService {
 
       const tahun = new Date(request.tanggal!).getFullYear();
 
-      // 3. Ambil nomor terakhir dari tabel nomor dengan locking
+      // 3. Validasi jenis ada
+      if (!request.jenis) {
+        throw new BadRequestException('Jenis nomor tidak ditemukan pada request');
+      }
+
+      // 4. Ambil format penomoran dari tabel jenis
+      const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+        where: { jenis: request.jenis },
+      });
+
+      if (!jenisData || !jenisData.formatPenomoran) {
+        throw new BadRequestException(
+          `Format penomoran untuk jenis ${request.jenis} tidak ditemukan`,
+        );
+      }
+
+      // 5. Ambil nomor terakhir dari tabel nomor dengan locking
+      // Nomor urut berlanjut per jenis per tahun, tidak tergantung position
       const lastNomor = await queryRunner.manager
         .createQueryBuilder(NomorEntity, 'n')
         .where('n.tahun = :tahun', { tahun })
         .andWhere('n.jenis = :jenis', { jenis: request.jenis })
-        .andWhere('n.position = :position', { position: request.position })
         .orderBy('n.nomor', 'DESC')
         .setLock('pessimistic_write')
         .getOne();
 
-      // 4. Generate nomor baru
+      // 6. Generate nomor baru berdasarkan format dari tabel jenis
       let noUrut = 1;
       if (lastNomor && lastNomor.nomor) {
         // Extract nomor urut dari nomor terakhir (format: 001/...)
@@ -566,25 +913,84 @@ export class NomorService {
         }
       }
 
-      const noUrutFormatted = noUrut.toString().padStart(3, '0');
-      
-      // Format nomor sesuai jenis (simplified version, bisa disesuaikan)
-      let nomorBaru = `${noUrutFormatted}/${request.jenis}`;
-      if (request.klasifikasi) {
-        nomorBaru += `/${request.klasifikasi}`;
-      }
-      const bulan = new Date(request.tanggal!).getMonth() + 1;
-      const bulanRomawi = this.getBulanRomawi(bulan);
-      nomorBaru += `/${bulanRomawi}/${tahun}`;
+      // 7. Ambil data penandatangan untuk jabatan, lokasi, dan instansi
+      let penandatanganPositionText: string | null = null;
+      let penandatanganArea: string | null = null;
 
-      // 5. Update detail: status = 'terpakai', nomor = nomor baru
+      if (request.idPositionPenandatangan) {
+        const tglFormatted = this.formatDate(request.tanggal!);
+        const orgData = await this.orgDataService.findOrg(tglFormatted);
+
+        // Cari position dalam organization_json structure
+        if (orgData?.organization_json) {
+          const findPositionInOrg = (orgs: any[]): any => {
+            for (const org of orgs) {
+              // Cari dalam positions array berdasarkan position number
+              if (org.positions && Array.isArray(org.positions)) {
+                const found = org.positions.find(
+                  (p: any) => p.position === request.idPositionPenandatangan,
+                );
+                if (found) {
+                  return {
+                    position_text: found.position_text,
+                    area: org.area,
+                  };
+                }
+              }
+              // Recursively search children
+              if (org.children && Array.isArray(org.children)) {
+                const result = findPositionInOrg(org.children);
+                if (result) return result;
+              }
+            }
+            return null;
+          };
+
+          const penandatanganData = findPositionInOrg(orgData.organization_json);
+          if (penandatanganData) {
+            penandatanganPositionText = penandatanganData.position_text || null;
+            penandatanganArea = penandatanganData.area || null;
+          }
+        }
+
+        // Fallback: gunakan penandatangan field jika position lookup tidak menemukan hasil
+        if (!penandatanganPositionText && request.penandatangan) {
+          penandatanganPositionText = request.penandatangan;
+        }
+
+        // Fallback: gunakan area dari request jika tidak ditemukan dari position lookup
+        if (!penandatanganArea && request.area) {
+          penandatanganArea = request.area;
+        }
+      } else if (request.penandatangan) {
+        // Jika idPositionPenandatangan tidak ada, gunakan penandatangan field
+        penandatanganPositionText = request.penandatangan;
+        penandatanganArea = request.area;
+      }
+
+      // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
+      const nomorBaru = await this.generateNomorFromFormat(
+        jenisData.formatPenomoran,
+        noUrut,
+        request,
+        tahun,
+        penandatanganPositionText,
+        penandatanganArea,
+      );
+
+      // 8. Update detail: status = 'terpakai', nomor = nomor baru
       detail.status = 'terpakai';
       detail.nomor = nomorBaru;
-      detail.fileName = dto.file_name || null;
-      detail.fileText = dto.file_text || null;
+      // Preserve existing file information, don't overwrite with null
+      if (dto.file_name !== undefined) {
+        detail.fileName = dto.file_name;
+      }
+      if (dto.file_text !== undefined) {
+        detail.fileText = dto.file_text;
+      }
       await queryRunner.manager.save(detail);
 
-      // 6. Insert ke tabel nomor
+      // 9. Insert ke tabel nomor
       const nomorId = uuidv4();
       const nomor = this.nomorRepository.create({
         id: nomorId,
@@ -596,6 +1002,7 @@ export class NomorService {
         tahun,
         jenis: request.jenis,
         nomor: nomorBaru,
+        idRequest: detail.idRequest,
       });
       await queryRunner.manager.save(nomor);
 
@@ -704,17 +1111,33 @@ export class NomorService {
 
           const tahun = new Date(request.tanggal!).getFullYear();
 
-          // 3. Ambil nomor terakhir dari tabel nomor dengan locking
+          // 3. Validasi jenis ada
+          if (!request.jenis) {
+            throw new BadRequestException('Jenis nomor tidak ditemukan pada request');
+          }
+
+          // 4. Ambil format penomoran dari tabel jenis
+          const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+            where: { jenis: request.jenis },
+          });
+
+          if (!jenisData || !jenisData.formatPenomoran) {
+            throw new BadRequestException(
+              `Format penomoran untuk jenis ${request.jenis} tidak ditemukan`,
+            );
+          }
+
+          // 5. Ambil nomor terakhir dari tabel nomor dengan locking
+          // Nomor urut berlanjut per jenis per tahun, tidak tergantung position
           const lastNomor = await queryRunner.manager
             .createQueryBuilder(NomorEntity, 'n')
             .where('n.tahun = :tahun', { tahun })
             .andWhere('n.jenis = :jenis', { jenis: request.jenis })
-            .andWhere('n.position = :position', { position: request.position })
             .orderBy('n.nomor', 'DESC')
             .setLock('pessimistic_write')
             .getOne();
 
-          // 4. Generate nomor baru
+          // 6. Generate nomor baru berdasarkan format dari tabel jenis
           let noUrut = 1;
           if (lastNomor && lastNomor.nomor) {
             // Extract nomor urut dari nomor terakhir (format: 001/...)
@@ -724,25 +1147,84 @@ export class NomorService {
             }
           }
 
-          const noUrutFormatted = noUrut.toString().padStart(3, '0');
-          
-          // Format nomor sesuai jenis (simplified version, bisa disesuaikan)
-          let nomorBaru = `${noUrutFormatted}/${request.jenis}`;
-          if (request.klasifikasi) {
-            nomorBaru += `/${request.klasifikasi}`;
-          }
-          const bulan = new Date(request.tanggal!).getMonth() + 1;
-          const bulanRomawi = this.getBulanRomawi(bulan);
-          nomorBaru += `/${bulanRomawi}/${tahun}`;
+          // 7. Ambil data penandatangan untuk jabatan, lokasi, dan instansi
+          let penandatanganPositionText: string | null = null;
+          let penandatanganArea: string | null = null;
 
-          // 5. Update detail: status = 'terpakai', nomor = nomor baru
+          if (request.idPositionPenandatangan) {
+            const tglFormatted = this.formatDate(request.tanggal!);
+            const orgData = await this.orgDataService.findOrg(tglFormatted);
+
+            // Cari position dalam organization_json structure
+            if (orgData?.organization_json) {
+              const findPositionInOrg = (orgs: any[]): any => {
+                for (const org of orgs) {
+                  // Cari dalam positions array berdasarkan position number
+                  if (org.positions && Array.isArray(org.positions)) {
+                    const found = org.positions.find(
+                      (p: any) => p.position === request.idPositionPenandatangan,
+                    );
+                    if (found) {
+                      return {
+                        position_text: found.position_text,
+                        area: org.area,
+                      };
+                    }
+                  }
+                  // Recursively search children
+                  if (org.children && Array.isArray(org.children)) {
+                    const result = findPositionInOrg(org.children);
+                    if (result) return result;
+                  }
+                }
+                return null;
+              };
+
+              const penandatanganData = findPositionInOrg(orgData.organization_json);
+              if (penandatanganData) {
+                penandatanganPositionText = penandatanganData.position_text || null;
+                penandatanganArea = penandatanganData.area || null;
+              }
+            }
+
+            // Fallback: gunakan penandatangan field jika position lookup tidak menemukan hasil
+            if (!penandatanganPositionText && request.penandatangan) {
+              penandatanganPositionText = request.penandatangan;
+            }
+
+            // Fallback: gunakan area dari request jika tidak ditemukan dari position lookup
+            if (!penandatanganArea && request.area) {
+              penandatanganArea = request.area;
+            }
+          } else if (request.penandatangan) {
+            // Jika idPositionPenandatangan tidak ada, gunakan penandatangan field
+            penandatanganPositionText = request.penandatangan;
+            penandatanganArea = request.area;
+          }
+
+          // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
+          const nomorBaru = await this.generateNomorFromFormat(
+            jenisData.formatPenomoran,
+            noUrut,
+            request,
+            tahun,
+            penandatanganPositionText,
+            penandatanganArea,
+          );
+
+          // 8. Update detail: status = 'terpakai', nomor = nomor baru
           detail.status = 'terpakai';
           detail.nomor = nomorBaru;
-          detail.fileName = dto.file_name || null;
-          detail.fileText = dto.file_text || null;
+          // Preserve existing file information, don't overwrite with null
+          if (dto.file_name !== undefined) {
+            detail.fileName = dto.file_name;
+          }
+          if (dto.file_text !== undefined) {
+            detail.fileText = dto.file_text;
+          }
           await queryRunner.manager.save(detail);
 
-          // 6. Insert ke tabel nomor
+          // 9. Insert ke tabel nomor
           const nomorId = uuidv4();
           const nomor = this.nomorRepository.create({
             id: nomorId,
@@ -754,6 +1236,7 @@ export class NomorService {
             tahun,
             jenis: request.jenis,
             nomor: nomorBaru,
+            idRequest: detail.idRequest,
           });
           await queryRunner.manager.save(nomor);
 
@@ -878,22 +1361,233 @@ export class NomorService {
       order: { createdAt: 'DESC' },
     });
 
+    // Get latest org_data for position information
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    // Get request data to fetch klasifikasi and perihal
+    const data = await Promise.all(
+      nomors.map(async (nomor) => {
+        let klasifikasi: string | null = null;
+        let perihal: string | null = null;
+        let tanggal: Date | null = null;
+
+        if (nomor.idRequest) {
+          const request = await this.nomorRequestRepository.findOne({
+            where: { id: nomor.idRequest },
+          });
+          if (request) {
+            klasifikasi = request.klasifikasi;
+            perihal = request.perihal;
+            tanggal = request.tanggal;
+          }
+        }
+
+        // Get position data to extract jabatan (position_text) and nama_pengirim (persnum_person_text)
+        const positionNumber = parseInt(nomor.position || '0', 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        
+        const jabatan = positionData?.position_text || null;
+        const namaPengirim = positionData?.persnum_person_text || null;
+
+        return {
+          id: nomor.id,
+          id_request: nomor.idRequest || null,
+          jenis: nomor.jenis,
+          jabatan,
+          klasifikasi,
+          perihal,
+          tanggal,
+          nomor: nomor.nomor,
+          nama_pengirim: namaPengirim,
+          waktu: nomor.createdAt,
+        };
+      }),
+    );
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: nomors.map((nomor) => ({
-        id: nomor.id,
-        company: nomor.company,
-        area: nomor.area,
-        sub_area: nomor.subArea,
-        organization: nomor.organization,
-        position: nomor.position,
-        tahun: nomor.tahun,
-        jenis: nomor.jenis,
-        nomor: nomor.nomor,
-        created_at: nomor.createdAt,
-        updated_at: nomor.updatedAt,
-      })),
+      data,
+    };
+  }
+
+  /**
+   * Get nomor by id request (menampilkan semua nomor dalam satu request)
+   */
+  async getNomorById(idRequest: string): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: idRequest },
+    });
+
+    if (!request) {
+      throw new Error('Nomor request not found');
+    }
+
+    // Get latest org_data untuk extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    // Get position data
+    const positionNumber = parseInt(request.position || '0', 10);
+    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+    
+    const jabatan = positionData?.position_text || null;
+
+    // Get all nomor for this request
+    const nomors = await this.nomorRepository.find({
+      where: { idRequest },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Get all request details for this request to extract file information
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Create a map of nomor to detail for quick lookup
+    const detailMap = new Map();
+    details.forEach((detail) => {
+      if (detail.nomor) {
+        detailMap.set(detail.nomor, detail);
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Data nomor berhasil diambil',
+      data: {
+        id: request.id,
+        jenis: request.jenis,
+        jabatan,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal,
+        tanggal: request.tanggal,
+        jumlah: request.jumlah,
+        nomor_list: nomors.map((n) => {
+          const detail = detailMap.get(n.nomor);
+          return {
+            id: n.id,
+            nomor: n.nomor,
+            status: 'terpakai',
+            file_name: detail?.fileName || null,
+            file_text: detail?.fileText || null,
+            created_at: n.createdAt,
+          };
+        }),
+      },
+    };
+  }
+
+  /**
+   * Hapus usulan nomor dan semua detailnya
+   */
+  async deleteNomorRequest(
+    requestId: string,
+  ): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Delete semua detail terkait
+    await this.nomorRequestDetailRepository.delete({ idRequest: requestId });
+
+    // Delete request
+    await this.nomorRequestRepository.delete({ id: requestId });
+
+    return {
+      success: true,
+      message: 'Usulan nomor berhasil dihapus',
+      data: {
+        id: requestId,
+        deleted_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Tolak semua nomor dalam satu request (set semua details status = 'hangus')
+   */
+  async rejectAllNomorRequest(
+    requestId: string,
+  ): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Get semua details untuk request ini
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId },
+    });
+
+    if (details.length === 0) {
+      throw new BadRequestException(
+        `Tidak ada nomor yang diajukan untuk usulan dengan ID ${requestId}`,
+      );
+    }
+
+    // Update semua details yang belum diproses menjadi hangus
+    const rejectedDetails: { id: string; status: string }[] = [];
+    
+    for (const detail of details) {
+      // Hanya set hangus jika status masih booking
+      if (detail.status === 'booking') {
+        detail.status = 'hangus';
+        await this.nomorRequestDetailRepository.save(detail);
+        rejectedDetails.push({
+          id: detail.id,
+          status: detail.status,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `${rejectedDetails.length} nomor berhasil ditolak`,
+      data: {
+        request_id: requestId,
+        total_rejected: rejectedDetails.length,
+        rejected_details: rejectedDetails,
+      },
     };
   }
 
