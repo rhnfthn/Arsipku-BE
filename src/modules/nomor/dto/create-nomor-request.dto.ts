@@ -35,6 +35,10 @@ export class CreateNomorRequestDto {
   @IsOptional()
   @IsString()
   penandatangan?: string;
+
+  @IsOptional()
+  @IsInt()
+  id_position_penandatangan?: number;
 }
 
 /**
