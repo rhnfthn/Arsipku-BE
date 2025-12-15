@@ -9,7 +9,9 @@ import {
   HttpStatus,
   BadRequestException,
   UseGuards,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { DisposisiService } from '../services/disposisi.service';
 import { UserLevelGuard } from '../../../common/guards';
 import { UserLevels } from '../../../common/decorators';
@@ -400,6 +402,49 @@ export class DisposisiController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /DI/generate-pdf
+   * Generate PDF dari HTML content untuk preview/download Disposisi
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * 
+   * @param body - { htmlContent: string, penerima: string[], disposisi: string[], sifat: string, pengirim: string, tembusan?: string[] }
+   * @param res - Express Response untuk send PDF file
+   */
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: any,
+    @Res() res: Response,
+  ) {
+    try {
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
+        body.htmlContent,
+        body.penerima || [],
+        body.disposisi || [],
+        body.sifat || '',
+        body.pengirim || '',
+        body.tembusan || [],
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="disposisi-${Date.now()}.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 }

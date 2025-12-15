@@ -131,6 +131,7 @@ export class AuthService {
       position: orgData.position?.toString() || '',
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
+      abbreviation: orgData.abbreviation || '',
     };
 
     // ================================================================
@@ -278,6 +279,7 @@ export class AuthService {
       position: orgData.position?.toString() || '',
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
+      abbreviation: orgData.abbreviation || '',
     };
 
     // ================================================================
@@ -442,6 +444,7 @@ export class AuthService {
       position: orgData.position?.toString() || '',
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
+      abbreviation: orgData.abbreviation || '',
     };
 
     // ================================================================
