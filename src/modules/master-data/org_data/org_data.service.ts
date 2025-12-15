@@ -150,6 +150,7 @@ export class OrgDataService {
                     position: position.position,
                     positionText: position.position_text,
                     positionAbbreviation: position.abbreviation,
+                    abbreviation: position.abbreviation || '', // Use position abbreviation
                     isChief: position.chief === 1,
                     bodTag: position.bod_tag,
                   };
