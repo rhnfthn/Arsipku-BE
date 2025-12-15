@@ -7,6 +7,7 @@ import { DisposisiController } from './controllers';
 // Services
 import { DisposisiService } from './services/disposisi.service';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
+import { GeneratePdfDispoService } from '../generate_pdf/services/generate_pdf_dispo.service';
 
 // Entities - Local
 import { DiEntity } from './entities/di.entity';
@@ -44,7 +45,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     OrgDataModule,
   ],
   controllers: [DisposisiController],
-  providers: [DisposisiService, NomorSuratService],
+  providers: [DisposisiService, NomorSuratService, GeneratePdfDispoService],
   exports: [DisposisiService],
 })
 export class DisposisiModule {}

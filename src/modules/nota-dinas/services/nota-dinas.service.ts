@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
+import * as fs from 'fs';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
@@ -51,28 +53,128 @@ export class NotaDinasService {
   /**
    * Generate PDF dari HTML content
    * Menggunakan Puppeteer untuk render HTML ke PDF
+   * Accept both plain text HTML dan base64-encoded HTML
+   * 
+   * @param htmlContent - HTML content (plain text atau base64)
+   * @param tertuju - Array nama penerima (Kepada Yth)
+   * @param dari - Nama pengirim/position (Dari)
+   * @param perihal - Perihal/Subjek
+   * @param tanggal - Tanggal surat
+   * @param positionText - Position text untuk penandatangan (display di atas nama)
+   * @param namaLengkap - Nama lengkap penandatangan (display di bawah position)
+   * @param tembusan - Array nama penerima tembusan
    */
+  // ============================================================
+  // GENERATE PDF & MERGE WITH ATTACHMENTS
+  // ============================================================
+
+  /**
+   * Merge main PDF dengan lampiran files yang di-upload
+   */
+  private async mergePdfWithUploadedFiles(mainPdfBuffer: Buffer, lampiranFiles: Express.Multer.File[]): Promise<Buffer> {
+    try {
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        // Tidak ada lampiran, return main PDF as-is
+        return mainPdfBuffer;
+      }
+
+      // Create main PDF document
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      // Merge setiap lampiran file
+      for (const file of lampiranFiles) {
+        try {
+          // Load lampiran file (dari buffer)
+          let lampiranPdf: PDFDocument;
+          
+          if (file.originalname.toLowerCase().endsWith('.pdf')) {
+            // PDF file
+            lampiranPdf = await PDFDocument.load(file.buffer);
+          } else {
+            // Non-PDF files (XLSX, DOC, etc) - skip
+            console.warn(`[mergePdfWithUploadedFiles] Skipping non-PDF file: ${file.originalname}`);
+            continue;
+          }
+
+          // Copy all pages dari lampiran ke main document
+          const lampiranPages = await pdfDoc.copyPages(lampiranPdf, lampiranPdf.getPageIndices());
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(`[mergePdfWithUploadedFiles] Merged file: ${file.originalname}`);
+        } catch (error) {
+          console.error(`[mergePdfWithUploadedFiles] Error merging ${file.originalname}:`, error);
+          // Continue dengan file berikutnya
+        }
+      }
+
+      // Save merged PDF
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[mergePdfWithUploadedFiles] Error:`, error);
+      // Return main PDF jika merge gagal
+      return mainPdfBuffer;
+    }
+  }
+
   async generatePdfFromHtml(
     htmlContent: string,
-    penerima: string[],
+    tertuju: string[],
     dari: string,
+    perihal: string,
     tanggal: string,
-    penandatangan: string,
+    positionText: string,
+    namaLengkap: string,
     tembusan: string[] = [],
+    lampiranFiles?: Express.Multer.File[],
   ): Promise<Buffer> {
     try {
+      // Smart detection: is htmlContent already base64 or plain text?
+      let htmlToSend = htmlContent;
+      
+      // Check if it looks like base64 (only contains base64 chars)
+      if (htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
+        // Looks like base64, try to decode to verify
+        try {
+          const decoded = Buffer.from(htmlContent, 'base64').toString('utf-8');
+          // If decode successful and contains HTML, it's base64
+          if (decoded.includes('<') || decoded.length > 10) {
+            htmlToSend = htmlContent; // Keep as base64
+          } else {
+            // Not really base64, encode plain text to base64
+            htmlToSend = Buffer.from(htmlContent, 'utf-8').toString('base64');
+          }
+        } catch (e) {
+          // Decode failed, treat as plain text
+          htmlToSend = Buffer.from(htmlContent, 'utf-8').toString('base64');
+        }
+      } else {
+        // Doesn't look like base64 (has chars outside base64 alphabet)
+        // Encode plain text to base64
+        htmlToSend = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      }
+      
       const pdfDto = {
-        html: Buffer.from(htmlContent, 'utf-8').toString('base64'),
+        html: htmlToSend,
         filename: `nota-dinas-${Date.now()}.pdf`,
-        penerima: penerima,
+        tertuju: tertuju,
         dari: dari,
+        perihal: perihal,
         tanggal: tanggal,
-        penandatangan: penandatangan,
+        positionText: positionText,
+        namaLengkap: namaLengkap,
         tembusan: tembusan,
-        perihal: '',
       };
 
-      const pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+      let pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+
+      // If lampiranFiles provided, merge dengan files
+      if (lampiranFiles && lampiranFiles.length > 0) {
+        pdfBuffer = await this.mergePdfWithUploadedFiles(pdfBuffer, lampiranFiles);
+      }
+
       return pdfBuffer;
     } catch (error) {
       throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
@@ -1864,33 +1966,38 @@ export class NotaDinasService {
    */
   private async getPositionAbbreviation(positionId: string): Promise<string> {
     try {
-      // Try to find org_data by COMPANY_ID
-      let orgData = await this.orgDataService.findOne(String(COMPANY_ID)).catch(() => null);
-      
-      // If not found by COMPANY_ID, try to get latest org_data
-      if (!orgData) {
-        const allOrgData = await this.orgDataService.findAll();
-        if (allOrgData && allOrgData.length > 0) {
-          orgData = allOrgData[0]; // Get the latest one
-        }
-      }
-
-      if (!orgData || !orgData.position_json) {
+      if (!positionId) {
         return '';
       }
 
-      const positionJson = typeof orgData.position_json === 'string'
-        ? JSON.parse(orgData.position_json)
-        : orgData.position_json;
+      // Fallback: try to find from organization_build position_json
+      // position_json struktur: [{ position, position_text, position_abbreviation, ... }]
+      const orgBuild = await this.dataSource
+        .getRepository('organization_build')
+        .createQueryBuilder('org_build')
+        .orderBy('org_build.tgl', 'DESC')
+        .limit(1)
+        .getOne();
+
+      if (!orgBuild || !orgBuild.position_json) {
+        return '';
+      }
+
+      const positionJson = typeof orgBuild.position_json === 'string'
+        ? JSON.parse(orgBuild.position_json)
+        : orgBuild.position_json;
 
       if (Array.isArray(positionJson)) {
-        const position = positionJson.find((p: any) => String(p.position) === String(positionId));
-        return position?.abbreviation || '';
+        const pos = positionJson.find((p: any) => String(p.position) === String(positionId));
+        if (pos) {
+          // position_json uses position_abbreviation field name
+          return pos.position_abbreviation || pos.abbreviation || '';
+        }
       }
 
       return '';
     } catch (error) {
-      // Silently fail and return empty string
+      console.error(`[NotaDinasService] Error getting position abbreviation for ${positionId}:`, error);
       return '';
     }
   }
