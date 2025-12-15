@@ -38,6 +38,9 @@ export class NomorRequestEntity {
   @Column('varchar', { length: 255, nullable: true })
   penandatangan: string | null;
 
+  @Column('int', { name: 'id_position_penandatangan', nullable: true })
+  idPositionPenandatangan: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
