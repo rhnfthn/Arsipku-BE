@@ -1860,6 +1860,42 @@ export class NotaDinasService {
   // ============================================================
 
   /**
+   * Helper: Get abbreviation dari org_data berdasarkan position_id
+   */
+  private async getPositionAbbreviation(positionId: string): Promise<string> {
+    try {
+      // Try to find org_data by COMPANY_ID
+      let orgData = await this.orgDataService.findOne(String(COMPANY_ID)).catch(() => null);
+      
+      // If not found by COMPANY_ID, try to get latest org_data
+      if (!orgData) {
+        const allOrgData = await this.orgDataService.findAll();
+        if (allOrgData && allOrgData.length > 0) {
+          orgData = allOrgData[0]; // Get the latest one
+        }
+      }
+
+      if (!orgData || !orgData.position_json) {
+        return '';
+      }
+
+      const positionJson = typeof orgData.position_json === 'string'
+        ? JSON.parse(orgData.position_json)
+        : orgData.position_json;
+
+      if (Array.isArray(positionJson)) {
+        const position = positionJson.find((p: any) => String(p.position) === String(positionId));
+        return position?.abbreviation || '';
+      }
+
+      return '';
+    } catch (error) {
+      // Silently fail and return empty string
+      return '';
+    }
+  }
+
+  /**
    * Get detail Nota Dinas by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
    */
@@ -1917,28 +1953,38 @@ export class NotaDinasService {
       : String(naskah.tanggal || '').split('T')[0];
 
     // Build penerima info with read status
-    const penerimaInfoList = penerimaList.map((penerima) => ({
-      id: penerima.id,
-      persnum: parseInt(penerima.idSirkuler || '0', 10),
-      nama: penerima.namaSirkuler || '',
-      positionText: penerima.positionText || '',
-      organizationText: penerima.organizationText || '',
-      subAreaText: penerima.subAreaText || '',
-      areaText: penerima.areaText || '',
-      status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
-      readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
-    }));
+    const penerimaInfoList = await Promise.all(
+      penerimaList.map(async (penerima) => ({
+        id: penerima.id,
+        persnum: parseInt(penerima.idSirkuler || '0', 10),
+        nama: penerima.namaSirkuler || '',
+        position_id: penerima.position || '',
+        abbreviation: await this.getPositionAbbreviation(penerima.position || ''),
+        position_status: penerima.positionStatus || '',
+        positionText: penerima.positionText || '',
+        organizationText: penerima.organizationText || '',
+        subAreaText: penerima.subAreaText || '',
+        areaText: penerima.areaText || '',
+        status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
+        readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
+      }))
+    );
 
     // Build tembusan info
-    const tembusanInfoList = tembusanList.map((tembusan) => ({
-      id: tembusan.id,
-      persnum: parseInt(tembusan.idSirkuler || '0', 10),
-      nama: tembusan.namaSirkuler || '',
-      positionText: tembusan.positionText || '',
-      organizationText: tembusan.organizationText || '',
-      subAreaText: tembusan.subAreaText || '',
-      areaText: tembusan.areaText || '',
-    }));
+    const tembusanInfoList = await Promise.all(
+      tembusanList.map(async (tembusan) => ({
+        id: tembusan.id,
+        persnum: parseInt(tembusan.idSirkuler || '0', 10),
+        nama: tembusan.namaSirkuler || '',
+        position_id: tembusan.position || '',
+        abbreviation: await this.getPositionAbbreviation(tembusan.position || ''),
+        position_status: tembusan.positionStatus || '',
+        positionText: tembusan.positionText || '',
+        organizationText: tembusan.organizationText || '',
+        subAreaText: tembusan.subAreaText || '',
+        areaText: tembusan.areaText || '',
+      }))
+    );
 
     // Build lampiran info
     const lampiranInfoList = lampiranFiles.map((l) => ({
@@ -1990,6 +2036,9 @@ export class NotaDinasService {
           id: pengirimSirkulasi?.id || '',
           persnum: pengirimSirkulasi ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10) : 0,
           nama: pengirimSirkulasi?.namaSirkuler || '',
+          position_id: pengirimSirkulasi?.position || '',
+          abbreviation: pengirimSirkulasi?.position ? await this.getPositionAbbreviation(pengirimSirkulasi.position) : '',
+          position_status: pengirimSirkulasi?.positionStatus || '',
           positionText: pengirimSirkulasi?.positionText || '',
           organizationText: pengirimSirkulasi?.organizationText || '',
           subAreaText: pengirimSirkulasi?.subAreaText || '',
