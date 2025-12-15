@@ -16,6 +16,7 @@ import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/send-message-re
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto, PengirimInfoDto } from '../dto/get-send-message.dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -41,11 +42,40 @@ export class SuratDinasInternalService {
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
+    private readonly generatePdfSudinService: GeneratePdfSudinService,
   ) {}
 
   // ============================================================
   // FORM DATA PARSER
   // ============================================================
+
+  /**
+   * Generate PDF dari HTML content untuk Surat Dinas Internal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    penerima: string[],
+    dari: string = '',
+    tanggal: string = '',
+    penandatangan: string = '',
+    tembusan: string[] = [],
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      return await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        dari: dari,
+        tanggal: tanggal,
+        penandatangan: penandatangan,
+        tembusan: tembusan,
+        perihal: '',
+      });
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
 
   /**
    * Parse form-data body + uploaded files to CreateSuratDinasInternalDto

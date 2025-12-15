@@ -45,6 +45,7 @@ import {
 } from '../dto/forward-disposisi.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { GeneratePdfDispoService } from '../../generate_pdf/services/generate_pdf_dispo.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -104,8 +105,41 @@ export class DisposisiService {
     private readonly diRepository: Repository<DiEntity>,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
+    private readonly generatePdfDispoService: GeneratePdfDispoService,
     private readonly dataSource: DataSource,
   ) {}
+
+  // ============================================================
+  // PDF GENERATION
+  // ============================================================
+
+  /**
+   * Generate PDF dari HTML content untuk Disposisi
+   * Menggunakan Puppeteer di backend untuk render HTML
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    penerima: string[],
+    disposisi: string[] = [],
+    sifat: string = '',
+    pengirim: string = '',
+    tembusan: string[] = [],
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      return await this.generatePdfDispoService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        disposisi: disposisi,
+        sifat: sifat,
+        pengirim: pengirim,
+        tembusan: tembusan,
+        perihal: '',
+      });
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
 
   // ============================================================
   // ORG_DATA INTEGRATION METHODS

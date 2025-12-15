@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
 import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/create-surat-dinas-internal.dto';
@@ -392,6 +393,49 @@ export class SuratDinasInternalController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /SDI/generate-pdf
+   * Generate PDF dari HTML content untuk preview/download Surat Dinas Internal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * 
+   * @param body - { htmlContent: string, penerima: string[], dari: string, tanggal: string, penandatangan: string, tembusan?: string[] }
+   * @param res - Express Response untuk send PDF file
+   */
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: any,
+    @Res() res: Response,
+  ) {
+    try {
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      const pdfBuffer = await this.suratDinasInternalService.generatePdfFromHtml(
+        body.htmlContent,
+        body.penerima || [],
+        body.dari || '',
+        body.tanggal || '',
+        body.penandatangan || '',
+        body.tembusan || [],
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="surat-dinas-internal-${Date.now()}.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 }

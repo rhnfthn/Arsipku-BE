@@ -10,6 +10,7 @@ import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
+import { GeneratePdfSudinService } from '../generate_pdf/services/generate_pdf_sudin.service';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { StorageModule } from '../storage/storage.module';
     StorageModule,
   ],
   controllers: [SuratDinasInternalController],
-  providers: [SuratDinasInternalService, NomorSuratService],
+  providers: [SuratDinasInternalService, NomorSuratService, GeneratePdfSudinService],
   exports: [SuratDinasInternalService],
 })
 export class SuratDinasInternalModule {}
