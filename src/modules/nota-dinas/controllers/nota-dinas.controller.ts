@@ -1,13 +1,16 @@
 import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
+import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
-import { UserLevelGuard } from '../../../common/guards';
-import { UserLevels, Public } from '../../../common/decorators';
+import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
+import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('ND')
@@ -408,26 +411,191 @@ export class NotaDinasController {
   }
 
   /**
-   * POST /ND/generate-pdf
-   * Generate PDF dari HTML content untuk preview/download
-   * Menggunakan Puppeteer di backend untuk render HTML
+   * POST /ND/preview-pdf
+   * Generate preview PDF Nota Dinas untuk di-lihat sebelum dikirim
+   * PDF di-generate tanpa save ke database
+   * User bisa kembali edit dan preview ulang
    * 
-   * @param body - { htmlContent: string, penerima: string[], dari: string, tanggal: string, penandatangan: string, tembusan?: string[] }
-   * @param res - Express Response untuk send PDF file
+   * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan
+   * @param user - Current user dari JWT token
+   * @param lampiranFiles - Optional files untuk di-preview
+   * @param res - Express Response untuk send PDF
    */
-  @Post('generate-pdf')
-  async generatePdf(
-    @Body() body: { htmlContent: string; penerima: string[]; dari: string; tanggal: string; penandatangan: string; tembusan?: string[] },
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'lampiran_files', maxCount: 10 },
+  ]))
+  @Post('preview-pdf')
+  async previewPdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
     @Res() res: Response,
   ) {
     try {
+      // Transform & Validate DTO manually
+      const dto = plainToInstance(GeneratePdfDto, body);
+      const errors = await validate(dto);
+      if (errors.length > 0) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ 
+            error: 'Validation failed', 
+            message: errors.map(e => Object.values(e.constraints || {})).flat() 
+          });
+      }
+
+      // Validasi required field
+      if (!dto || !dto.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      // Format tanggal jika diperlukan
+      let formattedDate = dto.tanggal || '';
+      if (formattedDate && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(formattedDate)) {
+        const [day, month, year] = formattedDate.split('/');
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        formattedDate = date.toLocaleDateString('id-ID', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        });
+      }
+
+      // Format "Dari"
+      const nama = user?.nama || 'User';
+      const abbreviation = dto.abbreviation || user?.abbreviation || '';
+      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      
+      let dariFormatted = '';
+      if (abbreviation) {
+        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
+      } else {
+        dariFormatted = `${nama} ${positionText}`;
+      }
+
+      const namaLengkap = user?.nama || 'User';
+
+      // Generate preview PDF (tanpa save ke DB)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
-        body.htmlContent,
-        body.penerima,
-        body.dari,
-        body.tanggal,
-        body.penandatangan,
-        body.tembusan || [],
+        dto.htmlContent,
+        dto.tertuju || [],
+        dariFormatted,
+        dto.perihal || '',
+        formattedDate,
+        positionText,
+        namaLengkap,
+        dto.tembusan || [],
+        files?.lampiran_files,
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-nota-dinas.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate preview', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * POST /ND/generate-pdf
+   * Generate PDF Nota Dinas dinamis dengan data dari request body
+   * Penandatangan otomatis diambil dari profile user yang login
+   * Format "Dari": nama (abbreviation) position_text
+   * Lampiran files akan di-merge ke dalam PDF dengan page terpisah
+   * 
+   * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan
+   * @param user - Current user dari JWT token (untuk nama, abbreviation, positionText)
+   * @param lampiranFiles - Optional files untuk di-merge ke PDF (file-field: lampiran_files)
+   * @param res - Express Response untuk send PDF file
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'lampiran_files', maxCount: 10 },
+  ]))
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @Res() res: Response,
+  ) {
+    try {
+      // Transform & Validate DTO manually
+      const dto = plainToInstance(GeneratePdfDto, body);
+      const errors = await validate(dto);
+      if (errors.length > 0) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ 
+            error: 'Validation failed', 
+            message: errors.map(e => Object.values(e.constraints || {})).flat() 
+          });
+      }
+
+      // Validasi required field
+      if (!dto || !dto.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      // Debug: Log user info untuk troubleshoot
+      console.log('DEBUG - User from @CurrentUser():', JSON.stringify(user, null, 2));
+      console.log('DEBUG - Lampiran files:', files?.lampiran_files?.map(f => f.originalname));
+
+      // Format tanggal jika diperlukan (DD/MM/YYYY -> full format)
+      let formattedDate = dto.tanggal || '';
+      if (formattedDate && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(formattedDate)) {
+        // Convert DD/MM/YYYY to readable format
+        const [day, month, year] = formattedDate.split('/');
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        formattedDate = date.toLocaleDateString('id-ID', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        });
+      }
+
+      // Format "Dari" sebagai: nama (abbreviation) position_text
+      // Ambil dari user profile atau dari body jika di-override
+      const nama = user?.nama || 'User';
+      const abbreviation = dto.abbreviation || user?.abbreviation || '';
+      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      
+      // Build format "Dari": nama (abbreviation) position_text
+      let dariFormatted = '';
+      if (abbreviation) {
+        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
+      } else {
+        dariFormatted = `${nama} ${positionText}`;
+      }
+
+      const namaLengkap = user?.nama || 'User';
+
+      console.log('DEBUG - dariFormatted:', dariFormatted);
+      console.log('DEBUG - positionText:', positionText);
+      console.log('DEBUG - namaLengkap:', namaLengkap);
+
+      // Generate PDF dengan data dynamic
+      const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
+        dto.htmlContent,
+        dto.tertuju || [],
+        dariFormatted,
+        dto.perihal || '',
+        formattedDate,
+        positionText,
+        namaLengkap,
+        dto.tembusan || [],
+        files?.lampiran_files, // Pass uploaded lampiran files
       );
 
       res.set({
@@ -440,7 +608,7 @@ export class NotaDinasController {
     } catch (error) {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ error: 'Failed to generate PDF', detail: error.message });
+        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 }
