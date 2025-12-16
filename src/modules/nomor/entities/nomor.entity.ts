@@ -26,11 +26,8 @@ export class NomorEntity {
   @Column('varchar', { length: 20, nullable: true })
   jenis: string | null;
 
-  @Column('varchar', { length: 100, nullable: true })
-  nomor: string | null;
-
-  @Column('char', { name: 'id_request', length: 36, nullable: true })
-  idRequest: string | null;
+  @Column('int', { nullable: true })
+  nomor: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
