@@ -64,28 +64,48 @@ export class GeneratePdfService {
     const tertuju = body.tertuju || body.penerima || [];
     const tembusan = body.tembusan || [];
     
-    // Combine tertuju + tembusan untuk checking total
-    const allRecipients = [...(Array.isArray(tertuju) ? tertuju : []), ...(Array.isArray(tembusan) ? tembusan : [])];
-    const totalRecipients = allRecipients.length;
+    // Convert to arrays jika belum
+    const tertujuArray = Array.isArray(tertuju) ? tertuju : [];
+    const tembusanArray = Array.isArray(tembusan) ? tembusan : [];
     
-    // Jika > 5 penerima, use "Periksa Alamat Terlampir"
+    // Check masing-masing field terpisah
+    const tertujuExceedsLimit = tertujuArray.length > 5;
+    const tembusanExceedsLimit = tembusanArray.length > 5;
+    const needsAddressPage = tertujuExceedsLimit || tembusanExceedsLimit;
+    
+    // Process tertuju
     let penerimaHtml = "";
-    let needsAddressPage = false;
-    
-    if(totalRecipients > 5){
+    if(tertujuExceedsLimit){
+        // Jika tertuju > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
         penerimaHtml = "Periksa Alamat Terlampir";
-        needsAddressPage = true;
     } else {
-        // <= 5 recipients, combine tertuju + tembusan for display
-        const combinedRecipients = allRecipients;
-        if(combinedRecipients.length > 1){
+        // <= 5 items, tampilkan semua normal
+        if(tertujuArray.length > 1){
             penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
-            combinedRecipients.forEach((item) => {
+            tertujuArray.forEach((item) => {
                 penerimaHtml += `<li>${item}</li>`;
             });
             penerimaHtml += "</ol>";
-        } else if(combinedRecipients.length === 1) {
-            penerimaHtml = combinedRecipients[0] || "";
+        } else if(tertujuArray.length === 1) {
+            penerimaHtml = tertujuArray[0] || "";
+        }
+    }
+    
+    // Process tembusan
+    let tembusanHtml = "";
+    if(tembusanExceedsLimit){
+        // Jika tembusan > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
+        tembusanHtml = "Periksa Alamat Terlampir";
+    } else {
+        // <= 5 items, tampilkan semua normal
+        if(tembusanArray.length > 1){
+            tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
+            tembusanArray.forEach((item) => {
+                tembusanHtml += `<li>${item}</li>`;
+            });
+            tembusanHtml += "</ol>";
+        } else if(tembusanArray.length === 1) {
+            tembusanHtml = tembusanArray[0] || "";
         }
     }
     
@@ -145,6 +165,20 @@ export class GeneratePdfService {
         
         </tbody></table>`;
 
+    // Show tembusan section jika ada tembusan (baik normal list atau "Periksa Alamat Terlampir")
+    let tembusanKonten = "";
+    if (tembusanArray.length > 0) {
+        tembusanKonten = `<table style="margin:20px auto;width:100%; font-family: 'Times New Roman', Times, serif;">
+        <tbody><tr>
+            <td>&nbsp;</td>
+        </tr>
+        <tr>
+            <td>
+            Tembusan Yth:<br>${tembusanHtml}</td>
+        </tr>
+        </tbody></table>`;
+    }
+
     const ttd = `<table style="margin:auto;width:90%; font-family: 'Times New Roman', Times, serif;">
         <tbody><tr>
             <td style="width:50%;">
@@ -159,35 +193,57 @@ export class GeneratePdfService {
         </tr>
         </tbody></table>`;
 
-    let tembusanKonten = "";
-    // Jika > 5 penerima, jangan tampilkan tembusan terpisah di page 1
-    if(!needsAddressPage){
-        // Original behavior: tampilkan tembusan normal di page 1
-        // (tembusan sudah included di penerimaHtml jika <= 5)
-        tembusanKonten = "";
-    } else {
-        tembusanKonten = "";
-    }
-
     const konten = header + header2 + header3 + html + ttd + tembusanKonten;
 
-    // Generate halaman alamat jika > 5 penerima
+    // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = "";
     if(needsAddressPage){
-        // Build address list HTML (tertuju + tembusan)
-        let addressListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
-        allRecipients.forEach((item) => {
-            addressListHtml += `<li>${item}</li>`;
-        });
-        addressListHtml += "</ol>";
+        // Build address list HTML - HANYA tampilkan field yang > 5
+        let tertujuListHtml = "";
+        if(tertujuExceedsLimit){
+            tertujuListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+            tertujuArray.forEach((item) => {
+                tertujuListHtml += `<li>${item}</li>`;
+            });
+            tertujuListHtml += "</ol>";
+        }
+        
+        let tembusanListHtml = "";
+        if(tembusanExceedsLimit){
+            tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+            tembusanArray.forEach((item) => {
+                tembusanListHtml += `<li>${item}</li>`;
+            });
+            tembusanListHtml += "</ol>";
+        }
         
         addressPageContent = `
-            <div style="page-break-before: always; padding-top: 40px; font-family: 'Times New Roman', Times, serif;">
-                <h3 style="text-align: center; margin-bottom: 20px;">Daftar Penerima Nota Dinas</h3>
-                <table style="margin: 0 auto; width: 80%; font-family: 'Times New Roman', Times, serif;">
+            <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
+                <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
                     <tr>
-                        <td>${addressListHtml}</td>
+                        <td style="width: 50%;">&nbsp;</td>
+                        <td style="width: 50%; text-align: right; vertical-align: top;">
+                            <div style="display: inline-block; text-align: left;">
+                                Lampiran Surat<br>
+                                Nomor Surat :<br>
+                                Tanggal Surat : ${tanggal}
+                            </div>
+                        </td>
                     </tr>
+                </table>
+                <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+                    ${tertujuExceedsLimit ? `<tr>
+                        <td style="vertical-align:top; padding-bottom:20px;">
+                            <b>KEPADA YTH :</b><br>
+                            ${tertujuListHtml}
+                        </td>
+                    </tr>` : ''}
+                    ${tembusanExceedsLimit ? `<tr>
+                        <td style="vertical-align:top;">
+                            <b>TEMBUSAN :</b><br>
+                            ${tembusanListHtml}
+                        </td>
+                    </tr>` : ''}
                 </table>
             </div>
         `;
