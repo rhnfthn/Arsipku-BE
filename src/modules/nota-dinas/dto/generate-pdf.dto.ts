@@ -14,9 +14,8 @@ export class GeneratePdfDto {
   htmlContent: string;
 
   /**
-   * Penerima Nota Dinas (Tertuju)
-   * Array dari nama-nama penerima
-   * Bisa dikirim sebagai JSON string atau langsung array
+   * Alias untuk tertuju - frontend bisa mengirim sebagai 'penerima'
+   * Property ini akan di-transform ke 'tertuju'
    */
   @IsArray()
   @IsOptional()
@@ -31,6 +30,30 @@ export class GeneratePdfDto {
       }
     }
     return value;
+  })
+  penerima?: string[];
+
+  /**
+   * Penerima Nota Dinas (Tertuju)
+   * Array dari nama-nama penerima
+   * Bisa dikirim sebagai JSON string atau langsung array
+   * Frontend bisa mengirim sebagai 'penerima' atau 'tertuju'
+   */
+  @IsArray()
+  @IsOptional()
+  @Transform(({ value, obj }) => {
+    // Support both 'tertuju' and 'penerima' field names
+    const inputValue = value || obj.penerima;
+    if (!inputValue) return undefined;
+    if (Array.isArray(inputValue)) return inputValue;
+    if (typeof inputValue === 'string') {
+      try {
+        return JSON.parse(inputValue);
+      } catch {
+        return [inputValue];
+      }
+    }
+    return inputValue;
   })
   tertuju?: string[];
 
