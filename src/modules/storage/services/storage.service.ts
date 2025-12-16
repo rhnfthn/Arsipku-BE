@@ -298,6 +298,12 @@ export class StorageService implements OnModuleInit {
     this.logger.log(`✅ File deleted: ${key}`);
   }
 
+  /**
+   * Move/copy file dari satu lokasi ke lokasi lain di MinIO
+   * @param sourceKey - Key file sumber
+   * @param destinationKey - Key file tujuan
+   * @returns Result dengan from, to, dan url
+   */
   async moveFile(
     sourceKey: string,
     destinationKey: string,
