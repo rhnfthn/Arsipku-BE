@@ -61,7 +61,34 @@ export class GeneratePdfService {
     const html = `<div style="font-family: 'Times New Roman', Times, serif; margin: 20px 0;">${decodedContent}</div>`;
     
     // Support both 'penerima' (legacy) and 'tertuju' (new)
-    const penerima = body.tertuju || body.penerima || [];
+    const tertuju = body.tertuju || body.penerima || [];
+    const tembusan = body.tembusan || [];
+    
+    // Combine tertuju + tembusan untuk checking total
+    const allRecipients = [...(Array.isArray(tertuju) ? tertuju : []), ...(Array.isArray(tembusan) ? tembusan : [])];
+    const totalRecipients = allRecipients.length;
+    
+    // Jika > 5 penerima, use "Periksa Alamat Terlampir"
+    let penerimaHtml = "";
+    let needsAddressPage = false;
+    
+    if(totalRecipients > 5){
+        penerimaHtml = "Periksa Alamat Terlampir";
+        needsAddressPage = true;
+    } else {
+        // <= 5 recipients, combine tertuju + tembusan for display
+        const combinedRecipients = allRecipients;
+        if(combinedRecipients.length > 1){
+            penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
+            combinedRecipients.forEach((item) => {
+                penerimaHtml += `<li>${item}</li>`;
+            });
+            penerimaHtml += "</ol>";
+        } else if(combinedRecipients.length === 1) {
+            penerimaHtml = combinedRecipients[0] || "";
+        }
+    }
+    
     const perihal = body.perihal || "";
     const dari = body.dari || "Direktur Teknik";
     const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -69,29 +96,6 @@ export class GeneratePdfService {
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || "Direktur Teknik";
     const namaLengkap = body.namaLengkap || body.penandatangan || "Zainal Arifin Harahap";
-    
-    let penerimaHtml = "";
-    if(penerima && penerima.length > 1){
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
-        penerima.forEach((item) => {
-            penerimaHtml += `<li>${item}</li>`;
-        });
-        penerimaHtml += "</ol>";
-    } else {
-        penerimaHtml = penerima[0] || "";
-    }
-    const tembusandata = body.tembusan;
-    
-    let tembusanHtml = "";
-    if(tembusandata.length>1){
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
-        tembusandata.forEach((item) => {
-            tembusanHtml += `<li>${item}</li>`;
-        });
-        tembusanHtml += "</ol>";
-    } else {
-        tembusanHtml = tembusandata[0] || "";
-    }
 
     const header = `
       <table width='100%' border='0' style='border-collapse:collapse; font-family: "Times New Roman", Times, serif;' cellpadding='2'>
@@ -156,26 +160,45 @@ export class GeneratePdfService {
         </tbody></table>`;
 
     let tembusanKonten = "";
-    if(tembusanHtml!=''){
-    tembusanKonten = `<table style="margin:20px auto;width:100%; font-family: 'Times New Roman', Times, serif;">
-        <tbody><tr>
-            <td>&nbsp;</td>
-        </tr>
-        <tr>
-            <td>
-            Tembusan Yth:<br>${tembusanHtml}</td>
-        </tr>
-        </tbody></table>`;
+    // Jika > 5 penerima, jangan tampilkan tembusan terpisah di page 1
+    if(!needsAddressPage){
+        // Original behavior: tampilkan tembusan normal di page 1
+        // (tembusan sudah included di penerimaHtml jika <= 5)
+        tembusanKonten = "";
     } else {
         tembusanKonten = "";
     }
 
     const konten = header + header2 + header3 + html + ttd + tembusanKonten;
 
+    // Generate halaman alamat jika > 5 penerima
+    let addressPageContent = "";
+    if(needsAddressPage){
+        // Build address list HTML (tertuju + tembusan)
+        let addressListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        allRecipients.forEach((item) => {
+            addressListHtml += `<li>${item}</li>`;
+        });
+        addressListHtml += "</ol>";
+        
+        addressPageContent = `
+            <div style="page-break-before: always; padding-top: 40px; font-family: 'Times New Roman', Times, serif;">
+                <h3 style="text-align: center; margin-bottom: 20px;">Daftar Penerima Nota Dinas</h3>
+                <table style="margin: 0 auto; width: 80%; font-family: 'Times New Roman', Times, serif;">
+                    <tr>
+                        <td>${addressListHtml}</td>
+                    </tr>
+                </table>
+            </div>
+        `;
+    }
+
+    const finalKonten = konten + addressPageContent;
+
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(konten, { waitUntil: 'networkidle0' });
+      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
 
       const pdf = await page.pdf({
         format: 'A4',
