@@ -61,7 +61,8 @@ export class GeneratePdfNodinService {
     const html = decodedContent;
     
     // Support both 'penerima' (legacy) and 'tertuju' (new)
-    const penerima = body.tertuju || body.penerima;
+    const tertuju = body.tertuju || body.penerima || [];
+    const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
     const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -69,28 +70,50 @@ export class GeneratePdfNodinService {
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
     const namaLengkap = body.namaLengkap || body.penandatangan || '';
+    
+    // Convert to arrays jika belum
+    const tertujuArray = Array.isArray(tertuju) ? tertuju : [];
+    const tembusanArray = Array.isArray(tembusan) ? tembusan : [];
+    
+    // Check masing-masing field terpisah
+    const tertujuExceedsLimit = tertujuArray.length > 5;
+    const tembusanExceedsLimit = tembusanArray.length > 5;
+    const needsAddressPage = tertujuExceedsLimit || tembusanExceedsLimit;
+    
+    // Process tertuju
     let penerimaHtml = '';
-    if (penerima.length > 1) {
-      penerimaHtml =
-        "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
-      penerima.forEach((item) => {
-        penerimaHtml += `<li>${item}</li>`;
-      });
-      penerimaHtml += '</ol>';
+    if (tertujuExceedsLimit) {
+      // Jika tertuju > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
+      penerimaHtml = 'Periksa Alamat Terlampir';
     } else {
-      penerimaHtml = penerima[0] || '';
+      // <= 5 items, tampilkan semua normal
+      if (tertujuArray.length > 1) {
+        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
+        tertujuArray.forEach((item) => {
+          penerimaHtml += `<li>${item}</li>`;
+        });
+        penerimaHtml += '</ol>';
+      } else if (tertujuArray.length === 1) {
+        penerimaHtml = tertujuArray[0] || '';
+      }
     }
-    const tembusandata = body.tembusan || [];
-
+    
+    // Process tembusan
     let tembusanHtml = '';
-    if (tembusandata.length > 1) {
-      tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
-      tembusandata.forEach((item) => {
-        tembusanHtml += `<li>${item}</li>`;
-      });
-      tembusanHtml += '</ol>';
+    if (tembusanExceedsLimit) {
+      // Jika tembusan > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
+      tembusanHtml = 'Periksa Alamat Terlampir';
     } else {
-      tembusanHtml = tembusandata[0] || '';
+      // <= 5 items, tampilkan semua normal
+      if (tembusanArray.length > 1) {
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
+        tembusanArray.forEach((item) => {
+          tembusanHtml += `<li>${item}</li>`;
+        });
+        tembusanHtml += '</ol>';
+      } else if (tembusanArray.length === 1) {
+        tembusanHtml = tembusanArray[0] || '';
+      }
     }
     // console.log(tembusanHtml);
     const header = `
@@ -151,12 +174,15 @@ export class GeneratePdfNodinService {
                     <br>
                     <br>
                     <br>
+                    <br>
+                    <br>
                     ${namaLengkap}</td>
         </tr>
         </tbody></table>`;
 
+    // Show tembusan section jika ada tembusan (baik normal list atau "Periksa Alamat Terlampir")
     let tembusanKonten = '';
-    if (tembusanHtml != '') {
+    if (tembusanArray.length > 0) {
       tembusanKonten = `<table style="margin:20px auto;width:100%;">
         <tbody><tr>
             <td>&nbsp;</td>
@@ -166,16 +192,70 @@ export class GeneratePdfNodinService {
             Tembusan Yth:<br>${tembusanHtml}</td>
         </tr>
         </tbody></table>`;
-    } else {
-      tembusanKonten = '';
     }
 
     const konten = header + header2 + header3 + html + ttd + tembusanKonten;
 
+    // Generate halaman alamat jika ada field yang > 5
+    let addressPageContent = '';
+    if (needsAddressPage) {
+      // Build address list HTML - HANYA tampilkan field yang > 5
+      let tertujuListHtml = '';
+      if (tertujuExceedsLimit) {
+        tertujuListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tertujuArray.forEach((item) => {
+          tertujuListHtml += `<li>${item}</li>`;
+        });
+        tertujuListHtml += '</ol>';
+      }
+
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArray.forEach((item) => {
+          tembusanListHtml += `<li>${item}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
+      addressPageContent = `
+        <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
+            <tr>
+              <td style="width: 50%;">&nbsp;</td>
+              <td style="width: 50%; text-align: right; vertical-align: top;">
+                <div style="display: inline-block; text-align: left;">
+                  Lampiran Surat<br>
+                  Nomor Surat :<br>
+                  Tanggal Surat : ${tanggal}
+                </div>
+              </td>
+            </tr>
+          </table>
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+            ${tertujuExceedsLimit ? `<tr>
+              <td style="vertical-align:top; padding-bottom:20px;">
+                <b>KEPADA YTH :</b><br>
+                ${tertujuListHtml}
+              </td>
+            </tr>` : ''}
+            ${tembusanExceedsLimit ? `<tr>
+              <td style="vertical-align:top;">
+                <b>TEMBUSAN :</b><br>
+                ${tembusanListHtml}
+              </td>
+            </tr>` : ''}
+          </table>
+        </div>
+      `;
+    }
+
+    const finalKonten = konten + addressPageContent;
+
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(konten, { waitUntil: 'networkidle0' });
+      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
 
       const pdf = await page.pdf({
         format: 'A4',
