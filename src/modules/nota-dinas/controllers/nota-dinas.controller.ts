@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
@@ -9,6 +9,7 @@ import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/cre
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
+import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
@@ -106,8 +107,17 @@ export class NotaDinasController {
    * Method: POST (karena membuat resource baru)
    *
    * Form-data fields:
-   * - pengirim, penerima, tembusan, klasifikasi, sifat, perihal, konten, dll
-   * - lampiran_files: file[] (multiple files, optional)
+   * - pengirim: number (positionId)
+   * - penerima: number[] (array of positionId, JSON string or comma-separated)
+   * - tembusan: number[] (optional)
+   * - klasifikasi, sifat, perihal, konten, dll
+   * - lampiran_temp_ids: string[] (RECOMMENDED - array of lampiran IDs dari POST /upload-temporary)
+   * - lampiran_files: file[] (DEPRECATED - multiple files, untuk backward compatibility)
+   *
+   * RECOMMENDED FLOW:
+   * 1. Upload files via POST /upload-temporary
+   * 2. Get file IDs from response
+   * 3. Send lampiran_temp_ids to this endpoint
    *
    * @returns SendMessageResponseDto
    *
@@ -159,13 +169,13 @@ export class NotaDinasController {
 
   /**
    * POST /ND/send-message
-   * Send Nota Dinas
+   * Send Nota Dinas (langsung final tanpa draft)
    * Status: 'final' (tanpa tanda_tangan) atau 'final_tte' (dengan tanda_tangan)
    *
    * Form-data fields:
-   * - pengirim: number
-   * - penerima: number[] (JSON string or comma-separated)
-   * - tembusan: number[] (JSON string or comma-separated, optional)
+   * - pengirim: number (positionId)
+   * - penerima: number[] (array of positionId, JSON string or comma-separated)
+   * - tembusan: number[] (optional)
    * - klasifikasi: string
    * - klasifikasi_text: string (optional)
    * - sifat: string (sangat_rahasia|rahasia|terbatas|biasa|terbuka)
@@ -177,9 +187,15 @@ export class NotaDinasController {
    * - tanda_tangan: string (optional)
    * - nama_lengkap: string (optional)
    * - lampiran: string (optional, keterangan lampiran)
-   * - lampiran_files: file[] (multiple files, optional)
-   * - final_pdf: string (optional)
+   * - lampiran_temp_ids: string[] (RECOMMENDED - array of lampiran IDs dari POST /upload-temporary)
+   * - lampiran_files: file[] (DEPRECATED - untuk backward compatibility)
+   * - final_pdf: file (optional)
    * - tgl: string (optional, format YYYY-MM-DD)
+   *
+   * RECOMMENDED FLOW:
+   * 1. Upload files via POST /upload-temporary
+   * 2. Get file IDs from response
+   * 3. Send lampiran_temp_ids to this endpoint
    *
    * @returns SendMessageResponseDto
    *

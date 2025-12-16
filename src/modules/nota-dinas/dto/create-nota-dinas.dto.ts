@@ -98,6 +98,10 @@ export class CreateNotaDinasDto {
 
   @IsOptional()
   @IsArray()
+  lampiran_temp_ids?: string[]; // Array of lampiran IDs yang sudah diupload temporary
+
+  @IsOptional()
+  @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[]; // Array file paths untuk lampiran
 
