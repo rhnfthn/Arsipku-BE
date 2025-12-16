@@ -494,10 +494,13 @@ export class NotaDinasController {
 
       const namaLengkap = user?.nama || 'User';
 
+      // Support both 'penerima' and 'tertuju' field names from frontend
+      const tertujuArray = dto.tertuju || dto.penerima || [];
+
       // Generate preview PDF (tanpa save ke DB)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
-        dto.tertuju || [],
+        tertujuArray,
         dariFormatted,
         dto.perihal || '',
         formattedDate,
@@ -597,14 +600,18 @@ export class NotaDinasController {
 
       const namaLengkap = user?.nama || 'User';
 
+      // Support both 'penerima' and 'tertuju' field names from frontend
+      const tertujuArray = dto.tertuju || dto.penerima || [];
+
       console.log('DEBUG - dariFormatted:', dariFormatted);
       console.log('DEBUG - positionText:', positionText);
       console.log('DEBUG - namaLengkap:', namaLengkap);
+      console.log('DEBUG - tertujuArray:', tertujuArray);
 
       // Generate PDF dengan data dynamic
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
-        dto.tertuju || [],
+        tertujuArray,
         dariFormatted,
         dto.perihal || '',
         formattedDate,

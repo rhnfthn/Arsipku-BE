@@ -193,7 +193,16 @@ export class GeneratePdfService {
         </tr>
         </tbody></table>`;
 
-    const konten = header + header2 + header3 + html + ttd + tembusanKonten;
+    // Add global CSS untuk border tipis pada semua table
+    const globalStyle = `
+      <style>
+        table, th, td {
+          border-width: 0.5px !important;
+        }
+      </style>
+    `;
+
+    const konten = globalStyle + header + header2 + header3 + html + ttd + tembusanKonten;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = "";
