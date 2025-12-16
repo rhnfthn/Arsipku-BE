@@ -852,22 +852,6 @@ export class SuratDinasInternalService {
       });
       await queryRunner.manager.save(sdiSdeEntity);
 
-      // PHASE 12b: Insert to nomor table if not draft
-      if (status !== 'draf') {
-        const nomorRecord = this.nomorRepository.create({
-          id: uuidv4(),
-          company: String(COMPANY_ID),
-          area: pengirim.area ?? '',
-          subArea: String(pengirim.sub_area ?? ''),
-          organization: String(pengirim.organization_id),
-          position: String(pengirim.position),
-          tahun: tanggalHariIni.getFullYear(),
-          jenis: 'SDI',
-          nomor: nomorSurat,
-        });
-        await queryRunner.manager.save(nomorRecord);
-      }
-
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1206,27 +1190,6 @@ export class SuratDinasInternalService {
             jenis: 'SDI',
           });
           await queryRunner.manager.save(lampiran);
-        }
-      }
-
-      // PHASE 9b: Insert to nomor table with dupcheck (only if changing to final/final_tte)
-      const existingNomorRecord = await queryRunner.manager.findOne(NomorEntity, {
-        where: { nomor: nomorSurat },
-      });
-      if (!existingNomorRecord && pengirimPosition) {
-        if (!nomorSurat.startsWith('DRAFT-')) {
-          const nomorRecord = this.nomorRepository.create({
-            id: uuidv4(),
-            company: String(COMPANY_ID),
-            area: pengirimPosition.area ?? '',
-            subArea: String(pengirimPosition.sub_area ?? ''),
-            organization: String(pengirimPosition.organization_id),
-            position: String(pengirimPosition.position),
-            tahun: new Date().getFullYear(),
-            jenis: 'SDI',
-            nomor: nomorSurat,
-          });
-          await queryRunner.manager.save(nomorRecord);
         }
       }
 
