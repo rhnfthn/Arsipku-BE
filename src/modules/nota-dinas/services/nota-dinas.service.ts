@@ -2146,12 +2146,13 @@ export class NotaDinasService {
 
     // REKAN: same level, same organization_parent (satu induk), bukan dirinya
     const bodTag = current.bod_tag;
-    const isBod = bodTag && ['BOD', 'BOD-1'].includes(bodTag);
+    const bods = ['BOD', 'BOD-1'];
+    const isBod = bodTag && bods.includes(bodTag);
 
     const rekans: OrgDataPositionDto[] = filtered.filter((x) => {
       if (isBod) {
         return (
-          x.bod_tag === bodTag && Number(x.position) !== Number(positionParam)
+          bods.includes(x.bod_tag as string) && Number(x.position) !== Number(positionParam)
         );
       }
 
