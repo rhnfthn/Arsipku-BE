@@ -639,22 +639,6 @@ export class NotaDinasService {
       });
       await queryRunner.manager.save(naskah);
 
-      // PHASE 7b: Insert ke tabel nomor (hanya untuk final/final_tte, tidak untuk draft)
-      if (status !== 'draf') {
-        const nomorRecord = this.nomorRepository.create({
-          id: uuidv4(),
-          company: String(COMPANY_ID),
-          area: pengirim.area ?? '',
-          subArea: String(pengirim.sub_area ?? ''),
-          organization: String(pengirim.organization_id),
-          position: String(pengirim.position),
-          tahun: tanggalHariIni.getFullYear(),
-          jenis: 'ND',
-          nomor: nomorSurat,
-        });
-        await queryRunner.manager.save(nomorRecord);
-      }
-
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
@@ -987,33 +971,6 @@ export class NotaDinasService {
         { idNaskah: naskahId },
         ndUpdateData,
       );
-
-      // PHASE 7b: Insert ke tabel nomor (untuk finalize, jika belum ada draft nomor)
-      // Cek apakah sudah ada record di tabel nomor untuk naskah ini
-      const existingNomorRecord = await queryRunner.manager.findOne(
-        NomorEntity,
-        {
-          where: { nomor: nomorSurat },
-        },
-      );
-
-      if (!existingNomorRecord && pengirimPosition) {
-        // Hanya insert jika belum ada dan nomor sudah final (bukan DRAFT)
-        if (!nomorSurat.startsWith('DRAFT-')) {
-          const nomorRecord = this.nomorRepository.create({
-            id: uuidv4(),
-            company: String(COMPANY_ID),
-            area: pengirimPosition.area ?? '',
-            subArea: String(pengirimPosition.sub_area ?? ''),
-            organization: String(pengirimPosition.organization_id),
-            position: String(pengirimPosition.position),
-            tahun: new Date().getFullYear(),
-            jenis: 'ND',
-            nomor: nomorSurat,
-          });
-          await queryRunner.manager.save(nomorRecord);
-        }
-      }
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
       if (
