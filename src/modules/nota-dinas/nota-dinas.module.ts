@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotaDinasController } from './controllers/nota-dinas.controller';
+import { UploadTemporaryController } from './controllers/upload-temporary.controller';
 import { NotaDinasService } from './services/nota-dinas.service';
 import { NdEntity } from './entities/nd.entity';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
@@ -25,7 +26,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
     StorageModule,
     GeneratePdfModule,
   ],
-  controllers: [NotaDinasController],
+  controllers: [NotaDinasController, UploadTemporaryController],
   providers: [NotaDinasService, NomorSuratService],
   exports: [NotaDinasService],
 })
