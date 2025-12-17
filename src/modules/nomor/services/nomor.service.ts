@@ -1434,21 +1434,13 @@ export class NomorService {
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai)
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Build query untuk nomor_request_detail dengan status terpakai
-    const qb = this.nomorRequestDetailRepository
-      .createQueryBuilder('detail')
-      .leftJoinAndSelect('detail.idRequest', 'request')
-      .where('detail.status = :status', { status: 'terpakai' })
-      .andWhere('detail.nomor IS NOT NULL');
-
-    // Filter by tahun jika ada
-    if (query.tahun) {
-      qb.andWhere('YEAR(request.tanggal) = :tahun', { tahun: query.tahun });
-    }
-
-    qb.orderBy('detail.created_at', 'DESC');
-
-    const details = await qb.getMany();
+    // Get all detail dengan status terpakai
+    const details = await this.nomorRequestDetailRepository.find({
+      where: {
+        status: 'terpakai',
+      },
+      order: { createdAt: 'DESC' },
+    });
 
     // Get latest org_data for position information
     let positionJsonData: any[] = [];
@@ -1478,6 +1470,14 @@ export class NomorService {
 
         if (!request) {
           return null;
+        }
+
+        // Apply filter tahun jika ada
+        if (query.tahun) {
+          const detailTahun = new Date(request.tanggal!).getFullYear();
+          if (detailTahun !== query.tahun) {
+            return null;
+          }
         }
 
         // Get position data to extract jabatan (position_text) and nama_pengirim (persnum_person_text)
