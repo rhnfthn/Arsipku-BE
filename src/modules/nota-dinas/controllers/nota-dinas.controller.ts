@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { FileFieldsInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
@@ -432,20 +432,24 @@ export class NotaDinasController {
    * PDF di-generate tanpa save ke database
    * User bisa kembali edit dan preview ulang
    * 
-   * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan
+   * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan, lampiran_temp_ids
    * @param user - Current user dari JWT token
-   * @param lampiranFiles - Optional files untuk di-preview
    * @param res - Express Response untuk send PDF
+   * 
+   * Body parameters:
+   * - htmlContent: string (required)
+   * - tertuju/penerima: string[] (optional)
+   * - perihal: string (optional)
+   * - tanggal: string (optional)
+   * - tembusan: string[] (optional)
+   * - lampiran_temp_ids: string[] (RECOMMENDED - array of lampiran IDs dari POST /upload-temporary)
    */
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileFieldsInterceptor([
-    { name: 'lampiran_files', maxCount: 10 },
-  ]))
+  @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
     @Res() res: Response,
   ) {
     try {
@@ -497,6 +501,26 @@ export class NotaDinasController {
       // Support both 'penerima' and 'tertuju' field names from frontend
       const tertujuArray = dto.tertuju || dto.penerima || [];
 
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        console.log('[preview-pdf] lampiran_temp_ids type:', typeof body.lampiran_temp_ids);
+        console.log('[preview-pdf] lampiran_temp_ids value:', body.lampiran_temp_ids);
+        
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch (parseError) {
+            console.warn('[preview-pdf] Failed to parse lampiran_temp_ids as JSON, treating as single ID');
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+        
+        console.log('[preview-pdf] Parsed lampiranTempIds:', lampiranTempIds);
+      }
+
       // Generate preview PDF (tanpa save ke DB)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
@@ -507,7 +531,7 @@ export class NotaDinasController {
         positionText,
         namaLengkap,
         dto.tembusan || [],
-        files?.lampiran_files,
+        lampiranTempIds,
       );
 
       res.set({
@@ -608,7 +632,7 @@ export class NotaDinasController {
       console.log('DEBUG - namaLengkap:', namaLengkap);
       console.log('DEBUG - tertujuArray:', tertujuArray);
 
-      // Generate PDF dengan data dynamic
+      // Generate PDF dengan data dynamic (legacy endpoint - still uses direct file upload)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
         tertujuArray,
@@ -618,7 +642,7 @@ export class NotaDinasController {
         positionText,
         namaLengkap,
         dto.tembusan || [],
-        files?.lampiran_files, // Pass uploaded lampiran files
+        files?.lampiran_files, // Legacy: still accepts direct file upload
       );
 
       res.set({
