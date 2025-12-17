@@ -396,6 +396,7 @@ export class DisposisiService {
       (x) =>
         x.chief === 0 &&
         Number(x.divisi_id) === Number(current.divisi_id) &&
+        x.sub_area === current.sub_area &&
         x.divisi_id != null,
     );
 
