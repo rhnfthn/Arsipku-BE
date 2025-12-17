@@ -472,23 +472,40 @@ export class NomorService {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
     }
 
-    // Get latest org_data untuk extract position details
+    // Get org_data untuk tanggal request
+    const tglFormatted = this.formatDate(request.tanggal!);
     let positionJsonData: any[] = [];
+    let usingLatestFallback = false;
+    
     try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+      const orgData = await this.orgDataService.findOrg(tglFormatted);
+      if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+        positionJsonData = orgData.position_json;
       }
     } catch (error) {
-      console.log('Could not fetch position data from org_data');
+      console.log('Could not fetch position data from org_data for date:', tglFormatted);
+    }
+    
+    // Fallback: If position_json is empty or position not found, try latest org_data
+    if (positionJsonData.length === 0) {
+      try {
+        const allOrgData = await this.orgDataService.findAll();
+        if (allOrgData.length > 0) {
+          const latestOrgData = allOrgData.sort((a, b) => {
+            const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+            const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+            return dateB - dateA;
+          })[0];
+          
+          if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+            positionJsonData = latestOrgData.position_json;
+            usingLatestFallback = true;
+            console.log('Using latest org_data as fallback, date:', latestOrgData.tgl);
+          }
+        }
+      } catch (error) {
+        console.log('Could not fetch latest org_data');
+      }
     }
 
     // Get details untuk menentukan status
@@ -514,10 +531,27 @@ export class NomorService {
 
     // Get position data
     const positionNumber = parseInt(request.position!, 10);
-    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+    const positionData = positionJsonData.find((p: any) => Number(p.position) === positionNumber);
     
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
+
+    // Get penandatangan position abbreviation
+    let penandatanganPositionAbbreviation: string | null = null;
+    
+    if (request.idPositionPenandatangan) {
+      const searchId = Number(request.idPositionPenandatangan);
+      const penandatanganPosition = positionJsonData.find(
+        (p: any) => Number(p.position) === searchId
+      );
+      
+      if (penandatanganPosition) {
+        penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+        console.log('Found penandatangan position:', searchId, 'abbreviation:', penandatanganPositionAbbreviation);
+      } else {
+        console.log('Position', searchId, 'not found in org_data (using fallback:', usingLatestFallback, ')');
+      }
+    }
 
     // Generate template nomor
     const templateNomor = await this.generateNomorTemplate(request);
@@ -540,6 +574,8 @@ export class NomorService {
         perihal: request.perihal!,
         jumlah: request.jumlah!,
         penandatangan: request.penandatangan,
+        penandatangan_position_id: request.idPositionPenandatangan,
+        penandatangan_position_abbreviation: penandatanganPositionAbbreviation,
         template_nomor: templateNomor,
         created_at: request.createdAt,
         status,
@@ -565,55 +601,47 @@ export class NomorService {
         return null;
       }
 
-      // Ambil data penandatangan
+      // Ambil data penandatangan dari position_json (same logic as getNomorRequestDetail)
       let penandatanganPositionAbbreviation: string | null = null;
       let penandatanganArea: string | null = null;
 
       if (request.idPositionPenandatangan) {
         const tglFormatted = this.formatDate(request.tanggal!);
-        const orgData = await this.orgDataService.findOrg(tglFormatted);
-
-        if (orgData?.organization_json) {
-          const findPositionInOrg = (orgs: any[]): any => {
-            for (const org of orgs) {
-              if (org.positions && Array.isArray(org.positions)) {
-                const found = org.positions.find(
-                  (p: any) => p.position === request.idPositionPenandatangan,
-                );
-                if (found) {
-                  return {
-                    abbreviation: found.abbreviation,
-                    area: org.area,
-                  };
-                }
-              }
-              if (org.children && Array.isArray(org.children)) {
-                const result = findPositionInOrg(org.children);
-                if (result) return result;
+        let positionJsonData: any[] = [];
+        
+        try {
+          const orgData = await this.orgDataService.findOrg(tglFormatted);
+          if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+            positionJsonData = orgData.position_json;
+          }
+        } catch (error) {
+          // Fallback to latest org_data if date not found
+          try {
+            const allOrgData = await this.orgDataService.findAll();
+            if (allOrgData.length > 0) {
+              const latestOrgData = allOrgData.sort((a, b) => {
+                const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+                const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+                return dateB - dateA;
+              })[0];
+              
+              if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+                positionJsonData = latestOrgData.position_json;
               }
             }
-            return null;
-          };
-
-          const penandatanganData = findPositionInOrg(orgData.organization_json);
-          if (penandatanganData) {
-            penandatanganPositionAbbreviation = penandatanganData.abbreviation || null;
-            penandatanganArea = penandatanganData.area || null;
+          } catch (err) {
+            console.log('Could not fetch org_data');
           }
         }
 
-        // Fallback: Cari di position_json jika tidak ditemukan di organization_json
-        if (!penandatanganPositionAbbreviation && orgData?.position_json) {
-          const positionData = Array.isArray(orgData.position_json)
-            ? orgData.position_json.find((p: any) => p.position === request.idPositionPenandatangan)
-            : null;
-          
-          if (positionData) {
-            penandatanganPositionAbbreviation = positionData.abbreviation || null;
-            if (!penandatanganArea) {
-              penandatanganArea = positionData.area || null;
-            }
-          }
+        const searchId = Number(request.idPositionPenandatangan);
+        const penandatanganPosition = positionJsonData.find(
+          (p: any) => Number(p.position) === searchId
+        );
+        
+        if (penandatanganPosition) {
+          penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+          penandatanganArea = penandatanganPosition.area || null;
         }
 
         if (!penandatanganArea && request.area) {
@@ -939,52 +967,41 @@ export class NomorService {
 
       if (request.idPositionPenandatangan) {
         const tglFormatted = this.formatDate(request.tanggal!);
-        const orgData = await this.orgDataService.findOrg(tglFormatted);
-
-        // Cari position dalam organization_json structure
-        if (orgData?.organization_json) {
-          const findPositionInOrg = (orgs: any[]): any => {
-            for (const org of orgs) {
-              // Cari dalam positions array berdasarkan position number
-              if (org.positions && Array.isArray(org.positions)) {
-                const found = org.positions.find(
-                  (p: any) => p.position === request.idPositionPenandatangan,
-                );
-                if (found) {
-                  return {
-                    abbreviation: found.abbreviation,
-                    area: org.area,
-                  };
-                }
-              }
-              // Recursively search children
-              if (org.children && Array.isArray(org.children)) {
-                const result = findPositionInOrg(org.children);
-                if (result) return result;
+        let positionJsonData: any[] = [];
+        
+        try {
+          const orgData = await this.orgDataService.findOrg(tglFormatted);
+          if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+            positionJsonData = orgData.position_json;
+          }
+        } catch (error) {
+          // Fallback to latest org_data if date not found
+          try {
+            const allOrgData = await this.orgDataService.findAll();
+            if (allOrgData.length > 0) {
+              const latestOrgData = allOrgData.sort((a, b) => {
+                const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+                const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+                return dateB - dateA;
+              })[0];
+              
+              if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+                positionJsonData = latestOrgData.position_json;
               }
             }
-            return null;
-          };
-
-          const penandatanganData = findPositionInOrg(orgData.organization_json);
-          if (penandatanganData) {
-            penandatanganPositionAbbreviation = penandatanganData.abbreviation || null;
-            penandatanganArea = penandatanganData.area || null;
+          } catch (err) {
+            console.log('Could not fetch org_data for single approve');
           }
         }
 
-        // Fallback: Cari di position_json jika tidak ditemukan di organization_json
-        if (!penandatanganPositionAbbreviation && orgData?.position_json) {
-          const positionData = Array.isArray(orgData.position_json)
-            ? orgData.position_json.find((p: any) => p.position === request.idPositionPenandatangan)
-            : null;
-          
-          if (positionData) {
-            penandatanganPositionAbbreviation = positionData.abbreviation || null;
-            if (!penandatanganArea) {
-              penandatanganArea = positionData.area || null;
-            }
-          }
+        const searchId = Number(request.idPositionPenandatangan);
+        const penandatanganPosition = positionJsonData.find(
+          (p: any) => Number(p.position) === searchId
+        );
+        
+        if (penandatanganPosition) {
+          penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+          penandatanganArea = penandatanganPosition.area || null;
         }
 
         // Fallback: gunakan area dari request jika tidak ditemukan dari position lookup
@@ -993,14 +1010,17 @@ export class NomorService {
         }
 
         // Log untuk debugging
-        console.log('Penandatangan lookup:', {
+        console.log('Penandatangan lookup (single):', {
+          detailId: detailId,
           idPositionPenandatangan: request.idPositionPenandatangan,
+          found: !!penandatanganPosition,
           abbreviation: penandatanganPositionAbbreviation,
           area: penandatanganArea,
         });
       } else {
         // Jika idPositionPenandatangan tidak ada, gunakan area dari request
         penandatanganArea = request.area;
+        console.log('Penandatangan lookup (single): idPositionPenandatangan is null, using request area');
       }
 
       // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
@@ -1210,52 +1230,41 @@ export class NomorService {
 
           if (request.idPositionPenandatangan) {
             const tglFormatted = this.formatDate(request.tanggal!);
-            const orgData = await this.orgDataService.findOrg(tglFormatted);
-
-            // Cari position dalam organization_json structure
-            if (orgData?.organization_json) {
-              const findPositionInOrg = (orgs: any[]): any => {
-                for (const org of orgs) {
-                  // Cari dalam positions array berdasarkan position number
-                  if (org.positions && Array.isArray(org.positions)) {
-                    const found = org.positions.find(
-                      (p: any) => p.position === request.idPositionPenandatangan,
-                    );
-                    if (found) {
-                      return {
-                        abbreviation: found.abbreviation,
-                        area: org.area,
-                      };
-                    }
-                  }
-                  // Recursively search children
-                  if (org.children && Array.isArray(org.children)) {
-                    const result = findPositionInOrg(org.children);
-                    if (result) return result;
+            let positionJsonData: any[] = [];
+            
+            try {
+              const orgData = await this.orgDataService.findOrg(tglFormatted);
+              if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+                positionJsonData = orgData.position_json;
+              }
+            } catch (error) {
+              // Fallback to latest org_data if date not found
+              try {
+                const allOrgData = await this.orgDataService.findAll();
+                if (allOrgData.length > 0) {
+                  const latestOrgData = allOrgData.sort((a, b) => {
+                    const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+                    const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+                    return dateB - dateA;
+                  })[0];
+                  
+                  if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+                    positionJsonData = latestOrgData.position_json;
                   }
                 }
-                return null;
-              };
-
-              const penandatanganData = findPositionInOrg(orgData.organization_json);
-              if (penandatanganData) {
-                penandatanganPositionAbbreviation = penandatanganData.abbreviation || null;
-                penandatanganArea = penandatanganData.area || null;
+              } catch (err) {
+                console.log('Could not fetch org_data for bulk approve');
               }
             }
 
-            // Fallback: Cari di position_json jika tidak ditemukan di organization_json
-            if (!penandatanganPositionAbbreviation && orgData?.position_json) {
-              const positionData = Array.isArray(orgData.position_json)
-                ? orgData.position_json.find((p: any) => p.position === request.idPositionPenandatangan)
-                : null;
-              
-              if (positionData) {
-                penandatanganPositionAbbreviation = positionData.abbreviation || null;
-                if (!penandatanganArea) {
-                  penandatanganArea = positionData.area || null;
-                }
-              }
+            const searchId = Number(request.idPositionPenandatangan);
+            const penandatanganPosition = positionJsonData.find(
+              (p: any) => Number(p.position) === searchId
+            );
+            
+            if (penandatanganPosition) {
+              penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+              penandatanganArea = penandatanganPosition.area || null;
             }
 
             // Fallback: gunakan area dari request jika tidak ditemukan dari position lookup
@@ -1265,13 +1274,16 @@ export class NomorService {
 
             // Log untuk debugging
             console.log('Penandatangan lookup (bulk):', {
+              detailId: detailId,
               idPositionPenandatangan: request.idPositionPenandatangan,
+              found: !!penandatanganPosition,
               abbreviation: penandatanganPositionAbbreviation,
               area: penandatanganArea,
             });
           } else {
             // Jika idPositionPenandatangan tidak ada, gunakan area dari request
             penandatanganArea = request.area;
+            console.log('Penandatangan lookup (bulk): idPositionPenandatangan is null, using request area');
           }
 
           // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
@@ -1434,21 +1446,13 @@ export class NomorService {
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai)
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Build query untuk nomor_request_detail dengan status terpakai
-    const qb = this.nomorRequestDetailRepository
-      .createQueryBuilder('detail')
-      .leftJoinAndSelect('detail.idRequest', 'request')
-      .where('detail.status = :status', { status: 'terpakai' })
-      .andWhere('detail.nomor IS NOT NULL');
-
-    // Filter by tahun jika ada
-    if (query.tahun) {
-      qb.andWhere('YEAR(request.tanggal) = :tahun', { tahun: query.tahun });
-    }
-
-    qb.orderBy('detail.created_at', 'DESC');
-
-    const details = await qb.getMany();
+    // Get all detail dengan status terpakai
+    const details = await this.nomorRequestDetailRepository.find({
+      where: {
+        status: 'terpakai',
+      },
+      order: { createdAt: 'DESC' },
+    });
 
     // Get latest org_data for position information
     let positionJsonData: any[] = [];
@@ -1478,6 +1482,14 @@ export class NomorService {
 
         if (!request) {
           return null;
+        }
+
+        // Apply filter tahun jika ada
+        if (query.tahun) {
+          const detailTahun = new Date(request.tanggal!).getFullYear();
+          if (detailTahun !== query.tahun) {
+            return null;
+          }
         }
 
         // Get position data to extract jabatan (position_text) and nama_pengirim (persnum_person_text)
