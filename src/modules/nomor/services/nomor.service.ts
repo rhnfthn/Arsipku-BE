@@ -36,6 +36,10 @@ import {
   GetNomorQueryDto,
   GetNomorResponseDto,
 } from '../dto/get-nomor.dto';
+import {
+  AdminCreateNomorDto,
+  AdminCreateNomorResponseDto,
+} from '../dto/admin-create-nomor.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -1682,5 +1686,209 @@ export class NomorService {
       7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
     };
     return mapping[bulan] || 'I';
+  }
+
+  /**
+   * Admin langsung create nomor valid (tanpa melalui booking/approve)
+   * Menggabungkan proses create request + approve dalam satu step
+   */
+  async adminCreateNomor(dto: AdminCreateNomorDto): Promise<AdminCreateNomorResponseDto> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. Ambil data org_data berdasarkan tanggal
+      const tglFormatted = this.formatDate(new Date(dto.tanggal));
+      let positionJsonData: any[] = [];
+      
+      try {
+        const orgData = await this.orgDataService.findOrg(tglFormatted);
+        if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+          positionJsonData = orgData.position_json;
+        }
+      } catch (error) {
+        // Fallback to latest org_data
+        const allOrgData = await this.orgDataService.findAll();
+        if (allOrgData.length > 0) {
+          const latestOrgData = allOrgData.sort((a, b) => {
+            const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+            const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+            return dateB - dateA;
+          })[0];
+          
+          if (latestOrgData?.position_json) {
+            positionJsonData = latestOrgData.position_json;
+          }
+        }
+      }
+
+      // 2. Parse position_json dan cari position_id pengirim
+      const positionData = positionJsonData.find((p: any) => p.position === dto.position_id);
+
+      if (!positionData) {
+        throw new NotFoundException(
+          `Position dengan ID ${dto.position_id} tidak ditemukan di org_data untuk tanggal ${tglFormatted}`
+        );
+      }
+
+      // 3. Ambil data penandatangan untuk parameter counter
+      // Parameter counter menggunakan data dari penandatangan, bukan pengirim
+      let penandatanganData: any = null;
+      if (dto.id_position_penandatangan) {
+        penandatanganData = positionJsonData.find((p: any) => p.position === dto.id_position_penandatangan);
+        if (!penandatanganData) {
+          throw new NotFoundException(
+            `Position penandatangan dengan ID ${dto.id_position_penandatangan} tidak ditemukan di org_data`
+          );
+        }
+      }
+
+      // Gunakan data penandatangan untuk parameter counter, fallback ke pengirim jika tidak ada
+      const counterData = penandatanganData || positionData;
+
+      // 4. Create nomor_request
+      const requestId = uuidv4();
+      const nomorRequest = this.nomorRequestRepository.create({
+        id: requestId,
+        company: counterData.company?.toString() || null,
+        area: counterData.area || null,
+        subArea: counterData.sub_area?.toString() || null,
+        organization: counterData.organization_id?.toString() || null,
+        position: dto.position_id.toString(),
+        tanggal: dto.tanggal,
+        jenis: dto.jenis,
+        klasifikasi: dto.klasifikasi || null,
+        perihal: dto.perihal,
+        jumlah: dto.jumlah,
+        penandatangan: dto.penandatangan || null,
+        idPositionPenandatangan: dto.id_position_penandatangan || null,
+      });
+
+      await queryRunner.manager.save(nomorRequest);
+
+      // 6. Ambil format penomoran dari tabel jenis
+      const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+        where: { jenis: dto.jenis },
+      });
+
+      if (!jenisData || !jenisData.formatPenomoran) {
+        throw new BadRequestException(
+          `Format penomoran untuk jenis ${dto.jenis} tidak ditemukan`,
+        );
+      }
+
+      const tahun = new Date(dto.tanggal).getFullYear();
+      const isNdOrDi = dto.jenis === 'ND' || dto.jenis === 'DI';
+
+      // 8. Ambil abbreviation dari penandatangan untuk placeholder {JABATAN}
+      let penandatanganPositionAbbreviation: string | null = null;
+      let penandatanganArea: string | null = null;
+
+      if (penandatanganData) {
+        penandatanganPositionAbbreviation = penandatanganData.position_abbreviation || penandatanganData.abbreviation || null;
+        penandatanganArea = penandatanganData.area || null;
+      }
+
+      if (!penandatanganArea && nomorRequest.area) {
+        penandatanganArea = nomorRequest.area;
+      }
+
+      // 9. Loop untuk generate setiap nomor sesuai jumlah yang diminta
+      const nomorList: any[] = [];
+
+      for (let i = 0; i < dto.jumlah; i++) {
+        // Query nomor terakhir dengan locking
+        let queryBuilder = queryRunner.manager
+          .createQueryBuilder(NomorEntity, 'n')
+          .where('n.tahun = :tahun', { tahun })
+          .andWhere('n.jenis = :jenis', { jenis: dto.jenis })
+          .andWhere('n.company = :company', { company: nomorRequest.company });
+
+        if (isNdOrDi) {
+          queryBuilder = queryBuilder.andWhere('n.position = :position', { position: nomorRequest.position });
+        } else {
+          queryBuilder = queryBuilder.andWhere('n.area = :area', { area: nomorRequest.area });
+        }
+
+        const nomorRecord = await queryBuilder
+          .setLock('pessimistic_write')
+          .getOne();
+
+        // Generate nomor urut baru
+        let noUrut = 1;
+        if (nomorRecord && nomorRecord.nomor) {
+          noUrut = nomorRecord.nomor + 1;
+        }
+
+        // Generate nomor lengkap
+        const nomorBaru = await this.generateNomorFromFormat(
+          jenisData.formatPenomoran,
+          noUrut,
+          nomorRequest,
+          tahun,
+          penandatanganPositionAbbreviation,
+          penandatanganArea,
+        );
+
+        // Insert nomor_request_detail dengan status terpakai
+        const detailId = uuidv4();
+        const detail = this.nomorRequestDetailRepository.create({
+          id: detailId,
+          idRequest: requestId,
+          nomor: nomorBaru,
+          status: 'terpakai',
+        });
+
+        await queryRunner.manager.save(detail);
+
+        // UPSERT ke tabel nomor (update counter)
+        if (nomorRecord) {
+          nomorRecord.nomor = noUrut;
+          nomorRecord.area = nomorRequest.area;
+          nomorRecord.subArea = nomorRequest.subArea;
+          nomorRecord.organization = nomorRequest.organization;
+          nomorRecord.position = nomorRequest.position;
+          nomorRecord.updatedAt = new Date();
+          await queryRunner.manager.save(nomorRecord);
+        } else {
+          const nomorId = uuidv4();
+          const nomor = this.nomorRepository.create({
+            id: nomorId,
+            company: nomorRequest.company,
+            area: nomorRequest.area,
+            subArea: nomorRequest.subArea,
+            organization: nomorRequest.organization,
+            position: nomorRequest.position,
+            tahun,
+            jenis: dto.jenis,
+            nomor: noUrut,
+          });
+          await queryRunner.manager.save(nomor);
+        }
+
+        nomorList.push({
+          id: detailId,
+          nomor: nomorBaru,
+          status: 'terpakai',
+        });
+      }
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: `${dto.jumlah} nomor berhasil dibuat`,
+        data: {
+          request_id: requestId,
+          nomor_list: nomorList,
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }
