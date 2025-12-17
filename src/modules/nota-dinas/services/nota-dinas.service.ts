@@ -89,6 +89,101 @@ export class NotaDinasService {
   // ============================================================
 
   /**
+   * Get temporary lampiran files from storage
+   * Query by lampiran IDs and check is_temporary=1
+   */
+  private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
+    try {
+      if (!tempIds || tempIds.length === 0) {
+        return [];
+      }
+
+      // Query all temporary lampiran by IDs
+      const tempLampiran = await this.naskahLampiranRepository.find({
+        where: {
+          id: In(tempIds),
+          is_temporary: 1,
+        },
+      });
+
+      const files: Array<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        tempFolderId: string | null;
+      }> = [];
+      for (const lampiran of tempLampiran) {
+        files.push({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        });
+      }
+
+      return files;
+    } catch (error) {
+      console.error('[getTemporaryLampiranFiles] Error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Merge main PDF dengan temporary lampiran files
+   */
+  private async mergePdfWithTemporaryFiles(
+    mainPdfBuffer: Buffer,
+    lampiranFiles: any[],
+  ): Promise<Buffer> {
+    try {
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        return mainPdfBuffer;
+      }
+
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      for (const file of lampiranFiles) {
+        try {
+          if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+            console.warn(
+              `[mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
+            );
+            continue;
+          }
+
+          // Download file from MinIO
+          const fileBuffer = await this.storageService.getFile(file.filePath);
+          const lampiranPdf = await PDFDocument.load(fileBuffer);
+
+          // Copy all pages
+          const lampiranPages = await pdfDoc.copyPages(
+            lampiranPdf,
+            lampiranPdf.getPageIndices(),
+          );
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(
+            `[mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
+          );
+        } catch (error) {
+          console.error(
+            `[mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
+            error,
+          );
+        }
+      }
+
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[mergePdfWithTemporaryFiles] Error:`, error);
+      return mainPdfBuffer;
+    }
+  }
+
+  /**
    * Merge main PDF dengan lampiran files yang di-upload
    */
   private async mergePdfWithUploadedFiles(
@@ -161,7 +256,7 @@ export class NotaDinasService {
     positionText: string,
     namaLengkap: string,
     tembusan: string[] = [],
-    lampiranFiles?: Express.Multer.File[],
+    lampiranData?: string[] | Express.Multer.File[],
   ): Promise<Buffer> {
     try {
       // Smart detection: is htmlContent already base64 or plain text?
@@ -203,12 +298,28 @@ export class NotaDinasService {
 
       let pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
 
-      // If lampiranFiles provided, merge dengan files
-      if (lampiranFiles && lampiranFiles.length > 0) {
-        pdfBuffer = await this.mergePdfWithUploadedFiles(
-          pdfBuffer,
-          lampiranFiles,
-        );
+      // Handle lampiran - support both temporary IDs and direct file upload
+      if (lampiranData && lampiranData.length > 0) {
+        // Check if it's array of strings (temporary IDs) or Multer files
+        const firstItem = lampiranData[0];
+        
+        // Check if it's a Multer file (has buffer property)
+        if (firstItem && typeof firstItem === 'object' && 'buffer' in firstItem) {
+          // Direct file upload (legacy) - Multer files
+          pdfBuffer = await this.mergePdfWithUploadedFiles(
+            pdfBuffer,
+            lampiranData as Express.Multer.File[],
+          );
+        } else if (typeof firstItem === 'string') {
+          // Temporary IDs - fetch from storage
+          const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranData as string[]);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(
+              pdfBuffer,
+              lampiranFiles,
+            );
+          }
+        }
       }
 
       return pdfBuffer;
