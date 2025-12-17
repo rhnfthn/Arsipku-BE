@@ -9,10 +9,7 @@ import {
   Query,
   HttpStatus,
   HttpException,
-  UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
@@ -24,28 +21,18 @@ export class TemplateController {
 
   /**
    * POST /templates
-   * Create template dengan file upload
-   * Form-data:
+   * Create template dengan konten HTML
+   * Body:
+   * - id_position: string (required)
    * - nama_template: string (required)
-   * - tanggal: string (optional, format YYYY-MM-DD)
-   * - file: File (required) - Template file
+   * - content: string (optional) - HTML content
    */
   @Post()
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB max
-      },
-    }),
-  )
-  async create(
-    @Body() dto: CreateTemplateDto,
-    @UploadedFile() file?: Express.Multer.File,
-  ): Promise<TemplateItemResponseDto> {
+  async create(@Body() dto: CreateTemplateDto): Promise<TemplateItemResponseDto> {
     try {
-      const created = await this.templateService.create(dto, file);
-      const mapped = await this.templateService.toDto(created);
-      return { success: true, data: mapped } as TemplateItemResponseDto;
+      const created = await this.templateService.create(dto);
+      const mapped = this.templateService.toDto(created);
+      return { success: true, data: mapped };
     } catch (err) {
       throw new HttpException({ success: false, message: err.message }, HttpStatus.BAD_REQUEST);
     }
@@ -54,42 +41,39 @@ export class TemplateController {
   @Get()
   async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateListResponseDto> {
     const list = await this.templateService.findAll(nama_template);
-    const mapped = await this.templateService.toDtoList(list);
+    const mapped = this.templateService.toDtoList(list);
+    return { success: true, total: mapped.length, data: mapped };
+  }
+
+  @Get('position/:id_position')
+  async findByPosition(@Param('id_position') id_position: string): Promise<TemplateListResponseDto> {
+    const list = await this.templateService.findByPosition(id_position);
+    const mapped = this.templateService.toDtoList(list);
     return { success: true, total: mapped.length, data: mapped };
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<TemplateItemResponseDto> {
     const t = await this.templateService.findOne(id);
-    return { success: true, data: await this.templateService.toDto(t) };
+    return { success: true, data: this.templateService.toDto(t) };
   }
 
   /**
    * PUT /templates/:id
-   * Update template dengan optional file upload
-   * Form-data:
+   * Update template
+   * Body:
+   * - id_position: string (optional)
    * - nama_template: string (optional)
-   * - tanggal: string (optional, format YYYY-MM-DD)
-   * - file: File (optional) - New template file
+   * - content: string (optional) - HTML content
    */
   @Put(':id')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB max
-      },
-    }),
-  )
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateTemplateDto,
-    @UploadedFile() file?: Express.Multer.File,
   ): Promise<TemplateItemResponseDto> {
-    const updated = await this.templateService.update(id, dto, file);
-    return { success: true, data: await this.templateService.toDto(updated) };
+    const updated = await this.templateService.update(id, dto);
+    return { success: true, data: this.templateService.toDto(updated) };
   }
-
-  // Note: toggleAktif removed because the `template` table has no `aktif` column.
 
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<TemplateActionResponseDto> {
