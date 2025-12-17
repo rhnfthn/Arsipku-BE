@@ -2583,12 +2583,20 @@ export class NotaDinasService {
       })),
     );
 
-    // Build lampiran info
-    const lampiranInfoList = lampiranFiles.map((l) => ({
-      id: l.id,
-      fileName: l.file_name || '',
-      filePath: l.file_pdf || '',
-    }));
+    // Build lampiran info with file URL
+    const lampiranInfoList = await Promise.all(
+      lampiranFiles.map(async (l) => ({
+        id: l.id,
+        fileName: l.file_name || '',
+        filePath: l.file_pdf || '',
+        fileUrl: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+      })),
+    );
+
+    // Get final PDF URL if exists
+    const finalPdfUrl = naskah.final_pdf
+      ? await this.storageService.getFileUrl(naskah.final_pdf)
+      : null;
 
     // Build response
     return {
@@ -2651,6 +2659,7 @@ export class NotaDinasService {
         // Files
         lampiran_files: lampiranInfoList,
         final_pdf: naskah.final_pdf || null,
+        final_pdf_url: finalPdfUrl,
 
         // Metadata
         created_at: null,
