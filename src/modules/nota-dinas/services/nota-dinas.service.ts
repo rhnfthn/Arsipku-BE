@@ -323,7 +323,9 @@ export class NotaDinasService {
 
       // Lampiran
       lampiran: body.lampiran,
-      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids
+        ? parseStringArray(body.lampiran_temp_ids)
+        : undefined,
       lampiran_files:
         lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
 
@@ -342,7 +344,7 @@ export class NotaDinasService {
   /**
    * Upload lampiran ke temporary folder
    * Files akan disimpan dengan is_temporary=1 dan temp_folder_id yang sama
-   * 
+   *
    * @param files - Array of files to upload
    * @returns Response dengan temp_folder_id dan file details
    */
@@ -354,7 +356,11 @@ export class NotaDinasService {
     }
 
     const tempFolderId = uuidv4();
-    const uploadedFiles: { id: string; file_name: string; file_path: string }[] = [];
+    const uploadedFiles: {
+      id: string;
+      file_name: string;
+      file_path: string;
+    }[] = [];
 
     // Upload semua files ke temporary folder
     for (const file of files) {
@@ -395,18 +401,22 @@ export class NotaDinasService {
   /**
    * Delete lampiran by ID
    * Bisa digunakan untuk hapus temporary lampiran atau lampiran yang sudah final
-   * 
+   *
    * @param lampiranId - ID lampiran yang akan dihapus
    * @returns Success response
    */
-  async deleteLampiran(lampiranId: string): Promise<{ success: boolean; message: string }> {
+  async deleteLampiran(
+    lampiranId: string,
+  ): Promise<{ success: boolean; message: string }> {
     // Find lampiran
     const lampiran = await this.naskahLampiranRepository.findOne({
       where: { id: lampiranId },
     });
 
     if (!lampiran) {
-      throw new NotFoundException(`Lampiran dengan ID ${lampiranId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Lampiran dengan ID ${lampiranId} tidak ditemukan`,
+      );
     }
 
     // Check if lampiran is attached to a naskah that is already final
@@ -416,7 +426,10 @@ export class NotaDinasService {
         where: { id: lampiran.id_naskah },
       });
 
-      if (naskah && (naskah.status === 'final' || naskah.status === 'final_tte')) {
+      if (
+        naskah &&
+        (naskah.status === 'final' || naskah.status === 'final_tte')
+      ) {
         throw new BadRequestException(
           'Tidak dapat menghapus lampiran dari naskah yang sudah final',
         );
@@ -443,7 +456,7 @@ export class NotaDinasService {
   /**
    * Move temporary lampiran ke folder final dan update database
    * Dipanggil saat save draft atau send message
-   * 
+   *
    * @param lampiranIds - Array of lampiran IDs (temporary)
    * @param naskahId - ID naskah yang akan dikaitkan
    * @param jenis - Jenis naskah (ND, SDI, SDE, DI, KA)
@@ -482,7 +495,7 @@ export class NotaDinasService {
     for (const lampiran of tempLampiran) {
       const fileName = lampiran.file_name;
       const oldKey = lampiran.file_pdf;
-      
+
       // Generate new key untuk final location
       const timestamp = Date.now();
       const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -871,7 +884,7 @@ export class NotaDinasService {
           'nota-dinas/lampiran',
         );
       }
-      
+
       // Handle legacy lampiran_files (DEPRECATED, tapi masih support backward compatibility)
       if (dto.lampiran_files && dto.lampiran_files.length > 0) {
         for (const filePath of dto.lampiran_files) {
@@ -2297,20 +2310,26 @@ export class NotaDinasService {
         Number(x.organization_id) === Number(current.organization_parent),
     );
 
+    const menparent = [positionParam];
+    if (parentLevel.length > 0) {
+      menparent.push(parentLevel[0].position);
+    }
+    const menparentSet = new Set(menparent.map(Number));
+
     // REKAN: same level, same organization_parent (satu induk), bukan dirinya
     const bodTag = current.bod_tag;
     const bods = ['BOD', 'BOD-1'];
     const isBod = bodTag && bods.includes(bodTag);
 
     const rekans: OrgDataPositionDto[] = filtered.filter((x) => {
+      const pos = Number(x.position);
       if (isBod) {
-        return (
-          bods.includes(x.bod_tag as string) && Number(x.position) !== Number(positionParam)
-        );
+        return bods.includes(x.bod_tag as string) && !menparentSet.has(pos);
       }
 
       return (
-        x.bod_tag === bodTag && x.divisi_id === current.divisi_id &&
+        x.bod_tag === bodTag &&
+        x.divisi_id === current.divisi_id &&
         Number(x.position) !== Number(positionParam)
       );
     });
@@ -2348,7 +2367,8 @@ export class NotaDinasService {
       ATASAN: parentLevel,
       // REKAN: sameLevel,
       REKAN: rekans,
-      BAWAHAN: downLevel,
+      // BAWAHAN: downLevel,
+      BAWAHAN: [],
     };
   }
 
