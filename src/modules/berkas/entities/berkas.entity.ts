@@ -26,6 +26,9 @@ export class Berkas {
   @Column('varchar', { name: 'klasifikasi', length: 50 })
   klasifikasi: string;
 
+  @Column('varchar', { name: 'klasifikasi_text', length: 255, nullable: true })
+  klasifikasiTeks: string;
+
   @Column('varchar', { name: 'judul_berkas', length: 200 })
   judulBerkas: string;
 
