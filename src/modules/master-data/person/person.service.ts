@@ -87,39 +87,38 @@ export class PersonService {
     const orgData = await this.orgDataService.findAll();
     const latestOrgData = orgData.length > 0 ? orgData[0] : null;
 
-    if (!latestOrgData || !latestOrgData.organization_json) {
+    if (!latestOrgData || !latestOrgData.position_json) {
       // Return empty array if org data is not available
       return [];
     }
 
     // Create a map of persnum -> position data for fast lookup
+    // Only include positions with chief=1 (managerial)
+    // Using position_json which is already flattened and contains sub_area_text
     const positionMap = new Map<number, any>();
 
-    const processOrgStructure = (orgs: any[]) => {
-      for (const org of orgs) {
-        if (org.positions && Array.isArray(org.positions)) {
-          for (const position of org.positions) {
-            if (position.person && position.person.persnum) {
-              const persnum = parseInt(String(position.person.persnum));
-              positionMap.set(persnum, {
-                persnum: position.person.persnum,
-                nama: position.person.persnum_text,
-                position: position.position,
-                position_text: position.position_text,
-              });
-            }
-          }
-        }
+    const positionJsonData = Array.isArray(latestOrgData.position_json) 
+      ? latestOrgData.position_json 
+      : [];
 
-        // Recursively process children
-        if (org.children && Array.isArray(org.children)) {
-          processOrgStructure(org.children);
-        }
+    for (const position of positionJsonData) {
+      // Filter only managerial positions (chief=1)
+      if (position.chief !== 1) {
+        continue;
       }
-    };
 
-    if (Array.isArray(latestOrgData.organization_json)) {
-      processOrgStructure(latestOrgData.organization_json);
+      // Match by persnum or persnum_person
+      const persnum = position.persnum ?? position.persnum_person;
+      if (persnum) {
+        positionMap.set(Number(persnum), {
+          persnum: persnum,
+          nama: position.persnum_person_text ?? position.nama,
+          position: position.position,
+          position_text: position.position_text,
+          sub_area: position.sub_area || null,
+          sub_area_text: position.sub_area_text || null,
+        });
+      }
     }
 
     // Map persons to DTOs with position data
@@ -132,6 +131,8 @@ export class PersonService {
           nama: posData.nama,
           position: posData.position,
           position_text: posData.position_text,
+          sub_area: posData.sub_area,
+          sub_area_text: posData.sub_area_text,
         };
       });
   }
