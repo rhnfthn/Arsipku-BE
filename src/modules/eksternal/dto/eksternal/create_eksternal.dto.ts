@@ -9,16 +9,19 @@ export class CreateEksternalDto {
   id_position_pembuat?: string;
 
   @IsString()
+  @IsOptional()
   @MaxLength(50)
-  company: string;
+  company?: string;
 
   @IsString()
+  @IsOptional()
   @MaxLength(50)
-  area: string;
+  area?: string;
 
   @IsString()
+  @IsOptional()
   @MaxLength(150)
-  nama: string;
+  nama?: string;
 
   @IsString()
   @IsOptional()
