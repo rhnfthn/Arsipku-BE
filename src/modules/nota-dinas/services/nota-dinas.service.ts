@@ -41,6 +41,7 @@ import { OrgDataService } from 'src/modules/master-data/org_data/org_data.servic
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
+import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -73,6 +74,7 @@ export class NotaDinasService {
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
     private readonly generatePdfService: GeneratePdfService,
+    private readonly generatePdfNodinService: GeneratePdfNodinService,
   ) {}
 
   // ============================================================
@@ -1226,6 +1228,53 @@ export class NotaDinasService {
       });
       await queryRunner.manager.save(ndEntity);
 
+      // PHASE 13: Auto-generate PDF with nomor (only for final/final_tte)
+      let finalPdfPath: string | undefined = undefined;
+      if (status !== 'draf') {
+        try {
+          // Generate PDF with nomor already included
+          const pdfBuffer = await this.generatePdfNodinService.generatePdf({
+            htmlContent: dto.konten,
+            nomor: nomorSurat,
+            tertuju: kepadaYthList,
+            tembusan: tembusanTextList,
+            perihal: dto.perihal,
+            dari: `${pengirim.position_text} - ${pengirim.organization_text}`,
+            tanggal: tanggalHariIni.toLocaleDateString('id-ID', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            }),
+            positionText: dto.nama_jabatan ?? pengirim.position_text,
+            namaLengkap: dto.nama_lengkap ?? pengirim.persnum_person_text,
+          });
+
+          // Upload PDF to storage
+          const timestamp = Date.now();
+          const pdfFileName = `ND-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+          const uploadResult = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            pdfFileName,
+            'nota-dinas/pdf',
+            'application/pdf',
+          );
+
+          finalPdfPath = uploadResult.key;
+
+          // Update naskah with final_pdf path
+          await queryRunner.manager.update(
+            NaskahEntity,
+            { id: naskahId },
+            { final_pdf: finalPdfPath },
+          );
+
+          console.log('[ND sendMessage] PDF auto-generated:', finalPdfPath);
+        } catch (error) {
+          console.error('[ND sendMessage] Failed to auto-generate PDF:', error);
+          // Don't fail the whole transaction if PDF generation fails
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1242,6 +1291,7 @@ export class NotaDinasService {
           pengirim: this.toSirkulasiInfo(pengirim),
           penerima: penerimaResponses,
           tembusan: tembusanResponses,
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
