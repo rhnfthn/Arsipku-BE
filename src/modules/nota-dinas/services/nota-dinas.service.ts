@@ -251,47 +251,6 @@ export class NotaDinasService {
   // ============================================================
 
   /**
-   * Convert array of position_ids to formatted names for PDF display
-   * Format: "Position Text - Organization Text"
-   * 
-   * @param positionIds - Array of position IDs (numbers)
-   * @returns Array of formatted names
-   */
-  async convertPositionIdsToNames(positionIds: any[]): Promise<string[]> {
-    try {
-      // Get today's org_data
-      const today = new Date().toISOString().split('T')[0];
-      const orgData = await this.orgDataService.findOrg(today);
-      
-      if (!orgData || !orgData.position_json) {
-        console.warn('[convertPositionIdsToNames] org_data not found for today, returning position_ids as-is');
-        return positionIds.map(id => String(id));
-      }
-
-      const barisData = orgData.position_json;
-      const names: string[] = [];
-
-      for (const posId of positionIds) {
-        const position = barisData.find(p => Number(p.position) === Number(posId));
-        if (position) {
-          // Format: "Position Text - Organization Text"
-          const formattedName = `${position.position_text} - ${position.organization_text}`;
-          names.push(formattedName);
-        } else {
-          // Fallback if position not found
-          names.push(String(posId));
-        }
-      }
-
-      return names;
-    } catch (error) {
-      console.error('[convertPositionIdsToNames] Error:', error);
-      // Fallback: return position_ids as strings
-      return positionIds.map(id => String(id));
-    }
-  }
-
-  /**
    * Generate PDF dari HTML content
    * Menggunakan Puppeteer untuk render HTML ke PDF
    * Accept both plain text HTML dan base64-encoded HTML
