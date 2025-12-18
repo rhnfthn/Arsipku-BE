@@ -453,6 +453,11 @@ export class NotaDinasController {
     @Res() res: Response,
   ) {
     try {
+      // Support both 'konten' (from form) and 'htmlContent' (legacy) field names
+      if (body.konten && !body.htmlContent) {
+        body.htmlContent = body.konten;
+      }
+
       // Transform & Validate DTO manually
       const dto = plainToInstance(GeneratePdfDto, body);
       const errors = await validate(dto);
@@ -469,7 +474,7 @@ export class NotaDinasController {
       if (!dto || !dto.htmlContent) {
         return res
           .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+          .json({ error: 'Missing required field: htmlContent or konten' });
       }
 
       // Format tanggal jika diperlukan
