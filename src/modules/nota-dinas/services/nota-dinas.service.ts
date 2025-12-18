@@ -246,50 +246,54 @@ export class NotaDinasService {
     return nomorBaru;
   }
 
+  /**
+   * Helper: Convert array of position IDs to position names
+   * Uses org_data to lookup position information
+   * 
+   * @param positionIds - Array of position IDs (can be string or number)
+   * @param tanggal - Optional date for org_data lookup (default: today)
+   * @returns Array of position text names
+   */
+  async convertPositionIdsToNames(
+    positionIds: (string | number)[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!positionIds || positionIds.length === 0) {
+      return [];
+    }
+
+    // Get org_data for position lookup
+    const tgl = tanggal || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tgl);
+    
+    if (!orgData || !orgData.position_json) {
+      console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
+      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+    }
+
+    const barisData: OrgDataPositionDto[] = orgData.position_json;
+    const names: string[] = [];
+
+    for (const posId of positionIds) {
+      const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
+      const position = barisData.find(p => p.position === numericId);
+      
+      if (position) {
+        // Return position_text with organization_text
+        const fullName = `${position.position_text} - ${position.organization_text}`;
+        names.push(fullName);
+      } else {
+        // Fallback if position not found
+        names.push(String(posId));
+      }
+    }
+
+    return names;
+  }
+
   // ============================================================
   // FORM DATA PARSER
   // ============================================================
-
-  /**
-   * Convert array of position_ids to formatted names for PDF display
-   * Format: "Position Text - Organization Text"
-   * 
-   * @param positionIds - Array of position IDs (numbers)
-   * @returns Array of formatted names
-   */
-  async convertPositionIdsToNames(positionIds: any[]): Promise<string[]> {
-    try {
-      // Get today's org_data
-      const today = new Date().toISOString().split('T')[0];
-      const orgData = await this.orgDataService.findOrg(today);
-      
-      if (!orgData || !orgData.position_json) {
-        console.warn('[convertPositionIdsToNames] org_data not found for today, returning position_ids as-is');
-        return positionIds.map(id => String(id));
-      }
-
-      const barisData = orgData.position_json;
-      const names: string[] = [];
-
-      for (const posId of positionIds) {
-        const position = barisData.find(p => Number(p.position) === Number(posId));
-        if (position) {
-          // Format: "Position Text - Organization Text"
-          const formattedName = `${position.position_text} - ${position.organization_text}`;
-          names.push(formattedName);
-        } else {
-          // Fallback if position not found
-          names.push(String(posId));
-        }
-      }
-
-      return names;
-    } catch (error) {
-      console.error('[convertPositionIdsToNames] Error:', error);
-      // Fallback: return position_ids as strings
-      return positionIds.map(id => String(id));
-    }
-  }
 
   /**
    * Generate PDF dari HTML content
