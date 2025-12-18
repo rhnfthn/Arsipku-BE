@@ -65,6 +65,7 @@ export class GeneratePdfNodinService {
     const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
+    const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
     const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
     
     // Support both old single field and new separate fields for signature
@@ -146,7 +147,7 @@ export class GeneratePdfNodinService {
             <td align="center" style="padding-top:20px;">
             <b style="font-size:18px;"><u>N O T A &nbsp; D I N A S</u></b>
             <br>
-            Nomor :     </td>
+            Nomor : ${nomor}</td>
         </tr>
         </tbody></table>`;
     const header3 = `<table style="margin:0 auto;width:65%;">
