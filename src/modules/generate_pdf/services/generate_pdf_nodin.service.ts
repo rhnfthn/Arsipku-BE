@@ -66,11 +66,48 @@ export class GeneratePdfNodinService {
     const perihal = body.perihal || '';
     const dari = body.dari || '';
     const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
-    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
     
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
     const namaLengkap = body.namaLengkap || body.penandatangan || '';
+    const namaTempat = body.nama_tempat || body.namaTempat || 'Tangerang';
+    
+    // Get tanggal from body (prioritas: tgl > tanggal > today)
+    const tanggalInput = body.tgl || body.tanggal || new Date().toISOString().split('T')[0];
+    
+    // Format tanggal: "Tangerang, 19 Desember 2024"
+    let tanggalFormatted = '';
+    try {
+      // Check if already formatted (contains month name in Indonesian)
+      if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+        // Already formatted, just add nama_tempat if not exists
+        if (tanggalInput.includes(',')) {
+          tanggalFormatted = tanggalInput;
+        } else {
+          tanggalFormatted = `${namaTempat}, ${tanggalInput}`;
+        }
+      } else {
+        // Parse as date (supports: YYYY-MM-DD, DD/MM/YYYY, ISO format, etc)
+        // Add 'T00:00:00' to ensure correct parsing in local timezone
+        const dateObj = new Date(tanggalInput + 'T00:00:00');
+        
+        if (!isNaN(dateObj.getTime())) {
+          const formatted = dateObj.toLocaleDateString('id-ID', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            timeZone: 'Asia/Jakarta'
+          });
+          tanggalFormatted = `${namaTempat}, ${formatted}`;
+        } else {
+          // Fallback if parsing fails
+          tanggalFormatted = `${namaTempat}, ${tanggalInput}`;
+        }
+      }
+    } catch (error) {
+      console.error('[generate_pdf_nodin] Error formatting date:', error);
+      tanggalFormatted = `${namaTempat}, ${tanggalInput}`;
+    }
     
     // Convert to arrays jika belum
     const tertujuArray = Array.isArray(tertuju) ? tertuju : [];
@@ -121,7 +158,7 @@ export class GeneratePdfNodinService {
       <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
         <tbody>
           <tr>
-            <td width='10%'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 48px; width: auto; max-width: 60px;" />` : '<div style="width:60px;height:48px;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
+            <td width='10%'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 90px; width: auto; max-width: 120px;" />` : '<div style="width:90px;height:120px;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
             <td style='font-size:13px;vertical-align:bottom!important;'>
               
@@ -170,7 +207,7 @@ export class GeneratePdfNodinService {
             <td style="width:50%;">
             </td>
             <td style="text-align:center;">
-            ${tanggal}<br>
+            ${tanggalFormatted}<br>
             ${positionText}<br>  
                     <br>
                     <br>
@@ -237,7 +274,7 @@ export class GeneratePdfNodinService {
                 <div style="display: inline-block; text-align: left;">
                   Lampiran Surat<br>
                   Nomor Surat :<br>
-                  Tanggal Surat : ${tanggal}
+                  Tanggal Surat : ${tanggalFormatted}
                 </div>
               </td>
             </tr>

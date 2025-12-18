@@ -323,6 +323,9 @@ export class NotaDinasService {
         return [];
       }
 
+      console.log('[getTemporaryLampiranFiles] Querying tempIds:', tempIds);
+      console.log('[getTemporaryLampiranFiles] tempIds count:', tempIds.length);
+
       // Query all temporary lampiran by IDs
       const tempLampiran = await this.naskahLampiranRepository.find({
         where: {
@@ -331,6 +334,8 @@ export class NotaDinasService {
         },
       });
 
+      console.log('[getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
+
       const files: Array<{
         id: string;
         fileName: string;
@@ -338,6 +343,7 @@ export class NotaDinasService {
         tempFolderId: string | null;
       }> = [];
       for (const lampiran of tempLampiran) {
+        console.log('[getTemporaryLampiranFiles] Processing:', lampiran.id, lampiran.file_name);
         files.push({
           id: lampiran.id,
           fileName: lampiran.file_name,
@@ -346,6 +352,7 @@ export class NotaDinasService {
         });
       }
 
+      console.log('[getTemporaryLampiranFiles] Returning files count:', files.length);
       return files;
     } catch (error) {
       console.error('[getTemporaryLampiranFiles] Error:', error);
@@ -361,6 +368,8 @@ export class NotaDinasService {
     lampiranFiles: any[],
   ): Promise<Buffer> {
     try {
+      console.log('[mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
+      
       if (!lampiranFiles || lampiranFiles.length === 0) {
         return mainPdfBuffer;
       }
@@ -482,6 +491,8 @@ export class NotaDinasService {
     namaLengkap: string,
     tembusan: string[] = [],
     lampiranData?: string[] | Express.Multer.File[],
+    tgl?: string,
+    nama_tempat?: string,
   ): Promise<Buffer> {
     try {
       // Smart detection: is htmlContent already base64 or plain text?
@@ -519,6 +530,8 @@ export class NotaDinasService {
         positionText: positionText,
         namaLengkap: namaLengkap,
         tembusan: tembusan,
+        tgl: tgl,
+        nama_tempat: nama_tempat,
       };
 
       let pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
