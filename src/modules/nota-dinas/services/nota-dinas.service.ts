@@ -13,6 +13,9 @@ import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entit
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NdEntity } from '../entities/nd.entity';
 import { NomorEntity } from '../../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import {
   NotaDinasRecipientResponseDto,
   OrgDataPositionDto,
@@ -59,12 +62,187 @@ export class NotaDinasService {
     private readonly ndRepository: Repository<NdEntity>,
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
+    @InjectRepository(NomorRequestEntity)
+    private readonly nomorRequestRepository: Repository<NomorRequestEntity>,
+    @InjectRepository(NomorRequestDetailEntity)
+    private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
+    @InjectRepository(JenisEntity)
+    private readonly jenisRepository: Repository<JenisEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
     private readonly generatePdfService: GeneratePdfService,
   ) {}
+
+  // ============================================================
+  // HELPER: GENERATE NOMOR WITH INTEGRATION
+  // ============================================================
+
+  /**
+   * Helper: Convert bulan ke Romawi
+   */
+  private getBulanRomawi(bulan: number): string {
+    const mapping: Record<number, string> = {
+      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
+      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+    };
+    return mapping[bulan] || 'I';
+  }
+
+  /**
+   * Helper: Extract last 2 characters dari area code
+   */
+  private extractAreaCode(area: string | null | undefined): string {
+    if (!area) return '';
+    if (area.length >= 2) {
+      return area.slice(-2);
+    }
+    return area.padStart(2, '0');
+  }
+
+  /**
+   * Helper: Generate nomor dengan integrasi ke nomor_request dan nomor_request_detail
+   * Menggunakan format dari tabel jenis dan update counter di tabel nomor
+   * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
+   * 
+   * @param pengirim - Data pengirim dari org_data
+   * @param klasifikasi - Kode klasifikasi arsip
+   * @param perihal - Perihal surat
+   * @param tanggal - Tanggal surat
+   * @param queryRunner - Query runner untuk transaction
+   * @returns Nomor surat yang sudah di-generate
+   */
+  private async generateNomorWithIntegration(
+    pengirim: OrgDataPositionDto,
+    klasifikasi: string,
+    perihal: string,
+    tanggal: Date,
+    queryRunner: any,
+  ): Promise<string> {
+    const jenis = 'ND';
+    const tahun = tanggal.getFullYear();
+    const bulan = tanggal.getMonth() + 1;
+
+    // 1. Ambil format penomoran dari tabel jenis
+    const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+      where: { jenis },
+    });
+
+    if (!jenisData || !jenisData.formatPenomoran) {
+      throw new BadRequestException(
+        `Format penomoran untuk jenis ${jenis} tidak ditemukan`,
+      );
+    }
+
+    // 2. Create nomor_request
+    const requestId = uuidv4();
+    const nomorRequest = this.nomorRequestRepository.create({
+      id: requestId,
+      company: String(pengirim.company || COMPANY_ID),
+      area: pengirim.area || null,
+      subArea: String(pengirim.sub_area || ''),
+      organization: String(pengirim.organization_id || ''),
+      position: String(pengirim.position),
+      tanggal: tanggal,
+      jenis: jenis,
+      klasifikasi: klasifikasi || null,
+      perihal: perihal,
+      jumlah: 1,
+      penandatangan: pengirim.persnum_person_text || null,
+      idPositionPenandatangan: pengirim.position || null,
+    });
+
+    await queryRunner.manager.save(nomorRequest);
+
+    // 3. Query nomor terakhir dengan locking (ND menggunakan Company + Position)
+    const nomorRecord = await queryRunner.manager
+      .createQueryBuilder(NomorEntity, 'n')
+      .where('n.tahun = :tahun', { tahun })
+      .andWhere('n.jenis = :jenis', { jenis })
+      .andWhere('n.company = :company', { company: nomorRequest.company })
+      .andWhere('n.position = :position', { position: nomorRequest.position })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    // 4. Generate nomor urut baru
+    let noUrut = 1;
+    if (nomorRecord && nomorRecord.nomor) {
+      noUrut = nomorRecord.nomor + 1;
+    }
+
+    // 5. Generate nomor lengkap dari format (dibaca dari tabel jenis)
+    const noUrutFormatted = noUrut.toString().padStart(3, '0');
+    const bulanRomawi = this.getBulanRomawi(bulan);
+    const jabatanCode = pengirim.position_abbreviation || '';
+    const lokasiCode = this.extractAreaCode(pengirim.area);
+    const instansi = 'LPPNPI'; // Default instansi (bisa diambil dari config atau company data)
+
+    // Replace semua placeholder di format dengan nilai sebenarnya
+    let nomorBaru = jenisData.formatPenomoran
+      .replace(/{TIPE}/g, jenis)
+      .replace(/{NO_URUT}/g, noUrutFormatted)
+      .replace(/{INSTANSI}/g, instansi)
+      .replace(/{JABATAN}/g, jabatanCode)
+      .replace(/{LOKASI}/g, lokasiCode)
+      .replace(/{KLASIFIKASI}/g, klasifikasi || '')
+      .replace(/{BULAN}/g, bulanRomawi)
+      .replace(/{TAHUN}/g, tahun.toString());
+
+    // Cleanup: hapus spasi berlebih dan double slash
+    nomorBaru = nomorBaru
+      .replace(/\/\s+/g, '/') // Hapus spasi setelah slash
+      .replace(/\s+\//g, '/') // Hapus spasi sebelum slash
+      .replace(/\/\//g, '/')  // Hapus double slash
+      .trim();                 // Trim spasi di awal/akhir
+
+    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    const detailId = uuidv4();
+    const detail = this.nomorRequestDetailRepository.create({
+      id: detailId,
+      idRequest: requestId,
+      nomor: nomorBaru,
+      fileName: null,
+      fileText: null,
+      status: 'terpakai',
+    });
+
+    await queryRunner.manager.save(detail);
+
+    // 7. UPSERT ke tabel nomor (update counter)
+    if (nomorRecord) {
+      nomorRecord.nomor = noUrut;
+      nomorRecord.area = nomorRequest.area;
+      nomorRecord.subArea = nomorRequest.subArea;
+      nomorRecord.organization = nomorRequest.organization;
+      nomorRecord.position = nomorRequest.position;
+      nomorRecord.updatedAt = new Date();
+      await queryRunner.manager.save(nomorRecord);
+    } else {
+      const nomorId = uuidv4();
+      const nomor = this.nomorRepository.create({
+        id: nomorId,
+        company: nomorRequest.company,
+        area: nomorRequest.area,
+        subArea: nomorRequest.subArea,
+        organization: nomorRequest.organization,
+        position: nomorRequest.position,
+        tahun,
+        jenis,
+        nomor: noUrut,
+      });
+      await queryRunner.manager.save(nomor);
+    }
+
+    console.log('[ND generateNomorWithIntegration] Generated:', {
+      nomor: nomorBaru,
+      requestId,
+      detailId,
+      noUrut,
+    });
+
+    return nomorBaru;
+  }
 
   // ============================================================
   // FORM DATA PARSER
@@ -910,20 +1088,24 @@ export class NotaDinasService {
     await queryRunner.startTransaction();
 
     try {
-      // PHASE 6: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
-      const nomorSurat =
-        status === 'draf'
-          ? `DRAFT-${Date.now()}`
-          : (
-              await this.nomorSuratService.generateNomor({
-                jenis: 'ND',
-                positionText: pengirim.position_text || '',
-                positionAbbreviation: pengirim.position_abbreviation || '',
-                areaText: pengirim.area_text || 'Pusat',
-                tanggal: new Date(),
-                klasifikasi: dto.klasifikasi,
-              })
-            ).nomor;
+      // PHASE 6: Generate nomor surat
+      // - Draft: nomor temporary
+      // - Final: generate nomor resmi dengan integrasi ke nomor_request
+      let nomorSurat: string;
+      
+      if (status === 'draf') {
+        nomorSurat = `DRAFT-${Date.now()}`;
+      } else {
+        // Generate nomor dengan integrasi ke sistem penomoran
+        // Auto-insert ke nomor_request dan nomor_request_detail
+        nomorSurat = await this.generateNomorWithIntegration(
+          pengirim,
+          dto.klasifikasi,
+          dto.perihal,
+          new Date(),
+          queryRunner,
+        );
+      }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
@@ -1198,18 +1380,12 @@ export class NotaDinasService {
       }
     }
 
-    // PHASE 4: Generate nomor surat resmi
+    // PHASE 4: Generate nomor surat resmi dengan integrasi
     const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
-    const generatedNomor = await this.nomorSuratService.generateNomor({
-      jenis: 'ND',
-      positionText: pengirimPosition?.position_text || '',
-      positionAbbreviation:
-        pengirimPosition?.position_abbreviation || undefined,
-      areaText: pengirimPosition?.area_text || 'Pusat',
-      tanggal: new Date(),
-      klasifikasi: klasifikasi,
-    });
-    const nomorSurat = generatedNomor.nomor;
+    const perihal = dto.perihal ?? naskah.perihal ?? '';
+    
+    // We'll generate nomor inside transaction, so we keep this placeholder
+    let nomorSurat = '';
 
     // PHASE 5: Determine new status - check if tanda_tangan is provided
     // Priority:
@@ -1243,7 +1419,20 @@ export class NotaDinasService {
     await queryRunner.startTransaction();
 
     try {
-      // PHASE 6: Update naskah table (all fields + finalization fields)
+      // PHASE 6A: Generate nomor surat resmi dengan integrasi (inside transaction)
+      if (!pengirimPosition) {
+        throw new BadRequestException('Data pengirim tidak lengkap');
+      }
+      
+      nomorSurat = await this.generateNomorWithIntegration(
+        pengirimPosition,
+        klasifikasi,
+        perihal,
+        new Date(),
+        queryRunner,
+      );
+
+      // PHASE 6B: Update naskah table (all fields + finalization fields)
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
         status: newStatus,
@@ -1298,20 +1487,6 @@ export class NotaDinasService {
         dto.penerima !== undefined ||
         dto.tembusan !== undefined
       ) {
-        // Get valid recipients based on pengirim position
-        let allValidPositionIds: number[] = [];
-        if (barisData.length > 0 && pengirimPosition) {
-          const validRecipients = this.filterByPositionNodin(
-            barisData,
-            Number(pengirimPosition.position),
-          );
-          allValidPositionIds = [
-            ...validRecipients.ATASAN.map((x) => Number(x.position)),
-            ...validRecipients.REKAN.map((x) => Number(x.position)),
-            ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
-          ];
-        }
-
         // Validate penerima
         let penerimaList: OrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
@@ -1328,16 +1503,6 @@ export class NotaDinasService {
               throw new ForbiddenException(
                 `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). Nota Dinas hanya dapat dikirim ke managerial.`,
               );
-            }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-              if (
-                pengirimPosition &&
-                penerima.sub_area !== pengirimPosition.sub_area
-              ) {
-                errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
-              }
-              throw new BadRequestException(errorMsg);
             }
             penerimaList.push(penerima);
           }
@@ -1373,16 +1538,6 @@ export class NotaDinasService {
               throw new ForbiddenException(
                 `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`,
               );
-            }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-              if (
-                pengirimPosition &&
-                tembusan.sub_area !== pengirimPosition.sub_area
-              ) {
-                errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
-              }
-              throw new BadRequestException(errorMsg);
             }
             tembusanList.push(tembusan);
           }
@@ -1687,22 +1842,7 @@ export class NotaDinasService {
           }
         }
 
-        // Get valid recipients based on pengirim position
-        // Nota Dinas hanya bisa dikirim ke: ATASAN langsung, BAWAHAN langsung, atau REKAN (satu induk, satu sub_area)
-        let allValidPositionIds: number[] = [];
-        if (pengirimPosition) {
-          const validRecipients = this.filterByPositionNodin(
-            barisData,
-            Number(pengirimPosition.position),
-          );
-          allValidPositionIds = [
-            ...validRecipients.ATASAN.map((x) => Number(x.position)),
-            ...validRecipients.REKAN.map((x) => Number(x.position)),
-            ...validRecipients.BAWAHAN.map((x) => Number(x.position)),
-          ];
-        }
-
-        // Validate penerima - must be in valid recipients list
+        // Validate penerima
         let penerimaList: OrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -1720,20 +1860,6 @@ export class NotaDinasService {
               throw new ForbiddenException(
                 `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). Nota Dinas hanya dapat dikirim ke managerial.`,
               );
-            }
-
-            // Check if penerima is in valid recipients (ATASAN/REKAN/BAWAHAN)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-
-              if (
-                pengirimPosition &&
-                penerima.sub_area !== pengirimPosition.sub_area
-              ) {
-                errorMsg += ` Penerima berada di sub area berbeda (${penerima.sub_area_text}).`;
-              }
-
-              throw new BadRequestException(errorMsg);
             }
 
             penerimaList.push(penerima);
@@ -1755,7 +1881,6 @@ export class NotaDinasService {
         }
 
         // Validate tembusan - if not provided, tembusan will be EMPTY (destroyed)
-        // Tembusan juga harus dalam valid recipients (ATASAN/REKAN/BAWAHAN)
         let tembusanList: OrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -1773,20 +1898,6 @@ export class NotaDinasService {
               throw new ForbiddenException(
                 `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). Tembusan ND hanya dapat dikirim ke managerial.`,
               );
-            }
-
-            // Check if tembusan is in valid recipients (ATASAN/REKAN/BAWAHAN)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) bukan merupakan atasan langsung, bawahan langsung, atau rekan dari pengirim.`;
-
-              if (
-                pengirimPosition &&
-                tembusan.sub_area !== pengirimPosition.sub_area
-              ) {
-                errorMsg += ` Tembusan berada di sub area berbeda (${tembusan.sub_area_text}).`;
-              }
-
-              throw new BadRequestException(errorMsg);
             }
 
             tembusanList.push(tembusan);
