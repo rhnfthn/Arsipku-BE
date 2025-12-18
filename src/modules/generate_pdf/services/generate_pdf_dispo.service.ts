@@ -77,18 +77,61 @@ export class GeneratePdfDispoService {
     }
 
     // Format disposisi dengan checkboxes
+    // Daftar lengkap semua pilihan disposisi (layout 3 kolom vertikal sesuai gambar)
+    // Kolom 1 -> Kolom 2 -> Kolom 3, urutan dari atas ke bawah
+    const disposisiOptions = [
+      'Untuk Diketahui',        // Kolom 1 baris 1
+      'Proses Lanjut',          // Kolom 2 baris 1
+      'Koordinasikan',          // Kolom 3 baris 1
+      'Cek',                    // Kolom 1 baris 2
+      'Monitor',                // Kolom 2 baris 2
+      'Evaluasi',               // Kolom 3 baris 2
+      'Dikaji Kemungkinannya',  // Kolom 1 baris 3
+      'Laporkan',               // Kolom 2 baris 3
+      'Untuk Menjadi Perhatian', // Kolom 3 baris 3
+      'Untuk Dijadikan Acuan/Dipergunakan', // Kolom 1 baris 4
+      'Harap Mewakili',         // Kolom 2 baris 4
+      'Harap Mendampingi',      // Kolom 3 baris 4
+      'Tunjuk Perwakilan',      // Kolom 1 baris 5
+      'Siapkan Bahan/Materi',   // Kolom 2 baris 5
+      'Lainnya',                // Kolom 3 baris 5
+    ];
+
     const disposisi = body.disposisi || [];
-    let disposisiHtml = '';
-    if (Array.isArray(disposisi) && disposisi.length > 0) {
-      disposisiHtml = disposisi.map(item => `
-        <div style="display: inline-block; width: 32%; margin-right: 8px; margin-bottom: 8px; vertical-align: top;">
-          <div style="display: flex; gap: 4px; align-items: flex-start;">
-            <div style="width: 16px; height: 16px; border: 1px solid #000; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0;">✓</div>
-            <span style="font-size: 11px; line-height: 1.2;">${item}</span>
-          </div>
-        </div>
-      `).join('');
-    }
+    const selectedDisposisi = Array.isArray(disposisi) ? disposisi : [];
+
+    // Tampilkan semua pilihan, centang yang dipilih user
+    const disposisiHtml = `
+      <div style="
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        column-gap: 16px;
+        row-gap: 8px;
+      ">
+        ${disposisiOptions.map(item => {
+          const isChecked = selectedDisposisi.includes(item);
+          return `
+            <div style="display: flex; gap: 6px; align-items: flex-start;">
+              <div style="
+                width: 14px;
+                height: 14px;
+                border: 1px solid #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                flex-shrink: 0;
+              ">
+                ${isChecked ? '✓' : ''}
+              </div>
+              <span style="font-size: 11px; line-height: 1.2;">
+                ${item}
+              </span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
 
     // Format klasifikasi (Biasa, Terbatas, Rahasia, Sangat Rahasia)
     const array_sifat = ['Biasa', 'Terbatas', 'Rahasia', 'Sangat Rahasia'];
