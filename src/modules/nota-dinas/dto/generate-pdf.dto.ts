@@ -89,6 +89,20 @@ export class GeneratePdfDto {
   tanggal?: string;
 
   /**
+   * Tanggal Surat (format: YYYY-MM-DD) - prioritas lebih tinggi dari tanggal
+   */
+  @IsString()
+  @IsOptional()
+  tgl?: string;
+
+  /**
+   * Nama Tempat untuk format tanggal (Tangerang, Jakarta, dll)
+   */
+  @IsString()
+  @IsOptional()
+  nama_tempat?: string;
+
+  /**
    * Nama Penandatangan
    * Nama orang yang menandatangani dokumen
    */
