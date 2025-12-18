@@ -19,10 +19,10 @@ export class DisposisiSirkulasiInfoDto {
 export class DisposisiDataDto {
   id: string;
   jenis: string;
+  nomor: string | null; // Samakan dengan Nota Dinas (bukan ref_nomor_surat)
   tanggal: string;
   status: string; // 'draf' atau 'final'
   sifat: string;
-  ref_nomor_surat: string | null; // Opsional: kosong untuk disposisi pertama
   perihal: string; // Perihal masuk ke tabel naskah
   pengirim: DisposisiSirkulasiInfoDto;
   penerima: DisposisiSirkulasiInfoDto[];

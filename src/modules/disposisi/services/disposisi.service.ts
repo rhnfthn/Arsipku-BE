@@ -5,12 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Repository,
-  LessThanOrEqual,
-  MoreThanOrEqual,
-  DataSource,
-} from 'typeorm';
+import { Repository, LessThanOrEqual, MoreThanOrEqual, DataSource, In } from 'typeorm';
 import { RelationSp } from '../../master-data/relation_sp/entities/relation_sp.entity';
 import { RelationOsc } from '../../master-data/relation_osc/entities/relation_osc.entity';
 import { RelationOa } from '../../master-data/relation_oa/entities/relation_oa.entity';
@@ -51,6 +46,9 @@ import {
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { GeneratePdfDispoService } from '../../generate_pdf/services/generate_pdf_dispo.service';
+import { StorageService } from '../../storage/services/storage.service';
+import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
+import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -128,6 +126,7 @@ export class DisposisiService {
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly generatePdfDispoService: GeneratePdfDispoService,
+    private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -138,6 +137,7 @@ export class DisposisiService {
   /**
    * Generate PDF dari HTML content untuk Disposisi
    * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -146,10 +146,11 @@ export class DisposisiService {
     sifat: string = '',
     pengirim: string = '',
     tembusan: string[] = [],
+    lampiranTempIds?: string[],
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      return await this.generatePdfDispoService.generatePdf({
+      let pdfBuffer = await this.generatePdfDispoService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
         disposisi: disposisi,
@@ -158,8 +159,228 @@ export class DisposisiService {
         tembusan: tembusan,
         perihal: '',
       });
+
+      // If lampiran temp IDs provided, fetch and merge with main PDF
+      if (lampiranTempIds && lampiranTempIds.length > 0) {
+        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        if (lampiranFiles && lampiranFiles.length > 0) {
+          pdfBuffer = await this.mergePdfWithTemporaryFiles(
+            pdfBuffer,
+            lampiranFiles,
+          );
+        }
+      }
+
+      return pdfBuffer;
     } catch (error) {
       throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get temporary lampiran files from storage
+   * Query by lampiran IDs and check is_temporary=1
+   */
+  private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
+    try {
+      if (!tempIds || tempIds.length === 0) {
+        return [];
+      }
+
+      // Query all temporary lampiran by IDs
+      const tempLampiran = await this.naskahLampiranRepository.find({
+        where: {
+          id: In(tempIds),
+          is_temporary: 1,
+        },
+      });
+
+      const files: Array<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        tempFolderId: string | null;
+      }> = [];
+      
+      for (const lampiran of tempLampiran) {
+        files.push({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        });
+      }
+
+      return files;
+    } catch (error) {
+      console.error('[getTemporaryLampiranFiles] Error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Merge main PDF dengan temporary lampiran files
+   */
+  private async mergePdfWithTemporaryFiles(
+    mainPdfBuffer: Buffer,
+    lampiranFiles: any[],
+  ): Promise<Buffer> {
+    try {
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        return mainPdfBuffer;
+      }
+
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      for (const file of lampiranFiles) {
+        try {
+          if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+            console.warn(
+              `[mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
+            );
+            continue;
+          }
+
+          // Download file from MinIO
+          const fileBuffer = await this.storageService.getFile(file.filePath);
+          const lampiranPdf = await PDFDocument.load(fileBuffer);
+
+          // Copy all pages
+          const lampiranPages = await pdfDoc.copyPages(
+            lampiranPdf,
+            lampiranPdf.getPageIndices(),
+          );
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(
+            `[mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
+          );
+        } catch (error) {
+          console.error(
+            `[mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
+            error,
+          );
+        }
+      }
+
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[mergePdfWithTemporaryFiles] Error:`, error);
+      return mainPdfBuffer;
+    }
+  }
+
+  /**
+   * Upload lampiran ke temporary folder
+   * Files akan disimpan dengan is_temporary=1 dan temp_folder_id yang sama
+   */
+  async uploadTemporaryLampiran(
+    files: Express.Multer.File[],
+  ): Promise<UploadTemporaryLampiranResponseDto> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Tidak ada file yang diupload');
+    }
+
+    const tempFolderId = uuidv4();
+    const uploadedFiles: {
+      id: string;
+      file_name: string;
+      file_path: string;
+    }[] = [];
+
+    // Upload semua files ke temporary folder
+    for (const file of files) {
+      const uploadResult = await this.storageService.uploadFile(
+        file,
+        `temporary/${tempFolderId}`,
+      );
+
+      // Simpan ke database dengan is_temporary=1
+      const lampiranEntity = this.naskahLampiranRepository.create({
+        id: uuidv4(),
+        id_naskah: null, // Belum ada naskah
+        file_name: file.originalname,
+        file_pdf: uploadResult.key,
+        jenis: 'DI', // Disposisi
+        is_temporary: 1,
+        temp_folder_id: tempFolderId,
+      });
+
+      await this.naskahLampiranRepository.save(lampiranEntity);
+
+      uploadedFiles.push({
+        id: lampiranEntity.id,
+        file_name: lampiranEntity.file_name,
+        file_path: lampiranEntity.file_pdf,
+      });
+    }
+
+    return {
+      success: true,
+      data: {
+        temp_folder_id: tempFolderId,
+        files: uploadedFiles,
+      },
+    };
+  }
+
+  /**
+   * Move temporary lampiran to final location
+   * Called after Disposisi is sent/saved successfully
+   */
+  private async moveTemporaryLampiranToFinal(
+    lampiranIds: string[],
+    naskahId: string,
+    jenis: 'DI' | 'ND' | 'SDI' | 'SDE' | 'KA',
+    finalFolder: string,
+  ): Promise<void> {
+    if (!lampiranIds || lampiranIds.length === 0) {
+      return;
+    }
+
+    // Get all temporary lampiran
+    const tempLampiran = await this.naskahLampiranRepository.find({
+      where: {
+        id: In(lampiranIds),
+        is_temporary: 1,
+      },
+    });
+
+    if (tempLampiran.length === 0) {
+      throw new NotFoundException('Lampiran temporary tidak ditemukan');
+    }
+
+    // Validate all lampiran are temporary
+    if (tempLampiran.length !== lampiranIds.length) {
+      throw new BadRequestException(
+        'Beberapa lampiran ID tidak valid atau bukan temporary',
+      );
+    }
+
+    // Move each file and update database
+    for (const lampiran of tempLampiran) {
+      const fileName = lampiran.file_name;
+      const oldKey = lampiran.file_pdf;
+
+      // Generate new key untuk final location
+      const timestamp = Date.now();
+      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+
+      // Move file di storage
+      await this.storageService.moveFile(oldKey, newKey);
+
+      // Update database
+      lampiran.id_naskah = naskahId;
+      lampiran.file_pdf = newKey;
+      lampiran.jenis = jenis;
+      lampiran.is_temporary = 0;
+      lampiran.temp_folder_id = null;
+
+      await this.naskahLampiranRepository.save(lampiran);
     }
   }
 
@@ -839,7 +1060,30 @@ export class DisposisiService {
         tipe?: string;
       }> = [];
 
-      if (dto.lampiran && dto.lampiran.length > 0) {
+      // Handle temporary lampiran (RECOMMENDED)
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'DI',
+          'disposisi/lampiran',
+        );
+
+        // Fetch moved lampiran untuk response
+        const movedLampiran = await this.naskahLampiranRepository.find({
+          where: { id_naskah: naskahId },
+        });
+
+        for (const lamp of movedLampiran) {
+          lampiranResponses.push({
+            id: lamp.id,
+            nama_file: lamp.file_name,
+            url: lamp.file_pdf,
+          });
+        }
+      }
+      // Legacy: Direct lampiran upload (deprecated)
+      else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
           const lampiranId = uuidv4();
           const lampiran = this.naskahLampiranRepository.create({
@@ -897,10 +1141,10 @@ export class DisposisiService {
         data: {
           id: naskahId,
           jenis: 'DI',
+          nomor: generatedNomor.nomor, // Samakan dengan Nota Dinas
           tanggal: dto.tanggal_disposisi,
           status: 'final',
           sifat: dto.sifat,
-          ref_nomor_surat: generatedNomor.nomor, // Nomor otomatis yang di-generate
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
@@ -1075,7 +1319,30 @@ export class DisposisiService {
         tipe?: string;
       }> = [];
 
-      if (dto.lampiran && dto.lampiran.length > 0) {
+      // Handle temporary lampiran (RECOMMENDED)
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'DI',
+          'disposisi/lampiran',
+        );
+
+        // Fetch moved lampiran untuk response
+        const movedLampiran = await this.naskahLampiranRepository.find({
+          where: { id_naskah: naskahId },
+        });
+
+        for (const lamp of movedLampiran) {
+          lampiranResponses.push({
+            id: lamp.id,
+            nama_file: lamp.file_name,
+            url: lamp.file_pdf,
+          });
+        }
+      }
+      // Legacy: Direct lampiran upload (deprecated)
+      else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
           const lampiranId = uuidv4();
           const lampiran = this.naskahLampiranRepository.create({
@@ -1133,10 +1400,10 @@ export class DisposisiService {
         data: {
           id: naskahId,
           jenis: 'DI',
+          nomor: dto.ref_nomor_surat || null, // Samakan dengan Nota Dinas
           tanggal: dto.tanggal_disposisi,
           status: 'draf',
           sifat: dto.sifat,
-          ref_nomor_surat: dto.ref_nomor_surat || null,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
