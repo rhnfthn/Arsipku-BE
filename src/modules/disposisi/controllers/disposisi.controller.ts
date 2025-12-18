@@ -9,10 +9,14 @@ import {
   HttpStatus,
   BadRequestException,
   UseGuards,
+  UseInterceptors,
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { DisposisiService } from '../services/disposisi.service';
+import { CurrentUser } from '../../../common/decorators';
+import { JwtAuthGuard } from '../../../common/guards';
 import { UserLevelGuard } from '../../../common/guards';
 import { UserLevels } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
@@ -105,12 +109,31 @@ export class DisposisiController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseInterceptors(AnyFilesInterceptor())
   @Post('send-message')
   async sendMessage(
-    @Body() dto: CreateDisposisiDto,
+    @Body() body: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
-      return await this.disposisiService.sendMessage(dto);
+      // Parse lampiran_temp_ids if it's a string from form-data
+      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+        try {
+          body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
+        } catch {
+          body.lampiran_temp_ids = [body.lampiran_temp_ids];
+        }
+      }
+
+      // Parse penerima_position_ids if it's a string from form-data
+      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+        try {
+          body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
+        } catch {
+          // Keep as is
+        }
+      }
+
+      return await this.disposisiService.sendMessage(body as CreateDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -143,12 +166,31 @@ export class DisposisiController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseInterceptors(AnyFilesInterceptor())
   @Post('save-draft')
   async saveDraft(
-    @Body() dto: CreateDisposisiDto,
+    @Body() body: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
-      return await this.disposisiService.saveDraft(dto);
+      // Parse lampiran_temp_ids if it's a string from form-data
+      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+        try {
+          body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
+        } catch {
+          body.lampiran_temp_ids = [body.lampiran_temp_ids];
+        }
+      }
+
+      // Parse penerima_position_ids if it's a string from form-data
+      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+        try {
+          body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
+        } catch {
+          // Keep as is
+        }
+      }
+
+      return await this.disposisiService.saveDraft(body as CreateDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -402,6 +444,72 @@ export class DisposisiController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /DI/preview-pdf
+   * Generate preview PDF Disposisi untuk di-lihat sebelum dikirim
+   * PDF di-generate tanpa save ke database
+   * Support temporary lampiran system (lampiran_temp_ids)
+   * 
+   * @param body - { htmlContent, penerima, disposisi, sifat, pengirim, tembusan, lampiran_temp_ids }
+   * @param user - Current user dari JWT token
+   * @param res - Express Response untuk send PDF
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
+  @Post('preview-pdf')
+  async previewPdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch {
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+      }
+
+      const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
+        body.htmlContent,
+        body.penerima || [],
+        body.disposisi || [],
+        body.sifat || '',
+        body.pengirim || '',
+        body.tembusan || [],
+        lampiranTempIds,
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-disposisi.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ 
+          error: 'Failed to generate preview', 
+          detail: error instanceof Error ? error.message : String(error) 
+        });
     }
   }
 
