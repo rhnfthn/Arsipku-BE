@@ -477,30 +477,46 @@ export class NotaDinasController {
           .json({ error: 'Missing required field: htmlContent or konten' });
       }
 
-      // Format tanggal jika diperlukan
-      let formattedDate = dto.tanggal || '';
-      if (formattedDate && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(formattedDate)) {
-        const [day, month, year] = formattedDate.split('/');
-        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-        formattedDate = date.toLocaleDateString('id-ID', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
-        });
-      }
-
-      // Format "Dari"
-      const nama = user?.nama || 'User';
-      const abbreviation = dto.abbreviation || user?.abbreviation || '';
-      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
+      const namaTempat = dto.nama_tempat || 'Tangerang';
+      const tanggalInput = dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
       
-      let dariFormatted = '';
-      if (abbreviation) {
-        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
-      } else {
-        dariFormatted = `${nama} ${positionText}`;
+      let formattedDate = '';
+      try {
+        // Check if already formatted (contains month name in Indonesian)
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+          // Already formatted, just add nama_tempat if not exists
+          if (tanggalInput.includes(',')) {
+            formattedDate = tanggalInput;
+          } else {
+            formattedDate = `${namaTempat}, ${tanggalInput}`;
+          }
+        } else {
+          // Parse as date (supports: YYYY-MM-DD, DD/MM/YYYY, ISO format, etc)
+          // Add 'T00:00:00' to ensure correct parsing in local timezone
+          const dateObj = new Date(tanggalInput + 'T00:00:00');
+          
+          if (!isNaN(dateObj.getTime())) {
+            const formatted = dateObj.toLocaleDateString('id-ID', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+              timeZone: 'Asia/Jakarta'
+            });
+            formattedDate = `${namaTempat}, ${formatted}`;
+          } else {
+            // Fallback if parsing fails
+            formattedDate = `${namaTempat}, ${tanggalInput}`;
+          }
+        }
+      } catch (error) {
+        console.error('[preview-pdf] Error formatting date:', error);
+        formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
+      // Format "Dari" - hanya position_text
+      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      const dariFormatted = positionText;
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
@@ -515,14 +531,12 @@ export class NotaDinasController {
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        console.log('[preview-pdf] Converting tertuju position_ids to names:', tertujuArray);
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        console.log('[preview-pdf] Converting tembusan position_ids to names:', tembusanArray);
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
@@ -530,21 +544,15 @@ export class NotaDinasController {
       // Parse lampiran_temp_ids if provided
       let lampiranTempIds: string[] = [];
       if (body.lampiran_temp_ids) {
-        console.log('[preview-pdf] lampiran_temp_ids type:', typeof body.lampiran_temp_ids);
-        console.log('[preview-pdf] lampiran_temp_ids value:', body.lampiran_temp_ids);
-        
         if (Array.isArray(body.lampiran_temp_ids)) {
           lampiranTempIds = body.lampiran_temp_ids;
         } else if (typeof body.lampiran_temp_ids === 'string') {
           try {
             lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
           } catch (parseError) {
-            console.warn('[preview-pdf] Failed to parse lampiran_temp_ids as JSON, treating as single ID');
             lampiranTempIds = [body.lampiran_temp_ids];
           }
         }
-        
-        console.log('[preview-pdf] Parsed lampiranTempIds:', lampiranTempIds);
       }
 
       // Generate preview PDF (tanpa save ke DB)
@@ -558,6 +566,8 @@ export class NotaDinasController {
         namaLengkap,
         tembusanArray,
         lampiranTempIds,
+        dto.tgl,
+        dto.nama_tempat,
       );
 
       res.set({
@@ -617,37 +627,51 @@ export class NotaDinasController {
           .json({ error: 'Missing required field: htmlContent' });
       }
 
-      // Debug: Log user info untuk troubleshoot
-      console.log('DEBUG - User from @CurrentUser():', JSON.stringify(user, null, 2));
-      console.log('DEBUG - Lampiran files:', files?.lampiran_files?.map(f => f.originalname));
-
-      // Format tanggal jika diperlukan (DD/MM/YYYY -> full format)
-      let formattedDate = dto.tanggal || '';
-      if (formattedDate && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(formattedDate)) {
-        // Convert DD/MM/YYYY to readable format
-        const [day, month, year] = formattedDate.split('/');
-        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-        formattedDate = date.toLocaleDateString('id-ID', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
-        });
-      }
-
-      // Format "Dari" sebagai: nama (abbreviation) position_text
-      // Ambil dari user profile atau dari body jika di-override
-      const nama = user?.nama || 'User';
-      const abbreviation = dto.abbreviation || user?.abbreviation || '';
-      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
+      const namaTempat = body.nama_tempat || dto.nama_tempat || 'Tangerang';
+      const tanggalInput = body.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
       
-      // Build format "Dari": nama (abbreviation) position_text
-      let dariFormatted = '';
-      if (abbreviation) {
-        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
-      } else {
-        dariFormatted = `${nama} ${positionText}`;
+      let formattedDate = '';
+      try {
+        // Check if already formatted (contains month name)
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+          formattedDate = tanggalInput.includes(',') ? tanggalInput : `${namaTempat}, ${tanggalInput}`;
+        } else {
+          // Parse date: supports YYYY-MM-DD, DD/MM/YYYY, etc
+          let dateObj: Date;
+          
+          if (/^\d{4}-\d{2}-\d{2}$/.test(tanggalInput)) {
+            // YYYY-MM-DD format
+            dateObj = new Date(tanggalInput + 'T00:00:00');
+          } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggalInput)) {
+            // DD/MM/YYYY format
+            const [day, month, year] = tanggalInput.split('/');
+            dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          } else {
+            // Try default parsing
+            dateObj = new Date(tanggalInput);
+          }
+          
+          if (!isNaN(dateObj.getTime())) {
+            const formatted = dateObj.toLocaleDateString('id-ID', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+              timeZone: 'Asia/Jakarta'
+            });
+            formattedDate = `${namaTempat}, ${formatted}`;
+          } else {
+            formattedDate = `${namaTempat}, ${tanggalInput}`;
+          }
+        }
+      } catch (error) {
+        console.error('[generate-pdf] Error formatting date:', error);
+        formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
+      // Format "Dari" - hanya position_text
+      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
+      const dariFormatted = positionText;
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
@@ -661,23 +685,15 @@ export class NotaDinasController {
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        console.log('[generate-pdf] Converting tertuju position_ids to names:', tertujuArray);
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        console.log('[generate-pdf] Converting tembusan position_ids to names:', tembusanArray);
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
-
-      console.log('DEBUG - dariFormatted:', dariFormatted);
-      console.log('DEBUG - positionText:', positionText);
-      console.log('DEBUG - namaLengkap:', namaLengkap);
-      console.log('DEBUG - tertujuArray:', tertujuArray);
-      console.log('DEBUG - tembusanArray:', tembusanArray);
 
       // Generate PDF dengan data dynamic (legacy endpoint - still uses direct file upload)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
