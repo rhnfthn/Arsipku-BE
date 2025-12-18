@@ -5,7 +5,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, DataSource } from 'typeorm';
+import {
+  Repository,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  DataSource,
+} from 'typeorm';
 import { RelationSp } from '../../master-data/relation_sp/entities/relation_sp.entity';
 import { RelationOsc } from '../../master-data/relation_osc/entities/relation_osc.entity';
 import { RelationOa } from '../../master-data/relation_oa/entities/relation_oa.entity';
@@ -76,6 +81,23 @@ interface PositionData {
   direktorat_name: string | null;
   company: number | null;
   company_name: string | null;
+}
+
+interface OrgDataPosition {
+  position: number;
+  position_text?: string;
+
+  organization_id: number;
+  organization_parent: number | null;
+
+  level: number;
+  chief: number;
+  bod_tag?: string;
+
+  divisi_id?: number | null;
+  direktorat_id?: number | null;
+  sub_area?: number | null;
+  departType?: string | null;
 }
 
 @Injectable()
@@ -157,7 +179,10 @@ export class DisposisiService {
   /**
    * Find position data by position_id
    */
-  private findByPosition(barisData: PositionData[], position: number): PositionData | undefined {
+  private findByPosition(
+    barisData: PositionData[],
+    position: number,
+  ): PositionData | undefined {
     return barisData.find((x) => Number(x.position) === Number(position));
   }
 
@@ -165,106 +190,219 @@ export class DisposisiService {
    * Filter recipients for Disposisi:
    * Rules: Managerial ke managerial/fungsional/staf di bawahnya (langsung/tidak langsung)
    * dalam Company yang sama sampai level kedalaman tertentu
-   * 
+   *
    * Barrier Depth berdasarkan level pengirim:
    * - EVP (Level 0) → bisa ke Level 1, 2, 3 (max depth = 3)
-   * - VP (Level 1) → bisa ke Level 2, 3 (max depth = 2) 
+   * - VP (Level 1) → bisa ke Level 2, 3 (max depth = 2)
    * - Manager (Level 2) → bisa ke Level 3 (max depth = 1)
    * - Staff (Level 3) → tidak bisa kirim (bukan managerial)
-   * 
+   *
    * Logic:
    * 1. Calculate barrier depth based on sender level (3 - currentLevel)
    * 2. Get all organizations under current organization (recursive)
    * 3. Get all positions in those organizations (managerial + staff)
    * 4. Same company
    */
-  private filterByPositionDispo(
-    barisData: PositionData[],
-    positionParam: number,
-  ): PositionData[] {
-    const current = this.findByPosition(barisData, positionParam);
-    if (!current) return [];
-
-    const currentLevel = Number(current.level);
-    const currentCompany = current.company;
-    const currentOrgId = current.organization_id;
-
-    // Calculate barrier depth: 3 - currentLevel
-    // EVP (0) → 3-0 = 3 levels down
-    // VP (1) → 3-1 = 2 levels down  
-    // Manager (2) → 3-2 = 1 level down
-    // Staff (3) → 3-3 = 0 (cannot send)
-    const barrierDepth = 3 - currentLevel;
-    
-    // If barrier depth is 0 or negative, cannot send disposisi
-    if (barrierDepth <= 0) return [];
-
-    // Max level that can receive = currentLevel + barrierDepth
-    const maxLevel = currentLevel + barrierDepth; // Always ends at level 3
-
-    // Step 1: Find all child organizations recursively (up to barrierDepth)
-    const childOrgIds = new Set<number>();
-    
-    const findChildOrgs = (parentOrgId: number, depth: number) => {
-      if (depth > barrierDepth) return;
-      
-      // Find organizations where organization_parent = parentOrgId
-      const children = barisData.filter(
-        (x) => x.organization_parent === parentOrgId && x.chief === 1,
-      );
-      
-      // Get unique org IDs from children
-      const uniqueChildOrgs = new Set(children.map((c) => c.organization_id));
-      
-      uniqueChildOrgs.forEach((orgId) => {
-        if (!childOrgIds.has(orgId)) {
-          childOrgIds.add(orgId);
-          // Recursively find children of this org
-          findChildOrgs(orgId, depth + 1);
-        }
-      });
-    };
-
-    // Start from current organization
-    childOrgIds.add(currentOrgId);
-    findChildOrgs(currentOrgId, 1);
-
-    // Step 2: Get all positions in child organizations (including current org)
-    // - Same company
-    // - Level > currentLevel (bawahan)
-    // - Level <= maxLevel (barrier)
-    const recipients = barisData.filter((x) => {
-      // Must be same company
-      if (x.company !== currentCompany) return false;
-      
-      // Must be below current level (bawahan)
-      if (x.level <= currentLevel) return false;
-      
-      // Check barrier depth - cannot exceed maxLevel (level 3)
-      if (x.level > maxLevel) return false;
-      
-      // In child organizations (managerial or fungsional)
-      if (childOrgIds.has(x.organization_id)) return true;
-      
-      // Staff in same divisi
-      if (x.chief === 0 && Number(x.divisi_id) === Number(current.divisi_id)) return true;
-      
-      return false;
-    });
-
-    return recipients;
-  }
 
   /**
    * Get disposisi recipients using cached org_data
    * Returns all fields from position_json
-   * 
+   *
    * Barrier depth is automatically calculated based on sender level:
    * - Level 0 (EVP) → depth 3 (can reach level 1, 2, 3)
    * - Level 1 (VP) → depth 2 (can reach level 2, 3)
    * - Level 2 (Manager) → depth 1 (can reach level 3)
    * - Level 3 (Staff) → cannot send disposisi
    */
+
+  private buildTreeIndex(
+    data: OrgDataPosition[],
+  ): Map<number, OrgDataPosition[]> {
+    const map = new Map<number, OrgDataPosition[]>();
+
+    for (const item of data) {
+      const parentId = item.organization_parent ?? 0;
+      if (!map.has(parentId)) map.set(parentId, []);
+      map.get(parentId)!.push(item);
+    }
+
+    return map;
+  }
+
+  private isStaffAllowed(
+    staff: OrgDataPosition,
+    current: OrgDataPosition,
+  ): boolean {
+    if (staff.chief !== 0) return true;
+
+    if (current.bod_tag === 'BOD-1') {
+      return staff.divisi_id === current.divisi_id;
+    }
+
+    if (current.bod_tag === 'BOD') {
+      return staff.direktorat_id === current.direktorat_id;
+    }
+
+    return true;
+  }
+
+  private getChildTreeWithSameLevelStaff(
+    index: Map<number, OrgDataPosition[]>,
+    allData: OrgDataPosition[],
+    current: OrgDataPosition,
+  ): OrgDataPosition[] {
+    /* 1️⃣ SAME LEVEL STAFF */
+    const sameLevelStaff = allData.filter(
+      (x) =>
+        x.chief === 0 &&
+        x.position !== current.position &&
+        this.isStaffAllowed(x, current),
+    );
+
+    /* 2️⃣ CHILD TREE */
+    const visited = new Set<number>();
+
+    const getChildren = (parentId: number): OrgDataPosition[] => {
+      if (visited.has(parentId)) return [];
+      visited.add(parentId);
+
+      return (index.get(parentId) ?? []).flatMap((child) => {
+        if (
+          child.direktorat_id !== null &&
+          !['BOD', 'BOD-1'].includes(child.bod_tag ?? '') &&
+          child.direktorat_id !== current.direktorat_id
+        )
+          return [];
+        if (!this.isStaffAllowed(child, current)) return [];
+        return [child, ...getChildren(child.organization_id)];
+      });
+    };
+
+    const childTree = getChildren(current.organization_id);
+    // const childTree = [];
+    const bod1: OrgDataPosition[] =
+      current.bod_tag === 'BOD'
+        ? allData.filter(
+            (x) =>
+              x.sub_area === current.sub_area &&
+              x.chief === 1 &&
+              x.direktorat_id !== current.direktorat_id &&
+              x.bod_tag === 'BOD-1',
+          )
+        : [];
+
+    /* 3️⃣ MERGE + DEDUP */
+    const map = new Map<number, OrgDataPosition>();
+    [...sameLevelStaff, ...childTree, ...bod1].forEach((x) =>
+      map.set(x.position, x),
+    );
+
+    return this.sortOrgTree(
+      Array.from(map.values()),
+      current.direktorat_id ?? undefined,
+    );
+  }
+
+  private sortOrgTree(
+    data: OrgDataPosition[],
+    currentDirektoratId?: number,
+  ): OrgDataPosition[] {
+    const bodOrder: Record<string, number> = {
+      BOD: 0,
+      'BOD-1': 1,
+      'BOD-2': 2,
+      'BOD-3': 3,
+    };
+
+    return data.sort((a, b) => {
+      // 1️⃣ Chief dulu
+      if (a.chief !== b.chief) {
+        return b.chief - a.chief; // chief=1 di atas
+      }
+
+      // 1️⃣a Jika sama-sama chief, direktorat sama → lebih atas
+      if (
+        a.chief === 1 &&
+        b.chief === 1 &&
+        currentDirektoratId !== undefined &&
+        a.bod_tag === 'BOD-1' &&
+        b.bod_tag === 'BOD-1'
+      ) {
+        const aSameDir = a.direktorat_id === currentDirektoratId;
+        const bSameDir = b.direktorat_id === currentDirektoratId;
+
+        if (aSameDir !== bSameDir) {
+          return aSameDir ? -1 : 1;
+        }
+      }
+
+      // 2️⃣ BOD order
+      const bodA = bodOrder[a.bod_tag ?? ''] ?? 99;
+      const bodB = bodOrder[b.bod_tag ?? ''] ?? 99;
+
+      if (bodA !== bodB) {
+        return bodA - bodB;
+      }
+
+      // 3️⃣ Fallback biar konsisten
+      return Number(a.position) - Number(b.position);
+    });
+  }
+
+  private filterByPositionDispo(barisData, positionParam) {
+    // cari item current
+    const current = barisData.find(
+      (x) => Number(x.position) === Number(positionParam),
+    );
+    if (!current) return [];
+
+    const barisFilter = barisData.filter(
+      (x) => x.area === current.area,
+    );
+
+    const currentLevel = Number(current.level);
+    const bodTag = current.bod_tag;
+    const bods = ['BOD', 'BOD-1'];
+    const isBod = bodTag && bods.includes(bodTag);
+    if (isBod) {
+      const index = this.buildTreeIndex(barisFilter);
+      const children = this.getChildTreeWithSameLevelStaff(
+        index,
+        barisFilter,
+        current,
+      );
+      //general manager
+      const gm =
+        current.bod_tag === 'BOD'
+          ? barisData.filter(
+              (x) =>
+                x.chief === 1 &&
+                x.area !== current.area &&
+                x.bod_tag === 'BOD-1',
+            )
+          : [];
+      return [...children, ...gm];
+    }
+    const filtered = barisData.filter(
+      (x) =>
+        x.level === currentLevel + 1 &&
+        x.area === current.area &&
+        x.organization_parent === current.organization_id &&
+        x.chief === 1,
+    );
+
+    // get staff
+    const staffFilter = barisData.filter(
+      (x) =>
+        x.chief === 0 &&
+        Number(x.divisi_id) === Number(current.divisi_id) &&
+        x.sub_area === current.sub_area &&
+        x.divisi_id != null,
+    );
+
+    return [...filtered, ...staffFilter];
+  }
+
   async getDisposisiRecipients(
     positionId: number,
   ): Promise<DisposisiRecipientResponseDto> {
@@ -290,13 +428,13 @@ export class DisposisiService {
     // Calculate barrier depth for this sender
     const senderLevel = Number(senderData.level);
     const barrierDepth = 3 - senderLevel;
-
+    /*
     // Check if sender can send disposisi (must have barrier depth > 0)
     if (barrierDepth <= 0) {
       throw new ForbiddenException(
         `Position level ${senderLevel} tidak bisa mengirim Disposisi. Hanya level 0-2 yang bisa mengirim.`,
       );
-    }
+    }*/
 
     // Get recipients using filter logic - barrier depth based on sender level
     const recipientData = this.filterByPositionDispo(barisData, positionId);
@@ -329,7 +467,7 @@ export class DisposisiService {
   /**
    * Validate that all penerima_position_ids are valid recipients
    * based on filterByPositionDispo (only bawahan allowed)
-   * 
+   *
    * @throws ForbiddenException if any penerima is not a valid recipient
    */
   private validateRecipients(
@@ -338,8 +476,13 @@ export class DisposisiService {
     penerimaPositionIds: number[],
   ): void {
     // Get valid recipients for this sender
-    const validRecipients = this.filterByPositionDispo(barisData, pengirimPositionId);
-    const validPositionIds = new Set(validRecipients.map((r) => Number(r.position)));
+    const validRecipients = this.filterByPositionDispo(
+      barisData,
+      pengirimPositionId,
+    );
+    const validPositionIds = new Set(
+      validRecipients.map((r) => Number(r.position)),
+    );
 
     // Check each penerima
     const invalidRecipients: number[] = [];
@@ -352,7 +495,7 @@ export class DisposisiService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-        `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
+          `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
       );
     }
   }
@@ -490,7 +633,7 @@ export class DisposisiService {
 
   /**
    * Main method: Send Disposisi
-   * 
+   *
    * Alur penyimpanan sesuai relasi tabel:
    * ┌─────────────────────────────────────────────────────────────────────┐
    * │ TABEL NASKAH                                                        │
@@ -521,7 +664,9 @@ export class DisposisiService {
    * │ - jenis: 'DI'                                                       │
    * └─────────────────────────────────────────────────────────────────────┘
    */
-  async sendMessage(dto: CreateDisposisiDto): Promise<SendDisposisiResponseDto> {
+  async sendMessage(
+    dto: CreateDisposisiDto,
+  ): Promise<SendDisposisiResponseDto> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -531,7 +676,10 @@ export class DisposisiService {
       const barisData = await this.getPositionData();
 
       // PHASE 1: Validate pengirim (must be managerial)
-      const pengirimData = this.findByPosition(barisData, dto.pengirim_position_id);
+      const pengirimData = this.findByPosition(
+        barisData,
+        dto.pengirim_position_id,
+      );
       if (!pengirimData) {
         throw new NotFoundException(
           `Pengirim dengan position_id ${dto.pengirim_position_id} tidak ditemukan`,
@@ -567,7 +715,11 @@ export class DisposisiService {
       }
 
       // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-      this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
+      this.validateRecipients(
+        barisData,
+        dto.pengirim_position_id,
+        dto.penerima_position_ids,
+      );
 
       // PHASE 3: Auto-generate nomor surat untuk disposisi pertama
       const naskahId = uuidv4();
@@ -596,7 +748,9 @@ export class DisposisiService {
         perihal: dto.perihal, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: 'final',
-        lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
+        lampiran: dto.lampiran?.length
+          ? `${dto.lampiran.length} file`
+          : undefined,
       });
 
       await queryRunner.manager.save(naskah);
@@ -640,7 +794,9 @@ export class DisposisiService {
         position: String(pengirimData.position),
         positionText: pengirimData.position_text,
         positionStatus: 'ybs',
-        idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
+        idSirkuler: pengirimData.persnum_person
+          ? String(pengirimData.persnum_person)
+          : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
         isDraft: false, // sendMessage = bukan draft
       });
@@ -664,7 +820,9 @@ export class DisposisiService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false, // sendMessage = bukan draft
         });
@@ -748,7 +906,8 @@ export class DisposisiService {
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
           catatan: dto.catatan,
-          lampiran: lampiranResponses.length > 0 ? lampiranResponses : undefined,
+          lampiran:
+            lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
         },
       };
@@ -763,11 +922,11 @@ export class DisposisiService {
 
   /**
    * Save Draft - Menyimpan Disposisi sebagai draft
-   * 
+   *
    * Method ini memiliki logic yang sama dengan sendMessage,
    * tetapi dengan status 'draf' sebagai default dan
    * tidak ada validasi managerial/level.
-   * 
+   *
    * @param dto - CreateDisposisiDto
    * @returns Promise<SendDisposisiResponseDto>
    */
@@ -781,7 +940,10 @@ export class DisposisiService {
       const barisData = await this.getPositionData();
 
       // PHASE 1: Validate pengirim (no managerial check for draft)
-      const pengirimData = this.findByPosition(barisData, dto.pengirim_position_id);
+      const pengirimData = this.findByPosition(
+        barisData,
+        dto.pengirim_position_id,
+      );
       if (!pengirimData) {
         throw new NotFoundException(
           `Pengirim dengan position_id ${dto.pengirim_position_id} tidak ditemukan`,
@@ -801,7 +963,11 @@ export class DisposisiService {
       }
 
       // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-      this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
+      this.validateRecipients(
+        barisData,
+        dto.pengirim_position_id,
+        dto.penerima_position_ids,
+      );
 
       // PHASE 3: Insert naskah with status 'draf'
       const naskahId = uuidv4();
@@ -818,7 +984,9 @@ export class DisposisiService {
         perihal: dto.perihal, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: 'draf',
-        lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
+        lampiran: dto.lampiran?.length
+          ? `${dto.lampiran.length} file`
+          : undefined,
       });
 
       await queryRunner.manager.save(naskah);
@@ -862,7 +1030,9 @@ export class DisposisiService {
         position: String(pengirimData.position),
         positionText: pengirimData.position_text,
         positionStatus: 'ybs',
-        idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
+        idSirkuler: pengirimData.persnum_person
+          ? String(pengirimData.persnum_person)
+          : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
         isDraft: true, // saveDraft = draft
       });
@@ -886,7 +1056,9 @@ export class DisposisiService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true, // saveDraft = draft
         });
@@ -970,7 +1142,8 @@ export class DisposisiService {
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
           catatan: dto.catatan,
-          lampiran: lampiranResponses.length > 0 ? lampiranResponses : undefined,
+          lampiran:
+            lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
         },
       };
@@ -985,10 +1158,10 @@ export class DisposisiService {
 
   /**
    * Get Send Message - Mendapatkan semua pesan DI yang sudah dikirimkan oleh user
-   * 
+   *
    * @param positionId - Position ID pengirim
    * @returns GetSendMessageResponseDto
-   * 
+   *
    * Query:
    * 1. Cari di naskah_sirkulasi dimana sirkuler='pengirim' dan position=positionId
    * 2. Join ke naskah untuk dapat detail naskah
@@ -1121,17 +1294,17 @@ export class DisposisiService {
 
   /**
    * Update Message Status - Update status pesan menjadi terbaca
-   * 
+   *
    * Kondisi: Ketika user berhasil mengirimkan pesan namun penerima belum membaca
-   * 
+   *
    * Deskripsi: Untuk update status pesan menjadi terbaca atau tidak.
    * - Default nota saat dikirimkan adalah tidak (send_read_time = NULL)
    * - Jika penerima membuka pesan maka otomatis status sudah terupdate
-   * 
+   *
    * Update field di naskah_sirkulasi:
    * - send_read_time: waktu baca
    * - send_read_user: user yang membaca
-   * 
+   *
    * @param dto - UpdateMessageStatusDto
    * @returns UpdateMessageStatusResponseDto
    */
@@ -1203,7 +1376,7 @@ export class DisposisiService {
    * 5. Update naskah_sirkulasi penerima (hapus lama, insert baru)
    * 6. Update naskah_lampiran (hapus lama, insert baru)
    * 7. Jika action = 'kirim', ubah status jadi 'final'
-   * 
+   *
    * @param naskahId - ID Naskah dari path parameter
    * @param dto - UpdateDraftDisposisiDto
    */
@@ -1217,7 +1390,9 @@ export class DisposisiService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
@@ -1241,10 +1416,14 @@ export class DisposisiService {
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
+      throw new NotFoundException(
+        `Data pengirim tidak ditemukan untuk naskah ${naskahId}`,
+      );
     }
 
-    if (String(pengirimSirkulasi.position) !== String(dto.pengirim_position_id)) {
+    if (
+      String(pengirimSirkulasi.position) !== String(dto.pengirim_position_id)
+    ) {
       throw new ForbiddenException(
         `Anda tidak memiliki akses untuk mengupdate naskah ini. Hanya pengirim asli yang bisa mengupdate.`,
       );
@@ -1252,7 +1431,7 @@ export class DisposisiService {
 
     // Get org data untuk validasi penerima baru dan mendapatkan positionAbbreviation
     const barisData = await this.getPositionData();
-    
+
     // Get pengirim data untuk position_abbreviation
     const pengirimData = barisData.find(
       (item) => String(item.position) === String(dto.pengirim_position_id),
@@ -1279,19 +1458,21 @@ export class DisposisiService {
         naskah.konten = dto.disposisi; // Simpan disposisi ke kolom konten
       }
       if (dto.lampiran) {
-        naskah.lampiran = dto.lampiran.length > 0 ? `${dto.lampiran.length} file` : '';
+        naskah.lampiran =
+          dto.lampiran.length > 0 ? `${dto.lampiran.length} file` : '';
       }
       if (dto.perihal) {
         naskah.perihal = dto.perihal; // Perihal masuk ke naskah
       }
-      
+
       // Auto-generate nomor surat saat sendDraft (action='kirim')
       if (!isDraft) {
         // Generate nomor otomatis saat kirim
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'DI',
           positionText: pengirimSirkulasi.positionText || '',
-          positionAbbreviation: pengirimData?.position_abbreviation || undefined,
+          positionAbbreviation:
+            pengirimData?.position_abbreviation || undefined,
           areaText: pengirimSirkulasi.areaText || 'Pusat',
           tanggal: naskah.tanggal || new Date(),
         });
@@ -1335,7 +1516,11 @@ export class DisposisiService {
       // PHASE 5: Update penerima (jika ada perubahan)
       if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
         // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-        this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
+        this.validateRecipients(
+          barisData,
+          dto.pengirim_position_id,
+          dto.penerima_position_ids,
+        );
 
         // Validasi semua penerima baru
         const penerimaDataList: PositionData[] = [];
@@ -1372,7 +1557,9 @@ export class DisposisiService {
             position: String(penerima.position),
             positionText: penerima.position_text,
             positionStatus: 'ybs',
-            idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+            idSirkuler: penerima.persnum_person
+              ? String(penerima.persnum_person)
+              : '',
             namaSirkuler: penerima.persnum_person_text || '',
             isDraft: isDraft, // isDraft based on action
           });
@@ -1387,9 +1574,12 @@ export class DisposisiService {
           { idNaskah: naskahId, sirkuler: 'pengirim' },
           { isDraft: false },
         );
-        
+
         // Jika penerima tidak diupdate, update isDraft pada penerima yang sudah ada
-        if (!dto.penerima_position_ids || dto.penerima_position_ids.length === 0) {
+        if (
+          !dto.penerima_position_ids ||
+          dto.penerima_position_ids.length === 0
+        ) {
           await queryRunner.manager.update(
             NaskahSirkulasi,
             { idNaskah: naskahId, sirkuler: 'penerima' },
@@ -1440,17 +1630,23 @@ export class DisposisiService {
           // Update data yang ada
           if (dto.kop_logo !== undefined) existingDi.kopLogo = dto.kop_logo;
           if (dto.kop_judul !== undefined) existingDi.kopJudul = dto.kop_judul;
-          if (dto.nama_jabatan !== undefined) existingDi.namaJabatan = dto.nama_jabatan;
-          if (dto.nomor_agenda !== undefined) existingDi.nomorAgenda = dto.nomor_agenda;
-          if (dto.tanggal_agenda !== undefined) existingDi.tanggalAgenda = new Date(dto.tanggal_agenda);
-          if (dto.surat_dari !== undefined) existingDi.suratDari = dto.surat_dari;
-          if (dto.klasifikasi !== undefined) existingDi.klasifikasi = dto.klasifikasi;
+          if (dto.nama_jabatan !== undefined)
+            existingDi.namaJabatan = dto.nama_jabatan;
+          if (dto.nomor_agenda !== undefined)
+            existingDi.nomorAgenda = dto.nomor_agenda;
+          if (dto.tanggal_agenda !== undefined)
+            existingDi.tanggalAgenda = new Date(dto.tanggal_agenda);
+          if (dto.surat_dari !== undefined)
+            existingDi.suratDari = dto.surat_dari;
+          if (dto.klasifikasi !== undefined)
+            existingDi.klasifikasi = dto.klasifikasi;
           if (dto.disposisi !== undefined) existingDi.disposisi = dto.disposisi;
           if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
           if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
 
           // Update juga dari dto lainnya jika ada
-          if (dto.tanggal_disposisi) existingDi.tanggal = new Date(dto.tanggal_disposisi);
+          if (dto.tanggal_disposisi)
+            existingDi.tanggal = new Date(dto.tanggal_disposisi);
           if (dto.ref_nomor_surat) existingDi.nomor = dto.ref_nomor_surat;
           if (dto.perihal) existingDi.perihal = dto.perihal;
 
@@ -1463,9 +1659,13 @@ export class DisposisiService {
             kopJudul: dto.kop_judul || '',
             namaJabatan: dto.nama_jabatan || '',
             nomorAgenda: dto.nomor_agenda || '',
-            tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
+            tanggalAgenda: dto.tanggal_agenda
+              ? new Date(dto.tanggal_agenda)
+              : null,
             suratDari: dto.surat_dari || '',
-            tanggal: dto.tanggal_disposisi ? new Date(dto.tanggal_disposisi) : naskah.tanggal || null,
+            tanggal: dto.tanggal_disposisi
+              ? new Date(dto.tanggal_disposisi)
+              : naskah.tanggal || null,
             nomor: dto.ref_nomor_surat || '',
             perihal: dto.perihal || '',
             klasifikasi: dto.klasifikasi || '',
@@ -1496,8 +1696,12 @@ export class DisposisiService {
       where: { idNaskah: naskahId },
     });
 
-    const pengirimDataResult = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
-    const penerimaDataResult = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
+    const pengirimDataResult = allSirkulasi.find(
+      (s) => s.sirkuler === 'pengirim',
+    );
+    const penerimaDataResult = allSirkulasi.filter(
+      (s) => s.sirkuler === 'penerima',
+    );
 
     // Get lampiran
     const lampiranData = await this.naskahLampiranRepository.find({
@@ -1631,21 +1835,23 @@ export class DisposisiService {
     return {
       success: result.success,
       message: 'Draft disposisi berhasil dikirim',
-      data: result.data ? {
-        id: result.data.id,
-        jenis: result.data.jenis,
-        nomor: result.data.nomor || '',
-        tanggal: result.data.tanggal,
-        status: 'final' as const,
-        sifat: result.data.sifat,
-        perihal: result.data.perihal,
-        pengirim: result.data.pengirim,
-        penerima: result.data.penerima,
-        disposisi: result.data.disposisi,
-        catatan: result.data.catatan,
-        lampiran: result.data.lampiran,
-        id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
-      } : undefined,
+      data: result.data
+        ? {
+            id: result.data.id,
+            jenis: result.data.jenis,
+            nomor: result.data.nomor || '',
+            tanggal: result.data.tanggal,
+            status: 'final' as const,
+            sifat: result.data.sifat,
+            perihal: result.data.perihal,
+            pengirim: result.data.pengirim,
+            penerima: result.data.penerima,
+            disposisi: result.data.disposisi,
+            catatan: result.data.catatan,
+            lampiran: result.data.lampiran,
+            id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
+          }
+        : undefined,
     };
   }
 
@@ -1655,18 +1861,20 @@ export class DisposisiService {
 
   /**
    * Forward Disposisi - Meneruskan disposisi yang diterima ke bawahan
-   * 
+   *
    * Flow:
    * 1. Validasi user adalah penerima dari naskah yang akan di-forward
    * 2. Validasi user adalah managerial (bisa kirim disposisi)
    * 3. Validasi penerima baru adalah bawahan valid
    * 4. Buat naskah baru dengan referensi ke naskah sebelumnya
    * 5. Insert ke naskah_referensi dengan data dari naskah yang diterima
-   * 
+   *
    * @param dto - ForwardDisposisiDto
    * @returns ForwardDisposisiResponseDto
    */
-  async forwardDisposisi(dto: ForwardDisposisiDto): Promise<ForwardDisposisiResponseDto> {
+  async forwardDisposisi(
+    dto: ForwardDisposisiDto,
+  ): Promise<ForwardDisposisiResponseDto> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1701,13 +1909,16 @@ export class DisposisiService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim_position_id} bukan penerima dari naskah ${dto.id_naskah_diterima}. ` +
-          `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
+            `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
         );
       }
 
       // PHASE 3: Get position data dan validasi pengirim adalah managerial
       const barisData = await this.getPositionData();
-      const pengirimData = this.findByPosition(barisData, dto.pengirim_position_id);
+      const pengirimData = this.findByPosition(
+        barisData,
+        dto.pengirim_position_id,
+      );
 
       if (!pengirimData) {
         throw new NotFoundException(
@@ -1743,12 +1954,16 @@ export class DisposisiService {
       }
 
       // Validate recipients (hanya bawahan valid)
-      this.validateRecipients(barisData, dto.pengirim_position_id, dto.penerima_position_ids);
+      this.validateRecipients(
+        barisData,
+        dto.pengirim_position_id,
+        dto.penerima_position_ids,
+      );
 
       // PHASE 5: Auto-generate nomor surat untuk forward disposisi
       const naskahId = uuidv4();
       const tanggalDisposisi = new Date(dto.tanggal_disposisi);
-      
+
       // Generate nomor surat baru untuk disposisi lanjutan
       const generatedNomor = await this.nomorSuratService.generateNomor({
         jenis: 'DI',
@@ -1770,7 +1985,9 @@ export class DisposisiService {
         perihal: perihal,
         konten: dto.disposisi || undefined,
         status: 'final',
-        lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
+        lampiran: dto.lampiran?.length
+          ? `${dto.lampiran.length} file`
+          : undefined,
       });
 
       await queryRunner.manager.save(naskah);
@@ -1803,7 +2020,9 @@ export class DisposisiService {
         position: String(pengirimData.position),
         positionText: pengirimData.position_text,
         positionStatus: 'ybs',
-        idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
+        idSirkuler: pengirimData.persnum_person
+          ? String(pengirimData.persnum_person)
+          : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
         isDraft: false,
       });
@@ -1827,7 +2046,9 @@ export class DisposisiService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
         });
@@ -1910,7 +2131,8 @@ export class DisposisiService {
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
           catatan: dto.catatan,
-          lampiran: lampiranResponses.length > 0 ? lampiranResponses : undefined,
+          lampiran:
+            lampiranResponses.length > 0 ? lampiranResponses : undefined,
           referensi: {
             id_naskah: dto.id_naskah_diterima,
             nomor: naskahDiterima.nomor, // ref_nomor dari naskah sebelumnya
