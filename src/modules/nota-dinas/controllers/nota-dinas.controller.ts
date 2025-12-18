@@ -514,18 +514,9 @@ export class NotaDinasController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      // Format "Dari"
-      const nama = user?.nama || 'User';
-      const abbreviation = dto.abbreviation || user?.abbreviation || '';
+      // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
-      
-      let dariFormatted = '';
-      if (abbreviation) {
-        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
-      } else {
-        dariFormatted = `${nama} ${positionText}`;
-      }
-
+      const dariFormatted = positionText;
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
@@ -678,20 +669,9 @@ export class NotaDinasController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      // Format "Dari" sebagai: nama (abbreviation) position_text
-      // Ambil dari user profile atau dari body jika di-override
-      const nama = user?.nama || 'User';
-      const abbreviation = dto.abbreviation || user?.abbreviation || '';
+      // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
-      
-      // Build format "Dari": nama (abbreviation) position_text
-      let dariFormatted = '';
-      if (abbreviation) {
-        dariFormatted = `${nama} (${abbreviation}) ${positionText}`;
-      } else {
-        dariFormatted = `${nama} ${positionText}`;
-      }
-
+      const dariFormatted = positionText;
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
