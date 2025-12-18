@@ -17,6 +17,10 @@ import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../shared/entities/naskah_referensi.entity';
+import { NomorEntity } from '../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../nomor/entities/jenis.entity';
 
 // External Dependencies
 import { Person } from '../master-data/person/entities/person.entity';
@@ -36,6 +40,10 @@ import { StorageModule } from '../storage/storage.module';
       NaskahSirkulasi,
       NaskahLampiranEntity,
       NaskahReferensiEntity,
+      NomorEntity,
+      NomorRequestEntity,
+      NomorRequestDetailEntity,
+      JenisEntity,
       Person,
       RelationSp,
       RelationOsc,
