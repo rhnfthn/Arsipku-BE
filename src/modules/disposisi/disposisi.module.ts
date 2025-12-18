@@ -26,6 +26,7 @@ import { RelationOa } from '../master-data/relation_oa/entities/relation_oa.enti
 import { OmPosition } from '../master-data/position/entities/om-position.entity';
 import { OmAreaSub } from '../master-data/areasub/entities/om-areasub.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       OmAreaSub,
     ]),
     OrgDataModule,
+    StorageModule,
   ],
   controllers: [DisposisiController],
   providers: [DisposisiService, NomorSuratService, GeneratePdfDispoService],
