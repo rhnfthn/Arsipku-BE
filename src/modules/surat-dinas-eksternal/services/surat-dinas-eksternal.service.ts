@@ -6,6 +6,10 @@ import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { SdiSdeEntity } from '../entities/sdi_sde.entity';
+import { NomorEntity } from '../../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import {
   SdeRecipientResponseDto,
   EksternalRecipientDto,
@@ -35,6 +39,14 @@ export class SuratDinasEksternalService {
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     @InjectRepository(SdiSdeEntity)
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
+    @InjectRepository(NomorEntity)
+    private readonly nomorRepository: Repository<NomorEntity>,
+    @InjectRepository(NomorRequestEntity)
+    private readonly nomorRequestRepository: Repository<NomorRequestEntity>,
+    @InjectRepository(NomorRequestDetailEntity)
+    private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
+    @InjectRepository(JenisEntity)
+    private readonly jenisRepository: Repository<JenisEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
@@ -43,6 +55,157 @@ export class SuratDinasEksternalService {
   // ============================================================
   // HELPER METHODS
   // ============================================================
+
+  /**
+   * Helper: Convert bulan ke Romawi
+   */
+  private getBulanRomawi(bulan: number): string {
+    const mapping: Record<number, string> = {
+      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
+      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+    };
+    return mapping[bulan] || 'I';
+  }
+
+  /**
+   * Helper: Extract last 2 characters dari area code
+   */
+  private extractAreaCode(area: string | null | undefined): string {
+    if (!area) return '';
+    if (area.length >= 2) {
+      return area.slice(-2);
+    }
+    return area.padStart(2, '0');
+  }
+
+  /**
+   * Helper: Generate nomor SDE dengan integrasi ke nomor_request dan nomor_request_detail
+   * Menggunakan format dari tabel jenis dan update counter di tabel nomor
+   * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
+   * SDE menggunakan area-based counter (sama seperti SDI)
+   * 
+   * @param pengirim - Data pengirim dari org_data
+   * @param klasifikasi - Kode klasifikasi arsip
+   * @param perihal - Perihal surat
+   * @param tanggal - Tanggal surat
+   * @param queryRunner - Query runner untuk transaction
+   * @returns Nomor surat yang sudah di-generate
+   */
+  private async generateNomorWithIntegration(
+    pengirim: SdeOrgDataPositionDto,
+    klasifikasi: string,
+    perihal: string,
+    tanggal: Date,
+    queryRunner: any,
+  ): Promise<string> {
+    const jenis = 'SDE';
+    const tahun = tanggal.getFullYear();
+    const bulan = tanggal.getMonth() + 1;
+
+    // 1. Ambil format penomoran dari tabel jenis
+    const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+      where: { jenis },
+    });
+
+    if (!jenisData || !jenisData.formatPenomoran) {
+      throw new BadRequestException(
+        `Format penomoran untuk jenis ${jenis} tidak ditemukan`,
+      );
+    }
+
+    // 2. Create nomor_request
+    const requestId = uuidv4();
+    const nomorRequest = this.nomorRequestRepository.create({
+      id: requestId,
+      company: String(COMPANY_ID),
+      area: pengirim.area || null,
+      subArea: String(pengirim.sub_area || ''),
+      organization: String(pengirim.organization_id || ''),
+      position: String(pengirim.position),
+      tanggal: tanggal,
+      jenis: jenis,
+      klasifikasi: klasifikasi || null,
+      perihal: perihal,
+      jumlah: 1,
+      penandatangan: pengirim.persnum_person_text || null,
+      idPositionPenandatangan: pengirim.position || null,
+    });
+
+    await queryRunner.manager.save(nomorRequest);
+
+    // 3. Query nomor terakhir dengan locking (SDE menggunakan Company + Area, seperti SDI)
+    const nomorRecord = await queryRunner.manager
+      .createQueryBuilder(NomorEntity, 'n')
+      .where('n.tahun = :tahun', { tahun })
+      .andWhere('n.jenis = :jenis', { jenis })
+      .andWhere('n.company = :company', { company: nomorRequest.company })
+      .andWhere('n.area = :area', { area: nomorRequest.area })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    // 4. Generate nomor urut baru
+    let noUrut = 1;
+    if (nomorRecord && nomorRecord.nomor) {
+      noUrut = nomorRecord.nomor + 1;
+    }
+
+    // 5. Generate nomor lengkap dari format (dibaca dari tabel jenis)
+    const noUrutFormatted = noUrut.toString().padStart(3, '0');
+    const bulanRomawi = this.getBulanRomawi(bulan);
+    const jabatanCode = pengirim.position_abbreviation || '';
+    const lokasiCode = this.extractAreaCode(pengirim.area);
+    const instansi = 'LPPNPI'; // Default instansi
+
+    let nomorLengkap = jenisData.formatPenomoran
+      .replace(/{TIPE}/g, jenis)
+      .replace(/{NO_URUT}/g, noUrutFormatted)
+      .replace(/{INSTANSI}/g, instansi)
+      .replace(/{JABATAN}/g, jabatanCode)
+      .replace(/{LOKASI}/g, lokasiCode)
+      .replace(/{KLASIFIKASI}/g, klasifikasi || '')
+      .replace(/{BULAN}/g, bulanRomawi)
+      .replace(/{TAHUN}/g, tahun.toString());
+
+    // Clean up extra spaces
+    nomorLengkap = nomorLengkap
+      .replace(/\/\s+/g, '/')
+      .replace(/\s+\//g, '/')
+      .replace(/\/\//g, '/')
+      .trim();
+
+    // 6. Insert atau update nomor di tabel nomor
+    if (nomorRecord) {
+      nomorRecord.nomor = noUrut;
+      await queryRunner.manager.save(nomorRecord);
+    } else {
+      const newNomor = this.nomorRepository.create({
+        id: uuidv4(),
+        company: nomorRequest.company,
+        area: nomorRequest.area,
+        subArea: nomorRequest.subArea,
+        organization: nomorRequest.organization,
+        position: nomorRequest.position,
+        tahun: tahun,
+        jenis: jenis,
+        nomor: noUrut,
+      });
+      await queryRunner.manager.save(newNomor);
+    }
+
+    // 7. Insert nomor_request_detail dengan status 'terpakai'
+    const nomorRequestDetail = this.nomorRequestDetailRepository.create({
+      id: uuidv4(),
+      idRequest: requestId,
+      nomor: nomorLengkap,
+      fileName: null,
+      fileText: null,
+      status: 'terpakai',
+    });
+
+    await queryRunner.manager.save(nomorRequestDetail);
+
+    return nomorLengkap;
+  }
 
   /**
    * Helper: Convert SdeOrgDataPositionDto to SdeSirkulasiInfoDto
@@ -263,18 +426,21 @@ export class SuratDinasEksternalService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let nomorSurat: string;
+
     try {
       // PHASE 4: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
-      const nomorSurat = status === 'draf' 
-        ? `DRAFT-${Date.now()}` 
-        : (await this.nomorSuratService.generateNomor({
-            jenis: 'SDE',
-            positionText: pengirim.position_text || '',
-            positionAbbreviation: pengirim.position_abbreviation || undefined,
-            areaText: pengirim.area_text || 'Pusat',
-            tanggal: new Date(),
-            klasifikasi: dto.klasifikasi,
-          })).nomor;
+      if (status === 'draf') {
+        nomorSurat = `DRAFT-${Date.now()}`;
+      } else {
+        nomorSurat = await this.generateNomorWithIntegration(
+          pengirim,
+          dto.klasifikasi,
+          dto.perihal,
+          new Date(),
+          queryRunner
+        );
+      }
 
       // PHASE 5: Insert naskah
       const naskahId = uuidv4();
@@ -711,18 +877,6 @@ export class SuratDinasEksternalService {
       }
     }
 
-    // Generate nomor surat resmi
-    const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
-    const generatedNomor = await this.nomorSuratService.generateNomor({
-      jenis: 'SDE',
-      positionText: finalPengirimPosition?.position_text || '',
-      positionAbbreviation: finalPengirimPosition?.position_abbreviation || undefined,
-      areaText: finalPengirimPosition?.area_text || 'Pusat',
-      tanggal: new Date(),
-      klasifikasi: klasifikasi,
-    });
-    const nomorSurat = generatedNomor.nomor;
-
     // PHASE 5: Determine new status
     const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
 
@@ -731,7 +885,20 @@ export class SuratDinasEksternalService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let nomorSurat: string;
+
     try {
+      // Generate nomor surat resmi with integrated numbering (inside transaction)
+      const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
+      const perihal = dto.perihal ?? naskah.perihal ?? '';
+      nomorSurat = await this.generateNomorWithIntegration(
+        finalPengirimPosition as SdeOrgDataPositionDto,
+        klasifikasi,
+        perihal,
+        new Date(),
+        queryRunner
+      );
+
       // PHASE 6: Update naskah table (all fields + finalization fields)
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
