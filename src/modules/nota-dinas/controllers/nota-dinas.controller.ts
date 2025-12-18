@@ -504,7 +504,22 @@ export class NotaDinasController {
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
-      const tertujuArray = dto.tertuju || dto.penerima || [];
+      let tertujuArray = dto.tertuju || dto.penerima || [];
+      
+      // Check if tertuju/tembusan are position_ids (numbers) and convert to names
+      // FE might send array of position_ids instead of names
+      if (tertujuArray.length > 0 && typeof tertujuArray[0] === 'number') {
+        console.log('[preview-pdf] Converting tertuju position_ids to names:', tertujuArray);
+        const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
+        tertujuArray = tertujuNames;
+      }
+
+      let tembusanArray = dto.tembusan || [];
+      if (tembusanArray.length > 0 && typeof tembusanArray[0] === 'number') {
+        console.log('[preview-pdf] Converting tembusan position_ids to names:', tembusanArray);
+        const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
+        tembusanArray = tembusanNames;
+      }
 
       // Parse lampiran_temp_ids if provided
       let lampiranTempIds: string[] = [];
@@ -535,7 +550,7 @@ export class NotaDinasController {
         formattedDate,
         positionText,
         namaLengkap,
-        dto.tembusan || [],
+        tembusanArray,
         lampiranTempIds,
       );
 
@@ -630,12 +645,27 @@ export class NotaDinasController {
       const namaLengkap = user?.nama || 'User';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
-      const tertujuArray = dto.tertuju || dto.penerima || [];
+      let tertujuArray = dto.tertuju || dto.penerima || [];
+
+      // Check if tertuju/tembusan are position_ids (numbers) and convert to names
+      if (tertujuArray.length > 0 && typeof tertujuArray[0] === 'number') {
+        console.log('[generate-pdf] Converting tertuju position_ids to names:', tertujuArray);
+        const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
+        tertujuArray = tertujuNames;
+      }
+
+      let tembusanArray = dto.tembusan || [];
+      if (tembusanArray.length > 0 && typeof tembusanArray[0] === 'number') {
+        console.log('[generate-pdf] Converting tembusan position_ids to names:', tembusanArray);
+        const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
+        tembusanArray = tembusanNames;
+      }
 
       console.log('DEBUG - dariFormatted:', dariFormatted);
       console.log('DEBUG - positionText:', positionText);
       console.log('DEBUG - namaLengkap:', namaLengkap);
       console.log('DEBUG - tertujuArray:', tertujuArray);
+      console.log('DEBUG - tembusanArray:', tembusanArray);
 
       // Generate PDF dengan data dynamic (legacy endpoint - still uses direct file upload)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
@@ -646,7 +676,7 @@ export class NotaDinasController {
         formattedDate,
         positionText,
         namaLengkap,
-        dto.tembusan || [],
+        tembusanArray,
         files?.lampiran_files, // Legacy: still accepts direct file upload
       );
 
