@@ -506,16 +506,22 @@ export class NotaDinasController {
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
       
-      // Check if tertuju/tembusan are position_ids (numbers) and convert to names
-      // FE might send array of position_ids instead of names
-      if (tertujuArray.length > 0 && typeof tertujuArray[0] === 'number') {
+      // Check if tertuju/tembusan are position_ids and convert to names
+      // FE sends form-data, so values are strings. Check if string is numeric (position_id)
+      const isPositionId = (value: any): boolean => {
+        // Check if it's a number OR a numeric string (from form-data)
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         console.log('[preview-pdf] Converting tertuju position_ids to names:', tertujuArray);
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
-      if (tembusanArray.length > 0 && typeof tembusanArray[0] === 'number') {
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         console.log('[preview-pdf] Converting tembusan position_ids to names:', tembusanArray);
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
@@ -647,15 +653,21 @@ export class NotaDinasController {
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
 
-      // Check if tertuju/tembusan are position_ids (numbers) and convert to names
-      if (tertujuArray.length > 0 && typeof tertujuArray[0] === 'number') {
+      // Check if tertuju/tembusan are position_ids and convert to names
+      // FE sends form-data, so values are strings. Check if string is numeric (position_id)
+      const isPositionId = (value: any): boolean => {
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         console.log('[generate-pdf] Converting tertuju position_ids to names:', tertujuArray);
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
-      if (tembusanArray.length > 0 && typeof tembusanArray[0] === 'number') {
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         console.log('[generate-pdf] Converting tembusan position_ids to names:', tembusanArray);
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
