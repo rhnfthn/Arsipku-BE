@@ -222,7 +222,9 @@ export class NaskahSirkulasiService {
         s.id_sirkuler as penerima_persnum,
         s.nama_sirkuler as penerima_nama,
         s.position_text as penerima_position_text,
-        s.organization_text as penerima_organization_text
+        s.organization_text as penerima_organization_text,
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
@@ -295,6 +297,8 @@ export class NaskahSirkulasiService {
       is_favorit: row.flag_favorit === 1,
       is_arsip: row.flag_arsip === 1,
       is_note: row.flag_note === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }));
 
     // Get summary counts
@@ -389,7 +393,9 @@ export class NaskahSirkulasiService {
         s.position as pengirim_position_id,
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
-        s.nama_sirkuler as pengirim_nama
+        s.nama_sirkuler as pengirim_nama,
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
@@ -483,6 +489,8 @@ export class NaskahSirkulasiService {
           terbaca,
           belum_terbaca: belumTerbaca,
         },
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       });
     }
 

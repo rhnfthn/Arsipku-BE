@@ -1,4 +1,4 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('naskah_sirkulasi')
 export class NaskahSirkulasi {
@@ -91,4 +91,10 @@ export class NaskahSirkulasi {
 
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }
