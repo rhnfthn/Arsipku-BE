@@ -6,6 +6,7 @@ import { NdEntity } from './entities/nd.entity';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
+import { UploadTemporaryController } from './controllers/upload-temporary.controller';
 import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
@@ -25,7 +26,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
     StorageModule,
     GeneratePdfModule,
   ],
-  controllers: [NotaDinasController],
+  controllers: [NotaDinasController, UploadTemporaryController],
   providers: [NotaDinasService, NomorSuratService],
   exports: [NotaDinasService],
 })
