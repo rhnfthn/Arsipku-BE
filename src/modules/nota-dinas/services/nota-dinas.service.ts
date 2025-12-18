@@ -482,6 +482,8 @@ export class NotaDinasService {
     namaLengkap: string,
     tembusan: string[] = [],
     lampiranData?: string[] | Express.Multer.File[],
+    tgl?: string,
+    nama_tempat?: string,
   ): Promise<Buffer> {
     try {
       // Smart detection: is htmlContent already base64 or plain text?
@@ -519,6 +521,8 @@ export class NotaDinasService {
         positionText: positionText,
         namaLengkap: namaLengkap,
         tembusan: tembusan,
+        tgl: tgl,
+        nama_tempat: nama_tempat,
       };
 
       let pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
