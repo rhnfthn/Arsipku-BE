@@ -74,6 +74,10 @@ export class InboxItemDto {
   is_favorit: boolean;
   is_arsip: boolean;
   is_note: boolean;
+  
+  // Timestamps
+  created_at: Date;
+  updated_at: Date;
 }
 
 /**
