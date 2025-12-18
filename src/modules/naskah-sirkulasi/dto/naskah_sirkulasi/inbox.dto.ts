@@ -49,7 +49,7 @@ export class InboxItemDto {
     nama: string;
   };
 
-  // Info Penerima (data user yang menerima)
+  // Info Penerima (data user yang menerima - current user)
   penerima: {
     position_id: string;
     persnum: number;
@@ -57,6 +57,14 @@ export class InboxItemDto {
     position_text: string;
     organization_text: string;
   };
+
+  // Kepada - Semua penerima yang dituju oleh pengirim (termasuk current user)
+  kepada: Array<{
+    position_id: string;
+    nama: string;
+    position_text: string;
+    organization_text: string;
+  }>;
   
   // Status Baca
   status_baca: 'terbaca' | 'belum_terbaca';
