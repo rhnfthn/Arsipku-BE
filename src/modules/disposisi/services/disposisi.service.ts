@@ -17,6 +17,10 @@ import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entit
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../../shared/entities/naskah_referensi.entity';
 import { DiEntity } from '../entities/di.entity';
+import { NomorEntity } from '../../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import { DisposisiRecipientResponseDto } from '../dto/disposisi-recipient-response.dto';
 import { CreateDisposisiDto } from '../dto/create-disposisi.dto';
 import {
@@ -123,12 +127,181 @@ export class DisposisiService {
     private readonly naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     @InjectRepository(DiEntity)
     private readonly diRepository: Repository<DiEntity>,
+    @InjectRepository(NomorEntity)
+    private readonly nomorRepository: Repository<NomorEntity>,
+    @InjectRepository(NomorRequestEntity)
+    private readonly nomorRequestRepository: Repository<NomorRequestEntity>,
+    @InjectRepository(NomorRequestDetailEntity)
+    private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
+    @InjectRepository(JenisEntity)
+    private readonly jenisRepository: Repository<JenisEntity>,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly generatePdfDispoService: GeneratePdfDispoService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
   ) {}
+
+  // ============================================================
+  // HELPER METHODS FOR NUMBERING
+  // ============================================================
+
+  /**
+   * Helper: Convert bulan ke Romawi
+   */
+  private getBulanRomawi(bulan: number): string {
+    const mapping: Record<number, string> = {
+      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
+      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+    };
+    return mapping[bulan] || 'I';
+  }
+
+  /**
+   * Helper: Extract last 2 characters dari area code
+   */
+  private extractAreaCode(area: string | null | undefined): string {
+    if (!area) return '';
+    if (area.length >= 2) {
+      return area.slice(-2);
+    }
+    return area.padStart(2, '0');
+  }
+
+  /**
+   * Helper: Generate nomor DI dengan integrasi ke nomor_request dan nomor_request_detail
+   * Menggunakan format dari tabel jenis dan update counter di tabel nomor
+   * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
+   * DI menggunakan position-based counter (sama seperti ND)
+   * 
+   * @param pengirim - Data pengirim dari org_data/position_json
+   * @param perihal - Perihal disposisi
+   * @param tanggal - Tanggal disposisi
+   * @param queryRunner - Query runner untuk transaction
+   * @returns Nomor disposisi yang sudah di-generate
+   */
+  private async generateNomorWithIntegration(
+    pengirim: PositionData,
+    perihal: string,
+    tanggal: Date,
+    queryRunner: any,
+  ): Promise<string> {
+    const jenis = 'DI';
+    const tahun = tanggal.getFullYear();
+    const bulan = tanggal.getMonth() + 1;
+
+    // 1. Ambil format penomoran dari tabel jenis
+    const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+      where: { jenis },
+    });
+
+    if (!jenisData || !jenisData.formatPenomoran) {
+      throw new BadRequestException(
+        `Format penomoran untuk jenis ${jenis} tidak ditemukan`,
+      );
+    }
+
+    // 2. Create nomor_request
+    const requestId = uuidv4();
+    const nomorRequest = this.nomorRequestRepository.create({
+      id: requestId,
+      company: String(pengirim.company || COMPANY_ID),
+      area: pengirim.area || null,
+      subArea: String(pengirim.sub_area || ''),
+      organization: String(pengirim.organization_id || ''),
+      position: String(pengirim.position),
+      tanggal: tanggal,
+      jenis: jenis,
+      klasifikasi: null, // DI tidak memiliki klasifikasi
+      perihal: perihal,
+      jumlah: 1,
+      penandatangan: pengirim.persnum_person_text || null,
+      idPositionPenandatangan: pengirim.position || null,
+    });
+
+    await queryRunner.manager.save(nomorRequest);
+
+    // 3. Query nomor terakhir dengan locking (DI menggunakan Company + Position, seperti ND)
+    const nomorRecord = await queryRunner.manager
+      .createQueryBuilder(NomorEntity, 'n')
+      .where('n.tahun = :tahun', { tahun })
+      .andWhere('n.jenis = :jenis', { jenis })
+      .andWhere('n.company = :company', { company: nomorRequest.company })
+      .andWhere('n.position = :position', { position: nomorRequest.position })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    // 4. Generate nomor urut baru
+    let noUrut = 1;
+    if (nomorRecord && nomorRecord.nomor) {
+      noUrut = nomorRecord.nomor + 1;
+    }
+
+    // 5. Generate nomor lengkap dari format (dibaca dari tabel jenis)
+    const noUrutFormatted = noUrut.toString().padStart(3, '0');
+    const bulanRomawi = this.getBulanRomawi(bulan);
+    const jabatanCode = pengirim.position_abbreviation || '';
+    const lokasiCode = this.extractAreaCode(pengirim.area);
+    const instansi = 'LPPNPI'; // Default instansi
+
+    // Replace semua placeholder di format dengan nilai sebenarnya
+    let nomorBaru = jenisData.formatPenomoran
+      .replace(/{TIPE}/g, jenis)
+      .replace(/{NO_URUT}/g, noUrutFormatted)
+      .replace(/{INSTANSI}/g, instansi)
+      .replace(/{JABATAN}/g, jabatanCode)
+      .replace(/{LOKASI}/g, lokasiCode)
+      .replace(/{KLASIFIKASI}/g, '') // DI tidak ada klasifikasi
+      .replace(/{BULAN}/g, bulanRomawi)
+      .replace(/{TAHUN}/g, tahun.toString());
+
+    // Cleanup: hapus spasi berlebih dan double slash
+    nomorBaru = nomorBaru
+      .replace(/\/\s+/g, '/') // Hapus spasi setelah slash
+      .replace(/\s+\//g, '/') // Hapus spasi sebelum slash
+      .replace(/\/\//g, '/')  // Hapus double slash
+      .trim();                 // Trim spasi di awal/akhir
+
+    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    const detailId = uuidv4();
+    const detail = this.nomorRequestDetailRepository.create({
+      id: detailId,
+      idRequest: requestId,
+      nomor: nomorBaru,
+      fileName: null,
+      fileText: null,
+      status: 'terpakai',
+    });
+
+    await queryRunner.manager.save(detail);
+
+    // 7. UPSERT ke tabel nomor (update counter)
+    if (nomorRecord) {
+      nomorRecord.nomor = noUrut;
+      nomorRecord.area = nomorRequest.area;
+      nomorRecord.subArea = nomorRequest.subArea;
+      nomorRecord.organization = nomorRequest.organization;
+      nomorRecord.position = nomorRequest.position;
+      nomorRecord.updatedAt = new Date();
+      await queryRunner.manager.save(nomorRecord);
+    } else {
+      const nomorId = uuidv4();
+      const nomor = this.nomorRepository.create({
+        id: nomorId,
+        company: nomorRequest.company,
+        area: nomorRequest.area,
+        subArea: nomorRequest.subArea,
+        organization: nomorRequest.organization,
+        position: nomorRequest.position,
+        tahun: tahun,
+        jenis: jenis,
+        nomor: noUrut,
+      });
+      await queryRunner.manager.save(nomor);
+    }
+
+    return nomorBaru;
+  }
 
   // ============================================================
   // PDF GENERATION
@@ -942,29 +1115,26 @@ export class DisposisiService {
         dto.penerima_position_ids,
       );
 
-      // PHASE 3: Auto-generate nomor surat untuk disposisi pertama
+      // PHASE 3: Auto-generate nomor surat dengan integrated numbering
       const naskahId = uuidv4();
       const tanggalDisposisi = new Date(dto.tanggal_disposisi);
 
-      // Generate nomor surat otomatis
-      // Format: {NO_URUT}/{JABATAN}/{LOKASI}/{BULAN}/{TAHUN}
-      // Contoh: 001/P/00/XII/2025
-      const generatedNomor = await this.nomorSuratService.generateNomor({
-        jenis: 'DI',
-        positionText: pengirimData.position_text,
-        positionAbbreviation: pengirimData.position_abbreviation || undefined,
-        areaText: pengirimData.area_text || 'Pusat',
-        tanggal: tanggalDisposisi,
-      });
+      // Generate nomor surat otomatis dengan integrasi ke nomor_request
+      const generatedNomor = await this.generateNomorWithIntegration(
+        pengirimData,
+        dto.perihal,
+        tanggalDisposisi,
+        queryRunner
+      );
 
       // Insert ke tabel NASKAH
-      // nomor: auto-generated
+      // nomor: auto-generated dengan integrasi
       const naskah = this.naskahRepository.create({
         id: naskahId,
         jenis: 'DI',
         // klasifikasi & klasifikasi_text = NULL untuk DI (tidak ada di form)
         sifat: dto.sifat,
-        nomor: generatedNomor.nomor, // Nomor otomatis ter-generate
+        nomor: generatedNomor, // Nomor otomatis ter-generate dengan integrasi
         tanggal: tanggalDisposisi,
         perihal: dto.perihal, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
@@ -1121,7 +1291,7 @@ export class DisposisiService {
         tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
         suratDari: dto.surat_dari ?? null,
         tanggal: tanggalDisposisi,
-        nomor: generatedNomor.nomor, // Nomor otomatis
+        nomor: generatedNomor, // Nomor otomatis dari integrasi
         perihal: dto.perihal,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
@@ -1141,7 +1311,7 @@ export class DisposisiService {
         data: {
           id: naskahId,
           jenis: 'DI',
-          nomor: generatedNomor.nomor, // Samakan dengan Nota Dinas
+          nomor: generatedNomor, // Nomor dari integrasi
           tanggal: dto.tanggal_disposisi,
           status: 'final',
           sifat: dto.sifat,
@@ -1734,16 +1904,16 @@ export class DisposisiService {
 
       // Auto-generate nomor surat saat sendDraft (action='kirim')
       if (!isDraft) {
-        // Generate nomor otomatis saat kirim
-        const generatedNomor = await this.nomorSuratService.generateNomor({
-          jenis: 'DI',
-          positionText: pengirimSirkulasi.positionText || '',
-          positionAbbreviation:
-            pengirimData?.position_abbreviation || undefined,
-          areaText: pengirimSirkulasi.areaText || 'Pusat',
-          tanggal: naskah.tanggal || new Date(),
-        });
-        naskah.nomor = generatedNomor.nomor;
+        // Generate nomor otomatis saat kirim dengan integrated numbering
+        if (pengirimData) {
+          const generatedNomor = await this.generateNomorWithIntegration(
+            pengirimData,
+            naskah.perihal || '',
+            naskah.tanggal || new Date(),
+            queryRunner
+          );
+          naskah.nomor = generatedNomor;
+        }
       } else if (dto.ref_nomor_surat) {
         // Untuk draft, gunakan nomor yang diberikan (jika ada)
         naskah.nomor = dto.ref_nomor_surat;
@@ -2227,27 +2397,26 @@ export class DisposisiService {
         dto.penerima_position_ids,
       );
 
-      // PHASE 5: Auto-generate nomor surat untuk forward disposisi
+      // PHASE 5: Auto-generate nomor surat untuk forward disposisi dengan integrated numbering
       const naskahId = uuidv4();
       const tanggalDisposisi = new Date(dto.tanggal_disposisi);
 
-      // Generate nomor surat baru untuk disposisi lanjutan
-      const generatedNomor = await this.nomorSuratService.generateNomor({
-        jenis: 'DI',
-        positionText: pengirimData.position_text,
-        positionAbbreviation: pengirimData.position_abbreviation || undefined,
-        areaText: pengirimData.area_text || 'Pusat',
-        tanggal: tanggalDisposisi,
-      });
-
       // Perihal: gunakan dari dto atau dari naskah sebelumnya
       const perihal = dto.perihal || naskahDiterima.perihal || '';
+
+      // Generate nomor surat baru untuk disposisi lanjutan dengan integrasi
+      const generatedNomor = await this.generateNomorWithIntegration(
+        pengirimData,
+        perihal,
+        tanggalDisposisi,
+        queryRunner
+      );
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
         jenis: 'DI',
         sifat: dto.sifat,
-        nomor: generatedNomor.nomor, // Nomor baru yang di-generate
+        nomor: generatedNomor, // Nomor baru yang di-generate dengan integrasi
         tanggal: tanggalDisposisi,
         perihal: perihal,
         konten: dto.disposisi || undefined,
@@ -2369,7 +2538,7 @@ export class DisposisiService {
         tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
         suratDari: dto.surat_dari ?? null,
         tanggal: tanggalDisposisi,
-        nomor: generatedNomor.nomor, // Nomor baru yang di-generate
+        nomor: generatedNomor, // Nomor baru yang di-generate dengan integrasi
         perihal: perihal,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
@@ -2392,7 +2561,7 @@ export class DisposisiService {
           tanggal: dto.tanggal_disposisi,
           status: 'final',
           sifat: dto.sifat,
-          nomor: generatedNomor.nomor, // Nomor baru yang di-generate
+          nomor: generatedNomor, // Nomor baru yang di-generate dengan integrasi
           perihal: perihal,
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
