@@ -1496,12 +1496,19 @@ export class NomorService {
           }
         }
 
-        // Get position data to extract jabatan (position_text) and nama_pengirim (persnum_person_text)
+        // Get position data pengusul untuk nama_pengirim
         const positionNumber = parseInt(request.position || '0', 10);
         const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-        
-        const jabatan = positionData?.position_text || null;
         const namaPengirim = positionData?.persnum_person_text || null;
+
+        // Get position data penandatangan untuk jabatan
+        let jabatan = null;
+        if (request.idPositionPenandatangan) {
+          const penandatanganPosition = positionJsonData.find(
+            (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+          );
+          jabatan = penandatanganPosition?.position_text || null;
+        }
 
         return {
           id: detail.id,
@@ -1559,11 +1566,14 @@ export class NomorService {
       console.log('Could not fetch position data from org_data');
     }
 
-    // Get position data
-    const positionNumber = parseInt(request.position || '0', 10);
-    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-    
-    const jabatan = positionData?.position_text || null;
+    // Get position data penandatangan untuk jabatan
+    let jabatan = null;
+    if (request.idPositionPenandatangan) {
+      const penandatanganPosition = positionJsonData.find(
+        (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+      );
+      jabatan = penandatanganPosition?.position_text || null;
+    }
 
     // Get all request details for this request (nomor yang sudah jadi ada di sini)
     const details = await this.nomorRequestDetailRepository.find({
