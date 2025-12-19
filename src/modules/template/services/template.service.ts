@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,44 +6,81 @@ import { TemplateEntity } from '../entities/template.entity';
 import { TemplateDto } from '../dto/template-response.dto';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
+import { StorageService } from '../../storage/services/storage.service';
 
 @Injectable()
 export class TemplateService {
   constructor(
     @InjectRepository(TemplateEntity)
     private readonly templateRepository: Repository<TemplateEntity>,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
-   * Create template dengan konten HTML
+   * Create template dengan upload file
+   * Mendukung 2 cara:
+   * 1. Multipart form-data (file parameter)
+   * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
    */
-  async create(dto: CreateTemplateDto): Promise<TemplateEntity> {
+  async create(dto: CreateTemplateDto, file?: Express.Multer.File): Promise<TemplateEntity> {
+    let fileKey: string | null = null;
+
+    if (file) {
+      // Upload via multipart form-data
+      const uploadResult = await this.storageService.uploadFile(file, 'templates');
+      fileKey = uploadResult.key;
+    } else if (dto.file_base64 && dto.file_name) {
+      // Upload via JSON dengan base64
+      const buffer = Buffer.from(dto.file_base64, 'base64');
+      const mimetype = dto.file_mimetype || 'application/octet-stream';
+      const uploadResult = await this.storageService.uploadBuffer(
+        buffer,
+        dto.file_name,
+        mimetype,
+        'templates',
+      );
+      fileKey = uploadResult.key;
+    }
+
     const template = this.templateRepository.create({
       id: uuidv4(),
-      id_position: dto.id_position,
       nama_template: dto.nama_template,
-      content: dto.content || null,
+      file: fileKey,
     });
 
     return await this.templateRepository.save(template);
   }
 
   /**
-   * Convert entity to DTO
+   * Convert entity to DTO dengan signed URL dari storage
    */
-  toDto(entity: TemplateEntity): TemplateDto {
+  async toDto(entity: TemplateEntity): Promise<TemplateDto> {
+    // Generate signed URL untuk file
+    let fileUrl: string | undefined;
+    if (entity.file) {
+      try {
+        fileUrl = await this.storageService.getFileUrl(entity.file);
+      } catch (error) {
+        console.warn(`Failed to get signed URL for ${entity.file}:`, error.message);
+      }
+    }
+
     return {
       id: entity.id,
-      id_position: entity.id_position,
       nama_template: entity.nama_template,
-      content: entity.content,
+      file: entity.file,
+      file_url: fileUrl,
       create_at: entity.create_at ? entity.create_at.toISOString() : undefined,
       update_at: entity.update_at ? entity.update_at.toISOString() : undefined,
     };
   }
 
-  toDtoList(entities: TemplateEntity[]): TemplateDto[] {
-    return entities.map(e => this.toDto(e));
+  async toDtoList(entities: TemplateEntity[]): Promise<TemplateDto[]> {
+    const results: TemplateDto[] = [];
+    for (const e of entities) {
+      results.push(await this.toDto(e));
+    }
+    return results;
   }
 
   async findAll(name?: string): Promise<TemplateEntity[]> {
@@ -58,50 +95,74 @@ export class TemplateService {
     return t;
   }
 
-  async findByPosition(id_position: string): Promise<TemplateEntity[]> {
-    return await this.templateRepository.find({ 
-      where: { id_position },
-      order: { create_at: 'DESC' }
-    });
-  }
-
   /**
-   * Find global templates (templates without id_position)
+   * Update template dengan optional upload file baru
+   * Mendukung 2 cara:
+   * 1. Multipart form-data (file parameter)
+   * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
    */
-  async findGlobal(): Promise<TemplateEntity[]> {
-    return await this.templateRepository
-      .createQueryBuilder('t')
-      .where('t.id_position IS NULL')
-      .orderBy('t.create_at', 'DESC')
-      .getMany();
-  }
-
-  /**
-   * Update template
-   */
-  async update(id: string, dto: UpdateTemplateDto): Promise<TemplateEntity> {
+  async update(id: string, dto: UpdateTemplateDto, file?: Express.Multer.File): Promise<TemplateEntity> {
     const t = await this.findOne(id);
+    const oldFileKey = t.file;
 
-    if (dto.id_position !== undefined) {
-      t.id_position = dto.id_position;
+    // Jika ada file upload baru via multipart
+    if (file) {
+      const uploadResult = await this.storageService.uploadFile(file, 'templates');
+      t.file = uploadResult.key;
+
+      // Hapus file lama dari storage
+      if (oldFileKey) {
+        try {
+          await this.storageService.deleteFile(oldFileKey);
+        } catch (error) {
+          console.warn(`Failed to delete old file ${oldFileKey}:`, error.message);
+        }
+      }
+    } else if (dto.file_base64 && dto.file_name) {
+      // Upload via JSON dengan base64
+      const buffer = Buffer.from(dto.file_base64, 'base64');
+      const mimetype = dto.file_mimetype || 'application/octet-stream';
+      const uploadResult = await this.storageService.uploadBuffer(
+        buffer,
+        dto.file_name,
+        mimetype,
+        'templates',
+      );
+      t.file = uploadResult.key;
+
+      // Hapus file lama dari storage
+      if (oldFileKey) {
+        try {
+          await this.storageService.deleteFile(oldFileKey);
+        } catch (error) {
+          console.warn(`Failed to delete old file ${oldFileKey}:`, error.message);
+        }
+      }
     }
-    
+
+    // Update nama template
     if (dto.nama_template !== undefined) {
       t.nama_template = dto.nama_template;
-    }
-
-    if (dto.content !== undefined) {
-      t.content = dto.content;
     }
 
     return await this.templateRepository.save(t);
   }
 
   /**
-   * Remove template
+   * Remove template dan hapus file dari storage
    */
   async remove(id: string): Promise<void> {
     const t = await this.findOne(id);
+    
+    // Hapus file dari storage
+    if (t.file) {
+      try {
+        await this.storageService.deleteFile(t.file);
+      } catch (error) {
+        console.warn(`Failed to delete file ${t.file}:`, error.message);
+      }
+    }
+
     await this.templateRepository.remove(t);
   }
 }

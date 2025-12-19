@@ -1,8 +1,8 @@
 export class TemplateDto {
   id: string;
-  id_position: string;
   nama_template: string;
-  content?: string | null;  // HTML content
+  file?: string | null;      // Key file di storage
+  file_url?: string;         // Signed URL untuk akses file
   create_at?: string;
   update_at?: string;
 }
