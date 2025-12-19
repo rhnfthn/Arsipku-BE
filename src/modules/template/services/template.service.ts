@@ -66,6 +66,17 @@ export class TemplateService {
   }
 
   /**
+   * Find global templates (templates without id_position)
+   */
+  async findGlobal(): Promise<TemplateEntity[]> {
+    return await this.templateRepository
+      .createQueryBuilder('t')
+      .where('t.id_position IS NULL')
+      .orderBy('t.create_at', 'DESC')
+      .getMany();
+  }
+
+  /**
    * Update template
    */
   async update(id: string, dto: UpdateTemplateDto): Promise<TemplateEntity> {
