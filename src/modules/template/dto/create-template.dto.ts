@@ -1,10 +1,10 @@
 import { IsString, IsOptional, MaxLength, IsNotEmpty } from 'class-validator';
 
 export class CreateTemplateDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(50)
-  id_position: string;
+  id_position?: string;
 
   @IsNotEmpty()
   @IsString()

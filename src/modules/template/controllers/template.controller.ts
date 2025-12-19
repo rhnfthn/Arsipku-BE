@@ -45,6 +45,13 @@ export class TemplateController {
     return { success: true, total: mapped.length, data: mapped };
   }
 
+  @Get('global')
+  async findGlobal(): Promise<TemplateListResponseDto> {
+    const list = await this.templateService.findGlobal();
+    const mapped = this.templateService.toDtoList(list);
+    return { success: true, total: mapped.length, data: mapped };
+  }
+
   @Get('position/:id_position')
   async findByPosition(@Param('id_position') id_position: string): Promise<TemplateListResponseDto> {
     const list = await this.templateService.findByPosition(id_position);
