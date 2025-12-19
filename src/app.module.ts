@@ -36,6 +36,7 @@ import { DraftModule } from './modules/draft/draft.module';
 import { KonsepModule } from './modules/konsep/konsep.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { TemplateModule } from './modules/template/template.module';
+import { TemplateSuratModule } from './modules/template-surat/template-surat.module';
 import { TitelaturEnModule } from './modules/titelatur-en/titelatur-en.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { UploadModule } from './modules/upload/upload.module';
@@ -98,6 +99,7 @@ import { DataSource } from 'typeorm';
     KonsepModule,
     DashboardModule,
     TemplateModule,
+    TemplateSuratModule,
     TitelaturEnModule,
     StorageModule,
     UploadModule,
