@@ -208,7 +208,7 @@ export class GeneratePdfNodinService {
             </td>
             <td style="text-align:center;">
             ${tanggalFormatted}<br>
-            ${positionText}<br>  
+            ${positionText}<br> 
                     <br>
                     <br>
                     <br>
