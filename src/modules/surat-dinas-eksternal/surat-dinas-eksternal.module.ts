@@ -13,6 +13,8 @@ import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail
 import { JenisEntity } from '../nomor/entities/jenis.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
+import { StorageModule } from '../storage/storage.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
       JenisEntity,
     ]),
     OrgDataModule,
+    StorageModule,
+    GeneratePdfModule,
   ],
   controllers: [SuratDinasEksternalController],
   providers: [SuratDinasEksternalService, NomorSuratService],

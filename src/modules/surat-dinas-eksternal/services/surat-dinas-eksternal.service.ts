@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
@@ -19,6 +20,8 @@ import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } 
 import { SdeSendMessageResponseDto, SdeSirkulasiInfoDto, SdePenerimaInfoDto } from '../dto/send-message-response.dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { StorageService } from '../../storage/services/storage.service';
+import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -50,7 +53,155 @@ export class SuratDinasEksternalService {
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
+    private readonly storageService: StorageService,
+    private readonly generatePdfSudinService: GeneratePdfSudinService,
   ) {}
+
+  // ============================================================
+  // PDF GENERATION
+  // ============================================================
+
+  /**
+   * Generate PDF dari HTML content untuk Surat Dinas Eksternal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system (lampiran_temp_ids)
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    penerima: string[],
+    dari: string = '',
+    tanggal: string = '',
+    penandatangan: string = '',
+    tembusan: string[] = [],
+    lampiranTempIds?: string[],
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        dari: dari,
+        tanggal: tanggal,
+        penandatangan: penandatangan,
+        tembusan: tembusan,
+        perihal: '',
+      });
+
+      // If lampiran temp IDs provided, fetch and merge with main PDF
+      if (lampiranTempIds && lampiranTempIds.length > 0) {
+        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        if (lampiranFiles && lampiranFiles.length > 0) {
+          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+        }
+      }
+
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get temporary lampiran files from storage
+   * Query by lampiran IDs and check is_temporary=1
+   */
+  private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
+    try {
+      if (!tempIds || tempIds.length === 0) {
+        return [];
+      }
+
+      console.log('[SDE getTemporaryLampiranFiles] Querying tempIds:', tempIds);
+
+      // Query all temporary lampiran by IDs
+      const tempLampiran = await this.naskahLampiranRepository.find({
+        where: {
+          id: In(tempIds),
+          is_temporary: 1,
+        },
+      });
+
+      console.log('[SDE getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
+
+      const files: Array<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        tempFolderId: string | null;
+      }> = [];
+      
+      for (const lampiran of tempLampiran) {
+        files.push({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        });
+      }
+
+      return files;
+    } catch (error) {
+      console.error('[SDE getTemporaryLampiranFiles] Error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Merge main PDF dengan temporary lampiran files
+   */
+  private async mergePdfWithTemporaryFiles(
+    mainPdfBuffer: Buffer,
+    lampiranFiles: any[],
+  ): Promise<Buffer> {
+    try {
+      console.log('[SDE mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
+      
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        return mainPdfBuffer;
+      }
+
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      for (const file of lampiranFiles) {
+        try {
+          if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+            console.warn(
+              `[SDE mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
+            );
+            continue;
+          }
+
+          // Download file from MinIO
+          const fileBuffer = await this.storageService.getFile(file.filePath);
+          const lampiranPdf = await PDFDocument.load(fileBuffer);
+
+          // Copy all pages
+          const lampiranPages = await pdfDoc.copyPages(
+            lampiranPdf,
+            lampiranPdf.getPageIndices(),
+          );
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(
+            `[SDE mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
+          );
+        } catch (error) {
+          console.error(
+            `[SDE mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
+            error,
+          );
+        }
+      }
+
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[SDE mergePdfWithTemporaryFiles] Error:`, error);
+      return mainPdfBuffer;
+    }
+  }
 
   // ============================================================
   // HELPER METHODS

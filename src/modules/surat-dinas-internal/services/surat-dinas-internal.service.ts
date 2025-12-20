@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
@@ -230,6 +231,7 @@ export class SuratDinasInternalService {
   /**
    * Generate PDF dari HTML content untuk Surat Dinas Internal
    * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system (lampiran_temp_ids)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -238,10 +240,11 @@ export class SuratDinasInternalService {
     tanggal: string = '',
     penandatangan: string = '',
     tembusan: string[] = [],
+    lampiranTempIds?: string[],
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      return await this.generatePdfSudinService.generatePdf({
+      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
         dari: dari,
@@ -250,8 +253,120 @@ export class SuratDinasInternalService {
         tembusan: tembusan,
         perihal: '',
       });
+
+      // If lampiran temp IDs provided, fetch and merge with main PDF
+      if (lampiranTempIds && lampiranTempIds.length > 0) {
+        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        if (lampiranFiles && lampiranFiles.length > 0) {
+          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+        }
+      }
+
+      return pdfBuffer;
     } catch (error) {
       throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get temporary lampiran files from storage
+   * Query by lampiran IDs and check is_temporary=1
+   */
+  private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
+    try {
+      if (!tempIds || tempIds.length === 0) {
+        return [];
+      }
+
+      console.log('[SDI getTemporaryLampiranFiles] Querying tempIds:', tempIds);
+
+      // Query all temporary lampiran by IDs
+      const tempLampiran = await this.naskahLampiranRepository.find({
+        where: {
+          id: In(tempIds),
+          is_temporary: 1,
+        },
+      });
+
+      console.log('[SDI getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
+
+      const files: Array<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        tempFolderId: string | null;
+      }> = [];
+      
+      for (const lampiran of tempLampiran) {
+        files.push({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        });
+      }
+
+      return files;
+    } catch (error) {
+      console.error('[SDI getTemporaryLampiranFiles] Error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Merge main PDF dengan temporary lampiran files
+   */
+  private async mergePdfWithTemporaryFiles(
+    mainPdfBuffer: Buffer,
+    lampiranFiles: any[],
+  ): Promise<Buffer> {
+    try {
+      console.log('[SDI mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
+      
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        return mainPdfBuffer;
+      }
+
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      for (const file of lampiranFiles) {
+        try {
+          if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+            console.warn(
+              `[SDI mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
+            );
+            continue;
+          }
+
+          // Download file from MinIO
+          const fileBuffer = await this.storageService.getFile(file.filePath);
+          const lampiranPdf = await PDFDocument.load(fileBuffer);
+
+          // Copy all pages
+          const lampiranPages = await pdfDoc.copyPages(
+            lampiranPdf,
+            lampiranPdf.getPageIndices(),
+          );
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(
+            `[SDI mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
+          );
+        } catch (error) {
+          console.error(
+            `[SDI mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
+            error,
+          );
+        }
+      }
+
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[SDI mergePdfWithTemporaryFiles] Error:`, error);
+      return mainPdfBuffer;
     }
   }
 
