@@ -143,6 +143,55 @@ export class DisposisiService {
   ) {}
 
   // ============================================================
+  // HELPER METHODS FOR POSITION CONVERSION
+  // ============================================================
+
+  /**
+   * Convert position IDs ke nama jabatan
+   * Digunakan untuk mengubah [70016743, 70016751] menjadi ["VP IT", "Manager HR"]
+   * 
+   * @param positionIds - Array of position IDs (string or number)
+   * @param tanggal - Optional tanggal untuk lookup org data
+   * @returns Array of position text names
+   */
+  async convertPositionIdsToNames(
+    positionIds: (string | number)[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!positionIds || positionIds.length === 0) {
+      return [];
+    }
+
+    // Get org_data for position lookup
+    const tgl = tanggal || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tgl);
+    
+    if (!orgData || !orgData.position_json) {
+      console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
+      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+    }
+
+    const barisData: PositionData[] = orgData.position_json;
+    const names: string[] = [];
+
+    for (const posId of positionIds) {
+      const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
+      const position = barisData.find(p => p.position === numericId);
+      
+      if (position) {
+        // Return position_text with organization_text
+        const fullName = `${position.position_text} - ${position.organization_text}`;
+        names.push(fullName);
+      } else {
+        // Fallback if position not found
+        names.push(String(posId));
+      }
+    }
+
+    return names;
+  }
+
+  // ============================================================
   // HELPER METHODS FOR NUMBERING
   // ============================================================
 
@@ -310,7 +359,16 @@ export class DisposisiService {
   /**
    * Generate PDF dari HTML content untuk Disposisi
    * Menggunakan Puppeteer di backend untuk render HTML
-   * Support temporary lampiran system
+   * Support temporary lampiran system dan field dinamis dari form
+   * 
+   * @param htmlContent - Konten catatan (HTML atau base64)
+   * @param penerima - Array penerima/tertuju
+   * @param disposisi - Array checkbox disposisi yang dipilih
+   * @param sifat - Klasifikasi (Biasa, Terbatas, Rahasia, Sangat Rahasia)
+   * @param pengirim - Nama pengirim
+   * @param tembusan - Array tembusan
+   * @param lampiranTempIds - ID lampiran temporary untuk di-merge
+   * @param options - Additional options (refNomor, refPerihal, tanggalDisposisi, isFinal, catatan)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -320,17 +378,37 @@ export class DisposisiService {
     pengirim: string = '',
     tembusan: string[] = [],
     lampiranTempIds?: string[],
+    options?: {
+      refNomor?: string;
+      refPerihal?: string;
+      tanggalDisposisi?: string;
+      isFinal?: boolean;
+      catatan?: string;
+    },
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      
+      // Format tanggal default jika tidak disediakan
+      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
         disposisi: disposisi,
-        sifat: sifat,
+        sifat: sifat || 'Biasa',
         pengirim: pengirim,
         tembusan: tembusan,
-        perihal: '',
+        perihal: options?.refPerihal || '',
+        refNomor: options?.refNomor || '',
+        refPerihal: options?.refPerihal || '',
+        tanggal: tanggal,
+        catatan: options?.catatan || '',
       });
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
@@ -1088,13 +1166,16 @@ export class DisposisiService {
       }
 
       // Check barrier depth (level 0-2 can send, level 3+ cannot)
+      // DISABLED: Validation handled by frontend
       const senderLevel = Number(pengirimData.level);
       const barrierDepth = 3 - senderLevel;
+      /*
       if (barrierDepth <= 0) {
         throw new ForbiddenException(
           `Position level ${senderLevel} tidak bisa mengirim Disposisi. Hanya level 0-2 yang bisa mengirim.`,
         );
       }
+      */
 
       // PHASE 2: Validate all penerima
       const penerimaDataList: PositionData[] = [];
@@ -2370,13 +2451,16 @@ export class DisposisiService {
       }
 
       // Check barrier depth
+      // DISABLED: Validation handled by frontend
       const senderLevel = Number(pengirimData.level);
       const barrierDepth = 3 - senderLevel;
+      /*
       if (barrierDepth <= 0) {
         throw new ForbiddenException(
           `Position level ${senderLevel} tidak bisa forward Disposisi.`,
         );
       }
+      */
 
       // PHASE 4: Validate all penerima baru
       const penerimaDataList: PositionData[] = [];
@@ -2584,5 +2668,222 @@ export class DisposisiService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Get detail Disposisi by naskah ID
+   * Mengembalikan semua informasi disposisi termasuk data naskah, DI, pengirim, penerima, lampiran
+   */
+  async getDisposisiDetail(naskahId: string): Promise<any> {
+    // Get naskah data
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
+    }
+
+    if (naskah.jenis !== 'DI') {
+      throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
+    }
+
+    // Get DI data (konten lengkap disposisi)
+    const diData = await this.diRepository.findOne({
+      where: { idNaskah: naskahId },
+    });
+
+    // Get pengirim sirkulasi
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'pengirim',
+      },
+    });
+
+    // Get all penerima sirkulasi
+    const penerimaList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'penerima',
+      },
+    });
+
+    // Get lampiran files
+    const lampiranFiles = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+
+    // Get referensi naskah sebelumnya (jika ada)
+    const naskahReferensi = await this.naskahReferensiRepository.findOne({
+      where: { id_naskah: naskahId },
+    });
+
+    let referensiData: {
+      id_naskah: string;
+      nomor: string | null;
+      perihal: string | null;
+      tanggal: Date | null;
+      jenis: string;
+    } | null = null;
+    
+    // Jika ada referensi dari tabel naskah_referensi (ref_nomor, ref_perihal)
+    if (naskahReferensi) {
+      referensiData = {
+        id_naskah: naskahReferensi.id,
+        nomor: naskahReferensi.ref_nomor,
+        perihal: naskahReferensi.ref_perihal,
+        tanggal: naskahReferensi.ref_tanggal,
+        jenis: naskahReferensi.ref_jenis || 'DI',
+      };
+    }
+
+    // Format tanggal
+    const tanggalStr =
+      naskah.tanggal instanceof Date
+        ? naskah.tanggal.toISOString().split('T')[0]
+        : String(naskah.tanggal || '').split('T')[0];
+
+    const tanggalAgendaStr =
+      diData?.tanggalAgenda instanceof Date
+        ? diData.tanggalAgenda.toISOString().split('T')[0]
+        : diData?.tanggalAgenda
+          ? String(diData.tanggalAgenda).split('T')[0]
+          : null;
+
+    // Get org data for position lookup
+    const tgl = tanggalStr || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tgl);
+    const barisData: PositionData[] = orgData?.position_json || [];
+
+    // Helper function to get position abbreviation
+    const getPositionAbbreviation = (positionId: number | null): string => {
+      if (!positionId) return '';
+      const position = barisData.find(p => p.position === positionId);
+      return position?.position_abbreviation || '';
+    };
+
+    // Build penerima info with read status
+    const penerimaInfoList = await Promise.all(
+      penerimaList.map(async (penerima) => {
+        const positionId = penerima.position
+          ? parseInt(penerima.position, 10)
+          : null;
+        const abbreviation = getPositionAbbreviation(positionId);
+
+        return {
+          id: penerima.id,
+          persnum: parseInt(penerima.idSirkuler || '0', 10),
+          nama: penerima.namaSirkuler || '',
+          position_id: penerima.position || '',
+          abbreviation: abbreviation,
+          position_status: penerima.positionStatus || '',
+          positionText: penerima.positionText || '',
+          organizationText: penerima.organizationText || '',
+          subAreaText: penerima.subAreaText || '',
+          areaText: penerima.areaText || '',
+          status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
+          readTime: penerima.sendReadTime
+            ? penerima.sendReadTime.toISOString()
+            : null,
+        };
+      }),
+    );
+
+    // Build lampiran info with file URL
+    const lampiranInfoList = await Promise.all(
+      lampiranFiles.map(async (l) => ({
+        id: l.id,
+        fileName: l.file_name || '',
+        filePath: l.file_pdf || '',
+        fileUrl: l.file_pdf
+          ? await this.storageService.getFileUrl(l.file_pdf)
+          : null,
+      })),
+    );
+
+    // Get final PDF URL if exists
+    const finalPdfUrl = naskah.final_pdf
+      ? await this.storageService.getFileUrl(naskah.final_pdf)
+      : null;
+
+    // Get pengirim info
+    let pengirimInfo: any = null;
+    if (pengirimSirkulasi) {
+      const positionId = pengirimSirkulasi.position
+        ? parseInt(pengirimSirkulasi.position, 10)
+        : null;
+      const abbreviation = getPositionAbbreviation(positionId);
+
+      pengirimInfo = {
+        id: pengirimSirkulasi.id,
+        persnum: pengirimSirkulasi
+          ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10)
+          : 0,
+        nama: pengirimSirkulasi.namaSirkuler || '',
+        position_id: pengirimSirkulasi.position || '',
+        abbreviation: abbreviation,
+        position_status: pengirimSirkulasi.positionStatus || '',
+        positionText: pengirimSirkulasi.positionText || '',
+        organizationText: pengirimSirkulasi.organizationText || '',
+        subAreaText: pengirimSirkulasi.subAreaText || '',
+        areaText: pengirimSirkulasi.areaText || '',
+      };
+    }
+
+    // Build response
+    return {
+      success: true,
+      data: {
+        // Naskah info
+        id: naskah.id,
+        jenis: naskah.jenis,
+        nomor: naskah.nomor,
+        tanggal: tanggalStr,
+        status: naskah.status,
+        perihal: naskah.perihal,
+        lampiran: naskah.lampiran || null,
+
+        // DI specific info
+        kop_logo: diData?.kopLogo || null,
+        kop_judul: diData?.kopJudul || null,
+        nama_jabatan: diData?.namaJabatan || null,
+        nomor_agenda: diData?.nomorAgenda || null,
+        tanggal_agenda: tanggalAgendaStr,
+        surat_dari: diData?.suratDari || null,
+        kepada_yth: diData?.kepadaYth || null,
+        klasifikasi: diData?.klasifikasi || naskah.klasifikasi || null,
+        klasifikasi_text: naskah.klasifikasi_text || null,
+        sifat: naskah.sifat || null,
+
+        // Disposisi & Catatan
+        disposisi: diData?.disposisi || null,
+        catatan: diData?.catatan || null,
+        paraf: diData?.paraf || null,
+
+        // Referensi (nomor surat dan perihal dari form)
+        ref_nomor: diData?.nomor || null,
+        ref_perihal: diData?.perihal || null,
+        ref_tanggal: diData?.tanggal
+          ? diData.tanggal instanceof Date
+            ? diData.tanggal.toISOString().split('T')[0]
+            : String(diData.tanggal).split('T')[0]
+          : null,
+
+        // Sirkulasi
+        pengirim: pengirimInfo,
+        penerima: penerimaInfoList,
+
+        // Files
+        lampiran_files: lampiranInfoList,
+        final_pdf: naskah.final_pdf || null,
+        final_pdf_url: finalPdfUrl,
+
+        // Naskah sebelumnya (jika forward)
+        naskah_sebelumnya: referensiData,
+      },
+    };
   }
 }

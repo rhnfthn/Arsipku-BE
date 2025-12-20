@@ -13,7 +13,7 @@ import { JenisEntity } from '../nomor/entities/jenis.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
-import { GeneratePdfSudinService } from '../generate_pdf/services/generate_pdf_sudin.service';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 
 @Module({
   imports: [
@@ -29,9 +29,10 @@ import { GeneratePdfSudinService } from '../generate_pdf/services/generate_pdf_s
     ]),
     OrgDataModule,
     StorageModule,
+    GeneratePdfModule,
   ],
   controllers: [SuratDinasInternalController],
-  providers: [SuratDinasInternalService, NomorSuratService, GeneratePdfSudinService],
+  providers: [SuratDinasInternalService, NomorSuratService],
   exports: [SuratDinasInternalService],
 })
 export class SuratDinasInternalModule {}

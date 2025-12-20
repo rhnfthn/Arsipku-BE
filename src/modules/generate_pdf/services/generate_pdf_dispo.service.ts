@@ -4,15 +4,34 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
 
+/**
+ * Interface untuk body generate PDF Disposisi
+ */
+interface GeneratePdfDispoBody {
+  html?: string;
+  htmlContent?: string;
+  penerima?: string[];
+  disposisi?: string[];
+  sifat?: string;
+  pengirim?: string;
+  tembusan?: string[];
+  perihal?: string;
+  refNomor?: string;
+  refPerihal?: string;
+  tanggal?: string;
+  penandatangan?: string;
+  catatan?: string;
+}
+
 @Injectable()
 export class GeneratePdfDispoService {
-  async generatePdf(body: any): Promise<Buffer> {
+  async generatePdf(body: GeneratePdfDispoBody): Promise<Buffer> {
     return pdfQueue.add(() => this._generatePdfInternal(body), {
       timeout: 30000,
     });
   }
 
-  private async _generatePdfInternal(body: any): Promise<Buffer> {
+  private async _generatePdfInternal(body: GeneratePdfDispoBody): Promise<Buffer> {
     let logoBase64 = '';
     
     try {
@@ -59,12 +78,56 @@ export class GeneratePdfDispoService {
     }
     
     const htmlCatatan = decodedContent || '';
-    const perihal = body.perihal || '';
     const penerima = body.penerima || [];
     const pengirim = body.pengirim || '';
     const sifat = body.sifat || 'Biasa';
-    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const penandatangan = body.penandatangan || '';
+    
+    // Format tanggal - convert dari YYYY-MM-DD atau DD/MM/YYYY ke format Indonesia
+    let tanggal = body.tanggal || '';
+    if (tanggal) {
+      try {
+        // Check if already in Indonesian format
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggal)) {
+          // Already formatted, keep as is
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
+          // YYYY-MM-DD format
+          const dateObj = new Date(tanggal + 'T00:00:00');
+          if (!isNaN(dateObj.getTime())) {
+            tanggal = dateObj.toLocaleDateString('id-ID', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+            });
+          }
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggal)) {
+          // DD/MM/YYYY format
+          const [day, month, year] = tanggal.split('/');
+          const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          if (!isNaN(dateObj.getTime())) {
+            tanggal = dateObj.toLocaleDateString('id-ID', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[GeneratePdfDispo] Error formatting date:', e);
+      }
+    }
+    if (!tanggal) {
+      tanggal = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+    
+    // Field referensi surat asal
+    const refNomor = body.refNomor || '';
+    const refPerihal = body.refPerihal || body.perihal || '';
+    
+    // Catatan untuk disposisi "Lainnya"
+    const catatan = body.catatan || '';
     
     // Format penerima
     let penerimaHtml = '';
@@ -165,7 +228,7 @@ export class GeneratePdfDispoService {
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
               <div>No: ........</div>
-              <div>Tgl: ........</div>
+              <div>Tgl: ${tanggal}</div>
             </div>
           </div>
 
@@ -173,7 +236,7 @@ export class GeneratePdfDispoService {
           <div style="width: 55%; border-right: 2px solid #000; padding: 12px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
               <tr style="border-bottom: none;">
-                <td style="width: 60px; padding: 4px 0;">Surat dari</td>
+                <td style="width: 70px; padding: 4px 0;">Surat dari</td>
                 <td style="padding: 4px 0;">: ${pengirim}</td>
               </tr>
               <tr style="border-bottom: none;">
@@ -182,11 +245,11 @@ export class GeneratePdfDispoService {
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0;">Nomor</td>
-                <td style="padding: 4px 0;">: ......................</td>
+                <td style="padding: 4px 0;">: ${refNomor || '......................'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0; vertical-align: top;">Perihal</td>
-                <td style="padding: 4px 0; vertical-align: top;">: ${perihal}</td>
+                <td style="padding: 4px 0; vertical-align: top;">: ${refPerihal || '-'}</td>
               </tr>
             </table>
           </div>
@@ -221,7 +284,7 @@ export class GeneratePdfDispoService {
         <div style="border-bottom: 2px solid #000; min-height: 280px; position: relative;">
           <div style="padding: 8px 12px; font-weight: bold; font-size: 11px; text-decoration: underline; background-color: #f3f3f3; border-bottom: 1px solid #ddd;">CATATAN :</div>
           <div style="padding: 12px; font-size: 10px; min-height: 240px; position: relative;">
-            ${htmlCatatan}
+            ${catatan || htmlCatatan || ''}
           </div>
           <div style="position: absolute; bottom: 12px; right: 12px; border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; background-color: rgba(255,255,255,0.8);">
             Paraf
