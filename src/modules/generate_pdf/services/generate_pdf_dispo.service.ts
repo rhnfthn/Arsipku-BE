@@ -208,7 +208,7 @@ export class GeneratePdfDispoService {
     `).join('');
 
     const konten = `
-      <div style="border: 2px solid #000; font-family: Arial, sans-serif; font-size: 12px;">
+      <div style="border: 2px solid #000; font-family: 'Times New Roman', Times, serif; font-size: 12px;">
         <!-- Header Section -->
         <div style="display: flex; border-bottom: 2px solid #000;">
           <div style="width: 66.6%; padding: 12px; display: flex; align-items: center; gap: 16px; border-right: 2px solid #000;">
