@@ -1,12 +1,13 @@
-import { Controller, Get, Post, Put, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { FileFieldsInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
 import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { GetSdiRecipientQueryDto, SdiRecipientResponseDto } from '../dto/surat-dinas-internal-recipient-response.dto';
-import { UserLevelGuard } from '../../../common/guards';
-import { UserLevels, Public } from '../../../common/decorators';
+import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
+import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('SDI')
@@ -252,12 +253,13 @@ export class SuratDinasInternalController {
   }
 
   /**
-   * PUT /SDI/update-draft/:id
-   * Update existing draft Surat Dinas Internal
+   * PATCH /SDI/update-draft/:id
+   * Update existing draft Surat Dinas Internal (partial update)
    *
    * Form-data fields:
    * - Semua field optional (partial update)
    * - lampiran_files: file[] (multiple files, optional)
+   * - lampiran_temp_ids: string[] (array of lampiran IDs dari POST /upload-temporary)
    *
    * Status remains 'draf'
    *
@@ -267,7 +269,7 @@ export class SuratDinasInternalController {
   @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
-  @Put('update-draft/:id')
+  @Patch('update-draft/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -392,6 +394,239 @@ export class SuratDinasInternalController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /SDI/preview-pdf
+   * Generate preview PDF Surat Dinas Internal untuk di-lihat sebelum dikirim
+   * PDF di-generate tanpa save ke database
+   * User bisa kembali edit dan preview ulang
+   * Support temporary lampiran system (lampiran_temp_ids)
+   * 
+   * @param body - { htmlContent/konten, penerima/tertuju, nama_tempat, tanggal, nama_jabatan, nama_lengkap, tembusan, perihal, sifat, lampiran_temp_ids }
+   * @param user - Current user dari JWT token
+   * @param res - Express Response untuk send PDF
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
+  @Post('preview-pdf')
+  async previewPdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      // Support both 'konten' (from form) and 'htmlContent' (legacy) field names
+      if (body.konten && !body.htmlContent) {
+        body.htmlContent = body.konten;
+      }
+
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent or konten' });
+      }
+
+      // Support both 'tertuju' and 'penerima' field names
+      let penerimaArray = body.tertuju || body.penerima || [];
+      
+      // Parse penerima if it's a string (from form-data)
+      if (typeof penerimaArray === 'string') {
+        try {
+          penerimaArray = JSON.parse(penerimaArray);
+        } catch {
+          penerimaArray = [penerimaArray];
+        }
+      }
+
+      // Check if penerima are position_ids and convert to names
+      const isPositionId = (value: any): boolean => {
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray = await this.suratDinasInternalService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+      }
+
+      // Parse tembusan if it's a string (from form-data)
+      let tembusanArray = body.tembusan || [];
+      if (typeof tembusanArray === 'string') {
+        try {
+          tembusanArray = JSON.parse(tembusanArray);
+        } catch {
+          tembusanArray = [tembusanArray];
+        }
+      }
+
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray = await this.suratDinasInternalService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      }
+
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch {
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+      }
+
+      // Use user's position and name from JWT token (same as Nota Dinas)
+      const namaJabatan = user?.positionText || '';
+      const namaLengkap = user?.nama || '';
+
+      console.log('[SDI preview-pdf] Using user data:', { namaJabatan, namaLengkap, userId: user?.id });
+
+      const pdfBuffer = await this.suratDinasInternalService.generatePdfFromHtml(
+        body.htmlContent,
+        penerimaArray,
+        body.nama_tempat || 'Tangerang',
+        body.tanggal || body.tgl || '',
+        namaJabatan,
+        namaLengkap,
+        tembusanArray,
+        lampiranTempIds,
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-surat-dinas-internal.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ 
+          error: 'Failed to generate preview', 
+          detail: error instanceof Error ? error.message : String(error) 
+        });
+    }
+  }
+
+  /**
+   * POST /SDI/generate-pdf
+   * Generate PDF dari HTML content untuk preview/download Surat Dinas Internal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system (lampiran_temp_ids)
+   * 
+   * @param body - { htmlContent: string, penerima/tertuju: string[], nama_tempat: string, tanggal: string, nama_jabatan: string, nama_lengkap: string, tembusan?: string[], perihal: string, sifat: string, lampiran_temp_ids?: string[] }
+   * @param res - Express Response untuk send PDF file
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      // Support both 'konten' (from form) and 'htmlContent' (legacy) field names
+      if (body.konten && !body.htmlContent) {
+        body.htmlContent = body.konten;
+      }
+
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      // Support both 'tertuju' and 'penerima' field names
+      let penerimaArray = body.tertuju || body.penerima || [];
+      
+      // Parse penerima if it's a string (from form-data)
+      if (typeof penerimaArray === 'string') {
+        try {
+          penerimaArray = JSON.parse(penerimaArray);
+        } catch {
+          penerimaArray = [penerimaArray];
+        }
+      }
+
+      // Check if penerima are position_ids and convert to names
+      const isPositionId = (value: any): boolean => {
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray = await this.suratDinasInternalService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+      }
+
+      // Parse tembusan if it's a string (from form-data)
+      let tembusanArray = body.tembusan || [];
+      if (typeof tembusanArray === 'string') {
+        try {
+          tembusanArray = JSON.parse(tembusanArray);
+        } catch {
+          tembusanArray = [tembusanArray];
+        }
+      }
+
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray = await this.suratDinasInternalService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      }
+
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch {
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+      }
+
+      // Use user's position and name from JWT token (same as Nota Dinas)
+      const namaJabatan = user?.positionText || '';
+      const namaLengkap = user?.nama || '';
+
+      console.log('[SDI generate-pdf] Using user data:', { namaJabatan, namaLengkap, userId: user?.id });
+
+      const pdfBuffer = await this.suratDinasInternalService.generatePdfFromHtml(
+        body.htmlContent,
+        penerimaArray,
+        body.nama_tempat || 'Tangerang',
+        body.tanggal || body.tgl || '',
+        namaJabatan,
+        namaLengkap,
+        tembusanArray,
+        lampiranTempIds,
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="surat-dinas-internal-${Date.now()}.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 }

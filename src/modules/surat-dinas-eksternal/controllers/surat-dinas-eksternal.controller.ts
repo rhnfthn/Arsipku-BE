@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Put, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
-import { UserLevelGuard } from '../../../common/guards';
-import { UserLevels } from '../../../common/decorators';
+import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
+import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('SDE')
@@ -104,8 +106,8 @@ export class SuratDinasEksternalController {
   }
 
   /**
-   * PUT /SDE/update-draft/:id
-   * Update existing draft Surat Dinas Eksternal
+   * PATCH /SDE/update-draft/:id
+   * Update existing draft Surat Dinas Eksternal (partial update)
    *
    * Partial update - only provided fields will be updated
    * Status remains 'draf'
@@ -119,7 +121,7 @@ export class SuratDinasEksternalController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
-  @Put('update-draft/:id')
+  @Patch('update-draft/:id')
   async updateDraft(
     @Param('id') id: string,
     @Body() dto: UpdateSdeDraftDto,
@@ -215,6 +217,235 @@ export class SuratDinasEksternalController {
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * POST /SDE/preview-pdf
+   * Generate preview PDF Surat Dinas Eksternal untuk di-lihat sebelum dikirim
+   * PDF di-generate tanpa save ke database
+   * User bisa kembali edit dan preview ulang
+   * Support temporary lampiran system (lampiran_temp_ids)
+   * 
+   * @param body - { htmlContent/konten, penerima/tertuju, nama_tempat, tanggal, nama_jabatan, nama_lengkap, tembusan, perihal, sifat, lampiran_temp_ids }
+   * @param user - Current user dari JWT token
+   * @param res - Express Response untuk send PDF
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
+  @Post('preview-pdf')
+  async previewPdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      // Support both 'konten' (from form) and 'htmlContent' (legacy) field names
+      if (body.konten && !body.htmlContent) {
+        body.htmlContent = body.konten;
+      }
+
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent or konten' });
+      }
+
+      // Support both 'tertuju' and 'penerima' field names
+      let penerimaArray = body.tertuju || body.penerima || [];
+      
+      // Parse penerima if it's a string (from form-data)
+      if (typeof penerimaArray === 'string') {
+        try {
+          penerimaArray = JSON.parse(penerimaArray);
+        } catch {
+          penerimaArray = [penerimaArray];
+        }
+      }
+
+      // Check if penerima are position_ids and convert to names
+      const isPositionId = (value: any): boolean => {
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+      }
+
+      // Parse tembusan if it's a string (from form-data)
+      let tembusanArray = body.tembusan || [];
+      if (typeof tembusanArray === 'string') {
+        try {
+          tembusanArray = JSON.parse(tembusanArray);
+        } catch {
+          tembusanArray = [tembusanArray];
+        }
+      }
+
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      }
+
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch {
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+      }
+
+      // Use user's position and name from JWT token (same as Nota Dinas)
+      const namaJabatan = user?.positionText || '';
+      const namaLengkap = user?.nama || '';
+
+      const pdfBuffer = await this.sdeService.generatePdfFromHtml(
+        body.htmlContent,
+        penerimaArray,
+        body.nama_tempat || 'Tangerang',
+        body.tanggal || body.tgl || '',
+        namaJabatan,
+        namaLengkap,
+        tembusanArray,
+        lampiranTempIds,
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-surat-dinas-eksternal.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ 
+          error: 'Failed to generate preview', 
+          detail: error instanceof Error ? error.message : String(error) 
+        });
+    }
+  }
+
+  /**
+   * POST /SDE/generate-pdf
+   * Generate PDF dari HTML content untuk preview/download Surat Dinas Eksternal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system (lampiran_temp_ids)
+   * 
+   * @param body - { htmlContent: string, penerima/tertuju: string[], nama_tempat: string, tanggal: string, nama_jabatan: string, nama_lengkap: string, tembusan?: string[], perihal: string, sifat: string, lampiran_temp_ids?: string[] }
+   * @param res - Express Response untuk send PDF file
+   */
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
+  @Post('generate-pdf')
+  async generatePdf(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      // Support both 'konten' (from form) and 'htmlContent' (legacy) field names
+      if (body.konten && !body.htmlContent) {
+        body.htmlContent = body.konten;
+      }
+
+      if (!body || !body.htmlContent) {
+        return res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ error: 'Missing required field: htmlContent' });
+      }
+
+      // Support both 'tertuju' and 'penerima' field names
+      let penerimaArray = body.tertuju || body.penerima || [];
+      
+      // Parse penerima if it's a string (from form-data)
+      if (typeof penerimaArray === 'string') {
+        try {
+          penerimaArray = JSON.parse(penerimaArray);
+        } catch {
+          penerimaArray = [penerimaArray];
+        }
+      }
+
+      // Check if penerima are position_ids and convert to names
+      const isPositionId = (value: any): boolean => {
+        return typeof value === 'number' || 
+               (typeof value === 'string' && /^\d+$/.test(value));
+      };
+
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+      }
+
+      // Parse tembusan if it's a string (from form-data)
+      let tembusanArray = body.tembusan || [];
+      if (typeof tembusanArray === 'string') {
+        try {
+          tembusanArray = JSON.parse(tembusanArray);
+        } catch {
+          tembusanArray = [tembusanArray];
+        }
+      }
+
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      }
+
+      // Parse lampiran_temp_ids if provided
+      let lampiranTempIds: string[] = [];
+      if (body.lampiran_temp_ids) {
+        if (Array.isArray(body.lampiran_temp_ids)) {
+          lampiranTempIds = body.lampiran_temp_ids;
+        } else if (typeof body.lampiran_temp_ids === 'string') {
+          try {
+            lampiranTempIds = JSON.parse(body.lampiran_temp_ids);
+          } catch {
+            lampiranTempIds = [body.lampiran_temp_ids];
+          }
+        }
+      }
+
+      // Use user's position and name from JWT token (same as Nota Dinas)
+      const namaJabatan = user?.positionText || '';
+      const namaLengkap = user?.nama || '';
+
+      const pdfBuffer = await this.sdeService.generatePdfFromHtml(
+        body.htmlContent,
+        penerimaArray,
+        body.nama_tempat || 'Tangerang',
+        body.tanggal || body.tgl || '',
+        namaJabatan,
+        namaLengkap,
+        tembusanArray,
+        lampiranTempIds,
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="surat-dinas-eksternal-${Date.now()}.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 }
