@@ -232,11 +232,17 @@ export class GeneratePdfNodinService {
         </tbody></table>`;
     }
 
-    // Add global CSS untuk border tipis pada semua table
+    // Add global CSS untuk font dan border
     const globalStyle = `
       <style>
+        body {
+          font-family: 'Times New Roman', Times, serif;
+          font-size: 12pt;
+          line-height: 1.5;
+        }
         table, th, td {
           border-width: 0.5px !important;
+          font-family: 'Times New Roman', Times, serif;
         }
       </style>
     `;

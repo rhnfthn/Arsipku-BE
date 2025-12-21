@@ -4,15 +4,33 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
 
+interface SdiPdfOptions {
+  html: string;
+  htmlContent?: string;
+  filename?: string;
+  dari?: string;
+  tanggal?: string;
+  positionText?: string;
+  namaLengkap?: string;
+  perihal?: string;
+  penerima?: string[];
+  tembusan?: string[];
+  sifat?: string;
+  lampiran?: string;
+  nomor?: string;
+  nama_tempat?: string;
+  nama_jabatan?: string;
+}
+
 @Injectable()
 export class GeneratePdfSudinService {
-  async generatePdf(body: any): Promise<Buffer> {
+  async generatePdf(body: SdiPdfOptions): Promise<Buffer> {
     return pdfQueue.add(() => this._generatePdfInternal(body), {
       timeout: 30000,
     });
   }
 
-  private async _generatePdfInternal(body: any): Promise<Buffer> {
+  private async _generatePdfInternal(body: SdiPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
     
     try {
@@ -59,136 +77,275 @@ export class GeneratePdfSudinService {
     }
     
     const html = decodedContent;
-    const dari = body.dari || 'Tangerang';
-    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const penandatangan = body.penandatangan || 'Rizwan Noor Hasfrian';
+    const namaTempat = body.nama_tempat || 'Tangerang';
+    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+    const tanggalFormatted = `${namaTempat}, ${tanggal}`;
+    // Position and name from JWT user data (passed from controller)
+    const positionText = body.positionText || '';
+    const namaLengkap = body.namaLengkap || '';
     const perihal = body.perihal || '';
-    const penerima = body.penerima || [];
+    const sifat = body.sifat || 'Biasa';
+    const lampiranText = body.lampiran || '-';
+    const nomor = body.nomor || '';
+    
+    // Format penerima - ensure it's an array
+    let penerimaArr: string[] = [];
+    if (Array.isArray(body.penerima)) {
+      penerimaArr = body.penerima;
+    } else if (typeof body.penerima === 'string') {
+      try {
+        const parsed = JSON.parse(body.penerima);
+        penerimaArr = Array.isArray(parsed) ? parsed : [body.penerima];
+      } catch {
+        penerimaArr = body.penerima ? [body.penerima] : [];
+      }
+    }
+    
+    // Format tembusan - ensure it's an array
+    let tembusanArr: string[] = [];
+    if (Array.isArray(body.tembusan)) {
+      tembusanArr = body.tembusan;
+    } else if (typeof body.tembusan === 'string') {
+      try {
+        const parsed = JSON.parse(body.tembusan);
+        tembusanArr = Array.isArray(parsed) ? parsed : [body.tembusan];
+      } catch {
+        tembusanArr = body.tembusan ? [body.tembusan] : [];
+      }
+    }
+
+    // Check if address page is needed (>5 items)
+    const penerimaExceedsLimit = penerimaArr.length > 5;
+    const tembusanExceedsLimit = tembusanArr.length > 5;
+    const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
+    
+    // Process penerima
     let penerimaHtml = '';
-    if (penerima.length > 1) {
-      penerimaHtml =
-        "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
-      penerima.forEach((item) => {
-        penerimaHtml += `<li>${item}</li>`;
-      });
-      penerimaHtml += '</ol>';
+    if (penerimaExceedsLimit) {
+      // Jika penerima > 5, ganti dengan "Periksa Alamat Terlampir"
+      penerimaHtml = 'Periksa Alamat Terlampir';
     } else {
-      penerimaHtml = penerima[0] || '';
+      // <= 5 items, tampilkan semua normal
+      if (penerimaArr.length > 1) {
+        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;padding-left:20px;'>";
+        penerimaArr.forEach((item) => {
+          penerimaHtml += `<li>${item}</li>`;
+        });
+        penerimaHtml += '</ol>';
+      } else if (penerimaArr.length === 1) {
+        penerimaHtml = penerimaArr[0] || '';
+      }
     }
-    const tembusandata = body.tembusan || [];
-
+    
+    // Process tembusan
     let tembusanHtml = '';
-    if (tembusandata.length > 1) {
-      tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
-      tembusandata.forEach((item) => {
-        tembusanHtml += `<li>${item}</li>`;
-      });
-      tembusanHtml += '</ol>';
+    if (tembusanExceedsLimit) {
+      // Jika tembusan > 5, ganti dengan "Periksa Alamat Terlampir"
+      tembusanHtml = 'Periksa Alamat Terlampir';
     } else {
-      tembusanHtml = tembusandata[0] || '';
+      // <= 5 items, tampilkan semua normal
+      if (tembusanArr.length > 1) {
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;padding-left:20px;'>";
+        tembusanArr.forEach((item) => {
+          tembusanHtml += `<li>${item}</li>`;
+        });
+        tembusanHtml += '</ol>';
+      } else if (tembusanArr.length === 1) {
+        tembusanHtml = tembusanArr[0] || '';
+      }
     }
-    // console.log(tembusanHtml);
+
+    // Tembusan section (only show if tembusan exists)
     let tembusanKonten = '';
-    if (tembusanHtml != '') {
-      tembusanKonten = `<tr>
-        <td colspan="3" style="padding-top:15px;">Tembusan Yth:</td>
-      </tr>
-      <tr>
-        <td colspan="3">${tembusanHtml}</td>
-      </tr>`;
+    if (tembusanHtml !== '') {
+      tembusanKonten = `
+        <table style="width:100%;margin-top:20px;">
+          <tbody>
+            <tr>
+              <td style="vertical-align:top;">Tembusan Yth:<br>${tembusanHtml}</td>
+            </tr>
+          </tbody>
+        </table>`;
     }
 
-    const konten = `<table style="width:100%;margin:0 auto;">
-      <tbody><tr>
-        <td style="width:10%;"><img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;"></td>
-        <td style="width:70%;color:#000;font-size:18px;vertical-align:bottom;">
-          AirNav Indonesia<br>
-        </td>
-        <td style="font-size:9px;">Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
-      </tr>
-    </tbody></table>	
+    // Header kop surat
+    const header = `
+      <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
+        <tbody>
+          <tr>
+            <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
+            <td style='width:70%;color:#000;font-size:18px;vertical-align:bottom;'>AirNav Indonesia</td>
+            <td style='font-size:9px;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
 
-    <table border="0" width="96%" style="margin-top:20px;">
-      <tbody><tr>
-        <td colspan="3" style="padding-top:10px;">
-          ${dari}, ${tanggal}		</td>
-      </tr>
-      <tr>
-      <td colspan="3">
-        <table style="margin-top:10px;" width="100%">
-          <tbody><tr>
-            <td width="20%" valign="middle">Nomor</td><td width="3%" valign="middle">:</td>
-            <td valign="middle">
-                      </td>
+    // Header info surat
+    const headerInfo = `
+      <table border="0" width="100%" style="margin-top:20px;">
+        <tbody>
+          <tr>
+            <td colspan="3" style="padding-top:10px;">${tanggalFormatted}</td>
           </tr>
           <tr>
-            <td valign="top">Sifat</td><td valign="top">:</td>
-            <td valign="top">Biasa/ Terbuka</td>
-          </tr>
-          <tr>
-            <td valign="top">Lampiran</td><td valign="top">:</td>
-            <td valign="top">1 Lampiran</td>
-          </tr>
-          <tr>
-            <td valign="top">Perihal</td><td valign="top">:</td>
-            <td valign="top">${perihal}</td>
-          </tr>
-          <tr>
-            <td colspan="3" valign="top" style="padding-top:15px;width:100%;">Kepada Yth.<br>
-            <div style="width:55%;">
-            ${penerimaHtml}
-            Di Tempat</div>
+            <td colspan="3">
+              <table style="margin-top:10px;" width="100%">
+                <tbody>
+                  <tr>
+                    <td width="15%" valign="middle">Nomor</td>
+                    <td width="3%" valign="middle">:</td>
+                    <td valign="middle">${nomor}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Sifat</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${sifat}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Lampiran</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${lampiranText}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Perihal</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${perihal}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
+                      Kepada Yth.<br>
+                      <div style="width:55%;">
+                        ${penerimaHtml}
+                        Di Tempat
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </td>
           </tr>
-        </tbody></table>
-      </td>
-      </tr>
-      <tr>
-        <td colspan="3" style="overflow:hidden;">        
-        ${html}		
-        </td>
-      </tr>
-      <tr>
-        <td colspan="3" style="padding-right:40px;">
-          <table style="margin-top:0px;">
-            <tbody><tr>
-                    <td style="padding-top:0px;">
-                    EVP of Information Technology</td>
-                  </tr>
+        </tbody>
+      </table>
+    `;
+
+    // Body konten
+    const bodyKonten = `
+      <div style="margin-top:15px;text-align:justify;">
+        ${html}
+      </div>
+    `;
+
+    // TTD section - dinamis
+    const ttd = `
+      <table style="width:100%;margin-top:30px;">
+        <tbody>
+          <tr>
+            <td style="width:50%;"></td>
+            <td style="text-align:center;">
+              ${positionText}<br>
+              <br><br><br><br><br>
+              ${namaLengkap}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    // Global CSS
+    const globalStyle = `
+      <style>
+        body {
+          font-family: 'Times New Roman', Times, serif;
+          font-size: 12pt;
+          line-height: 1.5;
+        }
+        table {
+          border-collapse: collapse;
+        }
+        td {
+          vertical-align: top;
+        }
+      </style>
+    `;
+
+    const konten = globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+
+    // Generate address page if needed (penerima or tembusan > 5)
+    let addressPageContent = '';
+    if (needsAddressPage) {
+      // Build address list HTML - HANYA tampilkan field yang > 5
+      let penerimaListHtml = '';
+      if (penerimaExceedsLimit) {
+        penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        penerimaArr.forEach((item) => {
+          penerimaListHtml += `<li>${item}</li>`;
+        });
+        penerimaListHtml += '</ol>';
+      }
+
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArr.forEach((item) => {
+          tembusanListHtml += `<li>${item}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
+      addressPageContent = `
+        <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
             <tr>
-              <td height="60">
-                  <br><br><br><br>					</td>
+              <td style="width: 50%;">&nbsp;</td>
+              <td style="width: 50%; text-align: right; vertical-align: top;">
+                <div style="display: inline-block; text-align: left;">
+                  Lampiran Surat<br>
+                  Nomor Surat : ${nomor}<br>
+                  Tanggal Surat : ${tanggalFormatted}
+                </div>
+              </td>
             </tr>
-            <tr>
-              <td style="">Rizwan Noor Hasfrian</td>
-            </tr>
-          </tbody></table>
-        </td>
-      </tr>
-      ${tembusanKonten}      
-      </tbody></table>`;
+          </table>
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+            ${penerimaExceedsLimit ? `<tr>
+              <td style="vertical-align:top; padding-bottom:20px;">
+                <b>KEPADA YTH :</b><br>
+                ${penerimaListHtml}
+              </td>
+            </tr>` : ''}
+            ${tembusanExceedsLimit ? `<tr>
+              <td style="vertical-align:top;">
+                <b>TEMBUSAN :</b><br>
+                ${tembusanListHtml}
+              </td>
+            </tr>` : ''}
+          </table>
+        </div>
+      `;
+    }
+
+    const finalKonten = konten + addressPageContent;
 
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(konten, { waitUntil: 'networkidle0' });
+      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '10mm',
+          top: '15mm',
           bottom: '15mm',
-          left: '15mm',
+          left: '20mm',
           right: '15mm',
         },
       });
 
-      // await browser.close();
-
       return Buffer.from(pdf);
     } finally {
-      await page.close(); // ✅ WAJIB
+      await page.close();
     }
   }
 }
