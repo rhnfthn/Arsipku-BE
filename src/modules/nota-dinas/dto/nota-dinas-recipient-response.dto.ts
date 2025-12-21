@@ -21,6 +21,7 @@ export class OrgDataPositionDto {
   position_abbreviation: string | null;
   chief: number;
   departType: string | null;
+  bod_tag: string | null;
 
   persnum_person: number | null;
   persnum_person_text: string | null;

@@ -40,6 +40,10 @@ import {
   GetNomorResponseDto,
   GetNomorByIdResponseDto,
 } from '../dto/get-nomor.dto';
+import {
+  AdminCreateNomorDto,
+  AdminCreateNomorResponseDto,
+} from '../dto/admin-create-nomor.dto';
 
 @Controller('/')
 export class NomorController {
@@ -403,6 +407,31 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor
+   * Admin langsung create nomor valid (tanpa melalui booking/approve)
+   */
+  @Post('admin/nomor')
+  async adminCreateNomor(
+    @Body() dto: AdminCreateNomorDto,
+  ): Promise<AdminCreateNomorResponseDto> {
+    try {
+      return await this.nomorService.adminCreateNomor(dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to create nomor',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

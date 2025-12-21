@@ -27,8 +27,7 @@ export class TemplateController {
    * Create template dengan file upload
    * Form-data:
    * - nama_template: string (required)
-   * - tanggal: string (optional, format YYYY-MM-DD)
-   * - file: File (required) - Template file
+   * - file: File (optional) - Template file
    */
   @Post()
   @UseInterceptors(
@@ -45,7 +44,7 @@ export class TemplateController {
     try {
       const created = await this.templateService.create(dto, file);
       const mapped = await this.templateService.toDto(created);
-      return { success: true, data: mapped } as TemplateItemResponseDto;
+      return { success: true, data: mapped };
     } catch (err) {
       throw new HttpException({ success: false, message: err.message }, HttpStatus.BAD_REQUEST);
     }
@@ -69,7 +68,6 @@ export class TemplateController {
    * Update template dengan optional file upload
    * Form-data:
    * - nama_template: string (optional)
-   * - tanggal: string (optional, format YYYY-MM-DD)
    * - file: File (optional) - New template file
    */
   @Put(':id')
@@ -88,8 +86,6 @@ export class TemplateController {
     const updated = await this.templateService.update(id, dto, file);
     return { success: true, data: await this.templateService.toDto(updated) };
   }
-
-  // Note: toggleAktif removed because the `template` table has no `aktif` column.
 
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<TemplateActionResponseDto> {

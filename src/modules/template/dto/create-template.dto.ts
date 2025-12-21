@@ -1,10 +1,10 @@
-import { IsString, IsOptional, MaxLength, IsDateString } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsNotEmpty } from 'class-validator';
 
 export class CreateTemplateDto {
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
   @MaxLength(150)
-  nama_template?: string;
+  nama_template: string;
 
   // Untuk upload via JSON (base64 encoded)
   @IsOptional()
@@ -19,9 +19,5 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  file_mimetype?: string; // MIME type (e.g., application/pdf)
-
-  @IsOptional()
-  @IsDateString()
-  tanggal?: string;
+  file_mimetype?: string; // MIME type
 }
