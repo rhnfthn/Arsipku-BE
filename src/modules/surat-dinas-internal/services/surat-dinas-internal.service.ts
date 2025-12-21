@@ -224,6 +224,51 @@ export class SuratDinasInternalService {
     return nomorBaru;
   }
 
+  /**
+   * Helper: Convert array of position IDs to position names
+   * Uses org_data to lookup position information
+   * 
+   * @param positionIds - Array of position IDs (can be string or number)
+   * @param tanggal - Optional date for org_data lookup (default: today)
+   * @returns Array of position text names
+   */
+  async convertPositionIdsToNames(
+    positionIds: (string | number)[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!positionIds || positionIds.length === 0) {
+      return [];
+    }
+
+    // Get org_data for position lookup
+    const tgl = tanggal || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tgl);
+    
+    if (!orgData || !orgData.position_json) {
+      console.warn(`[SDI convertPositionIdsToNames] Org data not found for ${tgl}`);
+      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+    }
+
+    const barisData = orgData.position_json;
+    const names: string[] = [];
+
+    for (const posId of positionIds) {
+      const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
+      const position = barisData.find((p: any) => p.position === numericId);
+      
+      if (position) {
+        // Return position_text with organization_text
+        const fullName = `${position.position_text} - ${position.organization_text}`;
+        names.push(fullName);
+      } else {
+        // Fallback if position not found
+        names.push(String(posId));
+      }
+    }
+
+    return names;
+  }
+
   // ============================================================
   // FORM DATA PARSER
   // ============================================================
@@ -236,22 +281,31 @@ export class SuratDinasInternalService {
   async generatePdfFromHtml(
     htmlContent: string,
     penerima: string[],
-    dari: string = '',
+    nama_tempat: string = 'Tangerang',
     tanggal: string = '',
-    penandatangan: string = '',
+    nama_jabatan: string = '',
+    nama_lengkap: string = '',
     tembusan: string[] = [],
     lampiranTempIds?: string[],
+    perihal: string = '',
+    sifat: string = 'Biasa',
+    nomor: string = '',
+    lampiran: string = '-',
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
       let pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
-        dari: dari,
+        nama_tempat: nama_tempat,
         tanggal: tanggal,
-        penandatangan: penandatangan,
+        positionText: nama_jabatan,
+        namaLengkap: nama_lengkap,
         tembusan: tembusan,
-        perihal: '',
+        perihal: perihal,
+        sifat: sifat,
+        nomor: nomor,
+        lampiran: lampiran,
       });
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
@@ -373,6 +427,72 @@ export class SuratDinasInternalService {
   }
 
   /**
+   * Move temporary lampiran to final location and link to naskah
+   * Update: is_temporary = 0, id_naskah = naskahId, move file to final folder
+   *
+   * @param lampiranIds - Array of lampiran IDs (temporary)
+   * @param naskahId - ID naskah yang akan dikaitkan
+   * @param finalFolder - Folder tujuan (e.g., 'surat-dinas-internal/lampiran')
+   */
+  private async moveTemporaryLampiranToFinal(
+    lampiranIds: string[],
+    naskahId: string,
+    finalFolder: string,
+  ): Promise<void> {
+    if (!lampiranIds || lampiranIds.length === 0) {
+      return;
+    }
+
+    // Get all temporary lampiran
+    const tempLampiran = await this.naskahLampiranRepository.find({
+      where: {
+        id: In(lampiranIds),
+        is_temporary: 1,
+      },
+    });
+
+    if (tempLampiran.length === 0) {
+      throw new NotFoundException('Lampiran temporary tidak ditemukan');
+    }
+
+    // Validate all lampiran are temporary (prevent reuse)
+    if (tempLampiran.length !== lampiranIds.length) {
+      throw new BadRequestException(
+        'Beberapa lampiran ID tidak valid atau bukan temporary (sudah digunakan sebelumnya)',
+      );
+    }
+
+    // Move each file and update database
+    for (const lampiran of tempLampiran) {
+      const fileName = lampiran.file_name;
+      const oldKey = lampiran.file_pdf;
+
+      // Generate new key untuk final location
+      const timestamp = Date.now();
+      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+
+      try {
+        // Move file di storage
+        await this.storageService.moveFile(oldKey, newKey);
+
+        // Update database
+        lampiran.id_naskah = naskahId;
+        lampiran.file_pdf = newKey;
+        lampiran.jenis = 'SDI';
+        lampiran.is_temporary = 0;
+        lampiran.temp_folder_id = null;
+
+        await this.naskahLampiranRepository.save(lampiran);
+        console.log(`[SDI moveTemporaryLampiranToFinal] Moved: ${fileName} -> ${newKey}`);
+      } catch (error) {
+        console.error(`[SDI moveTemporaryLampiranToFinal] Error moving ${fileName}:`, error);
+        // Continue with other files
+      }
+    }
+  }
+
+  /**
    * Parse form-data body + uploaded files to CreateSuratDinasInternalDto
    */
   async parseFormDataToDto(
@@ -423,10 +543,27 @@ export class SuratDinasInternalService {
       }
     }
 
-    // Build DTO
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Build DTO - support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+    
     const dto: CreateSuratDinasInternalDto = {
       pengirim: Number(body.pengirim),
-      penerima: parseArray(body.penerima),
+      penerima: parseArray(penerimaData),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -447,6 +584,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
 
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
@@ -489,9 +627,27 @@ export class SuratDinasInternalService {
       lampiranFilePaths = uploadResults.map(result => result.key);
     }
 
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+
     const dto: UpdateDraftDto = {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
-      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -512,6 +668,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
 
       tgl: body.tgl,
     };
@@ -564,10 +721,28 @@ export class SuratDinasInternalService {
       finalPdfPath = uploadResult.key;
     }
 
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+
     // Build DTO - semua field optional untuk finalize
     const dto: FinalizeDraftDto = {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
-      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -588,6 +763,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
     };
@@ -1105,7 +1281,17 @@ export class SuratDinasInternalService {
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
       }
 
-      // PHASE 11: Insert lampiran (if any)
+      // PHASE 11: Handle lampiran
+      // Handle temporary lampiran (RECOMMENDED - dari POST /upload-temporary)
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'surat-dinas-internal/lampiran',
+        );
+      }
+
+      // Handle legacy lampiran_files (DEPRECATED, tapi masih support backward compatibility)
       if (dto.lampiran_files && dto.lampiran_files.length > 0) {
         for (const filePath of dto.lampiran_files) {
           const fileName = filePath.split('/').pop() || filePath;
@@ -1115,6 +1301,7 @@ export class SuratDinasInternalService {
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
+            is_temporary: 0,
           });
           await queryRunner.manager.save(lampiran);
         }
