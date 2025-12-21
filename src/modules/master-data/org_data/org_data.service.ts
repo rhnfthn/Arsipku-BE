@@ -83,6 +83,20 @@ export class OrgDataService {
   }
 
   /**
+   * Find latest org data (most recent by tgl)
+   * Used when exact date match is not required
+   */
+  async findLatestOrg(): Promise<OrgDatum | null> {
+    const result = await this.cRepo
+      .createQueryBuilder('organization_build')
+      .orderBy('organization_build.tgl', 'DESC')
+      .limit(1)
+      .getOne();
+
+    return result || null;
+  }
+
+  /**
    * Find user by persnum from organization_json
    * Used for SSO authentication
    * 
@@ -150,6 +164,7 @@ export class OrgDataService {
                     position: position.position,
                     positionText: position.position_text,
                     positionAbbreviation: position.abbreviation,
+                    abbreviation: position.abbreviation || '', // Use position abbreviation
                     isChief: position.chief === 1,
                     bodTag: position.bod_tag,
                   };

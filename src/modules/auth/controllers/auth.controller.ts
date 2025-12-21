@@ -200,12 +200,15 @@ export class AuthController {
     expiredToken: string;
     refreshToken: string;
     sessionId: string;
-    user: JwtPayload;
+    user: JwtPayload & { abbreviation?: string };
   }> {
     const userAgent = req.headers['user-agent'];
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
 
-    return this.authService.loginWithSsoToken(dto.token, userAgent, ip);
+    const result = await this.authService.loginWithSsoToken(dto.token, userAgent, ip);
+    
+    // Add abbreviation field (alias for bodTag)
+    return result;
   }
 
   /**
@@ -285,7 +288,7 @@ export class AuthController {
   })
   getProfile(@CurrentUser() user: JwtPayload): {
     message: string;
-    user: JwtPayload;
+    user: JwtPayload & { abbreviation?: string };
   } {
     return {
       message: 'Profile retrieved from JWT',

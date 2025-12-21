@@ -18,6 +18,11 @@ export class CreateBerkasDto {
   klasifikasi: string;
 
   @IsString()
+  @IsOptional()
+  @MaxLength(255, { message: 'Klasifikasi teks maksimal 255 karakter' })
+  klasifikasi_teks?: string;
+
+  @IsString()
   @IsNotEmpty({ message: 'Judul berkas tidak boleh kosong' })
   @MaxLength(200, { message: 'Judul berkas maksimal 200 karakter' })
   judul_berkas: string;

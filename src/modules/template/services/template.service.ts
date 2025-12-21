@@ -17,13 +17,13 @@ export class TemplateService {
   ) {}
 
   /**
-   * Create template dengan upload file ke MinIO
+   * Create template dengan upload file
    * Mendukung 2 cara:
    * 1. Multipart form-data (file parameter)
    * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
    */
   async create(dto: CreateTemplateDto, file?: Express.Multer.File): Promise<TemplateEntity> {
-    let fileKey: string;
+    let fileKey: string | null = null;
 
     if (file) {
       // Upload via multipart form-data
@@ -40,14 +40,10 @@ export class TemplateService {
         'templates',
       );
       fileKey = uploadResult.key;
-    } else {
-      throw new BadRequestException('File template harus diupload (via multipart atau base64)');
     }
 
-    const now = new Date();
     const template = this.templateRepository.create({
       id: uuidv4(),
-      tanggal: dto.tanggal ? new Date(dto.tanggal) : now,
       nama_template: dto.nama_template,
       file: fileKey,
     });
@@ -56,21 +52,9 @@ export class TemplateService {
   }
 
   /**
-   * Convert entity to DTO dengan signed URL dari MinIO
+   * Convert entity to DTO dengan signed URL dari storage
    */
   async toDto(entity: TemplateEntity): Promise<TemplateDto> {
-    function formatDate(val: any): string | null {
-      if (val === null || val === undefined) return null;
-      if (val instanceof Date && !isNaN(val.getTime())) return val.toISOString().split('T')[0];
-      if (typeof val === 'string') {
-        const s = val.split('T')[0].split(' ')[0];
-        return s;
-      }
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-      return null;
-    }
-
     // Generate signed URL untuk file
     let fileUrl: string | undefined;
     if (entity.file) {
@@ -83,13 +67,12 @@ export class TemplateService {
 
     return {
       id: entity.id,
-      tanggal: formatDate(entity.tanggal),
       nama_template: entity.nama_template,
       file: entity.file,
-      file_url: fileUrl, // Signed URL dari MinIO
+      file_url: fileUrl,
       create_at: entity.create_at ? entity.create_at.toISOString() : undefined,
       update_at: entity.update_at ? entity.update_at.toISOString() : undefined,
-    } as TemplateDto;
+    };
   }
 
   async toDtoList(entities: TemplateEntity[]): Promise<TemplateDto[]> {
@@ -113,7 +96,7 @@ export class TemplateService {
   }
 
   /**
-   * Update template dengan optional upload file baru ke MinIO
+   * Update template dengan optional upload file baru
    * Mendukung 2 cara:
    * 1. Multipart form-data (file parameter)
    * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
@@ -127,7 +110,7 @@ export class TemplateService {
       const uploadResult = await this.storageService.uploadFile(file, 'templates');
       t.file = uploadResult.key;
 
-      // Hapus file lama dari MinIO
+      // Hapus file lama dari storage
       if (oldFileKey) {
         try {
           await this.storageService.deleteFile(oldFileKey);
@@ -147,7 +130,7 @@ export class TemplateService {
       );
       t.file = uploadResult.key;
 
-      // Hapus file lama dari MinIO
+      // Hapus file lama dari storage
       if (oldFileKey) {
         try {
           await this.storageService.deleteFile(oldFileKey);
@@ -156,30 +139,22 @@ export class TemplateService {
         }
       }
     }
-    // Jika tidak ada file baru, file lama tetap dipertahankan
 
-    // Update field lainnya
+    // Update nama template
     if (dto.nama_template !== undefined) {
       t.nama_template = dto.nama_template;
-    }
-
-    // Update tanggal
-    if (dto.tanggal === undefined) {
-      t.tanggal = new Date();
-    } else if (dto.tanggal) {
-      t.tanggal = new Date(dto.tanggal);
     }
 
     return await this.templateRepository.save(t);
   }
 
   /**
-   * Remove template dan hapus file dari MinIO
+   * Remove template dan hapus file dari storage
    */
   async remove(id: string): Promise<void> {
     const t = await this.findOne(id);
     
-    // Hapus file dari MinIO
+    // Hapus file dari storage
     if (t.file) {
       try {
         await this.storageService.deleteFile(t.file);
@@ -189,11 +164,5 @@ export class TemplateService {
     }
 
     await this.templateRepository.remove(t);
-  }
-
-  async toggleAktif(id: string): Promise<TemplateEntity> {
-    // No 'aktif' column in the template table; toggle not applicable
-    const t = await this.findOne(id);
-    return t;
   }
 }

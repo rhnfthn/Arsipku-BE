@@ -3,20 +3,37 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Berkas } from '../entities/berkas.entity';
 import { CreateBerkasDto, UpdateBerkasDto } from '../dto';
+import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
 
 @Injectable()
 export class BerkasService {
   constructor(
     @InjectRepository(Berkas)
     private readonly berkasRepository: Repository<Berkas>,
+    @InjectRepository(KlasifikasiEntity)
+    private readonly klasifikasiRepository: Repository<KlasifikasiEntity>,
   ) {}
 
   /**
    * Membuat berkas baru
    */
   async create(createBerkasDto: CreateBerkasDto): Promise<Berkas> {
+    // Fetch klasifikasi_text dari tabel klasifikasi jika tidak dikirim dari frontend
+    let klasifikasiTeks = createBerkasDto.klasifikasi_teks;
+    
+    if (!klasifikasiTeks && createBerkasDto.klasifikasi) {
+      const klasifikasi = await this.klasifikasiRepository.findOne({
+        where: { klasifikasi: createBerkasDto.klasifikasi },
+      });
+      
+      if (klasifikasi) {
+        klasifikasiTeks = klasifikasi.klasifikasi_text;
+      }
+    }
+
     const berkas = this.berkasRepository.create({
       klasifikasi: createBerkasDto.klasifikasi,
+      klasifikasiTeks: klasifikasiTeks,
       judulBerkas: createBerkasDto.judul_berkas,
       hitungWaktuRetensiDari: createBerkasDto.hitung_waktu_retensi_dari,
       tindakanPenyusutanAkhir: createBerkasDto.tindakan_penyusutan_akhir,
@@ -65,6 +82,20 @@ export class BerkasService {
     // Update field yang ada di DTO
     if (updateBerkasDto.klasifikasi !== undefined) {
       berkas.klasifikasi = updateBerkasDto.klasifikasi;
+      
+      // Auto-fetch klasifikasi_text jika klasifikasi berubah dan klasifikasi_teks tidak dikirim
+      if (updateBerkasDto.klasifikasi_teks === undefined) {
+        const klasifikasi = await this.klasifikasiRepository.findOne({
+          where: { klasifikasi: updateBerkasDto.klasifikasi },
+        });
+        
+        if (klasifikasi) {
+          berkas.klasifikasiTeks = klasifikasi.klasifikasi_text;
+        }
+      }
+    }
+    if (updateBerkasDto.klasifikasi_teks !== undefined) {
+      berkas.klasifikasiTeks = updateBerkasDto.klasifikasi_teks;
     }
     if (updateBerkasDto.judul_berkas !== undefined) {
       berkas.judulBerkas = updateBerkasDto.judul_berkas;

@@ -222,7 +222,9 @@ export class NaskahSirkulasiService {
         s.id_sirkuler as penerima_persnum,
         s.nama_sirkuler as penerima_nama,
         s.position_text as penerima_position_text,
-        s.organization_text as penerima_organization_text
+        s.organization_text as penerima_organization_text,
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
@@ -230,6 +232,39 @@ export class NaskahSirkulasiService {
       ORDER BY n.tanggal DESC, s.id DESC
     `;
     const rows = await this.dataSource.query(selectQuery, params);
+
+    // Get all recipients (kepada) for each naskah
+    const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
+    const kepadaMap = new Map<string, any[]>();
+    
+    if (naskahIds.length > 0) {
+      const kepadaQuery = `
+        SELECT 
+          id_naskah,
+          position as position_id,
+          nama_sirkuler as nama,
+          position_text,
+          organization_text
+        FROM naskah_sirkulasi
+        WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+        AND sirkuler = 'penerima'
+        ORDER BY id
+      `;
+      const kepadaRows = await this.dataSource.query(kepadaQuery, naskahIds);
+      
+      // Group by id_naskah
+      kepadaRows.forEach((row: any) => {
+        if (!kepadaMap.has(row.id_naskah)) {
+          kepadaMap.set(row.id_naskah, []);
+        }
+        kepadaMap.get(row.id_naskah)?.push({
+          position_id: row.position_id || '',
+          nama: row.nama || '',
+          position_text: row.position_text || '',
+          organization_text: row.organization_text || '',
+        });
+      });
+    }
 
     // Map to InboxItemDto
     const items: InboxItemDto[] = rows.map((row: any) => ({
@@ -256,11 +291,14 @@ export class NaskahSirkulasiService {
         position_text: row.penerima_position_text || '',
         organization_text: row.penerima_organization_text || '',
       },
+      kepada: kepadaMap.get(row.id_naskah) || [], // Semua penerima yang dituju
       status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
       read_time: row.send_read_time,
       is_favorit: row.flag_favorit === 1,
       is_arsip: row.flag_arsip === 1,
       is_note: row.flag_note === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }));
 
     // Get summary counts
@@ -355,7 +393,9 @@ export class NaskahSirkulasiService {
         s.position as pengirim_position_id,
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
-        s.nama_sirkuler as pengirim_nama
+        s.nama_sirkuler as pengirim_nama,
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
@@ -449,6 +489,8 @@ export class NaskahSirkulasiService {
           terbaca,
           belum_terbaca: belumTerbaca,
         },
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       });
     }
 
