@@ -429,8 +429,9 @@ export class DisposisiService {
   }
 
   /**
-   * Get temporary lampiran files from storage
-   * Query by lampiran IDs and check is_temporary=1
+   * Get lampiran files from storage (both temporary and final)
+   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft) 
+   * and is_temporary=0 (after save-draft)
    */
   private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
     try {
@@ -438,11 +439,12 @@ export class DisposisiService {
         return [];
       }
 
-      // Query all temporary lampiran by IDs
+      // Query all lampiran by IDs (both temporary and final)
+      // This allows preview-pdf to work both before and after save-draft
       const tempLampiran = await this.naskahLampiranRepository.find({
         where: {
           id: In(tempIds),
-          is_temporary: 1,
+          // Removed is_temporary: 1 filter to support both temporary and final lampiran
         },
       });
 
