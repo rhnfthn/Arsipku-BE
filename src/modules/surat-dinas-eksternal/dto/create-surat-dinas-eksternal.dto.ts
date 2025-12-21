@@ -105,6 +105,12 @@ export class CreateSuratDinasEksternalDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // Lampiran temp IDs (RECOMMENDED - dari POST /upload-temporary)
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
 }
 
 /**
