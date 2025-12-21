@@ -8,10 +8,12 @@ import {
   HeadBucketCommand,
   CreateBucketCommand,
   ListObjectsV2Command,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import * as https from 'https';
+import path from 'path';
 
 export interface UploadResult {
   key: string;
@@ -28,21 +30,26 @@ export class StorageService implements OnModuleInit {
   private publicUrl: string;
 
   constructor(private readonly configService: ConfigService) {
-    const minioEndpoint = this.configService.get<string>('MINIO_ENDPOINT') || 'localhost';
+    const minioEndpoint =
+      this.configService.get<string>('MINIO_ENDPOINT') || 'localhost';
     const port = this.configService.get<string>('MINIO_PORT');
     const useSSL = this.configService.get<string>('MINIO_USE_SSL') === 'true';
 
     const protocol = useSSL ? 'https' : 'http';
     // Jika port ada dan tidak kosong, tambahkan port ke endpoint
-    this.endpoint = port && port.trim() !== ''
-      ? `${protocol}://${minioEndpoint}:${port}`
-      : `${protocol}://${minioEndpoint}`;
-    
-    // Public URL untuk akses file (tanpa port, via reverse proxy)
-    this.publicUrl = this.configService.get<string>('MINIO_PUBLIC_URL') || this.endpoint;
+    this.endpoint =
+      port && port.trim() !== ''
+        ? `${protocol}://${minioEndpoint}:${port}`
+        : `${protocol}://${minioEndpoint}`;
 
-    const accessKeyId = this.configService.get<string>('MINIO_ACCESS_KEY') || '';
-    const secretAccessKey = this.configService.get<string>('MINIO_SECRET_KEY') || '';
+    // Public URL untuk akses file (tanpa port, via reverse proxy)
+    this.publicUrl =
+      this.configService.get<string>('MINIO_PUBLIC_URL') || this.endpoint;
+
+    const accessKeyId =
+      this.configService.get<string>('MINIO_ACCESS_KEY') || '';
+    const secretAccessKey =
+      this.configService.get<string>('MINIO_SECRET_KEY') || '';
 
     this.logger.log(`📡 MinIO Configuration:`);
     this.logger.log(`  - Endpoint: ${this.endpoint}`);
@@ -69,7 +76,8 @@ export class StorageService implements OnModuleInit {
       requestHandler: useSSL ? requestHandler : undefined,
     });
 
-    this.bucketName = this.configService.get<string>('MINIO_BUCKET_NAME') || 'default';
+    this.bucketName =
+      this.configService.get<string>('MINIO_BUCKET_NAME') || 'default';
   }
 
   async onModuleInit() {
@@ -90,9 +98,14 @@ export class StorageService implements OnModuleInit {
       this.logger.error(`❌ MinIO connection error: ${error.message}`);
       this.logger.error(`   Error name: ${error.name}`);
       this.logger.error(`   Error code: ${error.code || 'N/A'}`);
-      this.logger.error(`   Status code: ${error.$metadata?.httpStatusCode || 'N/A'}`);
-      
-      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      this.logger.error(
+        `   Status code: ${error.$metadata?.httpStatusCode || 'N/A'}`,
+      );
+
+      if (
+        error.name === 'NotFound' ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
         try {
           this.logger.log(`📦 Creating bucket '${this.bucketName}'...`);
           await this.s3Client.send(
@@ -105,7 +118,9 @@ export class StorageService implements OnModuleInit {
           );
         }
       } else {
-        this.logger.warn(`⚠️  MinIO may not be available. Service will continue but file uploads may fail.`);
+        this.logger.warn(
+          `⚠️  MinIO may not be available. Service will continue but file uploads may fail.`,
+        );
       }
     }
   }
@@ -120,6 +135,20 @@ export class StorageService implements OnModuleInit {
     file: Express.Multer.File,
     folder: string = '',
   ): Promise<UploadResult> {
+    if (!file) {
+      throw new Error('File tidak ditemukan');
+    }
+    const allowedMimeTypes = {
+      'application/pdf': ['.pdf'],
+    };
+
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = allowedMimeTypes[file.mimetype];
+
+    if (!allowedExts || !allowedExts.includes(ext)) {
+      throw new Error(`File tidak valid. MIME: ${file.mimetype}, Ext: ${ext}`);
+    }
+
     const sanitizedFileName = this.sanitizeFileName(file.originalname);
     const key = folder
       ? `${folder}/${Date.now()}-${sanitizedFileName}`
@@ -193,7 +222,7 @@ export class StorageService implements OnModuleInit {
     });
 
     const signedUrl = await getSignedUrl(this.s3Client, command, { expiresIn });
-    
+
     // Ganti internal endpoint dengan public URL
     return signedUrl.replace(this.endpoint, this.publicUrl);
   }
@@ -270,12 +299,51 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Move/copy file dari satu lokasi ke lokasi lain di MinIO
+   * @param sourceKey - Key file sumber
+   * @param destinationKey - Key file tujuan
+   * @returns Result dengan from, to, dan url
+   */
+  async moveFile(
+    sourceKey: string,
+    destinationKey: string,
+  ): Promise<{ from: string; to: string; url: string }> {
+    // 1. COPY
+    await this.s3Client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucketName,
+        CopySource: `/${this.bucketName}/${sourceKey}`,
+        Key: destinationKey,
+      }),
+    );
+
+    // 2. DELETE SOURCE
+    await this.s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucketName,
+        Key: sourceKey,
+      }),
+    );
+
+    this.logger.log(`📦 File moved: ${sourceKey} → ${destinationKey}`);
+    const publicURL = this.getPublicUrl(destinationKey);
+    return {
+      from: sourceKey,
+      to: destinationKey,
+      url: publicURL,
+    };
+  }
+
+  /**
    * List files dalam folder
    * @param prefix - Prefix/folder path
    * @param maxKeys - Jumlah maksimum file (default 1000)
    * @returns Array of file keys
    */
-  async listFiles(prefix: string = '', maxKeys: number = 1000): Promise<string[]> {
+  async listFiles(
+    prefix: string = '',
+    maxKeys: number = 1000,
+  ): Promise<string[]> {
     const response = await this.s3Client.send(
       new ListObjectsV2Command({
         Bucket: this.bucketName,
@@ -284,7 +352,11 @@ export class StorageService implements OnModuleInit {
       }),
     );
 
-    return response.Contents?.map((item) => item.Key).filter((key): key is string => key !== undefined) || [];
+    return (
+      response.Contents?.map((item) => item.Key).filter(
+        (key): key is string => key !== undefined,
+      ) || []
+    );
   }
 
   /**

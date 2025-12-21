@@ -7,6 +7,7 @@ import { DisposisiController } from './controllers';
 // Services
 import { DisposisiService } from './services/disposisi.service';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
+import { GeneratePdfDispoService } from '../generate_pdf/services/generate_pdf_dispo.service';
 
 // Entities - Local
 import { DiEntity } from './entities/di.entity';
@@ -16,6 +17,10 @@ import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../shared/entities/naskah_referensi.entity';
+import { NomorEntity } from '../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../nomor/entities/jenis.entity';
 
 // External Dependencies
 import { Person } from '../master-data/person/entities/person.entity';
@@ -25,6 +30,8 @@ import { RelationOa } from '../master-data/relation_oa/entities/relation_oa.enti
 import { OmPosition } from '../master-data/position/entities/om-position.entity';
 import { OmAreaSub } from '../master-data/areasub/entities/om-areasub.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { StorageModule } from '../storage/storage.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 
 @Module({
   imports: [
@@ -34,6 +41,10 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       NaskahSirkulasi,
       NaskahLampiranEntity,
       NaskahReferensiEntity,
+      NomorEntity,
+      NomorRequestEntity,
+      NomorRequestDetailEntity,
+      JenisEntity,
       Person,
       RelationSp,
       RelationOsc,
@@ -42,6 +53,8 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       OmAreaSub,
     ]),
     OrgDataModule,
+    StorageModule,
+    GeneratePdfModule,
   ],
   controllers: [DisposisiController],
   providers: [DisposisiService, NomorSuratService],

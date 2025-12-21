@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { SdiSdeEntity } from '../entities/sdi_sde.entity';
 import { NomorEntity } from '../../nomor/entities/nomor.entity';
+import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
+import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import {
   SdiRecipientResponseDto,
@@ -16,6 +20,7 @@ import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/send-message-re
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto, PengirimInfoDto } from '../dto/get-send-message.dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -37,15 +42,455 @@ export class SuratDinasInternalService {
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
+    @InjectRepository(NomorRequestEntity)
+    private readonly nomorRequestRepository: Repository<NomorRequestEntity>,
+    @InjectRepository(NomorRequestDetailEntity)
+    private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
+    @InjectRepository(JenisEntity)
+    private readonly jenisRepository: Repository<JenisEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
+    private readonly generatePdfSudinService: GeneratePdfSudinService,
   ) {}
+
+  // ============================================================
+  // HELPER: GENERATE NOMOR WITH INTEGRATION
+  // ============================================================
+
+  /**
+   * Helper: Convert bulan ke Romawi
+   */
+  private getBulanRomawi(bulan: number): string {
+    const mapping: Record<number, string> = {
+      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
+      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+    };
+    return mapping[bulan] || 'I';
+  }
+
+  /**
+   * Helper: Extract last 2 characters dari area code
+   */
+  private extractAreaCode(area: string | null | undefined): string {
+    if (!area) return '';
+    if (area.length >= 2) {
+      return area.slice(-2);
+    }
+    return area.padStart(2, '0');
+  }
+
+  /**
+   * Helper: Generate nomor SDI dengan integrasi ke nomor_request dan nomor_request_detail
+   * Menggunakan format dari tabel jenis dan update counter di tabel nomor
+   * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
+   * 
+   * @param pengirim - Data pengirim dari org_data
+   * @param klasifikasi - Kode klasifikasi arsip
+   * @param perihal - Perihal surat
+   * @param tanggal - Tanggal surat
+   * @param queryRunner - Query runner untuk transaction
+   * @returns Nomor surat yang sudah di-generate
+   */
+  private async generateNomorWithIntegration(
+    pengirim: SdiOrgDataPositionDto,
+    klasifikasi: string,
+    perihal: string,
+    tanggal: Date,
+    queryRunner: any,
+  ): Promise<string> {
+    const jenis = 'SDI';
+    const tahun = tanggal.getFullYear();
+    const bulan = tanggal.getMonth() + 1;
+
+    // 1. Ambil format penomoran dari tabel jenis
+    const jenisData = await queryRunner.manager.findOne(JenisEntity, {
+      where: { jenis },
+    });
+
+    if (!jenisData || !jenisData.formatPenomoran) {
+      throw new BadRequestException(
+        `Format penomoran untuk jenis ${jenis} tidak ditemukan`,
+      );
+    }
+
+    // 2. Create nomor_request
+    const requestId = uuidv4();
+    const nomorRequest = this.nomorRequestRepository.create({
+      id: requestId,
+      company: String(COMPANY_ID),
+      area: pengirim.area || null,
+      subArea: String(pengirim.sub_area || ''),
+      organization: String(pengirim.organization_id || ''),
+      position: String(pengirim.position),
+      tanggal: tanggal,
+      jenis: jenis,
+      klasifikasi: klasifikasi || null,
+      perihal: perihal,
+      jumlah: 1,
+      penandatangan: pengirim.persnum_person_text || null,
+      idPositionPenandatangan: pengirim.position || null,
+    });
+
+    await queryRunner.manager.save(nomorRequest);
+
+    // 3. Query nomor terakhir dengan locking (SDI menggunakan Company + Area)
+    const nomorRecord = await queryRunner.manager
+      .createQueryBuilder(NomorEntity, 'n')
+      .where('n.tahun = :tahun', { tahun })
+      .andWhere('n.jenis = :jenis', { jenis })
+      .andWhere('n.company = :company', { company: nomorRequest.company })
+      .andWhere('n.area = :area', { area: nomorRequest.area })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    // 4. Generate nomor urut baru
+    let noUrut = 1;
+    if (nomorRecord && nomorRecord.nomor) {
+      noUrut = nomorRecord.nomor + 1;
+    }
+
+    // 5. Generate nomor lengkap dari format (dibaca dari tabel jenis)
+    const noUrutFormatted = noUrut.toString().padStart(3, '0');
+    const bulanRomawi = this.getBulanRomawi(bulan);
+    const jabatanCode = pengirim.position_abbreviation || '';
+    const lokasiCode = this.extractAreaCode(pengirim.area);
+    const instansi = 'LPPNPI';
+
+    // Replace semua placeholder di format dengan nilai sebenarnya
+    let nomorBaru = jenisData.formatPenomoran
+      .replace(/{TIPE}/g, jenis)
+      .replace(/{NO_URUT}/g, noUrutFormatted)
+      .replace(/{INSTANSI}/g, instansi)
+      .replace(/{JABATAN}/g, jabatanCode)
+      .replace(/{LOKASI}/g, lokasiCode)
+      .replace(/{KLASIFIKASI}/g, klasifikasi || '')
+      .replace(/{BULAN}/g, bulanRomawi)
+      .replace(/{TAHUN}/g, tahun.toString());
+
+    // Cleanup: hapus spasi berlebih dan double slash
+    nomorBaru = nomorBaru
+      .replace(/\/\s+/g, '/')
+      .replace(/\s+\//g, '/')
+      .replace(/\/\//g, '/')
+      .trim();
+
+    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    const detailId = uuidv4();
+    const detail = this.nomorRequestDetailRepository.create({
+      id: detailId,
+      idRequest: requestId,
+      nomor: nomorBaru,
+      fileName: null,
+      fileText: null,
+      status: 'terpakai',
+    });
+
+    await queryRunner.manager.save(detail);
+
+    // 7. UPSERT ke tabel nomor (update counter)
+    if (nomorRecord) {
+      nomorRecord.nomor = noUrut;
+      nomorRecord.area = nomorRequest.area;
+      nomorRecord.subArea = nomorRequest.subArea;
+      nomorRecord.organization = nomorRequest.organization;
+      nomorRecord.position = nomorRequest.position;
+      nomorRecord.updatedAt = new Date();
+      await queryRunner.manager.save(nomorRecord);
+    } else {
+      const nomorId = uuidv4();
+      const nomor = this.nomorRepository.create({
+        id: nomorId,
+        company: nomorRequest.company,
+        area: nomorRequest.area,
+        subArea: nomorRequest.subArea,
+        organization: nomorRequest.organization,
+        position: nomorRequest.position,
+        tahun,
+        jenis,
+        nomor: noUrut,
+      });
+      await queryRunner.manager.save(nomor);
+    }
+
+    console.log('[SDI generateNomorWithIntegration] Generated:', {
+      nomor: nomorBaru,
+      requestId,
+      detailId,
+      noUrut,
+    });
+
+    return nomorBaru;
+  }
+
+  /**
+   * Helper: Convert array of position IDs to position names
+   * Uses org_data to lookup position information
+   * 
+   * @param positionIds - Array of position IDs (can be string or number)
+   * @param tanggal - Optional date for org_data lookup (default: today)
+   * @returns Array of position text names
+   */
+  async convertPositionIdsToNames(
+    positionIds: (string | number)[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!positionIds || positionIds.length === 0) {
+      return [];
+    }
+
+    // Get org_data for position lookup
+    const tgl = tanggal || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tgl);
+    
+    if (!orgData || !orgData.position_json) {
+      console.warn(`[SDI convertPositionIdsToNames] Org data not found for ${tgl}`);
+      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+    }
+
+    const barisData = orgData.position_json;
+    const names: string[] = [];
+
+    for (const posId of positionIds) {
+      const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
+      const position = barisData.find((p: any) => p.position === numericId);
+      
+      if (position) {
+        // Return position_text with organization_text
+        const fullName = `${position.position_text} - ${position.organization_text}`;
+        names.push(fullName);
+      } else {
+        // Fallback if position not found
+        names.push(String(posId));
+      }
+    }
+
+    return names;
+  }
 
   // ============================================================
   // FORM DATA PARSER
   // ============================================================
+
+  /**
+   * Generate PDF dari HTML content untuk Surat Dinas Internal
+   * Menggunakan Puppeteer di backend untuk render HTML
+   * Support temporary lampiran system (lampiran_temp_ids)
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    penerima: string[],
+    nama_tempat: string = 'Tangerang',
+    tanggal: string = '',
+    nama_jabatan: string = '',
+    nama_lengkap: string = '',
+    tembusan: string[] = [],
+    lampiranTempIds?: string[],
+    perihal: string = '',
+    sifat: string = 'Biasa',
+    nomor: string = '',
+    lampiran: string = '-',
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        nama_tempat: nama_tempat,
+        tanggal: tanggal,
+        positionText: nama_jabatan,
+        namaLengkap: nama_lengkap,
+        tembusan: tembusan,
+        perihal: perihal,
+        sifat: sifat,
+        nomor: nomor,
+        lampiran: lampiran,
+      });
+
+      // If lampiran temp IDs provided, fetch and merge with main PDF
+      if (lampiranTempIds && lampiranTempIds.length > 0) {
+        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        if (lampiranFiles && lampiranFiles.length > 0) {
+          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+        }
+      }
+
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get lampiran files from storage (both temporary and final)
+   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft) 
+   * and is_temporary=0 (after save-draft)
+   */
+  private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
+    try {
+      if (!tempIds || tempIds.length === 0) {
+        return [];
+      }
+
+      console.log('[SDI getTemporaryLampiranFiles] Querying tempIds:', tempIds);
+
+      // Query all lampiran by IDs (both temporary and final)
+      // This allows preview-pdf to work both before and after save-draft
+      const tempLampiran = await this.naskahLampiranRepository.find({
+        where: {
+          id: In(tempIds),
+          // Removed is_temporary: 1 filter to support both temporary and final lampiran
+        },
+      });
+
+      console.log('[SDI getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
+
+      const files: Array<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        tempFolderId: string | null;
+      }> = [];
+      
+      for (const lampiran of tempLampiran) {
+        files.push({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        });
+      }
+
+      return files;
+    } catch (error) {
+      console.error('[SDI getTemporaryLampiranFiles] Error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Merge main PDF dengan temporary lampiran files
+   */
+  private async mergePdfWithTemporaryFiles(
+    mainPdfBuffer: Buffer,
+    lampiranFiles: any[],
+  ): Promise<Buffer> {
+    try {
+      console.log('[SDI mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
+      
+      if (!lampiranFiles || lampiranFiles.length === 0) {
+        return mainPdfBuffer;
+      }
+
+      const pdfDoc = await PDFDocument.load(mainPdfBuffer);
+
+      for (const file of lampiranFiles) {
+        try {
+          if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+            console.warn(
+              `[SDI mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
+            );
+            continue;
+          }
+
+          // Download file from MinIO
+          const fileBuffer = await this.storageService.getFile(file.filePath);
+          const lampiranPdf = await PDFDocument.load(fileBuffer);
+
+          // Copy all pages
+          const lampiranPages = await pdfDoc.copyPages(
+            lampiranPdf,
+            lampiranPdf.getPageIndices(),
+          );
+          lampiranPages.forEach((page) => {
+            pdfDoc.addPage(page);
+          });
+
+          console.log(
+            `[SDI mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
+          );
+        } catch (error) {
+          console.error(
+            `[SDI mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
+            error,
+          );
+        }
+      }
+
+      const mergedPdfBytes = await pdfDoc.save();
+      return Buffer.from(mergedPdfBytes);
+    } catch (error) {
+      console.error(`[SDI mergePdfWithTemporaryFiles] Error:`, error);
+      return mainPdfBuffer;
+    }
+  }
+
+  /**
+   * Move temporary lampiran to final location and link to naskah
+   * Update: is_temporary = 0, id_naskah = naskahId, move file to final folder
+   *
+   * @param lampiranIds - Array of lampiran IDs (temporary)
+   * @param naskahId - ID naskah yang akan dikaitkan
+   * @param finalFolder - Folder tujuan (e.g., 'surat-dinas-internal/lampiran')
+   */
+  private async moveTemporaryLampiranToFinal(
+    lampiranIds: string[],
+    naskahId: string,
+    finalFolder: string,
+  ): Promise<void> {
+    if (!lampiranIds || lampiranIds.length === 0) {
+      return;
+    }
+
+    // Get all temporary lampiran
+    const tempLampiran = await this.naskahLampiranRepository.find({
+      where: {
+        id: In(lampiranIds),
+        is_temporary: 1,
+      },
+    });
+
+    if (tempLampiran.length === 0) {
+      throw new NotFoundException('Lampiran temporary tidak ditemukan');
+    }
+
+    // Validate all lampiran are temporary (prevent reuse)
+    if (tempLampiran.length !== lampiranIds.length) {
+      throw new BadRequestException(
+        'Beberapa lampiran ID tidak valid atau bukan temporary (sudah digunakan sebelumnya)',
+      );
+    }
+
+    // Move each file and update database
+    for (const lampiran of tempLampiran) {
+      const fileName = lampiran.file_name;
+      const oldKey = lampiran.file_pdf;
+
+      // Generate new key untuk final location
+      const timestamp = Date.now();
+      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+
+      try {
+        // Move file di storage
+        await this.storageService.moveFile(oldKey, newKey);
+
+        // Update database
+        lampiran.id_naskah = naskahId;
+        lampiran.file_pdf = newKey;
+        lampiran.jenis = 'SDI';
+        lampiran.is_temporary = 0;
+        lampiran.temp_folder_id = null;
+
+        await this.naskahLampiranRepository.save(lampiran);
+        console.log(`[SDI moveTemporaryLampiranToFinal] Moved: ${fileName} -> ${newKey}`);
+      } catch (error) {
+        console.error(`[SDI moveTemporaryLampiranToFinal] Error moving ${fileName}:`, error);
+        // Continue with other files
+      }
+    }
+  }
 
   /**
    * Parse form-data body + uploaded files to CreateSuratDinasInternalDto
@@ -98,10 +543,27 @@ export class SuratDinasInternalService {
       }
     }
 
-    // Build DTO
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Build DTO - support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+    
     const dto: CreateSuratDinasInternalDto = {
       pengirim: Number(body.pengirim),
-      penerima: parseArray(body.penerima),
+      penerima: parseArray(penerimaData),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -122,6 +584,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
 
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
@@ -164,9 +627,27 @@ export class SuratDinasInternalService {
       lampiranFilePaths = uploadResults.map(result => result.key);
     }
 
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+
     const dto: UpdateDraftDto = {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
-      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -187,6 +668,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
 
       tgl: body.tgl,
     };
@@ -239,10 +721,28 @@ export class SuratDinasInternalService {
       finalPdfPath = uploadResult.key;
     }
 
+    // Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Support both 'penerima' and 'tertuju' field names
+    const penerimaData = body.penerima || body.tertuju;
+
     // Build DTO - semua field optional untuk finalize
     const dto: FinalizeDraftDto = {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
-      penerima: body.penerima ? parseArray(body.penerima) : undefined,
+      penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
       kop_logo: body.kop_logo,
@@ -263,6 +763,7 @@ export class SuratDinasInternalService {
 
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
     };
@@ -716,17 +1217,24 @@ export class SuratDinasInternalService {
     await queryRunner.startTransaction();
 
     try {
-      // PHASE 6: Generate nomor surat (only for final/final_tte, draft gets temporary nomor)
-      const nomorSurat = status === 'draf' 
-        ? `DRAFT-${Date.now()}` 
-        : (await this.nomorSuratService.generateNomor({
-            jenis: 'SDI',
-            positionText: pengirim.position_text || '',
-            positionAbbreviation: pengirim.position_abbreviation || undefined,
-            areaText: pengirim.area_text || 'Pusat',
-            tanggal: new Date(),
-            klasifikasi: dto.klasifikasi,
-          })).nomor;
+      // PHASE 6: Generate nomor surat
+      // - Draft: nomor temporary
+      // - Final: generate nomor resmi dengan integrasi ke nomor_request
+      let nomorSurat: string;
+      
+      if (status === 'draf') {
+        nomorSurat = `DRAFT-${Date.now()}`;
+      } else {
+        // Generate nomor dengan integrasi ke sistem penomoran
+        // Auto-insert ke nomor_request dan nomor_request_detail
+        nomorSurat = await this.generateNomorWithIntegration(
+          pengirim,
+          dto.klasifikasi,
+          dto.perihal,
+          new Date(),
+          queryRunner,
+        );
+      }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
@@ -773,7 +1281,17 @@ export class SuratDinasInternalService {
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
       }
 
-      // PHASE 11: Insert lampiran (if any)
+      // PHASE 11: Handle lampiran
+      // Handle temporary lampiran (RECOMMENDED - dari POST /upload-temporary)
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'surat-dinas-internal/lampiran',
+        );
+      }
+
+      // Handle legacy lampiran_files (DEPRECATED, tapi masih support backward compatibility)
       if (dto.lampiran_files && dto.lampiran_files.length > 0) {
         for (const filePath of dto.lampiran_files) {
           const fileName = filePath.split('/').pop() || filePath;
@@ -783,6 +1301,7 @@ export class SuratDinasInternalService {
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
+            is_temporary: 0,
           });
           await queryRunner.manager.save(lampiran);
         }
@@ -821,22 +1340,6 @@ export class SuratDinasInternalService {
         alamat: null,
       });
       await queryRunner.manager.save(sdiSdeEntity);
-
-      // PHASE 12b: Insert to nomor table if not draft
-      if (status !== 'draf') {
-        const nomorRecord = this.nomorRepository.create({
-          id: uuidv4(),
-          company: String(COMPANY_ID),
-          area: pengirim.area ?? '',
-          subArea: String(pengirim.sub_area ?? ''),
-          organization: String(pengirim.organization_id),
-          position: String(pengirim.position),
-          tahun: tanggalHariIni.getFullYear(),
-          jenis: 'SDI',
-          nomor: nomorSurat,
-        });
-        await queryRunner.manager.save(nomorRecord);
-      }
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -962,19 +1465,7 @@ export class SuratDinasInternalService {
       }
     }
 
-    // PHASE 4: Generate nomor surat resmi
-    const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
-    const generatedNomor = await this.nomorSuratService.generateNomor({
-      jenis: 'SDI',
-      positionText: pengirimPosition?.position_text || '',
-      positionAbbreviation: pengirimPosition?.position_abbreviation || undefined,
-      areaText: pengirimPosition?.area_text || 'Pusat',
-      tanggal: new Date(),
-      klasifikasi: klasifikasi,
-    });
-    const nomorSurat = generatedNomor.nomor;
-
-    // PHASE 5: Determine new status
+    // PHASE 4: Determine new status
     const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
 
     // Start transaction
@@ -982,7 +1473,20 @@ export class SuratDinasInternalService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let nomorSurat: string;
+
     try {
+      // PHASE 5: Generate nomor surat resmi with integrated numbering (inside transaction)
+      const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
+      const perihal = dto.perihal ?? naskah.perihal ?? '';
+      nomorSurat = await this.generateNomorWithIntegration(
+        pengirimPosition as SdiOrgDataPositionDto,
+        klasifikasi,
+        perihal,
+        new Date(),
+        queryRunner
+      );
+
       // PHASE 6: Update naskah table (all fields + finalization fields)
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
@@ -1176,27 +1680,6 @@ export class SuratDinasInternalService {
             jenis: 'SDI',
           });
           await queryRunner.manager.save(lampiran);
-        }
-      }
-
-      // PHASE 9b: Insert to nomor table with dupcheck (only if changing to final/final_tte)
-      const existingNomorRecord = await queryRunner.manager.findOne(NomorEntity, {
-        where: { nomor: nomorSurat },
-      });
-      if (!existingNomorRecord && pengirimPosition) {
-        if (!nomorSurat.startsWith('DRAFT-')) {
-          const nomorRecord = this.nomorRepository.create({
-            id: uuidv4(),
-            company: String(COMPANY_ID),
-            area: pengirimPosition.area ?? '',
-            subArea: String(pengirimPosition.sub_area ?? ''),
-            organization: String(pengirimPosition.organization_id),
-            position: String(pengirimPosition.position),
-            tahun: new Date().getFullYear(),
-            jenis: 'SDI',
-            nomor: nomorSurat,
-          });
-          await queryRunner.manager.save(nomorRecord);
         }
       }
 

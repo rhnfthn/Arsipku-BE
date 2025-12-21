@@ -1,9 +1,8 @@
 export class TemplateDto {
   id: string;
-  tanggal?: string | null;
   nama_template: string;
-  file: string;          // Key file di MinIO
-  file_url?: string;     // Signed URL untuk akses file
+  file?: string | null;      // Key file di storage
+  file_url?: string;         // Signed URL untuk akses file
   create_at?: string;
   update_at?: string;
 }

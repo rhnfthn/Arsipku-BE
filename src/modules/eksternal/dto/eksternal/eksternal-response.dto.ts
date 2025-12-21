@@ -1,5 +1,7 @@
 export class EksternalDto {
   id: string;
+  id_position_pembuat?: string;
+  nama_pembuat?: string;
   company: string;
   area: string;
   nama: string;

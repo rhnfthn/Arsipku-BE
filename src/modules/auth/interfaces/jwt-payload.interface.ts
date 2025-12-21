@@ -15,6 +15,7 @@ export interface JwtPayload {
   position: string;
   positionText: string;
   bodTag: string;
+  abbreviation: string;
   
   // Standard JWT fields
   iat?: number;

@@ -96,12 +96,19 @@ export class CreateDisposisiDto {
   @IsString()
   catatan?: string;
 
-  // Lampiran
+  // Lampiran - Legacy (direct upload, deprecated)
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LampiranDto)
   lampiran?: LampiranDto[];
+
+  // Lampiran Temporary IDs - RECOMMENDED
+  // Array of file IDs dari POST /DI/upload-temporary
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
 
   // ============================================================
   // Field untuk tabel "di" (konten lengkap lembar disposisi)

@@ -1,17 +1,27 @@
 import { IsString, IsOptional, IsBoolean, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateEksternalDto {
+  @Transform(({ value }) => value?.toString())
   @IsString()
+  @IsOptional()
   @MaxLength(50)
-  company: string;
+  id_position_pembuat?: string;
 
   @IsString()
+  @IsOptional()
   @MaxLength(50)
-  area: string;
+  company?: string;
 
   @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  area?: string;
+
+  @IsString()
+  @IsOptional()
   @MaxLength(150)
-  nama: string;
+  nama?: string;
 
   @IsString()
   @IsOptional()
