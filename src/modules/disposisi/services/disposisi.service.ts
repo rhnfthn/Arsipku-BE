@@ -2109,21 +2109,26 @@ export class DisposisiService {
       }
 
       // PHASE 6: Update lampiran (jika ada perubahan)
-      if (dto.lampiran) {
+      // Only update lampiran if explicitly provided and contains items
+      // If dto.lampiran is undefined, keep existing lampiran
+      // If dto.lampiran is empty array [], it means user wants to clear all lampiran
+      if (dto.lampiran !== undefined) {
         // Hapus lampiran lama
         await queryRunner.manager.delete(NaskahLampiranEntity, {
           id_naskah: naskahId,
         });
 
-        // Insert lampiran baru
-        for (const lamp of dto.lampiran) {
-          const lampiran = new NaskahLampiranEntity();
-          lampiran.id = uuidv4();
-          lampiran.id_naskah = naskahId;
-          lampiran.file_name = lamp.nama_file;
-          lampiran.file_pdf = lamp.url;
-          lampiran.jenis = 'DI';
-          await queryRunner.manager.save(lampiran);
+        // Insert lampiran baru (if any)
+        if (dto.lampiran && dto.lampiran.length > 0) {
+          for (const lamp of dto.lampiran) {
+            const lampiran = new NaskahLampiranEntity();
+            lampiran.id = uuidv4();
+            lampiran.id_naskah = naskahId;
+            lampiran.file_name = lamp.nama_file;
+            lampiran.file_pdf = lamp.url;
+            lampiran.jenis = 'DI';
+            await queryRunner.manager.save(lampiran);
+          }
         }
       }
 
