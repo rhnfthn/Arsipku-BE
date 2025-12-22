@@ -18,9 +18,11 @@ export class GeneratePdfDisposisiDto {
   /**
    * HTML content untuk bagian Catatan dari rich text editor
    * Bisa dalam bentuk plain text HTML atau base64 encoded
+   * Optional - bisa null/kosong jika tidak ada catatan
    */
   @IsString()
-  htmlContent: string;
+  @IsOptional()
+  htmlContent?: string;
 
   /**
    * Pengirim disposisi (nama atau position text)
