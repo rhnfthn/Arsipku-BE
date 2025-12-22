@@ -823,44 +823,46 @@ export class NotaDinasService {
       return;
     }
 
-    // Get all temporary lampiran
-    const tempLampiran = await this.naskahLampiranRepository.find({
+    // Get all lampiran by IDs (both temporary and already final)
+    const allLampiran = await this.naskahLampiranRepository.find({
       where: {
         id: In(lampiranIds),
-        is_temporary: 1,
       },
     });
 
-    if (tempLampiran.length === 0) {
-      throw new NotFoundException('Lampiran temporary tidak ditemukan');
+    if (allLampiran.length === 0) {
+      throw new NotFoundException('Lampiran tidak ditemukan');
     }
 
-    // Validate all lampiran are temporary
-    if (tempLampiran.length !== lampiranIds.length) {
-      throw new BadRequestException(
-        'Beberapa lampiran ID tidak valid atau bukan temporary',
-      );
-    }
+    // Process each lampiran
+    for (const lampiran of allLampiran) {
+      // Skip if already linked to this naskah and not temporary
+      if (lampiran.id_naskah === naskahId && lampiran.is_temporary === 0) {
+        continue;
+      }
 
-    // Move each file and update database
-    for (const lampiran of tempLampiran) {
-      const fileName = lampiran.file_name;
-      const oldKey = lampiran.file_pdf;
+      // If temporary, move file to final location
+      if (lampiran.is_temporary === 1) {
+        const fileName = lampiran.file_name;
+        const oldKey = lampiran.file_pdf;
 
-      // Generate new key untuk final location
-      const timestamp = Date.now();
-      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+        // Generate new key untuk final location
+        const timestamp = Date.now();
+        const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
 
-      // Move file di storage
-      await this.storageService.moveFile(oldKey, newKey);
+        // Move file di storage
+        await this.storageService.moveFile(oldKey, newKey);
 
-      // Update database
+        // Update file path
+        lampiran.file_pdf = newKey;
+        lampiran.temp_folder_id = null;
+      }
+
+      // Update database - link to naskah and mark as final
       lampiran.id_naskah = naskahId;
-      lampiran.file_pdf = newKey;
       lampiran.jenis = jenis;
       lampiran.is_temporary = 0;
-      lampiran.temp_folder_id = null;
 
       await this.naskahLampiranRepository.save(lampiran);
     }
@@ -888,6 +890,21 @@ export class NotaDinasService {
         }
       }
       return [Number(value)];
+    };
+
+    // Helper: Parse string array (for lampiran_temp_ids)
+    const parseStringArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
     };
 
     // Upload lampiran files
@@ -925,6 +942,9 @@ export class NotaDinasService {
       lampiran: body.lampiran,
       lampiran_files:
         lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+      lampiran_temp_ids: body.lampiran_temp_ids
+        ? parseStringArray(body.lampiran_temp_ids)
+        : undefined,
 
       final_pdf: body.final_pdf,
       tgl: body.tgl,
@@ -2115,6 +2135,16 @@ export class NotaDinasService {
         }
       }
 
+      // PHASE 6b: Handle lampiran_temp_ids - move temporary lampiran to final
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'ND',
+          'nota-dinas/lampiran',
+        );
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -2136,6 +2166,18 @@ export class NotaDinasService {
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+
+    // Get lampiran files for response
+    const lampiranData = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+
+    const lampiranFiles = lampiranData.map((lamp) => ({
+      id: lamp.id,
+      fileName: lamp.file_name,
+      filePath: lamp.file_pdf,
+      fileUrl: this.storageService.getPublicUrl(lamp.file_pdf),
+    }));
 
     // Handle tanggal - bisa Date object atau string
     let tanggalStr = '';
@@ -2159,6 +2201,7 @@ export class NotaDinasService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
+        lampiran_files: lampiranFiles,
       },
     };
   }
