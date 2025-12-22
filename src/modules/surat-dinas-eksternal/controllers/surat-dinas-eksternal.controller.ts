@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Patch, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res, UploadedFiles } from '@nestjs/common';
 import type { Response } from 'express';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
@@ -38,20 +39,27 @@ export class SuratDinasEksternalController {
    * POST /SDE/send-message
    * Send Surat Dinas Eksternal (create and send immediately)
    * 
+   * Accepts: form-data with optional files
+   * 
    * Status:
    * - 'final': jika tanpa tanda_tangan
    * - 'final_tte': jika dengan tanda_tangan
    *
-   * @param dto - CreateSuratDinasEksternalDto
+   * @param body - Raw form body
+   * @param files - Optional uploaded files (AnyFilesInterceptor)
    * @returns SdeSendMessageResponseDto
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
+  @UseInterceptors(AnyFilesInterceptor())
   async sendMessage(
-    @Body() dto: CreateSuratDinasEksternalDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToCreateDto(body, files);
       return await this.sdeService.sendMessage(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -74,19 +82,26 @@ export class SuratDinasEksternalController {
    * POST /SDE/save-draft
    * Save Surat Dinas Eksternal as draft
    * 
+   * Accepts: form-data with optional files
+   * 
    * Status: 'draf'
    * Nomor: DRAFT-{timestamp}
    *
-   * @param dto - CreateSuratDinasEksternalDto
+   * @param body - Raw form body
+   * @param files - Optional uploaded files (AnyFilesInterceptor)
    * @returns SdeSendMessageResponseDto
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
+  @UseInterceptors(AnyFilesInterceptor())
   async saveDraft(
-    @Body() dto: CreateSuratDinasEksternalDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToCreateDto(body, files);
       return await this.sdeService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -109,11 +124,13 @@ export class SuratDinasEksternalController {
    * PATCH /SDE/update-draft/:id
    * Update existing draft Surat Dinas Eksternal (partial update)
    *
+   * Accepts: form-data with optional files (partial updates)
    * Partial update - only provided fields will be updated
    * Status remains 'draf'
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - UpdateSdeDraftDto (all fields optional)
+   * @param body - Raw form body (partial)
+   * @param files - Optional files for lampiran
    * @returns SdeSendMessageResponseDto with updated data
    *
    * @throws 404 - Not Found (naskah not found)
@@ -122,11 +139,24 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
+  @UseInterceptors(AnyFilesInterceptor())
   async updateDraft(
     @Param('id') id: string,
-    @Body() dto: UpdateSdeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // For partial update, upload temp lampiran if files provided
+      if (files && files.length > 0) {
+        const lampiranTempIds = await this.sdeService.uploadTemporaryLampiran(
+          files,
+          id,
+          'SDE',
+        );
+        body.lampiran_temp_ids = lampiranTempIds;
+      }
+
+      const dto = body as UpdateSdeDraftDto;
       return await this.sdeService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -149,12 +179,17 @@ export class SuratDinasEksternalController {
    * PUT /SDE/send-draft/:id
    * Finalize and send a draft Surat Dinas Eksternal
    *
+   * Accepts: form-data with optional final updates & files
+   *
+   * - Move temporary lampiran to final folder
    * - Generate official nomor surat
+   * - Auto-generate PDF & merge lampiran
    * - Update status to 'final' or 'final_tte' (if tanda_tangan provided)
    * - Set isDraft = false in sirkulasi
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeSdeDraftDto
+   * @param body - Raw form body (optional final updates)
+   * @param files - Optional additional files
    * @returns SdeSendMessageResponseDto with finalized data
    *
    * @throws 404 - Not Found (naskah not found)
@@ -163,11 +198,24 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Put('send-draft/:id')
+  @UseInterceptors(AnyFilesInterceptor())
   async sendDraft(
     @Param('id') id: string,
-    @Body() dto: FinalizeSdeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // For finalize, upload temp lampiran if files provided
+      if (files && files.length > 0) {
+        const lampiranTempIds = await this.sdeService.uploadTemporaryLampiran(
+          files,
+          id,
+          'SDE',
+        );
+        body.lampiran_temp_ids = lampiranTempIds;
+      }
+
+      const dto = body as FinalizeSdeDraftDto;
       return await this.sdeService.finalizeDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
