@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { CreateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/create_naskah_sirkulasi.dto';
 import { UpdateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/update_naskah_sirkulasi.dto';
 import {
@@ -18,9 +18,11 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
-import { ToggleFlagResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
+import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
+import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
+import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -594,6 +596,106 @@ export class NaskahSirkulasiService {
         id_sirkulasi: idSirkulasi,
         flag_type: flagType,
         new_value: newValue === 1,
+      },
+    };
+  }
+
+  // ============================================================
+  // BULK ARCHIVE/DELETE SENT - Bulk archive atau delete pesan terkirim
+  // ============================================================
+
+  /**
+   * Bulk archive atau delete pesan terkirim
+   * 
+   * Archive: Set flag_arsip = 1 pada sirkulasi pengirim untuk setiap naskah
+   * Delete: Hapus naskah beserta semua data terkait (sirkulasi, lampiran, referensi)
+   *
+   * @param naskahIds - Array of naskah IDs
+   * @param positionId - Position ID pengirim (untuk validasi ownership)
+   * @param action - 'archive' atau 'delete'
+   */
+  async bulkArchiveOrDeleteSent(
+    naskahIds: string[],
+    positionId: number,
+    action: 'archive' | 'delete',
+  ): Promise<BulkArchiveSentResponseDto> {
+    const failedIds: string[] = [];
+    let totalProcessed = 0;
+
+    for (const naskahId of naskahIds) {
+      try {
+        // Verify ownership - cari sirkulasi pengirim untuk naskah ini
+        const pengirimSirkulasi = await this.naskahSirkulasiRepo.findOne({
+          where: {
+            idNaskah: naskahId,
+            sirkuler: 'pengirim',
+            position: String(positionId),
+          },
+        });
+
+        if (!pengirimSirkulasi) {
+          failedIds.push(naskahId);
+          continue;
+        }
+
+        if (action === 'archive') {
+          // Archive: Set flag_arsip = 1 pada sirkulasi pengirim
+          await this.naskahSirkulasiRepo.update(pengirimSirkulasi.id, {
+            flagArsip: 1,
+          });
+          totalProcessed++;
+        } else if (action === 'delete') {
+          // Delete: Hapus naskah beserta semua data terkait
+          const queryRunner = this.dataSource.createQueryRunner();
+          await queryRunner.connect();
+          await queryRunner.startTransaction();
+
+          try {
+            // Delete lampiran
+            await queryRunner.manager.delete(NaskahLampiranEntity, {
+              id_naskah: naskahId,
+            });
+
+            // Delete referensi
+            await queryRunner.manager.delete(NaskahReferensiEntity, {
+              id_naskah: naskahId,
+            });
+
+            // Delete semua sirkulasi
+            await queryRunner.manager.delete(NaskahSirkulasi, {
+              idNaskah: naskahId,
+            });
+
+            // Delete naskah
+            await queryRunner.manager.delete(NaskahEntity, {
+              id: naskahId,
+            });
+
+            await queryRunner.commitTransaction();
+            totalProcessed++;
+          } catch (error) {
+            await queryRunner.rollbackTransaction();
+            failedIds.push(naskahId);
+          } finally {
+            await queryRunner.release();
+          }
+        }
+      } catch (error) {
+        failedIds.push(naskahId);
+      }
+    }
+
+    const actionText = action === 'archive' ? 'diarsipkan' : 'dihapus';
+
+    return {
+      success: true,
+      message: totalProcessed > 0
+        ? `Berhasil ${actionText} ${totalProcessed} pesan terkirim`
+        : `Tidak ada pesan terkirim yang berhasil ${actionText}`,
+      data: {
+        total_requested: naskahIds.length,
+        total_processed: totalProcessed,
+        failed_ids: failedIds,
       },
     };
   }

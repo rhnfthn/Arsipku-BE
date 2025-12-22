@@ -779,11 +779,8 @@ export class DisposisiController {
           });
       }
 
-      if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
-      }
+      // htmlContent is now optional - use empty string as default for catatan section
+      const htmlContent = dto.htmlContent || '';
 
       // Format tanggal disposisi
       let formattedDate = dto.tanggal_disposisi || new Date().toLocaleDateString('id-ID', { 
@@ -842,7 +839,7 @@ export class DisposisiController {
       }
 
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
-        dto.htmlContent,
+        htmlContent,
         tertujuArray,
         dto.disposisi || [],
         dto.sifat || 'Biasa',
@@ -867,7 +864,7 @@ export class DisposisiController {
     } catch (error) {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ 
+        .json({
           error: 'Failed to generate preview', 
           detail: error instanceof Error ? error.message : String(error) 
         });
@@ -914,11 +911,8 @@ export class DisposisiController {
           });
       }
 
-      if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
-      }
+      // htmlContent is now optional - use empty string as default for catatan section
+      const htmlContent = dto.htmlContent || '';
 
       // Format tanggal disposisi
       let formattedDate = dto.tanggal_disposisi || new Date().toLocaleDateString('id-ID', { 
@@ -986,7 +980,7 @@ export class DisposisiController {
       console.log('[generate-pdf] catatan:', dto.catatan);
 
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
-        dto.htmlContent,
+        htmlContent,
         tertujuArray,
         disposisiArray,
         dto.sifat || 'Biasa',

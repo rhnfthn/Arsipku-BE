@@ -21,6 +21,7 @@ import {
   UpdateDraftResponseDto,
   DeleteDraftResponseDto,
   SignDraftResponseDto,
+  BulkDeleteDraftResponseDto,
 } from '../dto/draft/draft.dto';
 
 // Mapping jenis ke text
@@ -455,6 +456,113 @@ export class DraftService {
         id_naskah: idNaskah,
         status: 'final_tte',
         signed_at: new Date(),
+      },
+    };
+  }
+
+  // ============================================================
+  // DELETE /draft/bulk-delete - Bulk delete drafts
+  // ============================================================
+
+  /**
+   * Bulk delete draft naskah
+   * Menghapus beberapa draft sekaligus berdasarkan array ID
+   * 
+   * @param naskahIds - Array of naskah IDs to delete
+   * @param positionId - Position ID untuk validasi ownership
+   */
+  async bulkDeleteDraft(
+    naskahIds: string[],
+    positionId: number,
+  ): Promise<BulkDeleteDraftResponseDto> {
+    const failedIds: string[] = [];
+    let totalDeleted = 0;
+
+    // Process each naskah
+    for (const naskahId of naskahIds) {
+      try {
+        // Get naskah
+        const naskah = await this.naskahRepository.findOne({
+          where: { id: naskahId },
+        });
+
+        if (!naskah) {
+          failedIds.push(naskahId);
+          continue;
+        }
+
+        if (naskah.status !== 'draf') {
+          failedIds.push(naskahId);
+          continue;
+        }
+
+        // Verify ownership
+        const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+          where: {
+            idNaskah: naskahId,
+            sirkuler: 'pengirim',
+          },
+        });
+
+        if (!pengirimSirkulasi) {
+          failedIds.push(naskahId);
+          continue;
+        }
+
+        if (String(pengirimSirkulasi.position) !== String(positionId)) {
+          failedIds.push(naskahId);
+          continue;
+        }
+
+        // Start transaction for this naskah
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+          // Delete lampiran
+          await queryRunner.manager.delete(NaskahLampiranEntity, {
+            id_naskah: naskahId,
+          });
+
+          // Delete referensi
+          await queryRunner.manager.delete(NaskahReferensiEntity, {
+            id_naskah: naskahId,
+          });
+
+          // Delete sirkulasi
+          await queryRunner.manager.delete(NaskahSirkulasi, {
+            idNaskah: naskahId,
+          });
+
+          // Delete naskah
+          await queryRunner.manager.delete(NaskahEntity, {
+            id: naskahId,
+          });
+
+          // Commit
+          await queryRunner.commitTransaction();
+          totalDeleted++;
+        } catch (error) {
+          await queryRunner.rollbackTransaction();
+          failedIds.push(naskahId);
+        } finally {
+          await queryRunner.release();
+        }
+      } catch (error) {
+        failedIds.push(naskahId);
+      }
+    }
+
+    return {
+      success: true,
+      message: totalDeleted > 0 
+        ? `Berhasil menghapus ${totalDeleted} draft` 
+        : 'Tidak ada draft yang berhasil dihapus',
+      data: {
+        total_requested: naskahIds.length,
+        total_deleted: totalDeleted,
+        failed_ids: failedIds,
       },
     };
   }
