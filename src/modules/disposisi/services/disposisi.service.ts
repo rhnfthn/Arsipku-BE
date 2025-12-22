@@ -2132,6 +2132,22 @@ export class DisposisiService {
         }
       }
 
+      // PHASE 6b: Handle lampiran_temp_ids - Update temporary lampiran to final
+      // This handles newly uploaded lampiran via upload-temp-lampiran endpoint
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        // Update temporary lampiran: set id_naskah and is_temporary = 0
+        await queryRunner.manager.update(
+          NaskahLampiranEntity,
+          { 
+            id: In(dto.lampiran_temp_ids),
+          },
+          { 
+            id_naskah: naskahId,
+            is_temporary: 0,
+          },
+        );
+      }
+
       // PHASE 7: Update tabel "di" (jika ada perubahan field konten)
       const hasDiFields =
         dto.kop_logo !== undefined ||
