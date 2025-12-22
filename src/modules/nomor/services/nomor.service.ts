@@ -777,22 +777,24 @@ export class NomorService {
   }
 
   /**
-   * Admin memproses usulan dan membuat booking nomor
+   * User/Admin memproses usulan dan membuat booking nomor
    * Dengan file upload ke storage menggunakan folder query parameter
-   * Mendukung multiple file upload
+   * Mendukkan multiple file upload
    * 
    * Flow:
    * 1. Validasi request ada
-   * 2. Jika ada files, upload semua ke storage dengan folder path
-   * 3. Buat detail record per file dengan status = 'booking' dan file key dari storage
-   * 4. Jika tidak ada file, buat berdasarkan jumlah
-   * 5. Return response dengan file information
+   * 2. Jika action=replace, hapus detail lama dengan status booking (dan file di storage)
+   * 3. Jika ada files, upload semua ke storage dengan folder path
+   * 4. Buat detail record per file dengan status = 'booking' dan file key dari storage
+   * 5. Jika tidak ada file, buat berdasarkan jumlah
+   * 6. Return response dengan file information
    */
   async bookingNomorRequest(
     requestId: string,
     dto: BookingNomorRequestDto,
     files?: Express.Multer.File | Express.Multer.File[],
     folder: string = 'nomor',
+    action: 'append' | 'replace' = 'append',
   ): Promise<BookingNomorRequestResponseDto> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
@@ -800,6 +802,32 @@ export class NomorService {
 
     if (!request) {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    if (action === 'replace') {
+      const oldDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: requestId, status: 'booking' },
+      });
+
+      // Delete files dari storage untuk setiap detail
+      for (const detail of oldDetails) {
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted old file from storage: ${detail.fileText}`);
+          } catch (error) {
+            // Log error tapi jangan throw, proses tetap lanjut
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+      }
+
+      // Hapus detail dari database
+      await this.nomorRequestDetailRepository.delete({
+        idRequest: requestId,
+        status: 'booking',
+      });
     }
 
     const details: NomorRequestDetailEntity[] = [];
@@ -867,6 +895,66 @@ export class NomorService {
           file_text: detail.fileText,
           created_at: detail.createdAt,
         })),
+      },
+    };
+  }
+
+  /**
+   * User/Admin update file di detail yang masih booking
+   * Untuk replace lampiran sebelum approve
+   */
+  async updateNomorRequestDetailFile(
+    detailId: string,
+    file: Express.Multer.File,
+    folder: string = 'nomor',
+  ): Promise<any> {
+    const detail = await this.nomorRequestDetailRepository.findOne({
+      where: { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+    }
+
+    if (detail.status !== 'booking') {
+      throw new BadRequestException(
+        `Tidak dapat update file untuk detail dengan status: ${detail.status}. Hanya detail dengan status 'booking' yang bisa diupdate.`,
+      );
+    }
+
+    // Delete file lama dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted old file from storage: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete old file ${detail.fileText}:`, error.message);
+      }
+    }
+
+    // Upload file baru ke storage
+    let fileKey: string | null = null;
+    try {
+      const uploadResult = await this.storageService.uploadFile(file, folder);
+      fileKey = uploadResult.key;
+    } catch (error) {
+      throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
+    }
+
+    // Update detail dengan file baru
+    detail.fileName = file.originalname;
+    detail.fileText = fileKey;
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return {
+      success: true,
+      message: 'File berhasil diupdate',
+      data: {
+        id: detail.id,
+        file_name: detail.fileName,
+        file_text: detail.fileText,
+        status: detail.status,
+        updated_at: new Date(),
       },
     };
   }
@@ -1099,7 +1187,7 @@ export class NomorService {
 
   /**
    * Admin menolak usulan
-   * status = 'hangus', nomor tetap NULL
+   * status = 'hangus', nomor tetap NULL, file dihapus dari storage
    */
   async rejectNomorRequestDetail(
     detailId: string,
@@ -1116,6 +1204,16 @@ export class NomorService {
       throw new BadRequestException(
         `Detail nomor sudah diproses dengan status: ${detail.status}`,
       );
+    }
+
+    // Delete file dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted file from storage on reject: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+      }
     }
 
     detail.status = 'hangus';
@@ -1415,6 +1513,16 @@ export class NomorService {
           );
         }
 
+        // Delete file dari storage jika ada
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted file from storage on bulk reject: ${detail.fileText}`);
+          } catch (error) {
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
 
@@ -1607,7 +1715,7 @@ export class NomorService {
   }
 
   /**
-   * Hapus usulan nomor dan semua detailnya
+   * Hapus usulan nomor dan semua detailnya (plus file di storage)
    */
   async deleteNomorRequest(
     requestId: string,
@@ -1618,6 +1726,23 @@ export class NomorService {
 
     if (!request) {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Ambil semua detail untuk hapus file dari storage
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId },
+    });
+
+    // Delete semua file dari storage
+    for (const detail of details) {
+      if (detail.fileText) {
+        try {
+          await this.storageService.deleteFile(detail.fileText);
+          console.log(`Deleted file from storage on delete request: ${detail.fileText}`);
+        } catch (error) {
+          console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+        }
+      }
     }
 
     // Delete semua detail terkait
@@ -1667,6 +1792,16 @@ export class NomorService {
     for (const detail of details) {
       // Hanya set hangus jika status masih booking
       if (detail.status === 'booking') {
+        // Delete file dari storage jika ada
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted file from storage on reject all: ${detail.fileText}`);
+          } catch (error) {
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
         rejectedDetails.push({
