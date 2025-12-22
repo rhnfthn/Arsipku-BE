@@ -833,6 +833,130 @@ export class SuratDinasEksternalService {
   }
 
   /**
+   * Parse form-data body + uploaded files to CreateSuratDinasEksternalDto
+   * 
+   * Form-data fields:
+   * - pengirim: positionId (number)
+   * - penerima: array of eksternal.id (JSON string or comma-separated)
+   * - kop_logo, kop_nama, alamat_perusahaan (optional)
+   * - klasifikasi, sifat, perihal, konten (required)
+   * - nama_tempat, nama_jabatan, tanda_tangan, nama_lengkap (optional)
+   * - lampiran: string description
+   * - lampiran_temp_ids: array of UUID strings from temporary upload
+   * - tgl: optional date in YYYY-MM-DD format
+   * 
+   * @param body - Raw form-data body
+   * @param files - Uploaded files (not used for initial creation, use upload-temporary endpoint)
+   * @returns CreateSuratDinasEksternalDto
+   */
+  async parseFormDataToCreateDto(
+    body: any,
+    files?: Express.Multer.File[],
+  ): Promise<CreateSuratDinasEksternalDto> {
+    // Helper: Parse UUID array field (bisa JSON string atau comma-separated)
+    const parseUuidArray = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          // Try parse as JSON
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [String(parsed)];
+        } catch {
+          // Parse as comma-separated
+          return value.split(',').map((v: string) => v.trim());
+        }
+      }
+      return [String(value)];
+    };
+
+    // Parse penerima - array of eksternal.id UUIDs
+    const penerimaArray = parseUuidArray(body.penerima);
+    if (penerimaArray.length === 0) {
+      throw new BadRequestException('Minimal harus ada 1 penerima');
+    }
+
+    // Build DTO
+    const dto: CreateSuratDinasEksternalDto = {
+      // Sirkulasi
+      pengirim: Number(body.pengirim),
+      penerima: penerimaArray,
+      tgl: body.tgl,
+
+      // Kop
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+
+      // Data Naskah
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat || 'biasa',
+      perihal: body.perihal,
+      konten: body.konten,
+      english: body.english === 'true' || body.english === true,
+
+      // Kaki
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      tanda_tangan: body.tanda_tangan,
+      nama_lengkap: body.nama_lengkap,
+
+      // Lampiran
+      lampiran: body.lampiran,
+      lampiran_temp_ids: body.lampiran_temp_ids ? parseUuidArray(body.lampiran_temp_ids) : undefined,
+    };
+
+    return dto;
+  }
+
+  /**
+   * Upload temporary lampiran files
+   * Creates naskah_lampiran records with is_temporary=1
+   * 
+   * @param files - Array of uploaded files
+   * @param id_naskah - Naskah ID (can be null for temp-only storage)
+   * @param jenis - Document type (ND, SDI, SDE, DI, KA)
+   * @returns Array of lampiran IDs
+   */
+  async uploadTemporaryLampiran(
+    files: Express.Multer.File[],
+    id_naskah: string,
+    jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA',
+  ): Promise<string[]> {
+    const tempFolderId = uuidv4();
+    const lampiranIds: string[] = [];
+
+    for (const file of files) {
+      // Upload file first to get the path
+      const uploadResult = await this.storageService.uploadFile(
+        file,
+        `surat-dinas-eksternal/lampiran/temporary/${tempFolderId}`,
+      );
+
+      // Create lampiran record with file_pdf populated
+      const lampiranEntity = this.naskahLampiranRepository.create({
+        id: uuidv4(),
+        id_naskah,
+        file_name: file.originalname,
+        file_pdf: uploadResult.key, // Set file path from upload
+        jenis,
+        is_temporary: 1,
+        temp_folder_id: tempFolderId,
+      } as Partial<NaskahLampiranEntity>);
+
+      await this.naskahLampiranRepository.save(lampiranEntity);
+      lampiranIds.push(lampiranEntity.id);
+    }
+
+    return lampiranIds;
+  }
+
+  // ============================================================
+  // SEND MESSAGE
+  // ============================================================
+
+  /**
    * Send Message - Kirim SDE ke pihak eksternal
    * Status: 'final' (tanpa tanda tangan) atau 'final_tte' (dengan tanda tangan)
    */
