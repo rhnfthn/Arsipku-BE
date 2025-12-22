@@ -1017,11 +1017,12 @@ export class SuratDinasInternalService {
    */
   private filterByPositionSdi(barisData: SdiOrgDataPositionDto[], positionParam: number): {
     REKAN: SdiOrgDataPositionDto[];
+    TEMBUSAN: SdiOrgDataPositionDto[];
   } {
     // Cari item current berdasarkan position
     const current = barisData.find((x) => Number(x.position) === Number(positionParam));
     if (!current) {
-      return { REKAN: [] };
+      return { REKAN: [], TEMBUSAN: [] }; 
     }
 
     console.log(`[filterByPositionSdi] Current:`, {
@@ -1049,9 +1050,22 @@ export class SuratDinasInternalService {
       return x.sub_area !== current.sub_area;
     });
 
-    console.log(`[filterByPositionSdi] Results: REKAN=${rekan.length}`);
+    const filtered = barisData.filter(
+      (x) =>
+        x.chief === 1 &&
+        x.sub_area !== current.sub_area &&
+        x.departType === 'DIVORCABANG' &&
+        x.bod_tag === 'BOD-1' &&
+        x.company === current.company,
+    );
+    console.log(`[filterByPositionSdi] Results: REKAN=${filtered.length}`);
 
-    return { REKAN: rekan };
+    const tembusan = barisData.filter(
+      (x) =>
+        x.chief === 1 && x.bod_tag === 'BOD' && x.company === current.company,
+    );
+
+    return { REKAN: filtered, TEMBUSAN: tembusan };
   }
 
   /**
