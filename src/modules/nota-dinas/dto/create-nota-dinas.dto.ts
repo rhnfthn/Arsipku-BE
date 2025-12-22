@@ -322,6 +322,11 @@ export class UpdateDraftDto {
   @IsString({ each: true })
   lampiran_files?: string[];
 
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[]; // Array of lampiran IDs yang sudah diupload temporary
+
   // ============================================
   // PDF FINAL
   // ============================================
