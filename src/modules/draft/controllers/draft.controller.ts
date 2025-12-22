@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Delete,
+  Post,
   Body,
   Param,
   Query,
@@ -17,6 +18,8 @@ import {
   DeleteDraftResponseDto,
   SignDraftDto,
   SignDraftResponseDto,
+  BulkDeleteDraftDto,
+  BulkDeleteDraftResponseDto,
 } from '../dto/draft/draft.dto';
 
 @Controller('draft')
@@ -173,6 +176,36 @@ export class DraftController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to sign draft',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /draft/bulk-delete
+   * Bulk delete draft naskah (select all or beberapa draft lalu hapus)
+   *
+   * @body BulkDeleteDraftDto - position_id dan naskah_ids
+   *
+   * @returns BulkDeleteDraftResponseDto
+   */
+  @Post('bulk-delete')
+  async bulkDeleteDraft(
+    @Body() dto: BulkDeleteDraftDto,
+  ): Promise<BulkDeleteDraftResponseDto> {
+    try {
+      return await this.draftService.bulkDeleteDraft(dto.naskah_ids, dto.position_id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to bulk delete drafts',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
