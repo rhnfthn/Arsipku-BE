@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -10,8 +11,9 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { NomorService } from '../services/nomor.service';
 import {
   CreateNomorRequestDto,
@@ -197,8 +199,8 @@ export class NomorController {
   }
 
   /**
-   * POST /admin/nomor-request/:id/booking
-   * Admin memproses usulan dan create booking dengan file upload
+   * POST /nomor-request/:id/booking
+   * User/Admin memproses usulan dan create booking dengan file upload
    * Mendukung multiple file upload via FormData
    * 
    * FormData fields:
@@ -207,13 +209,15 @@ export class NomorController {
    * 
    * Query parameters:
    * - folder: path folder untuk menyimpan file (default: 'nomor')
+   * - action: 'append' (default) untuk tambah file, 'replace' untuk replace semua file booking
    */
   @UseInterceptors(FilesInterceptor('file', 10)) // Max 10 files
-  @Post('admin/nomor-request/:id/booking')
+  @Post('nomor-request/:id/booking')
   async bookingNomorRequest(
     @Param('id') id: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query('folder') folder?: string,
+    @Query('action') action?: 'append' | 'replace',
     @Body() body?: any,
   ): Promise<BookingNomorRequestResponseDto> {
     try {
@@ -226,7 +230,8 @@ export class NomorController {
         id,
         dto,
         files,
-        folder,
+        folder || 'nomor',
+        action || 'append',
       );
     } catch (error) {
       if (error instanceof HttpException) {
@@ -236,6 +241,54 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to booking nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * PATCH /admin/nomor-request-detail/:id/file
+   * Admin update file lampiran di detail tertentu (hanya status booking)
+   * 
+   * FormData fields:
+   * - file: binary file (required, single file)
+   * 
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
+   */
+  @UseInterceptors(FileInterceptor('file'))
+  @Patch('admin/nomor-request-detail/:id/file')
+  async updateNomorRequestDetailFile(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Query('folder') folder?: string,
+  ): Promise<any> {
+    try {
+      if (!file) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'File is required',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      return await this.nomorService.updateNomorRequestDetailFile(
+        id,
+        file,
+        folder || 'nomor',
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to update nomor request detail file',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
