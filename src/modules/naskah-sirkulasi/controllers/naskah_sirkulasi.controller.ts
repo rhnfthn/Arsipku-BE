@@ -29,6 +29,8 @@ import {
 import {
   ToggleFlagDto,
   ToggleFlagResponseDto,
+  BulkArchiveSentDto,
+  BulkArchiveSentResponseDto,
 } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 
@@ -134,6 +136,40 @@ export class NaskahSirkulasiController {
     @Body() dto: ToggleFlagDto,
   ): Promise<ToggleFlagResponseDto> {
     return this.naskahSirkulasiService.toggleFlag(dto.id_sirkulasi, dto.flag_type);
+  }
+
+  // ============================================================
+  // BULK ARCHIVE/DELETE SENT - Bulk archive atau delete pesan terkirim
+  // ============================================================
+
+  /**
+   * POST /naskah_sirkulasi/sent/bulk-action
+   *
+   * Bulk archive atau delete pesan terkirim
+   * Archive: Set flag_arsip = 1 (pesan masih ada tapi dipindahkan ke arsip)
+   * Delete: Hapus pesan beserta semua data terkait secara permanen
+   *
+   * @param dto - BulkArchiveSentDto { position_id, naskah_ids, action }
+   * @returns BulkArchiveSentResponseDto
+   *
+   * @example
+   * POST /naskah_sirkulasi/sent/bulk-action
+   * Body: { 
+   *   "position_id": 123,
+   *   "naskah_ids": ["uuid-1", "uuid-2", "uuid-3"],
+   *   "action": "archive" | "delete"
+   * }
+   */
+  @Post('sent/bulk-action')
+  @HttpCode(HttpStatus.OK)
+  async bulkArchiveOrDeleteSent(
+    @Body() dto: BulkArchiveSentDto,
+  ): Promise<BulkArchiveSentResponseDto> {
+    return this.naskahSirkulasiService.bulkArchiveOrDeleteSent(
+      dto.naskah_ids,
+      dto.position_id,
+      dto.action,
+    );
   }
 
   @Get()
