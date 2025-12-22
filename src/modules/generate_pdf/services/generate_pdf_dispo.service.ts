@@ -53,10 +53,8 @@ export class GeneratePdfDispoService {
     }
 
     // Accept both 'html' and 'htmlContent' field names
-    const htmlContent = body.html || body.htmlContent;
-    if (!htmlContent) {
-      throw new Error('Missing required field: html or htmlContent');
-    }
+    // htmlContent is now optional - can be empty/null for disposisi without catatan
+    const htmlContent = body.html || body.htmlContent || '';
     
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
