@@ -560,30 +560,45 @@ export class NomorService {
     // Generate template nomor
     const templateNomor = await this.generateNomorTemplate(request);
 
+    // Build response dengan optional details jika sudah diajukan
+    const responseData: any = {
+      id: request.id,
+      company: request.company!,
+      area: request.area!,
+      sub_area: request.subArea!,
+      organization: request.organization!,
+      position: request.position!,
+      persnum,
+      nama,
+      tanggal: request.tanggal!,
+      jenis: request.jenis!,
+      klasifikasi: request.klasifikasi,
+      perihal: request.perihal!,
+      jumlah: request.jumlah!,
+      penandatangan: request.penandatangan,
+      penandatangan_position_id: request.idPositionPenandatangan,
+      penandatangan_position_abbreviation: penandatanganPositionAbbreviation,
+      template_nomor: templateNomor,
+      created_at: request.createdAt,
+      status,
+    };
+
+    // Tambahkan details jika sudah diajukan (ada file)
+    if (details.length > 0) {
+      responseData.details = details.map((d) => ({
+        id: d.id,
+        nomor: d.nomor,
+        status: d.status,
+        file_name: d.fileName,
+        file_url: d.fileName ? this.storageService.getPublicUrl(d.fileName) : null,
+        created_at: d.createdAt,
+      }));
+    }
+
     return {
       success: true,
       message: 'Detail usulan nomor berhasil diambil',
-      data: {
-        id: request.id,
-        company: request.company!,
-        area: request.area!,
-        sub_area: request.subArea!,
-        organization: request.organization!,
-        position: request.position!,
-        persnum,
-        nama,
-        tanggal: request.tanggal!,
-        jenis: request.jenis!,
-        klasifikasi: request.klasifikasi,
-        perihal: request.perihal!,
-        jumlah: request.jumlah!,
-        penandatangan: request.penandatangan,
-        penandatangan_position_id: request.idPositionPenandatangan,
-        penandatangan_position_abbreviation: penandatanganPositionAbbreviation,
-        template_nomor: templateNomor,
-        created_at: request.createdAt,
-        status,
-      },
+      data: responseData,
     };
   }
 
