@@ -770,6 +770,7 @@ export class NomorService {
           status: d.status,
           file_name: d.fileName,
           file_text: d.fileText,
+          file_url: d.fileName ? this.storageService.getPublicUrl(d.fileName) : null,
           created_at: d.createdAt,
         })),
       },
