@@ -20,6 +20,7 @@ import { DisposisiModule } from './modules/disposisi/disposisi.module';
 import { NotaDinasModule } from './modules/nota-dinas/nota-dinas.module';
 import { SuratDinasInternalModule } from './modules/surat-dinas-internal/surat-dinas-internal.module';
 import { SuratDinasEksternalModule } from './modules/surat-dinas-eksternal/surat-dinas-eksternal.module';
+import { NaskahDinasModule } from './modules/naskah-dinas/naskah-dinas.module';
 import { KajianModule } from './modules/kajian/kajian.module';
 import { LabelModule } from './modules/label/label.module';
 import { KlasifikasiModule } from './modules/klasifikasi/klasifikasi.module';
@@ -83,6 +84,7 @@ import { DataSource } from 'typeorm';
     NotaDinasModule,
     SuratDinasInternalModule,
     SuratDinasEksternalModule,
+    NaskahDinasModule,
     KajianModule,
     LabelModule,
     KlasifikasiModule,
