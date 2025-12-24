@@ -658,7 +658,7 @@ export class NomorService {
           nomor: d.nomor,
           status: d.status,
           file_name: d.fileName,
-          file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
+          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
           created_at: d.createdAt,
         }))
       );
@@ -837,7 +837,7 @@ export class NomorService {
         status: d.status,
         file_name: d.fileName,
         file_text: d.fileText,
-        file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
+        file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
         created_at: d.createdAt,
       }))
     );
@@ -930,7 +930,7 @@ export class NomorService {
         : [files]
       : [];
 
-    // Jika ada files, upload semua ke storage
+    // Upload files jika ada
     if (fileArray && fileArray.length > 0) {
       for (const file of fileArray) {
         const detailId = uuidv4();
@@ -957,10 +957,15 @@ export class NomorService {
         });
         details.push(detail);
       }
-    } else {
-      // Jika tidak ada file, booking berdasarkan jumlah
-      const jumlah = dto.jumlah || request.jumlah || 1;
-      for (let i = 0; i < jumlah; i++) {
+    }
+
+    // Tambah details tanpa file berdasarkan jumlah (untuk melengkapi total quantity)
+    const jumlahDiajukan = dto.jumlah || request.jumlah || 0;
+    const uploadedFileCount = fileArray.length;
+    
+    // Jika jumlah lebih besar dari file count, buat details tambahan tanpa file
+    if (jumlahDiajukan > uploadedFileCount) {
+      for (let i = uploadedFileCount; i < jumlahDiajukan; i++) {
         const detailId = uuidv4();
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
@@ -972,6 +977,13 @@ export class NomorService {
         });
         details.push(detail);
       }
+    }
+
+    // Validasi: minimal harus ada 1 detail (file atau quantity)
+    if (details.length === 0) {
+      throw new BadRequestException(
+        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan'
+      );
     }
 
     await this.nomorRequestDetailRepository.save(details);
@@ -988,9 +1000,22 @@ export class NomorService {
       }))
     );
 
+    // Hitung berapa file dan berapa nomor tanpa file
+    const fileCount = details.filter((d) => d.fileText).length;
+    const noFileCount = details.filter((d) => !d.fileText).length;
+
+    let resultMessage = `Berhasil booking ${details.length} nomor`;
+    if (fileCount > 0 && noFileCount > 0) {
+      resultMessage = `Berhasil booking ${details.length} nomor (${fileCount} dengan file, ${noFileCount} tanpa file)`;
+    } else if (fileCount > 0) {
+      resultMessage = `Berhasil booking ${fileCount} nomor dengan file`;
+    } else if (noFileCount > 0) {
+      resultMessage = `Berhasil booking ${noFileCount} nomor (tanpa file)`;
+    }
+
     return {
       success: true,
-      message: `Berhasil booking ${details.length} nomor`,
+      message: resultMessage,
       data: {
         request_id: requestId,
         details: detailsWithUrls,
@@ -1798,7 +1823,7 @@ export class NomorService {
           status: d.status,
           file_name: d.fileName || null,
           file_text: d.fileText || null,
-          file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
+          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
           created_at: d.createdAt,
         }))
     );
