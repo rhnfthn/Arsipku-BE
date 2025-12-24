@@ -658,7 +658,7 @@ export class NomorService {
           nomor: d.nomor,
           status: d.status,
           file_name: d.fileName,
-          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
           created_at: d.createdAt,
         }))
       );
@@ -837,7 +837,7 @@ export class NomorService {
         status: d.status,
         file_name: d.fileName,
         file_text: d.fileText,
-        file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+        file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
         created_at: d.createdAt,
       }))
     );
@@ -941,7 +941,9 @@ export class NomorService {
         try {
           const uploadResult = await this.storageService.uploadFile(file, folder);
           fileKey = uploadResult.key;
+          console.log(`✅ File uploaded successfully: ${fileKey}`);
         } catch (error) {
+          console.error(`❌ File upload error for ${fileName}:`, error.message);
           throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
         }
 
@@ -974,18 +976,24 @@ export class NomorService {
 
     await this.nomorRequestDetailRepository.save(details);
 
+    // Generate signed URLs untuk files yang berhasil di-upload
+    const detailsWithUrls = await Promise.all(
+      details.map(async (detail) => ({
+        id: detail.id,
+        status: detail.status,
+        file_name: detail.fileName,
+        file_text: detail.fileText,
+        file_url: detail.fileText ? await this.storageService.getFileUrl(detail.fileText) : null,
+        created_at: detail.createdAt,
+      }))
+    );
+
     return {
       success: true,
       message: `Berhasil booking ${details.length} nomor`,
       data: {
         request_id: requestId,
-        details: details.map((detail) => ({
-          id: detail.id,
-          status: detail.status,
-          file_name: detail.fileName,
-          file_text: detail.fileText,
-          created_at: detail.createdAt,
-        })),
+        details: detailsWithUrls,
       },
     };
   }
@@ -1790,7 +1798,7 @@ export class NomorService {
           status: d.status,
           file_name: d.fileName || null,
           file_text: d.fileText || null,
-          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          file_url: d.fileText ? await this.storageService.getFileUrl(d.fileText) : null,
           created_at: d.createdAt,
         }))
     );
