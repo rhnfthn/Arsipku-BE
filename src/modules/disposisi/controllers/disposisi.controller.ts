@@ -838,12 +838,19 @@ export class DisposisiController {
         tertujuArray = await this.disposisiService.convertPositionIdsToNames(tertujuArray);
       }
 
+      // Check if pengirim is position_id and convert to name
+      let pengirimName = dto.pengirim || user?.positionText || '';
+      if (pengirimName && isPositionId(pengirimName)) {
+        const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
+        pengirimName = converted[0] || pengirimName;
+      }
+
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
         htmlContent,
         tertujuArray,
         dto.disposisi || [],
         dto.sifat || 'Biasa',
-        dto.pengirim || user?.positionText || '',
+        pengirimName,
         dto.tembusan || [],
         dto.lampiran_temp_ids || [],
         {
@@ -972,6 +979,13 @@ export class DisposisiController {
         tertujuArray = await this.disposisiService.convertPositionIdsToNames(tertujuArray);
       }
 
+      // Check if pengirim is position_id and convert to name
+      let pengirimName = dto.pengirim || user?.positionText || '';
+      if (pengirimName && isPositionId(pengirimName)) {
+        const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
+        pengirimName = converted[0] || pengirimName;
+      }
+
       // Parse disposisi array (checkbox options)
       let disposisiArray = dto.disposisi || [];
       console.log('[generate-pdf] tertuju:', tertujuArray);
@@ -984,7 +998,7 @@ export class DisposisiController {
         tertujuArray,
         disposisiArray,
         dto.sifat || 'Biasa',
-        dto.pengirim || user?.positionText || '',
+        pengirimName,
         dto.tembusan || [],
         dto.lampiran_temp_ids || [],
         {
