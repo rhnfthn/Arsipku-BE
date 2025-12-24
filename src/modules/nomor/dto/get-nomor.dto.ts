@@ -50,6 +50,7 @@ export class GetNomorByIdResponseDto {
       status: string;
       file_name: string | null;
       file_text: string | null;
+      file_url: string | null;
       created_at: Date;
     }[];
   };
