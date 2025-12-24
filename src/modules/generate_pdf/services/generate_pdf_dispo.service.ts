@@ -18,7 +18,9 @@ interface GeneratePdfDispoBody {
   perihal?: string;
   refNomor?: string;
   refPerihal?: string;
-  tanggal?: string;
+  refTanggal?: string; // Tanggal surat referensi
+  refPengirim?: string; // Pengirim surat referensi (surat dari)
+  tanggal?: string; // Tanggal disposisi terkirim (untuk agenda)
   penandatangan?: string;
   catatan?: string;
 }
@@ -81,59 +83,94 @@ export class GeneratePdfDispoService {
     const sifat = body.sifat || 'Biasa';
     const penandatangan = body.penandatangan || '';
     
-    // Format tanggal - convert dari YYYY-MM-DD atau DD/MM/YYYY ke format Indonesia
-    let tanggal = body.tanggal || '';
-    if (tanggal) {
+    // Helper function untuk format tanggal ke DD-MM-YYYY
+    const formatDateToDDMMYYYY = (dateInput: string): string => {
+      if (!dateInput) return '';
+      const trimmed = dateInput.trim(); // Trim whitespace
+      if (!trimmed) return '';
       try {
-        // Check if already in Indonesian format
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggal)) {
-          // Already formatted, keep as is
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
-          // YYYY-MM-DD format
-          const dateObj = new Date(tanggal + 'T00:00:00');
+        // Already in DD-MM-YYYY format
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+          return trimmed;
+        }
+        // YYYY-MM-DD format
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          const dateObj = new Date(trimmed + 'T00:00:00');
           if (!isNaN(dateObj.getTime())) {
-            tanggal = dateObj.toLocaleDateString('id-ID', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric',
-            });
-          }
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggal)) {
-          // DD/MM/YYYY format
-          const [day, month, year] = tanggal.split('/');
-          const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-          if (!isNaN(dateObj.getTime())) {
-            tanggal = dateObj.toLocaleDateString('id-ID', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric',
-            });
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const year = dateObj.getFullYear();
+            return `${day}-${month}-${year}`;
           }
         }
+        // DD/MM/YYYY format
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('/');
+          return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+        }
+        // Indonesian long format (e.g., "Selasa, 24 Desember 2024")
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          // Parse Indonesian date format
+          const monthMap: { [key: string]: string } = {
+            'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
+            'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
+            'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+          };
+          const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+          if (match) {
+            const day = match[1].padStart(2, '0');
+            const month = monthMap[match[2].toLowerCase()] || '01';
+            const year = match[3];
+            return `${day}-${month}-${year}`;
+          }
+        }
+        return trimmed; // Return as-is if format not recognized
       } catch (e) {
         console.error('[GeneratePdfDispo] Error formatting date:', e);
+        return trimmed;
       }
-    }
+    };
+
+    // Format tanggal disposisi (untuk AGENDA) ke DD-MM-YYYY
+    let tanggal = (body.tanggal || '').trim(); // Trim whitespace
+    console.log('[GeneratePdfDispo] Input tanggal:', body.tanggal, '| tanggal after trim:', tanggal);
     if (!tanggal) {
-      tanggal = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      tanggal = `${day}-${month}-${year}`;
+    } else {
+      tanggal = formatDateToDDMMYYYY(tanggal);
     }
+    console.log('[GeneratePdfDispo] tanggal after format:', tanggal);
     
-    // Field referensi surat asal
+    // Field referensi surat asal (kolom kanan - data dari surat yang didisposisi)
     const refNomor = body.refNomor || '';
-    const refPerihal = body.refPerihal || body.perihal || '';
+    const refPerihal = body.refPerihal || '';
+    const refTanggal = body.refTanggal ? formatDateToDDMMYYYY(body.refTanggal) : ''; // Tanggal surat referensi (DD-MM-YYYY)
+    const refPengirim = body.refPengirim || ''; // Pengirim surat referensi (surat dari)
     
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
     
-    // Format penerima
+    // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
+    // Jika format "Position - Organization", ambil hanya Position
+    let sortedPenerima = [...penerima].sort((a, b) => a.localeCompare(b, 'id'));
     let penerimaHtml = '';
-    if (Array.isArray(penerima) && penerima.length > 0) {
-      if (penerima.length === 1) {
-        penerimaHtml = penerima[0];
+    if (Array.isArray(sortedPenerima) && sortedPenerima.length > 0) {
+      // Extract only position text if format is "Position - Organization"
+      const cleanPenerima = sortedPenerima.map(p => {
+        if (p.includes(' - ')) {
+          return p.split(' - ')[0].trim();
+        }
+        return p;
+      });
+      
+      if (cleanPenerima.length === 1) {
+        penerimaHtml = cleanPenerima[0];
       } else {
-        penerimaHtml = penerima.map(p => `<div style="margin-left: 20px;">${p}</div>`).join('');
+        penerimaHtml = cleanPenerima.map(p => `<div style="margin-left: 20px;">${p}</div>`).join('');
       }
     }
 
@@ -221,7 +258,7 @@ export class GeneratePdfDispoService {
 
         <!-- Info Section -->
         <div style="display: flex; border-bottom: 2px solid #000;">
-          <!-- Agenda -->
+          <!-- Agenda (Kiri) - Tanggal terkirim disposisi dari kita -->
           <div style="width: 15%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
@@ -230,20 +267,20 @@ export class GeneratePdfDispoService {
             </div>
           </div>
 
-          <!-- Detail Info -->
+          <!-- Detail Info (Tengah) - Data dari referensi surat yang didisposisi -->
           <div style="width: 55%; border-right: 2px solid #000; padding: 12px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
               <tr style="border-bottom: none;">
                 <td style="width: 70px; padding: 4px 0;">Surat dari</td>
-                <td style="padding: 4px 0;">: ${pengirim}</td>
+                <td style="padding: 4px 0;">: ${refPengirim || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0;">Tanggal</td>
-                <td style="padding: 4px 0;">: ${tanggal}</td>
+                <td style="padding: 4px 0;">: ${refTanggal || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0;">Nomor</td>
-                <td style="padding: 4px 0;">: ${refNomor || '......................'}</td>
+                <td style="padding: 4px 0;">: ${refNomor || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0; vertical-align: top;">Perihal</td>
