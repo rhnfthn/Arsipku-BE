@@ -699,4 +699,39 @@ export class NaskahSirkulasiService {
       },
     };
   }
+
+  // ============================================================
+  // COUNT UNREAD INBOX - Count kotak masuk yg belum dibaca
+  // ============================================================
+
+  /**
+   * Menghitung jumlah kotak masuk yang belum dibaca untuk position tertentu
+   *
+   * @param positionId - Position ID penerima
+   * @returns { position_id: number, count: number }
+   */
+  async countUnreadInbox(positionId: string): Promise<any> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'penerima'
+      AND s.is_draft = 0
+      AND s.send_read_time IS NULL
+      AND n.status IN ('final', 'final_tte')
+    `;
+
+    const result = await this.dataSource.query(query, [positionId]);
+    const count = parseInt(result[0]?.count || '0', 10);
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil jumlah kotak masuk belum dibaca',
+      data: {
+        position_id: parseInt(positionId),
+        count: count,
+      },
+    };
+  }
 }
