@@ -75,11 +75,72 @@ export class GeneratePdfSudinService {
       // If base64 decode fails, assume it's plain text already
       decodedContent = htmlContent;
     }
+
+    // Helper function untuk format tanggal ke DD-MM-YYYY
+    const formatDateToDDMMYYYY = (dateInput: string): string => {
+      if (!dateInput) return '';
+      const trimmed = dateInput.trim(); // Trim whitespace
+      if (!trimmed) return '';
+      try {
+        // Already in DD-MM-YYYY format
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+          return trimmed;
+        }
+        // YYYY-MM-DD format
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          const dateObj = new Date(trimmed + 'T00:00:00');
+          if (!isNaN(dateObj.getTime())) {
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const year = dateObj.getFullYear();
+            return `${day}-${month}-${year}`;
+          }
+        }
+        // DD/MM/YYYY format
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('/');
+          return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+        }
+        // Indonesian long format (e.g., "24 Desember 2024")
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          const monthMap: { [key: string]: string } = {
+            'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
+            'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
+            'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+          };
+          const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+          if (match) {
+            const day = match[1].padStart(2, '0');
+            const month = monthMap[match[2].toLowerCase()] || '01';
+            const year = match[3];
+            return `${day}-${month}-${year}`;
+          }
+        }
+        return trimmed;
+      } catch (e) {
+        console.error('[GeneratePdfSudin] Error formatting date:', e);
+        return trimmed;
+      }
+    };
     
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
-    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+    // Format tanggal ke DD-MM-YYYY
+    let tanggalRaw = (body.tanggal || '').trim(); // Trim whitespace
+    console.log('[GeneratePdfSudin] Input tanggal:', body.tanggal, '| tanggalRaw before:', tanggalRaw);
+    if (!tanggalRaw) {
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      tanggalRaw = `${day}-${month}-${year}`;
+    } else {
+      tanggalRaw = formatDateToDDMMYYYY(tanggalRaw);
+    }
+    console.log('[GeneratePdfSudin] tanggalRaw after format:', tanggalRaw);
+    const tanggal = tanggalRaw;
     const tanggalFormatted = `${namaTempat}, ${tanggal}`;
+    console.log('[GeneratePdfSudin] tanggalFormatted:', tanggalFormatted);
     // Position and name from JWT user data (passed from controller)
     const positionText = body.positionText || '';
     const namaLengkap = body.namaLengkap || '';
@@ -127,7 +188,7 @@ export class GeneratePdfSudinService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (penerimaArr.length > 1) {
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;padding-left:20px;'>";
+        penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${item}</li>`;
         });
@@ -145,7 +206,7 @@ export class GeneratePdfSudinService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (tembusanArr.length > 1) {
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;padding-left:20px;'>";
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
         tembusanArr.forEach((item) => {
           tembusanHtml += `<li>${item}</li>`;
         });
