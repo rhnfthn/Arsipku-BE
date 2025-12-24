@@ -43,6 +43,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { v4 as uuidv4 } from 'uuid';
+import { DigsigService } from 'src/modules/digsig/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -75,6 +76,7 @@ export class NotaDinasService {
     private readonly storageService: StorageService,
     private readonly generatePdfService: GeneratePdfService,
     private readonly generatePdfNodinService: GeneratePdfNodinService,
+    private readonly digsigService: DigsigService,
   ) {}
 
   // ============================================================
@@ -1813,6 +1815,23 @@ export class NotaDinasService {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
     }
+
+    //kirim tte jika fe request tte
+    // const filename = "nodin.pdf"; // final
+    // const keypathfile = dto.final_pdf as string;
+    // const digsig = await this.digsigService.hitDigsigEndpoint({
+    //   key: keypathfile,
+    //   filename: filename,
+    //   nomorDokumen: nomorSurat,
+    //   tanggalDokumen: tanggalStr,
+    //   klasifikasi: 'Biasa',
+    //   jenisNaskah: 'Nota Dinas',
+    //   perihal: dto.perihal as string,
+    //   nik: '1234567890123452',
+    //   passphrase: 'Bsre2025.#!',
+    //   path_dokumen: 'nota-dinas/digsig/',
+    //   no_wa: '',
+    // });
 
     return {
       success: true,
