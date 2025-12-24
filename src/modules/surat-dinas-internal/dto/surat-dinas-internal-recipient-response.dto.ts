@@ -22,6 +22,7 @@ export class SdiOrgDataPositionDto {
   position_abbreviation?: string | null;
   persnum: number;
   // Optional fields when org_data provides person details for the position
+  divisi_id?: number | null;
   persnum_person?: number | null;
   persnum_person_text?: string | null;
   nama: string;
