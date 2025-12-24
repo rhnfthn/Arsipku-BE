@@ -585,14 +585,17 @@ export class NomorService {
 
     // Tambahkan details jika sudah diajukan (ada file)
     if (details.length > 0) {
-      responseData.details = details.map((d) => ({
-        id: d.id,
-        nomor: d.nomor,
-        status: d.status,
-        file_name: d.fileName,
-        file_url: d.fileName ? this.storageService.getPublicUrl(d.fileName) : null,
-        created_at: d.createdAt,
-      }));
+      const detailsWithUrls = await Promise.all(
+        details.map(async (d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+          file_name: d.fileName,
+          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          created_at: d.createdAt,
+        }))
+      );
+      responseData.details = detailsWithUrls;
     }
 
     return {
@@ -759,6 +762,19 @@ export class NomorService {
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
 
+    // Generate signed URLs untuk details
+    const detailsWithUrls = await Promise.all(
+      details.map(async (d) => ({
+        id: d.id,
+        nomor: d.nomor,
+        status: d.status,
+        file_name: d.fileName,
+        file_text: d.fileText,
+        file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+        created_at: d.createdAt,
+      }))
+    );
+
     return {
       success: true,
       message: 'Detail penomoran berhasil diambil',
@@ -779,15 +795,7 @@ export class NomorService {
         penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
-        details: details.map((d) => ({
-          id: d.id,
-          nomor: d.nomor,
-          status: d.status,
-          file_name: d.fileName,
-          file_text: d.fileText,
-          file_url: d.fileName ? this.storageService.getPublicUrl(d.fileName) : null,
-          created_at: d.createdAt,
-        })),
+        details: detailsWithUrls,
       },
     };
   }
@@ -1705,6 +1713,21 @@ export class NomorService {
       order: { createdAt: 'ASC' },
     });
 
+    // Generate signed URLs untuk nomor_list
+    const nomorListWithUrls = await Promise.all(
+      details
+        .filter((d) => d.status === 'terpakai' && d.nomor)
+        .map(async (d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+          file_name: d.fileName || null,
+          file_text: d.fileText || null,
+          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          created_at: d.createdAt,
+        }))
+    );
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
@@ -1716,16 +1739,7 @@ export class NomorService {
         perihal: request.perihal,
         tanggal: request.tanggal,
         jumlah: request.jumlah,
-        nomor_list: details
-          .filter((d) => d.status === 'terpakai' && d.nomor)
-          .map((d) => ({
-            id: d.id,
-            nomor: d.nomor,
-            status: d.status,
-            file_name: d.fileName || null,
-            file_text: d.fileText || null,
-            created_at: d.createdAt,
-          })),
+        nomor_list: nomorListWithUrls,
       },
     };
   }
