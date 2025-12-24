@@ -782,50 +782,56 @@ export class DisposisiController {
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
 
-      // Format tanggal disposisi
-      let formattedDate = dto.tanggal_disposisi || new Date().toLocaleDateString('id-ID', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      });
-
-      // Parse tanggal jika dalam format YYYY-MM-DD atau DD/MM/YYYY
-      try {
-        const tanggalInput = dto.tanggal_disposisi;
-        if (tanggalInput) {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(tanggalInput)) {
-            const dateObj = new Date(tanggalInput + 'T00:00:00');
+      // Helper function untuk format tanggal ke DD-MM-YYYY
+      const formatDateToDDMMYYYY = (dateInput: string): string => {
+        if (!dateInput) return '';
+        try {
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateInput)) return dateInput;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+            const dateObj = new Date(dateInput + 'T00:00:00');
             if (!isNaN(dateObj.getTime())) {
-              formattedDate = dateObj.toLocaleDateString('id-ID', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                timeZone: 'Asia/Jakarta'
-              });
-            }
-          } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggalInput)) {
-            const [day, month, year] = tanggalInput.split('/');
-            const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-            if (!isNaN(dateObj.getTime())) {
-              formattedDate = dateObj.toLocaleDateString('id-ID', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                timeZone: 'Asia/Jakarta'
-              });
+              const day = String(dateObj.getDate()).padStart(2, '0');
+              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+              const year = dateObj.getFullYear();
+              return `${day}-${month}-${year}`;
             }
           }
-        }
-      } catch (error) {
-        console.error('[preview-pdf] Error formatting date:', error);
+          if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateInput)) {
+            const [day, month, year] = dateInput.split('/');
+            return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+          }
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(dateInput)) {
+            const monthMap: { [key: string]: string } = {
+              'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
+              'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
+              'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+            };
+            const match = dateInput.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+            if (match) {
+              return `${match[1].padStart(2, '0')}-${monthMap[match[2].toLowerCase()] || '01'}-${match[3]}`;
+            }
+          }
+          return dateInput;
+        } catch (e) { return dateInput; }
+      };
+
+      // Format tanggal disposisi ke DD-MM-YYYY
+      let formattedDate = '';
+      if (dto.tanggal_disposisi) {
+        formattedDate = formatDateToDDMMYYYY(dto.tanggal_disposisi);
+      } else {
+        const now = new Date();
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const year = now.getFullYear();
+        formattedDate = `${day}-${month}-${year}`;
       }
 
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
+      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
+      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
 
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
@@ -845,6 +851,13 @@ export class DisposisiController {
         pengirimName = converted[0] || pengirimName;
       }
 
+      // Check if refPengirim is position_id and convert to name
+      let refPengirimName = refPengirim;
+      if (refPengirimName && isPositionId(refPengirimName)) {
+        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
+        refPengirimName = converted[0] || refPengirimName;
+      }
+
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
         htmlContent,
         tertujuArray,
@@ -856,6 +869,8 @@ export class DisposisiController {
         {
           refNomor,
           refPerihal,
+          refTanggal,
+          refPengirim: refPengirimName,
           tanggalDisposisi: formattedDate,
           catatan: dto.catatan || '',
         },
@@ -921,52 +936,56 @@ export class DisposisiController {
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
 
-      // Format tanggal disposisi
-      let formattedDate = dto.tanggal_disposisi || new Date().toLocaleDateString('id-ID', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      });
-
-      // Parse tanggal jika dalam format YYYY-MM-DD atau DD/MM/YYYY
-      try {
-        const tanggalInput = dto.tanggal_disposisi;
-        if (tanggalInput) {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(tanggalInput)) {
-            // YYYY-MM-DD format
-            const dateObj = new Date(tanggalInput + 'T00:00:00');
+      // Helper function untuk format tanggal ke DD-MM-YYYY
+      const formatDateToDDMMYYYY = (dateInput: string): string => {
+        if (!dateInput) return '';
+        try {
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateInput)) return dateInput;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+            const dateObj = new Date(dateInput + 'T00:00:00');
             if (!isNaN(dateObj.getTime())) {
-              formattedDate = dateObj.toLocaleDateString('id-ID', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                timeZone: 'Asia/Jakarta'
-              });
-            }
-          } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggalInput)) {
-            // DD/MM/YYYY format
-            const [day, month, year] = tanggalInput.split('/');
-            const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-            if (!isNaN(dateObj.getTime())) {
-              formattedDate = dateObj.toLocaleDateString('id-ID', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                timeZone: 'Asia/Jakarta'
-              });
+              const day = String(dateObj.getDate()).padStart(2, '0');
+              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+              const year = dateObj.getFullYear();
+              return `${day}-${month}-${year}`;
             }
           }
-        }
-      } catch (error) {
-        console.error('[generate-pdf] Error formatting date:', error);
+          if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateInput)) {
+            const [day, month, year] = dateInput.split('/');
+            return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+          }
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(dateInput)) {
+            const monthMap: { [key: string]: string } = {
+              'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
+              'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
+              'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+            };
+            const match = dateInput.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+            if (match) {
+              return `${match[1].padStart(2, '0')}-${monthMap[match[2].toLowerCase()] || '01'}-${match[3]}`;
+            }
+          }
+          return dateInput;
+        } catch (e) { return dateInput; }
+      };
+
+      // Format tanggal disposisi ke DD-MM-YYYY
+      let formattedDate = '';
+      if (dto.tanggal_disposisi) {
+        formattedDate = formatDateToDDMMYYYY(dto.tanggal_disposisi);
+      } else {
+        const now = new Date();
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const year = now.getFullYear();
+        formattedDate = `${day}-${month}-${year}`;
       }
 
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
+      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
+      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
 
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
@@ -984,6 +1003,13 @@ export class DisposisiController {
       if (pengirimName && isPositionId(pengirimName)) {
         const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
         pengirimName = converted[0] || pengirimName;
+      }
+
+      // Check if refPengirim is position_id and convert to name
+      let refPengirimName = refPengirim;
+      if (refPengirimName && isPositionId(refPengirimName)) {
+        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
+        refPengirimName = converted[0] || refPengirimName;
       }
 
       // Parse disposisi array (checkbox options)
@@ -1004,6 +1030,8 @@ export class DisposisiController {
         {
           refNomor,
           refPerihal,
+          refTanggal,
+          refPengirim: refPengirimName,
           tanggalDisposisi: formattedDate,
           isFinal: dto.final_pdf === 'true' || dto.final_pdf === '1',
           catatan: dto.catatan || '',
