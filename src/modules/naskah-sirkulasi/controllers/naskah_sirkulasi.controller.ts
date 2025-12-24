@@ -32,6 +32,7 @@ import {
   BulkArchiveSentDto,
   BulkArchiveSentResponseDto,
 } from '../dto/naskah_sirkulasi/toggle-flag.dto';
+import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 
 @Controller('naskah_sirkulasi')
@@ -84,6 +85,24 @@ export class NaskahSirkulasiController {
     @Query() query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
     return this.naskahSirkulasiService.getInbox(positionId, query);
+  }
+
+  /**
+   * GET /naskah_sirkulasi/inbox-count/:position_id
+   *
+   * Menampilkan jumlah kotak masuk yang belum dibaca
+   *
+   * @param positionId - Position ID penerima
+   * @returns CountUnreadInboxResponseDto
+   *
+   * @example
+   * GET /naskah_sirkulasi/inbox-count/123
+   */
+  @Get('inbox-count/:position_id')
+  async countUnreadInbox(
+    @Param('position_id') positionId: string,
+  ): Promise<CountUnreadInboxResponseDto> {
+    return this.naskahSirkulasiService.countUnreadInbox(positionId);
   }
 
   // ============================================================

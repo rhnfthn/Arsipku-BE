@@ -379,6 +379,73 @@ export class NomorService {
   }
 
   /**
+   * Count nomor request by status (for admin dashboard)
+   */
+  async getAdminCountNomorRequest(): Promise<any> {
+    const requests = await this.nomorRequestRepository.find();
+
+    // Count by status
+    const statusCounts = {
+      menunggu_verifikasi: 0,
+      disetujui: 0,
+      ditolak: 0,
+      belum_diajukan: 0,
+    };
+
+    for (const request of requests) {
+      // Ambil detail untuk menentukan status
+      const details = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: request.id },
+      });
+
+      let status = 'belum_diajukan';
+      if (details.length > 0) {
+        const hasBooking = details.some((d) => d.status === 'booking');
+        const hasTerpakai = details.some((d) => d.status === 'terpakai');
+        const allHangus = details.every((d) => d.status === 'hangus');
+
+        if (hasTerpakai) {
+          status = 'disetujui';
+        } else if (allHangus) {
+          status = 'ditolak';
+        } else if (hasBooking) {
+          status = 'menunggu_verifikasi';
+        }
+      }
+
+      // Increment counter
+      switch (status) {
+        case 'menunggu_verifikasi':
+          statusCounts.menunggu_verifikasi++;
+          break;
+        case 'disetujui':
+          statusCounts.disetujui++;
+          break;
+        case 'ditolak':
+          statusCounts.ditolak++;
+          break;
+        case 'belum_diajukan':
+          statusCounts.belum_diajukan++;
+          break;
+      }
+    }
+
+    const total = requests.length;
+
+    return {
+      success: true,
+      message: 'Count usulan nomor berhasil diambil',
+      data: {
+        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
+        disetujui: statusCounts.disetujui,
+        ditolak: statusCounts.ditolak,
+        belum_diajukan: statusCounts.belum_diajukan,
+        total,
+      },
+    };
+  }
+
+  /**
    * Admin melihat semua usulan nomor
    */
   async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
