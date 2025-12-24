@@ -368,7 +368,7 @@ export class DisposisiService {
    * @param pengirim - Nama pengirim
    * @param tembusan - Array tembusan
    * @param lampiranTempIds - ID lampiran temporary untuk di-merge
-   * @param options - Additional options (refNomor, refPerihal, tanggalDisposisi, isFinal, catatan)
+   * @param options - Additional options (refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -381,6 +381,8 @@ export class DisposisiService {
     options?: {
       refNomor?: string;
       refPerihal?: string;
+      refTanggal?: string;
+      refPengirim?: string;
       tanggalDisposisi?: string;
       isFinal?: boolean;
       catatan?: string;
@@ -407,6 +409,8 @@ export class DisposisiService {
         perihal: options?.refPerihal || '',
         refNomor: options?.refNomor || '',
         refPerihal: options?.refPerihal || '',
+        refTanggal: options?.refTanggal || '',
+        refPengirim: options?.refPengirim || '',
         tanggal: tanggal,
         catatan: options?.catatan || '',
       });
@@ -1360,7 +1364,7 @@ export class DisposisiService {
       // PHASE 7: Insert ke tabel DI (konten lengkap lembar disposisi)
       // Build kepada_yth dari penerima
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
@@ -1619,7 +1623,7 @@ export class DisposisiService {
       // PHASE 8: Insert ke tabel DI (konten lengkap lembar disposisi)
       // Build kepada_yth dari penerima
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
@@ -2631,7 +2635,7 @@ export class DisposisiService {
 
       // PHASE 10: Insert ke tabel DI
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
