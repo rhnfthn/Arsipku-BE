@@ -14,6 +14,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { DigsigService } from '../digsig/services';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
     GeneratePdfModule,
   ],
   controllers: [NotaDinasController],
-  providers: [NotaDinasService, NomorSuratService],
+  providers: [NotaDinasService, NomorSuratService, DigsigService],
   exports: [NotaDinasService],
 })
 export class NotaDinasModule {}

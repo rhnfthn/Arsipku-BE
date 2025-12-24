@@ -46,6 +46,7 @@ import { BerkasModule } from './modules/berkas/berkas.module';
 import { SuperadminModule } from './modules/superadmin/superadmin.module';
 import { NomorModule } from './modules/nomor/nomor.module';
 import { DataSource } from 'typeorm';
+import { DigsigModule } from './modules/digsig/digsig.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { DataSource } from 'typeorm';
     BerkasModule,
     SuperadminModule,
     NomorModule,
+    DigsigModule,
   ],
   controllers: [AppController],
   providers: [AppService],
