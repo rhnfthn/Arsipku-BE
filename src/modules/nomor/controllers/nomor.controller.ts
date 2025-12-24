@@ -46,6 +46,7 @@ import {
   AdminCreateNomorDto,
   AdminCreateNomorResponseDto,
 } from '../dto/admin-create-nomor.dto';
+import { AdminCountNomorRequestResponseDto } from '../dto/admin-count-nomor.dto';
 
 @Controller('/')
 export class NomorController {
@@ -141,6 +142,26 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get submitted nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /admin/nomor-request-count
+   * Admin melihat count/statistik usulan nomor berdasarkan status
+   */
+  @Get('admin/nomor-request-count')
+  async getAdminCountNomorRequest(): Promise<AdminCountNomorRequestResponseDto> {
+    try {
+      return await this.nomorService.getAdminCountNomorRequest();
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor request count',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
