@@ -88,8 +88,18 @@ export class NotaDinasService {
    */
   private getBulanRomawi(bulan: number): string {
     const mapping: Record<number, string> = {
-      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
-      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+      1: 'I',
+      2: 'II',
+      3: 'III',
+      4: 'IV',
+      5: 'V',
+      6: 'VI',
+      7: 'VII',
+      8: 'VIII',
+      9: 'IX',
+      10: 'X',
+      11: 'XI',
+      12: 'XII',
     };
     return mapping[bulan] || 'I';
   }
@@ -109,7 +119,7 @@ export class NotaDinasService {
    * Helper: Generate nomor dengan integrasi ke nomor_request dan nomor_request_detail
    * Menggunakan format dari tabel jenis dan update counter di tabel nomor
    * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
-   * 
+   *
    * @param pengirim - Data pengirim dari org_data
    * @param klasifikasi - Kode klasifikasi arsip
    * @param perihal - Perihal surat
@@ -197,8 +207,8 @@ export class NotaDinasService {
     nomorBaru = nomorBaru
       .replace(/\/\s+/g, '/') // Hapus spasi setelah slash
       .replace(/\s+\//g, '/') // Hapus spasi sebelum slash
-      .replace(/\/\//g, '/')  // Hapus double slash
-      .trim();                 // Trim spasi di awal/akhir
+      .replace(/\/\//g, '/') // Hapus double slash
+      .trim(); // Trim spasi di awal/akhir
 
     // 6. Insert nomor_request_detail dengan status 'terpakai'
     const detailId = uuidv4();
@@ -251,7 +261,7 @@ export class NotaDinasService {
   /**
    * Helper: Convert array of position IDs to position names
    * Uses org_data to lookup position information
-   * 
+   *
    * @param positionIds - Array of position IDs (can be string or number)
    * @param tanggal - Optional date for org_data lookup (default: today)
    * @returns Array of position text names
@@ -267,10 +277,10 @@ export class NotaDinasService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
-      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+      return positionIds.map((id) => String(id)); // Fallback to IDs as strings
     }
 
     const barisData: OrgDataPositionDto[] = orgData.position_json;
@@ -278,8 +288,8 @@ export class NotaDinasService {
 
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
-      const position = barisData.find(p => p.position === numericId);
-      
+      const position = barisData.find((p) => p.position === numericId);
+
       if (position) {
         // Return position_text with organization_text
         const fullName = `${position.position_text} - ${position.organization_text}`;
@@ -317,7 +327,7 @@ export class NotaDinasService {
 
   /**
    * Get lampiran files from storage (both temporary and final)
-   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft) 
+   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft)
    * and is_temporary=0 (after save-draft)
    */
   private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
@@ -338,7 +348,10 @@ export class NotaDinasService {
         },
       });
 
-      console.log('[getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
+      console.log(
+        '[getTemporaryLampiranFiles] Found tempLampiran count:',
+        tempLampiran.length,
+      );
 
       const files: Array<{
         id: string;
@@ -347,7 +360,11 @@ export class NotaDinasService {
         tempFolderId: string | null;
       }> = [];
       for (const lampiran of tempLampiran) {
-        console.log('[getTemporaryLampiranFiles] Processing:', lampiran.id, lampiran.file_name);
+        console.log(
+          '[getTemporaryLampiranFiles] Processing:',
+          lampiran.id,
+          lampiran.file_name,
+        );
         files.push({
           id: lampiran.id,
           fileName: lampiran.file_name,
@@ -356,7 +373,10 @@ export class NotaDinasService {
         });
       }
 
-      console.log('[getTemporaryLampiranFiles] Returning files count:', files.length);
+      console.log(
+        '[getTemporaryLampiranFiles] Returning files count:',
+        files.length,
+      );
       return files;
     } catch (error) {
       console.error('[getTemporaryLampiranFiles] Error:', error);
@@ -372,8 +392,12 @@ export class NotaDinasService {
     lampiranFiles: any[],
   ): Promise<Buffer> {
     try {
-      console.log('[mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
-      
+      console.log(
+        '[mergePdfWithTemporaryFiles] Starting merge with',
+        lampiranFiles.length,
+        'files',
+      );
+
       if (!lampiranFiles || lampiranFiles.length === 0) {
         return mainPdfBuffer;
       }
@@ -544,9 +568,13 @@ export class NotaDinasService {
       if (lampiranData && lampiranData.length > 0) {
         // Check if it's array of strings (temporary IDs) or Multer files
         const firstItem = lampiranData[0];
-        
+
         // Check if it's a Multer file (has buffer property)
-        if (firstItem && typeof firstItem === 'object' && 'buffer' in firstItem) {
+        if (
+          firstItem &&
+          typeof firstItem === 'object' &&
+          'buffer' in firstItem
+        ) {
           // Direct file upload (legacy) - Multer files
           pdfBuffer = await this.mergePdfWithUploadedFiles(
             pdfBuffer,
@@ -554,7 +582,9 @@ export class NotaDinasService {
           );
         } else if (typeof firstItem === 'string') {
           // Temporary IDs - fetch from storage
-          const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranData as string[]);
+          const lampiranFiles = await this.getTemporaryLampiranFiles(
+            lampiranData as string[],
+          );
           if (lampiranFiles && lampiranFiles.length > 0) {
             pdfBuffer = await this.mergePdfWithTemporaryFiles(
               pdfBuffer,
@@ -1176,7 +1206,7 @@ export class NotaDinasService {
       // - Draft: nomor temporary
       // - Final: generate nomor resmi dengan integrasi ke nomor_request
       let nomorSurat: string;
-      
+
       if (status === 'draf') {
         nomorSurat = `DRAFT-${Date.now()}`;
       } else {
@@ -1322,10 +1352,10 @@ export class NotaDinasService {
             tembusan: tembusanTextList,
             perihal: dto.perihal,
             dari: `${pengirim.position_text} - ${pengirim.organization_text}`,
-            tanggal: tanggalHariIni.toLocaleDateString('id-ID', { 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
+            tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
             }),
             positionText: dto.nama_jabatan ?? pengirim.position_text,
             namaLengkap: dto.nama_lengkap ?? pengirim.persnum_person_text,
@@ -1515,7 +1545,7 @@ export class NotaDinasService {
     // PHASE 4: Generate nomor surat resmi dengan integrasi
     const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
     const perihal = dto.perihal ?? naskah.perihal ?? '';
-    
+
     // We'll generate nomor inside transaction, so we keep this placeholder
     let nomorSurat = '';
 
@@ -1555,7 +1585,7 @@ export class NotaDinasService {
       if (!pengirimPosition) {
         throw new BadRequestException('Data pengirim tidak lengkap');
       }
-      
+
       nomorSurat = await this.generateNomorWithIntegration(
         pengirimPosition,
         klasifikasi,
@@ -2983,7 +3013,9 @@ export class NotaDinasService {
         id: l.id,
         fileName: l.file_name || '',
         filePath: l.file_pdf || '',
-        fileUrl: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+        fileUrl: l.file_pdf
+          ? await this.storageService.getFileUrl(l.file_pdf)
+          : null,
       })),
     );
 
@@ -3060,5 +3092,73 @@ export class NotaDinasService {
         updated_at: null,
       },
     };
+  }
+
+  async getSenderKonsep(
+    positionId: number,
+    tgl?: string,
+  ): Promise<OrgDataPositionDto[]> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    console.log(
+      `[getNotaDinasRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`,
+    );
+
+    // Get cached org data from org_data service
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const data: OrgDataPositionDto[] = orgData.position_json;
+
+    const result: OrgDataPositionDto[] = [];
+    const added = new Set<number>(); // penanda duplicate
+
+    // helper push aman
+    const pushUnique = (item?: OrgDataPositionDto) => {
+      if (!item) return;
+      const key = Number(item.position);
+      if (added.has(key)) return;
+      added.add(key);
+      result.push(item);
+    };
+
+    // cari posisi awal
+    let current = data.find((x) => Number(x.position) === Number(positionId));
+    if (!current) return result;
+
+    // kalau bukan chief → ambil chiefs
+    if (current.chief === 0) {
+      const chiefs = data.filter(
+        (x) =>
+          Number(x.divisi_id) === Number(current!.divisi_id) && x.chief === 1,
+      );
+
+      chiefs.forEach(pushUnique);
+
+      current = chiefs.find((x) => x.bod_tag === 'BOD-1');
+    }
+
+    // loop ke atas sampai parent tertinggi
+    while (current) {
+      pushUnique(current);
+
+      const parent = data.find(
+        (x) =>
+          Number(x.organization_id) === Number(current!.organization_parent) &&
+          x.chief === 1,
+      );
+
+      if (!parent) break;
+      current = parent;
+    }
+
+    // sort akhir
+    result.sort((a, b) => Number(a.level) - Number(b.level));
+    return result;
   }
 }
