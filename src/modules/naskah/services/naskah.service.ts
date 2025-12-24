@@ -273,4 +273,29 @@ export class NaskahService {
       ref_perihal: r.ref_perihal,
     };
   }
+
+  /**
+   * Count draft naskah berdasarkan position id
+   * Draft = status = 'draf'
+   */
+  async countDraftByPosition(positionId: number): Promise<any> {
+    // Count naskah dengan status 'draf' dari sirkulasi pengirim dengan position tertentu
+    const count = await this.naskahRepository
+      .createQueryBuilder('naskah')
+      .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
+      .where('naskah.status = :status', { status: 'draf' })
+      .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+      .andWhere('sirkulasi.position = :position', { position: String(positionId) })
+      .getCount();
+
+    return {
+      success: true,
+      message: 'Count draft naskah berhasil diambil',
+      data: {
+        position_id: positionId,
+        count,
+      },
+    };
+  }
 }
+
