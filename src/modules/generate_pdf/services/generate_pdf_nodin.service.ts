@@ -42,16 +42,17 @@ export class GeneratePdfNodinService {
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
-      // Try to decode as base64 first
-      const buffer = Buffer.from(htmlContent, 'base64');
-      const decoded = buffer.toString('utf-8');
-      // Check if it looks like valid decoded content (contains HTML tags or text)
-      if (decoded.includes('<') || !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
-        // Looks like decoded content
-        decodedContent = decoded;
+      // Check if content already looks like HTML (contains HTML tags)
+      if (htmlContent.includes('<') && htmlContent.includes('>')) {
+        // Already plain HTML, no need to decode
+        decodedContent = htmlContent;
+      } else if (/^[A-Za-z0-9+/=]+$/.test(htmlContent)) {
+        // Looks like base64, try to decode
+        const buffer = Buffer.from(htmlContent, 'base64');
+        decodedContent = buffer.toString('utf-8');
       } else {
-        // Try to decode with escape sequence handling
-        decodedContent = decodeURIComponent(escape(decoded));
+        // Not base64 and not HTML, use as-is
+        decodedContent = htmlContent;
       }
     } catch (e) {
       // If base64 decode fails, assume it's plain text already
