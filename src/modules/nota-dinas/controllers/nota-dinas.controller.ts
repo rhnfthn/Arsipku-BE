@@ -4,7 +4,7 @@ import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@n
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
-import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas-recipient-response.dto';
+import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
@@ -719,6 +719,31 @@ export class NotaDinasController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  @Get('get-senders/:positionId')
+  async getNotaDinasSenders(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto[]> {
+    try {
+      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
