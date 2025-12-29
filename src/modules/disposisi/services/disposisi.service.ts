@@ -399,10 +399,16 @@ export class DisposisiService {
         day: 'numeric' 
       });
 
+      // Auto-check "Lainnya" if catatan is filled
+      let finalDisposisi = [...disposisi];
+      if (options?.catatan && options.catatan.trim().length > 0 && !finalDisposisi.includes('Lainnya')) {
+        finalDisposisi.push('Lainnya');
+      }
+
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
-        disposisi: disposisi,
+        disposisi: finalDisposisi,
         sifat: sifat || 'Biasa',
         pengirim: pengirim,
         tembusan: tembusan,
@@ -546,6 +552,7 @@ export class DisposisiService {
       id: string;
       file_name: string;
       file_path: string;
+      file_url: string;
     }[] = [];
 
     // Upload semua files ke temporary folder
@@ -568,10 +575,14 @@ export class DisposisiService {
 
       await this.naskahLampiranRepository.save(lampiranEntity);
 
+      // Use backend preview endpoint (works reliably for inline preview)
+      const fileUrl = `/preview-file/${lampiranEntity.id}`;
+
       uploadedFiles.push({
         id: lampiranEntity.id,
         file_name: lampiranEntity.file_name,
         file_path: lampiranEntity.file_pdf,
+        file_url: fileUrl,
       });
     }
 
@@ -1388,6 +1399,107 @@ export class DisposisiService {
       });
       await queryRunner.manager.save(diEntity);
 
+      // PHASE 8: Auto-generate PDF with lampiran (for sendMessage, status is always 'final')
+      let finalPdfPath: string | undefined = undefined;
+      try {
+        // Parse disposisi string to array (format: "Untuk Diketahui\nProses Lanjut\nKoordinasikan")
+        // Split by newline to get individual checkbox items
+        let disposisiArray: string[] = [];
+        if (dto.disposisi) {
+          if (Array.isArray(dto.disposisi)) {
+            disposisiArray = dto.disposisi;
+          } else if (typeof dto.disposisi === 'string') {
+            // Split by newline and filter empty strings
+            disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+          }
+        }
+        
+        // Auto-check "Lainnya" if catatan is filled
+        if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+          disposisiArray.push('Lainnya');
+        }
+        console.log('[DI sendMessage] disposisiArray:', disposisiArray);
+
+        // Get reference data from naskah sebelumnya (if exists)
+        let refNomor = '';
+        let refPerihal = '';
+        let refTanggal = '';
+        let refPengirim = '';
+        
+        if (dto.id_naskah_sebelumnya) {
+          const naskahRef = await this.naskahRepository.findOne({
+            where: { id: dto.id_naskah_sebelumnya },
+          });
+          if (naskahRef) {
+            refNomor = naskahRef.nomor || '';
+            refPerihal = naskahRef.perihal || '';
+            refPengirim = ''; // Can be filled from sirkulasi pengirim if needed
+            if (naskahRef.tanggal) {
+              const refDate = new Date(naskahRef.tanggal);
+              refTanggal = refDate.toLocaleDateString('id-ID', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              });
+            }
+          }
+        }
+
+        // Generate PDF with all data
+        let pdfBuffer = await this.generatePdfDispoService.generatePdf({
+          html: '',
+          penerima: kepadaYthList,
+          disposisi: disposisiArray, // Now properly parsed as array
+          sifat: dto.sifat || 'Biasa',
+          pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
+          tembusan: [],
+          perihal: dto.perihal,
+          refNomor: refNomor,
+          refPerihal: refPerihal,
+          refTanggal: refTanggal,
+          refPengirim: refPengirim,
+          tanggal: tanggalDisposisi.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          catatan: dto.catatan || '',
+        });
+
+        // Merge with lampiran if any
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            console.log('[DI sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
+          }
+        }
+
+        // Upload PDF to storage with organized folder structure
+        const timestamp = Date.now();
+        const pdfFileName = `DI-${generatedNomor.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'disposisi/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        console.log('[DI sendMessage] PDF auto-generated:', finalPdfPath);
+      } catch (error) {
+        console.error('[DI sendMessage] Failed to auto-generate PDF:', error);
+        // Don't fail the whole transaction if PDF generation fails
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1410,6 +1522,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
@@ -1757,6 +1870,7 @@ export class DisposisiService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get lampiran count
@@ -2239,6 +2353,7 @@ export class DisposisiService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { createdAt: 'ASC' },
     });
 
     const pengirimDataResult = allSirkulasi.find(
@@ -2736,6 +2851,7 @@ export class DisposisiService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
+      order: { createdAt: 'ASC' },
     });
 
     // Get lampiran files
