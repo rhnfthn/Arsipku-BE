@@ -22,6 +22,7 @@ export class SendMessageDataDto {
   pengirim: SirkulasiInfoDto;
   penerima: SirkulasiInfoDto[];
   tembusan: SirkulasiInfoDto[];
+  final_pdf?: string; // Path to final PDF in storage
 }
 
 export class SendMessageResponseDto {
