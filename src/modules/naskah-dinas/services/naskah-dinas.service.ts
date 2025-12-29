@@ -191,8 +191,6 @@ export class NaskahDinasService {
   async getRecipients(tgl?: string): Promise<NaskahDinasRecipientResponseDto> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    console.log(`[NaskahDinas getRecipients] tanggal: ${tanggal}`);
-
     // Get cached org data
     const orgData = await this.orgDataService.findOrg(tanggal);
 
@@ -285,7 +283,6 @@ export class NaskahDinasService {
           'naskah-dinas/final',
         );
         finalPdfPath = uploadResult.key;
-        console.log(`[NaskahDinas sendMessage] File uploaded: ${finalPdfPath}`);
       }
 
       // 4. Create naskah record (jenis = SDE, tapi sirkulasi hanya penerima)
@@ -317,7 +314,6 @@ export class NaskahDinasService {
       naskah.tempat = dto.asal_naskah; // Simpan eksternal.id untuk referensi pengirim
 
       await queryRunner.manager.save(naskah);
-      console.log(`[NaskahDinas sendMessage] Naskah created: ${naskahId}`);
 
       // 5. Sirkulasi HANYA untuk penerima (internal user)
       // Pengirim (eksternal) TIDAK masuk ke sirkulasi
@@ -409,19 +405,16 @@ export class NaskahDinasService {
         kontak: '',
       };
 
-      console.log(`[NaskahDinas getAll] naskah.tempat: ${naskah.tempat}`);
-
       if (naskah.tempat) {
         try {
           const eksternal = await this.eksternalRepository.findOne({
             where: { id: naskah.tempat },
           });
-          console.log(`[NaskahDinas getAll] eksternal found:`, eksternal?.nama || 'NOT FOUND');
           if (eksternal) {
             pengirimInfo = this.toEksternalPengirimInfo(eksternal);
           }
         } catch (err) {
-          console.error(`[NaskahDinas getAll] Error fetching eksternal:`, err.message);
+          // Error ignored
         }
       }
 
@@ -512,19 +505,16 @@ export class NaskahDinasService {
       kontak: '',
     };
 
-    console.log(`[NaskahDinas getDetail] naskah.tempat: ${naskah.tempat}`);
-
     if (naskah.tempat) {
       try {
         const eksternal = await this.eksternalRepository.findOne({
           where: { id: naskah.tempat },
         });
-        console.log(`[NaskahDinas getDetail] eksternal found:`, eksternal?.nama || 'NOT FOUND');
         if (eksternal) {
           pengirimInfo = this.toEksternalPengirimInfo(eksternal);
         }
       } catch (err) {
-        console.error(`[NaskahDinas getDetail] Error fetching eksternal:`, err.message);
+        // Error ignored
       }
     }
 

@@ -40,6 +40,9 @@ export class SdeSendMessageDataDto {
   perihal: string;
   pengirim: SdeSirkulasiInfoDto;
   penerima: SdePenerimaInfoDto[];
+  tembusan?: SdeSirkulasiInfoDto[]; // Tembusan internal (dari org_data)
+  lampiran?: string; // Nama file lampiran dari temporary files
+  final_pdf?: string | null; // Path to final PDF in storage (null if not generated)
 }
 
 /**
