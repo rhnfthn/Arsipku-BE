@@ -56,6 +56,30 @@ export class SuratDinasInternalService {
   ) {}
 
   // ============================================================
+  // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
+  // ============================================================
+
+  /**
+   * Helper: Parse date string "YYYY-MM-DD" to Date object with local timezone
+   * Prevents timezone offset issues when parsing date strings
+   */
+  private parseDateString(dateStr: string): Date {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  /**
+   * Helper: Format Date object to "YYYY-MM-DD" string using local timezone
+   * Prevents timezone offset issues when converting Date to string
+   */
+  private formatDateToString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
   // HELPER: GENERATE NOMOR WITH INTEGRATION
   // ============================================================
 
@@ -214,13 +238,6 @@ export class SuratDinasInternalService {
       await queryRunner.manager.save(nomor);
     }
 
-    console.log('[SDI generateNomorWithIntegration] Generated:', {
-      nomor: nomorBaru,
-      requestId,
-      detailId,
-      noUrut,
-    });
-
     return nomorBaru;
   }
 
@@ -245,7 +262,6 @@ export class SuratDinasInternalService {
     const orgData = await this.orgDataService.findOrg(tgl);
     
     if (!orgData || !orgData.position_json) {
-      console.warn(`[SDI convertPositionIdsToNames] Org data not found for ${tgl}`);
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
     }
 
@@ -331,6 +347,19 @@ export class SuratDinasInternalService {
     lampiran: string = '-',
   ): Promise<Buffer> {
     try {
+      // Determine lampiran text: use file names from lampiran_temp_ids if available
+      let lampiranText = lampiran;
+      let lampiranFiles: any[] = [];
+      
+      if (lampiranTempIds && lampiranTempIds.length > 0) {
+        lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        if (lampiranFiles && lampiranFiles.length > 0) {
+          // Auto-fill lampiran field with file names from uploaded files
+          const fileNames = lampiranFiles.map(f => f.fileName);
+          lampiranText = fileNames.join(', ');
+        }
+      }
+
       // Generate plain PDF first
       let pdfBuffer = await this.generatePlainPdf(
         htmlContent,
@@ -343,15 +372,12 @@ export class SuratDinasInternalService {
         perihal,
         sifat,
         nomor,
-        lampiran,
+        lampiranText,
       );
 
-      // If lampiran temp IDs provided, fetch and merge with main PDF
-      if (lampiranTempIds && lampiranTempIds.length > 0) {
-        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
-        if (lampiranFiles && lampiranFiles.length > 0) {
-          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-        }
+      // If lampiran files exist, merge with main PDF
+      if (lampiranFiles && lampiranFiles.length > 0) {
+        pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
       }
 
       return pdfBuffer;
@@ -371,8 +397,6 @@ export class SuratDinasInternalService {
         return [];
       }
 
-      console.log('[SDI getTemporaryLampiranFiles] Querying tempIds:', tempIds);
-
       // Query all lampiran by IDs (both temporary and final)
       // This allows preview-pdf to work both before and after save-draft
       const tempLampiran = await this.naskahLampiranRepository.find({
@@ -381,8 +405,6 @@ export class SuratDinasInternalService {
           // Removed is_temporary: 1 filter to support both temporary and final lampiran
         },
       });
-
-      console.log('[SDI getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
 
       const files: Array<{
         id: string;
@@ -402,7 +424,6 @@ export class SuratDinasInternalService {
 
       return files;
     } catch (error) {
-      console.error('[SDI getTemporaryLampiranFiles] Error:', error);
       return [];
     }
   }
@@ -415,8 +436,6 @@ export class SuratDinasInternalService {
     lampiranFiles: any[],
   ): Promise<Buffer> {
     try {
-      console.log('[SDI mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
-      
       if (!lampiranFiles || lampiranFiles.length === 0) {
         return mainPdfBuffer;
       }
@@ -426,9 +445,6 @@ export class SuratDinasInternalService {
       for (const file of lampiranFiles) {
         try {
           if (!file.fileName.toLowerCase().endsWith('.pdf')) {
-            console.warn(
-              `[SDI mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
-            );
             continue;
           }
 
@@ -444,22 +460,14 @@ export class SuratDinasInternalService {
           lampiranPages.forEach((page) => {
             pdfDoc.addPage(page);
           });
-
-          console.log(
-            `[SDI mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
-          );
         } catch (error) {
-          console.error(
-            `[SDI mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
-            error,
-          );
+          // Continue with next file
         }
       }
 
       const mergedPdfBytes = await pdfDoc.save();
       return Buffer.from(mergedPdfBytes);
     } catch (error) {
-      console.error(`[SDI mergePdfWithTemporaryFiles] Error:`, error);
       return mainPdfBuffer;
     }
   }
@@ -522,9 +530,7 @@ export class SuratDinasInternalService {
         lampiran.temp_folder_id = null;
 
         await this.naskahLampiranRepository.save(lampiran);
-        console.log(`[SDI moveTemporaryLampiranToFinal] Moved: ${fileName} -> ${newKey}`);
       } catch (error) {
-        console.error(`[SDI moveTemporaryLampiranToFinal] Error moving ${fileName}:`, error);
         // Continue with other files
       }
     }
@@ -820,8 +826,8 @@ export class SuratDinasInternalService {
     return {
       position: pos.position,
       position_text: pos.position_text,
-      persnum: pos.persnum,
-      nama: pos.nama,
+      persnum: pos.persnum_person ?? pos.persnum ?? null,
+      nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
       organization_text: pos.organization_text,
       sub_area: pos.sub_area,
@@ -861,16 +867,6 @@ export class SuratDinasInternalService {
         idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
         namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
-    });
-
-    // Debug log so we can quickly check what values are being saved
-    console.log('[createSirkulasiFromOrgData] sirkulasi ->', {
-      id: sirkulasi.id,
-      position: sirkulasi.position,
-      idSirkuler: sirkulasi.idSirkuler,
-      namaSirkuler: sirkulasi.namaSirkuler,
-      sirkuler: sirkulasi.sirkuler,
-      isDraft: sirkulasi.isDraft,
     });
 
     return sirkulasi;
@@ -1064,15 +1060,6 @@ export class SuratDinasInternalService {
       return { REKAN: [], TEMBUSAN: [] }; 
     }
 
-    console.log(`[filterByPositionSdi] Current:`, {
-      position: current.position,
-      position_text: current.position_text,
-      organization_id: current.organization_id,
-      organization_parent: current.organization_parent,
-      sub_area: current.sub_area,
-      area: current.area,
-    });
-
     // Filter: chief=1, SAMA organization_parent, BEDA sub_area, bukan diri sendiri
     const rekan = barisData.filter((x) => {
       // Must be chief (managerial)
@@ -1097,7 +1084,6 @@ export class SuratDinasInternalService {
         x.bod_tag === 'BOD-1' &&
         x.company === current.company,
     );
-    console.log(`[filterByPositionSdi] Results: REKAN=${filtered.length}`);
 
     const tembusan = barisData.filter(
       (x) =>
@@ -1119,8 +1105,6 @@ export class SuratDinasInternalService {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    console.log(`[getSdiRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`);
-
     // Get cached org data from org_data service
     const orgData = await this.orgDataService.findOrg(tanggal);
 
@@ -1130,16 +1114,12 @@ export class SuratDinasInternalService {
 
     const barisData: SdiOrgDataPositionDto[] = orgData.position_json;
 
-    console.log(`[getSdiRecipients] Total positions in org_data: ${barisData.length}`);
-
     // Find sender's position data
     const sender = barisData.find((x) => Number(x.position) === Number(positionId));
 
     if (!sender) {
       throw new NotFoundException(`Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`);
     }
-
-    console.log(`[getSdiRecipients] Found sender:`, sender.position_text);
 
     // Verify sender is chief (managerial)
     if (sender.chief !== 1) {
@@ -1252,7 +1232,7 @@ export class SuratDinasInternalService {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
         // Use provided date from dto.tgl, or today as fallback
-        const tanggalNomor = dto.tgl ? new Date(dto.tgl) : new Date();
+        const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
@@ -1265,7 +1245,7 @@ export class SuratDinasInternalService {
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
       // Use provided date from dto.tgl, or today as fallback
-      const tanggalHariIni = dto.tgl ? new Date(dto.tgl) : new Date();
+      const tanggalHariIni = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1310,7 +1290,13 @@ export class SuratDinasInternalService {
 
       // PHASE 11: Handle lampiran
       // Handle temporary lampiran (RECOMMENDED - dari POST /upload-temporary)
+      // Also get file names for response
+      let lampiranFileNames: string[] = [];
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        // Get file names before moving
+        const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+        lampiranFileNames = lampiranFiles.map(f => f.fileName);
+        
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1399,7 +1385,6 @@ export class SuratDinasInternalService {
             const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
             if (lampiranFiles && lampiranFiles.length > 0) {
               pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-              console.log('[SDI sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
             }
           }
 
@@ -1421,16 +1406,18 @@ export class SuratDinasInternalService {
             { id: naskahId },
             { final_pdf: finalPdfPath },
           );
-
-          console.log('[SDI sendMessage] PDF auto-generated:', finalPdfPath);
         } catch (error) {
-          console.error('[SDI sendMessage] Failed to auto-generate PDF:', error);
           // Don't fail the whole transaction if PDF generation fails
         }
       }
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Build lampiran text from file names
+      const lampiranText = lampiranFileNames.length > 0 
+        ? lampiranFileNames.join(', ') 
+        : (dto.lampiran || undefined);
 
       // Return response
       return {
@@ -1439,12 +1426,13 @@ export class SuratDinasInternalService {
           id: naskahId,
           jenis: 'SDI',
           nomor: nomorSurat,
-          tanggal: tanggalHariIni.toISOString().split('T')[0],
+          tanggal: this.formatDateToString(tanggalHariIni),
           status: status,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirim),
           penerima: penerimaResponses,
           tembusan: tembusanResponses,
+          lampiran: lampiranText, // Nama file lampiran dari temporary files
           final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
@@ -1573,7 +1561,7 @@ export class SuratDinasInternalService {
       const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
       const perihal = dto.perihal ?? naskah.perihal ?? '';
       // Use dto.tgl if provided, else use naskah's existing date, else today
-      const tanggalNomor = dto.tgl ? new Date(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date());
+      const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date());
       nomorSurat = await this.generateNomorWithIntegration(
         pengirimPosition as SdiOrgDataPositionDto,
         klasifikasi,
@@ -1803,20 +1791,6 @@ export class SuratDinasInternalService {
         // Fallback chain: dto -> sdiSdeData -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
         const resolvedPositionText = dto.nama_jabatan || sdiSdeData?.namaJabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
         const resolvedNamaLengkap = dto.nama_lengkap || sdiSdeData?.namaLengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
-        
-        console.log('[SDI finalizeDraft] PDF params debug:', {
-          'dto.nama_jabatan': dto.nama_jabatan,
-          'dto.nama_lengkap': dto.nama_lengkap,
-          'sdiSdeData?.namaJabatan': sdiSdeData?.namaJabatan,
-          'sdiSdeData?.namaLengkap': sdiSdeData?.namaLengkap,
-          'pengirimPosition?.position_text': pengirimPosition?.position_text,
-          'pengirimPosition?.persnum_person_text': pengirimPosition?.persnum_person_text,
-          'pengirimPosition?.nama': pengirimPosition?.nama,
-          'pengirimSirkulasiForPdf?.positionText': pengirimSirkulasiForPdf?.positionText,
-          'pengirimSirkulasiForPdf?.namaSirkuler': pengirimSirkulasiForPdf?.namaSirkuler,
-          resolvedPositionText,
-          resolvedNamaLengkap,
-        });
 
         let pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
@@ -1841,7 +1815,6 @@ export class SuratDinasInternalService {
           const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
           if (lampiranFiles && lampiranFiles.length > 0) {
             pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-            console.log('[SDI finalizeDraft] Merged with', lampiranFiles.length, 'lampiran files');
           }
         }
 
@@ -1863,10 +1836,7 @@ export class SuratDinasInternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
-
-        console.log('[SDI finalizeDraft] PDF auto-generated:', finalPdfPath);
       } catch (error) {
-        console.error('[SDI finalizeDraft] Failed to auto-generate PDF:', error);
         // Don't fail the whole transaction if PDF generation fails
       }
 
@@ -1893,10 +1863,18 @@ export class SuratDinasInternalService {
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
 
+    // Get lampiran file names for response
+    const lampiranList = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+    const lampiranText = lampiranList.length > 0 
+      ? lampiranList.map(l => l.file_name).join(', ')
+      : undefined;
+
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -1914,6 +1892,7 @@ export class SuratDinasInternalService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
+        lampiran: lampiranText, // Nama file lampiran dari database
         final_pdf: finalPdfPath, // Include generated PDF path in response
       },
     };
@@ -2168,11 +2147,19 @@ export class SuratDinasInternalService {
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
 
+    // Get lampiran file names for response
+    const lampiranList = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+    const lampiranText = lampiranList.length > 0 
+      ? lampiranList.map(l => l.file_name).join(', ')
+      : undefined;
+
     // Handle tanggal - bisa Date object atau string
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -2190,6 +2177,7 @@ export class SuratDinasInternalService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
+        lampiran: lampiranText, // Nama file lampiran dari database
       },
     };
   }
@@ -2437,10 +2425,6 @@ export class SuratDinasInternalService {
 
       return '';
     } catch (error) {
-      console.error(
-        `[SdiService] Error getting person name for position ${positionId}:`,
-        error,
-      );
       return '';
     }
   }
@@ -2612,10 +2596,6 @@ export class SuratDinasInternalService {
       tgl?: string,
     ): Promise<SdiOrgDataPositionDto[]> {
       const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-  
-      console.log(
-        `[getNotaDinasRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`,
-      );
   
       // Get cached org data from org_data service
       const orgData = await this.orgDataService.findOrg(tanggal);

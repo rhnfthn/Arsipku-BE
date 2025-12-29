@@ -80,6 +80,30 @@ export class NotaDinasService {
   ) {}
 
   // ============================================================
+  // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
+  // ============================================================
+
+  /**
+   * Helper: Parse date string "YYYY-MM-DD" to Date object with local timezone
+   * Prevents timezone offset issues when parsing date strings
+   */
+  private parseDateString(dateStr: string): Date {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  /**
+   * Helper: Format Date object to "YYYY-MM-DD" string using local timezone
+   * Prevents timezone offset issues when converting Date to string
+   */
+  private formatDateToString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
   // HELPER: GENERATE NOMOR WITH INTEGRATION
   // ============================================================
 
@@ -248,13 +272,6 @@ export class NotaDinasService {
       await queryRunner.manager.save(nomor);
     }
 
-    console.log('[ND generateNomorWithIntegration] Generated:', {
-      nomor: nomorBaru,
-      requestId,
-      detailId,
-      noUrut,
-    });
-
     return nomorBaru;
   }
 
@@ -279,7 +296,6 @@ export class NotaDinasService {
     const orgData = await this.orgDataService.findOrg(tgl);
 
     if (!orgData || !orgData.position_json) {
-      console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
       return positionIds.map((id) => String(id)); // Fallback to IDs as strings
     }
 
@@ -336,9 +352,6 @@ export class NotaDinasService {
         return [];
       }
 
-      console.log('[getTemporaryLampiranFiles] Querying tempIds:', tempIds);
-      console.log('[getTemporaryLampiranFiles] tempIds count:', tempIds.length);
-
       // Query all lampiran by IDs (both temporary and final)
       // This allows preview-pdf to work both before and after save-draft
       const tempLampiran = await this.naskahLampiranRepository.find({
@@ -348,11 +361,6 @@ export class NotaDinasService {
         },
       });
 
-      console.log(
-        '[getTemporaryLampiranFiles] Found tempLampiran count:',
-        tempLampiran.length,
-      );
-
       const files: Array<{
         id: string;
         fileName: string;
@@ -360,11 +368,6 @@ export class NotaDinasService {
         tempFolderId: string | null;
       }> = [];
       for (const lampiran of tempLampiran) {
-        console.log(
-          '[getTemporaryLampiranFiles] Processing:',
-          lampiran.id,
-          lampiran.file_name,
-        );
         files.push({
           id: lampiran.id,
           fileName: lampiran.file_name,
@@ -373,13 +376,8 @@ export class NotaDinasService {
         });
       }
 
-      console.log(
-        '[getTemporaryLampiranFiles] Returning files count:',
-        files.length,
-      );
       return files;
     } catch (error) {
-      console.error('[getTemporaryLampiranFiles] Error:', error);
       return [];
     }
   }
@@ -392,12 +390,6 @@ export class NotaDinasService {
     lampiranFiles: any[],
   ): Promise<Buffer> {
     try {
-      console.log(
-        '[mergePdfWithTemporaryFiles] Starting merge with',
-        lampiranFiles.length,
-        'files',
-      );
-
       if (!lampiranFiles || lampiranFiles.length === 0) {
         return mainPdfBuffer;
       }
@@ -407,9 +399,6 @@ export class NotaDinasService {
       for (const file of lampiranFiles) {
         try {
           if (!file.fileName.toLowerCase().endsWith('.pdf')) {
-            console.warn(
-              `[mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
-            );
             continue;
           }
 
@@ -425,22 +414,14 @@ export class NotaDinasService {
           lampiranPages.forEach((page) => {
             pdfDoc.addPage(page);
           });
-
-          console.log(
-            `[mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
-          );
         } catch (error) {
-          console.error(
-            `[mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
-            error,
-          );
+          // Continue with next file
         }
       }
 
       const mergedPdfBytes = await pdfDoc.save();
       return Buffer.from(mergedPdfBytes);
     } catch (error) {
-      console.error(`[mergePdfWithTemporaryFiles] Error:`, error);
       return mainPdfBuffer;
     }
   }
@@ -472,9 +453,6 @@ export class NotaDinasService {
             lampiranPdf = await PDFDocument.load(file.buffer);
           } else {
             // Non-PDF files (XLSX, DOC, etc) - skip
-            console.warn(
-              `[mergePdfWithUploadedFiles] Skipping non-PDF file: ${file.originalname}`,
-            );
             continue;
           }
 
@@ -486,15 +464,7 @@ export class NotaDinasService {
           lampiranPages.forEach((page) => {
             pdfDoc.addPage(page);
           });
-
-          console.log(
-            `[mergePdfWithUploadedFiles] Merged file: ${file.originalname}`,
-          );
         } catch (error) {
-          console.error(
-            `[mergePdfWithUploadedFiles] Error merging ${file.originalname}:`,
-            error,
-          );
           // Continue dengan file berikutnya
         }
       }
@@ -503,7 +473,6 @@ export class NotaDinasService {
       const mergedPdfBytes = await pdfDoc.save();
       return Buffer.from(mergedPdfBytes);
     } catch (error) {
-      console.error(`[mergePdfWithUploadedFiles] Error:`, error);
       // Return main PDF jika merge gagal
       return mainPdfBuffer;
     }
@@ -868,8 +837,7 @@ export class NotaDinasService {
     try {
       await this.storageService.deleteFile(lampiran.file_pdf);
     } catch (error) {
-      // Log error but continue - file might already be deleted
-      console.error(`Failed to delete file from storage: ${error.message}`);
+      // Error ignored - file might already be deleted
     }
 
     // Delete from database
@@ -1147,15 +1115,6 @@ export class NotaDinasService {
       isDraft: isDraft,
     });
 
-    console.log('[ND createSirkulasiFromOrgData] sirkulasi ->', {
-      id: sirkulasi.id,
-      position: sirkulasi.position,
-      idSirkuler: sirkulasi.idSirkuler,
-      namaSirkuler: sirkulasi.namaSirkuler,
-      sirkuler: sirkulasi.sirkuler,
-      isDraft: sirkulasi.isDraft,
-    });
-
     return sirkulasi;
   }
 
@@ -1259,7 +1218,7 @@ export class NotaDinasService {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
         // Use provided date from dto.tgl, or today as fallback
-        const tanggalNomor = dto.tgl ? new Date(dto.tgl) : new Date();
+        const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
@@ -1272,7 +1231,7 @@ export class NotaDinasService {
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
       // Use provided date from dto.tgl, or today as fallback
-      const tanggalHariIni = dto.tgl ? new Date(dto.tgl) : new Date();
+      const tanggalHariIni = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1415,7 +1374,6 @@ export class NotaDinasService {
             const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
             if (lampiranFiles && lampiranFiles.length > 0) {
               pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-              console.log('[ND sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
             }
           }
 
@@ -1437,10 +1395,7 @@ export class NotaDinasService {
             { id: naskahId },
             { final_pdf: finalPdfPath },
           );
-
-          console.log('[ND sendMessage] PDF auto-generated:', finalPdfPath);
         } catch (error) {
-          console.error('[ND sendMessage] Failed to auto-generate PDF:', error);
           // Don't fail the whole transaction if PDF generation fails
         }
       }
@@ -1455,7 +1410,7 @@ export class NotaDinasService {
           id: naskahId,
           jenis: 'ND',
           nomor: nomorSurat,
-          tanggal: tanggalHariIni.toISOString().split('T')[0],
+          tanggal: this.formatDateToString(tanggalHariIni),
           status: status,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirim),
@@ -1626,13 +1581,6 @@ export class NotaDinasService {
 
     const newStatus = finalTandaTangan ? 'final_tte' : 'final';
 
-    console.log('[ND finalizeDraft] Status determination:', {
-      naskahId,
-      dtoTandaTangan: dto.tanda_tangan,
-      finalTandaTangan,
-      newStatus,
-    });
-
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1649,7 +1597,7 @@ export class NotaDinasService {
         klasifikasi,
         perihal,
         // Use dto.tgl if provided, else use naskah's existing date, else today
-        dto.tgl ? new Date(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date()),
+        dto.tgl ? this.parseDateString(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date()),
         queryRunner,
       );
 
@@ -1900,7 +1848,7 @@ export class NotaDinasService {
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -2293,7 +2241,7 @@ export class NotaDinasService {
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -2781,17 +2729,6 @@ export class NotaDinasService {
       (x) => x.chief === 1 && x.sub_area === current.sub_area,
     );
 
-    // Debug log
-    console.log(`[filterByPositionNodin] Current:`, {
-      position: current.position,
-      position_text: current.position_text,
-      level: currentLevel,
-      organization_id: current.organization_id,
-      organization_parent: current.organization_parent,
-      sub_area: current.sub_area,
-      departType: current.departType,
-    });
-
     // ATASAN: 1 level di atas, organization_id = current.organization_parent
     const parentLevel = filtered.filter(
       (x) =>
@@ -2835,21 +2772,8 @@ export class NotaDinasService {
       (x) => x.level === currentLevel + 1,
     );
 
-    console.log(
-      `[filterByPositionNodin] Potential bawahan (level ${currentLevel + 1}, count=${potentialBawahan.length}):`,
-    );
-    potentialBawahan.forEach((x) => {
-      console.log(
-        `  - ${x.position_text}: org_parent=${x.organization_parent}, current.org_id=${current.organization_id}, match=${x.organization_parent == current.organization_id}`,
-      );
-    });
-
     const downLevel = potentialBawahan.filter(
       (x) => x.organization_parent == current.organization_id,
-    );
-
-    console.log(
-      `[filterByPositionNodin] Results: ATASAN=${parentLevel.length}, REKAN=${sameLevel.length}, BAWAHAN=${downLevel.length}`,
     );
 
     return {
@@ -2873,10 +2797,6 @@ export class NotaDinasService {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    console.log(
-      `[getNotaDinasRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`,
-    );
-
     // Get cached org data from org_data service
     const orgData = await this.orgDataService.findOrg(tanggal);
 
@@ -2888,10 +2808,6 @@ export class NotaDinasService {
 
     const barisData: OrgDataPositionDto[] = orgData.position_json;
 
-    console.log(
-      `[getNotaDinasRecipients] Total positions in org_data: ${barisData.length}`,
-    );
-
     // Find sender's position data
     const sender = barisData.find(
       (x) => Number(x.position) === Number(positionId),
@@ -2902,8 +2818,6 @@ export class NotaDinasService {
         `Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`,
       );
     }
-
-    console.log(`[getNotaDinasRecipients] Found sender:`, sender.position_text);
 
     // Verify sender is chief (managerial)
     if (sender.chief !== 1) {
@@ -2964,10 +2878,6 @@ export class NotaDinasService {
 
       return '';
     } catch (error) {
-      console.error(
-        `[NotaDinasService] Error getting position abbreviation for ${positionId}:`,
-        error,
-      );
       return '';
     }
   }
@@ -3007,10 +2917,6 @@ export class NotaDinasService {
 
       return '';
     } catch (error) {
-      console.error(
-        `[NotaDinasService] Error getting person name for position ${positionId}:`,
-        error,
-      );
       return '';
     }
   }
@@ -3209,10 +3115,6 @@ export class NotaDinasService {
     tgl?: string,
   ): Promise<OrgDataPositionDto[]> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-
-    console.log(
-      `[getNotaDinasRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`,
-    );
 
     // Get cached org data from org_data service
     const orgData = await this.orgDataService.findOrg(tanggal);
