@@ -22,6 +22,7 @@ export class SendMessageDataDto {
   pengirim: SirkulasiInfoDto;
   penerima: SirkulasiInfoDto[];
   tembusan: SirkulasiInfoDto[];
+  lampiran?: string; // Nama file lampiran dari temporary files
   final_pdf?: string; // Path to final PDF in storage
 }
 
