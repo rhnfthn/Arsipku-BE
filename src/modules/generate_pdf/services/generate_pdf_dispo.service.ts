@@ -348,10 +348,10 @@ export class GeneratePdfDispoService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '10mm',
-          bottom: '15mm',
-          left: '15mm',
-          right: '15mm',
+          top: '30mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 

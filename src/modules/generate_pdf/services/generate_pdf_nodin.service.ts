@@ -159,19 +159,9 @@ export class GeneratePdfNodinService {
       <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
         <tbody>
           <tr>
-            <td width='10%'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 90px; width: auto; max-width: 120px;" />` : '<div style="width:90px;height:120px;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
+            <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
-            <td style='font-size:13px;vertical-align:bottom!important;'>
-              
-              <span style='font-size:10px;line-height:11px;'>
-                Kantor Pusat Perum LPPNPI
-                Gedung AirNav Indonesia<br>
-                Jl. Ir. H. Juanda No. 1 Tangerang<br>
-                Banten 15121 Indonesia<br>
-                Telp : 021-55915000<br>
-                www.airnavindonesia.co.id
-              </span>
-            </td>
+            <td style='font-size:9px; text-align:right;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
           </tr>
           <tr>
             <td colspan='3' style='font-size:2px;'>&nbsp;</td>
@@ -315,10 +305,10 @@ export class GeneratePdfNodinService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '10mm',
-          bottom: '15mm',
-          left: '15mm',
-          right: '15mm',
+          top: '30mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 
