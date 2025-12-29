@@ -743,6 +743,7 @@ export class NotaDinasService {
       id: string;
       file_name: string;
       file_path: string;
+      file_url: string;
     }[] = [];
 
     // Upload semua files ke temporary folder
@@ -765,10 +766,14 @@ export class NotaDinasService {
 
       await this.naskahLampiranRepository.save(lampiranEntity);
 
+      // Use backend preview endpoint (works reliably for inline preview)
+      const fileUrl = `/preview-file/${lampiranEntity.id}`;
+
       uploadedFiles.push({
         id: lampiranEntity.id,
         file_name: lampiranEntity.file_name,
         file_path: lampiranEntity.file_pdf,
+        file_url: fileUrl,
       });
     }
 
@@ -1345,7 +1350,7 @@ export class NotaDinasService {
       if (status !== 'draf') {
         try {
           // Generate PDF with nomor already included
-          const pdfBuffer = await this.generatePdfNodinService.generatePdf({
+          let pdfBuffer = await this.generatePdfNodinService.generatePdf({
             htmlContent: dto.konten,
             nomor: nomorSurat,
             tertuju: kepadaYthList,
@@ -1361,14 +1366,23 @@ export class NotaDinasService {
             namaLengkap: dto.nama_lengkap ?? pengirim.persnum_person_text,
           });
 
-          // Upload PDF to storage
+          // Merge with lampiran if any
+          if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+            const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+            if (lampiranFiles && lampiranFiles.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+              console.log('[ND sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
+            }
+          }
+
+          // Upload PDF to storage with organized folder structure
           const timestamp = Date.now();
           const pdfFileName = `ND-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
           const uploadResult = await this.storageService.uploadBuffer(
             pdfBuffer,
             pdfFileName,
-            'nota-dinas/pdf',
             'application/pdf',
+            'nota-dinas/final',
           );
 
           finalPdfPath = uploadResult.key;
@@ -1831,6 +1845,7 @@ export class NotaDinasService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -2210,6 +2225,7 @@ export class NotaDinasService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -2373,6 +2389,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2381,6 +2398,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2567,6 +2585,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2575,6 +2594,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2946,6 +2966,7 @@ export class NotaDinasService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
+      order: { createdAt: 'ASC' },
     });
 
     // Get all tembusan sirkulasi
@@ -2954,6 +2975,7 @@ export class NotaDinasService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
+      order: { createdAt: 'ASC' },
     });
 
     // Get lampiran files

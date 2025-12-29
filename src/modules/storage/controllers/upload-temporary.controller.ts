@@ -2,12 +2,15 @@ import {
   Controller,
   Post,
   Delete,
+  Get,
   Param,
+  Res,
   HttpException,
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -25,6 +28,7 @@ export interface UploadTemporaryLampiranResponseDto {
       id: string;
       file_name: string;
       file_path: string;
+      file_url: string;
     }[];
   };
 }
@@ -100,6 +104,7 @@ export class UploadTemporaryController {
         id: string;
         file_name: string;
         file_path: string;
+        file_url: string;
       }[] = [];
 
       // Upload semua files ke temporary folder
@@ -122,10 +127,15 @@ export class UploadTemporaryController {
 
         await this.naskahLampiranRepository.save(lampiranEntity);
 
+        // Use backend preview endpoint (works reliably for inline preview)
+        // Frontend should prepend their backend base URL (e.g., http://api.example.com)
+        const fileUrl = `/preview-file/${lampiranEntity.id}`;
+
         uploadedFiles.push({
           id: lampiranEntity.id,
           file_name: lampiranEntity.file_name,
           file_path: lampiranEntity.file_pdf,
+          file_url: fileUrl,
         });
       }
 
@@ -242,6 +252,82 @@ export class UploadTemporaryController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to delete lampiran',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /preview-file/:id
+   * Preview file lampiran langsung di browser (inline, tidak download)
+   * Stream file dari MinIO dan return dengan Content-Disposition: inline
+   *
+   * @param id - Lampiran ID (UUID)
+   * @param res - Express Response untuk stream file
+   * @returns PDF file yang langsung ditampilkan di browser
+   *
+   * @throws 404 - Not Found (lampiran tidak ditemukan)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Get('preview-file/:id')
+  async previewFile(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      // Find lampiran by ID
+      const lampiran = await this.naskahLampiranRepository.findOne({
+        where: { id: id },
+      });
+
+      if (!lampiran) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.NOT_FOUND,
+            message: `Lampiran dengan ID ${id} tidak ditemukan`,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Get file from storage
+      const fileBuffer = await this.storageService.getFile(lampiran.file_pdf);
+
+      // Determine content type based on file extension
+      const extension = lampiran.file_name.split('.').pop()?.toLowerCase();
+      let contentType = 'application/octet-stream';
+      
+      if (extension === 'pdf') {
+        contentType = 'application/pdf';
+      } else if (['jpg', 'jpeg'].includes(extension || '')) {
+        contentType = 'image/jpeg';
+      } else if (extension === 'png') {
+        contentType = 'image/png';
+      }
+
+      // Set headers for inline preview (not download)
+      res.set({
+        'Content-Type': contentType,
+        'Content-Disposition': `inline; filename="${lampiran.file_name}"`,
+        'Content-Length': fileBuffer.length,
+        'Cache-Control': 'public, max-age=3600', // Cache 1 hour
+      });
+
+      res.status(HttpStatus.OK).send(fileBuffer);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to preview file',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

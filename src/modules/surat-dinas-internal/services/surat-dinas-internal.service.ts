@@ -945,6 +945,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Build penerima info with read status
@@ -1154,10 +1155,9 @@ export class SuratDinasInternalService {
 
     // PHASE 3: Get valid recipients using filterByPositionSdi
     // SDI recipients hanya REKAN (beda sub_area/area, sama organization_parent)
-    const validRecipients = this.filterByPositionSdi(barisData, dto.pengirim);
-    const allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
+    // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
 
-    // PHASE 4: Validate all penerima - must be in valid recipients list
+    // PHASE 4: Validate all penerima - check exists and is managerial
     const penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of dto.penerima) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
@@ -1172,21 +1172,7 @@ export class SuratDinasInternalService {
         );
       }
 
-      // Check if penerima is in valid recipients
-      if (!allValidPositionIds.includes(Number(posId))) {
-        let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-
-        if (penerima.organization_parent === pengirim.organization_parent) {
-          if (penerima.sub_area === pengirim.sub_area) {
-            errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim. SDI untuk penerima di sub_area atau area berbeda.`;
-          }
-        } else {
-          errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di organization parent berbeda. SDI hanya untuk satu organization parent.`;
-        }
-
-        throw new BadRequestException(errorMsg);
-      }
-
+      // Note: sub_area/area validation removed - FE already validates from get-recipient
       penerimaList.push(penerima);
     }
 
@@ -1206,21 +1192,7 @@ export class SuratDinasInternalService {
           );
         }
 
-        // Check if tembusan is in valid recipients
-        if (!allValidPositionIds.includes(Number(posId))) {
-          let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-
-          if (tembusan.organization_parent === pengirim.organization_parent) {
-            if (tembusan.sub_area === pengirim.sub_area) {
-              errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim. SDI untuk tembusan di sub_area atau area berbeda.`;
-            }
-          } else {
-            errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di organization parent berbeda. SDI hanya untuk satu organization parent.`;
-          }
-
-          throw new BadRequestException(errorMsg);
-        }
-
+        // Note: sub_area/area validation removed - FE already validates from get-recipient
         tembusanList.push(tembusan);
       }
     }
@@ -1355,6 +1327,64 @@ export class SuratDinasInternalService {
       });
       await queryRunner.manager.save(sdiSdeEntity);
 
+      // PHASE 13: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
+      let finalPdfPath: string | undefined = undefined;
+      if (status !== 'draf') {
+        try {
+          // Generate PDF with nomor already included
+          let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+            html: Buffer.from(dto.konten, 'utf-8').toString('base64'),
+            penerima: kepadaYthList,
+            nama_tempat: dto.nama_tempat ?? pengirim.sub_area_text ?? 'Tangerang',
+            tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            }),
+            positionText: dto.nama_jabatan ?? pengirim.position_text,
+            namaLengkap: dto.nama_lengkap ?? pengirim.nama,
+            tembusan: tembusanTextList,
+            perihal: dto.perihal,
+            sifat: dto.sifat || 'Biasa',
+            nomor: nomorSurat,
+            lampiran: dto.lampiran || '-',
+          });
+
+          // Merge with lampiran if any
+          if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+            const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+            if (lampiranFiles && lampiranFiles.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+              console.log('[SDI sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
+            }
+          }
+
+          // Upload PDF to storage with organized folder structure
+          const timestamp = Date.now();
+          const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+          const uploadResult = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            pdfFileName,
+            'application/pdf',
+            'surat-dinas-internal/final',
+          );
+
+          finalPdfPath = uploadResult.key;
+
+          // Update naskah with final_pdf path
+          await queryRunner.manager.update(
+            NaskahEntity,
+            { id: naskahId },
+            { final_pdf: finalPdfPath },
+          );
+
+          console.log('[SDI sendMessage] PDF auto-generated:', finalPdfPath);
+        } catch (error) {
+          console.error('[SDI sendMessage] Failed to auto-generate PDF:', error);
+          // Don't fail the whole transaction if PDF generation fails
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1371,6 +1401,7 @@ export class SuratDinasInternalService {
           pengirim: this.toSirkulasiInfo(pengirim),
           penerima: penerimaResponses,
           tembusan: tembusanResponses,
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
@@ -1554,14 +1585,9 @@ export class SuratDinasInternalService {
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
       if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
-        // Get valid recipients based on pengirim position (SDI: only REKAN)
-        let allValidPositionIds: number[] = [];
-        if (barisData.length > 0 && pengirimPosition) {
-          const validRecipients = this.filterByPositionSdi(barisData, Number(pengirimPosition.position));
-          allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
-        }
+        // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima
+        // Validate penerima - check exists and is managerial
         let penerimaList: SdiOrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -1574,13 +1600,7 @@ export class SuratDinasInternalService {
                 `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              if (pengirimPosition && penerima.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              throw new BadRequestException(errorMsg);
-            }
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
         } else {
@@ -1594,7 +1614,7 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan
+        // Validate tembusan - check exists and is managerial
         let tembusanList: SdiOrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -1607,13 +1627,7 @@ export class SuratDinasInternalService {
                 `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              if (pengirimPosition && tembusan.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              throw new BadRequestException(errorMsg);
-            }
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
         }
@@ -1713,6 +1727,7 @@ export class SuratDinasInternalService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -1846,14 +1861,9 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Get valid recipients based on pengirim position (SDI: only REKAN)
-        let allValidPositionIds: number[] = [];
-        if (pengirimPosition) {
-          const validRecipients = this.filterByPositionSdi(barisData, Number(pengirimPosition.position));
-          allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
-        }
+        // Note: Validation sub_area/area sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima - must be in valid recipients list
+        // Validate penerima - check exists and is managerial
         let penerimaList: SdiOrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -1869,17 +1879,7 @@ export class SuratDinasInternalService {
               );
             }
             
-            // Check if penerima is in valid recipients (REKAN only for SDI)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              
-              if (pengirimPosition && penerima.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              
-              throw new BadRequestException(errorMsg);
-            }
-            
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
         } else {
@@ -1893,7 +1893,7 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan - if not provided, tembusan will be EMPTY (destroyed)
+        // Validate tembusan - check exists and is managerial
         let tembusanList: SdiOrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -1909,17 +1909,7 @@ export class SuratDinasInternalService {
               );
             }
             
-            // Check if tembusan is in valid recipients (REKAN only for SDI)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              
-              if (pengirimPosition && tembusan.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              
-              throw new BadRequestException(errorMsg);
-            }
-            
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
         }
@@ -2011,6 +2001,7 @@ export class SuratDinasInternalService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -2124,6 +2115,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2132,6 +2124,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
+        order: { createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2286,6 +2279,7 @@ export class SuratDinasInternalService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
+      order: { createdAt: 'ASC' },
     });
 
     // Get all tembusan sirkulasi
@@ -2294,6 +2288,7 @@ export class SuratDinasInternalService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
+      order: { createdAt: 'ASC' },
     });
 
     // Get lampiran files
@@ -2330,12 +2325,22 @@ export class SuratDinasInternalService {
       areaText: tembusan.areaText || '',
     }));
 
-    // Build lampiran info
-    const lampiranInfoList = lampiranFiles.map((l) => ({
-      id: l.id,
-      fileName: l.file_name || '',
-      filePath: l.file_pdf || '',
-    }));
+    // Build lampiran info with file URL
+    const lampiranInfoList = await Promise.all(
+      lampiranFiles.map(async (l) => ({
+        id: l.id,
+        fileName: l.file_name || '',
+        filePath: l.file_pdf || '',
+        fileUrl: l.file_pdf
+          ? await this.storageService.getFileUrl(l.file_pdf)
+          : null,
+      })),
+    );
+
+    // Get final PDF URL if exists
+    const finalPdfUrl = naskah.final_pdf
+      ? await this.storageService.getFileUrl(naskah.final_pdf)
+      : null;
 
     // Build response
     return {
@@ -2390,6 +2395,7 @@ export class SuratDinasInternalService {
         // Files
         lampiran_files: lampiranInfoList,
         final_pdf: naskah.final_pdf || null,
+        final_pdf_url: finalPdfUrl,
 
         // Metadata
         created_at: null,
