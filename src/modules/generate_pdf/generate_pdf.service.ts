@@ -115,7 +115,7 @@ export class GeneratePdfService {
     
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || "Direktur Teknik";
-    const namaLengkap = body.namaLengkap || body.penandatangan || "Zainal Arifin Harahap";
+    const namaLengkap = body.namaLengkap || body.penandatangan || "";
 
     const header = `
       <table width='100%' border='0' style='border-collapse:collapse; font-family: "Times New Roman", Times, serif;' cellpadding='2'>

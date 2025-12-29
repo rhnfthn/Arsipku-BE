@@ -274,9 +274,47 @@ export class SuratDinasInternalService {
   // ============================================================
 
   /**
-   * Generate PDF dari HTML content untuk Surat Dinas Internal
-   * Menggunakan Puppeteer di backend untuk render HTML
-   * Support temporary lampiran system (lampiran_temp_ids)
+   * Generate PDF polos (tanpa merge lampiran) untuk endpoint generate-pdf
+   * Hanya template PDF saja
+   */
+  async generatePlainPdf(
+    htmlContent: string,
+    penerima: string[],
+    nama_tempat: string = 'Tangerang',
+    tanggal: string = '',
+    nama_jabatan: string = '',
+    nama_lengkap: string = '',
+    tembusan: string[] = [],
+    perihal: string = '',
+    sifat: string = 'Biasa',
+    nomor: string = '',
+    lampiran: string = '-',
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      const pdfBuffer = await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        nama_tempat: nama_tempat,
+        tanggal: tanggal,
+        positionText: nama_jabatan,
+        namaLengkap: nama_lengkap,
+        tembusan: tembusan,
+        perihal: perihal,
+        sifat: sifat,
+        nomor: nomor,
+        lampiran: lampiran,
+      });
+
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate PDF dengan merge lampiran untuk endpoint preview-pdf
+   * PDF template + lampiran merged
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -293,20 +331,20 @@ export class SuratDinasInternalService {
     lampiran: string = '-',
   ): Promise<Buffer> {
     try {
-      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
-        html: htmlBase64,
-        penerima: penerima,
-        nama_tempat: nama_tempat,
-        tanggal: tanggal,
-        positionText: nama_jabatan,
-        namaLengkap: nama_lengkap,
-        tembusan: tembusan,
-        perihal: perihal,
-        sifat: sifat,
-        nomor: nomor,
-        lampiran: lampiran,
-      });
+      // Generate plain PDF first
+      let pdfBuffer = await this.generatePlainPdf(
+        htmlContent,
+        penerima,
+        nama_tempat,
+        tanggal,
+        nama_jabatan,
+        nama_lengkap,
+        tembusan,
+        perihal,
+        sifat,
+        nomor,
+        lampiran,
+      );
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
       if (lampiranTempIds && lampiranTempIds.length > 0) {
@@ -1213,18 +1251,21 @@ export class SuratDinasInternalService {
       } else {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
+        // Use provided date from dto.tgl, or today as fallback
+        const tanggalNomor = dto.tgl ? new Date(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
           dto.perihal,
-          new Date(),
+          tanggalNomor,
           queryRunner,
         );
       }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
-      const tanggalHariIni = new Date();
+      // Use provided date from dto.tgl, or today as fallback
+      const tanggalHariIni = dto.tgl ? new Date(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1531,11 +1572,13 @@ export class SuratDinasInternalService {
       // PHASE 5: Generate nomor surat resmi with integrated numbering (inside transaction)
       const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
       const perihal = dto.perihal ?? naskah.perihal ?? '';
+      // Use dto.tgl if provided, else use naskah's existing date, else today
+      const tanggalNomor = dto.tgl ? new Date(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date());
       nomorSurat = await this.generateNomorWithIntegration(
         pengirimPosition as SdiOrgDataPositionDto,
         klasifikasi,
         perihal,
-        new Date(),
+        tanggalNomor,
         queryRunner
       );
 
@@ -2357,6 +2400,49 @@ export class SuratDinasInternalService {
       persnum: positionData.persnum,
       nama: positionData.nama || '',
     };
+  }
+
+  /**
+   * Get person name (persnum_person_text) by position ID
+   * Used by controller to get actual person name for PDF generation
+   * 
+   * @param positionId - Position ID from user JWT
+   * @param tgl - Optional date string (YYYY-MM-DD)
+   * @returns Person name or empty string if not found
+   */
+  async getPersonNameByPosition(positionId: string | number, tgl?: string): Promise<string> {
+    try {
+      if (!positionId) {
+        return '';
+      }
+
+      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+      
+      // Get org_data
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        return '';
+      }
+
+      const positionJson: SdiOrgDataPositionDto[] = orgData.position_json;
+      
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(positionId),
+      );
+      
+      if (pos) {
+        // Use persnum_person_text as primary source for person name
+        return (pos as any).persnum_person_text || pos.nama || '';
+      }
+
+      return '';
+    } catch (error) {
+      console.error(
+        `[SdiService] Error getting person name for position ${positionId}:`,
+        error,
+      );
+      return '';
+    }
   }
 
   /**
