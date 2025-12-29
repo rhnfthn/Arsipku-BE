@@ -280,7 +280,7 @@ export class GeneratePdfSudinService {
                     <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
                       Kepada Yth.<br>
                       <div style="width:55%;">
-                        ${penerimaHtml}
+                        ${penerimaHtml}<br>
                         Di Tempat
                       </div>
                     </td>

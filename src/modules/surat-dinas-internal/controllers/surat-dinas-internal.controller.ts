@@ -540,13 +540,6 @@ export class SuratDinasInternalController {
       );
       const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
 
-      console.log('[SDI preview-pdf] Using user data:', {
-        namaJabatan,
-        namaLengkap,
-        personName,
-        userId: user?.id,
-      });
-
       const pdfBuffer =
         await this.suratDinasInternalService.generatePdfFromHtml(
           body.htmlContent,
@@ -676,13 +669,6 @@ export class SuratDinasInternalController {
         body.tgl,
       );
       const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
-
-      console.log('[SDI generate-pdf] Using user data:', {
-        namaJabatan,
-        namaLengkap,
-        personName,
-        userId: user?.id,
-      });
 
       // generate-pdf: PDF polos TANPA lampiran merge
       const pdfBuffer =
