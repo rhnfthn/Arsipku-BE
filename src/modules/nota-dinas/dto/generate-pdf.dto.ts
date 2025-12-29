@@ -111,6 +111,14 @@ export class GeneratePdfDto {
   penandatangan?: string;
 
   /**
+   * Nama Lengkap Penandatangan
+   * Alternative field for nama penandatangan
+   */
+  @IsString()
+  @IsOptional()
+  nama_lengkap?: string;
+
+  /**
    * Tembusan Yth
    * Array dari nama-nama penerima tembusan/CC
    * Bisa dikirim sebagai JSON string atau langsung array
