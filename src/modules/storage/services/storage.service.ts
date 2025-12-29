@@ -160,6 +160,7 @@ export class StorageService implements OnModuleInit {
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
+        ContentDisposition: 'inline', // Enable browser preview instead of download
       }),
     );
 
@@ -197,6 +198,7 @@ export class StorageService implements OnModuleInit {
         Key: key,
         Body: buffer,
         ContentType: contentType,
+        ContentDisposition: 'inline', // Enable browser preview instead of download
       }),
     );
 
@@ -219,6 +221,41 @@ export class StorageService implements OnModuleInit {
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
       Key: key,
+    });
+
+    const signedUrl = await getSignedUrl(this.s3Client, command, { expiresIn });
+
+    // Ganti internal endpoint dengan public URL
+    return signedUrl.replace(this.endpoint, this.publicUrl);
+  }
+
+  /**
+   * Get signed URL untuk preview file (inline, tidak auto-download)
+   * Menggunakan ResponseContentDisposition: inline agar browser menampilkan file
+   * @param key - Key file di MinIO
+   * @param expiresIn - Waktu expired dalam detik (default 24 jam)
+   * @returns Signed URL untuk preview
+   */
+  async getPreviewUrl(key: string, expiresIn: number = 86400): Promise<string> {
+    // Determine content type based on file extension
+    const extension = key.split('.').pop()?.toLowerCase();
+    let contentType = 'application/octet-stream';
+    
+    if (extension === 'pdf') {
+      contentType = 'application/pdf';
+    } else if (['jpg', 'jpeg'].includes(extension || '')) {
+      contentType = 'image/jpeg';
+    } else if (extension === 'png') {
+      contentType = 'image/png';
+    } else if (extension === 'gif') {
+      contentType = 'image/gif';
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+      ResponseContentDisposition: 'inline', // Tampilkan di browser, bukan download
+      ResponseContentType: contentType,
     });
 
     const signedUrl = await getSignedUrl(this.s3Client, command, { expiresIn });

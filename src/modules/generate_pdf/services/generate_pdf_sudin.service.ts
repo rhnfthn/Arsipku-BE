@@ -77,46 +77,47 @@ export class GeneratePdfSudinService {
       decodedContent = htmlContent;
     }
 
-    // Helper function untuk format tanggal ke DD-MM-YYYY
-    const formatDateToDDMMYYYY = (dateInput: string): string => {
+    // Helper function untuk format tanggal ke format Indonesia (e.g., "29 Desember 2025")
+    const formatDateToIndonesian = (dateInput: string): string => {
       if (!dateInput) return '';
-      const trimmed = dateInput.trim(); // Trim whitespace
+      const trimmed = dateInput.trim();
       if (!trimmed) return '';
+      
+      const monthNames = [
+        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      ];
+      
       try {
-        // Already in DD-MM-YYYY format
+        // Already in Indonesian format (e.g., "29 Desember 2025")
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          return trimmed; // Already formatted
+        }
+        
+        let dateObj: Date | null = null;
+        
+        // DD-MM-YYYY format
         if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
-          return trimmed;
+          const [day, month, year] = trimmed.split('-');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         }
         // YYYY-MM-DD format
-        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-          const dateObj = new Date(trimmed + 'T00:00:00');
-          if (!isNaN(dateObj.getTime())) {
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const year = dateObj.getFullYear();
-            return `${day}-${month}-${year}`;
-          }
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          dateObj = new Date(trimmed + 'T00:00:00');
         }
         // DD/MM/YYYY format
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('/');
-          return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         }
-        // Indonesian long format (e.g., "24 Desember 2024")
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
-          const monthMap: { [key: string]: string } = {
-            'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
-            'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
-            'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
-          };
-          const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
-          if (match) {
-            const day = match[1].padStart(2, '0');
-            const month = monthMap[match[2].toLowerCase()] || '01';
-            const year = match[3];
-            return `${day}-${month}-${year}`;
-          }
+        
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const day = dateObj.getDate();
+          const month = monthNames[dateObj.getMonth()];
+          const year = dateObj.getFullYear();
+          return `${day} ${month} ${year}`;
         }
+        
         return trimmed;
       } catch (e) {
         console.error('[GeneratePdfSudin] Error formatting date:', e);
@@ -126,17 +127,18 @@ export class GeneratePdfSudinService {
     
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
-    // Format tanggal ke DD-MM-YYYY
-    let tanggalRaw = (body.tanggal || '').trim(); // Trim whitespace
+    // Format tanggal ke format Indonesia (e.g., "29 Desember 2025")
+    let tanggalRaw = (body.tanggal || '').trim();
     console.log('[GeneratePdfSudin] Input tanggal:', body.tanggal, '| tanggalRaw before:', tanggalRaw);
     if (!tanggalRaw) {
       const now = new Date();
-      const day = String(now.getDate()).padStart(2, '0');
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const year = now.getFullYear();
-      tanggalRaw = `${day}-${month}-${year}`;
+      const monthNames = [
+        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      ];
+      tanggalRaw = `${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
     } else {
-      tanggalRaw = formatDateToDDMMYYYY(tanggalRaw);
+      tanggalRaw = formatDateToIndonesian(tanggalRaw);
     }
     console.log('[GeneratePdfSudin] tanggalRaw after format:', tanggalRaw);
     const tanggal = tanggalRaw;
