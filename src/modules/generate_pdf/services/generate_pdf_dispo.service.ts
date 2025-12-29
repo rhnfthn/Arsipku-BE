@@ -84,47 +84,50 @@ export class GeneratePdfDispoService {
     const sifat = body.sifat || 'Biasa';
     const penandatangan = body.penandatangan || '';
     
-    // Helper function untuk format tanggal ke DD-MM-YYYY
-    const formatDateToDDMMYYYY = (dateInput: string): string => {
+    // Indonesian month names
+    const monthNamesId = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+
+    // Helper function untuk format tanggal ke format Indonesia "20 Desember 2025"
+    const formatDateToIndonesian = (dateInput: string): string => {
       if (!dateInput) return '';
-      const trimmed = dateInput.trim(); // Trim whitespace
+      const trimmed = dateInput.trim();
       if (!trimmed) return '';
       try {
+        let dateObj: Date | null = null;
+        
         // Already in DD-MM-YYYY format
         if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
-          return trimmed;
+          const [day, month, year] = trimmed.split('-');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         }
         // YYYY-MM-DD format
-        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-          const dateObj = new Date(trimmed + 'T00:00:00');
-          if (!isNaN(dateObj.getTime())) {
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const year = dateObj.getFullYear();
-            return `${day}-${month}-${year}`;
-          }
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          dateObj = new Date(trimmed + 'T00:00:00');
         }
         // DD/MM/YYYY format
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('/');
-          return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         }
-        // Indonesian long format (e.g., "Selasa, 24 Desember 2024")
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
-          // Parse Indonesian date format
-          const monthMap: { [key: string]: string } = {
-            'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
-            'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
-            'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
-          };
+        // Indonesian long format (e.g., "Selasa, 24 Desember 2024") - already in correct format
+        else if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
           const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
           if (match) {
-            const day = match[1].padStart(2, '0');
-            const month = monthMap[match[2].toLowerCase()] || '01';
-            const year = match[3];
-            return `${day}-${month}-${year}`;
+            return `${match[1]} ${match[2].charAt(0).toUpperCase() + match[2].slice(1).toLowerCase()} ${match[3]}`;
           }
+          return trimmed;
         }
+        
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const day = dateObj.getDate();
+          const month = monthNamesId[dateObj.getMonth()];
+          const year = dateObj.getFullYear();
+          return `${day} ${month} ${year}`;
+        }
+        
         return trimmed; // Return as-is if format not recognized
       } catch (e) {
         console.error('[GeneratePdfDispo] Error formatting date:', e);
@@ -132,25 +135,27 @@ export class GeneratePdfDispoService {
       }
     };
 
-    // Format tanggal disposisi (untuk AGENDA) ke DD-MM-YYYY
-    let tanggal = (body.tanggal || '').trim(); // Trim whitespace
+    // Format tanggal disposisi (untuk AGENDA) ke format Indonesia "20 Desember 2025"
+    let tanggal = (body.tanggal || '').trim();
     console.log('[GeneratePdfDispo] Input tanggal:', body.tanggal, '| tanggal after trim:', tanggal);
     if (!tanggal) {
       const now = new Date();
-      const day = String(now.getDate()).padStart(2, '0');
-      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = now.getDate();
+      const month = monthNamesId[now.getMonth()];
       const year = now.getFullYear();
-      tanggal = `${day}-${month}-${year}`;
+      tanggal = `${day} ${month} ${year}`;
     } else {
-      tanggal = formatDateToDDMMYYYY(tanggal);
+      tanggal = formatDateToIndonesian(tanggal);
     }
     console.log('[GeneratePdfDispo] tanggal after format:', tanggal);
     
     // Field referensi surat asal (kolom kanan - data dari surat yang didisposisi)
+    // Jika tidak ada ref_nomor dan ref_perihal, semua field referensi harus kosong
     const refNomor = body.refNomor || '';
     const refPerihal = body.refPerihal || '';
-    const refTanggal = body.refTanggal ? formatDateToDDMMYYYY(body.refTanggal) : ''; // Tanggal surat referensi (DD-MM-YYYY)
-    const refPengirim = body.refPengirim || ''; // Pengirim surat referensi (surat dari)
+    const hasRefData = refNomor || refPerihal; // Cek apakah ada data referensi
+    const refTanggal = hasRefData && body.refTanggal ? formatDateToIndonesian(body.refTanggal) : ''; // Tanggal surat referensi
+    const refPengirim = hasRefData ? (body.refPengirim || '') : ''; // Pengirim surat referensi (surat dari)
     
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
