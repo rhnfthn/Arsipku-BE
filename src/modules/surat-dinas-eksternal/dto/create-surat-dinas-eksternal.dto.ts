@@ -24,9 +24,9 @@ export class CreateSuratDinasEksternalDto {
   pengirim: number; // positionId dari org_data
 
   @IsArray({ message: 'Penerima harus berupa array' })
-  @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
+  @IsOptional()
   @IsString({ each: true })
-  penerima: string[]; // array of eksternal.id (UUID)
+  penerima?: string[]; // array of eksternal.id (UUID) - optional
 
   @IsOptional()
   @IsString()
@@ -97,6 +97,13 @@ export class CreateSuratDinasEksternalDto {
   @IsOptional()
   @IsString()
   nama_lengkap?: string;
+
+  // ============================================
+  // TEMBUSAN (Optional for SDE)
+  // ============================================
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[]; // array of positionId untuk tembusan
 
   // ============================================
   // LAMPIRAN
@@ -186,6 +193,10 @@ export class UpdateSdeDraftDto {
   @IsOptional()
   @IsString()
   nama_lengkap?: string;
+
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[]; // array of positionId untuk tembusan
 
   @IsOptional()
   @IsArray()

@@ -36,6 +36,43 @@ export class SuratDinasEksternalController {
   }
 
   /**
+   * GET /SDE/:id
+   * Get Surat Dinas Eksternal detail by ID
+   * 
+   * Includes:
+   * - Naskah info (nomor, tanggal, perihal, status, dll)
+   * - Konten lengkap SDE
+   * - Sirkulasi (pengirim, penerima eksternal)
+   * - Lampiran files
+   * - Final PDF
+   *
+   * @param id - Naskah ID (UUID)
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Get(':id')
+  async getSdeDetail(@Param('id') id: string): Promise<any> {
+    try {
+      return await this.sdeService.getSdeDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDE detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * POST /SDE/send-message
    * Send Surat Dinas Eksternal (create and send immediately)
    * 
