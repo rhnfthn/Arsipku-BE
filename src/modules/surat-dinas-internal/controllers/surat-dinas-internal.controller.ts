@@ -530,13 +530,20 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token (same as Nota Dinas)
+      // Use user's position and name from JWT token
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
       const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
+      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
+        user?.position,
+        body.tgl,
+      );
+      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
 
       console.log('[SDI preview-pdf] Using user data:', {
         namaJabatan,
         namaLengkap,
+        personName,
         userId: user?.id,
       });
 
@@ -660,18 +667,26 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token (same as Nota Dinas)
+      // Use user's position and name from JWT token
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
       const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
+      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
+        user?.position,
+        body.tgl,
+      );
+      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
 
       console.log('[SDI generate-pdf] Using user data:', {
         namaJabatan,
         namaLengkap,
+        personName,
         userId: user?.id,
       });
 
+      // generate-pdf: PDF polos TANPA lampiran merge
       const pdfBuffer =
-        await this.suratDinasInternalService.generatePdfFromHtml(
+        await this.suratDinasInternalService.generatePlainPdf(
           body.htmlContent,
           penerimaArray,
           body.nama_tempat || 'Tangerang',
@@ -679,7 +694,6 @@ export class SuratDinasInternalController {
           namaJabatan,
           namaLengkap,
           tembusanArray,
-          lampiranTempIds,
           body.perihal || '',
           body.sifat || 'Biasa',
           body.nomor || '',

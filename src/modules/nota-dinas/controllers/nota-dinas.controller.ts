@@ -517,7 +517,18 @@ export class NotaDinasController {
       // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
       const dariFormatted = positionText;
-      const namaLengkap = user?.nama || 'User';
+      
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
+      // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
+      const positionIdToUse = body.pengirim || user?.position;
+      
+      const personName = await this.notaDinasService.getPersonNameByPosition(
+        positionIdToUse,
+        dto.tgl,
+      );
+      
+      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -672,7 +683,18 @@ export class NotaDinasController {
       // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
       const dariFormatted = positionText;
-      const namaLengkap = user?.nama || 'User';
+      
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
+      // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
+      const positionIdToUse = body.pengirim || user?.position;
+      
+      const personName = await this.notaDinasService.getPersonNameByPosition(
+        positionIdToUse,
+        body.tgl || dto.tgl,
+      );
+      
+      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -695,8 +717,8 @@ export class NotaDinasController {
         tembusanArray = tembusanNames;
       }
 
-      // Generate PDF dengan data dynamic (legacy endpoint - still uses direct file upload)
-      const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
+      // generate-pdf: PDF polos TANPA lampiran merge
+      const pdfBuffer = await this.notaDinasService.generatePlainPdf(
         dto.htmlContent,
         tertujuArray,
         dariFormatted,
@@ -705,7 +727,6 @@ export class NotaDinasController {
         positionText,
         namaLengkap,
         tembusanArray,
-        files?.lampiran_files, // Legacy: still accepts direct file upload
       );
 
       res.set({

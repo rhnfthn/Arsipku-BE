@@ -274,9 +274,47 @@ export class SuratDinasInternalService {
   // ============================================================
 
   /**
-   * Generate PDF dari HTML content untuk Surat Dinas Internal
-   * Menggunakan Puppeteer di backend untuk render HTML
-   * Support temporary lampiran system (lampiran_temp_ids)
+   * Generate PDF polos (tanpa merge lampiran) untuk endpoint generate-pdf
+   * Hanya template PDF saja
+   */
+  async generatePlainPdf(
+    htmlContent: string,
+    penerima: string[],
+    nama_tempat: string = 'Tangerang',
+    tanggal: string = '',
+    nama_jabatan: string = '',
+    nama_lengkap: string = '',
+    tembusan: string[] = [],
+    perihal: string = '',
+    sifat: string = 'Biasa',
+    nomor: string = '',
+    lampiran: string = '-',
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      const pdfBuffer = await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        nama_tempat: nama_tempat,
+        tanggal: tanggal,
+        positionText: nama_jabatan,
+        namaLengkap: nama_lengkap,
+        tembusan: tembusan,
+        perihal: perihal,
+        sifat: sifat,
+        nomor: nomor,
+        lampiran: lampiran,
+      });
+
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate PDF dengan merge lampiran untuk endpoint preview-pdf
+   * PDF template + lampiran merged
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -293,20 +331,20 @@ export class SuratDinasInternalService {
     lampiran: string = '-',
   ): Promise<Buffer> {
     try {
-      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
-        html: htmlBase64,
-        penerima: penerima,
-        nama_tempat: nama_tempat,
-        tanggal: tanggal,
-        positionText: nama_jabatan,
-        namaLengkap: nama_lengkap,
-        tembusan: tembusan,
-        perihal: perihal,
-        sifat: sifat,
-        nomor: nomor,
-        lampiran: lampiran,
-      });
+      // Generate plain PDF first
+      let pdfBuffer = await this.generatePlainPdf(
+        htmlContent,
+        penerima,
+        nama_tempat,
+        tanggal,
+        nama_jabatan,
+        nama_lengkap,
+        tembusan,
+        perihal,
+        sifat,
+        nomor,
+        lampiran,
+      );
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
       if (lampiranTempIds && lampiranTempIds.length > 0) {
@@ -1213,18 +1251,21 @@ export class SuratDinasInternalService {
       } else {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
+        // Use provided date from dto.tgl, or today as fallback
+        const tanggalNomor = dto.tgl ? new Date(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
           dto.perihal,
-          new Date(),
+          tanggalNomor,
           queryRunner,
         );
       }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
-      const tanggalHariIni = new Date();
+      // Use provided date from dto.tgl, or today as fallback
+      const tanggalHariIni = dto.tgl ? new Date(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1304,21 +1345,23 @@ export class SuratDinasInternalService {
       );
       const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
+      // Use || instead of ?? to also handle empty strings from frontend
+      // Use persnum_person_text for person's name (actual field from org_data)
       const sdiSdeEntity = this.sdiSdeRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
-        kopLogo: dto.kop_logo ?? DEFAULT_KOP_LOGO,
-        kopNama: dto.kop_nama ?? DEFAULT_KOP_NAMA,
-        alamatPerusahaan: dto.alamat_perusahaan ?? DEFAULT_ALAMAT_PERUSAHAAN,
+        kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
+        kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
+        alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
         nomor: nomorSurat,
         kepadaYth: kepadaYth,
         perihal: dto.perihal,
         konten: dto.konten,
-        namaTempat: dto.nama_tempat ?? pengirim.sub_area_text ?? 'Tangerang',
+        namaTempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
         tanggal: tanggalHariIni,
-        namaJabatan: dto.nama_jabatan ?? pengirim.position_text,
-        tandaTangan: dto.tanda_tangan ?? null,
-        namaLengkap: dto.nama_lengkap ?? pengirim.nama,
+        namaJabatan: dto.nama_jabatan || pengirim.position_text,
+        tandaTangan: dto.tanda_tangan || null,
+        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
         tembusan: tembusanText,
         sifat: dto.sifat,
         lampiran: dto.lampiran || null,
@@ -1332,17 +1375,18 @@ export class SuratDinasInternalService {
       if (status !== 'draf') {
         try {
           // Generate PDF with nomor already included
+          // Use || instead of ?? to also handle empty strings from frontend
           let pdfBuffer = await this.generatePdfSudinService.generatePdf({
             html: Buffer.from(dto.konten, 'utf-8').toString('base64'),
             penerima: kepadaYthList,
-            nama_tempat: dto.nama_tempat ?? pengirim.sub_area_text ?? 'Tangerang',
+            nama_tempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
               year: 'numeric',
               month: 'long',
               day: 'numeric',
             }),
-            positionText: dto.nama_jabatan ?? pengirim.position_text,
-            namaLengkap: dto.nama_lengkap ?? pengirim.nama,
+            positionText: dto.nama_jabatan || pengirim.position_text,
+            namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
             tembusan: tembusanTextList,
             perihal: dto.perihal,
             sifat: dto.sifat || 'Biasa',
@@ -1500,11 +1544,14 @@ export class SuratDinasInternalService {
       }
       pengirimPosition = barisData.find((x) => Number(x.position) === Number(existingPengirim.position));
       if (!pengirimPosition) {
-        // Fallback jika tidak ditemukan di org_data
+        // Fallback jika tidak ditemukan di org_data - include nama from namaSirkuler
         pengirimPosition = {
           position: Number(existingPengirim.position),
           position_text: existingPengirim.positionText || '',
+          persnum_person_text: existingPengirim.namaSirkuler || '',
+          nama: existingPengirim.namaSirkuler || '',
           sub_area: Number(existingPengirim.subArea),
+          sub_area_text: existingPengirim.subAreaText || '',
           area_text: existingPengirim.areaText || 'Pusat',
         } as SdiOrgDataPositionDto;
       }
@@ -1519,16 +1566,19 @@ export class SuratDinasInternalService {
     await queryRunner.startTransaction();
 
     let nomorSurat: string;
+    let finalPdfPath: string | undefined = undefined;
 
     try {
       // PHASE 5: Generate nomor surat resmi with integrated numbering (inside transaction)
       const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
       const perihal = dto.perihal ?? naskah.perihal ?? '';
+      // Use dto.tgl if provided, else use naskah's existing date, else today
+      const tanggalNomor = dto.tgl ? new Date(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date());
       nomorSurat = await this.generateNomorWithIntegration(
         pengirimPosition as SdiOrgDataPositionDto,
         klasifikasi,
         perihal,
-        new Date(),
+        tanggalNomor,
         queryRunner
       );
 
@@ -1576,8 +1626,13 @@ export class SuratDinasInternalService {
       if (dto.perihal !== undefined) sdiUpdateData.perihal = dto.perihal;
       if (dto.konten !== undefined) sdiUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) sdiUpdateData.namaTempat = dto.nama_tempat;
-      if (dto.nama_jabatan !== undefined) sdiUpdateData.namaJabatan = dto.nama_jabatan;
-      if (dto.nama_lengkap !== undefined) sdiUpdateData.namaLengkap = dto.nama_lengkap;
+      // Always set namaJabatan and namaLengkap with fallback to pengirimPosition
+      if (dto.nama_jabatan !== undefined) {
+        sdiUpdateData.namaJabatan = dto.nama_jabatan || pengirimPosition?.position_text || '';
+      }
+      if (dto.nama_lengkap !== undefined) {
+        sdiUpdateData.namaLengkap = dto.nama_lengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || '';
+      }
       if (dto.sifat !== undefined) sdiUpdateData.sifat = dto.sifat;
       if (dto.lampiran !== undefined) sdiUpdateData.lampiran = dto.lampiran;
 
@@ -1711,6 +1766,110 @@ export class SuratDinasInternalService {
         }
       }
 
+      // PHASE 10: Auto-generate PDF (same logic as createSdi PHASE 13)
+      try {
+        // Get the updated sdi_sde data for PDF generation
+        const sdiSdeData = await queryRunner.manager.findOne(SdiSdeEntity, {
+          where: { idNaskah: naskahId },
+        });
+
+        // Get pengirim sirkulasi for fallback nama
+        const pengirimSirkulasiForPdf = await queryRunner.manager.findOne(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+        });
+
+        // Get penerima list for PDF
+        const penerimaListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'penerima' },
+          order: { createdAt: 'ASC' },
+        });
+        const kepadaYthList = penerimaListForPdf.map(
+          (p) => `${p.positionText} - ${p.organizationText}`,
+        );
+
+        // Get tembusan list for PDF
+        const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+          order: { createdAt: 'ASC' },
+        });
+        const tembusanTextList = tembusanListForPdf.map(
+          (t) => `${t.positionText} - ${t.organizationText}`,
+        );
+
+        // Get tanggal for PDF
+        const tanggalHariIni = naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
+
+        // Use || to handle empty strings from frontend
+        // Fallback chain: dto -> sdiSdeData -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
+        const resolvedPositionText = dto.nama_jabatan || sdiSdeData?.namaJabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
+        const resolvedNamaLengkap = dto.nama_lengkap || sdiSdeData?.namaLengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
+        
+        console.log('[SDI finalizeDraft] PDF params debug:', {
+          'dto.nama_jabatan': dto.nama_jabatan,
+          'dto.nama_lengkap': dto.nama_lengkap,
+          'sdiSdeData?.namaJabatan': sdiSdeData?.namaJabatan,
+          'sdiSdeData?.namaLengkap': sdiSdeData?.namaLengkap,
+          'pengirimPosition?.position_text': pengirimPosition?.position_text,
+          'pengirimPosition?.persnum_person_text': pengirimPosition?.persnum_person_text,
+          'pengirimPosition?.nama': pengirimPosition?.nama,
+          'pengirimSirkulasiForPdf?.positionText': pengirimSirkulasiForPdf?.positionText,
+          'pengirimSirkulasiForPdf?.namaSirkuler': pengirimSirkulasiForPdf?.namaSirkuler,
+          resolvedPositionText,
+          resolvedNamaLengkap,
+        });
+
+        let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+          html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
+          penerima: kepadaYthList,
+          nama_tempat: sdiSdeData?.namaTempat || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang',
+          tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          positionText: resolvedPositionText,
+          namaLengkap: resolvedNamaLengkap,
+          tembusan: tembusanTextList,
+          perihal: sdiSdeData?.perihal || dto.perihal || naskah.perihal || '',
+          sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
+          nomor: nomorSurat,
+          lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+        });
+
+        // Merge with lampiran if any (from temp_ids or existing)
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            console.log('[SDI finalizeDraft] Merged with', lampiranFiles.length, 'lampiran files');
+          }
+        }
+
+        // Upload PDF to storage
+        const timestamp = Date.now();
+        const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'surat-dinas-internal/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        console.log('[SDI finalizeDraft] PDF auto-generated:', finalPdfPath);
+      } catch (error) {
+        console.error('[SDI finalizeDraft] Failed to auto-generate PDF:', error);
+        // Don't fail the whole transaction if PDF generation fails
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -1755,6 +1914,7 @@ export class SuratDinasInternalService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
+        final_pdf: finalPdfPath, // Include generated PDF path in response
       },
     };
   }
@@ -2240,6 +2400,49 @@ export class SuratDinasInternalService {
       persnum: positionData.persnum,
       nama: positionData.nama || '',
     };
+  }
+
+  /**
+   * Get person name (persnum_person_text) by position ID
+   * Used by controller to get actual person name for PDF generation
+   * 
+   * @param positionId - Position ID from user JWT
+   * @param tgl - Optional date string (YYYY-MM-DD)
+   * @returns Person name or empty string if not found
+   */
+  async getPersonNameByPosition(positionId: string | number, tgl?: string): Promise<string> {
+    try {
+      if (!positionId) {
+        return '';
+      }
+
+      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+      
+      // Get org_data
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        return '';
+      }
+
+      const positionJson: SdiOrgDataPositionDto[] = orgData.position_json;
+      
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(positionId),
+      );
+      
+      if (pos) {
+        // Use persnum_person_text as primary source for person name
+        return (pos as any).persnum_person_text || pos.nama || '';
+      }
+
+      return '';
+    } catch (error) {
+      console.error(
+        `[SdiService] Error getting person name for position ${positionId}:`,
+        error,
+      );
+      return '';
+    }
   }
 
   /**
