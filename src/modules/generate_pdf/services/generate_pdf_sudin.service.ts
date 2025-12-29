@@ -186,8 +186,8 @@ export class GeneratePdfSudinService {
     // Process penerima
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
-      // Jika penerima > 5, ganti dengan "Periksa Alamat Terlampir"
-      penerimaHtml = 'Periksa Alamat Terlampir';
+      // Jika penerima > 5, ganti dengan "Periksa Alamat Terlampir" (dengan line break sebelum "Di Tempat")
+      penerimaHtml = 'Periksa Alamat Terlampir<br>';
     } else {
       // <= 5 items, tampilkan semua normal
       if (penerimaArr.length > 1) {
@@ -238,8 +238,8 @@ export class GeneratePdfSudinService {
         <tbody>
           <tr>
             <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
-            <td style='width:70%;color:#000;font-size:18px;vertical-align:bottom;'>AirNav Indonesia</td>
-            <td style='font-size:9px;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
+            <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
+            <td style='font-size:9px; text-align:right;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
           </tr>
         </tbody>
       </table>
@@ -400,10 +400,10 @@ export class GeneratePdfSudinService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '15mm',
-          bottom: '15mm',
-          left: '20mm',
-          right: '15mm',
+          top: '30mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 
