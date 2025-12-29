@@ -510,7 +510,6 @@ export class NotaDinasController {
           }
         }
       } catch (error) {
-        console.error('[preview-pdf] Error formatting date:', error);
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
@@ -676,7 +675,6 @@ export class NotaDinasController {
           }
         }
       } catch (error) {
-        console.error('[generate-pdf] Error formatting date:', error);
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
