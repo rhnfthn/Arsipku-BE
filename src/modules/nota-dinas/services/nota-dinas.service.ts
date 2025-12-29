@@ -509,7 +509,11 @@ export class NotaDinasService {
     }
   }
 
-  async generatePdfFromHtml(
+  /**
+   * Generate PDF polos (tanpa merge lampiran) untuk endpoint generate-pdf
+   * Hanya template PDF saja
+   */
+  async generatePlainPdf(
     htmlContent: string,
     tertuju: string[],
     dari: string,
@@ -518,7 +522,6 @@ export class NotaDinasService {
     positionText: string,
     namaLengkap: string,
     tembusan: string[] = [],
-    lampiranData?: string[] | Express.Multer.File[],
     tgl?: string,
     nama_tempat?: string,
   ): Promise<Buffer> {
@@ -562,7 +565,44 @@ export class NotaDinasService {
         nama_tempat: nama_tempat,
       };
 
-      let pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+      const pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate PDF dengan merge lampiran untuk endpoint preview-pdf
+   * PDF template + lampiran merged
+   */
+  async generatePdfFromHtml(
+    htmlContent: string,
+    tertuju: string[],
+    dari: string,
+    perihal: string,
+    tanggal: string,
+    positionText: string,
+    namaLengkap: string,
+    tembusan: string[] = [],
+    lampiranData?: string[] | Express.Multer.File[],
+    tgl?: string,
+    nama_tempat?: string,
+  ): Promise<Buffer> {
+    try {
+      // Generate plain PDF first
+      let pdfBuffer = await this.generatePlainPdf(
+        htmlContent,
+        tertuju,
+        dari,
+        perihal,
+        tanggal,
+        positionText,
+        namaLengkap,
+        tembusan,
+        tgl,
+        nama_tempat,
+      );
 
       // Handle lampiran - support both temporary IDs and direct file upload
       if (lampiranData && lampiranData.length > 0) {
@@ -1149,6 +1189,7 @@ export class NotaDinasService {
         `Pengirim dengan positionId ${dto.pengirim} tidak ditemukan dalam org_data`,
       );
     }
+    
     if (pengirim.chief !== 1) {
       throw new ForbiddenException(
         `Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`,
@@ -1217,18 +1258,21 @@ export class NotaDinasService {
       } else {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
+        // Use provided date from dto.tgl, or today as fallback
+        const tanggalNomor = dto.tgl ? new Date(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
           dto.perihal,
-          new Date(),
+          tanggalNomor,
           queryRunner,
         );
       }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
-      const tanggalHariIni = new Date();
+      // Use provided date from dto.tgl, or today as fallback
+      const tanggalHariIni = dto.tgl ? new Date(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1340,7 +1384,7 @@ export class NotaDinasService {
         tanggal: tanggalHariIni,
         namaJabatan: dto.nama_jabatan ?? pengirim.position_text,
         tandaTangan: dto.tanda_tangan ?? null,
-        namaLengkap: dto.nama_lengkap ?? pengirim.persnum_person_text,
+        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || '',
         tembusan: tembusanText,
       });
       await queryRunner.manager.save(ndEntity);
@@ -1363,7 +1407,7 @@ export class NotaDinasService {
               day: 'numeric',
             }),
             positionText: dto.nama_jabatan ?? pengirim.position_text,
-            namaLengkap: dto.nama_lengkap ?? pengirim.persnum_person_text,
+            namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || '',
           });
 
           // Merge with lampiran if any
@@ -1604,7 +1648,8 @@ export class NotaDinasService {
         pengirimPosition,
         klasifikasi,
         perihal,
-        new Date(),
+        // Use dto.tgl if provided, else use naskah's existing date, else today
+        dto.tgl ? new Date(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date()),
         queryRunner,
       );
 
@@ -2921,6 +2966,49 @@ export class NotaDinasService {
     } catch (error) {
       console.error(
         `[NotaDinasService] Error getting position abbreviation for ${positionId}:`,
+        error,
+      );
+      return '';
+    }
+  }
+
+  /**
+   * Get person name (persnum_person_text) by position ID
+   * Used by controller to get actual person name for PDF generation
+   * 
+   * @param positionId - Position ID from user JWT
+   * @param tgl - Optional date string (YYYY-MM-DD)
+   * @returns Person name or empty string if not found
+   */
+  async getPersonNameByPosition(positionId: string | number, tgl?: string): Promise<string> {
+    try {
+      if (!positionId) {
+        return '';
+      }
+
+      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+      
+      // Get org_data
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        return '';
+      }
+
+      const positionJson: OrgDataPositionDto[] = orgData.position_json;
+      
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(positionId),
+      );
+      
+      if (pos) {
+        // Use persnum_person_text as primary source for person name
+        return pos.persnum_person_text || '';
+      }
+
+      return '';
+    } catch (error) {
+      console.error(
+        `[NotaDinasService] Error getting person name for position ${positionId}:`,
         error,
       );
       return '';
