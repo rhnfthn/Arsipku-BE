@@ -4,11 +4,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, MoreThanOrEqual } from 'typeorm';
+import { Repository, DataSource, MoreThanOrEqual, In } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
+import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
@@ -63,6 +65,10 @@ export class DraftService {
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     @InjectRepository(NaskahReferensiEntity)
     private readonly naskahReferensiRepository: Repository<NaskahReferensiEntity>,
+    @InjectRepository(SdiSdeEntity)
+    private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
+    @InjectRepository(EksternalEntity)
+    private readonly eksternalRepository: Repository<EksternalEntity>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -128,20 +134,80 @@ export class DraftService {
       });
 
       // Get penerima for this naskah
-      const penerimaList = await this.naskahSirkulasiRepository.find({
-        where: {
-          idNaskah: naskah.id,
-          sirkuler: 'penerima',
-        },
-      });
+      let penerima: any[] = [];
 
-      // Map all penerima
-      const penerima = penerimaList.map((p) => ({
-        position_id: Number(p.position),
-        position_text: p.positionText || '',
-        nama: p.namaSirkuler || '',
-        organization_text: p.organizationText || '',
-      }));
+      // For SDE, get penerima from eksternal table
+      if (naskah.jenis === 'SDE') {
+        const sdeData = await this.sdiSdeRepository.findOne({
+          where: { idNaskah: naskah.id },
+        });
+
+        console.log('🔍 SDE Draft Debug - Naskah ID:', naskah.id);
+        console.log('🔍 SDE Draft Debug - SDE Data found:', sdeData ? 'Yes' : 'No');
+
+        if (sdeData) {
+          // Parse kepada_yth yang bisa berisi multiple penerima dipisah koma (nama, bukan UUID)
+          const penerimaNames = sdeData.kepadaYth 
+            ? sdeData.kepadaYth.split(',').map(n => n.trim()) 
+            : [sdeData.nama || ''];
+
+          console.log('🔍 SDE Draft Debug - penerima names:', penerimaNames);
+
+          // Untuk setiap nama penerima, coba cari di tabel eksternal
+          for (const namaP of penerimaNames) {
+            if (!namaP) continue;
+
+            // Try to find in eksternal table by name
+            const eksternalData = await this.eksternalRepository.findOne({
+              where: { nama: namaP },
+            });
+
+            if (eksternalData) {
+              penerima.push({
+                id: eksternalData.id,
+                nama: eksternalData.nama,
+                alamat: eksternalData.alamat || null,
+                telepon: eksternalData.telepon || null,
+                email: eksternalData.email || null,
+                kontak: eksternalData.kontak || null,
+                company: eksternalData.company,
+                area: eksternalData.area,
+              });
+            } else {
+              // Jika tidak ketemu di eksternal, tampilkan data dari sdi_sde
+              penerima.push({
+                nama: namaP,
+                alamat: sdeData.alamat || null,
+                telepon: null,
+                email: null,
+                kontak: null,
+                company: null,
+                area: null,
+              });
+            }
+          }
+          
+          console.log('🔍 SDE Draft Debug - penerima found:', penerima.length);
+        } else {
+          console.log('⚠️ SDE Draft Warning - sdi_sde data not found for naskah:', naskah.id);
+        }
+      } else {
+        // For other jenis (ND, SDI, DI, KA), get from naskah_sirkulasi
+        const penerimaList = await this.naskahSirkulasiRepository.find({
+          where: {
+            idNaskah: naskah.id,
+            sirkuler: 'penerima',
+          },
+        });
+
+        // Map all penerima
+        penerima = penerimaList.map((p) => ({
+          position_id: Number(p.position),
+          position_text: p.positionText || '',
+          nama: p.namaSirkuler || '',
+          organization_text: p.organizationText || '',
+        }));
+      }
 
       // Use created_at or updated_at from sirkulasi (pengirim)
       const tanggal = pengirimSirkulasi?.updatedAt 
@@ -158,7 +224,7 @@ export class DraftService {
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
         penerima: penerima,
-        penerima_count: penerimaList.length,
+        penerima_count: penerima.length,
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
         tanggal: tanggal,
         waktu: waktuUTC,
