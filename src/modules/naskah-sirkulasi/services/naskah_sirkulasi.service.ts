@@ -23,6 +23,8 @@ import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
+import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
+import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -40,6 +42,10 @@ export class NaskahSirkulasiService {
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahEntity)
     private readonly naskahRepo: Repository<NaskahEntity>,
+    @InjectRepository(EksternalEntity)
+    private readonly eksternalRepo: Repository<EksternalEntity>,
+    @InjectRepository(SdiSdeEntity)
+    private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -423,33 +429,87 @@ export class NaskahSirkulasiService {
     const items: SentMessageItemDto[] = [];
     
     for (const row of rows) {
-      // Get penerima list untuk naskah ini
-      const penerimaQuery = `
-        SELECT 
-          position as position_id,
-          position_text,
-          organization_text,
-          nama_sirkuler as nama,
-          send_read_time
-        FROM naskah_sirkulasi
-        WHERE id_naskah = ?
-        AND sirkuler = 'penerima'
-      `;
-      const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
+      let penerima: any[] = [];
 
-      // Map penerima dengan status baca
-      const penerima: PenerimaWithStatusDto[] = penerimaRows.map((p: any) => ({
-        position_id: p.position_id || '',
-        position_text: p.position_text || '',
-        organization_text: p.organization_text || '',
-        nama: p.nama || null,
-        status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
-        read_time: p.send_read_time || null,
-      }));
+      // Untuk SDE, ambil data penerima dari tabel sdi_sde
+      if (row.jenis === 'SDE') {
+        const sdeData = await this.sdiSdeRepo.findOne({
+          where: { idNaskah: row.id_naskah },
+        });
 
-      // Filter by status_baca jika diperlukan
-      // Jika filter status_baca ada, cek apakah ada penerima yang match
-      if (query.status_baca) {
+        console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
+        console.log('🔍 SDE Debug - SDE Data found:', sdeData ? 'Yes' : 'No');
+
+        if (sdeData) {
+          // Parse kepada_yth yang bisa berisi multiple penerima dipisah koma
+          const penerimaNames = sdeData.kepadaYth 
+            ? sdeData.kepadaYth.split(',').map(n => n.trim()) 
+            : [sdeData.nama || ''];
+
+          // Untuk setiap nama penerima, coba cari di tabel eksternal
+          for (const namaP of penerimaNames) {
+            if (!namaP) continue;
+
+            // Try to find in eksternal table by name
+            const eksternalData = await this.eksternalRepo.findOne({
+              where: { nama: namaP },
+            });
+
+            if (eksternalData) {
+              penerima.push({
+                id: eksternalData.id,
+                nama: eksternalData.nama,
+                alamat: eksternalData.alamat || null,
+                telepon: eksternalData.telepon || null,
+                email: eksternalData.email || null,
+                kontak: eksternalData.kontak || null,
+                company: eksternalData.company,
+                area: eksternalData.area,
+              });
+            } else {
+              // Jika tidak ketemu di eksternal, tampilkan data dari sdi_sde
+              penerima.push({
+                nama: namaP,
+                alamat: sdeData.alamat || null,
+                telepon: null,
+                email: null,
+                kontak: null,
+                company: null,
+                area: null,
+              });
+            }
+          }
+        } else {
+          console.log('⚠️ SDE Warning - sdi_sde data not found for naskah:', row.id_naskah);
+        }
+      } else {
+        // Untuk jenis lain (ND, SDI, DI, KA), ambil dari naskah_sirkulasi
+        const penerimaQuery = `
+          SELECT 
+            position as position_id,
+            position_text,
+            organization_text,
+            nama_sirkuler as nama,
+            send_read_time
+          FROM naskah_sirkulasi
+          WHERE id_naskah = ?
+          AND sirkuler = 'penerima'
+        `;
+        const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
+
+        // Map penerima dengan status baca
+        penerima = penerimaRows.map((p: any) => ({
+          position_id: p.position_id || '',
+          position_text: p.position_text || '',
+          organization_text: p.organization_text || '',
+          nama: p.nama || null,
+          status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: p.send_read_time || null,
+        }));
+      }
+
+      // Filter by status_baca jika diperlukan (hanya untuk non-SDE)
+      if (query.status_baca && row.jenis !== 'SDE') {
         const hasMatchingPenerima = penerima.some(
           (p) => p.status_baca === query.status_baca,
         );
@@ -458,9 +518,14 @@ export class NaskahSirkulasiService {
         }
       }
 
-      // Hitung summary baca
-      const terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
-      const belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
+      // Hitung summary baca (hanya untuk non-SDE)
+      let terbaca = 0;
+      let belumTerbaca = 0;
+      
+      if (row.jenis !== 'SDE') {
+        terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
+        belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
+      }
 
       // Get lampiran count
       const lampiranCountResult = await this.dataSource.query(

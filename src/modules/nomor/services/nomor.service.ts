@@ -300,6 +300,9 @@ export class NomorService {
           order: { createdAt: 'ASC' },
         });
 
+        // Generate template nomor
+        const templateNomor = await this.generateNomorTemplate(request);
+
         return {
           id: request.id,
           company: request.company!,
@@ -313,6 +316,7 @@ export class NomorService {
           perihal: request.perihal!,
           jumlah: request.jumlah!,
           penandatangan: request.penandatangan,
+          template_nomor: templateNomor,
           created_at: request.createdAt,
           details: details.map((detail) => ({
             id: detail.id,

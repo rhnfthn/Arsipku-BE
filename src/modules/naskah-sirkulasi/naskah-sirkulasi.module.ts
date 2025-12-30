@@ -6,9 +6,11 @@ import { NaskahSirkulasi } from './entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
+import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
+import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([NaskahSirkulasi, NaskahEntity, NaskahLampiranEntity, NaskahReferensiEntity])],
+  imports: [TypeOrmModule.forFeature([NaskahSirkulasi, NaskahEntity, NaskahLampiranEntity, NaskahReferensiEntity, EksternalEntity, SdiSdeEntity])],
   controllers: [NaskahSirkulasiController],
   providers: [NaskahSirkulasiService],
   exports: [NaskahSirkulasiService, TypeOrmModule],
