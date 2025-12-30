@@ -125,6 +125,95 @@ export class SuratDinasEksternalService {
     return names;
   }
 
+  /**
+   * Helper: Validate and get penerima eksternal entities
+   * Skips empty/invalid IDs and returns found entities
+   */
+  private async validatePenerimaEksternal(
+    penerimaIds: string[],
+    throwOnNotFound: boolean = false,
+  ): Promise<EksternalEntity[]> {
+    const penerimaList: EksternalEntity[] = [];
+    
+    if (!penerimaIds || penerimaIds.length === 0) {
+      return penerimaList;
+    }
+
+    console.log('🔍 Validating penerima eksternal:', penerimaIds);
+
+    for (const eksternalId of penerimaIds) {
+      // Skip empty values
+      const cleanId = String(eksternalId).trim();
+      if (!cleanId || cleanId === '' || cleanId === '[]' || cleanId === 'undefined') {
+        console.log('⚠️ Skipping invalid penerima ID:', eksternalId);
+        continue;
+      }
+
+      console.log('🔍 Looking up eksternal ID:', cleanId);
+
+      const eksternal = await this.eksternalRepository.findOne({
+        where: { id: cleanId, aktif: true },
+      });
+
+      if (!eksternal) {
+        console.log('❌ Eksternal not found:', cleanId);
+        if (throwOnNotFound) {
+          throw new NotFoundException(
+            `Penerima eksternal dengan id ${cleanId} tidak ditemukan atau tidak aktif`,
+          );
+        }
+        continue; // Skip if not throwing
+      }
+
+      console.log('✅ Eksternal found:', eksternal.nama);
+      penerimaList.push(eksternal);
+    }
+
+    return penerimaList;
+  }
+
+  /**
+   * Helper: Convert array of eksternal UUIDs to company names
+   * Uses eksternal table to lookup company information
+   * 
+   * @param eksternalIds - Array of eksternal UUIDs
+   * @returns Array of company names
+   */
+  async convertEksternalIdsToNames(
+    eksternalIds: string[],
+  ): Promise<string[]> {
+    if (!eksternalIds || eksternalIds.length === 0) {
+      return [];
+    }
+
+    const names: string[] = [];
+
+    for (const extId of eksternalIds) {
+      const cleanId = String(extId).trim();
+      
+      // Check if it's a UUID (contains dashes)
+      const isUuid = cleanId.includes('-') && cleanId.length === 36;
+      
+      if (isUuid) {
+        const eksternal = await this.eksternalRepository.findOne({
+          where: { id: cleanId, aktif: true },
+        });
+        
+        if (eksternal) {
+          names.push(eksternal.nama);
+        } else {
+          // Fallback to ID if not found
+          names.push(cleanId);
+        }
+      } else {
+        // Not a UUID, just return as is (might be a name already)
+        names.push(cleanId);
+      }
+    }
+
+    return names;
+  }
+
   // ============================================================
   // PDF GENERATION
   // ============================================================
@@ -1166,18 +1255,10 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 3: Validate penerima if provided
-    let penerimaList: EksternalEntity[] = [];
-    if (dto.penerima !== undefined && dto.penerima.length > 0) {
-      for (const eksternalId of dto.penerima) {
-        const eksternal = await this.eksternalRepository.findOne({
-          where: { id: eksternalId, aktif: true },
-        });
-        if (!eksternal) {
-          throw new NotFoundException(`Penerima eksternal dengan id ${eksternalId} tidak ditemukan atau tidak aktif`);
-        }
-        penerimaList.push(eksternal);
-      }
-    }
+    const penerimaList = await this.validatePenerimaEksternal(
+      dto.penerima || [],
+      false, // Don't throw, skip invalid IDs
+    );
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -1440,18 +1521,10 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 3: Validate penerima if provided
-    let penerimaList: EksternalEntity[] = [];
-    if (dto.penerima !== undefined && dto.penerima.length > 0) {
-      for (const eksternalId of dto.penerima) {
-        const eksternal = await this.eksternalRepository.findOne({
-          where: { id: eksternalId, aktif: true },
-        });
-        if (!eksternal) {
-          throw new NotFoundException(`Penerima eksternal dengan id ${eksternalId} tidak ditemukan atau tidak aktif`);
-        }
-        penerimaList.push(eksternal);
-      }
-    }
+    const penerimaList = await this.validatePenerimaEksternal(
+      dto.penerima || [],
+      false, // Don't throw, skip invalid IDs
+    );
 
     // PHASE 4: Get full pengirim data for nomor surat generation
     let finalPengirimPosition = pengirimPosition;
