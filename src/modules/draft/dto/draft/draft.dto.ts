@@ -32,11 +32,18 @@ export class GetDraftListQueryDto {
 // ============================================================
 // GET /draft/list - Response
 // ============================================================
+export class DraftListPenerimaDto {
+  position_id: number;
+  position_text: string;
+  nama: string;
+  organization_text: string;
+}
+
 export class DraftListItemDto {
   id_naskah: string;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
   jenis_text: string;
-  penerima: string; // Nama penerima (untuk display)
+  penerima: DraftListPenerimaDto[]; // Array of all penerima
   penerima_count: number; // Jumlah penerima
   isi_pesan: string; // Perihal
   tanggal: Date;
