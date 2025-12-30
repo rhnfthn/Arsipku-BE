@@ -135,10 +135,13 @@ export class DraftService {
         },
       });
 
-      // Get first penerima name for display
-      const firstPenerima = penerimaList.length > 0 
-        ? penerimaList[0].positionText || penerimaList[0].namaSirkuler || 'Unknown'
-        : '-';
+      // Map all penerima
+      const penerima = penerimaList.map((p) => ({
+        position_id: Number(p.position),
+        position_text: p.positionText || '',
+        nama: p.namaSirkuler || '',
+        organization_text: p.organizationText || '',
+      }));
 
       // Use created_at or updated_at from sirkulasi (pengirim)
       const tanggal = pengirimSirkulasi?.updatedAt 
@@ -154,7 +157,7 @@ export class DraftService {
         id_naskah: naskah.id,
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
-        penerima: firstPenerima,
+        penerima: penerima,
         penerima_count: penerimaList.length,
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
         tanggal: tanggal,
