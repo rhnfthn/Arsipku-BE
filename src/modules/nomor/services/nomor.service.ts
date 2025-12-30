@@ -166,6 +166,47 @@ export class NomorService {
     return nomorBaru;
   }
 
+  private looksLikeStorageKey(key: string | null | undefined): boolean {
+    if (!key) return false;
+    // Expected pattern from StorageService.uploadFile(): {folder}/{timestamp}-{sanitizedFileName}
+    if (!key.includes('/')) return false;
+    const base = key.split('/').pop() || '';
+    return /^\d{10,}-/.test(base);
+  }
+
+  private async getDetailFileUrlAndHeal(
+    detail: NomorRequestDetailEntity,
+    folder: string = 'nomor',
+  ): Promise<string | null> {
+    const key = detail.fileText;
+    if (key && this.looksLikeStorageKey(key)) {
+      // Fast-path: treat as valid key
+      return await this.storageService.getFileUrl(key);
+    }
+
+    // Jika fileText kosong atau kelihatan bukan key (misalnya nama file original), coba self-heal
+    const originalName = detail.fileName || detail.fileText;
+    if (!originalName) return null;
+
+    const foundKey = await this.storageService.findLatestKeyByOriginalName(
+      originalName,
+      folder,
+    );
+
+    if (!foundKey) {
+      return null;
+    }
+
+    // Update DB agar request berikutnya sudah benar
+    detail.fileText = foundKey;
+    if (!detail.fileName) {
+      detail.fileName = originalName;
+    }
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return await this.storageService.getFileUrl(foundKey);
+  }
+
   /**
    * User membuat usulan nomor baru
    * Data company, area, sub_area, organization diambil dari org_data berdasarkan position_id
@@ -658,7 +699,7 @@ export class NomorService {
           nomor: d.nomor,
           status: d.status,
           file_name: d.fileName,
-          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
           created_at: d.createdAt,
         }))
       );
@@ -837,7 +878,7 @@ export class NomorService {
         status: d.status,
         file_name: d.fileName,
         file_text: d.fileText,
-        file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+        file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
         created_at: d.createdAt,
       }))
     );
@@ -995,7 +1036,7 @@ export class NomorService {
         status: detail.status,
         file_name: detail.fileName,
         file_text: detail.fileText,
-        file_url: detail.fileText ? await this.storageService.getFileUrl(detail.fileText) : null,
+        file_url: await this.getDetailFileUrlAndHeal(detail, folder),
         created_at: detail.createdAt,
       }))
     );
@@ -1823,7 +1864,7 @@ export class NomorService {
           status: d.status,
           file_name: d.fileName || null,
           file_text: d.fileText || null,
-          file_url: d.fileName ? await this.storageService.getFileUrl(d.fileName) : null,
+          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
           created_at: d.createdAt,
         }))
     );
