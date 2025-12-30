@@ -91,4 +91,19 @@ export class NaskahSirkulasi {
 
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
+
+  @Column('timestamp', { 
+    name: 'created_at', 
+    nullable: false,
+    default: () => 'CURRENT_TIMESTAMP'
+  })
+  createdAt: Date;
+
+  @Column('timestamp', { 
+    name: 'updated_at', 
+    nullable: true,
+    default: null,
+    onUpdate: 'CURRENT_TIMESTAMP'
+  })
+  updatedAt: Date | null;
 }
