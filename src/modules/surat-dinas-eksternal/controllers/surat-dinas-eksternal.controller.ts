@@ -17,6 +17,43 @@ export class SuratDinasEksternalController {
   ) {}
 
   /**
+   * Helper: Convert penerima/recipient array to names
+   * Supports: eksternal UUIDs, position IDs, or names
+   */
+  private async convertRecipientsToNames(
+    recipientArray: any[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!recipientArray || recipientArray.length === 0) {
+      return [];
+    }
+
+    const isPositionId = (value: any): boolean => {
+      return typeof value === 'number' || 
+             (typeof value === 'string' && /^\d+$/.test(value));
+    };
+
+    const isEksternalId = (value: any): boolean => {
+      const str = String(value).trim();
+      return str.includes('-') && str.length === 36; // UUID format
+    };
+
+    // Determine type from first element
+    const firstValue = recipientArray[0];
+    
+    if (isEksternalId(firstValue)) {
+      // Convert eksternal UUIDs to company names
+      return await this.sdeService.convertEksternalIdsToNames(recipientArray);
+    } else if (isPositionId(firstValue)) {
+      // Convert position IDs to position names
+      return await this.sdeService.convertPositionIdsToNames(recipientArray, tanggal);
+    }
+    
+    // Already names, return as is
+    return recipientArray;
+  }
+
+  /**
    * GET /SDE/get-recipient/:positionId
    * Get Surat Dinas Eksternal (SDE) recipients for a sender
    *
@@ -348,15 +385,8 @@ export class SuratDinasEksternalController {
         }
       }
 
-      // Check if penerima are position_ids and convert to names
-      const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
-      };
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
-      }
+      // Convert to names (supports eksternal UUIDs, position IDs, or names)
+      penerimaArray = await this.convertRecipientsToNames(penerimaArray, body.tanggal || body.tgl);
 
       // Parse tembusan if it's a string (from form-data)
       let tembusanArray = body.tembusan || [];
@@ -368,8 +398,16 @@ export class SuratDinasEksternalController {
         }
       }
 
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      // Convert tembusan to names (position IDs)
+      if (tembusanArray.length > 0) {
+        const isPositionId = (value: any): boolean => {
+          return typeof value === 'number' || 
+                 (typeof value === 'string' && /^\d+$/.test(value));
+        };
+        
+        if (isPositionId(tembusanArray[0])) {
+          tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        }
       }
 
       // Parse lampiran_temp_ids if provided
@@ -463,15 +501,8 @@ export class SuratDinasEksternalController {
         }
       }
 
-      // Check if penerima are position_ids and convert to names
-      const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
-      };
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
-      }
+      // Convert to names (supports eksternal UUIDs, position IDs, or names)
+      penerimaArray = await this.convertRecipientsToNames(penerimaArray, body.tanggal || body.tgl);
 
       // Parse tembusan if it's a string (from form-data)
       let tembusanArray = body.tembusan || [];
@@ -483,8 +514,16 @@ export class SuratDinasEksternalController {
         }
       }
 
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      // Convert tembusan to names (position IDs)
+      if (tembusanArray.length > 0) {
+        const isPositionId = (value: any): boolean => {
+          return typeof value === 'number' || 
+                 (typeof value === 'string' && /^\d+$/.test(value));
+        };
+        
+        if (isPositionId(tembusanArray[0])) {
+          tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        }
       }
 
       // Parse lampiran_temp_ids if provided
