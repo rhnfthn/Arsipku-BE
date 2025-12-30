@@ -170,6 +170,41 @@ export class NomorController {
   }
 
   /**
+   * GET /nomor-request-count/:positionId
+   * Admin melihat count/statistik usulan nomor berdasarkan status untuk position tertentu
+   */
+  @Get('nomor-request-count/:positionId')
+  async getAdminCountNomorRequestByPosition(
+    @Param('positionId') positionId: string,
+  ): Promise<AdminCountNomorRequestResponseDto> {
+    try {
+      const positionIdNum = parseInt(positionId, 10);
+      if (isNaN(positionIdNum)) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'Position ID must be a valid number',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getAdminCountNomorRequestByPosition(positionIdNum);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get nomor request count by position',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /admin/nomor-request/:id
    * Admin melihat detail usulan nomor saja
    */
