@@ -605,7 +605,7 @@ export class SuratDinasEksternalService {
    */
   private createSirkulasiFromOrgData(
     idNaskah: string,
-    sirkuler: 'pengirim',
+    sirkuler: 'pengirim' | 'tembusan',
     pos: SdeOrgDataPositionDto,
     isDraft: boolean = false,
   ): NaskahSirkulasi {
@@ -808,6 +808,17 @@ export class SuratDinasEksternalService {
       }
     }
 
+    // PHASE 3.1: Validate and get tembusan from org_data (if any)
+    const tembusanList: SdeOrgDataPositionDto[] = [];
+    if (dto.tembusan && dto.tembusan.length > 0) {
+      for (const posId of dto.tembusan) {
+        const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
+        if (tembusan) {
+          tembusanList.push(tembusan);
+        }
+      }
+    }
+
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -854,9 +865,17 @@ export class SuratDinasEksternalService {
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
-      // PHASE 6: Insert sirkulasi - HANYA pengirim (penerima eksternal tidak masuk sirkulasi)
+      // PHASE 6: Insert sirkulasi - pengirim dan tembusan
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft);
       await queryRunner.manager.save(pengirimSirkulasi);
+
+      // PHASE 6.1: Insert sirkulasi - tembusan (if any)
+      if (tembusanList && tembusanList.length > 0) {
+        for (const tembusan of tembusanList) {
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft);
+          await queryRunner.manager.save(tembusanSirkulasi);
+        }
+      }
 
       // PHASE 7: Handle lampiran
       // Handle temporary lampiran (RECOMMENDED - dari POST /upload-temporary)
@@ -1027,7 +1046,7 @@ export class SuratDinasEksternalService {
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirim), // Use helper directly from org_data
           penerima: penerimaResponses,
-          tembusan: tembusanResponses.length > 0 ? tembusanResponses : undefined,
+          tembusan: tembusanResponses, // Always return array (empty or filled)
           lampiran: lampiranText, // Nama file lampiran dari temporary files
           final_pdf: finalPdfPath || null, // Always include final_pdf field (null if not generated)
         },
@@ -1327,6 +1346,54 @@ export class SuratDinasEksternalService {
         await queryRunner.manager.save(pengirimSirkulasi);
       }
 
+      // PHASE 6.1: Handle sirkulasi tembusan - ALWAYS ensure consistency
+      // Delete existing tembusan sirkulasi
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'tembusan' });
+
+      // Determine tembusan list to insert
+      let tembusanPositionsToInsert: number[] = [];
+      
+      if (dto.tembusan !== undefined) {
+        // Use provided tembusan from DTO
+        tembusanPositionsToInsert = dto.tembusan;
+      } else {
+        // Get existing tembusan from sirkulasi (before deletion, we need to get from sdi_sde or reconstruct)
+        // Actually, we already deleted it above, so we need to get from sdi_sde.tembusan string
+        const existingSdeData = await queryRunner.manager.findOne(SdiSdeEntity, { where: { idNaskah: naskahId } });
+        if (existingSdeData?.tembusan) {
+          // Parse tembusan string and try to find positions
+          const tembusanNames = existingSdeData.tembusan.split(';').map(s => s.trim());
+          const orgDataForExisting = await this.orgDataService.findOrg(tanggal);
+          if (orgDataForExisting?.position_json) {
+            const barisDataExisting = orgDataForExisting.position_json;
+            for (const tembusanName of tembusanNames) {
+              const pos = barisDataExisting.find((x: any) => 
+                `${x.position_text} - ${x.organization_text}` === tembusanName ||
+                x.position_text === tembusanName
+              );
+              if (pos) {
+                tembusanPositionsToInsert.push(pos.position);
+              }
+            }
+          }
+        }
+      }
+
+      // Re-insert tembusan if any
+      if (tembusanPositionsToInsert.length > 0) {
+        const orgDataForTembusan = await this.orgDataService.findOrg(tanggal);
+        if (orgDataForTembusan?.position_json) {
+          const barisDataTembusan = orgDataForTembusan.position_json;
+          for (const posId of tembusanPositionsToInsert) {
+            const tembusanPos = barisDataTembusan.find((x: any) => Number(x.position) === Number(posId));
+            if (tembusanPos) {
+              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, true);
+              await queryRunner.manager.save(tembusanSirkulasi);
+            }
+          }
+        }
+      }
+
       // PHASE 7: Update lampiran if changed
       if (dto.lampiran_files !== undefined) {
         // Delete old lampiran
@@ -1398,25 +1465,28 @@ export class SuratDinasEksternalService {
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
-    // Get tembusan from sdeData and convert back to SirkulasiInfo
-    const tembusanResponses: SdeSirkulasiInfoDto[] = [];
-    if (sdeData?.tembusan) {
-      const tembusanNames = sdeData.tembusan.split(';').map((s: string) => s.trim());
-      // Try to find matching positions from org_data
-      const orgDataForTembusan = await this.orgDataService.findOrg(tanggal);
-      if (orgDataForTembusan?.position_json) {
-        for (const tembusanName of tembusanNames) {
-          const pos = orgDataForTembusan.position_json.find(
-            (x: SdeOrgDataPositionDto) => 
-              `${x.position_text} - ${x.organization_text}` === tembusanName ||
-              x.position_text === tembusanName
-          );
-          if (pos) {
-            tembusanResponses.push(this.toSirkulasiInfo(pos));
-          }
-        }
-      }
-    }
+    // Get tembusan directly from naskah_sirkulasi table
+    const tembusanList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Build tembusan info
+    const tembusanResponses: SdeSirkulasiInfoDto[] = tembusanList.map((t) => ({
+      position: parseInt(t.position || '0', 10),
+      position_text: t.positionText || '',
+      persnum: parseInt(t.idSirkuler || '0', 10),
+      nama: t.namaSirkuler || '',
+      organization_id: parseInt(t.organization || '0', 10),
+      organization_text: t.organizationText || '',
+      sub_area: parseInt(t.subArea || '0', 10),
+      sub_area_text: t.subAreaText || '',
+      area: t.area || '',
+      area_text: t.areaText || '',
+    }));
 
     // Handle tanggal - bisa Date object atau string
     let tanggalStr = '';
@@ -1453,7 +1523,7 @@ export class SuratDinasEksternalService {
               area_text: pengirimSirkulasi?.areaText || null,
             },
         penerima: penerimaResponses,
-        tembusan: tembusanResponses.length > 0 ? tembusanResponses : undefined,
+        tembusan: tembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
       },
     };
@@ -1639,6 +1709,53 @@ export class SuratDinasEksternalService {
         );
       }
 
+      // PHASE 8.1: Handle sirkulasi tembusan - ALWAYS ensure consistency  
+      // Delete existing tembusan sirkulasi
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'tembusan' });
+
+      // Determine tembusan list to insert
+      let tembusanPositionsToInsert: number[] = [];
+      
+      if (dto.tembusan !== undefined) {
+        // Use provided tembusan from DTO
+        tembusanPositionsToInsert = dto.tembusan;
+      } else {
+        // Get existing tembusan from sdi_sde.tembusan string
+        const existingSdeData = await queryRunner.manager.findOne(SdiSdeEntity, { where: { idNaskah: naskahId } });
+        if (existingSdeData?.tembusan) {
+          // Parse tembusan string and try to find positions
+          const tembusanNames = existingSdeData.tembusan.split(';').map(s => s.trim());
+          const orgDataForExisting = await this.orgDataService.findOrg(tanggal);
+          if (orgDataForExisting?.position_json) {
+            const barisDataExisting = orgDataForExisting.position_json;
+            for (const tembusanName of tembusanNames) {
+              const pos = barisDataExisting.find((x: any) => 
+                `${x.position_text} - ${x.organization_text}` === tembusanName ||
+                x.position_text === tembusanName
+              );
+              if (pos) {
+                tembusanPositionsToInsert.push(pos.position);
+              }
+            }
+          }
+        }
+      }
+
+      // Re-insert tembusan if any
+      if (tembusanPositionsToInsert.length > 0) {
+        const orgDataForTembusan = await this.orgDataService.findOrg(tanggal);
+        if (orgDataForTembusan?.position_json) {
+          const barisDataTembusan = orgDataForTembusan.position_json;
+          for (const posId of tembusanPositionsToInsert) {
+            const tembusanPos = barisDataTembusan.find((x: any) => Number(x.position) === Number(posId));
+            if (tembusanPos) {
+              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, false);
+              await queryRunner.manager.save(tembusanSirkulasi);
+            }
+          }
+        }
+      }
+
       // PHASE 9: Update lampiran if provided
       if (dto.lampiran_files !== undefined) {
         await queryRunner.manager.delete(NaskahLampiranEntity, { id_naskah: naskahId });
@@ -1803,25 +1920,28 @@ export class SuratDinasEksternalService {
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
-    // Get tembusan from sdeData and convert back to SirkulasiInfo
-    const finalizeTembusanResponses: SdeSirkulasiInfoDto[] = [];
-    if (sdeData?.tembusan) {
-      const tembusanNamesList = sdeData.tembusan.split(';').map((s: string) => s.trim());
-      // Try to find matching positions from org_data
-      const orgDataForTembusanFinalize = await this.orgDataService.findOrg(tanggal);
-      if (orgDataForTembusanFinalize?.position_json) {
-        for (const tembusanName of tembusanNamesList) {
-          const pos = orgDataForTembusanFinalize.position_json.find(
-            (x: SdeOrgDataPositionDto) => 
-              `${x.position_text} - ${x.organization_text}` === tembusanName ||
-              x.position_text === tembusanName
-          );
-          if (pos) {
-            finalizeTembusanResponses.push(this.toSirkulasiInfo(pos));
-          }
-        }
-      }
-    }
+    // Get tembusan directly from naskah_sirkulasi table
+    const finalizeTembusanList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Build tembusan info
+    const finalizeTembusanResponses: SdeSirkulasiInfoDto[] = finalizeTembusanList.map((t) => ({
+      position: parseInt(t.position || '0', 10),
+      position_text: t.positionText || '',
+      persnum: parseInt(t.idSirkuler || '0', 10),
+      nama: t.namaSirkuler || '',
+      organization_id: parseInt(t.organization || '0', 10),
+      organization_text: t.organizationText || '',
+      sub_area: parseInt(t.subArea || '0', 10),
+      sub_area_text: t.subAreaText || '',
+      area: t.area || '',
+      area_text: t.areaText || '',
+    }));
 
     // Get final PDF path from updated naskah
     const finalPdfPathForResponse = updatedNaskah?.final_pdf || null;
@@ -1860,7 +1980,7 @@ export class SuratDinasEksternalService {
               area_text: pengirimSirkulasi?.areaText || null,
             },
         penerima: penerimaResponses,
-        tembusan: finalizeTembusanResponses.length > 0 ? finalizeTembusanResponses : undefined,
+        tembusan: finalizeTembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
         final_pdf: finalPdfPathForResponse, // Path file PDF final (null if not generated)
       },
@@ -1957,6 +2077,29 @@ export class SuratDinasEksternalService {
         }
       }
 
+      // Get tembusan sirkulasi
+      const tembusanList = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskah.id,
+          sirkuler: 'tembusan',
+        },
+        order: { createdAt: 'ASC' },
+      });
+
+      // Build tembusan info
+      const tembusanInfoList = tembusanList.map((t) => ({
+        position: parseInt(t.position || '0', 10),
+        position_text: t.positionText || '',
+        persnum: parseInt(t.idSirkuler || '0', 10),
+        nama: t.namaSirkuler || '',
+        organization_id: parseInt(t.organization || '0', 10),
+        organization_text: t.organizationText || '',
+        sub_area: parseInt(t.subArea || '0', 10),
+        sub_area_text: t.subAreaText || '',
+        area: t.area || '',
+        area_text: t.areaText || '',
+      }));
+
       // Format tanggal
       const tanggalStr = naskah.tanggal instanceof Date
         ? naskah.tanggal.toISOString().split('T')[0]
@@ -2004,6 +2147,7 @@ export class SuratDinasEksternalService {
           area_text: pengirimSirkulasi?.areaText || '',
         },
         penerima: penerimaList,
+        tembusan: tembusanInfoList, // Always return array (empty or filled)
 
         // Lampiran
         lampiran: naskah.lampiran || null,
@@ -2080,6 +2224,29 @@ export class SuratDinasEksternalService {
       }
     }
 
+    // Get tembusan sirkulasi
+    const tembusanList = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Build tembusan info
+    const tembusanInfoList = tembusanList.map((t) => ({
+      position: parseInt(t.position || '0', 10),
+      position_text: t.positionText || '',
+      persnum: parseInt(t.idSirkuler || '0', 10),
+      nama: t.namaSirkuler || '',
+      organization_id: parseInt(t.organization || '0', 10),
+      organization_text: t.organizationText || '',
+      sub_area: parseInt(t.subArea || '0', 10),
+      sub_area_text: t.subAreaText || '',
+      area: t.area || '',
+      area_text: t.areaText || '',
+    }));
+
     // Get lampiran files
     const lampiranFiles = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
@@ -2155,6 +2322,7 @@ export class SuratDinasEksternalService {
           areaText: pengirimSirkulasi?.areaText || '',
         },
         penerima: penerimaInfoList,
+        tembusan: tembusanInfoList, // Always return array (empty or filled)
 
         // Files
         lampiran_files: lampiranInfoList,
