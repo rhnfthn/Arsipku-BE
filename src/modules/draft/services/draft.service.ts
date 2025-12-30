@@ -118,6 +118,15 @@ export class DraftService {
     const items: DraftListItemDto[] = [];
 
     for (const naskah of naskahs) {
+      // Get pengirim for timestamp (created_at)
+      const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskah.id,
+          sirkuler: 'pengirim',
+          position: String(positionId),
+        },
+      });
+
       // Get penerima for this naskah
       const penerimaList = await this.naskahSirkulasiRepository.find({
         where: {
@@ -131,7 +140,15 @@ export class DraftService {
         ? penerimaList[0].positionText || penerimaList[0].namaSirkuler || 'Unknown'
         : '-';
 
-      const tanggal = new Date(naskah.tanggal);
+      // Use created_at or updated_at from sirkulasi (pengirim)
+      const tanggal = pengirimSirkulasi?.updatedAt 
+        ? new Date(pengirimSirkulasi.updatedAt)
+        : pengirimSirkulasi?.createdAt
+        ? new Date(pengirimSirkulasi.createdAt)
+        : new Date(naskah.tanggal);
+
+      // Format waktu in UTC (HH:mm)
+      const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
 
       items.push({
         id_naskah: naskah.id,
@@ -141,7 +158,7 @@ export class DraftService {
         penerima_count: penerimaList.length,
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
         tanggal: tanggal,
-        waktu: tanggal.toTimeString().substring(0, 5),
+        waktu: waktuUTC,
       });
     }
 
