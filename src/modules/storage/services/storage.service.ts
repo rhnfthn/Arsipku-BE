@@ -416,6 +416,47 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Cari key file terbaru berdasarkan nama file original.
+   * Berguna untuk migrasi/self-heal data lama yang menyimpan file_text sebagai nama file,
+   * padahal key upload mengikuti pola: {folder}/{timestamp}-{sanitizedFileName}
+   */
+  async findLatestKeyByOriginalName(
+    originalName: string,
+    folder: string = '',
+    maxKeys: number = 1000,
+  ): Promise<string | null> {
+    if (!originalName) return null;
+
+    const sanitized = this.sanitizeFileName(originalName);
+    const prefix = folder ? `${folder.replace(/\/+$/, '')}/` : '';
+
+    const keys = await this.listFiles(prefix, maxKeys);
+    if (!keys.length) return null;
+
+    // Candidate keys biasanya diakhiri dengan `-{sanitized}`
+    const candidates = keys.filter(
+      (k) => k.endsWith(`-${sanitized}`) || k.endsWith(`/${sanitized}`),
+    );
+    if (!candidates.length) return null;
+
+    // Pilih yang timestamp-nya paling besar (paling baru)
+    let bestKey: string = candidates[0];
+    let bestTs = -1;
+
+    for (const k of candidates) {
+      const base = k.split('/').pop() || '';
+      const tsStr = base.split('-')[0];
+      const ts = Number(tsStr);
+      if (!Number.isNaN(ts) && ts > bestTs) {
+        bestTs = ts;
+        bestKey = k;
+      }
+    }
+
+    return bestKey;
+  }
+
+  /**
    * Sanitize filename untuk menghindari karakter berbahaya
    */
   private sanitizeFileName(filename: string): string {
