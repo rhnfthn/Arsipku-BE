@@ -354,9 +354,9 @@ export class SuratDinasInternalService {
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
-          // Auto-fill lampiran field with file names from uploaded files
-          const fileNames = lampiranFiles.map(f => f.fileName);
-          lampiranText = fileNames.join(', ');
+          // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran")
+          const count = lampiranFiles.length;
+          lampiranText = `${count} Lampiran`;
         }
       }
 
