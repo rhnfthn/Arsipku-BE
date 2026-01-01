@@ -638,6 +638,43 @@ export class SuratDinasEksternalService {
   }
 
   /**
+   * Helper: Create NaskahSirkulasi record from EksternalEntity
+   * For penerima eksternal - stores external recipient data with urutan
+   */
+  private createSirkulasiFromEksternal(
+    naskahId: string,
+    eksternal: EksternalEntity,
+    isDraft: boolean = false,
+    urutan: number = 0,
+  ): NaskahSirkulasi {
+    const sirkulasi = this.naskahSirkulasiRepository.create({
+      id: uuidv4(),
+      idNaskah: naskahId,
+      sirkuler: 'penerima',
+      company: null, // Penerima eksternal tidak punya company internal
+      companyText: eksternal.nama, // Gunakan nama sebagai company text
+      area: null,
+      areaText: null,
+      subArea: null,
+      subAreaText: null,
+      organization: null,
+      organizationText: eksternal.nama, // Nama penerima eksternal
+      position: null,
+      positionText: null,
+      positionStatus: 'ext', // Mark as external
+      idSirkuler: eksternal.id, // ID dari tabel eksternal
+      namaSirkuler: eksternal.nama, // Nama dari tabel eksternal
+      alamat: eksternal.alamat || null,
+      telepon: eksternal.telepon || null,
+      email: eksternal.email || null,
+      isDraft: isDraft,
+      urutan: urutan,
+    });
+
+    return sirkulasi;
+  }
+
+  /**
    * Helper: Convert EksternalEntity to SdePenerimaInfoDto
    */
   private toEksternalPenerimaInfo(ext: EksternalEntity): SdePenerimaInfoDto {
@@ -877,6 +914,15 @@ export class SuratDinasEksternalService {
           const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
           await queryRunner.manager.save(tembusanSirkulasi);
+        }
+      }
+
+      // PHASE 6.2: Insert sirkulasi - penerima eksternal (if any) with urutan
+      if (penerimaList && penerimaList.length > 0) {
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
+          const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, isDraft, i);
+          await queryRunner.manager.save(penerimaSirkulasi);
         }
       }
 
@@ -1398,6 +1444,19 @@ export class SuratDinasEksternalService {
         }
       }
 
+      // PHASE 6.2: Handle sirkulasi penerima eksternal - ALWAYS ensure consistency
+      // Delete existing penerima sirkulasi
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'penerima' });
+
+      // Re-insert penerima eksternal if any with urutan
+      if (penerimaList && penerimaList.length > 0) {
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
+          const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, true, i);
+          await queryRunner.manager.save(penerimaSirkulasi);
+        }
+      }
+
       // PHASE 7: Update lampiran if changed
       if (dto.lampiran_files !== undefined) {
         // Delete old lampiran
@@ -1761,6 +1820,19 @@ export class SuratDinasEksternalService {
         }
       }
 
+      // PHASE 8.2: Handle sirkulasi penerima eksternal - ALWAYS ensure consistency
+      // Delete existing penerima sirkulasi
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'penerima' });
+
+      // Re-insert penerima eksternal if any with urutan (use list from DTO or existing)
+      if (penerimaList && penerimaList.length > 0) {
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
+          const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, false, i);
+          await queryRunner.manager.save(penerimaSirkulasi);
+        }
+      }
+
       // PHASE 9: Update lampiran if provided
       if (dto.lampiran_files !== undefined) {
         await queryRunner.manager.delete(NaskahLampiranEntity, { id_naskah: naskahId });
@@ -1790,17 +1862,21 @@ export class SuratDinasEksternalService {
           where: { idNaskah: naskahId, sirkuler: 'pengirim' },
         });
 
-        // Get penerima list for PDF
-        const kepadaYthListForPdf = sdeDataForPdf?.kepadaYth?.split('; ') || [];
+        // Get penerima eksternal from sirkulasi (with proper urutan) for PDF
+        const penerimaListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'penerima' },
+          order: { urutan: 'ASC', createdAt: 'ASC' },
+        });
+        const kepadaYthListForPdf = penerimaListForPdf.map(p => p.namaSirkuler || '');
 
-        // Get tembusan from sdi_sde (stored as semicolon-separated string)
-        // If dto.tembusan provided, convert to names; otherwise use stored tembusan
-        let tembusanForPdf: string[] = [];
-        if (dto.tembusan && dto.tembusan.length > 0) {
-          tembusanForPdf = await this.convertPositionIdsToNames(dto.tembusan, tanggal);
-        } else if (sdeDataForPdf?.tembusan) {
-          tembusanForPdf = sdeDataForPdf.tembusan.split('; ').filter(t => t.trim());
-        }
+        // Get tembusan from sirkulasi (with proper urutan) for PDF
+        const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+          order: { urutan: 'ASC', createdAt: 'ASC' },
+        });
+        const tembusanForPdf = tembusanListForPdf.map(t => `${t.positionText} ${t.organizationText}`.trim());
+
+        const tembusanForPdfFinal = tembusanListForPdf.map(t => `${t.positionText} ${t.organizationText}`.trim());
 
         // Get lampiran files for merging
         const lampiranFilesForPdf = await queryRunner.manager.find(NaskahLampiranEntity, {
@@ -1829,7 +1905,7 @@ export class SuratDinasEksternalService {
           }),
           positionText: resolvedPositionText,
           namaLengkap: resolvedNamaLengkap,
-          tembusan: tembusanForPdf, // Include tembusan in PDF (same as preview-pdf)
+          tembusan: tembusanForPdfFinal, // Include tembusan in PDF (from sirkulasi with proper urutan)
           perihal: sdeDataForPdf?.perihal || dto.perihal || naskah.perihal || '',
           sifat: sdeDataForPdf?.sifat || dto.sifat || 'Biasa',
           nomor: nomorSurat,
@@ -2072,15 +2148,24 @@ export class SuratDinasEksternalService {
         where: { id_naskah: naskah.id },
       });
 
-      // Get penerima from kepadaYth
-      const penerimaNames = sdeData?.kepadaYth?.split('; ') || [];
-      const penerimaList: SdePenerimaInfoDto[] = [];
-      for (const nama of penerimaNames) {
-        const ext = await this.eksternalRepository.findOne({ where: { nama, aktif: true } });
-        if (ext) {
-          penerimaList.push(this.toEksternalPenerimaInfo(ext));
-        }
-      }
+      // Get penerima eksternal from naskah_sirkulasi (with proper urutan)
+      const penerimaListSirkulasi = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskah.id,
+          sirkuler: 'penerima',
+        },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
+      });
+
+      // Build penerima info from sirkulasi
+      const penerimaList: SdePenerimaInfoDto[] = penerimaListSirkulasi.map((p) => ({
+        id: p.idSirkuler || '',
+        nama: p.namaSirkuler || '',
+        alamat: p.alamat || '',
+        telepon: p.telepon || '',
+        email: p.email || '',
+        kontak: '',
+      }));
 
       // Get tembusan sirkulasi
       const tembusanList = await this.naskahSirkulasiRepository.find({
@@ -2210,24 +2295,26 @@ export class SuratDinasEksternalService {
       },
     });
 
-    // Get penerima from kepadaYth (parse the names back to external entities)
-    const penerimaNames = sdeData?.kepadaYth?.split('; ') || [];
-    const penerimaInfoList: any[] = [];
-    for (const nama of penerimaNames) {
-      const ext = await this.eksternalRepository.findOne({ where: { nama, aktif: true } });
-      if (ext) {
-        penerimaInfoList.push({
-          id: ext.id,
-          nama: ext.nama,
-          alamat: ext.alamat || '',
-          telepon: ext.telepon || '',
-          email: ext.email || '',
-          kontak: ext.kontak || '',
-          company: ext.company || '',
-          area: ext.area || '',
-        });
-      }
-    }
+    // Get penerima eksternal from naskah_sirkulasi (with proper urutan)
+    const penerimaListSirkulasi = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah: naskahId,
+        sirkuler: 'penerima',
+      },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
+    });
+
+    // Build penerima info from sirkulasi
+    const penerimaInfoList: any[] = penerimaListSirkulasi.map((p) => ({
+      id: p.idSirkuler || '',
+      nama: p.namaSirkuler || '',
+      alamat: p.alamat || '',
+      telepon: p.telepon || '',
+      email: p.email || '',
+      kontak: '',
+      company: p.companyText || '',
+      area: p.areaText || '',
+    }));
 
     // Get tembusan sirkulasi
     const tembusanList = await this.naskahSirkulasiRepository.find({
