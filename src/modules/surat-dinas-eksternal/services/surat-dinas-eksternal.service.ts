@@ -608,6 +608,7 @@ export class SuratDinasEksternalService {
     sirkuler: 'pengirim' | 'tembusan',
     pos: SdeOrgDataPositionDto,
     isDraft: boolean = false,
+    urutan: number = 0,
   ): NaskahSirkulasi {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
@@ -630,6 +631,7 @@ export class SuratDinasEksternalService {
       idSirkuler: String(pos.persnum_person ?? pos.persnum ?? pos.position ?? ''),
       namaSirkuler: pos.persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
+      urutan: urutan,
     });
 
     return sirkulasi;
@@ -866,13 +868,14 @@ export class SuratDinasEksternalService {
       const isDraft = status === 'draf';
 
       // PHASE 6: Insert sirkulasi - pengirim dan tembusan
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft);
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
-      // PHASE 6.1: Insert sirkulasi - tembusan (if any)
+      // PHASE 6.1: Insert sirkulasi - tembusan (if any) with urutan
       if (tembusanList && tembusanList.length > 0) {
-        for (const tembusan of tembusanList) {
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft);
+        for (let i = 0; i < tembusanList.length; i++) {
+          const tembusan = tembusanList[i];
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
           await queryRunner.manager.save(tembusanSirkulasi);
         }
       }
@@ -1379,15 +1382,16 @@ export class SuratDinasEksternalService {
         }
       }
 
-      // Re-insert tembusan if any
+      // Re-insert tembusan if any with urutan
       if (tembusanPositionsToInsert.length > 0) {
         const orgDataForTembusan = await this.orgDataService.findOrg(tanggal);
         if (orgDataForTembusan?.position_json) {
           const barisDataTembusan = orgDataForTembusan.position_json;
-          for (const posId of tembusanPositionsToInsert) {
+          for (let i = 0; i < tembusanPositionsToInsert.length; i++) {
+            const posId = tembusanPositionsToInsert[i];
             const tembusanPos = barisDataTembusan.find((x: any) => Number(x.position) === Number(posId));
             if (tembusanPos) {
-              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, true);
+              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, true, i);
               await queryRunner.manager.save(tembusanSirkulasi);
             }
           }
@@ -1471,7 +1475,7 @@ export class SuratDinasEksternalService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Build tembusan info
@@ -1741,15 +1745,16 @@ export class SuratDinasEksternalService {
         }
       }
 
-      // Re-insert tembusan if any
+      // Re-insert tembusan if any with urutan
       if (tembusanPositionsToInsert.length > 0) {
         const orgDataForTembusan = await this.orgDataService.findOrg(tanggal);
         if (orgDataForTembusan?.position_json) {
           const barisDataTembusan = orgDataForTembusan.position_json;
-          for (const posId of tembusanPositionsToInsert) {
+          for (let i = 0; i < tembusanPositionsToInsert.length; i++) {
+            const posId = tembusanPositionsToInsert[i];
             const tembusanPos = barisDataTembusan.find((x: any) => Number(x.position) === Number(posId));
             if (tembusanPos) {
-              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, false);
+              const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, false, i);
               await queryRunner.manager.save(tembusanSirkulasi);
             }
           }
@@ -1926,7 +1931,7 @@ export class SuratDinasEksternalService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Build tembusan info
@@ -2083,7 +2088,7 @@ export class SuratDinasEksternalService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Build tembusan info
@@ -2230,7 +2235,7 @@ export class SuratDinasEksternalService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Build tembusan info
