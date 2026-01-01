@@ -1092,6 +1092,7 @@ export class NotaDinasService {
     sirkuler: 'pengirim' | 'penerima' | 'tembusan',
     pos: OrgDataPositionDto,
     isDraft: boolean = false,
+    urutan: number = 0,
   ): NaskahSirkulasi {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
@@ -1113,6 +1114,7 @@ export class NotaDinasService {
       idSirkuler: String(pos.persnum_person ?? pos.position ?? ''),
       namaSirkuler: pos.persnum_person_text ?? pos.position_text ?? '',
       isDraft: isDraft,
+      urutan: urutan,
     });
 
     return sirkulasi;
@@ -1260,30 +1262,35 @@ export class NotaDinasService {
         'pengirim',
         pengirim,
         isDraft,
+        0,
       );
       await queryRunner.manager.save(pengirimSirkulasi);
 
-      // PHASE 9: Insert sirkulasi - penerima
+      // PHASE 9: Insert sirkulasi - penerima with urutan
       const penerimaResponses: SirkulasiInfoDto[] = [];
-      for (const penerima of penerimaList) {
+      for (let i = 0; i < penerimaList.length; i++) {
+        const penerima = penerimaList[i];
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(
           naskahId,
           'penerima',
           penerima,
           isDraft,
+          i,
         );
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
 
-      // PHASE 10: Insert sirkulasi - tembusan
+      // PHASE 10: Insert sirkulasi - tembusan with urutan
       const tembusanResponses: SirkulasiInfoDto[] = [];
-      for (const tembusan of tembusanList) {
+      for (let i = 0; i < tembusanList.length; i++) {
+        const tembusan = tembusanList[i];
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(
           naskahId,
           'tembusan',
           tembusan,
           isDraft,
+          i,
         );
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
@@ -1733,6 +1740,7 @@ export class NotaDinasService {
             'pengirim',
             fullPengirimPosition,
             false,
+            0,
           );
           await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1746,13 +1754,15 @@ export class NotaDinasService {
           );
         }
 
-        // Re-insert penerima with is_draft = FALSE
-        for (const penerima of penerimaList) {
+        // Re-insert penerima with is_draft = FALSE and urutan
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
           const penerimaSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'penerima',
             penerima,
             false,
+            i,
           );
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -1767,13 +1777,15 @@ export class NotaDinasService {
           { kepadaYth: kepadaYthList.join('; ') },
         );
 
-        // Re-insert tembusan with is_draft = FALSE
-        for (const tembusan of tembusanList) {
+        // Re-insert tembusan with is_draft = FALSE and urutan
+        for (let i = 0; i < tembusanList.length; i++) {
+          const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
             false,
+            i,
           );
           await queryRunner.manager.save(tembusanSirkulasi);
         }
@@ -1838,7 +1850,7 @@ export class NotaDinasService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -2104,6 +2116,7 @@ export class NotaDinasService {
             'pengirim',
             pengirimPosition,
             true,
+            0,
           );
           await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -2119,13 +2132,15 @@ export class NotaDinasService {
           }
         }
 
-        // Re-insert penerima with is_draft = true
-        for (const penerima of penerimaList) {
+        // Re-insert penerima with is_draft = true and urutan
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
           const penerimaSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'penerima',
             penerima,
             true,
+            i,
           );
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -2140,13 +2155,15 @@ export class NotaDinasService {
           { kepadaYth: kepadaYthList.join('; ') },
         );
 
-        // Re-insert tembusan with is_draft = true (only if there are any)
-        for (const tembusan of tembusanList) {
+        // Re-insert tembusan with is_draft = true and urutan (only if there are any)
+        for (let i = 0; i < tembusanList.length; i++) {
+          const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
             true,
+            i,
           );
           await queryRunner.manager.save(tembusanSirkulasi);
         }
@@ -2218,7 +2235,7 @@ export class NotaDinasService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
@@ -2382,7 +2399,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2391,7 +2408,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2578,7 +2595,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2587,7 +2604,7 @@ export class NotaDinasService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2960,7 +2977,7 @@ export class NotaDinasService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get all tembusan sirkulasi
@@ -2969,7 +2986,7 @@ export class NotaDinasService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get lampiran files

@@ -1293,7 +1293,8 @@ export class DisposisiService {
 
       // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (per recipient)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -1314,6 +1315,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false, // sendMessage = bukan draft
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -1654,7 +1656,8 @@ export class DisposisiService {
 
       // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (dengan isDraft = true)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -1675,6 +1678,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true, // saveDraft = draft
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -1870,7 +1874,7 @@ export class DisposisiService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
-        order: { createdAt: 'ASC' },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get lampiran count
@@ -2179,7 +2183,8 @@ export class DisposisiService {
         });
 
         // Insert penerima baru dengan isDraft berdasarkan action
-        for (const penerima of penerimaDataList) {
+        for (let i = 0; i < penerimaDataList.length; i++) {
+          const penerima = penerimaDataList[i];
           const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
             id: uuidv4(),
             idNaskah: naskahId,
@@ -2200,6 +2205,7 @@ export class DisposisiService {
               : '',
             namaSirkuler: penerima.persnum_person_text || '',
             isDraft: isDraft, // isDraft based on action
+            urutan: i, // urutan sesuai input form
           });
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -2353,7 +2359,7 @@ export class DisposisiService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimDataResult = allSirkulasi.find(
@@ -2692,7 +2698,8 @@ export class DisposisiService {
 
       // PHASE 8: Insert sirkulasi penerima
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -2713,6 +2720,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -2851,7 +2859,7 @@ export class DisposisiService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
-      order: { createdAt: 'ASC' },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get lampiran files
