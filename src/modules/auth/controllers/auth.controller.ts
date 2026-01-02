@@ -277,6 +277,27 @@ export class AuthController {
   }
 
   /**
+   * Logout V2 - hapus session tanpa redirect
+   */
+  @Get('logout-v2')
+  @Public()
+  @Redirect()
+  @ApiOperation({
+    summary: 'Logout V2',
+    description:
+      'Logout user dan hapus session tanpa redirect ke SSO.',
+  })
+  async logoutv2(@Query('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+    await this.sessionService.deleteSessionById(sessionId);
+    return {
+      message: 'Logout successfully',
+    };
+  }
+
+  /**
    * Get Profile - ambil user info dari JWT
    */
   @ApiBearerAuth()
