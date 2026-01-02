@@ -22,6 +22,7 @@ import { OrgDataService } from 'src/modules/master-data/org_data/org_data.servic
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -55,6 +56,7 @@ export class SuratDinasEksternalService {
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
   ) {}
 
   // ============================================================
@@ -79,6 +81,53 @@ export class SuratDinasEksternalService {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
+  // HELPER: DYNAMIC HEADER INFO
+  // ============================================================
+
+  /**
+   * Helper: Get dynamic header info dari sub_area_alamat berdasarkan user context
+   * @param user - User context dengan company, area, subArea
+   * @param tanggal - Optional date string YYYY-MM-DD untuk lookup
+   * @returns Header info (kantor, gedung, alamat) atau null jika tidak ditemukan
+   */
+  async getHeaderInfoByUser(user: {
+    company?: string | number;
+    area?: string;
+    subArea?: string;
+  }, tanggal?: string): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    try {
+      const company = String(user.company || COMPANY_ID);
+      const area = user.area || '';
+      const subArea = user.subArea || '';
+
+      if (!area || !subArea) {
+        console.log('[SDE getHeaderInfoByUser] Missing area or subArea, using default');
+        return null;
+      }
+
+      const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
+      
+      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
+        company,
+        area,
+        subArea,
+        queryDate,
+      );
+
+      if (headerInfo) {
+        console.log('[SDE getHeaderInfoByUser] Found header info:', headerInfo);
+        return headerInfo;
+      }
+
+      console.log('[SDE getHeaderInfoByUser] No header info found, using default');
+      return null;
+    } catch (error) {
+      console.error('[SDE getHeaderInfoByUser] Error:', error);
+      return null;
+    }
   }
 
   /**
@@ -236,6 +285,7 @@ export class SuratDinasEksternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
+    headerInfo?: { kantor: string; gedung: string; alamat: string },
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -264,6 +314,10 @@ export class SuratDinasEksternalService {
         sifat: sifat,
         nomor: nomor,
         lampiran: lampiranText,
+        // Dynamic header info dari sub_area_alamat
+        headerKantor: headerInfo?.kantor,
+        headerGedung: headerInfo?.gedung,
+        headerAlamat: headerInfo?.alamat,
       });
 
       // If lampiran files exist, merge with main PDF
@@ -1002,6 +1056,19 @@ export class SuratDinasEksternalService {
       
       if (status !== 'draf') {
         try {
+          // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+          const headerInfo = await this.getHeaderInfoByUser(
+            {
+              company: COMPANY_ID, // Use default company ID
+              area: pengirim.area ?? undefined,
+              subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+            },
+            tanggal,
+          );
+
+          // Use kota from headerInfo if available
+          const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+
           // Determine lampiran text from temp files
           let lampiranTextForPdf = dto.lampiran || '-';
           if (lampiranFileNames.length > 0) {
@@ -1012,7 +1079,7 @@ export class SuratDinasEksternalService {
           let pdfBuffer = await this.generatePdfSudinService.generatePdf({
             html: Buffer.from(dto.konten || '', 'utf-8').toString('base64'),
             penerima: kepadaYthList,
-            nama_tempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
+            nama_tempat: dynamicNamaTempat,
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
               year: 'numeric',
               month: 'long',
@@ -1025,6 +1092,10 @@ export class SuratDinasEksternalService {
             sifat: dto.sifat || 'Biasa',
             nomor: nomorSurat,
             lampiran: lampiranTextForPdf,
+            // Dynamic header info dari sub_area_alamat
+            headerKantor: headerInfo?.kantor,
+            headerGedung: headerInfo?.gedung,
+            headerAlamat: headerInfo?.alamat,
           });
 
           // Merge with lampiran if any
@@ -1893,11 +1964,25 @@ export class SuratDinasEksternalService {
         const resolvedPositionText = dto.nama_jabatan || sdeDataForPdf?.namaJabatan || finalPengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
         const resolvedNamaLengkap = dto.nama_lengkap || sdeDataForPdf?.namaLengkap || finalPengirimPosition?.persnum_person_text || finalPengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
 
+        // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+        const tanggalStr = dto.tgl || (naskah.tanggal instanceof Date ? this.formatDateToString(naskah.tanggal) : String(naskah.tanggal).split('T')[0]);
+        const headerInfo = await this.getHeaderInfoByUser(
+          {
+            company: COMPANY_ID, // Use default company ID
+            area: finalPengirimPosition?.area ?? pengirimSirkulasiForPdf?.area ?? undefined,
+            subArea: finalPengirimPosition?.sub_area != null ? String(finalPengirimPosition.sub_area) : (pengirimSirkulasiForPdf?.subArea ?? undefined),
+          },
+          tanggalStr,
+        );
+
+        // Use kota from headerInfo if available
+        const dynamicNamaTempat = headerInfo?.kota || sdeDataForPdf?.namaTempat || dto.nama_tempat || finalPengirimPosition?.sub_area_text || 'Tangerang';
+
         // Generate PDF with tembusan (same approach as preview-pdf)
         let pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: Buffer.from(sdeDataForPdf?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
           penerima: kepadaYthListForPdf,
-          nama_tempat: sdeDataForPdf?.namaTempat || dto.nama_tempat || finalPengirimPosition?.sub_area_text || 'Tangerang',
+          nama_tempat: dynamicNamaTempat,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
@@ -1910,6 +1995,10 @@ export class SuratDinasEksternalService {
           sifat: sdeDataForPdf?.sifat || dto.sifat || 'Biasa',
           nomor: nomorSurat,
           lampiran: lampiranTextForPdf,
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
         });
 
         // Merge with lampiran if any
