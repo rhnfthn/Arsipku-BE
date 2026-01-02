@@ -428,10 +428,23 @@ export class SuratDinasEksternalController {
       const namaJabatan = user?.positionText || '';
       const namaLengkap = user?.nama || '';
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.sdeService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
       const pdfBuffer = await this.sdeService.generatePdfFromHtml(
         body.htmlContent,
         penerimaArray,
-        body.nama_tempat || 'Tangerang',
+        dynamicNamaTempat,
         body.tanggal || body.tgl || '',
         namaJabatan,
         namaLengkap,
@@ -441,6 +454,7 @@ export class SuratDinasEksternalController {
         body.sifat || 'Biasa',
         body.nomor || '',
         body.lampiran || '-',
+        headerInfo || undefined,
       );
 
       res.set({
@@ -544,10 +558,23 @@ export class SuratDinasEksternalController {
       const namaJabatan = user?.positionText || '';
       const namaLengkap = user?.nama || '';
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.sdeService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
       const pdfBuffer = await this.sdeService.generatePdfFromHtml(
         body.htmlContent,
         penerimaArray,
-        body.nama_tempat || 'Tangerang',
+        dynamicNamaTempat,
         body.tanggal || body.tgl || '',
         namaJabatan,
         namaLengkap,
@@ -557,6 +584,7 @@ export class SuratDinasEksternalController {
         body.sifat || 'Biasa',
         body.nomor || '',
         body.lampiran || '-',
+        headerInfo || undefined,
       );
 
       res.set({

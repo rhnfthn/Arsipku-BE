@@ -15,6 +15,7 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { DigsigService } from '../digsig/services';
+import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { DigsigService } from '../digsig/services';
     OrgDataModule,
     StorageModule,
     GeneratePdfModule,
+    SubAreaAlamatModule,
   ],
   controllers: [NotaDinasController],
   providers: [NotaDinasService, NomorSuratService, DigsigService],
