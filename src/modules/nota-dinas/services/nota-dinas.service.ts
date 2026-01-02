@@ -42,6 +42,7 @@ import { NomorSuratService } from '../../../shared/services/nomor-surat.service'
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { v4 as uuidv4 } from 'uuid';
 import { DigsigService } from 'src/modules/digsig/services';
 
@@ -76,8 +77,54 @@ export class NotaDinasService {
     private readonly storageService: StorageService,
     private readonly generatePdfService: GeneratePdfService,
     private readonly generatePdfNodinService: GeneratePdfNodinService,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
   ) {}
+
+  // ============================================================
+  // HELPER: GET HEADER INFO FROM SUB_AREA_ALAMAT
+  // ============================================================
+
+  /**
+   * Get dynamic header info (kantor, gedung, alamat) dari tabel sub_area_alamat
+   * berdasarkan company, area, sub_area user dan tanggal
+   */
+  async getHeaderInfoByUser(user: {
+    company?: string | number;
+    area?: string;
+    subArea?: string;
+  }, tanggal?: string): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    try {
+      const company = String(user.company || COMPANY_ID);
+      const area = user.area || '';
+      const subArea = user.subArea || '';
+
+      if (!area || !subArea) {
+        console.log('[getHeaderInfoByUser] Missing area or subArea, using default');
+        return null;
+      }
+
+      const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
+      
+      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
+        company,
+        area,
+        subArea,
+        queryDate,
+      );
+
+      if (headerInfo) {
+        console.log('[getHeaderInfoByUser] Found header info:', headerInfo);
+        return headerInfo;
+      }
+
+      console.log('[getHeaderInfoByUser] No header info found, using default');
+      return null;
+    } catch (error) {
+      console.error('[getHeaderInfoByUser] Error:', error);
+      return null;
+    }
+  }
 
   // ============================================================
   // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
@@ -493,6 +540,7 @@ export class NotaDinasService {
     tembusan: string[] = [],
     tgl?: string,
     nama_tempat?: string,
+    headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
   ): Promise<Buffer> {
     try {
       // Smart detection: is htmlContent already base64 or plain text?
@@ -520,6 +568,9 @@ export class NotaDinasService {
         htmlToSend = Buffer.from(htmlContent, 'utf-8').toString('base64');
       }
 
+      // Use kota from headerInfo if available, else fallback to nama_tempat or 'Tangerang'
+      const namaTempat = headerInfo?.kota || nama_tempat || 'Tangerang';
+
       const pdfDto = {
         html: htmlToSend,
         filename: `nota-dinas-${Date.now()}.pdf`,
@@ -531,10 +582,14 @@ export class NotaDinasService {
         namaLengkap: namaLengkap,
         tembusan: tembusan,
         tgl: tgl,
-        nama_tempat: nama_tempat,
+        nama_tempat: namaTempat,
+        // Dynamic header info dari sub_area_alamat
+        headerKantor: headerInfo?.kantor,
+        headerGedung: headerInfo?.gedung,
+        headerAlamat: headerInfo?.alamat,
       };
 
-      const pdfBuffer = await this.generatePdfService.generatePdf(pdfDto);
+      const pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfDto);
       return pdfBuffer;
     } catch (error) {
       throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
@@ -557,6 +612,7 @@ export class NotaDinasService {
     lampiranData?: string[] | Express.Multer.File[],
     tgl?: string,
     nama_tempat?: string,
+    headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
   ): Promise<Buffer> {
     try {
       // Generate plain PDF first
@@ -571,6 +627,7 @@ export class NotaDinasService {
         tembusan,
         tgl,
         nama_tempat,
+        headerInfo,
       );
 
       // Handle lampiran - support both temporary IDs and direct file upload
@@ -1335,6 +1392,20 @@ export class NotaDinasService {
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+      // Digunakan untuk kota (nama_tempat) dan header PDF
+      const headerInfo = await this.getHeaderInfoByUser(
+        {
+          company: pengirim.company ?? undefined,
+          area: pengirim.area ?? undefined,
+          subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+        },
+        tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to dto.nama_tempat, pengirim.sub_area_text, or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+
       const ndEntity = this.ndRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1346,7 +1417,7 @@ export class NotaDinasService {
         dari: `${pengirim.position_text} - ${pengirim.organization_text}`,
         perihal: dto.perihal,
         konten: dto.konten,
-        namaTempat: dto.nama_tempat ?? pengirim.sub_area_text ?? 'Tangerang',
+        namaTempat: dynamicNamaTempat,
         tanggal: tanggalHariIni,
         namaJabatan: dto.nama_jabatan ?? pengirim.position_text,
         tandaTangan: dto.tanda_tangan ?? null,
@@ -1360,6 +1431,7 @@ export class NotaDinasService {
       if (status !== 'draf') {
         try {
           // Generate PDF with nomor already included
+          // headerInfo and dynamicNamaTempat already obtained above in PHASE 12
           let pdfBuffer = await this.generatePdfNodinService.generatePdf({
             htmlContent: dto.konten,
             nomor: nomorSurat,
@@ -1374,6 +1446,12 @@ export class NotaDinasService {
             }),
             positionText: dto.nama_jabatan ?? pengirim.position_text,
             namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || '',
+            // Dynamic nama_tempat dari sub_area_alamat.kota
+            nama_tempat: dynamicNamaTempat,
+            // Add dynamic header info
+            headerKantor: headerInfo?.kantor,
+            headerGedung: headerInfo?.gedung,
+            headerAlamat: headerInfo?.alamat,
           });
 
           // Merge with lampiran if any
