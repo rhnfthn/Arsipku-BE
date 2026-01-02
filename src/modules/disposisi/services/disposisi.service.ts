@@ -100,6 +100,7 @@ interface OrgDataPosition {
   direktorat_id?: number | null;
   sub_area?: number | null;
   departType?: string | null;
+  persnum_person?: number | null;
 }
 
 @Injectable()
@@ -744,6 +745,7 @@ export class DisposisiService {
     const sameLevelStaff = allData.filter(
       (x) =>
         x.chief === 0 &&
+        x.persnum_person !== null &&
         x.position !== current.position &&
         this.isStaffAllowed(x, current),
     );
@@ -884,6 +886,7 @@ export class DisposisiService {
     const staffFilter = barisData.filter(
       (x) =>
         x.chief === 0 &&
+        x.persnum_person !== null &&
         Number(x.divisi_id) === Number(current.divisi_id) &&
         x.sub_area === current.sub_area &&
         x.divisi_id != null,
