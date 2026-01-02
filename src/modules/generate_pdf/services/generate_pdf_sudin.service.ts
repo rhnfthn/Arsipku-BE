@@ -20,6 +20,10 @@ interface SdiPdfOptions {
   nomor?: string;
   nama_tempat?: string;
   nama_jabatan?: string;
+  // Dynamic header info dari sub_area_alamat
+  headerKantor?: string;
+  headerGedung?: string;
+  headerAlamat?: string;
 }
 
 @Injectable()
@@ -232,6 +236,11 @@ export class GeneratePdfSudinService {
         </table>`;
     }
 
+    // Dynamic header info dari sub_area_alamat
+    const headerKantor = body.headerKantor || 'Kantor Pusat Perum LPPNPI';
+    const headerGedung = body.headerGedung || 'Gedung AirNav Indonesia';
+    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
+
     // Header kop surat
     const header = `
       <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
@@ -239,7 +248,7 @@ export class GeneratePdfSudinService {
           <tr>
             <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
-            <td style='font-size:9px; text-align:right;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
+            <td style='font-size:9px; text-align:right;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
         </tbody>
       </table>
