@@ -83,4 +83,53 @@ export class SubAreaAlamatService {
     const subAreaAlamat = await this.findOne(id);
     await this.subAreaAlamatRepository.remove(subAreaAlamat);
   }
+
+  /**
+   * Find alamat berdasarkan company, area, sub_area dan tanggal (between start_date end_date)
+   * Digunakan untuk dynamic header PDF
+   */
+  async findAlamatByUserContext(
+    company: string,
+    area: string,
+    subArea: string,
+    tanggal?: Date,
+  ): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    const queryDate = tanggal || new Date();
+
+    const subAreaAlamat = await this.subAreaAlamatRepository
+      .createQueryBuilder('saa')
+      .where('saa.company = :company', { company })
+      .andWhere('saa.area = :area', { area })
+      .andWhere('saa.sub_area = :subArea', { subArea })
+      .andWhere('saa.start_date <= :queryDate', { queryDate })
+      .andWhere('(saa.end_date IS NULL OR saa.end_date >= :queryDate)', { queryDate })
+      .orderBy('saa.start_date', 'DESC')
+      .getOne();
+
+    if (!subAreaAlamat) {
+      // Fallback: cari tanpa filter tanggal
+      const fallback = await this.subAreaAlamatRepository.findOne({
+        where: { company, area, sub_area: subArea },
+        order: { start_date: 'DESC' },
+      });
+
+      if (fallback) {
+        return {
+          kantor: fallback.kantor || '',
+          gedung: fallback.gedung || '',
+          alamat: fallback.alamat || '',
+          kota: fallback.kota || 'Tangerang',
+        };
+      }
+
+      return null;
+    }
+
+    return {
+      kantor: subAreaAlamat.kantor || '',
+      gedung: subAreaAlamat.gedung || '',
+      alamat: subAreaAlamat.alamat || '',
+      kota: subAreaAlamat.kota || 'Tangerang',
+    };
+  }
 }

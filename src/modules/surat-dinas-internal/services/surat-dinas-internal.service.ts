@@ -21,6 +21,7 @@ import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, Tembusa
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -53,6 +54,7 @@ export class SuratDinasInternalService {
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
   ) {}
 
   // ============================================================
@@ -77,6 +79,53 @@ export class SuratDinasInternalService {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
+  // HELPER: DYNAMIC HEADER INFO
+  // ============================================================
+
+  /**
+   * Helper: Get dynamic header info dari sub_area_alamat berdasarkan user context
+   * @param user - User context dengan company, area, subArea
+   * @param tanggal - Optional date string YYYY-MM-DD untuk lookup
+   * @returns Header info (kantor, gedung, alamat) atau null jika tidak ditemukan
+   */
+  async getHeaderInfoByUser(user: {
+    company?: string | number;
+    area?: string;
+    subArea?: string;
+  }, tanggal?: string): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    try {
+      const company = String(user.company || COMPANY_ID);
+      const area = user.area || '';
+      const subArea = user.subArea || '';
+
+      if (!area || !subArea) {
+        console.log('[SDI getHeaderInfoByUser] Missing area or subArea, using default');
+        return null;
+      }
+
+      const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
+      
+      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
+        company,
+        area,
+        subArea,
+        queryDate,
+      );
+
+      if (headerInfo) {
+        console.log('[SDI getHeaderInfoByUser] Found header info:', headerInfo);
+        return headerInfo;
+      }
+
+      console.log('[SDI getHeaderInfoByUser] No header info found, using default');
+      return null;
+    } catch (error) {
+      console.error('[SDI getHeaderInfoByUser] Error:', error);
+      return null;
+    }
   }
 
   // ============================================================
@@ -305,6 +354,7 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
+    headerInfo?: { kantor: string; gedung: string; alamat: string },
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
@@ -320,6 +370,10 @@ export class SuratDinasInternalService {
         sifat: sifat,
         nomor: nomor,
         lampiran: lampiran,
+        // Dynamic header info dari sub_area_alamat
+        headerKantor: headerInfo?.kantor,
+        headerGedung: headerInfo?.gedung,
+        headerAlamat: headerInfo?.alamat,
       });
 
       return pdfBuffer;
@@ -345,6 +399,7 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
+    headerInfo?: { kantor: string; gedung: string; alamat: string },
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -373,6 +428,7 @@ export class SuratDinasInternalService {
         sifat,
         nomor,
         lampiranText,
+        headerInfo,
       );
 
       // If lampiran files exist, merge with main PDF
@@ -1364,12 +1420,25 @@ export class SuratDinasInternalService {
       let finalPdfPath: string | undefined = undefined;
       if (status !== 'draf') {
         try {
+          // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+          const headerInfo = await this.getHeaderInfoByUser(
+            {
+              company: pengirim.company ?? undefined,
+              area: pengirim.area ?? undefined,
+              subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+            },
+            tanggal,
+          );
+
+          // Use kota from headerInfo if available, else fallback to dto.nama_tempat or pengirim.sub_area_text
+          const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+
           // Generate PDF with nomor already included
           // Use || instead of ?? to also handle empty strings from frontend
           let pdfBuffer = await this.generatePdfSudinService.generatePdf({
             html: Buffer.from(dto.konten, 'utf-8').toString('base64'),
             penerima: kepadaYthList,
-            nama_tempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
+            nama_tempat: dynamicNamaTempat,
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
               year: 'numeric',
               month: 'long',
@@ -1382,6 +1451,10 @@ export class SuratDinasInternalService {
             sifat: dto.sifat || 'Biasa',
             nomor: nomorSurat,
             lampiran: dto.lampiran || '-',
+            // Dynamic header info dari sub_area_alamat
+            headerKantor: headerInfo?.kantor,
+            headerGedung: headerInfo?.gedung,
+            headerAlamat: headerInfo?.alamat,
           });
 
           // Merge with lampiran if any
@@ -1798,10 +1871,24 @@ export class SuratDinasInternalService {
         const resolvedPositionText = dto.nama_jabatan || sdiSdeData?.namaJabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
         const resolvedNamaLengkap = dto.nama_lengkap || sdiSdeData?.namaLengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
 
+        // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+        const tanggalStr = dto.tgl || (naskah.tanggal instanceof Date ? this.formatDateToString(naskah.tanggal) : String(naskah.tanggal).split('T')[0]);
+        const headerInfo = await this.getHeaderInfoByUser(
+          {
+            company: pengirimPosition?.company ?? pengirimSirkulasiForPdf?.company ?? undefined,
+            area: pengirimPosition?.area ?? pengirimSirkulasiForPdf?.area ?? undefined,
+            subArea: pengirimPosition?.sub_area != null ? String(pengirimPosition.sub_area) : (pengirimSirkulasiForPdf?.subArea ?? undefined),
+          },
+          tanggalStr,
+        );
+
+        // Use kota from headerInfo if available
+        const dynamicNamaTempat = headerInfo?.kota || sdiSdeData?.namaTempat || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang';
+
         let pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
           penerima: kepadaYthList,
-          nama_tempat: sdiSdeData?.namaTempat || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang',
+          nama_tempat: dynamicNamaTempat,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
@@ -1814,6 +1901,10 @@ export class SuratDinasInternalService {
           sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
           nomor: nomorSurat,
           lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
         });
 
         // Merge with lampiran if any (from temp_ids or existing)

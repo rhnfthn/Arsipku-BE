@@ -565,6 +565,46 @@ export class NotaDinasController {
         }
       }
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.notaDinasService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        dto.tgl,
+      );
+
+      // Override namaTempat with kota from headerInfo if available
+      const dynamicNamaTempat = headerInfo?.kota || namaTempat;
+
+      // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
+      if (headerInfo?.kota) {
+        try {
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+            if (tanggalInput.includes(',')) {
+              // Replace existing city name with dynamic one
+              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+            } else {
+              formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
+            }
+          } else {
+            const dateObj = new Date(tanggalInput + 'T00:00:00');
+            if (!isNaN(dateObj.getTime())) {
+              const formatted = dateObj.toLocaleDateString('id-ID', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                timeZone: 'Asia/Jakarta'
+              });
+              formattedDate = `${dynamicNamaTempat}, ${formatted}`;
+            }
+          }
+        } catch (error) {
+          // Keep existing formattedDate
+        }
+      }
+
       // Generate preview PDF (tanpa save ke DB)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
@@ -578,6 +618,7 @@ export class NotaDinasController {
         lampiranTempIds,
         dto.tgl,
         dto.nama_tempat,
+        headerInfo || undefined,
       );
 
       res.set({
@@ -715,6 +756,46 @@ export class NotaDinasController {
         tembusanArray = tembusanNames;
       }
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.notaDinasService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || dto.tgl,
+      );
+
+      // Override namaTempat with kota from headerInfo if available
+      const dynamicNamaTempat = headerInfo?.kota || namaTempat;
+
+      // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
+      if (headerInfo?.kota) {
+        try {
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+            if (tanggalInput.includes(',')) {
+              // Replace existing city name with dynamic one
+              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+            } else {
+              formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
+            }
+          } else {
+            const dateObj = new Date(tanggalInput + 'T00:00:00');
+            if (!isNaN(dateObj.getTime())) {
+              const formatted = dateObj.toLocaleDateString('id-ID', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                timeZone: 'Asia/Jakarta'
+              });
+              formattedDate = `${dynamicNamaTempat}, ${formatted}`;
+            }
+          }
+        } catch (error) {
+          // Keep existing formattedDate
+        }
+      }
+
       // generate-pdf: PDF polos TANPA lampiran merge
       const pdfBuffer = await this.notaDinasService.generatePlainPdf(
         dto.htmlContent,
@@ -725,6 +806,9 @@ export class NotaDinasController {
         positionText,
         namaLengkap,
         tembusanArray,
+        body.tgl || dto.tgl,
+        body.nama_tempat || dto.nama_tempat,
+        headerInfo || undefined,
       );
 
       res.set({
