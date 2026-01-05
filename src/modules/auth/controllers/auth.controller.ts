@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { VerifyTokenDto } from '../dto/verify-token.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
@@ -20,6 +21,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly sessionService: SessionService,
     private readonly configService: ConfigService,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
   ) {}
 
   /**
@@ -295,22 +297,55 @@ export class AuthController {
   }
 
   /**
-   * Get Profile - ambil user info dari JWT
+   * Get Profile - ambil user info dari JWT + data alamat dari sub_area_alamat
    */
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   @ApiOperation({
     summary: 'Get User Profile',
-    description: 'Ambil informasi user dari JWT token (no database call).',
+    description: 'Ambil informasi user dari JWT token dan data alamat dari sub_area_alamat.',
   })
-  getProfile(@CurrentUser() user: JwtPayload): {
+  async getProfile(@CurrentUser() user: JwtPayload): Promise<{
     message: string;
     user: JwtPayload & { abbreviation?: string };
-  } {
+    alamatInfo: {
+      kantor: string;
+      gedung: string;
+      kota: string;
+      alamat: string;
+    } | null;
+  }> {
+    // Get alamat info from sub_area_alamat based on user context
+    let alamatInfo: { kantor: string; gedung: string; kota: string; alamat: string } | null = null;
+    
+    try {
+      if (user.company && user.area && user.subArea) {
+        const result = await this.subAreaAlamatService.findAlamatByUserContext(
+          String(user.company),
+          user.area,
+          user.subArea,
+          new Date(), // current date for active record
+        );
+        
+        if (result) {
+          alamatInfo = {
+            kantor: result.kantor,
+            gedung: result.gedung,
+            kota: result.kota,
+            alamat: result.alamat,
+          };
+        }
+      }
+    } catch (error) {
+      console.error('[getProfile] Error fetching alamat info:', error);
+      // Continue without alamat info
+    }
+
     return {
       message: 'Profile retrieved from JWT',
       user,
+      alamatInfo,
     };
   }
 }
