@@ -73,6 +73,30 @@ export class SuratDinasEksternalController {
   }
 
   /**
+   * GET /SDE/get-tembusan/:positionId
+   * Get tembusan (CC) recipients for SDE using org_data
+   *
+   * Tembusan Rules (same as SDI):
+   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+   * - Tembusan: internal positions dengan chief=1, bod_tag='BOD', sama company
+   * 
+   * @param positionId - Position ID of the sender
+   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @returns Tembusan recipients list
+   *
+   * @example
+   * GET /SDE/get-tembusan/123
+   * GET /SDE/get-tembusan/123?tgl=2024-01-15
+   */
+  @Get('get-tembusan/:positionId')
+  async getSdeTembusan(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetSdeRecipientQueryDto,
+  ): Promise<any> {
+    return this.sdeService.getSdeTembusan(positionId, query.tgl);
+  }
+
+  /**
    * GET /SDE/:id
    * Get Surat Dinas Eksternal detail by ID
    * 
