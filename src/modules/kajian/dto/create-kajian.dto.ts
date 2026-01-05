@@ -4,15 +4,13 @@ import {
   IsOptional,
   IsString,
   IsEnum,
+  IsBoolean,
   ArrayMinSize,
-  ValidateNested,
-  IsDateString,
-  IsNumber,
+  Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 // Enum untuk sifat naskah
-export enum SifatNaskah {
+export enum SifatSurat {
   SANGAT_RAHASIA = 'sangat_rahasia',
   RAHASIA = 'rahasia',
   TERBATAS = 'terbatas',
@@ -20,58 +18,145 @@ export enum SifatNaskah {
   TERBUKA = 'terbuka',
 }
 
-// DTO untuk lampiran (jika ada file)
-export class LampiranKajianDto {
-  @IsNotEmpty({ message: 'Nama file harus diisi' })
-  @IsString()
-  nama_file: string;
+/**
+ * DTO untuk Send Message Kajian (KA)
+ * Format flat - semua field dalam satu level (sama dengan Nota Dinas)
+ */
+export class CreateKajianDto {
+  // ============================================
+  // SIRKULASI
+  // ============================================
+  @IsNotEmpty({ message: 'Pengirim (positionId) harus diisi' })
+  pengirim: number; // positionId pengirim
 
-  @IsNotEmpty({ message: 'URL file harus diisi' })
+  @IsArray({ message: 'Penerima harus berupa array positionId' })
+  @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
+  penerima: number[]; // array positionId penerima
+
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[]; // array positionId tembusan (optional)
+
+  // ============================================
+  // KOP NASKAH (KEPALA)
+  // ============================================
+  @IsOptional()
   @IsString()
-  url: string;
+  kop_logo?: string;
 
   @IsOptional()
   @IsString()
-  tipe?: string; // pdf/doc/img
+  kop_nama?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat_perusahaan?: string;
+
+  // ============================================
+  // DATA NASKAH (KEPALA + BATANG TUBUH)
+  // ============================================
+  @IsNotEmpty({ message: 'Klasifikasi harus diisi' })
+  @IsString()
+  klasifikasi: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi_text?: string;
+
+  @IsNotEmpty({ message: 'Sifat surat harus diisi' })
+  @IsEnum(SifatSurat, { message: 'Sifat tidak valid' })
+  sifat: SifatSurat;
+
+  @IsNotEmpty({ message: 'Perihal harus diisi' })
+  @IsString()
+  perihal: string;
+
+  @IsNotEmpty({ message: 'Konten harus diisi' })
+  @IsString()
+  konten: string;
+
+  @IsOptional()
+  @IsBoolean()
+  english?: boolean;
+
+  // ============================================
+  // KAKI SURAT
+  // ============================================
+  @IsOptional()
+  @IsString()
+  nama_tempat?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
+  @IsOptional()
+  @IsString()
+  tanda_tangan?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_lengkap?: string;
+
+  // ============================================
+  // LAMPIRAN
+  // ============================================
+  @IsOptional()
+  @IsString()
+  lampiran?: string;
+
+  @IsOptional()
+  @IsArray()
+  lampiran_temp_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_files?: string[];
+
+  // ============================================
+  // PDF FINAL
+  // ============================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string;
+
+  // ============================================
+  // OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  tgl?: string;
 }
 
 /**
- * Main DTO untuk send-message kajian
- * 
- * Kajian (KA): Korespondensi dari fungsional/staf ke managerial/fungsional 
- * dalam Sub Area yang sama, dan atasan langsung/tidak langsung yang sama
- * 
- * Pola pengiriman:
- * - Staff/Fungsional → Managerial ATASAN (atasan langsung/tidak langsung)
- * - Staff/Fungsional → Fungsional ATASAN (atasan langsung/tidak langsung)
- * - Managerial → Managerial ATASAN (atasan langsung/tidak langsung)
- * 
- * TIDAK BISA ke:
- * - Sesama rekan/setingkat
- * - Bawahan
+ * DTO untuk Finalize Draft Kajian
  */
-export class CreateKajianDto {
-  // Pengirim - menggunakan position_id
-  @IsNotEmpty({ message: 'Position ID pengirim harus diisi' })
-  @IsNumber({}, { message: 'Position ID pengirim harus berupa number' })
-  pengirim_position_id: number;
+export class FinalizeDraftDto {
+  @IsOptional()
+  pengirim?: number;
 
-  // Penerima - array of position_id (hanya ATASAN)
-  @IsArray({ message: 'Penerima harus berupa array' })
-  @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
-  penerima_position_ids: number[];
+  @IsOptional()
+  @IsArray()
+  penerima?: number[];
 
-  // ============================================================
-  // FIELD NASKAH UTAMA
-  // ============================================================
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[];
 
-  // Tanggal Kajian
-  @IsNotEmpty({ message: 'Tanggal kajian harus diisi' })
-  @IsDateString({}, { message: 'Format tanggal tidak valid' })
-  tanggal: string;
+  @IsOptional()
+  @IsString()
+  kop_logo?: string;
 
-  // Klasifikasi (opsional)
+  @IsOptional()
+  @IsString()
+  kop_nama?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat_perusahaan?: string;
+
   @IsOptional()
   @IsString()
   klasifikasi?: string;
@@ -80,53 +165,133 @@ export class CreateKajianDto {
   @IsString()
   klasifikasi_text?: string;
 
-  // Sifat Naskah
-  @IsNotEmpty({ message: 'Sifat naskah harus diisi' })
-  @IsEnum(SifatNaskah, { message: 'Sifat naskah tidak valid' })
-  sifat: SifatNaskah;
+  @IsOptional()
+  @IsEnum(SifatSurat, { message: 'Sifat tidak valid' })
+  sifat?: SifatSurat;
 
-  // Nomor Naskah
   @IsOptional()
   @IsString()
-  nomor?: string;
+  perihal?: string;
 
-  // Perihal
-  @IsNotEmpty({ message: 'Perihal harus diisi' })
-  @IsString()
-  perihal: string;
-
-  // Konten/Isi Kajian
   @IsOptional()
   @IsString()
   konten?: string;
 
-  // Lampiran files
+  @IsOptional()
+  @IsBoolean()
+  english?: boolean;
+
+  @IsOptional()
+  @IsString()
+  nama_tempat?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_jabatan?: string;
+
+  @IsOptional()
+  @IsString()
+  tanda_tangan?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_lengkap?: string;
+
+  @IsOptional()
+  @IsString()
+  lampiran?: string;
+
   @IsOptional()
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => LampiranKajianDto)
-  lampiran?: LampiranKajianDto[];
+  lampiran_temp_ids?: string[];
 
-  // ============================================================
-  // FIELD TAMBAHAN UNTUK TABEL KA (jika ada)
-  // ============================================================
+  @IsOptional()
+  @IsString()
+  final_pdf?: string;
 
-  // Kop Naskah
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  tgl?: string;
+}
+
+/**
+ * DTO untuk Update Draft Kajian
+ */
+export class UpdateDraftDto {
+  @IsOptional()
+  pengirim?: number;
+
+  @IsOptional()
+  @IsArray()
+  penerima?: number[];
+
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[];
+
   @IsOptional()
   @IsString()
   kop_logo?: string;
 
   @IsOptional()
   @IsString()
-  kop_judul?: string;
+  kop_nama?: string;
 
-  // Penandatangan
+  @IsOptional()
+  @IsString()
+  alamat_perusahaan?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi_text?: string;
+
+  @IsOptional()
+  @IsEnum(SifatSurat, { message: 'Sifat tidak valid' })
+  sifat?: SifatSurat;
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  konten?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  english?: boolean;
+
+  @IsOptional()
+  @IsString()
+  nama_tempat?: string;
+
   @IsOptional()
   @IsString()
   nama_jabatan?: string;
 
-  // Paraf
   @IsOptional()
   @IsString()
-  paraf?: string;
+  tanda_tangan?: string;
+
+  @IsOptional()
+  @IsString()
+  nama_lengkap?: string;
+
+  @IsOptional()
+  @IsString()
+  lampiran?: string;
+
+  @IsOptional()
+  @IsArray()
+  lampiran_temp_ids?: string[];
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  tgl?: string;
 }
