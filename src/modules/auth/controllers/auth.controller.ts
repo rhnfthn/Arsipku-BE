@@ -281,11 +281,8 @@ export class AuthController {
    */
   @Get('logout-v2')
   @Public()
-  @Redirect()
   @ApiOperation({
-    summary: 'Logout V2',
-    description:
-      'Logout user dan hapus session tanpa redirect ke SSO.',
+    summary: 'Logout aplikasi + hapus session + redirect logout SSO AirNav',
   })
   async logoutv2(@Query('sessionId') sessionId: string) {
     if (!sessionId) {
