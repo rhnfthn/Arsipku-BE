@@ -828,6 +828,71 @@ export class SuratDinasEksternalService {
     };
   }
 
+  /**
+   * Get tembusan (CC) recipients for SDE using org_data
+   * Tembusan are internal positions with same logic as SDI
+   * 
+   * SDE Tembusan Rules:
+   * - Hanya REKAN managerial (chief=1)
+   * - Sama company
+   * - bod_tag='BOD' (eksekutif level)
+   * - Bukan pengirim (diri sendiri)
+   *
+   * @param positionId - Position ID of the sender
+   * @param tgl - Optional date (default: today)
+   * @returns SdeTembusanResponseDto
+   */
+  async getSdeTembusan(
+    positionId: number,
+    tgl?: string,
+  ): Promise<any> {
+    // Use today's date if not provided
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    // Get cached org data from org_data service
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: SdeOrgDataPositionDto[] = orgData.position_json;
+
+    // Find sender's position data
+    const sender = barisData.find((x) => Number(x.position) === Number(positionId));
+
+    if (!sender) {
+      throw new NotFoundException(
+        `Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`,
+      );
+    }
+
+    // Verify sender is chief (managerial)
+    if (sender.chief !== 1) {
+      throw new ForbiddenException(
+        `Position ${positionId} bukan managerial (chief). Hanya managerial yang dapat mengirim Surat Dinas Eksternal.`,
+      );
+    }
+
+    // Filter tembusan using same logic as SDI
+    // Tembusan: chief=1, bod_tag='BOD', same company, bukan diri sendiri
+    const tembusan = barisData.filter(
+      (x) =>
+        x.chief === 1 &&
+        x.bod_tag === 'BOD' &&
+        x.company === sender.company &&
+        Number(x.position) !== Number(positionId),
+    );
+
+    return {
+      sender,
+      tembusan,
+      totalTembusan: tembusan.length,
+    };
+  }
+
   // ============================================================
   // SEND MESSAGE
   // ============================================================
