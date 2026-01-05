@@ -402,6 +402,9 @@ export class NaskahSirkulasiService {
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
         s.nama_sirkuler as pengirim_nama,
+        s.flag_favorit,
+        s.flag_note,
+        s.flag_arsip,
         CAST(s.created_at AS DATETIME) as created_at,
         CAST(s.updated_at AS DATETIME) as updated_at
       FROM naskah_sirkulasi s
@@ -556,6 +559,9 @@ export class NaskahSirkulasiService {
           terbaca,
           belum_terbaca: belumTerbaca,
         },
+        favorit: !!row.flag_favorit,
+        note: !!row.flag_note,
+        arsip: !!row.flag_arsip,
         created_at: row.created_at,
         updated_at: row.updated_at,
       });
