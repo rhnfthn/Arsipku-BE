@@ -55,6 +55,9 @@ export class SentMessageItemDto {
     terbaca: number;
     belum_terbaca: number;
   };
+  favorit: boolean;
+  note: boolean;
+  arsip: boolean;
   created_at: Date;
   updated_at: Date;
 }
