@@ -19,7 +19,7 @@ import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.e
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { StorageService } from '../../storage/services/storage.service';
-import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
+import { GeneratePdfKajianService } from '../../generate_pdf/services/generate_pdf_kajian.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -102,7 +102,7 @@ export class KajianService {
     private readonly nomorSuratService: NomorSuratService,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
-    private readonly generatePdfNodinService: GeneratePdfNodinService,
+    private readonly generatePdfKajianService: GeneratePdfKajianService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
   ) {}
 
@@ -966,7 +966,7 @@ export class KajianService {
       );
 
       // Generate PDF with nomor surat
-      let pdfBuffer = await this.generatePdfNodinService.generatePdf({
+      let pdfBuffer = await this.generatePdfKajianService.generatePdf({
         htmlContent: dto.konten || '',
         nomor: generatedNomor.nomor,
         tertuju: tertujuList,
@@ -2565,7 +2565,7 @@ export class KajianService {
         : `${pengirimSirkulasi?.positionText || ''} - ${pengirimSirkulasi?.organizationText || ''}`;
 
       // Generate PDF with nomor surat
-      let pdfBuffer = await this.generatePdfNodinService.generatePdf({
+      let pdfBuffer = await this.generatePdfKajianService.generatePdf({
         htmlContent: kontenForPdf,
         nomor: naskah.nomor || '',
         tertuju: tertujuList,
@@ -2732,7 +2732,7 @@ export class KajianService {
         headerAlamat: headerInfo?.alamat,
       };
 
-      const pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfDto);
+      const pdfBuffer = await this.generatePdfKajianService.generatePdf(pdfDto);
       return pdfBuffer;
     } catch (error) {
       throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
