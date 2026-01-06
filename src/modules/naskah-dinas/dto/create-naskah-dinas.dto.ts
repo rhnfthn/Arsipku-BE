@@ -95,6 +95,13 @@ export class CreateNaskahDinasDto {
   english?: boolean;
 
   // ============================================
+  // PEMBUAT (Position ID yang create naskah)
+  // ============================================
+  @IsOptional()
+  @IsString()
+  created_by_position_id?: string; // Position ID pembuat
+
+  // ============================================
   // FILE ATTACHMENT (langsung ke final_pdf)
   // ============================================
   // File akan diupload via form-data field 'file_attachment'
