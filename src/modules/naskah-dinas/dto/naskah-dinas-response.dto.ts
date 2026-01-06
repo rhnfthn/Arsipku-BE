@@ -29,6 +29,22 @@ export class NdPenerimaInfoDto {
 }
 
 /**
+ * Info pembuat (sama seperti penerima, diambil dari org_data)
+ */
+export class NdPembuatInfoDto {
+  position: number;
+  position_text: string;
+  persnum: number | null;
+  nama: string | null;
+  organization_id: number;
+  organization_text: string;
+  sub_area: number | null;
+  sub_area_text: string | null;
+  area: string | null;
+  area_text: string | null;
+}
+
+/**
  * Data response untuk send-message Naskah Dinas
  */
 export class NdSendMessageDataDto {
@@ -36,12 +52,14 @@ export class NdSendMessageDataDto {
   jenis: string;
   nomor: string | null;
   tanggal: string;
+  jam: string; // UTC timestamp
   status: string;
   perihal: string;
   final_pdf: string | null;
   final_pdf_url: string | null;
   pengirim: NdPengirimInfoDto;
   penerima: NdPenerimaInfoDto[];
+  pembuat: NdPembuatInfoDto | null;
 }
 
 /**

@@ -2,6 +2,7 @@ import {
   Entity,
   PrimaryColumn,
   Column,
+  CreateDateColumn,
 } from 'typeorm';
 
 @Entity('naskah')
@@ -59,4 +60,10 @@ export class NaskahEntity {
 
   @Column('boolean', { default: false })
   english: boolean;
+
+  @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
+  createdByPosition: string | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 }
