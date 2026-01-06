@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryColumn, CreateDateColumn, OneToMany } from 'typeorm';
+import { NomorRequestDetailEntity } from './nomor-request-detail.entity';
 
 @Entity('nomor_request')
 export class NomorRequestEntity {
@@ -43,4 +44,7 @@ export class NomorRequestEntity {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @OneToMany(() => NomorRequestDetailEntity, (detail) => detail.request, { eager: false })
+  details?: NomorRequestDetailEntity[];
 }

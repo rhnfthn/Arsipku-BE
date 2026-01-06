@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { NomorRequestEntity } from './nomor-request.entity';
 
 export type NomorRequestDetailStatus = 'booking' | 'terpakai' | 'tidak terpakai' | 'hangus';
 
@@ -27,4 +28,8 @@ export class NomorRequestDetailEntity {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @ManyToOne(() => NomorRequestEntity, (request) => request.details)
+  @JoinColumn({ name: 'id_request' })
+  request?: NomorRequestEntity;
 }
