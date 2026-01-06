@@ -45,6 +45,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BerkasModule } from './modules/berkas/berkas.module';
 import { SuperadminModule } from './modules/superadmin/superadmin.module';
 import { NomorModule } from './modules/nomor/nomor.module';
+import { RekapNaskahModule } from './modules/rekap-naskah/rekap-naskah.module';
+import { JenisModule } from './modules/jenis/jenis.module';
 import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
 
@@ -110,6 +112,8 @@ import { DigsigModule } from './modules/digsig/digsig.module';
     BerkasModule,
     SuperadminModule,
     NomorModule,
+    RekapNaskahModule,
+    JenisModule,
     DigsigModule,
   ],
   controllers: [AppController],
