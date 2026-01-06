@@ -14,6 +14,7 @@ import {
   NdGetDetailResponseDto,
   NdPengirimInfoDto,
   NdPenerimaInfoDto,
+  NdPembuatInfoDto,
 } from '../dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
@@ -153,6 +154,7 @@ export class NaskahDinasService {
       klasifikasi_text: body.klasifikasi_text,
       konten: body.konten,
       english: body.english === 'true' || body.english === true,
+      created_by_position_id: body.created_by_position_id,
     };
 
     return { dto, file };
@@ -312,6 +314,7 @@ export class NaskahDinasService {
       naskah.final_pdf = finalPdfPath || '';
       naskah.tanggal = tanggalNaskah;
       naskah.tempat = dto.asal_naskah; // Simpan eksternal.id untuk referensi pengirim
+      naskah.createdByPosition = dto.created_by_position_id || null; // Simpan position ID pembuat
 
       await queryRunner.manager.save(naskah);
 
@@ -326,6 +329,26 @@ export class NaskahDinasService {
 
       await queryRunner.commitTransaction();
 
+      // Lookup pembuat dari org_data untuk response
+      let pembuatInfo: NdPembuatInfoDto | null = null;
+      if (dto.created_by_position_id) {
+        const pembuatPos = barisData.find((p) => String(p.position) === String(dto.created_by_position_id));
+        if (pembuatPos) {
+          pembuatInfo = {
+            position: pembuatPos.position,
+            position_text: pembuatPos.position_text,
+            persnum: pembuatPos.persnum_person || null,
+            nama: pembuatPos.persnum_person_text || null,
+            organization_id: pembuatPos.organization_id,
+            organization_text: pembuatPos.organization_text,
+            sub_area: pembuatPos.sub_area || null,
+            sub_area_text: pembuatPos.sub_area_text || null,
+            area: pembuatPos.area || null,
+            area_text: pembuatPos.area_text || null,
+          };
+        }
+      }
+
       return {
         success: true,
         data: {
@@ -333,12 +356,14 @@ export class NaskahDinasService {
           jenis: 'SDE',
           nomor: dto.nomor_asal || null,
           tanggal: tanggalNaskah.toISOString().split('T')[0],
+          jam: new Date().toISOString().split('T')[1].split('.')[0], // HH:mm:ss
           status: 'final',
           perihal: dto.perihal,
           final_pdf: finalPdfPath,
           final_pdf_url: finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : null,
           pengirim: this.toEksternalPengirimInfo(pengirimEksternal),
           penerima: penerimaResponses,
+          pembuat: pembuatInfo,
         },
       };
     } catch (error) {
@@ -386,6 +411,18 @@ export class NaskahDinasService {
     }
 
     const naskahList = await query.getMany();
+
+    // Get org_data untuk lookup pembuat
+    const today = new Date().toISOString().split('T')[0];
+    let barisData: NdOrgDataPositionDto[] = [];
+    try {
+      const orgData = await this.orgDataService.findOrg(today);
+      if (orgData && orgData.position_json) {
+        barisData = orgData.position_json;
+      }
+    } catch (err) {
+      // Ignore error
+    }
 
     // Get sirkulasi data + pengirim eksternal for each naskah
     const dataPromises = naskahList.map(async (naskah) => {
@@ -440,17 +477,48 @@ export class NaskahDinasService {
           : String(naskah.tanggal).split('T')[0];
       }
 
+      // Get jam UTC from createdAt (hanya waktu tanpa tanggal)
+      let jamUtc = '';
+      if (naskah.createdAt) {
+        const dateObj = naskah.createdAt instanceof Date
+          ? naskah.createdAt
+          : new Date(naskah.createdAt);
+        jamUtc = dateObj.toISOString().split('T')[1].split('.')[0]; // HH:mm:ss
+      }
+
+      // Lookup pembuat dari org_data
+      let pembuatInfo: NdPembuatInfoDto | null = null;
+      if (naskah.createdByPosition && barisData.length > 0) {
+        const pembuatPos = barisData.find((p) => String(p.position) === String(naskah.createdByPosition));
+        if (pembuatPos) {
+          pembuatInfo = {
+            position: pembuatPos.position,
+            position_text: pembuatPos.position_text,
+            persnum: pembuatPos.persnum_person || null,
+            nama: pembuatPos.persnum_person_text || null,
+            organization_id: pembuatPos.organization_id,
+            organization_text: pembuatPos.organization_text,
+            sub_area: pembuatPos.sub_area || null,
+            sub_area_text: pembuatPos.sub_area_text || null,
+            area: pembuatPos.area || null,
+            area_text: pembuatPos.area_text || null,
+          };
+        }
+      }
+
       return {
         id: naskah.id,
         jenis: naskah.jenis,
         nomor: naskah.nomor,
         tanggal: tanggalStr,
+        jam: jamUtc,
         status: naskah.status,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
         final_pdf_url: naskah.final_pdf ? this.storageService.getPublicUrl(naskah.final_pdf) : null,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
+        pembuat: pembuatInfo,
       };
     });
 
@@ -540,6 +608,44 @@ export class NaskahDinasService {
         : String(naskah.tanggal).split('T')[0];
     }
 
+    // Get jam UTC from createdAt (hanya waktu tanpa tanggal)
+    let jamUtc = '';
+    if (naskah.createdAt) {
+      const dateObj = naskah.createdAt instanceof Date
+        ? naskah.createdAt
+        : new Date(naskah.createdAt);
+      jamUtc = dateObj.toISOString().split('T')[1].split('.')[0]; // HH:mm:ss
+    }
+
+    // Lookup pembuat dari org_data
+    let pembuatInfo: NdPembuatInfoDto | null = null;
+    if (naskah.createdByPosition) {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const orgData = await this.orgDataService.findOrg(today);
+        if (orgData && orgData.position_json) {
+          const barisData: NdOrgDataPositionDto[] = orgData.position_json;
+          const pembuatPos = barisData.find((p) => String(p.position) === String(naskah.createdByPosition));
+          if (pembuatPos) {
+            pembuatInfo = {
+              position: pembuatPos.position,
+              position_text: pembuatPos.position_text,
+              persnum: pembuatPos.persnum_person || null,
+              nama: pembuatPos.persnum_person_text || null,
+              organization_id: pembuatPos.organization_id,
+              organization_text: pembuatPos.organization_text,
+              sub_area: pembuatPos.sub_area || null,
+              sub_area_text: pembuatPos.sub_area_text || null,
+              area: pembuatPos.area || null,
+              area_text: pembuatPos.area_text || null,
+            };
+          }
+        }
+      } catch (err) {
+        // Ignore error
+      }
+    }
+
     return {
       success: true,
       data: {
@@ -547,12 +653,14 @@ export class NaskahDinasService {
         jenis: naskah.jenis,
         nomor: naskah.nomor,
         tanggal: tanggalStr,
+        jam: jamUtc,
         status: naskah.status,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
         final_pdf_url: naskah.final_pdf ? this.storageService.getPublicUrl(naskah.final_pdf) : null,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
+        pembuat: pembuatInfo,
       },
     };
   }
