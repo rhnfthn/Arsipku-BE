@@ -14,7 +14,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
-import { DigsigService } from '../digsig/services';
+import { DigsigModule } from '../digsig/digsig.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
@@ -32,10 +32,11 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
     OrgDataModule,
     StorageModule,
     GeneratePdfModule,
+    DigsigModule,
     SubAreaAlamatModule,
   ],
   controllers: [NotaDinasController],
-  providers: [NotaDinasService, NomorSuratService, DigsigService],
+  providers: [NotaDinasService, NomorSuratService],
   exports: [NotaDinasService],
 })
 export class NotaDinasModule {}

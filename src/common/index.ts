@@ -6,3 +6,4 @@ export * from './pipes';
 export * from './interfaces';
 export * from './middleware';
 export * from './enums';
+export * from './helpers';
