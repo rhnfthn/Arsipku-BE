@@ -198,6 +198,9 @@ export class GeneratePdfNodinService {
         
         </tbody></table>`;
 
+    // QR Code section (optional - passed from digsig signing)
+    const qrCodeHtml = body.qrCodeHtml || '';
+    
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
             <td style="width:50%;">
@@ -205,11 +208,7 @@ export class GeneratePdfNodinService {
             <td style="text-align:center;">
             ${tanggalFormatted}<br>
             ${positionText}<br> 
-                    <br>
-                    <br>
-                    <br>
-                    <br>
-                    <br>
+                    ${qrCodeHtml ? qrCodeHtml : ''}
                     ${namaLengkap}</td>
         </tr>
         </tbody></table>`;
