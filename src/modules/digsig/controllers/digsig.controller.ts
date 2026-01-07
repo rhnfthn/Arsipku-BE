@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
@@ -35,5 +36,14 @@ export class DigsigController {
       no_wa: '085231953983',
     });
     return digsig;
+  }
+
+  @Get('ktp')
+  @HttpCode(HttpStatus.CREATED)
+  async getktp(@Body() CreateDigsigDto: CreateDigsigDto) {
+    const digsig = await this.digsigService.getKTPUser({
+      persnum: '10013173'
+    });
+    return digsig; 
   }
 }
