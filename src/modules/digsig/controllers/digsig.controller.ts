@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
@@ -113,5 +114,14 @@ export class DigsigController {
     @Body() dto: SignInternalDto,
   ): Promise<SignInternalResultResponse> {
     return this.digsigService.signSdeInternal(idNaskah, dto);
+  }
+
+  @Get('ktp')
+  @HttpCode(HttpStatus.CREATED)
+  async getktp(@Body() CreateDigsigDto: CreateDigsigDto) {
+    const digsig = await this.digsigService.getKTPUser({
+      persnum: '10013173'
+    });
+    return digsig; 
   }
 }
