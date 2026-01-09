@@ -56,6 +56,24 @@ export class ReviewKonsepDto {
 }
 
 /**
+ * DTO untuk reject konsep
+ * Menolak konsep dan mengembalikan ke pembuat
+ */
+export class RejectKonsepDto {
+  @IsNotEmpty()
+  @IsNumber()
+  from_position_id: number; // Posisi yang reject
+
+  @IsNotEmpty()
+  @IsString()
+  catatan: string; // Alasan penolakan (wajib)
+
+  @IsOptional()
+  @IsNumber()
+  return_to_position_id?: number; // Kembalikan ke posisi tertentu (default: pembuat awal)
+}
+
+/**
  * DTO untuk finalisasi konsep oleh pengirim/penandatangan
  * Setelah ini, naskah akan dikirim ke penerima final
  * Body lengkap karena pengirim masih bisa mengubah value
@@ -141,6 +159,11 @@ export class FinalizeKonsepDto {
   @Type(() => LampiranDto)
   lampiran?: LampiranDto[];
 
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[]; // RECOMMENDED: Array of lampiran IDs dari POST /upload-temporary-konsep
+
   // ============ CATATAN ============
 
   @IsOptional()
@@ -166,4 +189,10 @@ export class FinalizeKonsepDto {
   @IsOptional()
   @IsString()
   tembusan?: string; // Tembusan text
+
+  // ============ TANGGAL SURAT ============
+
+  @IsOptional()
+  @IsString()
+  tanggal?: string; // Tanggal surat (default: hari ini)
 }
