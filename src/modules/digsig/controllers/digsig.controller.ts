@@ -18,6 +18,7 @@ import {
   SignSuratDinasInternalDto,
   SignSuratDinasEksternalDto,
   SignInternalDto,
+  CreateDigsigDto,
 } from '../dto';
 
 @Controller('digsig')
@@ -27,6 +28,27 @@ export class DigsigController {
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - Coming Soon
   // ============================================
+
+  @Post('sign')
+  @HttpCode(HttpStatus.CREATED)
+  async create(@Body() CreateDigsigDto: CreateDigsigDto) {
+    const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
+    const keypathfile = `/nota-dinas/final/${filename}`;
+    const digsig = await this.digsigService.hitDigsigEndpoint({
+      key: keypathfile,
+      filename: filename,
+      nomorDokumen: '001/ABC/KLH.00/XII/2025',
+      tanggalDokumen: '2025-12-23',
+      klasifikasi: 'Biasa',
+      jenisNaskah: 'Nota Dinas',
+      perihal: 'Test from New Arsipku',
+      nik: '1234567890123452',
+      passphrase: 'Bsre2025.#!',
+      path_dokumen: 'nota-dinas/digsig/',
+      no_wa: '',
+    });
+    return digsig;
+  }
 
   /**
    * POST /digsig/sign-nota-dinas/:id
@@ -120,8 +142,8 @@ export class DigsigController {
   @HttpCode(HttpStatus.CREATED)
   async getktp(@Body() CreateDigsigDto: CreateDigsigDto) {
     const digsig = await this.digsigService.getKTPUser({
-      persnum: '10013173'
+      persnum: '10013173',
     });
-    return digsig; 
+    return digsig;
   }
 }
