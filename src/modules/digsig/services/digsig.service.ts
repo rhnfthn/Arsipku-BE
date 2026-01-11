@@ -584,7 +584,7 @@ export class DigsigService {
       perihal: sdi.perihal || naskah.perihal || '-',
       nik: userData.nik,
       passphrase: dto.passphrase,
-      path_dokumen: 'sdi/digsig/',
+      path_dokumen: 'surat-dinas-internal/digsig/',
       no_wa: userData.no_wa,
     };
 
@@ -708,7 +708,7 @@ export class DigsigService {
       perihal: sde.perihal || naskah.perihal || '-',
       nik: userData.nik,
       passphrase: dto.passphrase,
-      path_dokumen: 'sde/digsig/',
+      path_dokumen: 'surat-dinas-eksternal/digsig/',
       no_wa: userData.no_wa,
     };
 
