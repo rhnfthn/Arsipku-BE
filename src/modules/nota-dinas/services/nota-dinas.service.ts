@@ -1893,6 +1893,12 @@ export class NotaDinasService {
             passphrase: dto.passphrase!,
             path_dokumen: 'nota-dinas/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            // Log context untuk auto-logging
+            userPersnum: persnum,
+            userName: signerName,
+            idNaskah: naskahId,
+            jenisNaskah: 'ND',
           });
           console.log(`[ND] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 
@@ -2613,6 +2619,11 @@ export class NotaDinasService {
             passphrase: dto.passphrase!,
             path_dokumen: 'nota-dinas/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            userPersnum: persnum,
+            userName: signerName,
+            idNaskah: naskahId,
+            jenisNaskah: 'ND',
           });
           console.log(`[ND finalizeDraft] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 

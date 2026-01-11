@@ -177,9 +177,11 @@ export class DigsigService {
       console.log('[DigsigService] BSrE Response:', response.data);
 
       // Log success if context provided
+      console.log('[DigsigService] logContext received:', logContext);
       if (logContext) {
         try {
-          await this.digsigLogService.logSignActivity({
+          console.log('[DigsigService] Attempting to log success...');
+          const logResult = await this.digsigLogService.logSignActivity({
             userPersnum: logContext.userPersnum,
             userName: logContext.userName,
             ipAddress: logContext.ipAddress,
@@ -191,17 +193,22 @@ export class DigsigService {
             note: 'BSrE signing berhasil',
             bsreResponse: response.data,
           });
+          console.log('[DigsigService] Log saved successfully:', logResult.id);
         } catch (logError) {
           console.error('[DigsigService] Failed to log success:', logError);
         }
+      } else {
+        console.log('[DigsigService] No logContext provided - skipping logging');
       }
 
       return response.data;
     } catch (error: any) {
       // Log failure if context provided
+      console.log('[DigsigService] Error occurred, logContext:', logContext);
       if (logContext) {
         try {
-          await this.digsigLogService.logSignActivity({
+          console.log('[DigsigService] Attempting to log failure...');
+          const logResult = await this.digsigLogService.logSignActivity({
             userPersnum: logContext.userPersnum,
             userName: logContext.userName,
             ipAddress: logContext.ipAddress,
@@ -213,9 +220,12 @@ export class DigsigService {
             note: axios.isAxiosError(error) ? (error.response?.data?.message || error.message) : error.message,
             bsreResponse: axios.isAxiosError(error) ? error.response?.data : { error: error.message },
           });
+          console.log('[DigsigService] Failure log saved:', logResult.id);
         } catch (logError) {
           console.error('[DigsigService] Failed to log failure:', logError);
         }
+      } else {
+        console.log('[DigsigService] No logContext for failure - skipping logging');
       }
 
       if (axios.isAxiosError(error)) {
