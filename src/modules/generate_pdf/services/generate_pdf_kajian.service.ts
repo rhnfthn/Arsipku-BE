@@ -4,15 +4,40 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
 
+interface KajianPdfOptions {
+  html: string;
+  htmlContent?: string;
+  filename?: string;
+  dari?: string;
+  tanggal?: string;
+  tgl?: string;
+  positionText?: string;
+  namaLengkap?: string;
+  penandatangan?: string;
+  perihal?: string;
+  tertuju?: string[];
+  penerima?: string[];
+  tembusan?: string[];
+  nomor?: string;
+  nama_tempat?: string;
+  namaTempat?: string;
+  // Dynamic header info dari sub_area_alamat
+  headerKantor?: string;
+  headerGedung?: string;
+  headerAlamat?: string;
+  // QR Code HTML (optional - passed from digsig signing)
+  qrCodeHtml?: string;
+}
+
 @Injectable()
 export class GeneratePdfKajianService {
-  async generatePdf(body: any): Promise<Buffer> {
+  async generatePdf(body: KajianPdfOptions): Promise<Buffer> {
     return pdfQueue.add(() => this._generatePdfInternal(body), {
       timeout: 30000,
     });
   }
 
-  private async _generatePdfInternal(body: any): Promise<Buffer> {
+  private async _generatePdfInternal(body: KajianPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
     
     try {
@@ -202,20 +227,17 @@ export class GeneratePdfKajianService {
         
         </tbody></table>`;
 
-    // Tanda tangan
+    // Tanda tangan dengan QR code dinamis
+    const qrCodeHtml = body.qrCodeHtml || '';
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
             <td style="width:50%;">
             </td>
             <td style="text-align:center;">
             ${tanggalFormatted}<br>
-            ${positionText}<br> 
-                    <br>
-                    <br>
-                    <br>
-                    <br>
-                    <br>
-                    ${namaLengkap}</td>
+            ${positionText}<br>
+            ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+            ${namaLengkap}</td>
         </tr>
         </tbody></table>`;
 

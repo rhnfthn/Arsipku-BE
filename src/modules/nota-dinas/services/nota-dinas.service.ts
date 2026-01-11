@@ -1891,7 +1891,7 @@ export class NotaDinasService {
             perihal: dto.perihal,
             nik: userData.nik,
             passphrase: dto.passphrase!,
-            path_dokumen: 'nd/digsig/',
+            path_dokumen: 'nota-dinas/digsig/',
             no_wa: userData.no_wa,
           });
           console.log(`[ND] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
@@ -1920,6 +1920,20 @@ export class NotaDinasService {
             await this.storageService.deleteFile(tempUpload.key);
           } catch (e) {
             console.warn(`[ND] Failed to cleanup temp file: ${e.message}`);
+          }
+
+          // 11g. Download signed PDF from digsig/ and upload to final/
+          if (bsreNameDoc) {
+            console.log(`[ND] Step 11g - Downloading signed PDF from digsig/`);
+            const digsigPath = `nota-dinas/digsig/${bsreNameDoc}`;
+            try {
+              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+              console.log(`[ND] Step 11g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              // Replace pdfBuffer with signed version
+              pdfBuffer = signedPdfBuffer;
+            } catch (e) {
+              console.warn(`[ND] Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            }
           }
 
         } else if (dto.sign_option === SignOption.QR_ONLY) {
@@ -2597,7 +2611,7 @@ export class NotaDinasService {
             perihal: dto.perihal || naskah.perihal || '',
             nik: userData.nik,
             passphrase: dto.passphrase!,
-            path_dokumen: 'nd/digsig/',
+            path_dokumen: 'nota-dinas/digsig/',
             no_wa: userData.no_wa,
           });
           console.log(`[ND finalizeDraft] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
@@ -2626,6 +2640,20 @@ export class NotaDinasService {
             await this.storageService.deleteFile(tempUpload.key);
           } catch (e) {
             console.warn(`[ND finalizeDraft] Failed to cleanup temp file: ${e.message}`);
+          }
+
+          // 11g. Download signed PDF from digsig/ and upload to final/
+          if (bsreNameDoc) {
+            console.log(`[ND finalizeDraft] Step 11g - Downloading signed PDF from digsig/`);
+            const digsigPath = `nota-dinas/digsig/${bsreNameDoc}`;
+            try {
+              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+              console.log(`[ND finalizeDraft] Step 11g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              // Replace pdfBuffer with signed version
+              pdfBuffer = signedPdfBuffer;
+            } catch (e) {
+              console.warn(`[ND finalizeDraft] Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            }
           }
 
         } else if (dto.sign_option === SignOption.QR_ONLY) {
