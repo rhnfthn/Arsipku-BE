@@ -144,8 +144,12 @@ export class KajianController {
    * POST /KA/send-message
    * Send Kajian (langsung final tanpa draft)
    * Status: 'final' (tanpa tanda_tangan) atau 'final_tte' (dengan tanda_tangan)
+   * 
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: Required for digsig
    */
-  @Public()
+  @UseGuards(JwtAuthGuard)
   @Post('send-message')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -159,10 +163,21 @@ export class KajianController {
   async sendMessage(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
+      // Log incoming request for debugging
+      console.log('[KA Controller] send-message request');
+      console.log('[KA Controller] User from JWT:', user);
+
+      // Extract persnum from JWT token
+      const persnum = user?.persnum || user?.personNumber || user?.persnum_person;
+      console.log('[KA Controller] Extracted persnum:', persnum);
+
       const dto = await this.kajianService.parseFormDataToDto(body, files);
-      return await this.kajianService.sendMessage(dto);
+      console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
+
+      return await this.kajianService.sendMessage(dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -218,8 +233,12 @@ export class KajianController {
   /**
    * PUT /KA/send-draft/:id
    * Finalize draft Kajian (update status dari draf ke final/final_tte)
+   * 
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: Required for digsig
    */
-  @Public()
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -234,10 +253,21 @@ export class KajianController {
     @Param('id') id: string,
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
+      // Log incoming request for debugging
+      console.log('[KA Controller] send-draft request for id:', id);
+      console.log('[KA Controller] User from JWT:', user);
+
+      // Extract persnum from JWT token
+      const persnum = user?.persnum || user?.personNumber || user?.persnum_person;
+      console.log('[KA Controller] Extracted persnum:', persnum);
+
       const dto = await this.kajianService.parseFormDataToFinalizeDraftDto(body, files);
-      return await this.kajianService.finalizeDraft(id, dto);
+      console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
+
+      return await this.kajianService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
