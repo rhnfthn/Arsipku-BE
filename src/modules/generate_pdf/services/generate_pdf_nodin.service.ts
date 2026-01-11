@@ -207,9 +207,9 @@ export class GeneratePdfNodinService {
             </td>
             <td style="text-align:center;">
             ${tanggalFormatted}<br>
-            ${positionText}<br> 
-                    ${qrCodeHtml ? qrCodeHtml : ''}
-                    ${namaLengkap}</td>
+            ${positionText}<br>
+            ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+            ${namaLengkap}</td>
         </tr>
         </tbody></table>`;
 
@@ -309,7 +309,7 @@ export class GeneratePdfNodinService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '30mm',
+          top: '15mm',
           bottom: '20mm',
           left: '25mm',
           right: '20mm',
