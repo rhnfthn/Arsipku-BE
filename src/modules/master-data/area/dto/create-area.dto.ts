@@ -1,44 +1,33 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateAreaDto {
-  @IsUUID()
   @IsOptional()
+  @IsString()
   id?: string;
-
-  @IsInt()
-  company: number;
 
   @IsString()
   @MaxLength(11)
-  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'area hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
-  })
-  area?: string;
+  area: string;
 
-  @IsDateString()
   @IsOptional()
+  @IsString()
   startDate?: string;
 
-  @IsDateString()
   @IsOptional()
+  @IsString()
   endDate?: string;
 
   @IsString()
   @MaxLength(50)
-  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'shortText hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
-  })
   shortText: string;
 
+  @IsOptional()
   @IsString()
   @MaxLength(250)
-  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'longText hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
-  })
   longText?: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   @MaxLength(11)
   uname?: string;
 }
