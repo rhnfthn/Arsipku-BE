@@ -25,6 +25,9 @@ export class BookingFileDto {
  * DTO untuk booking nomor request dengan file upload
  * Menggunakan FormData tanpa file_text field
  * Path folder diambil dari query parameter ?folder=...
+ * Action diambil dari query parameter ?action=append|replace
+ * - append (default): tambah file baru tanpa hapus yang lama
+ * - replace: hapus semua detail dengan status booking (dan file-nya), lalu upload file baru
  */
 export class BookingNomorRequestDto {
   @IsOptional()
@@ -46,6 +49,7 @@ export class BookingNomorRequestResponseDto {
       status: string;
       file_name: string | null;
       file_text: string | null;
+      file_url: string | null;
       created_at: Date;
     }[];
   };

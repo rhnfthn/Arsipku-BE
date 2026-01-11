@@ -100,6 +100,7 @@ interface OrgDataPosition {
   direktorat_id?: number | null;
   sub_area?: number | null;
   departType?: string | null;
+  persnum_person?: number | null;
 }
 
 @Injectable()
@@ -368,7 +369,7 @@ export class DisposisiService {
    * @param pengirim - Nama pengirim
    * @param tembusan - Array tembusan
    * @param lampiranTempIds - ID lampiran temporary untuk di-merge
-   * @param options - Additional options (refNomor, refPerihal, tanggalDisposisi, isFinal, catatan)
+   * @param options - Additional options (refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -381,6 +382,8 @@ export class DisposisiService {
     options?: {
       refNomor?: string;
       refPerihal?: string;
+      refTanggal?: string;
+      refPengirim?: string;
       tanggalDisposisi?: string;
       isFinal?: boolean;
       catatan?: string;
@@ -397,16 +400,24 @@ export class DisposisiService {
         day: 'numeric' 
       });
 
+      // Auto-check "Lainnya" if catatan is filled
+      let finalDisposisi = [...disposisi];
+      if (options?.catatan && options.catatan.trim().length > 0 && !finalDisposisi.includes('Lainnya')) {
+        finalDisposisi.push('Lainnya');
+      }
+
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
-        disposisi: disposisi,
+        disposisi: finalDisposisi,
         sifat: sifat || 'Biasa',
         pengirim: pengirim,
         tembusan: tembusan,
         perihal: options?.refPerihal || '',
         refNomor: options?.refNomor || '',
         refPerihal: options?.refPerihal || '',
+        refTanggal: options?.refTanggal || '',
+        refPengirim: options?.refPengirim || '',
         tanggal: tanggal,
         catatan: options?.catatan || '',
       });
@@ -542,6 +553,7 @@ export class DisposisiService {
       id: string;
       file_name: string;
       file_path: string;
+      file_url: string;
     }[] = [];
 
     // Upload semua files ke temporary folder
@@ -564,10 +576,14 @@ export class DisposisiService {
 
       await this.naskahLampiranRepository.save(lampiranEntity);
 
+      // Use backend preview endpoint (works reliably for inline preview)
+      const fileUrl = `/preview-file/${lampiranEntity.id}`;
+
       uploadedFiles.push({
         id: lampiranEntity.id,
         file_name: lampiranEntity.file_name,
         file_path: lampiranEntity.file_pdf,
+        file_url: fileUrl,
       });
     }
 
@@ -729,6 +745,7 @@ export class DisposisiService {
     const sameLevelStaff = allData.filter(
       (x) =>
         x.chief === 0 &&
+        x.persnum_person !== null &&
         x.position !== current.position &&
         this.isStaffAllowed(x, current),
     );
@@ -869,6 +886,7 @@ export class DisposisiService {
     const staffFilter = barisData.filter(
       (x) =>
         x.chief === 0 &&
+        x.persnum_person !== null &&
         Number(x.divisi_id) === Number(current.divisi_id) &&
         x.sub_area === current.sub_area &&
         x.divisi_id != null,
@@ -1278,7 +1296,8 @@ export class DisposisiService {
 
       // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (per recipient)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -1299,6 +1318,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false, // sendMessage = bukan draft
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -1360,7 +1380,7 @@ export class DisposisiService {
       // PHASE 7: Insert ke tabel DI (konten lengkap lembar disposisi)
       // Build kepada_yth dari penerima
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
@@ -1384,6 +1404,107 @@ export class DisposisiService {
       });
       await queryRunner.manager.save(diEntity);
 
+      // PHASE 8: Auto-generate PDF with lampiran (for sendMessage, status is always 'final')
+      let finalPdfPath: string | undefined = undefined;
+      try {
+        // Parse disposisi string to array (format: "Untuk Diketahui\nProses Lanjut\nKoordinasikan")
+        // Split by newline to get individual checkbox items
+        let disposisiArray: string[] = [];
+        if (dto.disposisi) {
+          if (Array.isArray(dto.disposisi)) {
+            disposisiArray = dto.disposisi;
+          } else if (typeof dto.disposisi === 'string') {
+            // Split by newline and filter empty strings
+            disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+          }
+        }
+        
+        // Auto-check "Lainnya" if catatan is filled
+        if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+          disposisiArray.push('Lainnya');
+        }
+        console.log('[DI sendMessage] disposisiArray:', disposisiArray);
+
+        // Get reference data from naskah sebelumnya (if exists)
+        let refNomor = '';
+        let refPerihal = '';
+        let refTanggal = '';
+        let refPengirim = '';
+        
+        if (dto.id_naskah_sebelumnya) {
+          const naskahRef = await this.naskahRepository.findOne({
+            where: { id: dto.id_naskah_sebelumnya },
+          });
+          if (naskahRef) {
+            refNomor = naskahRef.nomor || '';
+            refPerihal = naskahRef.perihal || '';
+            refPengirim = ''; // Can be filled from sirkulasi pengirim if needed
+            if (naskahRef.tanggal) {
+              const refDate = new Date(naskahRef.tanggal);
+              refTanggal = refDate.toLocaleDateString('id-ID', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              });
+            }
+          }
+        }
+
+        // Generate PDF with all data
+        let pdfBuffer = await this.generatePdfDispoService.generatePdf({
+          html: '',
+          penerima: kepadaYthList,
+          disposisi: disposisiArray, // Now properly parsed as array
+          sifat: dto.sifat || 'Biasa',
+          pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
+          tembusan: [],
+          perihal: dto.perihal,
+          refNomor: refNomor,
+          refPerihal: refPerihal,
+          refTanggal: refTanggal,
+          refPengirim: refPengirim,
+          tanggal: tanggalDisposisi.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          catatan: dto.catatan || '',
+        });
+
+        // Merge with lampiran if any
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            console.log('[DI sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
+          }
+        }
+
+        // Upload PDF to storage with organized folder structure
+        const timestamp = Date.now();
+        const pdfFileName = `DI-${generatedNomor.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'disposisi/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        console.log('[DI sendMessage] PDF auto-generated:', finalPdfPath);
+      } catch (error) {
+        console.error('[DI sendMessage] Failed to auto-generate PDF:', error);
+        // Don't fail the whole transaction if PDF generation fails
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 
@@ -1406,6 +1527,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
@@ -1537,7 +1659,8 @@ export class DisposisiService {
 
       // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (dengan isDraft = true)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -1558,6 +1681,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true, // saveDraft = draft
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -1619,7 +1743,7 @@ export class DisposisiService {
       // PHASE 8: Insert ke tabel DI (konten lengkap lembar disposisi)
       // Build kepada_yth dari penerima
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
@@ -1753,6 +1877,7 @@ export class DisposisiService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get lampiran count
@@ -2061,7 +2186,8 @@ export class DisposisiService {
         });
 
         // Insert penerima baru dengan isDraft berdasarkan action
-        for (const penerima of penerimaDataList) {
+        for (let i = 0; i < penerimaDataList.length; i++) {
+          const penerima = penerimaDataList[i];
           const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
             id: uuidv4(),
             idNaskah: naskahId,
@@ -2082,6 +2208,7 @@ export class DisposisiService {
               : '',
             namaSirkuler: penerima.persnum_person_text || '',
             isDraft: isDraft, // isDraft based on action
+            urutan: i, // urutan sesuai input form
           });
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -2109,22 +2236,43 @@ export class DisposisiService {
       }
 
       // PHASE 6: Update lampiran (jika ada perubahan)
-      if (dto.lampiran) {
+      // Only update lampiran if explicitly provided and contains items
+      // If dto.lampiran is undefined, keep existing lampiran
+      // If dto.lampiran is empty array [], it means user wants to clear all lampiran
+      if (dto.lampiran !== undefined) {
         // Hapus lampiran lama
         await queryRunner.manager.delete(NaskahLampiranEntity, {
           id_naskah: naskahId,
         });
 
-        // Insert lampiran baru
-        for (const lamp of dto.lampiran) {
-          const lampiran = new NaskahLampiranEntity();
-          lampiran.id = uuidv4();
-          lampiran.id_naskah = naskahId;
-          lampiran.file_name = lamp.nama_file;
-          lampiran.file_pdf = lamp.url;
-          lampiran.jenis = 'DI';
-          await queryRunner.manager.save(lampiran);
+        // Insert lampiran baru (if any)
+        if (dto.lampiran && dto.lampiran.length > 0) {
+          for (const lamp of dto.lampiran) {
+            const lampiran = new NaskahLampiranEntity();
+            lampiran.id = uuidv4();
+            lampiran.id_naskah = naskahId;
+            lampiran.file_name = lamp.nama_file;
+            lampiran.file_pdf = lamp.url;
+            lampiran.jenis = 'DI';
+            await queryRunner.manager.save(lampiran);
+          }
         }
+      }
+
+      // PHASE 6b: Handle lampiran_temp_ids - Update temporary lampiran to final
+      // This handles newly uploaded lampiran via upload-temp-lampiran endpoint
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        // Update temporary lampiran: set id_naskah and is_temporary = 0
+        await queryRunner.manager.update(
+          NaskahLampiranEntity,
+          { 
+            id: In(dto.lampiran_temp_ids),
+          },
+          { 
+            id_naskah: naskahId,
+            is_temporary: 0,
+          },
+        );
       }
 
       // PHASE 7: Update tabel "di" (jika ada perubahan field konten)
@@ -2214,6 +2362,7 @@ export class DisposisiService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimDataResult = allSirkulasi.find(
@@ -2552,7 +2701,8 @@ export class DisposisiService {
 
       // PHASE 8: Insert sirkulasi penerima
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
-      for (const penerima of penerimaDataList) {
+      for (let i = 0; i < penerimaDataList.length; i++) {
+        const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
@@ -2573,6 +2723,7 @@ export class DisposisiService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
+          urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -2610,7 +2761,7 @@ export class DisposisiService {
 
       // PHASE 10: Insert ke tabel DI
       const kepadaYthList = penerimaDataList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${p.position_text} ${p.organization_text}`,
       );
       const kepadaYth = kepadaYthList.join('; ');
 
@@ -2711,6 +2862,7 @@ export class DisposisiService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get lampiran files

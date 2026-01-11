@@ -18,7 +18,9 @@ interface GeneratePdfDispoBody {
   perihal?: string;
   refNomor?: string;
   refPerihal?: string;
-  tanggal?: string;
+  refTanggal?: string; // Tanggal surat referensi
+  refPengirim?: string; // Pengirim surat referensi (surat dari)
+  tanggal?: string; // Tanggal disposisi terkirim (untuk agenda)
   penandatangan?: string;
   catatan?: string;
 }
@@ -53,24 +55,23 @@ export class GeneratePdfDispoService {
     }
 
     // Accept both 'html' and 'htmlContent' field names
-    const htmlContent = body.html || body.htmlContent;
-    if (!htmlContent) {
-      throw new Error('Missing required field: html or htmlContent');
-    }
+    // htmlContent is now optional - can be empty/null for disposisi without catatan
+    const htmlContent = body.html || body.htmlContent || '';
     
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
-      // Try to decode as base64 first
-      const buffer = Buffer.from(htmlContent, 'base64');
-      const decoded = buffer.toString('utf-8');
-      // Check if it looks like valid decoded content (contains HTML tags or text)
-      if (decoded.includes('<') || !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
-        // Looks like decoded content
-        decodedContent = decoded;
+      // Check if content already looks like HTML (contains HTML tags)
+      if (htmlContent.includes('<') && htmlContent.includes('>')) {
+        // Already plain HTML, no need to decode
+        decodedContent = htmlContent;
+      } else if (htmlContent && /^[A-Za-z0-9+/=]+$/.test(htmlContent)) {
+        // Looks like base64, try to decode
+        const buffer = Buffer.from(htmlContent, 'base64');
+        decodedContent = buffer.toString('utf-8');
       } else {
-        // Try to decode with escape sequence handling
-        decodedContent = decodeURIComponent(escape(decoded));
+        // Not base64 and not HTML, use as-is
+        decodedContent = htmlContent;
       }
     } catch (e) {
       // If base64 decode fails, assume it's plain text already
@@ -83,59 +84,99 @@ export class GeneratePdfDispoService {
     const sifat = body.sifat || 'Biasa';
     const penandatangan = body.penandatangan || '';
     
-    // Format tanggal - convert dari YYYY-MM-DD atau DD/MM/YYYY ke format Indonesia
-    let tanggal = body.tanggal || '';
-    if (tanggal) {
+    // Indonesian month names
+    const monthNamesId = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+
+    // Helper function untuk format tanggal ke format Indonesia "20 Desember 2025"
+    const formatDateToIndonesian = (dateInput: string): string => {
+      if (!dateInput) return '';
+      const trimmed = dateInput.trim();
+      if (!trimmed) return '';
       try {
-        // Check if already in Indonesian format
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggal)) {
-          // Already formatted, keep as is
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
-          // YYYY-MM-DD format
-          const dateObj = new Date(tanggal + 'T00:00:00');
-          if (!isNaN(dateObj.getTime())) {
-            tanggal = dateObj.toLocaleDateString('id-ID', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric',
-            });
-          }
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggal)) {
-          // DD/MM/YYYY format
-          const [day, month, year] = tanggal.split('/');
-          const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-          if (!isNaN(dateObj.getTime())) {
-            tanggal = dateObj.toLocaleDateString('id-ID', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric',
-            });
-          }
+        let dateObj: Date | null = null;
+        
+        // Already in DD-MM-YYYY format
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('-');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         }
+        // YYYY-MM-DD format
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          dateObj = new Date(trimmed + 'T00:00:00');
+        }
+        // DD/MM/YYYY format
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('/');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        }
+        // Indonesian long format (e.g., "Selasa, 24 Desember 2024") - already in correct format
+        else if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+          if (match) {
+            return `${match[1]} ${match[2].charAt(0).toUpperCase() + match[2].slice(1).toLowerCase()} ${match[3]}`;
+          }
+          return trimmed;
+        }
+        
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const day = dateObj.getDate();
+          const month = monthNamesId[dateObj.getMonth()];
+          const year = dateObj.getFullYear();
+          return `${day} ${month} ${year}`;
+        }
+        
+        return trimmed; // Return as-is if format not recognized
       } catch (e) {
         console.error('[GeneratePdfDispo] Error formatting date:', e);
+        return trimmed;
       }
-    }
+    };
+
+    // Format tanggal disposisi (untuk AGENDA) ke format Indonesia "20 Desember 2025"
+    let tanggal = (body.tanggal || '').trim();
+    console.log('[GeneratePdfDispo] Input tanggal:', body.tanggal, '| tanggal after trim:', tanggal);
     if (!tanggal) {
-      tanggal = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const now = new Date();
+      const day = now.getDate();
+      const month = monthNamesId[now.getMonth()];
+      const year = now.getFullYear();
+      tanggal = `${day} ${month} ${year}`;
+    } else {
+      tanggal = formatDateToIndonesian(tanggal);
     }
+    console.log('[GeneratePdfDispo] tanggal after format:', tanggal);
     
-    // Field referensi surat asal
+    // Field referensi surat asal (kolom kanan - data dari surat yang didisposisi)
+    // Jika tidak ada ref_nomor dan ref_perihal, semua field referensi harus kosong
     const refNomor = body.refNomor || '';
-    const refPerihal = body.refPerihal || body.perihal || '';
+    const refPerihal = body.refPerihal || '';
+    const hasRefData = refNomor || refPerihal; // Cek apakah ada data referensi
+    const refTanggal = hasRefData && body.refTanggal ? formatDateToIndonesian(body.refTanggal) : ''; // Tanggal surat referensi
+    const refPengirim = hasRefData ? (body.refPengirim || '') : ''; // Pengirim surat referensi (surat dari)
     
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
     
-    // Format penerima
+    // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
+    // Jika format "Position - Organization", ambil hanya Position
+    let sortedPenerima = [...penerima].sort((a, b) => a.localeCompare(b, 'id'));
     let penerimaHtml = '';
-    if (Array.isArray(penerima) && penerima.length > 0) {
-      if (penerima.length === 1) {
-        penerimaHtml = penerima[0];
+    if (Array.isArray(sortedPenerima) && sortedPenerima.length > 0) {
+      // Extract only position text if format is "Position - Organization"
+      const cleanPenerima = sortedPenerima.map(p => {
+        if (p.includes(' - ')) {
+          return p.split(' - ')[0].trim();
+        }
+        return p;
+      });
+      
+      if (cleanPenerima.length === 1) {
+        penerimaHtml = cleanPenerima[0];
       } else {
-        penerimaHtml = penerima.map(p => `<div style="margin-left: 20px;">${p}</div>`).join('');
+        penerimaHtml = cleanPenerima.map(p => `<div style="margin-left: 20px;">${p}</div>`).join('');
       }
     }
 
@@ -223,7 +264,7 @@ export class GeneratePdfDispoService {
 
         <!-- Info Section -->
         <div style="display: flex; border-bottom: 2px solid #000;">
-          <!-- Agenda -->
+          <!-- Agenda (Kiri) - Tanggal terkirim disposisi dari kita -->
           <div style="width: 15%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
@@ -232,20 +273,20 @@ export class GeneratePdfDispoService {
             </div>
           </div>
 
-          <!-- Detail Info -->
+          <!-- Detail Info (Tengah) - Data dari referensi surat yang didisposisi -->
           <div style="width: 55%; border-right: 2px solid #000; padding: 12px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
               <tr style="border-bottom: none;">
                 <td style="width: 70px; padding: 4px 0;">Surat dari</td>
-                <td style="padding: 4px 0;">: ${pengirim}</td>
+                <td style="padding: 4px 0;">: ${refPengirim || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0;">Tanggal</td>
-                <td style="padding: 4px 0;">: ${tanggal}</td>
+                <td style="padding: 4px 0;">: ${refTanggal || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0;">Nomor</td>
-                <td style="padding: 4px 0;">: ${refNomor || '......................'}</td>
+                <td style="padding: 4px 0;">: ${refNomor || '-'}</td>
               </tr>
               <tr style="border-bottom: none;">
                 <td style="padding: 4px 0; vertical-align: top;">Perihal</td>
@@ -307,10 +348,10 @@ export class GeneratePdfDispoService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '10mm',
-          bottom: '15mm',
-          left: '15mm',
-          right: '15mm',
+          top: '30mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 
