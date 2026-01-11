@@ -16,6 +16,7 @@ import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entit
 import { Session } from '../../auth/entities/session.entity';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { QRCodeService, QRCodeData } from './qrcode.service';
+import { DigsigLogService } from './digsig-log.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
@@ -33,6 +34,18 @@ export interface DigsigParams {
   passphrase: string;
   path_dokumen: string;
   no_wa: string;
+}
+
+/**
+ * Optional context for logging BSrE activities
+ * Pass this to hitDigsigEndpoint for automatic logging
+ */
+export interface DigsigLogContext {
+  userPersnum: number;
+  userName?: string;
+  idNaskah?: string;
+  jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  ipAddress?: string;
 }
 
 export interface DigsigResponse {
@@ -82,6 +95,7 @@ export class DigsigService {
   constructor(
     private readonly storageService: StorageService,
     private readonly qrCodeService: QRCodeService,
+    private readonly digsigLogService: DigsigLogService,
     private readonly generatePdfNodinService: GeneratePdfNodinService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
@@ -101,8 +115,10 @@ export class DigsigService {
 
   /**
    * Hit Digsig API Endpoint
+   * @param params - DigsigParams for BSrE API
+   * @param logContext - Optional context for logging (currently unused, for future logging)
    */
-  async hitDigsigEndpoint(params: DigsigParams) {
+  async hitDigsigEndpoint(params: DigsigParams, logContext?: DigsigLogContext) {
     try {
       console.log('[DigsigService] hitDigsigEndpoint - Starting...');
       console.log('[DigsigService] Params:', {
@@ -159,8 +175,49 @@ export class DigsigService {
       );
 
       console.log('[DigsigService] BSrE Response:', response.data);
+
+      // Log success if context provided
+      if (logContext) {
+        try {
+          await this.digsigLogService.logSignActivity({
+            userPersnum: logContext.userPersnum,
+            userName: logContext.userName,
+            ipAddress: logContext.ipAddress,
+            idNaskah: logContext.idNaskah,
+            nomorNaskah: params.nomorDokumen,
+            jenisNaskah: logContext.jenisNaskah,
+            apiEndpoint: 'POST /signin',
+            status: 'sukses',
+            note: 'BSrE signing berhasil',
+            bsreResponse: response.data,
+          });
+        } catch (logError) {
+          console.error('[DigsigService] Failed to log success:', logError);
+        }
+      }
+
       return response.data;
     } catch (error: any) {
+      // Log failure if context provided
+      if (logContext) {
+        try {
+          await this.digsigLogService.logSignActivity({
+            userPersnum: logContext.userPersnum,
+            userName: logContext.userName,
+            ipAddress: logContext.ipAddress,
+            idNaskah: logContext.idNaskah,
+            nomorNaskah: params.nomorDokumen,
+            jenisNaskah: logContext.jenisNaskah,
+            apiEndpoint: 'POST /signin',
+            status: 'gagal',
+            note: axios.isAxiosError(error) ? (error.response?.data?.message || error.message) : error.message,
+            bsreResponse: axios.isAxiosError(error) ? error.response?.data : { error: error.message },
+          });
+        } catch (logError) {
+          console.error('[DigsigService] Failed to log failure:', logError);
+        }
+      }
+
       if (axios.isAxiosError(error)) {
         console.error('[DigsigService] Axios Error Message:', error.message);
         console.error('[DigsigService] Status:', error.response?.status);
