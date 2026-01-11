@@ -146,9 +146,7 @@ export class SuratDinasInternalController {
    *
    * @returns SendMessageResponseDto
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Post('send-message')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -170,13 +168,35 @@ export class SuratDinasInternalController {
       lampiran_files?: Express.Multer.File[];
       final_pdf?: Express.Multer.File[];
     },
+    @CurrentUser() user: any, // Get logged-in user info
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.suratDinasInternalService.parseFormDataToDto(
         body,
         files,
       );
-      return await this.suratDinasInternalService.sendMessage(dto);
+
+      // Extract persnum from JWT user (required for digital signature)
+      const persnum = user?.persnum;
+      
+      console.log('[SDI Controller] sendMessage called with:', {
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      if (!persnum) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.UNAUTHORIZED,
+            message: 'User tidak terautentikasi atau persnum tidak ditemukan',
+          },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      return await this.suratDinasInternalService.sendMessage(dto, Number(persnum));
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -382,6 +402,8 @@ export class SuratDinasInternalController {
    * Form-data fields:
    * - Semua field optional (dapat update sebelum finalize)
    * - final_pdf: file (optional)
+   * - sign_option: 'digsig' | 'qr_only' | 'none' (optional)
+   * - passphrase: string (required jika sign_option=digsig)
    *
    * Generate official nomor surat, update status to 'final' atau 'final_tte'
    * Set isDraft = false in sirkulasi
@@ -389,9 +411,7 @@ export class SuratDinasInternalController {
    * @param id - Naskah ID (UUID)
    * @returns SendMessageResponseDto with finalized data
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -414,6 +434,7 @@ export class SuratDinasInternalController {
       lampiran_files?: Express.Multer.File[];
       final_pdf?: Express.Multer.File[];
     },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto =
@@ -421,7 +442,18 @@ export class SuratDinasInternalController {
           body,
           files,
         );
-      return await this.suratDinasInternalService.finalizeDraft(id, dto);
+
+      // Get persnum from JWT for digital signature
+      const persnum = user?.persnum;
+      
+      console.log('[SDI Controller] sendDraft called with:', {
+        id,
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      return await this.suratDinasInternalService.finalizeDraft(id, dto, persnum ? Number(persnum) : undefined);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

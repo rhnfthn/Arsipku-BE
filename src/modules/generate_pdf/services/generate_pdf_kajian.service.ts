@@ -315,7 +315,7 @@ export class GeneratePdfKajianService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '30mm',
+          top: '15mm',
           bottom: '20mm',
           left: '25mm',
           right: '20mm',

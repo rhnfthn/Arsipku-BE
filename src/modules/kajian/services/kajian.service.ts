@@ -957,12 +957,12 @@ export class KajianService {
 
       // Build tertuju (penerima) list
       const tertujuList = penerimaResponses.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => p.position_text,
       );
 
       // Build tembusan list
       const tembusanList = tembusanResponses.map(
-        (t) => `${t.position_text} - ${t.organization_text}`,
+        (t) => t.position_text,
       );
 
       // Generate PDF with nomor surat
@@ -972,7 +972,7 @@ export class KajianService {
         tertuju: tertujuList,
         tembusan: tembusanList,
         perihal: dto.perihal,
-        dari: `${pengirimData!.position_text} - ${pengirimData!.organization_text}`,
+        dari: pengirimData!.position_text,
         tanggal: formattedTanggal,
         positionText: dto.nama_jabatan || pengirimData!.position_text,
         namaLengkap: dto.nama_lengkap || pengirimData!.persnum_person_text || '',
@@ -2547,12 +2547,12 @@ export class KajianService {
 
       // Build tertuju (penerima) list
       const tertujuList = penerimaSirkulasiList.map(
-        (p) => `${p.positionText} - ${p.organizationText}`,
+        (p) => p.positionText,
       );
 
       // Build tembusan list
       const tembusanList = tembusanSirkulasiList.map(
-        (t) => `${t.positionText} - ${t.organizationText}`,
+        (t) => t.positionText,
       );
 
       // Determine konten and perihal for PDF
@@ -2561,8 +2561,8 @@ export class KajianService {
       const positionTextForPdf = dto.nama_jabatan || pengirimData?.position_text || pengirimSirkulasi?.positionText || '';
       const namaLengkapForPdf = dto.nama_lengkap || pengirimData?.persnum_person_text || pengirimSirkulasi?.namaSirkuler || '';
       const dariForPdf = pengirimData 
-        ? `${pengirimData.position_text} - ${pengirimData.organization_text}`
-        : `${pengirimSirkulasi?.positionText || ''} - ${pengirimSirkulasi?.organizationText || ''}`;
+        ? pengirimData.position_text
+        : pengirimSirkulasi?.positionText || '';
 
       // Generate PDF with nomor surat
       let pdfBuffer = await this.generatePdfKajianService.generatePdf({

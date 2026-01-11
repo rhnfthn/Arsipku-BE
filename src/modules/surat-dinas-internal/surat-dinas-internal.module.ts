@@ -10,11 +10,13 @@ import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../nomor/entities/jenis.entity';
+import { Session } from '../auth/entities/session.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
+import { DigsigModule } from '../digsig/digsig.module';
 
 @Module({
   imports: [
@@ -27,11 +29,13 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
       NomorRequestEntity,
       NomorRequestDetailEntity,
       JenisEntity,
+      Session,
     ]),
     OrgDataModule,
     StorageModule,
     GeneratePdfModule,
     SubAreaAlamatModule,
+    DigsigModule,
   ],
   controllers: [SuratDinasInternalController],
   providers: [SuratDinasInternalService, NomorSuratService],
