@@ -1918,7 +1918,7 @@ export class SuratDinasInternalService {
             perihal: dto.perihal,
             nik: userData.nik,
             passphrase: dto.passphrase!,
-            path_dokumen: 'sdi/digsig/',
+            path_dokumen: 'surat-dinas-internal/digsig/',
             no_wa: userData.no_wa,
           });
           console.log(`[SDI] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
@@ -1947,6 +1947,20 @@ export class SuratDinasInternalService {
             await this.storageService.deleteFile(tempUpload.key);
           } catch (e) {
             console.warn(`[SDI] Failed to cleanup temp file: ${e.message}`);
+          }
+
+          // 11g. Download signed PDF from digsig/ and upload to final/
+          if (bsreNameDoc) {
+            console.log(`[SDI] Step 11g - Downloading signed PDF from digsig/`);
+            const digsigPath = `surat-dinas-internal/digsig/${bsreNameDoc}`;
+            try {
+              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+              console.log(`[SDI] Step 11g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              // Replace pdfBuffer with signed version
+              pdfBuffer = signedPdfBuffer;
+            } catch (e) {
+              console.warn(`[SDI] Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            }
           }
 
         } else if (dto.sign_option === SignOption.QR_ONLY) {
@@ -2526,7 +2540,7 @@ export class SuratDinasInternalService {
               perihal: dto.perihal || naskah.perihal || '',
               nik: userData.nik,
               passphrase: dto.passphrase!,
-              path_dokumen: 'sdi/digsig/',
+              path_dokumen: 'surat-dinas-internal/digsig/',
               no_wa: userData.no_wa,
             });
 
@@ -2553,6 +2567,20 @@ export class SuratDinasInternalService {
               await this.storageService.deleteFile(tempUpload.key);
             } catch (e) {
               console.warn(`[SDI finalizeDraft] Failed to cleanup temp file: ${e.message}`);
+            }
+
+            // Download signed PDF from digsig/ and upload to final/
+            if (bsreNameDoc) {
+              console.log(`[SDI finalizeDraft] Downloading signed PDF from digsig/`);
+              const digsigPath = `surat-dinas-internal/digsig/${bsreNameDoc}`;
+              try {
+                const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+                console.log(`[SDI finalizeDraft] Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+                // Replace pdfBuffer with signed version
+                pdfBuffer = signedPdfBuffer;
+              } catch (e) {
+                console.warn(`[SDI finalizeDraft] Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+              }
             }
           }
         }
