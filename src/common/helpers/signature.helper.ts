@@ -16,6 +16,19 @@ export interface SignatureMetadata {
 }
 
 /**
+ * QR Code data interface for generating QR codes
+ */
+export interface QRCodeData {
+  signature_id: string;
+  document_number: string;
+  signed_at: string;
+  signer_name: string;
+  signer_jabatan: string;
+  document_type: string;
+  verification_url?: string;
+}
+
+/**
  * Generate unique signature ID
  * Format: SIG-{timestamp}-{random}
  */
