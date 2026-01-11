@@ -1702,7 +1702,7 @@ export class SuratDinasEksternalService {
             perihal: dto.perihal,
             nik: userData.nik,
             passphrase: dto.passphrase!,
-            path_dokumen: 'sde/digsig/',
+            path_dokumen: 'surat-dinas-eksternal/digsig/',
             no_wa: userData.no_wa,
           });
           console.log(`[SDE] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
@@ -1731,6 +1731,20 @@ export class SuratDinasEksternalService {
             await this.storageService.deleteFile(tempUpload.key);
           } catch (e) {
             console.warn(`[SDE] Failed to cleanup temp file: ${e.message}`);
+          }
+
+          // 11g. Download signed PDF from digsig/ and upload to final/
+          if (bsreNameDoc) {
+            console.log(`[SDE] Step 11g - Downloading signed PDF from digsig/`);
+            const digsigPath = `surat-dinas-eksternal/digsig/${bsreNameDoc}`;
+            try {
+              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+              console.log(`[SDE] Step 11g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              // Replace pdfBuffer with signed version
+              pdfBuffer = signedPdfBuffer;
+            } catch (e) {
+              console.warn(`[SDE] Step 11g - Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            }
           }
 
           // Update tanda_tangan di sde entity
@@ -2787,7 +2801,7 @@ export class SuratDinasEksternalService {
             perihal: dto.perihal || naskah.perihal || '',
             nik: userData.nik,
             passphrase: dto.passphrase!,
-            path_dokumen: 'sde/digsig/',
+            path_dokumen: 'surat-dinas-eksternal/digsig/',
             no_wa: userData.no_wa,
           });
           console.log(`[SDE finalizeDraft] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
@@ -2816,6 +2830,20 @@ export class SuratDinasEksternalService {
             await this.storageService.deleteFile(tempUpload.key);
           } catch (e) {
             console.warn(`[SDE finalizeDraft] Failed to cleanup temp file: ${e.message}`);
+          }
+
+          // 11g. Download signed PDF from digsig/ and upload to final/
+          if (bsreNameDoc) {
+            console.log(`[SDE finalizeDraft] Step 11g - Downloading signed PDF from digsig/`);
+            const digsigPath = `surat-dinas-eksternal/digsig/${bsreNameDoc}`;
+            try {
+              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
+              console.log(`[SDE finalizeDraft] Step 11g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              // Replace pdfBuffer with signed version
+              pdfBuffer = signedPdfBuffer;
+            } catch (e) {
+              console.warn(`[SDE finalizeDraft] Step 11g - Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            }
           }
 
         } else if (dto.sign_option === SignOption.QR_ONLY) {
