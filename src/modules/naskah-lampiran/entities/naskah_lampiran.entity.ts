@@ -20,4 +20,10 @@ export class NaskahLampiranEntity {
     nullable: true,
   })
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+
+  @Column({ type: 'char', length: 36, nullable: true })
+  temp_folder_id: string;
+
+  @Column({ type: 'tinyint', default: 0 })
+  is_temporary: number;
 }

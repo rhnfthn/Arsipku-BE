@@ -132,6 +132,18 @@ export class KonsepEntity {
   @Column('text', { name: 'catatan', nullable: true })
   catatan: string | null;
 
+  // =========================
+  // DATA SURAT FINAL (untuk naskah_sirkulasi setelah finalize)
+  // =========================
+  @Column('varchar', { name: 'pengirim_position_id', length: 100, nullable: true })
+  pengirimPositionId: string | null; // Position ID penandatangan surat
+
+  @Column('text', { name: 'penerima_position_ids', nullable: true })
+  penerimaPositionIds: string | null; // JSON array: ["12345", "67890"]
+
+  @Column('text', { name: 'tembusan_position_ids', nullable: true })
+  tembusanPositionIds: string | null; // JSON array: ["11111", "22222"]
+
   @Column('datetime', { name: 'send_read_time', nullable: true })
   sendReadTime: Date | null;
 
