@@ -22,11 +22,12 @@ export class RekapNaskahQueryDto {
 }
 
 /**
- * Interface untuk data rekap per jenis
+ * Interface untuk data rekap per jenis per status
  */
 export interface RekapJenisData {
   jenis: string;
   jenis_text: string | null;
+  status: string;
   jan: number;
   feb: number;
   mar: number;
@@ -51,7 +52,6 @@ export class RekapNaskahResponseDto {
   data: {
     tahun: number | null;
     area?: string;
-    status?: string;
     position?: string;
     rekap: RekapJenisData[];
   };
