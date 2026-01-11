@@ -41,7 +41,7 @@ export class DraftListPenerimaDto {
 
 export class DraftListItemDto {
   id_naskah: string;
-  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
+  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
   jenis_text: string;
   penerima: DraftListPenerimaDto[]; // Array of all penerima
   penerima_count: number; // Jumlah penerima
@@ -93,7 +93,7 @@ export class DraftDetailPetunjukDto {
 
 export class DraftDetailDataDto {
   id_naskah: string;
-  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
+  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
   jenis_text: string;
   nomor?: string;
   tanggal: Date;
