@@ -80,6 +80,9 @@ export class NaskahSirkulasi {
   @Column('char', { name: 'id_label', nullable: true, length: 36 })
   idLabel: string | null;
 
+  @Column('tinyint', { name: 'is_konsep', default: 0, comment: '0=final/sudah finalize, 1=masih konsep/draft' })
+  isKonsep: number;
+
   @Column('tinyint', { name: 'flag_favorit', nullable: true, default: 0 })
   flagFavorit: number | null;
 

@@ -10,11 +10,11 @@ export class NaskahEntity {
   id: string;
 
   @Column('enum', {
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'],
     comment:
-      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif',
+      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, K=Konsep (workflow tracking)',
   })
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;
@@ -59,4 +59,10 @@ export class NaskahEntity {
 
   @Column('boolean', { default: false })
   english: boolean;
+
+  @Column('char', { length: 36, nullable: true, comment: 'ID naskah konsep (jenis K) jika ini adalah naskah ND/SDI/SDE dari konsep' })
+  id_naskah_konsep: string | null;
+
+  @Column('char', { length: 36, nullable: true, comment: 'ID naskah ND/SDI/SDE jika ini adalah konsep workflow (jenis K)' })
+  id_naskah_asli: string | null;
 }
