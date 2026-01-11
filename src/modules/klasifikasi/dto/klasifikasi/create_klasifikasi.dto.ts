@@ -1,28 +1,31 @@
 import { IsString, IsNumber, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateKlasifikasiDto {
+  @IsOptional()
   @IsString()
-  @MaxLength(255)
+  id?: string;
+
+  @IsString()
   company: string;
 
   @IsString()
-  @MaxLength(255)
+  @MaxLength(50)
   klasifikasi: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
+  @MaxLength(255)
   klasifikasi_text?: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   deskripsi?: string;
 
-  @IsString()
   @IsOptional()
-  @MaxLength(36)
+  @IsString()
   id_parent?: string;
 
-  @IsNumber()
   @IsOptional()
-  active?: number = 1;
+  @IsNumber()
+  active?: number;
 }
