@@ -7,11 +7,6 @@ import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update_klasifikasi.dto'
 export class KlasifikasiController {
   constructor(private readonly klasifikasiService: KlasifikasiService) {}
 
-  @Post()
-  create(@Body() createKlasifikasiDto: CreateKlasifikasiDto) {
-    return this.klasifikasiService.create(createKlasifikasiDto);
-  }
-
   @Get()
   findAll(@Query('company') company?: string) {
     return this.klasifikasiService.findAll(company);
@@ -20,6 +15,11 @@ export class KlasifikasiController {
   @Get('by-code/:company/:kode')
   findByCode(@Param('company') company: string, @Param('kode') kode: string) {
     return this.klasifikasiService.findByCode(company, kode);
+  }
+
+  @Post()
+  create(@Body() createKlasifikasiDto: CreateKlasifikasiDto) {
+    return this.klasifikasiService.create(createKlasifikasiDto);
   }
 
   @Get(':id')
