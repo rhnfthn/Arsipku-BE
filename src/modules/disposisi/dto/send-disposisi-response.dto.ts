@@ -35,6 +35,7 @@ export class DisposisiDataDto {
     tipe?: string;
   }[];
   id_naskah_sebelumnya?: string | null; // ID naskah disposisi sebelumnya (untuk disposisi lanjutan)
+  final_pdf?: string; // Path to final PDF in storage
 }
 
 export class SendDisposisiResponseDto {

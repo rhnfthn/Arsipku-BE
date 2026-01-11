@@ -4,7 +4,7 @@ import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@n
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
-import { NotaDinasRecipientResponseDto, GetRecipientQueryDto } from '../dto/nota-dinas-recipient-response.dto';
+import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
@@ -202,11 +202,10 @@ export class NotaDinasController {
    * @throws 400 - Bad Request (validation error)
    * @throws 404 - Not Found (pengirim/penerima not found)
    * @throws 403 - Forbidden (pengirim is not managerial)
+   * @throws 401 - Unauthorized (user not authenticated)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Post('send-message')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -224,11 +223,33 @@ export class NotaDinasController {
   async sendMessage(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @CurrentUser() user: any, // Get logged-in user info
   ): Promise<SendMessageResponseDto> {
     try {
       // Parse form-data to DTO
       const dto = await this.notaDinasService.parseFormDataToDto(body, files);
-      return await this.notaDinasService.sendMessage(dto);
+      
+      // Extract persnum from JWT user (required for digital signature)
+      const persnum = user?.persnum;
+      
+      console.log('[ND Controller] sendMessage called with:', {
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      if (!persnum) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.UNAUTHORIZED,
+            message: 'User tidak terautentikasi atau persnum tidak ditemukan',
+          },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      return await this.notaDinasService.sendMessage(dto, Number(persnum));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -314,8 +335,13 @@ export class NotaDinasController {
    * - Update status: draf -> final (tanpa tanda_tangan) atau final_tte (dengan tanda_tangan)
    * - Update isDraft = false pada semua sirkulasi
    *
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
+   *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeDraftDto (semua field optional, sama seperti UpdateDraftDto)
+   * @param body - Form-data body
+   * @param user - JWT user context (untuk persnum BSrE)
    * @returns SendMessageResponseDto
    *
    * Status:
@@ -326,16 +352,41 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
   async sendDraft(
     @Param('id') id: string,
-    @Body() dto: FinalizeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user?: any,
   ): Promise<SendMessageResponseDto> {
     try {
-      return await this.notaDinasService.finalizeDraft(id, dto);
+      // Extract persnum from JWT user for BSrE signing
+      const persnum = user?.persnum;
+      
+      console.log('[ND Controller] sendDraft called with:', {
+        id,
+        sign_option: body.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!body.passphrase,
+      });
+
+      // Parse form-data to DTO
+      const dto = await this.notaDinasService.parseFormDataToFinalizeDraftDto(body, files);
+      
+      return await this.notaDinasService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -510,14 +561,24 @@ export class NotaDinasController {
           }
         }
       } catch (error) {
-        console.error('[preview-pdf] Error formatting date:', error);
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
       // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
       const dariFormatted = positionText;
-      const namaLengkap = user?.nama || 'User';
+      
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
+      // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
+      const positionIdToUse = body.pengirim || user?.position;
+      
+      const personName = await this.notaDinasService.getPersonNameByPosition(
+        positionIdToUse,
+        dto.tgl,
+      );
+      
+      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -555,6 +616,46 @@ export class NotaDinasController {
         }
       }
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.notaDinasService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        dto.tgl,
+      );
+
+      // Override namaTempat with kota from headerInfo if available
+      const dynamicNamaTempat = headerInfo?.kota || namaTempat;
+
+      // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
+      if (headerInfo?.kota) {
+        try {
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+            if (tanggalInput.includes(',')) {
+              // Replace existing city name with dynamic one
+              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+            } else {
+              formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
+            }
+          } else {
+            const dateObj = new Date(tanggalInput + 'T00:00:00');
+            if (!isNaN(dateObj.getTime())) {
+              const formatted = dateObj.toLocaleDateString('id-ID', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                timeZone: 'Asia/Jakarta'
+              });
+              formattedDate = `${dynamicNamaTempat}, ${formatted}`;
+            }
+          }
+        } catch (error) {
+          // Keep existing formattedDate
+        }
+      }
+
       // Generate preview PDF (tanpa save ke DB)
       const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
         dto.htmlContent,
@@ -568,6 +669,7 @@ export class NotaDinasController {
         lampiranTempIds,
         dto.tgl,
         dto.nama_tempat,
+        headerInfo || undefined,
       );
 
       res.set({
@@ -665,14 +767,24 @@ export class NotaDinasController {
           }
         }
       } catch (error) {
-        console.error('[generate-pdf] Error formatting date:', error);
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
       // Format "Dari" - hanya position_text
       const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
       const dariFormatted = positionText;
-      const namaLengkap = user?.nama || 'User';
+      
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
+      // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
+      const positionIdToUse = body.pengirim || user?.position;
+      
+      const personName = await this.notaDinasService.getPersonNameByPosition(
+        positionIdToUse,
+        body.tgl || dto.tgl,
+      );
+      
+      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -695,8 +807,48 @@ export class NotaDinasController {
         tembusanArray = tembusanNames;
       }
 
-      // Generate PDF dengan data dynamic (legacy endpoint - still uses direct file upload)
-      const pdfBuffer = await this.notaDinasService.generatePdfFromHtml(
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.notaDinasService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || dto.tgl,
+      );
+
+      // Override namaTempat with kota from headerInfo if available
+      const dynamicNamaTempat = headerInfo?.kota || namaTempat;
+
+      // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
+      if (headerInfo?.kota) {
+        try {
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+            if (tanggalInput.includes(',')) {
+              // Replace existing city name with dynamic one
+              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+            } else {
+              formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
+            }
+          } else {
+            const dateObj = new Date(tanggalInput + 'T00:00:00');
+            if (!isNaN(dateObj.getTime())) {
+              const formatted = dateObj.toLocaleDateString('id-ID', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                timeZone: 'Asia/Jakarta'
+              });
+              formattedDate = `${dynamicNamaTempat}, ${formatted}`;
+            }
+          }
+        } catch (error) {
+          // Keep existing formattedDate
+        }
+      }
+
+      // generate-pdf: PDF polos TANPA lampiran merge
+      const pdfBuffer = await this.notaDinasService.generatePlainPdf(
         dto.htmlContent,
         tertujuArray,
         dariFormatted,
@@ -705,7 +857,9 @@ export class NotaDinasController {
         positionText,
         namaLengkap,
         tembusanArray,
-        files?.lampiran_files, // Legacy: still accepts direct file upload
+        body.tgl || dto.tgl,
+        body.nama_tempat || dto.nama_tempat,
+        headerInfo || undefined,
       );
 
       res.set({
@@ -719,6 +873,31 @@ export class NotaDinasController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  @Get('get-senders/:positionId')
+  async getNotaDinasSenders(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto[]> {
+    try {
+      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

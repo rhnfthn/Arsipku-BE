@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Patch, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res, UploadedFiles } from '@nestjs/common';
 import type { Response } from 'express';
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
@@ -14,6 +15,43 @@ export class SuratDinasEksternalController {
   constructor(
     private readonly sdeService: SuratDinasEksternalService,
   ) {}
+
+  /**
+   * Helper: Convert penerima/recipient array to names
+   * Supports: eksternal UUIDs, position IDs, or names
+   */
+  private async convertRecipientsToNames(
+    recipientArray: any[],
+    tanggal?: string,
+  ): Promise<string[]> {
+    if (!recipientArray || recipientArray.length === 0) {
+      return [];
+    }
+
+    const isPositionId = (value: any): boolean => {
+      return typeof value === 'number' || 
+             (typeof value === 'string' && /^\d+$/.test(value));
+    };
+
+    const isEksternalId = (value: any): boolean => {
+      const str = String(value).trim();
+      return str.includes('-') && str.length === 36; // UUID format
+    };
+
+    // Determine type from first element
+    const firstValue = recipientArray[0];
+    
+    if (isEksternalId(firstValue)) {
+      // Convert eksternal UUIDs to company names
+      return await this.sdeService.convertEksternalIdsToNames(recipientArray);
+    } else if (isPositionId(firstValue)) {
+      // Convert position IDs to position names
+      return await this.sdeService.convertPositionIdsToNames(recipientArray, tanggal);
+    }
+    
+    // Already names, return as is
+    return recipientArray;
+  }
 
   /**
    * GET /SDE/get-recipient/:positionId
@@ -35,24 +73,102 @@ export class SuratDinasEksternalController {
   }
 
   /**
+   * GET /SDE/get-tembusan/:positionId
+   * Get tembusan (CC) recipients for SDE using org_data
+   *
+   * Tembusan Rules (same as SDI):
+   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+   * - Tembusan: internal positions dengan chief=1, bod_tag='BOD', sama company
+   * 
+   * @param positionId - Position ID of the sender
+   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @returns Tembusan recipients list
+   *
+   * @example
+   * GET /SDE/get-tembusan/123
+   * GET /SDE/get-tembusan/123?tgl=2024-01-15
+   */
+  @Get('get-tembusan/:positionId')
+  async getSdeTembusan(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetSdeRecipientQueryDto,
+  ): Promise<any> {
+    return this.sdeService.getSdeTembusan(positionId, query.tgl);
+  }
+
+  /**
+   * GET /SDE/:id
+   * Get Surat Dinas Eksternal detail by ID
+   * 
+   * Includes:
+   * - Naskah info (nomor, tanggal, perihal, status, dll)
+   * - Konten lengkap SDE
+   * - Sirkulasi (pengirim, penerima eksternal)
+   * - Lampiran files
+   * - Final PDF
+   *
+   * @param id - Naskah ID (UUID)
+   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Get(':id')
+  async getSdeDetail(@Param('id') id: string): Promise<any> {
+    try {
+      return await this.sdeService.getSdeDetail(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDE detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * POST /SDE/send-message
    * Send Surat Dinas Eksternal (create and send immediately)
+   * 
+   * Accepts: form-data with optional files
    * 
    * Status:
    * - 'final': jika tanpa tanda_tangan
    * - 'final_tte': jika dengan tanda_tangan
    *
-   * @param dto - CreateSuratDinasEksternalDto
+   * @param body - Raw form body
+   * @param files - Optional uploaded files (AnyFilesInterceptor)
    * @returns SdeSendMessageResponseDto
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(AnyFilesInterceptor())
   async sendMessage(
-    @Body() dto: CreateSuratDinasEksternalDto,
+    @CurrentUser() user: any,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
-      return await this.sdeService.sendMessage(dto);
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToCreateDto(body, files);
+
+      // Extract persnum from JWT user
+      const persnum = user?.persnum ? Number(user.persnum) : undefined;
+
+      console.log('[SDE send-message] User persnum:', persnum);
+      console.log('[SDE send-message] DTO sign_option:', dto.sign_option);
+      console.log('[SDE send-message] DTO passphrase:', dto.passphrase ? '***' : 'undefined');
+
+      return await this.sdeService.sendMessage(dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -74,19 +190,26 @@ export class SuratDinasEksternalController {
    * POST /SDE/save-draft
    * Save Surat Dinas Eksternal as draft
    * 
+   * Accepts: form-data with optional files
+   * 
    * Status: 'draf'
    * Nomor: DRAFT-{timestamp}
    *
-   * @param dto - CreateSuratDinasEksternalDto
+   * @param body - Raw form body
+   * @param files - Optional uploaded files (AnyFilesInterceptor)
    * @returns SdeSendMessageResponseDto
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
+  @UseInterceptors(AnyFilesInterceptor())
   async saveDraft(
-    @Body() dto: CreateSuratDinasEksternalDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToCreateDto(body, files);
       return await this.sdeService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -109,11 +232,13 @@ export class SuratDinasEksternalController {
    * PATCH /SDE/update-draft/:id
    * Update existing draft Surat Dinas Eksternal (partial update)
    *
+   * Accepts: form-data with optional files (partial updates)
    * Partial update - only provided fields will be updated
    * Status remains 'draf'
    *
    * @param id - Naskah ID (UUID)
-   * @param dto - UpdateSdeDraftDto (all fields optional)
+   * @param body - Raw form body (partial)
+   * @param files - Optional files for lampiran
    * @returns SdeSendMessageResponseDto with updated data
    *
    * @throws 404 - Not Found (naskah not found)
@@ -122,11 +247,24 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
+  @UseInterceptors(AnyFilesInterceptor())
   async updateDraft(
     @Param('id') id: string,
-    @Body() dto: UpdateSdeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
+      // For partial update, upload temp lampiran if files provided
+      if (files && files.length > 0) {
+        const lampiranTempIds = await this.sdeService.uploadTemporaryLampiran(
+          files,
+          id,
+          'SDE',
+        );
+        body.lampiran_temp_ids = lampiranTempIds;
+      }
+
+      const dto = body as UpdateSdeDraftDto;
       return await this.sdeService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -146,29 +284,142 @@ export class SuratDinasEksternalController {
   }
 
   /**
+   * POST /SDE/upload-temporary
+   * Upload lampiran ke temporary storage untuk SDE
+   * Files akan disimpan sementara dengan is_temporary=1
+   * Return array of file IDs yang nanti digunakan di endpoint send-message
+   *
+   * Form-data:
+   * - lampiran_files: file[] (multiple PDF files)
+   *
+   * @returns Array of lampiran IDs
+   * 
+   * Response:
+   * {
+   *   "success": true,
+   *   "data": {
+   *     "temp_folder_id": "uuid",
+   *     "file_ids": ["uuid1", "uuid2", ...]
+   *   }
+   * }
+   *
+   * @throws 400 - Bad Request (no files uploaded)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Post('upload-temporary')
+  @UseInterceptors(
+    FilesInterceptor('lampiran_files', 10, {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
+      },
+    }),
+  )
+  async uploadTemporary(
+    @UploadedFiles() files: Express.Multer.File[],
+  ): Promise<{ success: boolean; data: { temp_folder_id: string; file_ids: string[] } }> {
+    try {
+      if (!files || files.length === 0) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Tidak ada file yang diupload',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const fileIds = await this.sdeService.uploadTemporaryLampiran(files);
+      
+      // Get temp_folder_id from first file (all files in same temp folder)
+      const firstFile = await this.sdeService['naskahLampiranRepository'].findOne({
+        where: { id: fileIds[0] },
+      });
+
+      return {
+        success: true,
+        data: {
+          temp_folder_id: firstFile?.temp_folder_id || '',
+          file_ids: fileIds,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to upload temporary lampiran',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * PUT /SDE/send-draft/:id
    * Finalize and send a draft Surat Dinas Eksternal
    *
+   * Accepts: form-data with optional final updates & files
+   *
+   * - Move temporary lampiran to final folder
    * - Generate official nomor surat
+   * - Auto-generate PDF & merge lampiran
    * - Update status to 'final' or 'final_tte' (if tanda_tangan provided)
    * - Set isDraft = false in sirkulasi
    *
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
+   *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeSdeDraftDto
+   * @param body - Raw form body (optional final updates)
+   * @param files - Optional additional files
+   * @param user - JWT user context (untuk persnum BSrE)
    * @returns SdeSendMessageResponseDto with finalized data
    *
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @UseInterceptors(AnyFilesInterceptor())
   async sendDraft(
     @Param('id') id: string,
-    @Body() dto: FinalizeSdeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
+    @CurrentUser() user?: any,
   ): Promise<SdeSendMessageResponseDto> {
     try {
-      return await this.sdeService.finalizeDraft(id, dto);
+      // For finalize, upload temp lampiran if files provided
+      if (files && files.length > 0) {
+        const lampiranTempIds = await this.sdeService.uploadTemporaryLampiran(
+          files,
+          id,
+          'SDE',
+        );
+        body.lampiran_temp_ids = lampiranTempIds;
+      }
+
+      // Extract persnum from JWT user for BSrE signing
+      const persnum = user?.persnum;
+      
+      console.log('[SDE Controller] sendDraft called with:', {
+        id,
+        sign_option: body.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!body.passphrase,
+      });
+
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToFinalizeDraftDto(body);
+      
+      return await this.sdeService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -263,15 +514,8 @@ export class SuratDinasEksternalController {
         }
       }
 
-      // Check if penerima are position_ids and convert to names
-      const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
-      };
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
-      }
+      // Convert to names (supports eksternal UUIDs, position IDs, or names)
+      penerimaArray = await this.convertRecipientsToNames(penerimaArray, body.tanggal || body.tgl);
 
       // Parse tembusan if it's a string (from form-data)
       let tembusanArray = body.tembusan || [];
@@ -283,8 +527,16 @@ export class SuratDinasEksternalController {
         }
       }
 
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      // Convert tembusan to names (position IDs)
+      if (tembusanArray.length > 0) {
+        const isPositionId = (value: any): boolean => {
+          return typeof value === 'number' || 
+                 (typeof value === 'string' && /^\d+$/.test(value));
+        };
+        
+        if (isPositionId(tembusanArray[0])) {
+          tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        }
       }
 
       // Parse lampiran_temp_ids if provided
@@ -305,10 +557,23 @@ export class SuratDinasEksternalController {
       const namaJabatan = user?.positionText || '';
       const namaLengkap = user?.nama || '';
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.sdeService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
       const pdfBuffer = await this.sdeService.generatePdfFromHtml(
         body.htmlContent,
         penerimaArray,
-        body.nama_tempat || 'Tangerang',
+        dynamicNamaTempat,
         body.tanggal || body.tgl || '',
         namaJabatan,
         namaLengkap,
@@ -318,6 +583,7 @@ export class SuratDinasEksternalController {
         body.sifat || 'Biasa',
         body.nomor || '',
         body.lampiran || '-',
+        headerInfo || undefined,
       );
 
       res.set({
@@ -378,15 +644,8 @@ export class SuratDinasEksternalController {
         }
       }
 
-      // Check if penerima are position_ids and convert to names
-      const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
-      };
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.sdeService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
-      }
+      // Convert to names (supports eksternal UUIDs, position IDs, or names)
+      penerimaArray = await this.convertRecipientsToNames(penerimaArray, body.tanggal || body.tgl);
 
       // Parse tembusan if it's a string (from form-data)
       let tembusanArray = body.tembusan || [];
@@ -398,8 +657,16 @@ export class SuratDinasEksternalController {
         }
       }
 
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+      // Convert tembusan to names (position IDs)
+      if (tembusanArray.length > 0) {
+        const isPositionId = (value: any): boolean => {
+          return typeof value === 'number' || 
+                 (typeof value === 'string' && /^\d+$/.test(value));
+        };
+        
+        if (isPositionId(tembusanArray[0])) {
+          tembusanArray = await this.sdeService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        }
       }
 
       // Parse lampiran_temp_ids if provided
@@ -420,10 +687,23 @@ export class SuratDinasEksternalController {
       const namaJabatan = user?.positionText || '';
       const namaLengkap = user?.nama || '';
 
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.sdeService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
       const pdfBuffer = await this.sdeService.generatePdfFromHtml(
         body.htmlContent,
         penerimaArray,
-        body.nama_tempat || 'Tangerang',
+        dynamicNamaTempat,
         body.tanggal || body.tgl || '',
         namaJabatan,
         namaLengkap,
@@ -433,6 +713,7 @@ export class SuratDinasEksternalController {
         body.sifat || 'Biasa',
         body.nomor || '',
         body.lampiran || '-',
+        headerInfo || undefined,
       );
 
       res.set({

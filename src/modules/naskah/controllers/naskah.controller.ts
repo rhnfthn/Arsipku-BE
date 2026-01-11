@@ -12,6 +12,7 @@ import { NaskahService } from '../services/naskah.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import { NaskahDetailResponseDto } from '../dto/naskah/naskah-detail.dto';
+import { CountDraftNaskahResponseDto } from '../dto/count-draft.dto';
 
 @Controller('persuratan/naskah')
 export class NaskahController {
@@ -43,6 +44,17 @@ export class NaskahController {
   @Get('detail/:id')
   getDetail(@Param('id') id: string): Promise<NaskahDetailResponseDto> {
     return this.naskahService.getDetail(id);
+  }
+
+  /**
+   * GET /persuratan/naskah/count-draft/:positionId
+   * Get count draft naskah berdasarkan position id
+   */
+  @Get('count-draft/:positionId')
+  countDraft(
+    @Param('positionId') positionId: string,
+  ): Promise<CountDraftNaskahResponseDto> {
+    return this.naskahService.countDraftByPosition(parseInt(positionId, 10));
   }
 
   @Get(':id')

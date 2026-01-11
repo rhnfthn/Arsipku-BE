@@ -11,6 +11,7 @@ import { AuthService } from './services/auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthController } from './controllers/auth.controller';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     PassportModule,
     HttpModule,
     OrgDataModule,
+    SubAreaAlamatModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

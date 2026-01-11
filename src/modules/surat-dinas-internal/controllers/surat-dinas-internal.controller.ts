@@ -1,18 +1,47 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Body,
+  Param,
+  ParseIntPipe,
+  HttpException,
+  HttpStatus,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFiles,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
-import { FileFieldsInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  AnyFilesInterceptor,
+} from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
-import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/create-surat-dinas-internal.dto';
+import {
+  CreateSuratDinasInternalDto,
+  UpdateDraftDto,
+  FinalizeDraftDto,
+} from '../dto/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
-import { GetSdiRecipientQueryDto, SdiRecipientResponseDto } from '../dto/surat-dinas-internal-recipient-response.dto';
+import {
+  GetSdiRecipientQueryDto,
+  SdiOrgDataPositionDto,
+  SdiRecipientResponseDto,
+} from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
-  constructor(private readonly suratDinasInternalService: SuratDinasInternalService) {}
+  constructor(
+    private readonly suratDinasInternalService: SuratDinasInternalService,
+  ) {}
 
   /**
    * GET /SDI/get-recipient/:positionId
@@ -40,7 +69,10 @@ export class SuratDinasInternalController {
     @Query() query: GetSdiRecipientQueryDto,
   ): Promise<SdiRecipientResponseDto> {
     try {
-      return await this.suratDinasInternalService.getSdiRecipients(positionId, query.tgl);
+      return await this.suratDinasInternalService.getSdiRecipients(
+        positionId,
+        query.tgl,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -77,9 +109,7 @@ export class SuratDinasInternalController {
    */
   @Public() // Development: Bypass auth
   @Get(':id')
-  async getSdiDetail(
-    @Param('id') id: string,
-  ): Promise<any> {
+  async getSdiDetail(@Param('id') id: string): Promise<any> {
     try {
       return await this.suratDinasInternalService.getSdiDetail(id);
     } catch (error) {
@@ -116,9 +146,7 @@ export class SuratDinasInternalController {
    *
    * @returns SendMessageResponseDto
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Post('send-message')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -135,11 +163,40 @@ export class SuratDinasInternalController {
   )
   async sendMessage(
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
+    @CurrentUser() user: any, // Get logged-in user info
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.suratDinasInternalService.parseFormDataToDto(body, files);
-      return await this.suratDinasInternalService.sendMessage(dto);
+      const dto = await this.suratDinasInternalService.parseFormDataToDto(
+        body,
+        files,
+      );
+
+      // Extract persnum from JWT user (required for digital signature)
+      const persnum = user?.persnum;
+      
+      console.log('[SDI Controller] sendMessage called with:', {
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      if (!persnum) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.UNAUTHORIZED,
+            message: 'User tidak terautentikasi atau persnum tidak ditemukan',
+          },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      return await this.suratDinasInternalService.sendMessage(dto, Number(persnum));
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -217,23 +274,21 @@ export class SuratDinasInternalController {
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'lampiran_files', maxCount: 10 },
-      ],
-      {
-        limits: {
-          fileSize: 50 * 1024 * 1024, // 50MB per file
-        },
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
       },
-    ),
+    }),
   )
   async saveDraft(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.suratDinasInternalService.parseFormDataToDto(body, files);
+      const dto = await this.suratDinasInternalService.parseFormDataToDto(
+        body,
+        files,
+      );
       return await this.suratDinasInternalService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -271,16 +326,11 @@ export class SuratDinasInternalController {
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'lampiran_files', maxCount: 10 },
-      ],
-      {
-        limits: {
-          fileSize: 50 * 1024 * 1024, // 50MB per file
-        },
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
       },
-    ),
+    }),
   )
   async updateDraft(
     @Param('id') id: string,
@@ -288,7 +338,11 @@ export class SuratDinasInternalController {
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.suratDinasInternalService.parseFormDataToUpdateDraftDto(body, files);
+      const dto =
+        await this.suratDinasInternalService.parseFormDataToUpdateDraftDto(
+          body,
+          files,
+        );
       return await this.suratDinasInternalService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -348,6 +402,8 @@ export class SuratDinasInternalController {
    * Form-data fields:
    * - Semua field optional (dapat update sebelum finalize)
    * - final_pdf: file (optional)
+   * - sign_option: 'digsig' | 'qr_only' | 'none' (optional)
+   * - passphrase: string (required jika sign_option=digsig)
    *
    * Generate official nomor surat, update status to 'final' atau 'final_tte'
    * Set isDraft = false in sirkulasi
@@ -355,9 +411,7 @@ export class SuratDinasInternalController {
    * @param id - Naskah ID (UUID)
    * @returns SendMessageResponseDto with finalized data
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -375,11 +429,31 @@ export class SuratDinasInternalController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.suratDinasInternalService.parseFormDataToFinalizeDraftDto(body, files);
-      return await this.suratDinasInternalService.finalizeDraft(id, dto);
+      const dto =
+        await this.suratDinasInternalService.parseFormDataToFinalizeDraftDto(
+          body,
+          files,
+        );
+
+      // Get persnum from JWT for digital signature
+      const persnum = user?.persnum;
+      
+      console.log('[SDI Controller] sendDraft called with:', {
+        id,
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      return await this.suratDinasInternalService.finalizeDraft(id, dto, persnum ? Number(persnum) : undefined);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -403,7 +477,7 @@ export class SuratDinasInternalController {
    * PDF di-generate tanpa save ke database
    * User bisa kembali edit dan preview ulang
    * Support temporary lampiran system (lampiran_temp_ids)
-   * 
+   *
    * @param body - { htmlContent/konten, penerima/tertuju, nama_tempat, tanggal, nama_jabatan, nama_lengkap, tembusan, perihal, sifat, lampiran_temp_ids }
    * @param user - Current user dari JWT token
    * @param res - Express Response untuk send PDF
@@ -430,7 +504,7 @@ export class SuratDinasInternalController {
 
       // Support both 'tertuju' and 'penerima' field names
       let penerimaArray = body.tertuju || body.penerima || [];
-      
+
       // Parse penerima if it's a string (from form-data)
       if (typeof penerimaArray === 'string') {
         try {
@@ -442,12 +516,18 @@ export class SuratDinasInternalController {
 
       // Check if penerima are position_ids and convert to names
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.suratDinasInternalService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+        penerimaArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            penerimaArray,
+            body.tanggal || body.tgl,
+          );
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -461,7 +541,11 @@ export class SuratDinasInternalController {
       }
 
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.suratDinasInternalService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        tembusanArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            tembusanArray,
+            body.tanggal || body.tgl,
+          );
       }
 
       // Parse lampiran_temp_ids if provided
@@ -478,26 +562,45 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token (same as Nota Dinas)
+      // Use user's position and name from JWT token
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
       const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
-
-      console.log('[SDI preview-pdf] Using user data:', { namaJabatan, namaLengkap, userId: user?.id });
-
-      const pdfBuffer = await this.suratDinasInternalService.generatePdfFromHtml(
-        body.htmlContent,
-        penerimaArray,
-        body.nama_tempat || 'Tangerang',
-        body.tanggal || body.tgl || '',
-        namaJabatan,
-        namaLengkap,
-        tembusanArray,
-        lampiranTempIds,
-        body.perihal || '',
-        body.sifat || 'Biasa',
-        body.nomor || '',
-        body.lampiran || '-',
+      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
+        user?.position,
+        body.tgl,
       );
+      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
+
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
+      const pdfBuffer =
+        await this.suratDinasInternalService.generatePdfFromHtml(
+          body.htmlContent,
+          penerimaArray,
+          dynamicNamaTempat,
+          body.tanggal || body.tgl || '',
+          namaJabatan,
+          namaLengkap,
+          tembusanArray,
+          lampiranTempIds,
+          body.perihal || '',
+          body.sifat || 'Biasa',
+          body.nomor || '',
+          body.lampiran || '-',
+          headerInfo || undefined,
+        );
 
       res.set({
         'Content-Type': 'application/pdf',
@@ -507,12 +610,10 @@ export class SuratDinasInternalController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ 
-          error: 'Failed to generate preview', 
-          detail: error instanceof Error ? error.message : String(error) 
-        });
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate preview',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -521,7 +622,7 @@ export class SuratDinasInternalController {
    * Generate PDF dari HTML content untuk preview/download Surat Dinas Internal
    * Menggunakan Puppeteer di backend untuk render HTML
    * Support temporary lampiran system (lampiran_temp_ids)
-   * 
+   *
    * @param body - { htmlContent: string, penerima/tertuju: string[], nama_tempat: string, tanggal: string, nama_jabatan: string, nama_lengkap: string, tembusan?: string[], perihal: string, sifat: string, lampiran_temp_ids?: string[] }
    * @param res - Express Response untuk send PDF file
    */
@@ -547,7 +648,7 @@ export class SuratDinasInternalController {
 
       // Support both 'tertuju' and 'penerima' field names
       let penerimaArray = body.tertuju || body.penerima || [];
-      
+
       // Parse penerima if it's a string (from form-data)
       if (typeof penerimaArray === 'string') {
         try {
@@ -559,12 +660,18 @@ export class SuratDinasInternalController {
 
       // Check if penerima are position_ids and convert to names
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray = await this.suratDinasInternalService.convertPositionIdsToNames(penerimaArray, body.tanggal || body.tgl);
+        penerimaArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            penerimaArray,
+            body.tanggal || body.tgl,
+          );
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -578,7 +685,11 @@ export class SuratDinasInternalController {
       }
 
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray = await this.suratDinasInternalService.convertPositionIdsToNames(tembusanArray, body.tanggal || body.tgl);
+        tembusanArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            tembusanArray,
+            body.tanggal || body.tgl,
+          );
       }
 
       // Parse lampiran_temp_ids if provided
@@ -595,26 +706,45 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token (same as Nota Dinas)
+      // Use user's position and name from JWT token
+      // Get actual person name from org_data (persnum_person_text)
+      // user.nama from JWT may be empty, so query org_data for accurate name
       const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
-
-      console.log('[SDI generate-pdf] Using user data:', { namaJabatan, namaLengkap, userId: user?.id });
-
-      const pdfBuffer = await this.suratDinasInternalService.generatePdfFromHtml(
-        body.htmlContent,
-        penerimaArray,
-        body.nama_tempat || 'Tangerang',
-        body.tanggal || body.tgl || '',
-        namaJabatan,
-        namaLengkap,
-        tembusanArray,
-        lampiranTempIds,
-        body.perihal || '',
-        body.sifat || 'Biasa',
-        body.nomor || '',
-        body.lampiran || '-',
+      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
+        user?.position,
+        body.tgl,
       );
+      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
+
+      // Get dynamic header info dari sub_area_alamat berdasarkan user context
+      const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
+      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+
+      // generate-pdf: PDF polos TANPA lampiran merge
+      const pdfBuffer =
+        await this.suratDinasInternalService.generatePlainPdf(
+          body.htmlContent,
+          penerimaArray,
+          dynamicNamaTempat,
+          body.tanggal || body.tgl || '',
+          namaJabatan,
+          namaLengkap,
+          tembusanArray,
+          body.perihal || '',
+          body.sifat || 'Biasa',
+          body.nomor || '',
+          body.lampiran || '-',
+          headerInfo || undefined,
+        );
 
       res.set({
         'Content-Type': 'application/pdf',
@@ -626,7 +756,38 @@ export class SuratDinasInternalController {
     } catch (error) {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+        .json({
+          error: 'Failed to generate PDF',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+    }
+  }
+
+  @Get('get-senders/:positionId')
+  async getNotaDinasSenders(
+    @Param('positionId', ParseIntPipe) positionId: number,
+    @Query() query: GetSdiRecipientQueryDto,
+  ): Promise<SdiOrgDataPositionDto[]> {
+    try {
+      return await this.suratDinasInternalService.getSenderKonsep(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

@@ -18,9 +18,11 @@ export class GeneratePdfDisposisiDto {
   /**
    * HTML content untuk bagian Catatan dari rich text editor
    * Bisa dalam bentuk plain text HTML atau base64 encoded
+   * Optional - bisa null/kosong jika tidak ada catatan
    */
   @IsString()
-  htmlContent: string;
+  @IsOptional()
+  htmlContent?: string;
 
   /**
    * Pengirim disposisi (nama atau position text)
@@ -83,6 +85,23 @@ export class GeneratePdfDisposisiDto {
   @IsOptional()
   @Transform(({ value, obj }) => value || obj['ref.perihal'])
   ref_perihal?: string;
+
+  /**
+   * Referensi Tanggal Surat asal yang didisposisi
+   * Format: YYYY-MM-DD atau DD/MM/YYYY
+   */
+  @IsString()
+  @IsOptional()
+  @Transform(({ value, obj }) => value || obj['ref.tanggal'])
+  ref_tanggal?: string;
+
+  /**
+   * Referensi Pengirim Surat asal yang didisposisi (Surat dari)
+   */
+  @IsString()
+  @IsOptional()
+  @Transform(({ value, obj }) => value || obj['ref.pengirim'])
+  ref_pengirim?: string;
 
   /**
    * Pilihan Disposisi yang dicentang

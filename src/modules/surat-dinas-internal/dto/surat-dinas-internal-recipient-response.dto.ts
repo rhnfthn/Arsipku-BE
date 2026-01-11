@@ -16,11 +16,13 @@ export class GetSdiRecipientQueryDto {
  * Position data from org_data.position_json
  */
 export class SdiOrgDataPositionDto {
+  company: number;
   position: number;
   position_text: string;
   position_abbreviation?: string | null;
   persnum: number;
   // Optional fields when org_data provides person details for the position
+  divisi_id?: number | null;
   persnum_person?: number | null;
   persnum_person_text?: string | null;
   nama: string;
@@ -33,6 +35,7 @@ export class SdiOrgDataPositionDto {
   area_text: string;
   level: number;
   chief: number;
+  bod_tag: string | null;
   departType: string | null;
 }
 

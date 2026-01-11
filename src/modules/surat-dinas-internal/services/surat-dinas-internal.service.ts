@@ -10,24 +10,32 @@ import { NomorEntity } from '../../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
+import { Session } from '../../auth/entities/session.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import {
   SdiRecipientResponseDto,
   SdiOrgDataPositionDto,
 } from '../dto/surat-dinas-internal-recipient-response.dto';
-import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto } from '../dto/create-surat-dinas-internal.dto';
+import { CreateSuratDinasInternalDto, UpdateDraftDto, FinalizeDraftDto, SignOption } from '../dto/create-surat-dinas-internal.dto';
 import { SendMessageResponseDto, SirkulasiInfoDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto, SendMessageItemDto, PenerimaInfoDto, TembusanInfoDto, LampiranInfoDto, PengirimInfoDto } from '../dto/get-send-message.dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
+import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
+import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
+import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
 const DEFAULT_KOP_LOGO = '/assets/logo-airnav.png';
 const DEFAULT_ALAMAT_PERUSAHAAN = 'Gedung AirNav Indonesia, Jl. Ir. H. Juanda No. 1, Tangerang 15121';
+const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.airnavindonesia.co.id/verify';
 
 @Injectable()
 export class SuratDinasInternalService {
@@ -48,12 +56,89 @@ export class SuratDinasInternalService {
     private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
     @InjectRepository(JenisEntity)
     private readonly jenisRepository: Repository<JenisEntity>,
+    @InjectRepository(Session)
+    private readonly sessionRepository: Repository<Session>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly nomorSuratService: NomorSuratService,
     private readonly storageService: StorageService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
+    private readonly digsigService: DigsigService,
+    private readonly qrCodeService: QRCodeService,
+    private readonly pdfQrEmbedService: PdfQrEmbedService,
   ) {}
+
+  // ============================================================
+  // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
+  // ============================================================
+
+  /**
+   * Helper: Parse date string "YYYY-MM-DD" to Date object with local timezone
+   * Prevents timezone offset issues when parsing date strings
+   */
+  private parseDateString(dateStr: string): Date {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  /**
+   * Helper: Format Date object to "YYYY-MM-DD" string using local timezone
+   * Prevents timezone offset issues when converting Date to string
+   */
+  private formatDateToString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
+  // HELPER: DYNAMIC HEADER INFO
+  // ============================================================
+
+  /**
+   * Helper: Get dynamic header info dari sub_area_alamat berdasarkan user context
+   * @param user - User context dengan company, area, subArea
+   * @param tanggal - Optional date string YYYY-MM-DD untuk lookup
+   * @returns Header info (kantor, gedung, alamat) atau null jika tidak ditemukan
+   */
+  async getHeaderInfoByUser(user: {
+    company?: string | number;
+    area?: string;
+    subArea?: string;
+  }, tanggal?: string): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    try {
+      const company = String(user.company || COMPANY_ID);
+      const area = user.area || '';
+      const subArea = user.subArea || '';
+
+      if (!area || !subArea) {
+        console.log('[SDI getHeaderInfoByUser] Missing area or subArea, using default');
+        return null;
+      }
+
+      const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
+      
+      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
+        company,
+        area,
+        subArea,
+        queryDate,
+      );
+
+      if (headerInfo) {
+        console.log('[SDI getHeaderInfoByUser] Found header info:', headerInfo);
+        return headerInfo;
+      }
+
+      console.log('[SDI getHeaderInfoByUser] No header info found, using default');
+      return null;
+    } catch (error) {
+      console.error('[SDI getHeaderInfoByUser] Error:', error);
+      return null;
+    }
+  }
 
   // ============================================================
   // HELPER: GENERATE NOMOR WITH INTEGRATION
@@ -214,13 +299,6 @@ export class SuratDinasInternalService {
       await queryRunner.manager.save(nomor);
     }
 
-    console.log('[SDI generateNomorWithIntegration] Generated:', {
-      nomor: nomorBaru,
-      requestId,
-      detailId,
-      noUrut,
-    });
-
     return nomorBaru;
   }
 
@@ -245,7 +323,6 @@ export class SuratDinasInternalService {
     const orgData = await this.orgDataService.findOrg(tgl);
     
     if (!orgData || !orgData.position_json) {
-      console.warn(`[SDI convertPositionIdsToNames] Org data not found for ${tgl}`);
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
     }
 
@@ -257,8 +334,8 @@ export class SuratDinasInternalService {
       const position = barisData.find((p: any) => p.position === numericId);
       
       if (position) {
-        // Return position_text with organization_text
-        const fullName = `${position.position_text} - ${position.organization_text}`;
+        // Return position_text only (without organization_text)
+        const fullName = `${position.position_text}`;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -274,9 +351,52 @@ export class SuratDinasInternalService {
   // ============================================================
 
   /**
-   * Generate PDF dari HTML content untuk Surat Dinas Internal
-   * Menggunakan Puppeteer di backend untuk render HTML
-   * Support temporary lampiran system (lampiran_temp_ids)
+   * Generate PDF polos (tanpa merge lampiran) untuk endpoint generate-pdf
+   * Hanya template PDF saja
+   */
+  async generatePlainPdf(
+    htmlContent: string,
+    penerima: string[],
+    nama_tempat: string = 'Tangerang',
+    tanggal: string = '',
+    nama_jabatan: string = '',
+    nama_lengkap: string = '',
+    tembusan: string[] = [],
+    perihal: string = '',
+    sifat: string = 'Biasa',
+    nomor: string = '',
+    lampiran: string = '-',
+    headerInfo?: { kantor: string; gedung: string; alamat: string },
+  ): Promise<Buffer> {
+    try {
+      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+      const pdfBuffer = await this.generatePdfSudinService.generatePdf({
+        html: htmlBase64,
+        penerima: penerima,
+        nama_tempat: nama_tempat,
+        tanggal: tanggal,
+        positionText: nama_jabatan,
+        namaLengkap: nama_lengkap,
+        tembusan: tembusan,
+        perihal: perihal,
+        sifat: sifat,
+        nomor: nomor,
+        lampiran: lampiran,
+        // Dynamic header info dari sub_area_alamat
+        headerKantor: headerInfo?.kantor,
+        headerGedung: headerInfo?.gedung,
+        headerAlamat: headerInfo?.alamat,
+      });
+
+      return pdfBuffer;
+    } catch (error) {
+      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate PDF dengan merge lampiran untuk endpoint preview-pdf
+   * PDF template + lampiran merged
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -291,29 +411,41 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
+    headerInfo?: { kantor: string; gedung: string; alamat: string },
   ): Promise<Buffer> {
     try {
-      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      let pdfBuffer = await this.generatePdfSudinService.generatePdf({
-        html: htmlBase64,
-        penerima: penerima,
-        nama_tempat: nama_tempat,
-        tanggal: tanggal,
-        positionText: nama_jabatan,
-        namaLengkap: nama_lengkap,
-        tembusan: tembusan,
-        perihal: perihal,
-        sifat: sifat,
-        nomor: nomor,
-        lampiran: lampiran,
-      });
-
-      // If lampiran temp IDs provided, fetch and merge with main PDF
+      // Determine lampiran text: use file names from lampiran_temp_ids if available
+      let lampiranText = lampiran;
+      let lampiranFiles: any[] = [];
+      
       if (lampiranTempIds && lampiranTempIds.length > 0) {
-        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
-          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+          // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran")
+          const count = lampiranFiles.length;
+          lampiranText = `${count} Lampiran`;
         }
+      }
+
+      // Generate plain PDF first
+      let pdfBuffer = await this.generatePlainPdf(
+        htmlContent,
+        penerima,
+        nama_tempat,
+        tanggal,
+        nama_jabatan,
+        nama_lengkap,
+        tembusan,
+        perihal,
+        sifat,
+        nomor,
+        lampiranText,
+        headerInfo,
+      );
+
+      // If lampiran files exist, merge with main PDF
+      if (lampiranFiles && lampiranFiles.length > 0) {
+        pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
       }
 
       return pdfBuffer;
@@ -333,8 +465,6 @@ export class SuratDinasInternalService {
         return [];
       }
 
-      console.log('[SDI getTemporaryLampiranFiles] Querying tempIds:', tempIds);
-
       // Query all lampiran by IDs (both temporary and final)
       // This allows preview-pdf to work both before and after save-draft
       const tempLampiran = await this.naskahLampiranRepository.find({
@@ -343,8 +473,6 @@ export class SuratDinasInternalService {
           // Removed is_temporary: 1 filter to support both temporary and final lampiran
         },
       });
-
-      console.log('[SDI getTemporaryLampiranFiles] Found tempLampiran count:', tempLampiran.length);
 
       const files: Array<{
         id: string;
@@ -364,7 +492,6 @@ export class SuratDinasInternalService {
 
       return files;
     } catch (error) {
-      console.error('[SDI getTemporaryLampiranFiles] Error:', error);
       return [];
     }
   }
@@ -377,8 +504,6 @@ export class SuratDinasInternalService {
     lampiranFiles: any[],
   ): Promise<Buffer> {
     try {
-      console.log('[SDI mergePdfWithTemporaryFiles] Starting merge with', lampiranFiles.length, 'files');
-      
       if (!lampiranFiles || lampiranFiles.length === 0) {
         return mainPdfBuffer;
       }
@@ -388,9 +513,6 @@ export class SuratDinasInternalService {
       for (const file of lampiranFiles) {
         try {
           if (!file.fileName.toLowerCase().endsWith('.pdf')) {
-            console.warn(
-              `[SDI mergePdfWithTemporaryFiles] Skipping non-PDF file: ${file.fileName}`,
-            );
             continue;
           }
 
@@ -406,22 +528,14 @@ export class SuratDinasInternalService {
           lampiranPages.forEach((page) => {
             pdfDoc.addPage(page);
           });
-
-          console.log(
-            `[SDI mergePdfWithTemporaryFiles] Merged file: ${file.fileName}`,
-          );
         } catch (error) {
-          console.error(
-            `[SDI mergePdfWithTemporaryFiles] Error merging ${file.fileName}:`,
-            error,
-          );
+          // Continue with next file
         }
       }
 
       const mergedPdfBytes = await pdfDoc.save();
       return Buffer.from(mergedPdfBytes);
     } catch (error) {
-      console.error(`[SDI mergePdfWithTemporaryFiles] Error:`, error);
       return mainPdfBuffer;
     }
   }
@@ -484,9 +598,7 @@ export class SuratDinasInternalService {
         lampiran.temp_folder_id = null;
 
         await this.naskahLampiranRepository.save(lampiran);
-        console.log(`[SDI moveTemporaryLampiranToFinal] Moved: ${fileName} -> ${newKey}`);
       } catch (error) {
-        console.error(`[SDI moveTemporaryLampiranToFinal] Error moving ${fileName}:`, error);
         // Continue with other files
       }
     }
@@ -561,6 +673,19 @@ export class SuratDinasInternalService {
     // Build DTO - support both 'penerima' and 'tertuju' field names
     const penerimaData = body.penerima || body.tertuju;
     
+    // Parse sign_option ke enum SignOption
+    let signOption: SignOption | undefined;
+    if (body.sign_option) {
+      const signOptionStr = String(body.sign_option).toLowerCase();
+      if (signOptionStr === 'digsig') {
+        signOption = SignOption.DIGSIG;
+      } else if (signOptionStr === 'qr_only') {
+        signOption = SignOption.QR_ONLY;
+      } else if (signOptionStr === 'none') {
+        signOption = SignOption.NONE;
+      }
+    }
+
     const dto: CreateSuratDinasInternalDto = {
       pengirim: Number(body.pengirim),
       penerima: parseArray(penerimaData),
@@ -588,6 +713,10 @@ export class SuratDinasInternalService {
 
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
+
+      // NEW: Digital Signature fields
+      sign_option: signOption,
+      passphrase: body.passphrase ? String(body.passphrase) : undefined,
     };
 
     return dto;
@@ -739,6 +868,19 @@ export class SuratDinasInternalService {
     // Support both 'penerima' and 'tertuju' field names
     const penerimaData = body.penerima || body.tertuju;
 
+    // Parse sign_option ke enum SignOption
+    let signOption: SignOption | undefined;
+    if (body.sign_option) {
+      const signOptionStr = String(body.sign_option).toLowerCase();
+      if (signOptionStr === 'digsig') {
+        signOption = SignOption.DIGSIG;
+      } else if (signOptionStr === 'qr_only') {
+        signOption = SignOption.QR_ONLY;
+      } else if (signOptionStr === 'none') {
+        signOption = SignOption.NONE;
+      }
+    }
+
     // Build DTO - semua field optional untuk finalize
     const dto: FinalizeDraftDto = {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
@@ -766,6 +908,10 @@ export class SuratDinasInternalService {
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
+
+      // Digital Signature options
+      sign_option: signOption,
+      passphrase: body.passphrase ? String(body.passphrase) : undefined,
     };
 
     return dto;
@@ -782,8 +928,8 @@ export class SuratDinasInternalService {
     return {
       position: pos.position,
       position_text: pos.position_text,
-      persnum: pos.persnum,
-      nama: pos.nama,
+      persnum: pos.persnum_person ?? pos.persnum ?? null,
+      nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
       organization_text: pos.organization_text,
       sub_area: pos.sub_area,
@@ -801,6 +947,7 @@ export class SuratDinasInternalService {
     sirkuler: 'pengirim' | 'penerima' | 'tembusan',
     pos: SdiOrgDataPositionDto,
     isDraft: boolean = false,
+    urutan: number = 0,
   ): NaskahSirkulasi {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
@@ -823,16 +970,7 @@ export class SuratDinasInternalService {
         idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
         namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
-    });
-
-    // Debug log so we can quickly check what values are being saved
-    console.log('[createSirkulasiFromOrgData] sirkulasi ->', {
-      id: sirkulasi.id,
-      position: sirkulasi.position,
-      idSirkuler: sirkulasi.idSirkuler,
-      namaSirkuler: sirkulasi.namaSirkuler,
-      sirkuler: sirkulasi.sirkuler,
-      isDraft: sirkulasi.isDraft,
+      urutan: urutan,
     });
 
     return sirkulasi;
@@ -875,11 +1013,46 @@ export class SuratDinasInternalService {
   // ============================================================
 
   /**
-   * Send Message - Kirim SDI
-   * Status: 'final' (tanpa tanda tangan) atau 'final_tte' (dengan tanda tangan)
+   * Send Message - Kirim SDI dengan opsi digital signature
+   * 
+   * Flow baru dengan integrated signing:
+   * 1. User klik "Kirim" → muncul popup pilih opsi TTD
+   * 2. Opsi: digsig (passphrase), qr_only, none
+   * 3. Single request ke endpoint ini dengan sign_option + passphrase
+   * 4. Backend process semua dalam satu transaction
+   * 
+   * @param dto - CreateSuratDinasInternalDto dengan sign_option dan passphrase
+   * @param persnum - Persnum user untuk BSrE signing (optional, required if sign_option=digsig)
    */
-  async sendMessage(dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
-    // Determine status based on tanda_tangan
+  async sendMessage(
+    dto: CreateSuratDinasInternalDto, 
+    persnum?: number,
+  ): Promise<SendMessageResponseDto> {
+    // Validate sign_option + passphrase combination
+    if (dto.sign_option === SignOption.DIGSIG) {
+      if (!dto.passphrase) {
+        throw new BadRequestException('Passphrase wajib diisi untuk opsi TTD Digital (digsig)');
+      }
+      if (!persnum) {
+        throw new BadRequestException('Persnum user wajib diisi untuk opsi TTD Digital (digsig)');
+      }
+    }
+
+    // Determine status based on sign_option
+    let status: 'final' | 'final_tte' = 'final';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      status = 'final_tte';
+    }
+
+    // Call createSdi with signing options
+    return this.createSdiWithSigning(dto, status, persnum);
+  }
+
+  /**
+   * Send Message tanpa signing (backward compatibility)
+   * Untuk maintain existing behavior
+   */
+  async sendMessageLegacy(dto: CreateSuratDinasInternalDto): Promise<SendMessageResponseDto> {
     const status = dto.tanda_tangan ? 'final_tte' : 'final';
     return this.createSdi(dto, status);
   }
@@ -945,6 +1118,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Build penerima info with read status
@@ -1017,21 +1191,13 @@ export class SuratDinasInternalService {
    */
   private filterByPositionSdi(barisData: SdiOrgDataPositionDto[], positionParam: number): {
     REKAN: SdiOrgDataPositionDto[];
+    TEMBUSAN: SdiOrgDataPositionDto[];
   } {
     // Cari item current berdasarkan position
     const current = barisData.find((x) => Number(x.position) === Number(positionParam));
     if (!current) {
-      return { REKAN: [] };
+      return { REKAN: [], TEMBUSAN: [] }; 
     }
-
-    console.log(`[filterByPositionSdi] Current:`, {
-      position: current.position,
-      position_text: current.position_text,
-      organization_id: current.organization_id,
-      organization_parent: current.organization_parent,
-      sub_area: current.sub_area,
-      area: current.area,
-    });
 
     // Filter: chief=1, SAMA organization_parent, BEDA sub_area, bukan diri sendiri
     const rekan = barisData.filter((x) => {
@@ -1049,9 +1215,21 @@ export class SuratDinasInternalService {
       return x.sub_area !== current.sub_area;
     });
 
-    console.log(`[filterByPositionSdi] Results: REKAN=${rekan.length}`);
+    const filtered = barisData.filter(
+      (x) =>
+        x.chief === 1 &&
+        x.sub_area !== current.sub_area &&
+        x.departType === 'DIVORCABANG' &&
+        x.bod_tag === 'BOD-1' &&
+        x.company === current.company,
+    );
 
-    return { REKAN: rekan };
+    const tembusan = barisData.filter(
+      (x) =>
+        x.chief === 1 && x.bod_tag === 'BOD' && x.company === current.company,
+    );
+
+    return { REKAN: filtered, TEMBUSAN: tembusan };
   }
 
   /**
@@ -1066,8 +1244,6 @@ export class SuratDinasInternalService {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    console.log(`[getSdiRecipients] Looking for positionId: ${positionId}, tanggal: ${tanggal}`);
-
     // Get cached org data from org_data service
     const orgData = await this.orgDataService.findOrg(tanggal);
 
@@ -1077,16 +1253,12 @@ export class SuratDinasInternalService {
 
     const barisData: SdiOrgDataPositionDto[] = orgData.position_json;
 
-    console.log(`[getSdiRecipients] Total positions in org_data: ${barisData.length}`);
-
     // Find sender's position data
     const sender = barisData.find((x) => Number(x.position) === Number(positionId));
 
     if (!sender) {
       throw new NotFoundException(`Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`);
     }
-
-    console.log(`[getSdiRecipients] Found sender:`, sender.position_text);
 
     // Verify sender is chief (managerial)
     if (sender.chief !== 1) {
@@ -1140,10 +1312,9 @@ export class SuratDinasInternalService {
 
     // PHASE 3: Get valid recipients using filterByPositionSdi
     // SDI recipients hanya REKAN (beda sub_area/area, sama organization_parent)
-    const validRecipients = this.filterByPositionSdi(barisData, dto.pengirim);
-    const allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
+    // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
 
-    // PHASE 4: Validate all penerima - must be in valid recipients list
+    // PHASE 4: Validate all penerima - check exists and is managerial
     const penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of dto.penerima) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
@@ -1158,21 +1329,7 @@ export class SuratDinasInternalService {
         );
       }
 
-      // Check if penerima is in valid recipients
-      if (!allValidPositionIds.includes(Number(posId))) {
-        let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-
-        if (penerima.organization_parent === pengirim.organization_parent) {
-          if (penerima.sub_area === pengirim.sub_area) {
-            errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim. SDI untuk penerima di sub_area atau area berbeda.`;
-          }
-        } else {
-          errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di organization parent berbeda. SDI hanya untuk satu organization parent.`;
-        }
-
-        throw new BadRequestException(errorMsg);
-      }
-
+      // Note: sub_area/area validation removed - FE already validates from get-recipient
       penerimaList.push(penerima);
     }
 
@@ -1192,21 +1349,7 @@ export class SuratDinasInternalService {
           );
         }
 
-        // Check if tembusan is in valid recipients
-        if (!allValidPositionIds.includes(Number(posId))) {
-          let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-
-          if (tembusan.organization_parent === pengirim.organization_parent) {
-            if (tembusan.sub_area === pengirim.sub_area) {
-              errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim. SDI untuk tembusan di sub_area atau area berbeda.`;
-            }
-          } else {
-            errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di organization parent berbeda. SDI hanya untuk satu organization parent.`;
-          }
-
-          throw new BadRequestException(errorMsg);
-        }
-
+        // Note: sub_area/area validation removed - FE already validates from get-recipient
         tembusanList.push(tembusan);
       }
     }
@@ -1227,18 +1370,21 @@ export class SuratDinasInternalService {
       } else {
         // Generate nomor dengan integrasi ke sistem penomoran
         // Auto-insert ke nomor_request dan nomor_request_detail
+        // Use provided date from dto.tgl, or today as fallback
+        const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
         nomorSurat = await this.generateNomorWithIntegration(
           pengirim,
           dto.klasifikasi,
           dto.perihal,
-          new Date(),
+          tanggalNomor,
           queryRunner,
         );
       }
 
       // PHASE 7: Insert naskah
       const naskahId = uuidv4();
-      const tanggalHariIni = new Date();
+      // Use provided date from dto.tgl, or today as fallback
+      const tanggalHariIni = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1262,28 +1408,36 @@ export class SuratDinasInternalService {
       const isDraft = status === 'draf';
 
       // PHASE 8: Insert sirkulasi - pengirim
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft);
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
-      // PHASE 9: Insert sirkulasi - penerima
+      // PHASE 9: Insert sirkulasi - penerima with urutan
       const penerimaResponses: SirkulasiInfoDto[] = [];
-      for (const penerima of penerimaList) {
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft);
+      for (let i = 0; i < penerimaList.length; i++) {
+        const penerima = penerimaList[i];
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
 
-      // PHASE 10: Insert sirkulasi - tembusan
+      // PHASE 10: Insert sirkulasi - tembusan with urutan
       const tembusanResponses: SirkulasiInfoDto[] = [];
-      for (const tembusan of tembusanList) {
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft);
+      for (let i = 0; i < tembusanList.length; i++) {
+        const tembusan = tembusanList[i];
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
       }
 
       // PHASE 11: Handle lampiran
       // Handle temporary lampiran (RECOMMENDED - dari POST /upload-temporary)
+      // Also get file names for response
+      let lampiranFileNames: string[] = [];
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        // Get file names before moving
+        const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+        lampiranFileNames = lampiranFiles.map(f => f.fileName);
+        
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1309,30 +1463,32 @@ export class SuratDinasInternalService {
 
       // PHASE 12: Insert ke tabel sdi_sde (konten lengkap SDI)
       const kepadaYthList = penerimaList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`
+        (p) => p.position_text
       );
       const kepadaYth = kepadaYthList.join('; ');
 
       const tembusanTextList = tembusanList.map(
-        (t) => `${t.position_text} - ${t.organization_text}`
+        (t) => t.position_text
       );
       const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
+      // Use || instead of ?? to also handle empty strings from frontend
+      // Use persnum_person_text for person's name (actual field from org_data)
       const sdiSdeEntity = this.sdiSdeRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
-        kopLogo: dto.kop_logo ?? DEFAULT_KOP_LOGO,
-        kopNama: dto.kop_nama ?? DEFAULT_KOP_NAMA,
-        alamatPerusahaan: dto.alamat_perusahaan ?? DEFAULT_ALAMAT_PERUSAHAAN,
+        kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
+        kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
+        alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
         nomor: nomorSurat,
         kepadaYth: kepadaYth,
         perihal: dto.perihal,
         konten: dto.konten,
-        namaTempat: dto.nama_tempat ?? pengirim.sub_area_text ?? 'Tangerang',
+        namaTempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
         tanggal: tanggalHariIni,
-        namaJabatan: dto.nama_jabatan ?? pengirim.position_text,
-        tandaTangan: dto.tanda_tangan ?? null,
-        namaLengkap: dto.nama_lengkap ?? pengirim.nama,
+        namaJabatan: dto.nama_jabatan || pengirim.position_text,
+        tandaTangan: dto.tanda_tangan || null,
+        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
         tembusan: tembusanText,
         sifat: dto.sifat,
         lampiran: dto.lampiran || null,
@@ -1341,8 +1497,85 @@ export class SuratDinasInternalService {
       });
       await queryRunner.manager.save(sdiSdeEntity);
 
+      // PHASE 13: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
+      let finalPdfPath: string | undefined = undefined;
+      if (status !== 'draf') {
+        try {
+          // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+          const headerInfo = await this.getHeaderInfoByUser(
+            {
+              company: pengirim.company ?? undefined,
+              area: pengirim.area ?? undefined,
+              subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+            },
+            tanggal,
+          );
+
+          // Use kota from headerInfo if available, else fallback to dto.nama_tempat or pengirim.sub_area_text
+          const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+
+          // Generate PDF with nomor already included
+          // Use || instead of ?? to also handle empty strings from frontend
+          let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+            html: Buffer.from(dto.konten, 'utf-8').toString('base64'),
+            penerima: kepadaYthList,
+            nama_tempat: dynamicNamaTempat,
+            tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            }),
+            positionText: dto.nama_jabatan || pengirim.position_text,
+            namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
+            tembusan: tembusanTextList,
+            perihal: dto.perihal,
+            sifat: dto.sifat || 'Biasa',
+            nomor: nomorSurat,
+            lampiran: dto.lampiran || '-',
+            // Dynamic header info dari sub_area_alamat
+            headerKantor: headerInfo?.kantor,
+            headerGedung: headerInfo?.gedung,
+            headerAlamat: headerInfo?.alamat,
+          });
+
+          // Merge with lampiran if any
+          if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+            const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+            if (lampiranFiles && lampiranFiles.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            }
+          }
+
+          // Upload PDF to storage with organized folder structure
+          const timestamp = Date.now();
+          const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+          const uploadResult = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            pdfFileName,
+            'application/pdf',
+            'surat-dinas-internal/final',
+          );
+
+          finalPdfPath = uploadResult.key;
+
+          // Update naskah with final_pdf path
+          await queryRunner.manager.update(
+            NaskahEntity,
+            { id: naskahId },
+            { final_pdf: finalPdfPath },
+          );
+        } catch (error) {
+          // Don't fail the whole transaction if PDF generation fails
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Build lampiran text from file names
+      const lampiranText = lampiranFileNames.length > 0 
+        ? lampiranFileNames.join(', ') 
+        : (dto.lampiran || undefined);
 
       // Return response
       return {
@@ -1351,12 +1584,14 @@ export class SuratDinasInternalService {
           id: naskahId,
           jenis: 'SDI',
           nomor: nomorSurat,
-          tanggal: tanggalHariIni.toISOString().split('T')[0],
+          tanggal: this.formatDateToString(tanggalHariIni),
           status: status,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirim),
           penerima: penerimaResponses,
           tembusan: tembusanResponses,
+          lampiran: lampiranText, // Nama file lampiran dari temporary files
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
@@ -1375,17 +1610,455 @@ export class SuratDinasInternalService {
     return this.createSdi(dto, 'draf');
   }
 
+  // ============================================================
+  // CREATE SDI WITH INTEGRATED SIGNING
+  // ============================================================
+
+  /**
+   * Private method: Core logic untuk create SDI dengan integrated digital signing
+   * 
+   * Flow:
+   * 1. Create naskah dan sirkulasi (seperti createSdi biasa)
+   * 2. Generate PDF tanpa QR dulu
+   * 3. Jika sign_option = 'digsig':
+   *    - Hit BSrE API dengan passphrase
+   *    - Get name_doc dari response
+   *    - Generate QR dengan signature_id + verification_url
+   *    - Embed QR ke PDF menggunakan pdf-lib
+   *    - Update tanda_tangan column dengan metadata
+   * 4. Jika sign_option = 'qr_only':
+   *    - Generate QR sederhana (tanpa signature_id)
+   *    - Embed QR ke PDF menggunakan pdf-lib
+   *    - tanda_tangan tetap null
+   * 5. Upload final PDF ke MinIO
+   * 
+   * @param dto - DTO dengan sign_option dan passphrase
+   * @param status - Status naskah (final/final_tte)
+   * @param persnum - Persnum user untuk BSrE (optional, required for digsig)
+   */
+  private async createSdiWithSigning(
+    dto: CreateSuratDinasInternalDto,
+    status: 'final' | 'final_tte',
+    persnum?: number,
+  ): Promise<SendMessageResponseDto> {
+    // Use provided date or today
+    const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
+
+    // PHASE 1: Get org_data
+    const orgData = await this.orgDataService.findOrg(tanggal);
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: SdiOrgDataPositionDto[] = orgData.position_json;
+
+    // PHASE 2: Validate pengirim from org_data
+    const pengirim = barisData.find((x) => Number(x.position) === Number(dto.pengirim));
+    if (!pengirim) {
+      throw new NotFoundException(`Pengirim dengan positionId ${dto.pengirim} tidak ditemukan dalam org_data`);
+    }
+    if (pengirim.chief !== 1) {
+      throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim SDI.`);
+    }
+
+    // PHASE 3: Validate all penerima
+    const penerimaList: SdiOrgDataPositionDto[] = [];
+    for (const posId of dto.penerima) {
+      const penerima = barisData.find((x) => Number(x.position) === Number(posId));
+      if (!penerima) {
+        throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
+      }
+      if (penerima.chief !== 1) {
+        throw new ForbiddenException(
+          `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
+        );
+      }
+      penerimaList.push(penerima);
+    }
+
+    // PHASE 4: Validate tembusan
+    const tembusanList: SdiOrgDataPositionDto[] = [];
+    if (dto.tembusan && dto.tembusan.length > 0) {
+      for (const posId of dto.tembusan) {
+        const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
+        if (!tembusan) {
+          throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
+        }
+        if (tembusan.chief !== 1) {
+          throw new ForbiddenException(
+            `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
+          );
+        }
+        tembusanList.push(tembusan);
+      }
+    }
+
+    // Start transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // PHASE 5: Generate nomor surat
+      const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
+      const nomorSurat = await this.generateNomorWithIntegration(
+        pengirim,
+        dto.klasifikasi,
+        dto.perihal,
+        tanggalNomor,
+        queryRunner,
+      );
+
+      // PHASE 6: Insert naskah
+      const naskahId = uuidv4();
+      const tanggalHariIni = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
+
+      const naskah = this.naskahRepository.create({
+        id: naskahId,
+        jenis: 'SDI',
+        klasifikasi: dto.klasifikasi,
+        klasifikasi_text: dto.klasifikasi_text || undefined,
+        sifat: dto.sifat,
+        nomor: nomorSurat,
+        tanggal: tanggalHariIni,
+        lampiran: dto.lampiran || undefined,
+        perihal: dto.perihal,
+        konten: dto.konten,
+        tempat: dto.nama_tempat || undefined,
+        status: status,
+        final_pdf: undefined, // Will be updated after PDF generation
+        english: dto.english || false,
+      });
+      await queryRunner.manager.save(naskah);
+
+      // PHASE 7: Insert sirkulasi
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
+      await queryRunner.manager.save(pengirimSirkulasi);
+
+      const penerimaResponses: SirkulasiInfoDto[] = [];
+      for (let i = 0; i < penerimaList.length; i++) {
+        const penerima = penerimaList[i];
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
+        await queryRunner.manager.save(penerimaSirkulasi);
+        penerimaResponses.push(this.toSirkulasiInfo(penerima));
+      }
+
+      const tembusanResponses: SirkulasiInfoDto[] = [];
+      for (let i = 0; i < tembusanList.length; i++) {
+        const tembusan = tembusanList[i];
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+        await queryRunner.manager.save(tembusanSirkulasi);
+        tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+      }
+
+      // PHASE 8: Handle lampiran
+      let lampiranFileNames: string[] = [];
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+        lampiranFileNames = lampiranFiles.map(f => f.fileName);
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'surat-dinas-internal/lampiran',
+        );
+      }
+
+      // PHASE 9: Insert sdi_sde entity
+      const kepadaYthList = penerimaList.map((p) => p.position_text);
+      const kepadaYth = kepadaYthList.join('; ');
+      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
+
+      const sdiSdeEntity = this.sdiSdeRepository.create({
+        id: uuidv4(),
+        idNaskah: naskahId,
+        kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
+        kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
+        alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
+        nomor: nomorSurat,
+        kepadaYth: kepadaYth,
+        perihal: dto.perihal,
+        konten: dto.konten,
+        namaTempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
+        tanggal: tanggalHariIni,
+        namaJabatan: dto.nama_jabatan || pengirim.position_text,
+        tandaTangan: null, // Will be updated if digsig
+        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
+        tembusan: tembusanText,
+        sifat: dto.sifat,
+        lampiran: dto.lampiran || null,
+        nama: null,
+        alamat: null,
+      });
+      await queryRunner.manager.save(sdiSdeEntity);
+
+      // PHASE 10: Generate PDF dengan QR code (jika signing)
+      let finalPdfPath: string | undefined = undefined;
+      let pdfBuffer: Buffer;
+      let signatureMetadata: string | null = null;
+      let bsreNameDoc: string | null = null;
+
+      // Prepare signing data BEFORE generating PDF (untuk embed QR di template)
+      const signerName = dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama || 'Penandatangan';
+      const signerJabatan = dto.nama_jabatan || pengirim.position_text || 'Jabatan';
+      let qrCodeHtml: string | undefined = undefined;
+      let signatureId: string | undefined = undefined;
+      let signedAt: string | undefined = undefined;
+      let verificationUrl: string | undefined = undefined;
+
+      console.log(`[SDI] Phase 10 - Preparing signing, sign_option: ${dto.sign_option}, persnum: ${persnum}`);
+
+      // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
+      if ((dto.sign_option === SignOption.DIGSIG && persnum) || dto.sign_option === SignOption.QR_ONLY) {
+        signedAt = new Date().toISOString();
+        signatureId = generateSignatureId();
+        verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
+
+        const qrData: QRCodeData = {
+          signature_id: dto.sign_option === SignOption.DIGSIG ? signatureId : '',
+          document_number: nomorSurat,
+          signed_at: signedAt,
+          signer_name: signerName,
+          signer_jabatan: signerJabatan,
+          document_type: 'Surat Dinas Internal',
+          verification_url: dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
+        };
+
+        // Generate QR Code sebagai base64 HTML untuk template
+        console.log(`[SDI] Generating QR Code HTML for template`);
+        const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+        qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
+        console.log(`[SDI] QR Code HTML generated successfully`);
+      }
+
+      try {
+        // Get dynamic header info
+        const headerInfo = await this.getHeaderInfoByUser(
+          {
+            company: pengirim.company ?? undefined,
+            area: pengirim.area ?? undefined,
+            subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+          },
+          tanggal,
+        );
+
+        const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+
+        // Generate PDF dengan QR code di template (jika ada)
+        console.log(`[SDI] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`);
+        pdfBuffer = await this.generatePdfSudinService.generatePdf({
+          html: Buffer.from(dto.konten, 'utf-8').toString('base64'),
+          penerima: kepadaYthList,
+          nama_tempat: dynamicNamaTempat,
+          tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          positionText: dto.nama_jabatan || pengirim.position_text,
+          namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
+          tembusan: tembusanTextList,
+          perihal: dto.perihal,
+          sifat: dto.sifat || 'Biasa',
+          nomor: nomorSurat,
+          lampiran: dto.lampiran || '-',
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
+          // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
+          qrCodeHtml: qrCodeHtml,
+        });
+        console.log(`[SDI] PDF generated successfully`);
+
+        // Merge with lampiran
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            console.log(`[SDI] Lampiran merged successfully`);
+          }
+        }
+
+        // PHASE 11: Process BSrE signing (jika digsig) - QR sudah di template
+        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+          // ========================================
+          // Digital Signature dengan BSrE
+          // QR sudah ada di template, tinggal hit BSrE dan build metadata
+          // ========================================
+          console.log(`[SDI] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`);
+
+          // 11a. Fetch NIK dan no_wa dari HR API via DigsigService
+          console.log(`[SDI] Step 11a - Fetching user data for persnum: ${persnum}`);
+          const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
+          console.log(`[SDI] Step 11a - Got userData:`, { nik: userData.nik, no_wa: userData.no_wa });
+
+          // 11b. Upload PDF (dengan QR) ke temp untuk BSrE signing
+          console.log(`[SDI] Step 11b - Uploading temp PDF for BSrE`);
+          const tempTimestamp = Date.now();
+          const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
+          const tempUpload = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            tempFileName,
+            'application/pdf',
+            'surat-dinas-internal/temp',
+          );
+          console.log(`[SDI] Step 11b - Temp PDF uploaded: ${tempUpload.key}`);
+
+          // 11c. Hit BSrE API untuk digital signature
+          console.log(`[SDI] Step 11c - Hitting BSrE API`);
+          const bsreResponse = await this.digsigService.hitDigsigEndpoint({
+            key: tempUpload.key,
+            filename: tempFileName,
+            nomorDokumen: nomorSurat,
+            tanggalDokumen: this.formatDateToString(tanggalHariIni),
+            klasifikasi: dto.klasifikasi || 'Biasa',
+            jenisNaskah: 'Surat Dinas Internal',
+            perihal: dto.perihal,
+            nik: userData.nik,
+            passphrase: dto.passphrase!,
+            path_dokumen: 'sdi/digsig/',
+            no_wa: userData.no_wa,
+          });
+          console.log(`[SDI] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
+
+          // 11d. Extract name_doc from BSrE response (krusial untuk verifikasi)
+          bsreNameDoc = bsreResponse?.name_doc?.[0] || bsreResponse?.data?.name_doc?.[0] || null;
+          console.log(`[SDI] Step 11d - BSrE name_doc: ${bsreNameDoc}`);
+
+          // 11e. Build signature metadata
+          signatureMetadata = formatSignatureData({
+            type: 'digsig',
+            doc_id: bsreResponse?.doc_id || bsreResponse?.data?.doc_id,
+            signature_id: signatureId!,
+            signed_at: signedAt!,
+            signer_nik: userData.nik,
+            signer_name: signerName,
+            signer_jabatan: signerJabatan,
+            path: null, // Will be updated after upload
+            verification_url: verificationUrl!,
+            bsre_name_doc: bsreNameDoc, // Simpan name_doc untuk verifikasi
+          });
+          console.log(`[SDI] Step 11e - Signature metadata built`);
+
+          // 11f. Cleanup temp file
+          try {
+            await this.storageService.deleteFile(tempUpload.key);
+          } catch (e) {
+            console.warn(`[SDI] Failed to cleanup temp file: ${e.message}`);
+          }
+
+        } else if (dto.sign_option === SignOption.QR_ONLY) {
+          // ========================================
+          // QR Code tanpa Digital Signature
+          // QR sudah ada di template, tidak perlu BSrE, tidak ada metadata
+          // ========================================
+          console.log(`[SDI] QR_ONLY mode - QR already in template, no BSrE signing needed`);
+          // signatureMetadata tetap null
+        }
+        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+
+        // PHASE 12: Upload final PDF
+        const finalTimestamp = Date.now();
+        const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${finalTimestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'surat-dinas-internal/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        // Update sdi_sde with tanda_tangan metadata (if digsig)
+        if (signatureMetadata) {
+          // Update path in metadata
+          const metadataObj = JSON.parse(signatureMetadata);
+          metadataObj.path = finalPdfPath;
+          signatureMetadata = JSON.stringify(metadataObj);
+
+          await queryRunner.manager.update(
+            SdiSdeEntity,
+            { id: sdiSdeEntity.id },
+            { tandaTangan: signatureMetadata },
+          );
+        }
+
+      } catch (error) {
+        console.error('[SDI] Error during PDF generation/signing:', error);
+        // CRITICAL: Throw error jika signing gagal - jangan simpan naskah tanpa signature
+        throw new BadRequestException(
+          `Gagal proses PDF/signing: ${error.message || 'Unknown error'}`
+        );
+      }
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      // Build response
+      const lampiranTextResponse = lampiranFileNames.length > 0 
+        ? lampiranFileNames.join(', ') 
+        : (dto.lampiran || undefined);
+
+      return {
+        success: true,
+        data: {
+          id: naskahId,
+          jenis: 'SDI',
+          nomor: nomorSurat,
+          tanggal: this.formatDateToString(tanggalHariIni),
+          status: status,
+          perihal: dto.perihal,
+          pengirim: this.toSirkulasiInfo(pengirim),
+          penerima: penerimaResponses,
+          tembusan: tembusanResponses,
+          lampiran: lampiranTextResponse,
+          final_pdf: finalPdfPath,
+          // Additional fields untuk digsig
+          sign_option: dto.sign_option,
+          bsre_name_doc: bsreNameDoc, // Return name_doc untuk FE (krusial untuk verifikasi)
+        } as any,
+      };
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   /**
    * Finalize Draft - Clone dari updateDraft + finalization
    * - Update semua data yang diinput (sama seperti updateDraft)
    * - Generate nomor surat resmi (ganti DRAFT-xxx)
    * - Update status: draf -> final (tanpa tanda_tangan) atau final_tte (dengan tanda_tangan)
    * - Update isDraft = false pada semua sirkulasi
+   * - Support digital signature (sign_option + passphrase)
    */
   async finalizeDraft(
     naskahId: string,
     dto: FinalizeDraftDto,
+    persnum?: number,
   ): Promise<SendMessageResponseDto> {
+    // Validate sign_option + passphrase combination
+    if (dto.sign_option === SignOption.DIGSIG) {
+      if (!dto.passphrase) {
+        throw new BadRequestException('Passphrase wajib diisi untuk opsi TTD Digital (digsig)');
+      }
+      if (!persnum) {
+        throw new BadRequestException('User tidak terautentikasi. Persnum wajib untuk TTD Digital.');
+      }
+    }
+
     // PHASE 1: Get existing naskah
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -1455,18 +2128,28 @@ export class SuratDinasInternalService {
       }
       pengirimPosition = barisData.find((x) => Number(x.position) === Number(existingPengirim.position));
       if (!pengirimPosition) {
-        // Fallback jika tidak ditemukan di org_data
+        // Fallback jika tidak ditemukan di org_data - include nama from namaSirkuler
         pengirimPosition = {
           position: Number(existingPengirim.position),
           position_text: existingPengirim.positionText || '',
+          persnum_person_text: existingPengirim.namaSirkuler || '',
+          nama: existingPengirim.namaSirkuler || '',
           sub_area: Number(existingPengirim.subArea),
+          sub_area_text: existingPengirim.subAreaText || '',
           area_text: existingPengirim.areaText || 'Pusat',
         } as SdiOrgDataPositionDto;
       }
     }
 
-    // PHASE 4: Determine new status
-    const newStatus = dto.tanda_tangan ? 'final_tte' : 'final';
+    // PHASE 4: Determine new status based on sign_option or tanda_tangan
+    let newStatus: 'final' | 'final_tte';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      newStatus = 'final_tte';
+    } else if (dto.tanda_tangan) {
+      newStatus = 'final_tte';
+    } else {
+      newStatus = 'final';
+    }
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -1474,16 +2157,21 @@ export class SuratDinasInternalService {
     await queryRunner.startTransaction();
 
     let nomorSurat: string;
+    let finalPdfPath: string | undefined = undefined;
+    let bsreNameDoc: string | null = null;
+    let signatureMetadata: string | null = null;
 
     try {
       // PHASE 5: Generate nomor surat resmi with integrated numbering (inside transaction)
       const klasifikasi = dto.klasifikasi ?? naskah.klasifikasi ?? '';
       const perihal = dto.perihal ?? naskah.perihal ?? '';
+      // Use dto.tgl if provided, else use naskah's existing date, else today
+      const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date());
       nomorSurat = await this.generateNomorWithIntegration(
         pengirimPosition as SdiOrgDataPositionDto,
         klasifikasi,
         perihal,
-        new Date(),
+        tanggalNomor,
         queryRunner
       );
 
@@ -1531,8 +2219,13 @@ export class SuratDinasInternalService {
       if (dto.perihal !== undefined) sdiUpdateData.perihal = dto.perihal;
       if (dto.konten !== undefined) sdiUpdateData.konten = dto.konten;
       if (dto.nama_tempat !== undefined) sdiUpdateData.namaTempat = dto.nama_tempat;
-      if (dto.nama_jabatan !== undefined) sdiUpdateData.namaJabatan = dto.nama_jabatan;
-      if (dto.nama_lengkap !== undefined) sdiUpdateData.namaLengkap = dto.nama_lengkap;
+      // Always set namaJabatan and namaLengkap with fallback to pengirimPosition
+      if (dto.nama_jabatan !== undefined) {
+        sdiUpdateData.namaJabatan = dto.nama_jabatan || pengirimPosition?.position_text || '';
+      }
+      if (dto.nama_lengkap !== undefined) {
+        sdiUpdateData.namaLengkap = dto.nama_lengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || '';
+      }
       if (dto.sifat !== undefined) sdiUpdateData.sifat = dto.sifat;
       if (dto.lampiran !== undefined) sdiUpdateData.lampiran = dto.lampiran;
 
@@ -1540,14 +2233,9 @@ export class SuratDinasInternalService {
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
       if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
-        // Get valid recipients based on pengirim position (SDI: only REKAN)
-        let allValidPositionIds: number[] = [];
-        if (barisData.length > 0 && pengirimPosition) {
-          const validRecipients = this.filterByPositionSdi(barisData, Number(pengirimPosition.position));
-          allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
-        }
+        // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima
+        // Validate penerima - check exists and is managerial
         let penerimaList: SdiOrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -1560,13 +2248,7 @@ export class SuratDinasInternalService {
                 `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              if (pengirimPosition && penerima.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              throw new BadRequestException(errorMsg);
-            }
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
         } else {
@@ -1580,7 +2262,7 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan
+        // Validate tembusan - check exists and is managerial
         let tembusanList: SdiOrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -1593,13 +2275,7 @@ export class SuratDinasInternalService {
                 `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              if (pengirimPosition && tembusan.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              throw new BadRequestException(errorMsg);
-            }
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
         }
@@ -1615,19 +2291,20 @@ export class SuratDinasInternalService {
 
         // Re-insert pengirim with is_draft = FALSE (finalized!)
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, false);
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, false, 0);
           await queryRunner.manager.save(pengirimSirkulasi);
         }
 
-        // Re-insert penerima with is_draft = FALSE
-        for (const penerima of penerimaList) {
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false);
+        // Re-insert penerima with is_draft = FALSE and urutan
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
+          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
         // Update sdi_sde.kepadaYth
         const kepadaYthList = penerimaList.map(
-          (p) => `${p.position_text} - ${p.organization_text}`,
+          (p) => p.position_text,
         );
         await queryRunner.manager.update(
           SdiSdeEntity,
@@ -1635,16 +2312,17 @@ export class SuratDinasInternalService {
           { kepadaYth: kepadaYthList.join('; ') },
         );
 
-        // Re-insert tembusan with is_draft = FALSE
-        for (const tembusan of tembusanList) {
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false);
+        // Re-insert tembusan with is_draft = FALSE and urutan
+        for (let i = 0; i < tembusanList.length; i++) {
+          const tembusan = tembusanList[i];
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
         // Update sdi_sde.tembusan
         if (tembusanList.length > 0) {
           const tembusanTextList = tembusanList.map(
-            (t) => `${t.position_text} - ${t.organization_text}`,
+            (t) => t.position_text,
           );
           await queryRunner.manager.update(
             SdiSdeEntity,
@@ -1683,6 +2361,242 @@ export class SuratDinasInternalService {
         }
       }
 
+      // PHASE 10: Auto-generate PDF (same logic as createSdi PHASE 13)
+      try {
+        // Get the updated sdi_sde data for PDF generation
+        const sdiSdeData = await queryRunner.manager.findOne(SdiSdeEntity, {
+          where: { idNaskah: naskahId },
+        });
+
+        // Get pengirim sirkulasi for fallback nama
+        const pengirimSirkulasiForPdf = await queryRunner.manager.findOne(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+        });
+
+        // Get penerima list for PDF
+        const penerimaListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'penerima' },
+          order: { urutan: 'ASC', createdAt: 'ASC' },
+        });
+        const kepadaYthList = penerimaListForPdf.map(
+          (p) => `${p.positionText} - ${p.organizationText}`,
+        );
+
+        // Get tembusan list for PDF
+        const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+          order: { urutan: 'ASC', createdAt: 'ASC' },
+        });
+        const tembusanTextList = tembusanListForPdf.map(
+          (t) => `${t.positionText} - ${t.organizationText}`,
+        );
+
+        // Get tanggal for PDF
+        const tanggalHariIni = naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
+
+        // Use || to handle empty strings from frontend
+        // Fallback chain: dto -> sdiSdeData -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
+        const resolvedPositionText = dto.nama_jabatan || sdiSdeData?.namaJabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
+        const resolvedNamaLengkap = dto.nama_lengkap || sdiSdeData?.namaLengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
+
+        // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
+        const tanggalStr = dto.tgl || (naskah.tanggal instanceof Date ? this.formatDateToString(naskah.tanggal) : String(naskah.tanggal).split('T')[0]);
+        const headerInfo = await this.getHeaderInfoByUser(
+          {
+            company: pengirimPosition?.company ?? pengirimSirkulasiForPdf?.company ?? undefined,
+            area: pengirimPosition?.area ?? pengirimSirkulasiForPdf?.area ?? undefined,
+            subArea: pengirimPosition?.sub_area != null ? String(pengirimPosition.sub_area) : (pengirimSirkulasiForPdf?.subArea ?? undefined),
+          },
+          tanggalStr,
+        );
+
+        // Use kota from headerInfo if available
+        const dynamicNamaTempat = headerInfo?.kota || sdiSdeData?.namaTempat || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang';
+
+        let pdfBuffer = await this.generatePdfSudinService.generatePdf({
+          html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
+          penerima: kepadaYthList,
+          nama_tempat: dynamicNamaTempat,
+          tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          positionText: resolvedPositionText,
+          namaLengkap: resolvedNamaLengkap,
+          tembusan: tembusanTextList,
+          perihal: sdiSdeData?.perihal || dto.perihal || naskah.perihal || '',
+          sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
+          nomor: nomorSurat,
+          lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
+        });
+
+        // Merge with lampiran if any (from temp_ids or existing)
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+          }
+        }
+
+        // ========================================
+        // SIGNING LOGIC: QR Code + BSrE (if applicable)
+        // ========================================
+        if ((dto.sign_option === SignOption.DIGSIG && persnum) || dto.sign_option === SignOption.QR_ONLY) {
+          console.log(`[SDI finalizeDraft] Processing signing, sign_option: ${dto.sign_option}`);
+          
+          // Generate QR Code data
+          const signedAt = new Date().toISOString();
+          const signatureId = generateSignatureId();
+          const verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
+
+          const qrData: QRCodeData = {
+            signature_id: dto.sign_option === SignOption.DIGSIG ? signatureId : '',
+            document_number: nomorSurat,
+            signed_at: signedAt,
+            signer_name: resolvedNamaLengkap,
+            signer_jabatan: resolvedPositionText,
+            document_type: 'Surat Dinas Internal',
+            verification_url: dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
+          };
+
+          // Generate QR as base64 and re-generate PDF with QR in template
+          const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+          const qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
+
+          // Re-generate PDF with QR code in template
+          pdfBuffer = await this.generatePdfSudinService.generatePdf({
+            html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
+            penerima: kepadaYthList,
+            nama_tempat: dynamicNamaTempat,
+            tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            }),
+            positionText: resolvedPositionText,
+            namaLengkap: resolvedNamaLengkap,
+            tembusan: tembusanTextList,
+            perihal: sdiSdeData?.perihal || dto.perihal || naskah.perihal || '',
+            sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
+            nomor: nomorSurat,
+            lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+            headerKantor: headerInfo?.kantor,
+            headerGedung: headerInfo?.gedung,
+            headerAlamat: headerInfo?.alamat,
+            qrCodeHtml: qrCodeHtml,
+          });
+
+          // Re-merge with lampiran if any
+          if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+            const lampiranFilesForMerge = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+            if (lampiranFilesForMerge && lampiranFilesForMerge.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFilesForMerge);
+            }
+          }
+
+          // If DIGSIG, hit BSrE API
+          if (dto.sign_option === SignOption.DIGSIG && persnum) {
+            console.log(`[SDI finalizeDraft] Hitting BSrE API for persnum: ${persnum}`);
+            
+            const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
+            
+            // Upload temp PDF for BSrE
+            const tempTimestamp = Date.now();
+            const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
+            const tempUpload = await this.storageService.uploadBuffer(
+              pdfBuffer,
+              tempFileName,
+              'application/pdf',
+              'surat-dinas-internal/temp',
+            );
+
+            // Hit BSrE
+            const bsreResponse = await this.digsigService.hitDigsigEndpoint({
+              key: tempUpload.key,
+              filename: tempFileName,
+              nomorDokumen: nomorSurat,
+              tanggalDokumen: this.formatDateToString(tanggalHariIni),
+              klasifikasi: dto.klasifikasi || naskah.klasifikasi || 'Biasa',
+              jenisNaskah: 'Surat Dinas Internal',
+              perihal: dto.perihal || naskah.perihal || '',
+              nik: userData.nik,
+              passphrase: dto.passphrase!,
+              path_dokumen: 'sdi/digsig/',
+              no_wa: userData.no_wa,
+            });
+
+            // Extract name_doc
+            bsreNameDoc = bsreResponse?.name_doc?.[0] || bsreResponse?.data?.name_doc?.[0] || null;
+            console.log(`[SDI finalizeDraft] BSrE name_doc: ${bsreNameDoc}`);
+
+            // Build signature metadata
+            signatureMetadata = formatSignatureData({
+              type: 'digsig',
+              doc_id: bsreResponse?.doc_id || bsreResponse?.data?.doc_id,
+              signature_id: signatureId,
+              signed_at: signedAt,
+              signer_nik: userData.nik,
+              signer_name: resolvedNamaLengkap,
+              signer_jabatan: resolvedPositionText,
+              path: null,
+              verification_url: verificationUrl,
+              bsre_name_doc: bsreNameDoc,
+            });
+
+            // Cleanup temp file
+            try {
+              await this.storageService.deleteFile(tempUpload.key);
+            } catch (e) {
+              console.warn(`[SDI finalizeDraft] Failed to cleanup temp file: ${e.message}`);
+            }
+          }
+        }
+
+        // Upload PDF to storage
+        const timestamp = Date.now();
+        const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'surat-dinas-internal/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        // Update sdi_sde with signature metadata if digsig
+        if (signatureMetadata) {
+          const metadataObj = JSON.parse(signatureMetadata);
+          metadataObj.path = finalPdfPath;
+          signatureMetadata = JSON.stringify(metadataObj);
+
+          await queryRunner.manager.update(
+            SdiSdeEntity,
+            { idNaskah: naskahId },
+            { tandaTangan: signatureMetadata },
+          );
+        }
+      } catch (error) {
+        // Throw error if signing is required but failed
+        if (dto.sign_option === SignOption.DIGSIG) {
+          throw new BadRequestException(`Gagal proses signing: ${error.message}`);
+        }
+        // For non-digsig, log but don't fail
+        console.error('[SDI finalizeDraft] PDF generation error:', error);
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -1699,16 +2613,25 @@ export class SuratDinasInternalService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
 
+    // Get lampiran file names for response
+    const lampiranList = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+    const lampiranText = lampiranList.length > 0 
+      ? lampiranList.map(l => l.file_name).join(', ')
+      : undefined;
+
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -1726,7 +2649,12 @@ export class SuratDinasInternalService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
-      },
+        lampiran: lampiranText, // Nama file lampiran dari database
+        final_pdf: finalPdfPath, // Include generated PDF path in response
+        // Digital signature info
+        sign_option: dto.sign_option,
+        bsre_name_doc: bsreNameDoc,
+      } as any,
     };
   }
 
@@ -1832,14 +2760,9 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Get valid recipients based on pengirim position (SDI: only REKAN)
-        let allValidPositionIds: number[] = [];
-        if (pengirimPosition) {
-          const validRecipients = this.filterByPositionSdi(barisData, Number(pengirimPosition.position));
-          allValidPositionIds = validRecipients.REKAN.map((x) => Number(x.position));
-        }
+        // Note: Validation sub_area/area sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima - must be in valid recipients list
+        // Validate penerima - check exists and is managerial
         let penerimaList: SdiOrgDataPositionDto[] = [];
         if (dto.penerima !== undefined) {
           for (const posId of dto.penerima) {
@@ -1855,17 +2778,7 @@ export class SuratDinasInternalService {
               );
             }
             
-            // Check if penerima is in valid recipients (REKAN only for SDI)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Penerima ${penerima.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              
-              if (pengirimPosition && penerima.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Penerima ${penerima.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              
-              throw new BadRequestException(errorMsg);
-            }
-            
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
         } else {
@@ -1879,7 +2792,7 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan - if not provided, tembusan will be EMPTY (destroyed)
+        // Validate tembusan - check exists and is managerial
         let tembusanList: SdiOrgDataPositionDto[] = [];
         if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
           for (const posId of dto.tembusan) {
@@ -1895,17 +2808,7 @@ export class SuratDinasInternalService {
               );
             }
             
-            // Check if tembusan is in valid recipients (REKAN only for SDI)
-            if (!allValidPositionIds.includes(Number(posId))) {
-              let errorMsg = `Tembusan ${tembusan.position_text} (${posId}) harus berbeda sub_area atau area dari pengirim.`;
-              
-              if (pengirimPosition && tembusan.sub_area === pengirimPosition.sub_area) {
-                errorMsg = `Tembusan ${tembusan.position_text} (${posId}) berada di sub_area yang sama dengan pengirim.`;
-              }
-              
-              throw new BadRequestException(errorMsg);
-            }
-            
+            // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
         }
@@ -1916,19 +2819,20 @@ export class SuratDinasInternalService {
 
         // Re-insert pengirim with is_draft = true
         if (pengirimPosition) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, true);
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, true, 0);
           await queryRunner.manager.save(pengirimSirkulasi);
         }
 
-        // Re-insert penerima with is_draft = true
-        for (const penerima of penerimaList) {
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, true);
+        // Re-insert penerima with is_draft = true and urutan
+        for (let i = 0; i < penerimaList.length; i++) {
+          const penerima = penerimaList[i];
+          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, true, i);
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
         // Update sdi_sde.kepadaYth
         const kepadaYthList = penerimaList.map(
-          (p) => `${p.position_text} - ${p.organization_text}`,
+          (p) => p.position_text,
         );
         await queryRunner.manager.update(
           SdiSdeEntity,
@@ -1936,16 +2840,17 @@ export class SuratDinasInternalService {
           { kepadaYth: kepadaYthList.join('; ') },
         );
 
-        // Re-insert tembusan with is_draft = true (only if there are any)
-        for (const tembusan of tembusanList) {
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, true);
+        // Re-insert tembusan with is_draft = true and urutan (only if there are any)
+        for (let i = 0; i < tembusanList.length; i++) {
+          const tembusan = tembusanList[i];
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, true, i);
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
         // Update sdi_sde.tembusan
         if (tembusanList.length > 0) {
           const tembusanTextList = tembusanList.map(
-            (t) => `${t.position_text} - ${t.organization_text}`,
+            (t) => t.position_text,
           );
           await queryRunner.manager.update(
             SdiSdeEntity,
@@ -1997,17 +2902,26 @@ export class SuratDinasInternalService {
 
     const allSirkulasi = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: naskahId },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     const pengirimData = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
     const penerimaData = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
     const tembusanData = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
 
+    // Get lampiran file names for response
+    const lampiranList = await this.naskahLampiranRepository.find({
+      where: { id_naskah: naskahId },
+    });
+    const lampiranText = lampiranList.length > 0 
+      ? lampiranList.map(l => l.file_name).join(', ')
+      : undefined;
+
     // Handle tanggal - bisa Date object atau string
     let tanggalStr = '';
     if (updatedNaskah?.tanggal) {
       if (updatedNaskah.tanggal instanceof Date) {
-        tanggalStr = updatedNaskah.tanggal.toISOString().split('T')[0];
+        tanggalStr = this.formatDateToString(updatedNaskah.tanggal);
       } else {
         tanggalStr = String(updatedNaskah.tanggal).split('T')[0];
       }
@@ -2025,6 +2939,7 @@ export class SuratDinasInternalService {
         pengirim: this.sirkulasiToInfo(pengirimData),
         penerima: penerimaData.map((s) => this.sirkulasiToInfo(s)),
         tembusan: tembusanData.map((s) => this.sirkulasiToInfo(s)),
+        lampiran: lampiranText, // Nama file lampiran dari database
       },
     };
   }
@@ -2110,6 +3025,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'penerima',
         },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get all tembusan for this naskah
@@ -2118,6 +3034,7 @@ export class SuratDinasInternalService {
           idNaskah: naskah.id,
           sirkuler: 'tembusan',
         },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
       });
 
       // Get lampiran files
@@ -2236,6 +3153,45 @@ export class SuratDinasInternalService {
   }
 
   /**
+   * Get person name (persnum_person_text) by position ID
+   * Used by controller to get actual person name for PDF generation
+   * 
+   * @param positionId - Position ID from user JWT
+   * @param tgl - Optional date string (YYYY-MM-DD)
+   * @returns Person name or empty string if not found
+   */
+  async getPersonNameByPosition(positionId: string | number, tgl?: string): Promise<string> {
+    try {
+      if (!positionId) {
+        return '';
+      }
+
+      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+      
+      // Get org_data
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        return '';
+      }
+
+      const positionJson: SdiOrgDataPositionDto[] = orgData.position_json;
+      
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(positionId),
+      );
+      
+      if (pos) {
+        // Use persnum_person_text as primary source for person name
+        return (pos as any).persnum_person_text || pos.nama || '';
+      }
+
+      return '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  /**
    * Get SDI detail by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
    */
@@ -2272,6 +3228,7 @@ export class SuratDinasInternalService {
         idNaskah: naskahId,
         sirkuler: 'penerima',
       },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get all tembusan sirkulasi
@@ -2280,6 +3237,7 @@ export class SuratDinasInternalService {
         idNaskah: naskahId,
         sirkuler: 'tembusan',
       },
+      order: { urutan: 'ASC', createdAt: 'ASC' },
     });
 
     // Get lampiran files
@@ -2316,12 +3274,22 @@ export class SuratDinasInternalService {
       areaText: tembusan.areaText || '',
     }));
 
-    // Build lampiran info
-    const lampiranInfoList = lampiranFiles.map((l) => ({
-      id: l.id,
-      fileName: l.file_name || '',
-      filePath: l.file_pdf || '',
-    }));
+    // Build lampiran info with file URL
+    const lampiranInfoList = await Promise.all(
+      lampiranFiles.map(async (l) => ({
+        id: l.id,
+        fileName: l.file_name || '',
+        filePath: l.file_pdf || '',
+        fileUrl: l.file_pdf
+          ? await this.storageService.getFileUrl(l.file_pdf)
+          : null,
+      })),
+    );
+
+    // Get final PDF URL if exists
+    const finalPdfUrl = naskah.final_pdf
+      ? await this.storageService.getFileUrl(naskah.final_pdf)
+      : null;
 
     // Build response
     return {
@@ -2376,6 +3344,7 @@ export class SuratDinasInternalService {
         // Files
         lampiran_files: lampiranInfoList,
         final_pdf: naskah.final_pdf || null,
+        final_pdf_url: finalPdfUrl,
 
         // Metadata
         created_at: null,
@@ -2383,4 +3352,70 @@ export class SuratDinasInternalService {
       },
     };
   }
+
+  async getSenderKonsep(
+      positionId: number,
+      tgl?: string,
+    ): Promise<SdiOrgDataPositionDto[]> {
+      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+  
+      // Get cached org data from org_data service
+      const orgData = await this.orgDataService.findOrg(tanggal);
+  
+      if (!orgData || !orgData.position_json) {
+        throw new NotFoundException(
+          `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+        );
+      }
+  
+      const data: SdiOrgDataPositionDto[] = orgData.position_json;
+  
+      const result: SdiOrgDataPositionDto[] = [];
+      const added = new Set<number>(); // penanda duplicate
+  
+      // helper push aman
+      const pushUnique = (item?: SdiOrgDataPositionDto) => {
+        if (!item) return;
+        const key = Number(item.position);
+        if (added.has(key)) return;
+        added.add(key);
+        result.push(item);
+      };
+  
+      // cari posisi awal
+      let current = data.find((x) => Number(x.position) === Number(positionId));
+      if (!current) return result;
+      const bods = ['BOD', 'BOD-1'];
+      // kalau bukan chief → ambil chiefs
+      if (current.chief === 0) {
+        const chiefs = data.filter(
+          (x) =>
+            Number(x.divisi_id) === Number(current!.divisi_id) && x.chief === 1 && bods.includes(x.bod_tag as string),
+        );
+  
+        chiefs.forEach(pushUnique);
+  
+        current = chiefs.find((x) => x.bod_tag === 'BOD-1');
+      }
+  
+      // loop ke atas sampai parent tertinggi
+      while (current) {
+        if(bods.includes(current.bod_tag as string)){
+          pushUnique(current);
+        }
+  
+        const parent = data.find(
+          (x) =>
+            Number(x.organization_id) === Number(current!.organization_parent) &&
+            x.chief === 1 && x.sub_area===current?.sub_area,
+        );
+  
+        if (!parent) break;
+        current = parent;
+      }
+  
+      // sort akhir
+      result.sort((a, b) => Number(a.level) - Number(b.level));
+      return result;
+    }
 }

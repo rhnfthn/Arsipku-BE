@@ -29,7 +29,10 @@ import {
 import {
   ToggleFlagDto,
   ToggleFlagResponseDto,
+  BulkArchiveSentDto,
+  BulkArchiveSentResponseDto,
 } from '../dto/naskah_sirkulasi/toggle-flag.dto';
+import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 
 @Controller('naskah_sirkulasi')
@@ -84,6 +87,24 @@ export class NaskahSirkulasiController {
     return this.naskahSirkulasiService.getInbox(positionId, query);
   }
 
+  /**
+   * GET /naskah_sirkulasi/inbox-count/:position_id
+   *
+   * Menampilkan jumlah kotak masuk yang belum dibaca
+   *
+   * @param positionId - Position ID penerima
+   * @returns CountUnreadInboxResponseDto
+   *
+   * @example
+   * GET /naskah_sirkulasi/inbox-count/123
+   */
+  @Get('inbox-count/:position_id')
+  async countUnreadInbox(
+    @Param('position_id') positionId: string,
+  ): Promise<CountUnreadInboxResponseDto> {
+    return this.naskahSirkulasiService.countUnreadInbox(positionId);
+  }
+
   // ============================================================
   // SENT MESSAGE - Kotak Keluar (Global untuk semua jenis naskah)
   // ============================================================
@@ -134,6 +155,40 @@ export class NaskahSirkulasiController {
     @Body() dto: ToggleFlagDto,
   ): Promise<ToggleFlagResponseDto> {
     return this.naskahSirkulasiService.toggleFlag(dto.id_sirkulasi, dto.flag_type);
+  }
+
+  // ============================================================
+  // BULK ARCHIVE/DELETE SENT - Bulk archive atau delete pesan terkirim
+  // ============================================================
+
+  /**
+   * POST /naskah_sirkulasi/sent/bulk-action
+   *
+   * Bulk archive atau delete pesan terkirim
+   * Archive: Set flag_arsip = 1 (pesan masih ada tapi dipindahkan ke arsip)
+   * Delete: Hapus pesan beserta semua data terkait secara permanen
+   *
+   * @param dto - BulkArchiveSentDto { position_id, naskah_ids, action }
+   * @returns BulkArchiveSentResponseDto
+   *
+   * @example
+   * POST /naskah_sirkulasi/sent/bulk-action
+   * Body: { 
+   *   "position_id": 123,
+   *   "naskah_ids": ["uuid-1", "uuid-2", "uuid-3"],
+   *   "action": "archive" | "delete"
+   * }
+   */
+  @Post('sent/bulk-action')
+  @HttpCode(HttpStatus.OK)
+  async bulkArchiveOrDeleteSent(
+    @Body() dto: BulkArchiveSentDto,
+  ): Promise<BulkArchiveSentResponseDto> {
+    return this.naskahSirkulasiService.bulkArchiveOrDeleteSent(
+      dto.naskah_ids,
+      dto.position_id,
+      dto.action,
+    );
   }
 
   @Get()
