@@ -17,11 +17,13 @@ export class GetSdeRecipientQueryDto {
  * Same structure as SDI/ND
  */
 export class SdeOrgDataPositionDto {
+  company: number;
   position: number;
   position_text: string;
   position_abbreviation?: string | null;
   persnum: number;
   // Optional fields when org_data provides person details for the position
+  divisi_id?: number | null;
   persnum_person?: number | null;
   persnum_person_text?: string | null;
   nama: string;
@@ -34,6 +36,7 @@ export class SdeOrgDataPositionDto {
   area_text: string;
   level: number;
   chief: number;
+  bod_tag: string | null;
   departType: string | null;
 }
 
@@ -61,4 +64,17 @@ export class SdeRecipientResponseDto {
   sender: SdeOrgDataPositionDto;
   recipients: EksternalRecipientDto[];
   totalRecipients: number;
+}
+
+/**
+ * Response DTO for SDE get-tembusan
+ * 
+ * Tembusan recipients for SDE (same logic as SDI tembusan):
+ * - Filter internal positions (org_data)
+ * - chief=1 (managerial), bod_tag='BOD', same company
+ */
+export class SdeTembusanResponseDto {
+  sender: SdeOrgDataPositionDto;
+  tembusan: SdeOrgDataPositionDto[];
+  totalTembusan: number;
 }

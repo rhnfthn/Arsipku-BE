@@ -22,6 +22,14 @@ export class SendMessageDataDto {
   pengirim: SirkulasiInfoDto;
   penerima: SirkulasiInfoDto[];
   tembusan: SirkulasiInfoDto[];
+  lampiran?: string; // Nama file lampiran dari temporary files
+  final_pdf?: string; // Path to final PDF in storage
+  
+  // Digital signature fields (NEW)
+  sign_option?: 'digsig' | 'qr_only' | 'none'; // Opsi TTD yang dipilih
+  bsre_name_doc?: string | null; // name_doc dari BSrE untuk verifikasi (krusial!)
+  signature_id?: string; // ID tanda tangan internal
+  verification_url?: string; // URL untuk verifikasi TTD
 }
 
 export class SendMessageResponseDto {

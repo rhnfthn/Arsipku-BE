@@ -20,6 +20,7 @@ import { DisposisiModule } from './modules/disposisi/disposisi.module';
 import { NotaDinasModule } from './modules/nota-dinas/nota-dinas.module';
 import { SuratDinasInternalModule } from './modules/surat-dinas-internal/surat-dinas-internal.module';
 import { SuratDinasEksternalModule } from './modules/surat-dinas-eksternal/surat-dinas-eksternal.module';
+import { NaskahDinasModule } from './modules/naskah-dinas/naskah-dinas.module';
 import { KajianModule } from './modules/kajian/kajian.module';
 import { LabelModule } from './modules/label/label.module';
 import { KlasifikasiModule } from './modules/klasifikasi/klasifikasi.module';
@@ -44,7 +45,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BerkasModule } from './modules/berkas/berkas.module';
 import { SuperadminModule } from './modules/superadmin/superadmin.module';
 import { NomorModule } from './modules/nomor/nomor.module';
+import { RekapNaskahModule } from './modules/rekap-naskah/rekap-naskah.module';
+import { JenisModule } from './modules/jenis/jenis.module';
 import { DataSource } from 'typeorm';
+import { DigsigModule } from './modules/digsig/digsig.module';
 
 @Module({
   imports: [
@@ -83,6 +87,7 @@ import { DataSource } from 'typeorm';
     NotaDinasModule,
     SuratDinasInternalModule,
     SuratDinasEksternalModule,
+    NaskahDinasModule,
     KajianModule,
     LabelModule,
     KlasifikasiModule,
@@ -107,6 +112,9 @@ import { DataSource } from 'typeorm';
     BerkasModule,
     SuperadminModule,
     NomorModule,
+    RekapNaskahModule,
+    JenisModule,
+    DigsigModule,
   ],
   controllers: [AppController],
   providers: [AppService],

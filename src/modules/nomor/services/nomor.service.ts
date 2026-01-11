@@ -166,6 +166,47 @@ export class NomorService {
     return nomorBaru;
   }
 
+  private looksLikeStorageKey(key: string | null | undefined): boolean {
+    if (!key) return false;
+    // Expected pattern from StorageService.uploadFile(): {folder}/{timestamp}-{sanitizedFileName}
+    if (!key.includes('/')) return false;
+    const base = key.split('/').pop() || '';
+    return /^\d{10,}-/.test(base);
+  }
+
+  private async getDetailFileUrlAndHeal(
+    detail: NomorRequestDetailEntity,
+    folder: string = 'nomor',
+  ): Promise<string | null> {
+    const key = detail.fileText;
+    if (key && this.looksLikeStorageKey(key)) {
+      // Fast-path: treat as valid key
+      return await this.storageService.getFileUrl(key);
+    }
+
+    // Jika fileText kosong atau kelihatan bukan key (misalnya nama file original), coba self-heal
+    const originalName = detail.fileName || detail.fileText;
+    if (!originalName) return null;
+
+    const foundKey = await this.storageService.findLatestKeyByOriginalName(
+      originalName,
+      folder,
+    );
+
+    if (!foundKey) {
+      return null;
+    }
+
+    // Update DB agar request berikutnya sudah benar
+    detail.fileText = foundKey;
+    if (!detail.fileName) {
+      detail.fileName = originalName;
+    }
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return await this.storageService.getFileUrl(foundKey);
+  }
+
   /**
    * User membuat usulan nomor baru
    * Data company, area, sub_area, organization diambil dari org_data berdasarkan position_id
@@ -259,6 +300,9 @@ export class NomorService {
           order: { createdAt: 'ASC' },
         });
 
+        // Generate template nomor
+        const templateNomor = await this.generateNomorTemplate(request);
+
         return {
           id: request.id,
           company: request.company!,
@@ -272,6 +316,7 @@ export class NomorService {
           perihal: request.perihal!,
           jumlah: request.jumlah!,
           penandatangan: request.penandatangan,
+          template_nomor: templateNomor,
           created_at: request.createdAt,
           details: details.map((detail) => ({
             id: detail.id,
@@ -375,6 +420,143 @@ export class NomorService {
       success: true,
       message: 'Data usulan nomor yang diajukan berhasil diambil',
       data: submittedData,
+    };
+  }
+
+  /**
+   * Count nomor request by status (for admin dashboard)
+   */
+  async getAdminCountNomorRequest(): Promise<any> {
+    const requests = await this.nomorRequestRepository.find();
+
+    // Count by status
+    const statusCounts = {
+      menunggu_verifikasi: 0,
+      disetujui: 0,
+      ditolak: 0,
+      belum_diajukan: 0,
+    };
+
+    for (const request of requests) {
+      // Ambil detail untuk menentukan status
+      const details = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: request.id },
+      });
+
+      let status = 'belum_diajukan';
+      if (details.length > 0) {
+        const hasBooking = details.some((d) => d.status === 'booking');
+        const hasTerpakai = details.some((d) => d.status === 'terpakai');
+        const allHangus = details.every((d) => d.status === 'hangus');
+
+        if (hasTerpakai) {
+          status = 'disetujui';
+        } else if (allHangus) {
+          status = 'ditolak';
+        } else if (hasBooking) {
+          status = 'menunggu_verifikasi';
+        }
+      }
+
+      // Increment counter
+      switch (status) {
+        case 'menunggu_verifikasi':
+          statusCounts.menunggu_verifikasi++;
+          break;
+        case 'disetujui':
+          statusCounts.disetujui++;
+          break;
+        case 'ditolak':
+          statusCounts.ditolak++;
+          break;
+        case 'belum_diajukan':
+          statusCounts.belum_diajukan++;
+          break;
+      }
+    }
+
+    const total = requests.length;
+
+    return {
+      success: true,
+      message: 'Count usulan nomor berhasil diambil',
+      data: {
+        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
+        disetujui: statusCounts.disetujui,
+        ditolak: statusCounts.ditolak,
+        belum_diajukan: statusCounts.belum_diajukan,
+        total,
+      },
+    };
+  }
+
+  /**
+   * Count nomor request by status filtered by position ID
+   */
+  async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
+    const requests = await this.nomorRequestRepository.find({
+      where: { position: positionId.toString() },
+    });
+
+    // Count by status
+    const statusCounts = {
+      menunggu_verifikasi: 0,
+      disetujui: 0,
+      ditolak: 0,
+      belum_diajukan: 0,
+    };
+
+    for (const request of requests) {
+      // Ambil detail untuk menentukan status
+      const details = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: request.id },
+      });
+
+      let status = 'belum_diajukan';
+      if (details.length > 0) {
+        const hasBooking = details.some((d) => d.status === 'booking');
+        const hasTerpakai = details.some((d) => d.status === 'terpakai');
+        const allHangus = details.every((d) => d.status === 'hangus');
+
+        if (hasTerpakai) {
+          status = 'disetujui';
+        } else if (allHangus) {
+          status = 'ditolak';
+        } else if (hasBooking) {
+          status = 'menunggu_verifikasi';
+        }
+      }
+
+      // Increment counter
+      switch (status) {
+        case 'menunggu_verifikasi':
+          statusCounts.menunggu_verifikasi++;
+          break;
+        case 'disetujui':
+          statusCounts.disetujui++;
+          break;
+        case 'ditolak':
+          statusCounts.ditolak++;
+          break;
+        case 'belum_diajukan':
+          statusCounts.belum_diajukan++;
+          break;
+      }
+    }
+
+    const total = requests.length;
+
+    return {
+      success: true,
+      message: 'Count usulan nomor untuk position berhasil diambil',
+      data: {
+        position_id: positionId,
+        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
+        disetujui: statusCounts.disetujui,
+        ditolak: statusCounts.ditolak,
+        belum_diajukan: statusCounts.belum_diajukan,
+        total,
+      },
     };
   }
 
@@ -560,30 +742,48 @@ export class NomorService {
     // Generate template nomor
     const templateNomor = await this.generateNomorTemplate(request);
 
+    // Build response dengan optional details jika sudah diajukan
+    const responseData: any = {
+      id: request.id,
+      company: request.company!,
+      area: request.area!,
+      sub_area: request.subArea!,
+      organization: request.organization!,
+      position: request.position!,
+      persnum,
+      nama,
+      tanggal: request.tanggal!,
+      jenis: request.jenis!,
+      klasifikasi: request.klasifikasi,
+      perihal: request.perihal!,
+      jumlah: request.jumlah!,
+      penandatangan: request.penandatangan,
+      penandatangan_position_id: request.idPositionPenandatangan,
+      penandatangan_position_abbreviation: penandatanganPositionAbbreviation,
+      template_nomor: templateNomor,
+      created_at: request.createdAt,
+      status,
+    };
+
+    // Tambahkan details jika sudah diajukan (ada file)
+    if (details.length > 0) {
+      const detailsWithUrls = await Promise.all(
+        details.map(async (d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+          file_name: d.fileName,
+          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+          created_at: d.createdAt,
+        }))
+      );
+      responseData.details = detailsWithUrls;
+    }
+
     return {
       success: true,
       message: 'Detail usulan nomor berhasil diambil',
-      data: {
-        id: request.id,
-        company: request.company!,
-        area: request.area!,
-        sub_area: request.subArea!,
-        organization: request.organization!,
-        position: request.position!,
-        persnum,
-        nama,
-        tanggal: request.tanggal!,
-        jenis: request.jenis!,
-        klasifikasi: request.klasifikasi,
-        perihal: request.perihal!,
-        jumlah: request.jumlah!,
-        penandatangan: request.penandatangan,
-        penandatangan_position_id: request.idPositionPenandatangan,
-        penandatangan_position_abbreviation: penandatanganPositionAbbreviation,
-        template_nomor: templateNomor,
-        created_at: request.createdAt,
-        status,
-      },
+      data: responseData,
     };
   }
 
@@ -744,6 +944,19 @@ export class NomorService {
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
 
+    // Generate signed URLs untuk details
+    const detailsWithUrls = await Promise.all(
+      details.map(async (d) => ({
+        id: d.id,
+        nomor: d.nomor,
+        status: d.status,
+        file_name: d.fileName,
+        file_text: d.fileText,
+        file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+        created_at: d.createdAt,
+      }))
+    );
+
     return {
       success: true,
       message: 'Detail penomoran berhasil diambil',
@@ -764,35 +977,30 @@ export class NomorService {
         penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
-        details: details.map((d) => ({
-          id: d.id,
-          nomor: d.nomor,
-          status: d.status,
-          file_name: d.fileName,
-          file_text: d.fileText,
-          created_at: d.createdAt,
-        })),
+        details: detailsWithUrls,
       },
     };
   }
 
   /**
-   * Admin memproses usulan dan membuat booking nomor
+   * User/Admin memproses usulan dan membuat booking nomor
    * Dengan file upload ke storage menggunakan folder query parameter
-   * Mendukung multiple file upload
+   * Mendukkan multiple file upload
    * 
    * Flow:
    * 1. Validasi request ada
-   * 2. Jika ada files, upload semua ke storage dengan folder path
-   * 3. Buat detail record per file dengan status = 'booking' dan file key dari storage
-   * 4. Jika tidak ada file, buat berdasarkan jumlah
-   * 5. Return response dengan file information
+   * 2. Jika action=replace, hapus detail lama dengan status booking (dan file di storage)
+   * 3. Jika ada files, upload semua ke storage dengan folder path
+   * 4. Buat detail record per file dengan status = 'booking' dan file key dari storage
+   * 5. Jika tidak ada file, buat berdasarkan jumlah
+   * 6. Return response dengan file information
    */
   async bookingNomorRequest(
     requestId: string,
     dto: BookingNomorRequestDto,
     files?: Express.Multer.File | Express.Multer.File[],
     folder: string = 'nomor',
+    action: 'append' | 'replace' = 'append',
   ): Promise<BookingNomorRequestResponseDto> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
@@ -800,6 +1008,32 @@ export class NomorService {
 
     if (!request) {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    if (action === 'replace') {
+      const oldDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: requestId, status: 'booking' },
+      });
+
+      // Delete files dari storage untuk setiap detail
+      for (const detail of oldDetails) {
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted old file from storage: ${detail.fileText}`);
+          } catch (error) {
+            // Log error tapi jangan throw, proses tetap lanjut
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+      }
+
+      // Hapus detail dari database
+      await this.nomorRequestDetailRepository.delete({
+        idRequest: requestId,
+        status: 'booking',
+      });
     }
 
     const details: NomorRequestDetailEntity[] = [];
@@ -811,7 +1045,7 @@ export class NomorService {
         : [files]
       : [];
 
-    // Jika ada files, upload semua ke storage
+    // Upload files jika ada
     if (fileArray && fileArray.length > 0) {
       for (const file of fileArray) {
         const detailId = uuidv4();
@@ -822,7 +1056,9 @@ export class NomorService {
         try {
           const uploadResult = await this.storageService.uploadFile(file, folder);
           fileKey = uploadResult.key;
+          console.log(`✅ File uploaded successfully: ${fileKey}`);
         } catch (error) {
+          console.error(`❌ File upload error for ${fileName}:`, error.message);
           throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
         }
 
@@ -836,10 +1072,15 @@ export class NomorService {
         });
         details.push(detail);
       }
-    } else {
-      // Jika tidak ada file, booking berdasarkan jumlah
-      const jumlah = dto.jumlah || request.jumlah || 1;
-      for (let i = 0; i < jumlah; i++) {
+    }
+
+    // Tambah details tanpa file berdasarkan jumlah (untuk melengkapi total quantity)
+    const jumlahDiajukan = dto.jumlah || request.jumlah || 0;
+    const uploadedFileCount = fileArray.length;
+    
+    // Jika jumlah lebih besar dari file count, buat details tambahan tanpa file
+    if (jumlahDiajukan > uploadedFileCount) {
+      for (let i = uploadedFileCount; i < jumlahDiajukan; i++) {
         const detailId = uuidv4();
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
@@ -853,20 +1094,106 @@ export class NomorService {
       }
     }
 
+    // Validasi: minimal harus ada 1 detail (file atau quantity)
+    if (details.length === 0) {
+      throw new BadRequestException(
+        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan'
+      );
+    }
+
     await this.nomorRequestDetailRepository.save(details);
+
+    // Generate signed URLs untuk files yang berhasil di-upload
+    const detailsWithUrls = await Promise.all(
+      details.map(async (detail) => ({
+        id: detail.id,
+        status: detail.status,
+        file_name: detail.fileName,
+        file_text: detail.fileText,
+        file_url: await this.getDetailFileUrlAndHeal(detail, folder),
+        created_at: detail.createdAt,
+      }))
+    );
+
+    // Hitung berapa file dan berapa nomor tanpa file
+    const fileCount = details.filter((d) => d.fileText).length;
+    const noFileCount = details.filter((d) => !d.fileText).length;
+
+    let resultMessage = `Berhasil booking ${details.length} nomor`;
+    if (fileCount > 0 && noFileCount > 0) {
+      resultMessage = `Berhasil booking ${details.length} nomor (${fileCount} dengan file, ${noFileCount} tanpa file)`;
+    } else if (fileCount > 0) {
+      resultMessage = `Berhasil booking ${fileCount} nomor dengan file`;
+    } else if (noFileCount > 0) {
+      resultMessage = `Berhasil booking ${noFileCount} nomor (tanpa file)`;
+    }
 
     return {
       success: true,
-      message: `Berhasil booking ${details.length} nomor`,
+      message: resultMessage,
       data: {
         request_id: requestId,
-        details: details.map((detail) => ({
-          id: detail.id,
-          status: detail.status,
-          file_name: detail.fileName,
-          file_text: detail.fileText,
-          created_at: detail.createdAt,
-        })),
+        details: detailsWithUrls,
+      },
+    };
+  }
+
+  /**
+   * User/Admin update file di detail yang masih booking
+   * Untuk replace lampiran sebelum approve
+   */
+  async updateNomorRequestDetailFile(
+    detailId: string,
+    file: Express.Multer.File,
+    folder: string = 'nomor',
+  ): Promise<any> {
+    const detail = await this.nomorRequestDetailRepository.findOne({
+      where: { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+    }
+
+    if (detail.status !== 'booking') {
+      throw new BadRequestException(
+        `Tidak dapat update file untuk detail dengan status: ${detail.status}. Hanya detail dengan status 'booking' yang bisa diupdate.`,
+      );
+    }
+
+    // Delete file lama dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted old file from storage: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete old file ${detail.fileText}:`, error.message);
+      }
+    }
+
+    // Upload file baru ke storage
+    let fileKey: string | null = null;
+    try {
+      const uploadResult = await this.storageService.uploadFile(file, folder);
+      fileKey = uploadResult.key;
+    } catch (error) {
+      throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
+    }
+
+    // Update detail dengan file baru
+    detail.fileName = file.originalname;
+    detail.fileText = fileKey;
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return {
+      success: true,
+      message: 'File berhasil diupdate',
+      data: {
+        id: detail.id,
+        file_name: detail.fileName,
+        file_text: detail.fileText,
+        status: detail.status,
+        updated_at: new Date(),
       },
     };
   }
@@ -1099,7 +1426,7 @@ export class NomorService {
 
   /**
    * Admin menolak usulan
-   * status = 'hangus', nomor tetap NULL
+   * status = 'hangus', nomor tetap NULL, file dihapus dari storage
    */
   async rejectNomorRequestDetail(
     detailId: string,
@@ -1116,6 +1443,16 @@ export class NomorService {
       throw new BadRequestException(
         `Detail nomor sudah diproses dengan status: ${detail.status}`,
       );
+    }
+
+    // Delete file dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted file from storage on reject: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+      }
     }
 
     detail.status = 'hangus';
@@ -1415,6 +1752,16 @@ export class NomorService {
           );
         }
 
+        // Delete file dari storage jika ada
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted file from storage on bulk reject: ${detail.fileText}`);
+          } catch (error) {
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
 
@@ -1581,6 +1928,21 @@ export class NomorService {
       order: { createdAt: 'ASC' },
     });
 
+    // Generate signed URLs untuk nomor_list
+    const nomorListWithUrls = await Promise.all(
+      details
+        .filter((d) => d.status === 'terpakai' && d.nomor)
+        .map(async (d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+          file_name: d.fileName || null,
+          file_text: d.fileText || null,
+          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+          created_at: d.createdAt,
+        }))
+    );
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
@@ -1592,22 +1954,13 @@ export class NomorService {
         perihal: request.perihal,
         tanggal: request.tanggal,
         jumlah: request.jumlah,
-        nomor_list: details
-          .filter((d) => d.status === 'terpakai' && d.nomor)
-          .map((d) => ({
-            id: d.id,
-            nomor: d.nomor,
-            status: d.status,
-            file_name: d.fileName || null,
-            file_text: d.fileText || null,
-            created_at: d.createdAt,
-          })),
+        nomor_list: nomorListWithUrls,
       },
     };
   }
 
   /**
-   * Hapus usulan nomor dan semua detailnya
+   * Hapus usulan nomor dan semua detailnya (plus file di storage)
    */
   async deleteNomorRequest(
     requestId: string,
@@ -1618,6 +1971,23 @@ export class NomorService {
 
     if (!request) {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Ambil semua detail untuk hapus file dari storage
+    const details = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId },
+    });
+
+    // Delete semua file dari storage
+    for (const detail of details) {
+      if (detail.fileText) {
+        try {
+          await this.storageService.deleteFile(detail.fileText);
+          console.log(`Deleted file from storage on delete request: ${detail.fileText}`);
+        } catch (error) {
+          console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+        }
+      }
     }
 
     // Delete semua detail terkait
@@ -1667,6 +2037,16 @@ export class NomorService {
     for (const detail of details) {
       // Hanya set hangus jika status masih booking
       if (detail.status === 'booking') {
+        // Delete file dari storage jika ada
+        if (detail.fileText) {
+          try {
+            await this.storageService.deleteFile(detail.fileText);
+            console.log(`Deleted file from storage on reject all: ${detail.fileText}`);
+          } catch (error) {
+            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          }
+        }
+
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
         rejectedDetails.push({

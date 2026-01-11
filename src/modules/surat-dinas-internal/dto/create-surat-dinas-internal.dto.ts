@@ -9,6 +9,13 @@ export enum SifatSurat {
   TERBUKA = 'terbuka',
 }
 
+// Enum untuk opsi tanda tangan
+export enum SignOption {
+  DIGSIG = 'digsig',       // TTD Digital dengan BSrE (passphrase required)
+  QR_ONLY = 'qr_only',     // Tanpa TTD Digital, hanya QR code
+  NONE = 'none',           // Tanpa TTD Digital, tanpa QR code
+}
+
 // Main DTO untuk send-message SDI
 export class CreateSuratDinasInternalDto {
   @IsNotEmpty({ message: 'Pengirim harus diisi' })
@@ -104,6 +111,28 @@ export class CreateSuratDinasInternalDto {
   @IsOptional()
   @IsString()
   final_pdf?: string; // URL/path file PDF final
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS (NEW)
+  // ============================================
+  
+  /**
+   * Opsi tanda tangan digital:
+   * - 'digsig': TTD Digital dengan BSrE (passphrase required)
+   * - 'qr_only': Tanpa TTD Digital, hanya QR code (untuk verifikasi visual)
+   * - 'none': Tanpa TTD Digital, tanpa QR code (default behavior)
+   */
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu dari: digsig, qr_only, none' })
+  sign_option?: SignOption;
+
+  /**
+   * Passphrase untuk BSrE digital signature
+   * Wajib diisi jika sign_option = 'digsig'
+   */
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
@@ -219,6 +248,17 @@ export class FinalizeDraftDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
   tgl?: string;
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, none' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**

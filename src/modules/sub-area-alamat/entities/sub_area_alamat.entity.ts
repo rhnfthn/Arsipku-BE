@@ -43,4 +43,7 @@ export class SubAreaAlamatEntity {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   logo: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  kota: string;
 }

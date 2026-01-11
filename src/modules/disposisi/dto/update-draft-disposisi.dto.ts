@@ -84,6 +84,13 @@ export class UpdateDraftDisposisiDto {
   @Type(() => LampiranDto)
   lampiran?: LampiranDto[];
 
+  // Lampiran Temp IDs - ID lampiran temporary yang baru diupload
+  // Untuk lampiran baru yang diupload via upload-temp-lampiran
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
+
   // Action: draft (simpan lagi) atau kirim (ubah status jadi final)
   @IsOptional()
   @IsEnum(['draft', 'kirim'], { message: 'Action harus draft atau kirim' })

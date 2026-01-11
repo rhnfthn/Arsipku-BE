@@ -25,6 +25,12 @@ export class SendMessageDataDto {
   penerima: SirkulasiInfoDto[];
   tembusan: SirkulasiInfoDto[];
   final_pdf?: string; // Path ke PDF yang sudah di-generate otomatis (hanya untuk status final/final_tte)
+  lampiran_files?: {
+    id: string;
+    fileName: string;
+    filePath: string;
+    fileUrl: string;
+  }[]; // Daftar lampiran yang sudah diupload
 }
 
 export class SendMessageResponseDto {

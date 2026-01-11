@@ -20,6 +20,12 @@ interface SdiPdfOptions {
   nomor?: string;
   nama_tempat?: string;
   nama_jabatan?: string;
+  // Dynamic header info dari sub_area_alamat
+  headerKantor?: string;
+  headerGedung?: string;
+  headerAlamat?: string;
+  // QR Code HTML (optional - passed from digsig signing)
+  qrCodeHtml?: string;
 }
 
 @Injectable()
@@ -60,26 +66,90 @@ export class GeneratePdfSudinService {
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
-      // Try to decode as base64 first
-      const buffer = Buffer.from(htmlContent, 'base64');
-      const decoded = buffer.toString('utf-8');
-      // Check if it looks like valid decoded content (contains HTML tags or text)
-      if (decoded.includes('<') || !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
-        // Looks like decoded content
-        decodedContent = decoded;
+      // Check if content already looks like HTML (contains HTML tags)
+      if (htmlContent.includes('<') && htmlContent.includes('>')) {
+        // Already plain HTML, no need to decode
+        decodedContent = htmlContent;
+      } else if (/^[A-Za-z0-9+/=]+$/.test(htmlContent)) {
+        // Looks like base64, try to decode
+        const buffer = Buffer.from(htmlContent, 'base64');
+        decodedContent = buffer.toString('utf-8');
       } else {
-        // Try to decode with escape sequence handling
-        decodedContent = decodeURIComponent(escape(decoded));
+        // Not base64 and not HTML, use as-is
+        decodedContent = htmlContent;
       }
     } catch (e) {
       // If base64 decode fails, assume it's plain text already
       decodedContent = htmlContent;
     }
+
+    // Helper function untuk format tanggal ke format Indonesia (e.g., "29 Desember 2025")
+    const formatDateToIndonesian = (dateInput: string): string => {
+      if (!dateInput) return '';
+      const trimmed = dateInput.trim();
+      if (!trimmed) return '';
+      
+      const monthNames = [
+        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      ];
+      
+      try {
+        // Already in Indonesian format (e.g., "29 Desember 2025")
+        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          return trimmed; // Already formatted
+        }
+        
+        let dateObj: Date | null = null;
+        
+        // DD-MM-YYYY format
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('-');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        }
+        // YYYY-MM-DD format
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          dateObj = new Date(trimmed + 'T00:00:00');
+        }
+        // DD/MM/YYYY format
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('/');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        }
+        
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const day = dateObj.getDate();
+          const month = monthNames[dateObj.getMonth()];
+          const year = dateObj.getFullYear();
+          return `${day} ${month} ${year}`;
+        }
+        
+        return trimmed;
+      } catch (e) {
+        console.error('[GeneratePdfSudin] Error formatting date:', e);
+        return trimmed;
+      }
+    };
     
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
-    const tanggal = body.tanggal || new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });
+    // Format tanggal ke format Indonesia (e.g., "29 Desember 2025")
+    let tanggalRaw = (body.tanggal || '').trim();
+    console.log('[GeneratePdfSudin] Input tanggal:', body.tanggal, '| tanggalRaw before:', tanggalRaw);
+    if (!tanggalRaw) {
+      const now = new Date();
+      const monthNames = [
+        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      ];
+      tanggalRaw = `${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+    } else {
+      tanggalRaw = formatDateToIndonesian(tanggalRaw);
+    }
+    console.log('[GeneratePdfSudin] tanggalRaw after format:', tanggalRaw);
+    const tanggal = tanggalRaw;
     const tanggalFormatted = `${namaTempat}, ${tanggal}`;
+    console.log('[GeneratePdfSudin] tanggalFormatted:', tanggalFormatted);
     // Position and name from JWT user data (passed from controller)
     const positionText = body.positionText || '';
     const namaLengkap = body.namaLengkap || '';
@@ -122,12 +192,12 @@ export class GeneratePdfSudinService {
     // Process penerima
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
-      // Jika penerima > 5, ganti dengan "Periksa Alamat Terlampir"
-      penerimaHtml = 'Periksa Alamat Terlampir';
+      // Jika penerima > 5, ganti dengan "Periksa Alamat Terlampir" (dengan line break sebelum "Di Tempat")
+      penerimaHtml = 'Periksa Alamat Terlampir<br>';
     } else {
       // <= 5 items, tampilkan semua normal
       if (penerimaArr.length > 1) {
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;padding-left:20px;'>";
+        penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${item}</li>`;
         });
@@ -145,7 +215,7 @@ export class GeneratePdfSudinService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (tembusanArr.length > 1) {
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;padding-left:20px;'>";
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
         tembusanArr.forEach((item) => {
           tembusanHtml += `<li>${item}</li>`;
         });
@@ -168,14 +238,19 @@ export class GeneratePdfSudinService {
         </table>`;
     }
 
+    // Dynamic header info dari sub_area_alamat
+    const headerKantor = body.headerKantor || 'Kantor Pusat Perum LPPNPI';
+    const headerGedung = body.headerGedung || 'Gedung AirNav Indonesia';
+    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
+
     // Header kop surat
     const header = `
       <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
         <tbody>
           <tr>
             <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
-            <td style='width:70%;color:#000;font-size:18px;vertical-align:bottom;'>AirNav Indonesia</td>
-            <td style='font-size:9px;'>Kantor Pusat Perum LPPNPI<br>Gedung AirNav Indonesia<br>Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id</td>
+            <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
+            <td style='font-size:9px; text-align:right;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
         </tbody>
       </table>
@@ -216,7 +291,7 @@ export class GeneratePdfSudinService {
                     <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
                       Kepada Yth.<br>
                       <div style="width:55%;">
-                        ${penerimaHtml}
+                        ${penerimaHtml}<br>
                         Di Tempat
                       </div>
                     </td>
@@ -236,7 +311,10 @@ export class GeneratePdfSudinService {
       </div>
     `;
 
-    // TTD section - dinamis
+    // QR Code section (optional - passed from digsig signing)
+    const qrCodeHtml = body.qrCodeHtml || '';
+
+    // TTD section - dinamis dengan QR code di tengah
     const ttd = `
       <table style="width:100%;margin-top:30px;">
         <tbody>
@@ -244,7 +322,7 @@ export class GeneratePdfSudinService {
             <td style="width:50%;"></td>
             <td style="text-align:center;">
               ${positionText}<br>
-              <br><br><br><br><br>
+              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
           </tr>
@@ -337,9 +415,9 @@ export class GeneratePdfSudinService {
         printBackground: true,
         margin: {
           top: '15mm',
-          bottom: '15mm',
-          left: '20mm',
-          right: '15mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 

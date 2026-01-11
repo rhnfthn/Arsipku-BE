@@ -51,5 +51,13 @@ export class GetAdminNomorRequestResponseDto {
     penandatangan: string | null;
     created_at: Date;
     status: string;
+    details?: {
+      id: string;
+      nomor: string | null;
+      status: string;
+      file_name: string | null;
+      file_url: string | null;
+      created_at: Date;
+    }[];
   }[];
 }
