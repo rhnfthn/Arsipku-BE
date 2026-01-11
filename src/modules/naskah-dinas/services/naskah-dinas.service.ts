@@ -349,6 +349,16 @@ export class NaskahDinasService {
         }
       }
 
+      // Generate signed URL for file
+      let finalPdfUrl: string | null = null;
+      if (finalPdfPath) {
+        try {
+          finalPdfUrl = await this.storageService.getFileUrl(finalPdfPath);
+        } catch (error) {
+          console.warn(`Failed to get signed URL for ${finalPdfPath}:`, error.message);
+        }
+      }
+
       return {
         success: true,
         data: {
@@ -360,7 +370,7 @@ export class NaskahDinasService {
           status: 'final',
           perihal: dto.perihal,
           final_pdf: finalPdfPath,
-          final_pdf_url: finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : null,
+          final_pdf_url: finalPdfUrl,
           pengirim: this.toEksternalPengirimInfo(pengirimEksternal),
           penerima: penerimaResponses,
           pembuat: pembuatInfo,
@@ -506,6 +516,16 @@ export class NaskahDinasService {
         }
       }
 
+      // Generate signed URL for file
+      let finalPdfUrl: string | null = null;
+      if (naskah.final_pdf) {
+        try {
+          finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+        } catch (error) {
+          console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
+        }
+      }
+
       return {
         id: naskah.id,
         jenis: naskah.jenis,
@@ -515,7 +535,7 @@ export class NaskahDinasService {
         status: naskah.status,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
-        final_pdf_url: naskah.final_pdf ? this.storageService.getPublicUrl(naskah.final_pdf) : null,
+        final_pdf_url: finalPdfUrl,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         pembuat: pembuatInfo,
@@ -646,6 +666,16 @@ export class NaskahDinasService {
       }
     }
 
+    // Generate signed URL for file
+    let finalPdfUrl: string | null = null;
+    if (naskah.final_pdf) {
+      try {
+        finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+      } catch (error) {
+        console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
+      }
+    }
+
     return {
       success: true,
       data: {
@@ -657,7 +687,7 @@ export class NaskahDinasService {
         status: naskah.status,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
-        final_pdf_url: naskah.final_pdf ? this.storageService.getPublicUrl(naskah.final_pdf) : null,
+        final_pdf_url: finalPdfUrl,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         pembuat: pembuatInfo,
