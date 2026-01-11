@@ -42,16 +42,17 @@ export class GeneratePdfNodinService {
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
-      // Try to decode as base64 first
-      const buffer = Buffer.from(htmlContent, 'base64');
-      const decoded = buffer.toString('utf-8');
-      // Check if it looks like valid decoded content (contains HTML tags or text)
-      if (decoded.includes('<') || !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
-        // Looks like decoded content
-        decodedContent = decoded;
+      // Check if content already looks like HTML (contains HTML tags)
+      if (htmlContent.includes('<') && htmlContent.includes('>')) {
+        // Already plain HTML, no need to decode
+        decodedContent = htmlContent;
+      } else if (/^[A-Za-z0-9+/=]+$/.test(htmlContent)) {
+        // Looks like base64, try to decode
+        const buffer = Buffer.from(htmlContent, 'base64');
+        decodedContent = buffer.toString('utf-8');
       } else {
-        // Try to decode with escape sequence handling
-        decodedContent = decodeURIComponent(escape(decoded));
+        // Not base64 and not HTML, use as-is
+        decodedContent = htmlContent;
       }
     } catch (e) {
       // If base64 decode fails, assume it's plain text already
@@ -71,6 +72,11 @@ export class GeneratePdfNodinService {
     const positionText = body.positionText || body.dari || '';
     const namaLengkap = body.namaLengkap || body.penandatangan || '';
     const namaTempat = body.nama_tempat || body.namaTempat || 'Tangerang';
+    
+    // Dynamic header info dari sub_area_alamat
+    const headerKantor = body.headerKantor || 'Kantor Pusat Perum LPPNPI';
+    const headerGedung = body.headerGedung || 'Gedung AirNav Indonesia';
+    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
     
     // Get tanggal from body (prioritas: tgl > tanggal > today)
     const tanggalInput = body.tgl || body.tanggal || new Date().toISOString().split('T')[0];
@@ -158,19 +164,9 @@ export class GeneratePdfNodinService {
       <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
         <tbody>
           <tr>
-            <td width='10%'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 90px; width: auto; max-width: 120px;" />` : '<div style="width:90px;height:120px;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
+            <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
-            <td style='font-size:13px;vertical-align:bottom!important;'>
-              
-              <span style='font-size:10px;line-height:11px;'>
-                Kantor Pusat Perum LPPNPI
-                Gedung AirNav Indonesia<br>
-                Jl. Ir. H. Juanda No. 1 Tangerang<br>
-                Banten 15121 Indonesia<br>
-                Telp : 021-55915000<br>
-                www.airnavindonesia.co.id
-              </span>
-            </td>
+            <td style='font-size:9px; text-align:right;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
           <tr>
             <td colspan='3' style='font-size:2px;'>&nbsp;</td>
@@ -202,19 +198,18 @@ export class GeneratePdfNodinService {
         
         </tbody></table>`;
 
+    // QR Code section (optional - passed from digsig signing)
+    const qrCodeHtml = body.qrCodeHtml || '';
+    
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
             <td style="width:50%;">
             </td>
             <td style="text-align:center;">
             ${tanggalFormatted}<br>
-            ${positionText}<br> 
-                    <br>
-                    <br>
-                    <br>
-                    <br>
-                    <br>
-                    ${namaLengkap}</td>
+            ${positionText}<br>
+            ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+            ${namaLengkap}</td>
         </tr>
         </tbody></table>`;
 
@@ -314,10 +309,10 @@ export class GeneratePdfNodinService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '10mm',
-          bottom: '15mm',
-          left: '15mm',
-          right: '15mm',
+          top: '15mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
         },
       });
 

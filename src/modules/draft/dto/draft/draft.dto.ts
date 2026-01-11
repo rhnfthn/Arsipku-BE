@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsNumber,
   IsUUID,
+  IsArray,
 } from 'class-validator';
 
 // ============================================================
@@ -31,11 +32,18 @@ export class GetDraftListQueryDto {
 // ============================================================
 // GET /draft/list - Response
 // ============================================================
+export class DraftListPenerimaDto {
+  position_id: number;
+  position_text: string;
+  nama: string;
+  organization_text: string;
+}
+
 export class DraftListItemDto {
   id_naskah: string;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
   jenis_text: string;
-  penerima: string; // Nama penerima (untuk display)
+  penerima: DraftListPenerimaDto[]; // Array of all penerima
   penerima_count: number; // Jumlah penerima
   isi_pesan: string; // Perihal
   tanggal: Date;
@@ -167,6 +175,30 @@ export class UpdateDraftResponseDto {
 export class DeleteDraftResponseDto {
   success: boolean;
   message: string;
+}
+
+// ============================================================
+// DELETE /draft/bulk-delete - Bulk Delete Drafts
+// ============================================================
+export class BulkDeleteDraftDto {
+  @IsNotEmpty({ message: 'Position ID harus diisi' })
+  @IsNumber({}, { message: 'Position ID harus berupa number' })
+  position_id: number;
+
+  @IsNotEmpty({ message: 'Daftar ID naskah harus diisi' })
+  @IsArray({ message: 'Daftar ID naskah harus berupa array' })
+  @IsUUID('4', { each: true, message: 'Setiap ID naskah harus berupa UUID valid' })
+  naskah_ids: string[];
+}
+
+export class BulkDeleteDraftResponseDto {
+  success: boolean;
+  message: string;
+  data?: {
+    total_requested: number;
+    total_deleted: number;
+    failed_ids: string[];
+  };
 }
 
 // ============================================================

@@ -9,6 +9,13 @@ export enum SifatSurat {
   TERBUKA = 'terbuka',
 }
 
+// Enum untuk opsi tanda tangan digital
+export enum SignOption {
+  DIGSIG = 'digsig',     // TTD Digital dengan BSrE + QR
+  QR_ONLY = 'qr_only',   // Hanya QR tanpa BSrE
+  NONE = 'none',         // Tanpa TTD dan QR
+}
+
 /**
  * DTO untuk send-message SDE (Surat Dinas Eksternal)
  * 
@@ -24,9 +31,12 @@ export class CreateSuratDinasEksternalDto {
   pengirim: number; // positionId dari org_data
 
   @IsArray({ message: 'Penerima harus berupa array' })
-  @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
+  @IsOptional()
   @IsString({ each: true })
-  penerima: string[]; // array of eksternal.id (UUID)
+  penerima?: string[]; // array of eksternal.id (UUID) - optional
+
+  @IsOptional()
+  penerima_eksternal?: any; // array of {nama_eksternal, posisi_eksternal, alamat_eksternal} or JSON string
 
   @IsOptional()
   @IsString()
@@ -99,6 +109,13 @@ export class CreateSuratDinasEksternalDto {
   nama_lengkap?: string;
 
   // ============================================
+  // TEMBUSAN (Optional for SDE)
+  // ============================================
+  @IsOptional()
+  @IsArray()
+  tembusan?: number[]; // array of positionId untuk tembusan
+
+  // ============================================
   // LAMPIRAN
   // ============================================
   @IsOptional()
@@ -111,6 +128,17 @@ export class CreateSuratDinasEksternalDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_temp_ids?: string[];
+
+  // ============================================
+  // SIGNING OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option tidak valid (harus DIGSIG, QR_ONLY, atau NONE)' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
@@ -189,12 +217,33 @@ export class UpdateSdeDraftDto {
 
   @IsOptional()
   @IsArray()
+  tembusan?: number[]; // array of positionId untuk tembusan
+
+  @IsOptional()
+  @IsArray()
   @IsString({ each: true })
   lampiran_files?: string[];
+
+  // Lampiran temp IDs (dari POST /upload-temporary)
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
 }
 
 /**
  * DTO untuk send-draft (finalize) SDE
- * Same as UpdateSdeDraftDto
+ * Extended with digital signature options
  */
-export class FinalizeSdeDraftDto extends UpdateSdeDraftDto {}
+export class FinalizeSdeDraftDto extends UpdateSdeDraftDto {
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, none' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
+}

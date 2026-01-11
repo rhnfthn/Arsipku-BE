@@ -13,6 +13,9 @@ import { Person } from '../master-data/person/entities/person.entity';
 import { OmPosition } from '../master-data/position/entities/om-position.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
+import { StorageModule } from '../storage/storage.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
   imports: [
@@ -28,6 +31,9 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
       OmPosition,
     ]),
     OrgDataModule,
+    StorageModule,
+    GeneratePdfModule,
+    SubAreaAlamatModule,
   ],
   controllers: [KajianController],
   providers: [KajianService, NomorSuratService],

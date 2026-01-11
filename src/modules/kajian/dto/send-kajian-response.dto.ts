@@ -1,51 +1,49 @@
 /**
  * Response DTO untuk Send Kajian
+ * Format mengikuti struktur Nota Dinas
  */
 
 // Info sirkulasi (pengirim/penerima/tembusan)
-export class KajianSirkulasiInfoDto {
-  position_id: number;
-  position_text: string | null;
+export class SirkulasiInfoDto {
+  position: number;
+  position_text: string;
   persnum: number | null;
   nama: string | null;
   organization_id: number;
-  organization_text: string | null;
+  organization_text: string;
   sub_area: number | null;
   sub_area_text: string | null;
   area: string | null;
   area_text: string | null;
-  company: number;
-  company_name: string | null;
 }
 
-// Info lampiran
-export class KajianLampiranInfoDto {
+export class SendMessageDataDto {
   id: string;
-  nama_file: string;
-  url: string;
-  tipe?: string;
-}
-
-// Data detail kajian dalam response
-export class KajianDataDto {
-  id: string;
-  jenis: string; // 'KA'
+  jenis: string;
+  nomor: string;
   tanggal: string;
-  status: string; // 'draf' | 'final' | 'final_tte'
-  sifat: string;
-  klasifikasi?: string | null;
-  klasifikasi_text?: string | null;
-  nomor?: string | null;
+  status: string;
   perihal: string;
-  konten?: string | null;
-  pengirim: KajianSirkulasiInfoDto;
-  penerima: KajianSirkulasiInfoDto[];
-  lampiran?: KajianLampiranInfoDto[];
+  pengirim: SirkulasiInfoDto;
+  penerima: SirkulasiInfoDto[];
+  tembusan: SirkulasiInfoDto[];
+  final_pdf?: string | null;
+  final_pdf_url?: string | null;
+  lampiran_files?: {
+    id: string;
+    fileName: string;
+    filePath: string;
+    fileUrl: string | null;
+  }[];
 }
 
-// Main response untuk send-message & save-draft
-export class SendKajianResponseDto {
+export class SendMessageResponseDto {
   success: boolean;
-  message: string;
-  data: KajianDataDto;
+  message?: string;
+  data: SendMessageDataDto;
 }
+
+// Legacy export untuk backward compatibility
+export { SirkulasiInfoDto as KajianSirkulasiInfoDto };
+export { SendMessageDataDto as KajianDataDto };
+export { SendMessageResponseDto as SendKajianResponseDto };
