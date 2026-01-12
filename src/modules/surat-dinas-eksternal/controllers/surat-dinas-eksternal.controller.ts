@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Put, Patch, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res, UploadedFiles } from '@nestjs/common';
 import type { Response } from 'express';
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
@@ -150,15 +150,25 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   async sendMessage(
+    @CurrentUser() user: any,
     @Body() body: any,
     @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<SdeSendMessageResponseDto> {
     try {
       // Parse form-data to DTO
       const dto = await this.sdeService.parseFormDataToCreateDto(body, files);
-      return await this.sdeService.sendMessage(dto);
+
+      // Extract persnum from JWT user
+      const persnum = user?.persnum ? Number(user.persnum) : undefined;
+
+      console.log('[SDE send-message] User persnum:', persnum);
+      console.log('[SDE send-message] DTO sign_option:', dto.sign_option);
+      console.log('[SDE send-message] DTO passphrase:', dto.passphrase ? '***' : 'undefined');
+
+      return await this.sdeService.sendMessage(dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -274,6 +284,84 @@ export class SuratDinasEksternalController {
   }
 
   /**
+   * POST /SDE/upload-temporary
+   * Upload lampiran ke temporary storage untuk SDE
+   * Files akan disimpan sementara dengan is_temporary=1
+   * Return array of file IDs yang nanti digunakan di endpoint send-message
+   *
+   * Form-data:
+   * - lampiran_files: file[] (multiple PDF files)
+   *
+   * @returns Array of lampiran IDs
+   * 
+   * Response:
+   * {
+   *   "success": true,
+   *   "data": {
+   *     "temp_folder_id": "uuid",
+   *     "file_ids": ["uuid1", "uuid2", ...]
+   *   }
+   * }
+   *
+   * @throws 400 - Bad Request (no files uploaded)
+   * @throws 500 - Internal Server Error
+   */
+  @Public() // Development: Bypass auth
+  @Post('upload-temporary')
+  @UseInterceptors(
+    FilesInterceptor('lampiran_files', 10, {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
+      },
+    }),
+  )
+  async uploadTemporary(
+    @UploadedFiles() files: Express.Multer.File[],
+  ): Promise<{ success: boolean; data: { temp_folder_id: string; file_ids: string[] } }> {
+    try {
+      if (!files || files.length === 0) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Tidak ada file yang diupload',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const fileIds = await this.sdeService.uploadTemporaryLampiran(files);
+      
+      // Get temp_folder_id from first file (all files in same temp folder)
+      const firstFile = await this.sdeService['naskahLampiranRepository'].findOne({
+        where: { id: fileIds[0] },
+      });
+
+      return {
+        success: true,
+        data: {
+          temp_folder_id: firstFile?.temp_folder_id || '',
+          file_ids: fileIds,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to upload temporary lampiran',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * PUT /SDE/send-draft/:id
    * Finalize and send a draft Surat Dinas Eksternal
    *
@@ -285,22 +373,27 @@ export class SuratDinasEksternalController {
    * - Update status to 'final' or 'final_tte' (if tanda_tangan provided)
    * - Set isDraft = false in sirkulasi
    *
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
+   *
    * @param id - Naskah ID (UUID)
    * @param body - Raw form body (optional final updates)
    * @param files - Optional additional files
+   * @param user - JWT user context (untuk persnum BSrE)
    * @returns SdeSendMessageResponseDto with finalized data
    *
    * @throws 404 - Not Found (naskah not found)
    * @throws 400 - Bad Request (not a draft or not SDE)
    */
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
   @UseInterceptors(AnyFilesInterceptor())
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
     @UploadedFiles() files?: Express.Multer.File[],
+    @CurrentUser() user?: any,
   ): Promise<SdeSendMessageResponseDto> {
     try {
       // For finalize, upload temp lampiran if files provided
@@ -313,8 +406,20 @@ export class SuratDinasEksternalController {
         body.lampiran_temp_ids = lampiranTempIds;
       }
 
-      const dto = body as FinalizeSdeDraftDto;
-      return await this.sdeService.finalizeDraft(id, dto);
+      // Extract persnum from JWT user for BSrE signing
+      const persnum = user?.persnum;
+      
+      console.log('[SDE Controller] sendDraft called with:', {
+        id,
+        sign_option: body.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!body.passphrase,
+      });
+
+      // Parse form-data to DTO
+      const dto = await this.sdeService.parseFormDataToFinalizeDraftDto(body);
+      
+      return await this.sdeService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

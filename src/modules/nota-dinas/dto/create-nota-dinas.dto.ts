@@ -9,6 +9,13 @@ export enum SifatSurat {
   TERBUKA = 'terbuka',
 }
 
+// Enum untuk opsi tanda tangan digital
+export enum SignOption {
+  DIGSIG = 'digsig',     // TTD Digital dengan BSrE + QR
+  QR_ONLY = 'qr_only',   // Hanya QR tanpa BSrE
+  NONE = 'none',         // Tanpa TTD dan QR
+}
+
 /**
  * DTO untuk Send Message Nota Dinas (ND)
  * Format flat - semua field dalam satu level
@@ -119,6 +126,17 @@ export class CreateNotaDinasDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
   tgl?: string; // Tanggal untuk lookup org_data (default: hari ini)
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option tidak valid' })
+  sign_option?: SignOption; // Opsi tanda tangan: digsig, qr_only, none
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string; // BSrE passphrase (required if sign_option = digsig)
 }
 
 /**
@@ -214,6 +232,12 @@ export class FinalizeDraftDto {
   @IsString({ each: true })
   lampiran_files?: string[];
 
+  // Lampiran temp IDs (dari POST /upload-temporary)
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
+
   // ============================================
   // PDF FINAL
   // ============================================
@@ -228,6 +252,17 @@ export class FinalizeDraftDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
   tgl?: string;
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, none' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
