@@ -202,11 +202,10 @@ export class NotaDinasController {
    * @throws 400 - Bad Request (validation error)
    * @throws 404 - Not Found (pengirim/penerima not found)
    * @throws 403 - Forbidden (pengirim is not managerial)
+   * @throws 401 - Unauthorized (user not authenticated)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Post('send-message')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -224,11 +223,33 @@ export class NotaDinasController {
   async sendMessage(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @CurrentUser() user: any, // Get logged-in user info
   ): Promise<SendMessageResponseDto> {
     try {
       // Parse form-data to DTO
       const dto = await this.notaDinasService.parseFormDataToDto(body, files);
-      return await this.notaDinasService.sendMessage(dto);
+      
+      // Extract persnum from JWT user (required for digital signature)
+      const persnum = user?.persnum;
+      
+      console.log('[ND Controller] sendMessage called with:', {
+        sign_option: dto.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!dto.passphrase,
+      });
+
+      if (!persnum) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.UNAUTHORIZED,
+            message: 'User tidak terautentikasi atau persnum tidak ditemukan',
+          },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      return await this.notaDinasService.sendMessage(dto, Number(persnum));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -314,8 +335,13 @@ export class NotaDinasController {
    * - Update status: draf -> final (tanpa tanda_tangan) atau final_tte (dengan tanda_tangan)
    * - Update isDraft = false pada semua sirkulasi
    *
+   * Digital Signature Options:
+   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
+   *
    * @param id - Naskah ID (UUID)
-   * @param dto - FinalizeDraftDto (semua field optional, sama seperti UpdateDraftDto)
+   * @param body - Form-data body
+   * @param user - JWT user context (untuk persnum BSrE)
    * @returns SendMessageResponseDto
    *
    * Status:
@@ -326,16 +352,41 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
-  // @UseGuards(UserLevelGuard)
-  // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
   async sendDraft(
     @Param('id') id: string,
-    @Body() dto: FinalizeDraftDto,
+    @Body() body: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user?: any,
   ): Promise<SendMessageResponseDto> {
     try {
-      return await this.notaDinasService.finalizeDraft(id, dto);
+      // Extract persnum from JWT user for BSrE signing
+      const persnum = user?.persnum;
+      
+      console.log('[ND Controller] sendDraft called with:', {
+        id,
+        sign_option: body.sign_option,
+        persnum: persnum,
+        hasPassphrase: !!body.passphrase,
+      });
+
+      // Parse form-data to DTO
+      const dto = await this.notaDinasService.parseFormDataToFinalizeDraftDto(body, files);
+      
+      return await this.notaDinasService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

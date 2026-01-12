@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import {
   DigsigService,
@@ -14,82 +15,81 @@ import {
   SignInternalResultResponse,
 } from '../services';
 import {
-  SignNotaDinasDto,
-  SignSuratDinasInternalDto,
-  SignSuratDinasEksternalDto,
   SignInternalDto,
-  CreateDigsigDto,
+  SignBsreDto,
 } from '../dto';
+import { CurrentUser } from '../../../common/decorators';
+import { JwtAuthGuard } from '../../../common/guards';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('digsig')
+@UseGuards(JwtAuthGuard)
 export class DigsigController {
   constructor(private readonly digsigService: DigsigService) {}
 
   // ============================================
-  // SIGN DENGAN DIGSIG (BSrE) - Coming Soon
+  // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
+  // Contoh passphrase BSrE: sesuai dengan passphrase akun BSrE masing-masing user
   // ============================================
 
-  @Post('sign')
-  @HttpCode(HttpStatus.CREATED)
-  async create(@Body() CreateDigsigDto: CreateDigsigDto) {
-    const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
-    const keypathfile = `/nota-dinas/final/${filename}`;
-    const digsig = await this.digsigService.hitDigsigEndpoint({
-      key: keypathfile,
-      filename: filename,
-      nomorDokumen: '001/ABC/KLH.00/XII/2025',
-      tanggalDokumen: '2025-12-23',
-      klasifikasi: 'Biasa',
-      jenisNaskah: 'Nota Dinas',
-      perihal: 'Test from New Arsipku',
-      nik: '1234567890123452',
-      passphrase: 'Bsre2025.#!',
-      path_dokumen: 'nota-dinas/digsig/',
-      no_wa: '',
-    });
-    return digsig;
+  /**
+   * POST /digsig/bsre/nota-dinas/:idNaskah
+   * Tandatangani Nota Dinas dengan BSrE
+   * NIK dan no_wa otomatis diambil dari HR API berdasarkan persnum user yang login
+   * 
+   * Request Body:
+   * {
+   *   "passphrase": "passphrase_bsre_user"
+   * }
+   */
+  @Post('bsre/nota-dinas/:idNaskah')
+  @HttpCode(HttpStatus.OK)
+  async signNotaDinasBsre(
+    @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
+    @Body() dto: SignBsreDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    return this.digsigService.signNotaDinasBsre(idNaskah, dto, user.persnum);
   }
 
   /**
-   * POST /digsig/sign-nota-dinas/:id
-   * Tandatangani Nota Dinas dengan Digsig (BSrE)
-   * @deprecated Sementara tidak digunakan, gunakan endpoint internal
+   * POST /digsig/bsre/surat-internal/:idNaskah
+   * Tandatangani Surat Dinas Internal dengan BSrE
+   * NIK dan no_wa otomatis diambil dari HR API berdasarkan persnum user yang login
+   * 
+   * Request Body:
+   * {
+   *   "passphrase": "passphrase_bsre_user"
+   * }
    */
-  @Post('sign-nota-dinas/:id')
+  @Post('bsre/surat-internal/:idNaskah')
   @HttpCode(HttpStatus.OK)
-  async signNotaDinas(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SignNotaDinasDto,
+  async signSdiBsre(
+    @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
+    @Body() dto: SignBsreDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signNotaDinas(id, dto);
+    return this.digsigService.signSdiBsre(idNaskah, dto, user.persnum);
   }
 
   /**
-   * POST /digsig/sign-surat-internal/:id
-   * Tandatangani Surat Dinas Internal dengan Digsig (BSrE)
-   * @deprecated Sementara tidak digunakan, gunakan endpoint internal
+   * POST /digsig/bsre/surat-eksternal/:idNaskah
+   * Tandatangani Surat Dinas Eksternal dengan BSrE
+   * NIK dan no_wa otomatis diambil dari HR API berdasarkan persnum user yang login
+   * 
+   * Request Body:
+   * {
+   *   "passphrase": "passphrase_bsre_user"
+   * }
    */
-  @Post('sign-surat-internal/:id')
+  @Post('bsre/surat-eksternal/:idNaskah')
   @HttpCode(HttpStatus.OK)
-  async signSuratDinasInternal(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SignSuratDinasInternalDto,
+  async signSdeBsre(
+    @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
+    @Body() dto: SignBsreDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signSuratDinasInternal(id, dto);
-  }
-
-  /**
-   * POST /digsig/sign-surat-eksternal/:id
-   * Tandatangani Surat Dinas Eksternal dengan Digsig (BSrE)
-   * @deprecated Sementara tidak digunakan, gunakan endpoint internal
-   */
-  @Post('sign-surat-eksternal/:id')
-  @HttpCode(HttpStatus.OK)
-  async signSuratDinasEksternal(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SignSuratDinasEksternalDto,
-  ): Promise<SignResultResponse> {
-    return this.digsigService.signSuratDinasEksternal(id, dto);
+    return this.digsigService.signSdeBsre(idNaskah, dto, user.persnum);
   }
 
   // ============================================
@@ -138,12 +138,57 @@ export class DigsigController {
     return this.digsigService.signSdeInternal(idNaskah, dto);
   }
 
+  // ============================================
+  // HELPER ENDPOINTS - Untuk Testing
+  // ============================================
+
+  /**
+   * GET /digsig/user-data
+   * Test endpoint untuk mendapatkan data user dari HR API (NIK dan no_wa)
+   * Data diambil berdasarkan persnum user yang login
+   */
+  @Get('user-data')
+  @HttpCode(HttpStatus.OK)
+  async getUserData(@CurrentUser() user: JwtPayload) {
+    return this.digsigService.getUserDataForBsre(user.persnum.toString());
+  }
+
+  /**
+   * GET /digsig/ktp
+   * Test endpoint untuk mendapatkan KTP user
+   * Data diambil berdasarkan persnum user yang login
+   */
   @Get('ktp')
-  @HttpCode(HttpStatus.CREATED)
-  async getktp(@Body() CreateDigsigDto: CreateDigsigDto) {
-    const digsig = await this.digsigService.getKTPUser({
-      persnum: '10013173',
+  @HttpCode(HttpStatus.OK)
+  async getktp(@CurrentUser() user: JwtPayload) {
+    return this.digsigService.getKTPUser({
+      persnum: user.persnum.toString()
     });
-    return digsig;
+  }
+
+  // ============================================
+  // VERIFICATION ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /digsig/verify/:signatureId
+   * Verifikasi dokumen berdasarkan signature_id
+   * Returns: document info + signature status
+   */
+  @Get('verify/:signatureId')
+  @HttpCode(HttpStatus.OK)
+  async verifyBySignatureId(@Param('signatureId') signatureId: string) {
+    return this.digsigService.verifyBySignatureId(signatureId);
+  }
+
+  /**
+   * POST /digsig/verify/bsre
+   * Verifikasi dokumen dengan BSrE menggunakan name_doc
+   * Request Body: { name_doc: "filename.pdf" }
+   */
+  @Post('verify/bsre')
+  @HttpCode(HttpStatus.OK)
+  async verifyWithBsre(@Body() body: { name_doc: string }) {
+    return this.digsigService.verifyWithBsre(body.name_doc);
   }
 }

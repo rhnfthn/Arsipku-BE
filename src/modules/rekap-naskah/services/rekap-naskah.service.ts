@@ -32,14 +32,13 @@ export class RekapNaskahService {
 
   /**
    * Get rekap naskah dinas berdasarkan filter
-   * Count dari nomor_request_detail dengan status 'terpakai' (disetujui)
+   * Count dari nomor_request_detail per jenis per status per bulan
    */
   async getRekapNaskah(
     query: RekapNaskahQueryDto,
   ): Promise<RekapNaskahResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : null;
+    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
     const area = query.area;
-    const status = query.status;
     const position = query.position;
 
     // Build query untuk mengambil semua request
@@ -48,10 +47,8 @@ export class RekapNaskahService {
       .leftJoinAndSelect('req.details', 'detail')
       .where('1=1');
 
-    // Filter berdasarkan tahun jika ada
-    if (tahun) {
-      queryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
-    }
+    // Filter berdasarkan tahun (default: tahun sekarang)
+    queryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
 
     // Filter berdasarkan area jika ada
     if (area) {
@@ -61,14 +58,6 @@ export class RekapNaskahService {
     // Filter berdasarkan position jika ada
     if (position) {
       queryBuilder.andWhere('req.position = :position', { position });
-    }
-
-    // Filter berdasarkan status detail jika ada
-    if (status) {
-      queryBuilder.andWhere('detail.status = :status', { status });
-    } else {
-      // Default: hanya hitung yang sudah disetujui (terpakai)
-      queryBuilder.andWhere('detail.status = :status', { status: 'terpakai' });
     }
 
     const requests = await queryBuilder.getMany();
@@ -82,94 +71,98 @@ export class RekapNaskahService {
       }
     });
 
-    // Group by jenis dan hitung per bulan
+    // Group by jenis + status dan hitung per bulan
     const rekapMap = new Map<string, RekapJenisData>();
 
     for (const request of requests) {
       const jenis = request.jenis || 'Unknown';
       
-      if (!rekapMap.has(jenis)) {
-        rekapMap.set(jenis, {
-          jenis,
-          jenis_text: jenisMap.get(jenis) || null,
-          jan: 0,
-          feb: 0,
-          mar: 0,
-          apr: 0,
-          mei: 0,
-          jun: 0,
-          jul: 0,
-          agu: 0,
-          sep: 0,
-          okt: 0,
-          nov: 0,
-          des: 0,
-          total: 0,
-        });
+      // Process setiap detail dengan status-nya
+      for (const detail of request.details || []) {
+        const status = detail.status || 'Unknown';
+        const mapKey = `${jenis}|${status}`;
+        
+        if (!rekapMap.has(mapKey)) {
+          rekapMap.set(mapKey, {
+            jenis,
+            jenis_text: jenisMap.get(jenis) || null,
+            status,
+            jan: 0,
+            feb: 0,
+            mar: 0,
+            apr: 0,
+            mei: 0,
+            jun: 0,
+            jul: 0,
+            agu: 0,
+            sep: 0,
+            okt: 0,
+            nov: 0,
+            des: 0,
+            total: 0,
+          });
+        }
+
+        const rekapData = rekapMap.get(mapKey)!;
+        const bulan = new Date(request.tanggal!).getMonth() + 1; // 1-12
+
+        // Tambahkan 1 untuk detail ini
+        switch (bulan) {
+          case 1:
+            rekapData.jan += 1;
+            break;
+          case 2:
+            rekapData.feb += 1;
+            break;
+          case 3:
+            rekapData.mar += 1;
+            break;
+          case 4:
+            rekapData.apr += 1;
+            break;
+          case 5:
+            rekapData.mei += 1;
+            break;
+          case 6:
+            rekapData.jun += 1;
+            break;
+          case 7:
+            rekapData.jul += 1;
+            break;
+          case 8:
+            rekapData.agu += 1;
+            break;
+          case 9:
+            rekapData.sep += 1;
+            break;
+          case 10:
+            rekapData.okt += 1;
+            break;
+          case 11:
+            rekapData.nov += 1;
+            break;
+          case 12:
+            rekapData.des += 1;
+            break;
+        }
+
+        rekapData.total += 1;
       }
-
-      const rekapData = rekapMap.get(jenis)!;
-      const bulan = new Date(request.tanggal!).getMonth() + 1; // 1-12
-
-      // Hitung jumlah detail dengan status yang sesuai (sudah difilter di query)
-      // Karena leftJoinAndSelect, details pasti ada (bisa array kosong)
-      const jumlahDetail = request.details?.length || 0;
-
-      // Tambahkan ke bulan yang sesuai
-      switch (bulan) {
-        case 1:
-          rekapData.jan += jumlahDetail;
-          break;
-        case 2:
-          rekapData.feb += jumlahDetail;
-          break;
-        case 3:
-          rekapData.mar += jumlahDetail;
-          break;
-        case 4:
-          rekapData.apr += jumlahDetail;
-          break;
-        case 5:
-          rekapData.mei += jumlahDetail;
-          break;
-        case 6:
-          rekapData.jun += jumlahDetail;
-          break;
-        case 7:
-          rekapData.jul += jumlahDetail;
-          break;
-        case 8:
-          rekapData.agu += jumlahDetail;
-          break;
-        case 9:
-          rekapData.sep += jumlahDetail;
-          break;
-        case 10:
-          rekapData.okt += jumlahDetail;
-          break;
-        case 11:
-          rekapData.nov += jumlahDetail;
-          break;
-        case 12:
-          rekapData.des += jumlahDetail;
-          break;
-      }
-
-      rekapData.total += jumlahDetail;
     }
 
-    // Convert map to array dan sort by jenis
-    const rekap = Array.from(rekapMap.values()).sort((a, b) =>
-      a.jenis.localeCompare(b.jenis),
-    );
+    // Convert map to array dan sort by jenis, kemudian status
+    const rekap = Array.from(rekapMap.values()).sort((a, b) => {
+      const jenisCompare = a.jenis.localeCompare(b.jenis);
+      if (jenisCompare !== 0) return jenisCompare;
+      return a.status.localeCompare(b.status);
+    });
 
     return {
       success: true,
       message: 'Rekap naskah dinas berhasil diambil',
       data: {
-        tahun: tahun || null,
+        tahun,
         area,
-        status: status || 'terpakai',
         position,
         rekap,
       },
@@ -183,7 +176,7 @@ export class RekapNaskahService {
   async getDetailNaskah(
     query: DetailNaskahQueryDto,
   ): Promise<DetailNaskahResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : null;
+    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
     const area = query.area;
     const jenis = query.jenis;
     const status = query.status || 'terpakai';
@@ -195,10 +188,8 @@ export class RekapNaskahService {
       .createQueryBuilder('req')
       .where('1=1');
 
-    // Filter berdasarkan tahun jika ada
-    if (tahun) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
-    }
+    // Filter berdasarkan tahun (default: tahun sekarang)
+    requestQueryBuilder = requestQueryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
 
     // Filter berdasarkan area jika ada
     if (area) {

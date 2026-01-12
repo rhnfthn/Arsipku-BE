@@ -18,6 +18,13 @@ export enum SifatSurat {
   TERBUKA = 'terbuka',
 }
 
+// Enum untuk opsi tanda tangan
+export enum SignOption {
+  DIGSIG = 'digsig', // BSrE + QR Code
+  QR_ONLY = 'qr_only', // QR Code only (tanpa BSrE)
+  NONE = 'none', // Tanpa tanda tangan digital
+}
+
 /**
  * DTO untuk Send Message Kajian (KA)
  * Format flat - semua field dalam satu level (sama dengan Nota Dinas)
@@ -128,6 +135,17 @@ export class CreateKajianDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
   tgl?: string;
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau none' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
@@ -213,6 +231,17 @@ export class FinalizeDraftDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
   tgl?: string;
+
+  // ============================================
+  // DIGITAL SIGNATURE OPTIONS
+  // ============================================
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau none' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
