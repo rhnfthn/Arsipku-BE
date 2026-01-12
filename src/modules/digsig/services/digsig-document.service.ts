@@ -650,4 +650,59 @@ export class DigsigDocumentService {
       })),
     };
   }
+
+  /**
+   * Get list of verifikator (chiefs in the same area)
+   * @param userArea - Area of the current user
+   * @returns List of users with chief = 1 and area = userArea
+   */
+  async getVerifikator(userArea: string) {
+    try {
+      // Get latest org data
+      const orgData = await this.orgDataService.findLatestOrg();
+
+      if (!orgData || !orgData.position_json) {
+        throw new NotFoundException('Data organisasi tidak ditemukan');
+      }
+
+      const positionJson = orgData.position_json;
+
+      if (!Array.isArray(positionJson)) {
+        throw new BadRequestException('Format data organisasi tidak valid');
+      }
+
+      // Filter: chief = 1 AND area = userArea
+      const verifikator = positionJson.filter((x: any) => {
+        return x.chief === 1 && x.area === userArea;
+      });
+
+      // Map to return format
+      const result = verifikator.map((v: any) => ({
+        persnum: v.persnum,
+        nama: v.persnum_text,
+        positionId: v.position,
+        jabatan: v.position_text,
+        company: v.company,
+        companyText: v.company_name,
+        area: v.area,
+        areaText: v.area_text,
+        subArea: v.sub_area,
+        subAreaText: v.sub_area_text,
+        organization: v.organization,
+        organizationText: v.organization_text,
+        abbreviation: v.abbreviation,
+        bodTag: v.bod_tag,
+        isChief: v.chief === 1,
+      }));
+
+      return {
+        success: true,
+        data: result,
+        total: result.length,
+      };
+    } catch (error) {
+      console.error('[DigsigDocumentService] Error in getVerifikator:', error);
+      throw error;
+    }
+  }
 }

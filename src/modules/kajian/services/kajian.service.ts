@@ -818,6 +818,11 @@ export class KajianService {
     await queryRunner.startTransaction();
 
     try {
+      // Validate pengirim is provided
+      if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
+        throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
+      }
+
       // Get cached position data
       const barisData = await this.getPositionData();
 
@@ -1111,6 +1116,11 @@ export class KajianService {
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
+
+    // Validate pengirim is provided
+    if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
+      throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
+    }
 
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1538,6 +1548,11 @@ export class KajianService {
     await queryRunner.startTransaction();
 
     try {
+      // Validate pengirim is provided
+      if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
+        throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
+      }
+
       const barisData = await this.getPositionData();
 
       // Validate pengirim (using new DTO field: pengirim)
@@ -2459,7 +2474,7 @@ export class KajianService {
     };
 
     const dto: CreateKajianDto = {
-      pengirim: Number(body.pengirim),
+      pengirim: body.pengirim !== undefined ? Number(body.pengirim) : 0,
       penerima: parseArray(body.penerima),
       tembusan: parseArray(body.tembusan),
       kop_logo: body.kop_logo || undefined,
