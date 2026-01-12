@@ -1,37 +1,32 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsOptional, IsNumber, MaxLength } from 'class-validator';
 
 export class CreateCompanyDto {
-  @IsUUID()
   @IsOptional()
+  @IsString()
   id?: string;
 
-  @IsInt()
+  @IsNumber()
   company: number;
-
-  @IsDateString()
-  @IsOptional()
-  startDate?: string;
-
-  @IsDateString()
-  @IsOptional()
-  endDate?: string;
 
   @IsString()
   @MaxLength(50)
-  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'shortText hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
-  })
   shortText: string;
 
+  @IsOptional()
   @IsString()
   @MaxLength(250)
-  @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'longText hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
-  })
   longText?: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(11)
   uname?: string;
 }

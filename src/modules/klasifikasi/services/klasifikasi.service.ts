@@ -37,8 +37,9 @@ export class KlasifikasiService {
     }
 
     const klasifikasi = this.klasifikasiRepository.create({
-      id: uuidv4(),
       ...createKlasifikasiDto,
+      id: createKlasifikasiDto.id || uuidv4(),
+      active: createKlasifikasiDto.active ?? 1,
     });
 
     return await this.klasifikasiRepository.save(klasifikasi);
@@ -102,11 +103,18 @@ export class KlasifikasiService {
       }
     }
 
-    Object.assign(klasifikasi, updateKlasifikasiDto);
+    // Manually assign fields
+    if (updateKlasifikasiDto.company !== undefined) klasifikasi.company = updateKlasifikasiDto.company;
+    if (updateKlasifikasiDto.klasifikasi !== undefined) klasifikasi.klasifikasi = updateKlasifikasiDto.klasifikasi;
+    if (updateKlasifikasiDto.klasifikasi_text !== undefined) klasifikasi.klasifikasi_text = updateKlasifikasiDto.klasifikasi_text;
+    if (updateKlasifikasiDto.deskripsi !== undefined) klasifikasi.deskripsi = updateKlasifikasiDto.deskripsi;
+    if (updateKlasifikasiDto.id_parent !== undefined) klasifikasi.id_parent = updateKlasifikasiDto.id_parent;
+    if (updateKlasifikasiDto.active !== undefined) klasifikasi.active = updateKlasifikasiDto.active;
+
     return await this.klasifikasiRepository.save(klasifikasi);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string): Promise<{ message: string }> {
     const klasifikasi = await this.findOne(id);
     
     // Check if has children
@@ -119,6 +127,7 @@ export class KlasifikasiService {
     }
 
     await this.klasifikasiRepository.remove(klasifikasi);
+    return { message: `Klasifikasi ${klasifikasi.klasifikasi} berhasil dihapus` };
   }
 
   async toggleActive(id: string): Promise<KlasifikasiEntity> {
