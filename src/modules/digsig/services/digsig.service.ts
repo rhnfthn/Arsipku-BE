@@ -135,6 +135,10 @@ export class DigsigService {
       const buffer = await this.storageService.getFile(params.key);
       console.log('[DigsigService] File fetched, size:', buffer.length, 'bytes');
       const base64File = buffer.toString('base64');
+      const dokumenName = params.filename;
+
+      const timestamp = Date.now();
+      const newDokumenName = dokumenName.replace(/\.pdf$/i, `-${timestamp}.pdf`);
 
       // 2. Payload sesuai spesifikasi
       const payload = {
@@ -145,7 +149,7 @@ export class DigsigService {
         dokumen: [
           {
             nomorDokumen: params.nomorDokumen,
-            filename: params.filename,
+            filename: newDokumenName,
             data: base64File,
           },
         ],
