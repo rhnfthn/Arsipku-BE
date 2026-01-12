@@ -131,6 +131,59 @@ export class QRCodeService {
   }
 
   /**
+   * Generate QR Code dengan logo sebagai PNG Buffer untuk pdf-lib
+   * Ini menggunakan canvas untuk menambahkan logo di tengah
+   */
+  async generateQRCodePngBuffer(data: QRCodeData): Promise<Buffer> {
+    const qrContent = this.formatQRContent(data);
+    const qrSize = 200;
+    const logoSize = 50;
+
+    // Generate QR code sebagai data URL
+    const qrDataUrl = await QRCode.toDataURL(qrContent, {
+      errorCorrectionLevel: 'H',
+      type: 'image/png',
+      width: qrSize,
+      margin: 1,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    });
+
+    // Buat canvas
+    const canvas = createCanvas(qrSize, qrSize);
+    const ctx = canvas.getContext('2d');
+
+    // Load QR code image
+    const qrImage = await loadImage(qrDataUrl);
+    ctx.drawImage(qrImage, 0, 0, qrSize, qrSize);
+
+    // Load dan gambar logo di tengah jika ada
+    if (this.logoBase64) {
+      try {
+        const logoImage = await loadImage(`data:image/jpeg;base64,${this.logoBase64}`);
+        
+        // Posisi logo di tengah
+        const logoX = (qrSize - logoSize) / 2;
+        const logoY = (qrSize - logoSize) / 2;
+
+        // Gambar background putih untuk logo
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(logoX - 5, logoY - 5, logoSize + 10, logoSize + 10);
+
+        // Gambar logo
+        ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+      } catch (error) {
+        console.error('[QRCodeService] Failed to add logo:', error);
+      }
+    }
+
+    // Convert canvas ke Buffer PNG
+    return canvas.toBuffer('image/png');
+  }
+
+  /**
    * Format data untuk di-encode dalam QR code
    * Prioritas: pdf_url > verification_url > JSON data
    */

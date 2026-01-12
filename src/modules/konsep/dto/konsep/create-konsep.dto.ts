@@ -39,6 +39,10 @@ export class CreateKonsepDto {
   @IsNumber()
   to_position_id: number; // Penerima konsep (atasan)
 
+  @IsOptional()
+  @IsNumber()
+  pengirim_position_id?: number; // Pengirim naskah final (bisa beda dari from_position_id)
+
   // ============ KONTEN NASKAH ============
 
   @IsOptional()
@@ -94,6 +98,23 @@ export class CreateKonsepDto {
   @ValidateNested({ each: true })
   @Type(() => LampiranDto)
   lampiran?: LampiranDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[]; // RECOMMENDED: Array of lampiran IDs dari POST /upload-temporary-konsep
+
+  // ============ PENERIMA SURAT FINAL ============
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  penerima_position_ids?: number[]; // Penerima akhir surat (berbeda dengan to_position_id yang adalah penerima konsep)
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  tembusan_position_ids?: number[]; // Tembusan surat
 
   // ============ CATATAN KONSEP ============
 
