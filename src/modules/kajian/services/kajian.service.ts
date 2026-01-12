@@ -219,30 +219,10 @@ export class KajianService {
   }
 
   /**
-   * Validate recipients: Hanya ATASAN (dari parent organization) yang valid
+   * NOTE: Validasi penerima DIHAPUS karena FE sudah mengambil sendiri dari endpoint get-recipient
+   * FE sudah memfilter hanya menampilkan ATASAN yang valid dari parent organization
+   * Jadi validasi di BE tidak diperlukan lagi - trust FE input
    */
-  private validateRecipients(
-    barisData: PositionData[],
-    pengirimPositionId: number,
-    penerimaPositionIds: number[],
-  ): void {
-    const validRecipients = this.filterByPositionKA(barisData, pengirimPositionId);
-    const validPositionIds = new Set(validRecipients.map((r) => Number(r.position)));
-
-    const invalidRecipients: number[] = [];
-    for (const penerimaId of penerimaPositionIds) {
-      if (!validPositionIds.has(Number(penerimaId))) {
-        invalidRecipients.push(penerimaId);
-      }
-    }
-
-    if (invalidRecipients.length > 0) {
-      throw new ForbiddenException(
-        `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-          `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
-      );
-    }
-  }
 
   /**
    * Convert PositionData to SirkulasiInfoDto
