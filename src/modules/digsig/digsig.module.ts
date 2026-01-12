@@ -19,6 +19,7 @@ import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { JenisModule } from '../jenis/jenis.module';
 import { NdEntity } from '../nota-dinas/entities/nd.entity';
 import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
@@ -48,6 +49,7 @@ import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.en
     GeneratePdfModule,
     SubAreaAlamatModule,
     OrgDataModule,
+    JenisModule,
   ],
   controllers: [
     DigsigController, 
