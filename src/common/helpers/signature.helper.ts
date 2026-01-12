@@ -12,6 +12,20 @@ export interface SignatureMetadata {
   path?: string;
   raw?: string;
   verification_url?: string;
+  bsre_name_doc?: string; // name_doc dari BSrE (krusial untuk verifikasi)
+}
+
+/**
+ * QR Code data interface for generating QR codes
+ */
+export interface QRCodeData {
+  signature_id: string;
+  document_number: string;
+  signed_at: string;
+  signer_name: string;
+  signer_jabatan: string;
+  document_type: string;
+  verification_url?: string;
 }
 
 /**
@@ -78,6 +92,7 @@ export function formatSignatureData(metadata: {
   signer_jabatan?: string;
   path?: string | null;
   verification_url?: string;
+  bsre_name_doc?: string | null; // name_doc dari BSrE
 }): string {
   const signatureId = metadata.signature_id || generateSignatureId();
   return JSON.stringify({
@@ -91,6 +106,7 @@ export function formatSignatureData(metadata: {
     signer_jabatan: metadata.signer_jabatan || null,
     path: metadata.path || null,
     verification_url: metadata.verification_url || null,
+    bsre_name_doc: metadata.bsre_name_doc || null, // Simpan name_doc untuk verifikasi
   });
 }
 

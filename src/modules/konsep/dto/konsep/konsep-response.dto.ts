@@ -4,7 +4,7 @@
 export class KonsepPositionInfoDto {
   position_id: number;
   position_text: string;
-  persnum: number | null;
+  persnum: string | null;
   nama: string | null;
   organization_id: number;
   organization_text: string;
@@ -89,11 +89,11 @@ export class CreateKonsepResponseDto {
   success: boolean;
   message: string;
   data?: {
-    id_konsep: string;
+    id_konsep: string | string[]; // Single or multiple konsep IDs
     id_naskah: string;
     jenis: 'ND' | 'SDI' | 'SDE';
     from: KonsepPositionInfoDto;
-    to: KonsepPositionInfoDto;
+    to: KonsepPositionInfoDto | KonsepPositionInfoDto[]; // Single or multiple recipients
     status: 'final' | 'final_tte';
   };
 }
@@ -163,10 +163,27 @@ export class ForwardKonsepResponseDto {
   success: boolean;
   message: string;
   data?: {
-    id_konsep: string;
+    id_konsep: string | string[]; // Single or multiple konsep IDs
     id_naskah: string;
     jenis: 'ND' | 'SDI' | 'SDE';
     from: KonsepPositionInfoDto;
-    to: KonsepPositionInfoDto;
+    to: KonsepPositionInfoDto | KonsepPositionInfoDto[]; // Single or multiple recipients
+    status?: string;
+  };
+}
+
+/**
+ * Response DTO untuk reject konsep
+ */
+export class RejectKonsepResponseDto {
+  success: boolean;
+  message: string;
+  data?: {
+    id_konsep: string;
+    id_naskah: string;
+    jenis: 'ND' | 'SDI' | 'SDE';
+    from: KonsepPositionInfoDto; // Yang reject
+    return_to: KonsepPositionInfoDto; // Dikembalikan ke
+    status: string;
   };
 }

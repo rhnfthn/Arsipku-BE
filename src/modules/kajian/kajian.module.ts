@@ -16,6 +16,7 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
+import { DigsigModule } from '../digsig/digsig.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
     StorageModule,
     GeneratePdfModule,
     SubAreaAlamatModule,
+    DigsigModule,
   ],
   controllers: [KajianController],
   providers: [KajianService, NomorSuratService],

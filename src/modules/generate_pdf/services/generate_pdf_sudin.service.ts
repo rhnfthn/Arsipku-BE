@@ -24,6 +24,8 @@ interface SdiPdfOptions {
   headerKantor?: string;
   headerGedung?: string;
   headerAlamat?: string;
+  // QR Code HTML (optional - passed from digsig signing)
+  qrCodeHtml?: string;
 }
 
 @Injectable()
@@ -309,7 +311,10 @@ export class GeneratePdfSudinService {
       </div>
     `;
 
-    // TTD section - dinamis
+    // QR Code section (optional - passed from digsig signing)
+    const qrCodeHtml = body.qrCodeHtml || '';
+
+    // TTD section - dinamis dengan QR code di tengah
     const ttd = `
       <table style="width:100%;margin-top:30px;">
         <tbody>
@@ -317,7 +322,7 @@ export class GeneratePdfSudinService {
             <td style="width:50%;"></td>
             <td style="text-align:center;">
               ${positionText}<br>
-              <br><br><br><br><br>
+              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
           </tr>
@@ -409,7 +414,7 @@ export class GeneratePdfSudinService {
         format: 'A4',
         printBackground: true,
         margin: {
-          top: '30mm',
+          top: '15mm',
           bottom: '20mm',
           left: '25mm',
           right: '20mm',
