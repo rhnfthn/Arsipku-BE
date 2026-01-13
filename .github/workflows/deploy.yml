@@ -17,10 +17,14 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/gitea_runner
+          printf "%s\n" "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/gitea_runner
           chmod 600 ~/.ssh/gitea_runner
           ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
-      
+
+      - name: Validate SSH key
+        run: |
+          ssh-keygen -lf ~/.ssh/gitea_runner
+
       - name: Test SSH
         run: |
           ssh -i ~/.ssh/gitea_runner -o BatchMode=yes itqa@172.20.16.116 "echo SSH_OK"
