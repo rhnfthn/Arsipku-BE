@@ -43,6 +43,9 @@ export class KonsepRiwayatEntity {
   @Column({ type: 'text', nullable: true })
   catatan: string | null;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'pdf_snapshot' })
+  pdfSnapshot: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;
 
