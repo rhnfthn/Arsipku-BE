@@ -37,7 +37,7 @@ jobs:
           ssh -o BatchMode=yes \
               -o IdentitiesOnly=yes \
               -i ~/.ssh/id_ed25519 \
-              kip@172.20.16.116 << 'EOF'
+              itqa@172.20.16.116 << 'EOF'
           
             set -e
 
