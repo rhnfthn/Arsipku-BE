@@ -17,17 +17,17 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          printf "%s\n" "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/gitea_runner
-          chmod 600 ~/.ssh/gitea_runner
+          printf "%s\n" "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/gitea_runner_ci
+          chmod 600 ~/.ssh/gitea_runner_ci
           ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
 
       - name: Validate SSH key
         run: |
-          ssh-keygen -lf ~/.ssh/gitea_runner
+          ssh-keygen -y -f ~/.ssh/gitea_runner_ci | ssh-keygen -lf -
 
       - name: Test SSH
         run: |
-          ssh -i ~/.ssh/gitea_runner -o BatchMode=yes itqa@172.20.16.116 "echo SSH_OK"
+          ssh -i ~/.ssh/gitea_runner_ci -o BatchMode=yes itqa@172.20.16.116 "echo SSH_OK"
 
       - name: Deploy to UAT
         if: ${{ github.ref_name == 'UAT' }}
@@ -35,7 +35,7 @@ jobs:
           echo "Deploying to UAT..."
           ssh -o BatchMode=yes \
               -o IdentitiesOnly=yes \
-              -i ~/.ssh/gitea_runner \
+              -i ~/.ssh/gitea_runner_ci \
               itqa@172.20.16.116 << 'EOF'
 
             set -e
