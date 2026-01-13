@@ -17,7 +17,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.GITEA_RUNNER_PRIVATE_KEY }}" > ~/.ssh/gitea_runner
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/gitea_runner
           chmod 600 ~/.ssh/gitea_runner
           ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
       
