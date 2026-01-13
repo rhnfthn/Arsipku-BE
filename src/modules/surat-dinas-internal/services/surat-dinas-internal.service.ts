@@ -1920,6 +1920,11 @@ export class SuratDinasInternalService {
             passphrase: dto.passphrase!,
             path_dokumen: 'surat-dinas-internal/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            userPersnum: persnum,
+            userName: signerName || 'User',
+            idNaskah: naskahId,
+            jenisNaskah: 'SDI',
           });
           console.log(`[SDI] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 
@@ -2542,6 +2547,11 @@ export class SuratDinasInternalService {
               passphrase: dto.passphrase!,
               path_dokumen: 'surat-dinas-internal/digsig/',
               no_wa: userData.no_wa,
+            }, {
+              userPersnum: persnum,
+              userName: resolvedNamaLengkap || 'User',
+              idNaskah: naskahId,
+              jenisNaskah: 'SDI',
             });
 
             // Extract name_doc
