@@ -13,6 +13,15 @@ jobs:
         run: |
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
+      
+      - name: Check secret exists
+        run: |
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ SSH_PRIVATE_KEY is EMPTY"
+            exit 1
+          else
+            echo "✅ SSH_PRIVATE_KEY is PRESENT"
+          fi
 
       - name: Setup SSH
         run: |
