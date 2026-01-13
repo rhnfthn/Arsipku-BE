@@ -23,8 +23,8 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/gitea_runner
+          chmod 600 ~/.ssh/gitea_runner
           ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
 
       # =====================
@@ -36,7 +36,7 @@ jobs:
           echo "Deploying to UAT..."
           ssh -o BatchMode=yes \
               -o IdentitiesOnly=yes \
-              -i ~/.ssh/id_ed25519 \
+              -i ~/.ssh/gitea_runner \
               itqa@172.20.16.116 << 'EOF'
           
             set -e
