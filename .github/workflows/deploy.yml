@@ -20,7 +20,7 @@ jobs:
             echo "❌ SSH_PRIVATE_KEY is KOSONG"
             exit 1
           else
-            echo "✅ SSH_PRIVATE_KEY is PRESENT"
+            echo "✅ SSH_PRIVATE_KEY is PRESENTS"
           fi
 
       - name: Setup SSH
