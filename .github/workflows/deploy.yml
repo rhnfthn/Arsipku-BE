@@ -9,27 +9,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # =====================
-      # INFO
-      # =====================
       - name: Show branch info
         run: |
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
 
-      # =====================
-      # SETUP SSH
-      # =====================
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.GITEA_RUNNER_PRIVATE_KEY }}" > ~/.ssh/gitea_runner
+          chmod 600 ~/.ssh/gitea_runner
           ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
+      
+      - name: Test SSH
+        run: |
+          ssh -i ~/.ssh/gitea_runner -o BatchMode=yes itqa@172.20.16.116 "echo SSH_OK"
 
-      # =====================
-      # DEPLOY
-      # =====================
       - name: Deploy to UAT
         if: ${{ github.ref_name == 'UAT' }}
         run: |
@@ -38,7 +33,7 @@ jobs:
               -o IdentitiesOnly=yes \
               -i ~/.ssh/gitea_runner \
               itqa@172.20.16.116 << 'EOF'
-          
+
             set -e
 
             export NVM_DIR="$HOME/.nvm"
