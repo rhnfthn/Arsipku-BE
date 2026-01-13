@@ -446,12 +446,14 @@ export class NomorService {
       let status = 'belum_diajukan';
       if (details.length > 0) {
         const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai');
+        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
         const allHangus = details.every((d) => d.status === 'hangus');
+        const allDitolak = details.every((d) => d.status === 'ditolak');
+        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
         if (hasTerpakai) {
           status = 'disetujui';
-        } else if (allHangus) {
+        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
           status = 'ditolak';
         } else if (hasBooking) {
           status = 'menunggu_verifikasi';
@@ -515,12 +517,14 @@ export class NomorService {
       let status = 'belum_diajukan';
       if (details.length > 0) {
         const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai');
+        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
         const allHangus = details.every((d) => d.status === 'hangus');
+        const allDitolak = details.every((d) => d.status === 'ditolak');
+        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
         if (hasTerpakai) {
           status = 'disetujui';
-        } else if (allHangus) {
+        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
           status = 'ditolak';
         } else if (hasBooking) {
           status = 'menunggu_verifikasi';
@@ -597,12 +601,14 @@ export class NomorService {
         let status = 'Belum Diajukan';
         if (details.length > 0) {
           const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai');
+          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
           const allHangus = details.every((d) => d.status === 'hangus');
+          const allDitolak = details.every((d) => d.status === 'ditolak');
+          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
           if (hasTerpakai) {
             status = 'Disetujui';
-          } else if (allHangus) {
+          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
             status = 'Ditolak';
           } else if (hasBooking) {
             status = 'Menunggu Verifikasi';
@@ -703,12 +709,14 @@ export class NomorService {
     let status = 'Belum Diajukan';
     if (details.length > 0) {
       const hasBooking = details.some((d) => d.status === 'booking');
-      const hasTerpakai = details.some((d) => d.status === 'terpakai');
+      const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
       const allHangus = details.every((d) => d.status === 'hangus');
+      const allDitolak = details.every((d) => d.status === 'ditolak');
+      const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
       if (hasTerpakai) {
         status = 'Disetujui';
-      } else if (allHangus) {
+      } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
         status = 'Ditolak';
       } else if (hasBooking) {
         status = 'Menunggu Verifikasi';
@@ -925,12 +933,14 @@ export class NomorService {
     let status = 'Belum Diajukan';
     if (details.length > 0) {
       const hasBooking = details.some((d) => d.status === 'booking');
-      const hasTerpakai = details.some((d) => d.status === 'terpakai');
+      const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
       const allHangus = details.every((d) => d.status === 'hangus');
+      const allDitolak = details.every((d) => d.status === 'ditolak');
+      const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
       if (hasTerpakai) {
         status = 'Disetujui';
-      } else if (allHangus) {
+      } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
         status = 'Ditolak';
       } else if (hasBooking) {
         status = 'Menunggu Verifikasi';
@@ -1190,6 +1200,69 @@ export class NomorService {
       message: 'File berhasil diupdate',
       data: {
         id: detail.id,
+        file_name: detail.fileName,
+        file_text: detail.fileText,
+        status: detail.status,
+        updated_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Admin upload file final untuk detail dengan status terpakai
+   * Upload file dan ubah status menjadi terpakai_final
+   */
+  async uploadFileToTerpakaiAkhir(
+    detailId: string,
+    file: Express.Multer.File,
+    folder: string = 'nomor',
+  ): Promise<any> {
+    const detail = await this.nomorRequestDetailRepository.findOne({
+      where: { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+    }
+
+    if (detail.status !== 'terpakai') {
+      throw new BadRequestException(
+        `Tidak dapat upload file untuk detail dengan status: ${detail.status}. Hanya detail dengan status 'terpakai' yang bisa diupload file final.`,
+      );
+    }
+
+    // Delete file lama dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted old file from storage: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete old file ${detail.fileText}:`, error.message);
+      }
+    }
+
+    // Upload file baru ke storage
+    let fileKey: string | null = null;
+    try {
+      const uploadResult = await this.storageService.uploadFile(file, folder);
+      fileKey = uploadResult.key;
+      console.log(`✅ File uploaded successfully for terpakai_final: ${fileKey}`);
+    } catch (error) {
+      throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
+    }
+
+    // Update detail dengan file baru dan ubah status ke terpakai_final
+    detail.fileName = file.originalname;
+    detail.fileText = fileKey;
+    detail.status = 'terpakai_final';
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return {
+      success: true,
+      message: 'File berhasil diupload dan status berubah menjadi terpakai_final',
+      data: {
+        id: detail.id,
+        nomor: detail.nomor,
         file_name: detail.fileName,
         file_text: detail.fileText,
         status: detail.status,
@@ -1794,14 +1867,61 @@ export class NomorService {
   }
 
   /**
-   * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai)
+   * Admin mengubah status detail menjadi hangus
+   * Bisa digunakan untuk nomor dengan status apapun (terpakai, terpakai_final, booking, dll)
+   */
+  async setStatusHangus(
+    detailId: string,
+  ): Promise<any> {
+    const detail = await this.nomorRequestDetailRepository.findOne({
+      where: { id: detailId },
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+    }
+
+    // Simpan status lama untuk log
+    const oldStatus = detail.status;
+
+    // Delete file dari storage jika ada
+    if (detail.fileText) {
+      try {
+        await this.storageService.deleteFile(detail.fileText);
+        console.log(`Deleted file from storage on set hangus: ${detail.fileText}`);
+      } catch (error) {
+        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+      }
+    }
+
+    // Update status menjadi hangus
+    detail.status = 'hangus';
+    await this.nomorRequestDetailRepository.save(detail);
+
+    return {
+      success: true,
+      message: `Status berhasil diubah dari ${oldStatus} menjadi hangus`,
+      data: {
+        id: detail.id,
+        nomor: detail.nomor,
+        old_status: oldStatus,
+        new_status: detail.status,
+        updated_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Get all detail dengan status terpakai
+    // Get all detail dengan status terpakai, terpakai_final, atau hangus
     const details = await this.nomorRequestDetailRepository.find({
-      where: {
-        status: 'terpakai',
-      },
+      where: [
+        { status: 'terpakai' },
+        { status: 'terpakai_final' },
+        { status: 'hangus' },
+      ],
       order: { createdAt: 'DESC' },
     });
 
@@ -1866,6 +1986,7 @@ export class NomorService {
           perihal: request.perihal,
           tanggal: request.tanggal,
           nomor: detail.nomor,
+          status: detail.status,
           nama_pengirim: namaPengirim,
           waktu: detail.createdAt,
         };
@@ -1931,7 +2052,7 @@ export class NomorService {
     // Generate signed URLs untuk nomor_list
     const nomorListWithUrls = await Promise.all(
       details
-        .filter((d) => d.status === 'terpakai' && d.nomor)
+        .filter((d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor)
         .map(async (d) => ({
           id: d.id,
           nomor: d.nomor,
@@ -2007,7 +2128,7 @@ export class NomorService {
   }
 
   /**
-   * Tolak semua nomor dalam satu request (set semua details status = 'hangus')
+   * Tolak semua nomor dalam satu request (set semua details status = 'ditolak')
    */
   async rejectAllNomorRequest(
     requestId: string,
@@ -2031,11 +2152,11 @@ export class NomorService {
       );
     }
 
-    // Update semua details yang belum diproses menjadi hangus
+    // Update semua details yang belum diproses menjadi ditolak
     const rejectedDetails: { id: string; status: string }[] = [];
     
     for (const detail of details) {
-      // Hanya set hangus jika status masih booking
+      // Hanya set ditolak jika status masih booking
       if (detail.status === 'booking') {
         // Delete file dari storage jika ada
         if (detail.fileText) {
@@ -2047,7 +2168,7 @@ export class NomorService {
           }
         }
 
-        detail.status = 'hangus';
+        detail.status = 'ditolak';
         await this.nomorRequestDetailRepository.save(detail);
         rejectedDetails.push({
           id: detail.id,
