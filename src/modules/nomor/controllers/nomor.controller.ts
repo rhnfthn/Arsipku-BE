@@ -353,6 +353,55 @@ export class NomorController {
   }
 
   /**
+   * POST /admin/nomor-request-detail/:detail_id/file
+   * Admin upload file final untuk nomor dengan status terpakai
+   * Upload file akan mengubah status menjadi terpakai_final
+   * 
+   * FormData fields:
+   * - file: binary file (required, single file)
+   * 
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
+   */
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('admin/nomor-request-detail/:detail_id/file')
+  async uploadFileToTerpakaiAkhir(
+    @Param('detail_id') detailId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Query('folder') folder?: string,
+  ): Promise<any> {
+    try {
+      if (!file) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'File is required',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      return await this.nomorService.uploadFileToTerpakaiAkhir(
+        detailId,
+        file,
+        folder || 'nomor',
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to upload file to terpakai final',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * POST /admin/nomor-request-detail/:id/approve
    * Admin menyetujui dan generate nomor
    */
@@ -379,7 +428,7 @@ export class NomorController {
   }
 
   /**
-   * POST /admin/nomor-request-detail/:id/reject
+   * POST /admin/nomor-request-detail/:detail_id/reject
    * Admin menolak usulan
    */
   @Post('admin/nomor-request-detail/:id/reject')
@@ -396,6 +445,31 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to reject nomor request detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/nomor-request-detail/:detail_id/hangus
+   * Admin mengubah status detail menjadi hangus
+   */
+  @Post('admin/nomor-request-detail/:detail_id/hangus')
+  async setStatusHangus(
+    @Param('detail_id') detailId: string,
+  ): Promise<any> {
+    try {
+      return await this.nomorService.setStatusHangus(detailId);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to set status hangus',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
