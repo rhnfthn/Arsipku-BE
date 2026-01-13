@@ -7,18 +7,44 @@ import {
   Delete,
   Param,
   Query,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { NaskahLampiranService } from '../services/naskah_lampiran.service';
 import { CreateNaskahLampiranDto } from '../dto/naskah_lampiran/create_naskah_lampiran.dto';
 import { UpdateNaskahLampiranDto } from '../dto/naskah_lampiran/update_naskah_lampiran.dto';
+import { StorageService } from 'src/modules/storage/services/storage.service';
 
 @Controller('persuratan/naskah-lampiran')
 export class NaskahLampiranController {
-  constructor(private readonly naskahLampiranService: NaskahLampiranService) {}
+  constructor(
+    private readonly naskahLampiranService: NaskahLampiranService,
+    private readonly storageService: StorageService,
+  ) {}
 
   @Post()
   create(@Body() createNaskahLampiranDto: CreateNaskahLampiranDto) {
     return this.naskahLampiranService.create(createNaskahLampiranDto);
+  }
+
+  @Get('deltemp')
+  async findFileTemp() {
+    const tempfiles = await this.naskahLampiranService.findFileTemp();
+    if (tempfiles.length === 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Failed to get File Temporary',
+          error: 'No Data',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    for (const file of tempfiles) {
+      await this.storageService.deleteFile(file.file_name);
+      await this.naskahLampiranService.remove(file.id);
+    }
+    return tempfiles;
   }
 
   @Get()

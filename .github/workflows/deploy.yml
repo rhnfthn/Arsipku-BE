@@ -1,0 +1,49 @@
+name: Deploy Backend Arsipku
+
+on:
+  push:
+    branches: [UAT]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # =====================
+      # INFO
+      # =====================
+      - name: Show branch info
+        run: |
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+
+      # =====================
+      # SETUP SSH
+      # =====================
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p 22 -H 172.20.16.116 >> ~/.ssh/known_hosts
+
+      # =====================
+      # DEV
+      # =====================
+      - name: Deploy to DEV
+        if: ${{ github.ref_name == 'UAT' }}
+        run: |
+          echo "Deploying to UAT..."
+          ssh -p 22 \
+          -i /home/itdev/.ssh/gitea_runner \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=no \
+          kip@172.20.16.116 << 'EOF'
+            cd /home/itdev/projects/arsipku/arsipku-backend
+            git pull origin UAT
+
+            npm install
+            npm run build
+            pm2 start ecosystem.config.js || pm2 restart arsipku-backend
+            pm2 save
+          EOF
