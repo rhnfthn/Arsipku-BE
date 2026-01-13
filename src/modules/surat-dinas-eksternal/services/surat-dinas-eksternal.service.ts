@@ -1704,6 +1704,11 @@ export class SuratDinasEksternalService {
             passphrase: dto.passphrase!,
             path_dokumen: 'surat-dinas-eksternal/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            userPersnum: persnum,
+            userName: signerName || 'User',
+            idNaskah: naskahId,
+            jenisNaskah: 'SDE',
           });
           console.log(`[SDE] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 
@@ -2803,6 +2808,11 @@ export class SuratDinasEksternalService {
             passphrase: dto.passphrase!,
             path_dokumen: 'surat-dinas-eksternal/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            userPersnum: persnum,
+            userName: signerName || 'User',
+            idNaskah: naskahId,
+            jenisNaskah: 'SDE',
           });
           console.log(`[SDE finalizeDraft] Step 11c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 

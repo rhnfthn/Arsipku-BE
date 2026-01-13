@@ -252,8 +252,10 @@ export class KonsepService {
       // ==========================================
       // 6. HANDLE LAMPIRAN
       // ==========================================
+      let jumlahLampiran = 0;
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
         await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, dto.jenis);
+        jumlahLampiran = dto.lampiran_temp_ids.length;
       } else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
           const lampiran = this.naskahLampiranRepository.create({
@@ -266,11 +268,26 @@ export class KonsepService {
           });
           await queryRunner.manager.save(lampiran);
         }
+        jumlahLampiran = dto.lampiran.length;
+      }
+
+      // Update naskah dengan info lampiran
+      if (jumlahLampiran > 0) {
+        naskahAsli.lampiran = `${jumlahLampiran} file`;
+        await queryRunner.manager.save(naskahAsli);
       }
 
       // ==========================================
-      // 7. SAVE RIWAYAT (aksi='create')
+      // 7. GENERATE PDF SNAPSHOT & SAVE RIWAYAT (aksi='create')
       // ==========================================
+      // Generate PDF snapshot untuk state 'create'
+      const pdfSnapshotUrl = await this.generateAndUploadPdfSnapshot(
+        naskahAsli,
+        dto.jenis,
+        'create',
+        1,
+      );
+
       await this.saveRiwayat(
         queryRunner,
         naskahKonsepId,
@@ -284,6 +301,7 @@ export class KonsepService {
         'create',
         dto.catatan || null,
         fromPos.persnum_person,
+        pdfSnapshotUrl,
       );
 
       await queryRunner.commitTransaction();
@@ -402,10 +420,44 @@ export class KonsepService {
       });
 
       if (lampiran && lampiran.is_temporary === 1) {
-        lampiran.id_naskah = naskahId;
-        lampiran.is_temporary = 0;
-        lampiran.jenis = jenis;
-        await this.naskahLampiranRepository.save(lampiran);
+        // Move file from temporary to final location
+        const oldKey = lampiran.file_pdf; // e.g., temporary/uuid/filename.pdf
+        const fileName = oldKey.split('/').pop() || 'file.pdf';
+        const newKey = `${jenis.toLowerCase()}/${naskahId}/${fileName}`;
+
+        try {
+          // Copy file to new location
+          await this.storageService['s3Client'].send(
+            new (await import('@aws-sdk/client-s3')).CopyObjectCommand({
+              Bucket: this.storageService['bucketName'],
+              CopySource: `${this.storageService['bucketName']}/${oldKey}`,
+              Key: newKey,
+              ContentDisposition: 'inline',
+            }),
+          );
+
+          // Delete old temporary file
+          await this.storageService['s3Client'].send(
+            new (await import('@aws-sdk/client-s3')).DeleteObjectCommand({
+              Bucket: this.storageService['bucketName'],
+              Key: oldKey,
+            }),
+          );
+
+          // Update lampiran record
+          lampiran.id_naskah = naskahId;
+          lampiran.is_temporary = 0;
+          lampiran.jenis = jenis;
+          lampiran.file_pdf = newKey;
+          await this.naskahLampiranRepository.save(lampiran);
+        } catch (error) {
+          console.error(`Failed to move lampiran ${tempId}:`, error);
+          // Still update the record even if move fails
+          lampiran.id_naskah = naskahId;
+          lampiran.is_temporary = 0;
+          lampiran.jenis = jenis;
+          await this.naskahLampiranRepository.save(lampiran);
+        }
       }
     }
   }
@@ -991,7 +1043,7 @@ export class KonsepService {
       }
 
       // ==========================================
-      // 7. SAVE RIWAYAT (aksi='forward')
+      // 7. GENERATE PDF SNAPSHOT & SAVE RIWAYAT (aksi='forward')
       // ==========================================
       // Get latest urutan
       const latestRiwayat = await queryRunner.manager.findOne(KonsepRiwayatEntity, {
@@ -999,6 +1051,25 @@ export class KonsepService {
         order: { urutan: 'DESC' },
       });
       const nextUrutan = latestRiwayat ? latestRiwayat.urutan + 1 : 1;
+
+      // Get naskah asli entity for PDF generation
+      let naskahAsliForPdf: NaskahEntity | null = null;
+      if (naskahAsliId) {
+        naskahAsliForPdf = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: naskahAsliId },
+        });
+      }
+
+      // Generate PDF snapshot untuk state 'forward'
+      let pdfSnapshotUrl: string | null = null;
+      if (naskahAsliForPdf) {
+        pdfSnapshotUrl = await this.generateAndUploadPdfSnapshot(
+          naskahAsliForPdf,
+          naskahAsliForPdf.jenis as 'ND' | 'SDI' | 'SDE',
+          'forward',
+          nextUrutan,
+        );
+      }
 
       await this.saveRiwayat(
         queryRunner,
@@ -1013,6 +1084,7 @@ export class KonsepService {
         'forward',
         dto.catatan || null,
         fromPos.persnum_person,
+        pdfSnapshotUrl,
       );
 
       await queryRunner.commitTransaction();
@@ -1278,21 +1350,43 @@ export class KonsepService {
       }
 
       // 10. Handle new lampiran if provided
+      let totalLampiran = 0;
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
         await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, jenis as 'ND' | 'SDI' | 'SDE');
+        totalLampiran = dto.lampiran_temp_ids.length;
+      } else {
+        // Count existing lampiran
+        const existingLampiran = await queryRunner.manager.count(NaskahLampiranEntity, {
+          where: { id_naskah: naskahAsliId },
+        });
+        totalLampiran = existingLampiran;
+      }
+
+      // Update naskah dengan info lampiran
+      if (totalLampiran > 0) {
+        naskahAsli.lampiran = `${totalLampiran} file`;
+        await queryRunner.manager.save(naskahAsli);
       }
 
       // 11. Update konsep workflow status
       naskahKonsep.status = 'final';
       await queryRunner.manager.save(naskahKonsep);
 
-      // 12. SAVE RIWAYAT (aksi='finalize')
+      // 12. GENERATE PDF SNAPSHOT & SAVE RIWAYAT (aksi='finalize')
       // Get latest urutan
       const latestRiwayat = await queryRunner.manager.findOne(KonsepRiwayatEntity, {
         where: { idNaskahKonsep: id },
         order: { urutan: 'DESC' },
       });
       const nextUrutan = latestRiwayat ? latestRiwayat.urutan + 1 : 1;
+
+      // Generate PDF snapshot untuk state 'finalize' (dengan nomor resmi)
+      const pdfSnapshotUrl = await this.generateAndUploadPdfSnapshot(
+        naskahAsli,
+        jenis as 'ND' | 'SDI' | 'SDE',
+        'finalize',
+        nextUrutan,
+      );
 
       await this.saveRiwayat(
         queryRunner,
@@ -1307,6 +1401,7 @@ export class KonsepService {
         'finalize',
         dto.catatan || null,
         fromPos.persnum_person,
+        pdfSnapshotUrl,
       );
 
       await queryRunner.commitTransaction();
@@ -1425,10 +1520,10 @@ export class KonsepService {
       naskahKonsep.perihal = `${naskahKonsep.perihal} - [REJECTED: ${dto.catatan}]`;
       await queryRunner.manager.save(naskahKonsep);
 
-      // 7. Get naskah asli
+      // 7. Get naskah asli ID for response
       const naskahAsliId = naskahKonsep.id_naskah_asli;
 
-      // 8. SAVE RIWAYAT (aksi='reject')
+      // 8. SAVE RIWAYAT (aksi='reject') - No PDF snapshot for rejection
       const latestRiwayat = await queryRunner.manager.findOne(KonsepRiwayatEntity, {
         where: { idNaskahKonsep: id },
         order: { urutan: 'DESC' },
@@ -1448,6 +1543,7 @@ export class KonsepService {
         'reject',
         dto.catatan,
         fromPos.persnum_person,
+        null, // No PDF snapshot for reject
       );
 
       await queryRunner.commitTransaction();
@@ -1815,24 +1911,23 @@ export class KonsepService {
         order: { id: 'DESC' },
       });
 
-      // Get all penerima for naskah asli (draft document)
+      // Get all penerima for naskah asli (final document)
+      // After finalize, isKonsep is set to 0 for the final document
       const penerimaList = naskahAsli
         ? await this.naskahSirkulasiRepository.find({
             where: {
               idNaskah: naskahAsli.id,
               sirkuler: 'penerima',
-              isKonsep: 1,
             },
           })
         : [];
 
-      // Get all tembusan for naskah asli (draft document)
+      // Get all tembusan for naskah asli (final document)
       const tembusanList = naskahAsli
         ? await this.naskahSirkulasiRepository.find({
             where: {
               idNaskah: naskahAsli.id,
               sirkuler: 'tembusan',
-              isKonsep: 1,
             },
           })
         : [];
@@ -1898,15 +1993,17 @@ export class KonsepService {
             } : null,
             aksi: r.aksi,
             catatan: r.catatan,
+            pdf_snapshot: r.pdfSnapshot,
             created_at: r.createdAt,
             created_by: r.createdBy,
           })),
-          lampiran: lampiranList.map((l) => ({
+          lampiran: await Promise.all(lampiranList.map(async (l) => ({
             id: l.id,
             file_name: l.file_name,
             file_pdf: l.file_pdf,
+            file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
             jenis: l.jenis,
-          })),
+          }))),
         },
       };
     } catch (error) {
@@ -2210,6 +2307,7 @@ export class KonsepService {
             } : null,
             aksi: r.aksi,
             catatan: r.catatan,
+            pdf_snapshot: r.pdfSnapshot,
             created_at: r.createdAt,
             created_by: r.createdBy,
           })),
@@ -2222,6 +2320,109 @@ export class KonsepService {
       throw new BadRequestException(
         error instanceof Error ? error.message : 'Gagal mendapatkan riwayat konsep',
       );
+    }
+  }
+
+  // ==========================================
+  // HELPER: GENERATE AND UPLOAD PDF SNAPSHOT
+  // ==========================================
+
+  /**
+   * Generate PDF snapshot dari konten naskah saat ini dan upload ke storage
+   * 
+   * @param naskahAsli Naskah entity (ND/SDI/SDE)
+   * @param jenis Jenis naskah (ND|SDI|SDE)
+   * @param aksi Aksi workflow (create, forward, finalize, dll)
+   * @param urutan Urutan riwayat
+   * @returns URL file PDF di storage atau null jika gagal
+   */
+  private async generateAndUploadPdfSnapshot(
+    naskahAsli: NaskahEntity,
+    jenis: 'ND' | 'SDI' | 'SDE',
+    aksi: string,
+    urutan: number,
+  ): Promise<string | null> {
+    try {
+      // 1. Prepare data untuk generate PDF
+      // Convert Date to string format for PDF generation
+      const tanggalDate = naskahAsli.tanggal || new Date();
+      const tanggalString = tanggalDate instanceof Date 
+        ? tanggalDate.toISOString().split('T')[0] 
+        : String(tanggalDate);
+
+      const pdfBody: any = {
+        jenis,
+        htmlContent: naskahAsli.konten || '',
+        perihal: naskahAsli.perihal || '',
+        tanggal: tanggalString,
+        tgl: tanggalString,
+        sifat: naskahAsli.sifat || 'biasa',
+        nomor: naskahAsli.nomor || '',
+        klasifikasi: naskahAsli.klasifikasi || '',
+        nama_tempat: naskahAsli.tempat || 'Tangerang',
+        lampiran: naskahAsli.lampiran || '-',
+      };
+
+      // 2. Get penerima and tembusan dari sirkulasi
+      const sirkulasiPenerima = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
+      });
+      
+      const sirkulasiTembusan = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
+      });
+
+      // Build penerima and tembusan arrays
+      pdfBody.penerima = sirkulasiPenerima.map(s => s.positionText || s.namaSirkuler || '');
+      pdfBody.tertuju = pdfBody.penerima;
+      pdfBody.tembusan = sirkulasiTembusan.map(s => s.positionText || s.namaSirkuler || '');
+
+      // Get pengirim data
+      const sirkulasiPengirim = await this.naskahSirkulasiRepository.findOne({
+        where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
+      });
+
+      if (sirkulasiPengirim) {
+        pdfBody.nama_jabatan = sirkulasiPengirim.positionText || '';
+        pdfBody.nama_lengkap = sirkulasiPengirim.namaSirkuler || '';
+      }
+
+      // 3. Generate PDF buffer
+      let pdfBuffer: Buffer;
+      if (jenis === 'ND') {
+        pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfBody);
+      } else {
+        pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
+      }
+
+      // 4. Upload to storage
+      const timestamp = Date.now();
+      const fileName = `snapshot_${aksi}_${urutan}_${timestamp}.pdf`;
+      const fullKey = `konsep/${naskahAsli.id}/${fileName}`;
+
+      // Direct upload to S3 with exact key (no auto-prefixing)
+      await this.storageService['s3Client'].send(
+        new (await import('@aws-sdk/client-s3')).PutObjectCommand({
+          Bucket: this.storageService['bucketName'],
+          Key: fullKey,
+          Body: pdfBuffer,
+          ContentType: 'application/pdf',
+          ContentDisposition: 'inline',
+        }),
+      );
+
+      // Get URL for the uploaded file
+      const uploadResult = {
+        key: fullKey,
+        url: await this.storageService.getFileUrl(fullKey),
+        bucket: this.storageService['bucketName'],
+      };
+
+      return uploadResult.url;
+    } catch (error) {
+      console.error('Failed to generate PDF snapshot:', error);
+      // Return null instead of throwing error to avoid breaking the workflow
+      return null;
     }
   }
 
@@ -2242,6 +2443,7 @@ export class KonsepService {
     aksi: 'create' | 'forward' | 'approve' | 'reject' | 'revisi' | 'finalize',
     catatan: string | null,
     createdBy: string | null,
+    pdfSnapshot: string | null = null,
   ): Promise<void> {
     const riwayat = this.konsepRiwayatRepository.create({
       id: uuidv4(),
@@ -2256,6 +2458,7 @@ export class KonsepService {
       aksi,
       catatan,
       createdBy,
+      pdfSnapshot,
     });
 
     await queryRunner.manager.save(riwayat);
