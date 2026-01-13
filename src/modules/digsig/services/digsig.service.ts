@@ -16,6 +16,7 @@ import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entit
 import { Session } from '../../auth/entities/session.entity';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { QRCodeService, QRCodeData } from './qrcode.service';
+import { DigsigLogService } from './digsig-log.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
@@ -33,6 +34,18 @@ export interface DigsigParams {
   passphrase: string;
   path_dokumen: string;
   no_wa: string;
+}
+
+/**
+ * Optional context for logging BSrE activities
+ * Pass this to hitDigsigEndpoint for automatic logging
+ */
+export interface DigsigLogContext {
+  userPersnum: number;
+  userName?: string;
+  idNaskah?: string;
+  jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  ipAddress?: string;
 }
 
 export interface DigsigResponse {
@@ -82,6 +95,7 @@ export class DigsigService {
   constructor(
     private readonly storageService: StorageService,
     private readonly qrCodeService: QRCodeService,
+    private readonly digsigLogService: DigsigLogService,
     private readonly generatePdfNodinService: GeneratePdfNodinService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
@@ -101,8 +115,10 @@ export class DigsigService {
 
   /**
    * Hit Digsig API Endpoint
+   * @param params - DigsigParams for BSrE API
+   * @param logContext - Optional context for logging (currently unused, for future logging)
    */
-  async hitDigsigEndpoint(params: DigsigParams) {
+  async hitDigsigEndpoint(params: DigsigParams, logContext?: DigsigLogContext) {
     try {
       console.log('[DigsigService] hitDigsigEndpoint - Starting...');
       console.log('[DigsigService] Params:', {
@@ -119,6 +135,10 @@ export class DigsigService {
       const buffer = await this.storageService.getFile(params.key);
       console.log('[DigsigService] File fetched, size:', buffer.length, 'bytes');
       const base64File = buffer.toString('base64');
+      const dokumenName = params.filename;
+
+      const timestamp = Date.now();
+      const newDokumenName = dokumenName.replace(/\.pdf$/i, `-${timestamp}.pdf`);
 
       // 2. Payload sesuai spesifikasi
       const payload = {
@@ -129,7 +149,7 @@ export class DigsigService {
         dokumen: [
           {
             nomorDokumen: params.nomorDokumen,
-            filename: params.filename,
+            filename: newDokumenName,
             data: base64File,
           },
         ],
@@ -159,8 +179,59 @@ export class DigsigService {
       );
 
       console.log('[DigsigService] BSrE Response:', response.data);
+
+      // Log success if context provided
+      console.log('[DigsigService] logContext received:', logContext);
+      if (logContext) {
+        try {
+          console.log('[DigsigService] Attempting to log success...');
+          const logResult = await this.digsigLogService.logSignActivity({
+            userPersnum: logContext.userPersnum,
+            userName: logContext.userName,
+            ipAddress: logContext.ipAddress,
+            idNaskah: logContext.idNaskah,
+            nomorNaskah: params.nomorDokumen,
+            jenisNaskah: logContext.jenisNaskah,
+            apiEndpoint: 'POST /signin',
+            status: 'sukses',
+            note: 'BSrE signing berhasil',
+            bsreResponse: response.data,
+          });
+          console.log('[DigsigService] Log saved successfully:', logResult.id);
+        } catch (logError) {
+          console.error('[DigsigService] Failed to log success:', logError);
+        }
+      } else {
+        console.log('[DigsigService] No logContext provided - skipping logging');
+      }
+
       return response.data;
     } catch (error: any) {
+      // Log failure if context provided
+      console.log('[DigsigService] Error occurred, logContext:', logContext);
+      if (logContext) {
+        try {
+          console.log('[DigsigService] Attempting to log failure...');
+          const logResult = await this.digsigLogService.logSignActivity({
+            userPersnum: logContext.userPersnum,
+            userName: logContext.userName,
+            ipAddress: logContext.ipAddress,
+            idNaskah: logContext.idNaskah,
+            nomorNaskah: params.nomorDokumen,
+            jenisNaskah: logContext.jenisNaskah,
+            apiEndpoint: 'POST /signin',
+            status: 'gagal',
+            note: axios.isAxiosError(error) ? (error.response?.data?.message || error.message) : error.message,
+            bsreResponse: axios.isAxiosError(error) ? error.response?.data : { error: error.message },
+          });
+          console.log('[DigsigService] Failure log saved:', logResult.id);
+        } catch (logError) {
+          console.error('[DigsigService] Failed to log failure:', logError);
+        }
+      } else {
+        console.log('[DigsigService] No logContext for failure - skipping logging');
+      }
+
       if (axios.isAxiosError(error)) {
         console.error('[DigsigService] Axios Error Message:', error.message);
         console.error('[DigsigService] Status:', error.response?.status);

@@ -1401,6 +1401,11 @@ export class KajianService {
             passphrase: dto.passphrase!,
             path_dokumen: 'kajian/digsig/',
             no_wa: userData.no_wa,
+          }, {
+            userPersnum: persnum,
+            userName: signerName || 'User',
+            idNaskah: naskahId,
+            jenisNaskah: 'KA',
           });
           console.log(`[KA] Step 9c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 
@@ -3173,6 +3178,11 @@ export class KajianService {
           passphrase: dto.passphrase!,
           path_dokumen: 'kajian/digsig/',
           no_wa: userData.no_wa,
+        }, {
+          userPersnum: persnum,
+          userName: signerName || 'User',
+          idNaskah: naskahId,
+          jenisNaskah: 'KA',
         });
         console.log(`[KA finalizeDraft] BSrE response:`, JSON.stringify(bsreResponse, null, 2));
 
