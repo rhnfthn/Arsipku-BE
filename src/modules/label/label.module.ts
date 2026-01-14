@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { LabelController } from './controllers/label.controller';
-import { LabelService } from './services/label.service';
-import { LabelEntity } from './entities/label.entity';
+import { LabelController } from './controllers';
+import { LabelService } from './services';
+import { LabelEntity, NaskahLabelEntity } from './entities';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([LabelEntity])],
+  imports: [TypeOrmModule.forFeature([LabelEntity, NaskahLabelEntity])],
   controllers: [LabelController],
   providers: [LabelService],
   exports: [LabelService, TypeOrmModule],
