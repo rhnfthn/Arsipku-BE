@@ -218,7 +218,7 @@ export class KajianService {
     return recipients;
   }
 
-  /**
+  /** 
    * NOTE: Validasi penerima DIHAPUS karena FE sudah mengambil sendiri dari endpoint get-recipient
    * FE sudah memfilter hanya menampilkan ATASAN yang valid dari parent organization
    * Jadi validasi di BE tidak diperlukan lagi - trust FE input
