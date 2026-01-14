@@ -65,4 +65,73 @@ export class NaskahEntity {
 
   @Column('char', { length: 36, nullable: true, comment: 'ID naskah ND/SDI/SDE jika ini adalah konsep workflow (jenis K)' })
   id_naskah_asli: string | null;
+
+  // ============================================================================
+  // KOLOM KONSOLIDASI DARI TABEL nd, sdi_sde, dan di
+  // Ditambahkan untuk menghilangkan join ke tabel terpisah
+  // ============================================================================
+
+  // --- Kop Naskah ---
+  @Column('varchar', { name: 'kop_logo', length: 255, nullable: true, comment: 'Logo kop surat' })
+  kopLogo: string | null;
+
+  @Column('varchar', { name: 'kop_nama', length: 150, nullable: true, comment: 'Nama kop surat' })
+  kopNama: string | null;
+
+  @Column('varchar', { name: 'kop_judul', length: 150, nullable: true, comment: 'Judul kop (untuk disposisi)' })
+  kopJudul: string | null;
+
+  @Column('text', { name: 'alamat_perusahaan', nullable: true, comment: 'Alamat perusahaan pada kop' })
+  alamatPerusahaan: string | null;
+
+  // --- Tempat ---
+  @Column('varchar', { name: 'nama_tempat', length: 150, nullable: true, comment: 'Nama tempat/kota' })
+  namaTempat: string | null;
+
+  // --- Agenda (untuk Disposisi Internal) ---
+  @Column('varchar', { name: 'nomor_agenda', length: 100, nullable: true, comment: 'Nomor agenda (untuk DI)' })
+  nomorAgenda: string | null;
+
+  @Column('date', { name: 'tanggal_agenda', nullable: true, comment: 'Tanggal agenda (untuk DI)' })
+  tanggalAgenda: Date | null;
+
+  @Column('varchar', { name: 'surat_dari', length: 150, nullable: true, comment: 'Surat dari (untuk DI)' })
+  suratDari: string | null;
+
+  // --- Penerima ---
+  @Column('varchar', { name: 'kepada_yth', length: 255, nullable: true, comment: 'Kepada Yth' })
+  kepadaYth: string | null;
+
+  @Column('varchar', { name: 'dari', length: 150, nullable: true, comment: 'Dari/pengirim (untuk ND)' })
+  dari: string | null;
+
+  @Column('varchar', { name: 'nama_penerima', length: 150, nullable: true, comment: 'Nama penerima (untuk SDI/SDE)' })
+  namaPenerima: string | null;
+
+  @Column('text', { name: 'alamat_penerima', nullable: true, comment: 'Alamat penerima (untuk SDI/SDE)' })
+  alamatPenerima: string | null;
+
+  // --- Penandatangan ---
+  @Column('varchar', { name: 'nama_jabatan', length: 150, nullable: true, comment: 'Nama jabatan penandatangan' })
+  namaJabatan: string | null;
+
+  @Column('varchar', { name: 'tanda_tangan', length: 255, nullable: true, comment: 'Path file tanda tangan' })
+  tandaTangan: string | null;
+
+  @Column('varchar', { name: 'nama_lengkap', length: 150, nullable: true, comment: 'Nama lengkap penandatangan' })
+  namaLengkap: string | null;
+
+  // --- Disposisi (untuk DI) ---
+  @Column('text', { name: 'disposisi', nullable: true, comment: 'Isi disposisi (untuk DI)' })
+  disposisi: string | null;
+
+  @Column('text', { name: 'catatan', nullable: true, comment: 'Catatan (untuk DI)' })
+  catatan: string | null;
+
+  @Column('varchar', { name: 'paraf', length: 100, nullable: true, comment: 'Paraf (untuk DI)' })
+  paraf: string | null;
+
+  // --- Tembusan ---
+  @Column('text', { name: 'tembusan', nullable: true, comment: 'Daftar tembusan' })
+  tembusan: string | null;
 }
