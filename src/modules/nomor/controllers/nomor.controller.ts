@@ -130,12 +130,12 @@ export class NomorController {
   }
 
   /**
-   * GET /admin/nomor-request/:id_posisi
+   * GET /admin/nomor-request-by-position/:id_posisi
    * Admin melihat usulan nomor dengan filter posisi
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    */
-  @Get('admin/nomor-request/:id_posisi')
+  @Get('admin/nomor-request-by-position/:id_posisi')
   async getAdminNomorRequestByPosition(
     @Param('id_posisi') idPosisi: string,
   ): Promise<GetAdminNomorRequestResponseDto> {
