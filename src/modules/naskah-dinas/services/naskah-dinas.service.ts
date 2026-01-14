@@ -104,6 +104,36 @@ export class NaskahDinasService {
   }
 
   /**
+   * Helper: Create sirkulasi for pengirim (eksternal)
+   */
+  private createSirkulasiFromEksternal(
+    idNaskah: string,
+    eksternal: EksternalEntity,
+  ): NaskahSirkulasi {
+    const sirkulasi = this.naskahSirkulasiRepository.create({
+      id: uuidv4(),
+      idNaskah,
+      sirkuler: 'pengirim',
+      company: eksternal.company ?? null,
+      companyText: null,
+      area: eksternal.area ?? null,
+      areaText: null,
+      subArea: null,
+      subAreaText: null,
+      organization: null,
+      organizationText: null,
+      position: eksternal.id,
+      positionText: eksternal.nama,
+      positionStatus: 'ybs',
+      idSirkuler: null,
+      namaSirkuler: null,
+      isDraft: false,
+    });
+
+    return sirkulasi;
+  }
+
+  /**
    * Parse form-data body + uploaded file to CreateNaskahDinasDto
    * 
    * Form field names sesuai UI:
@@ -318,8 +348,11 @@ export class NaskahDinasService {
 
       await queryRunner.manager.save(naskah);
 
-      // 5. Sirkulasi HANYA untuk penerima (internal user)
-      // Pengirim (eksternal) TIDAK masuk ke sirkulasi
+      // 5. Create sirkulasi untuk pengirim (eksternal)
+      const sirkulasiPengirim = this.createSirkulasiFromEksternal(naskahId, pengirimEksternal);
+      await queryRunner.manager.save(sirkulasiPengirim);
+
+      // 6. Create sirkulasi untuk penerima (internal user)
       const penerimaResponses: NdPenerimaInfoDto[] = [];
       for (const pos of penerimaPositions) {
         const sirkulasiPenerima = this.createSirkulasiFromOrgData(naskahId, 'penerima', pos);
@@ -390,26 +423,16 @@ export class NaskahDinasService {
 
   /**
    * Get all Naskah Dinas (tanpa pagination)
-   * Naskah Dinas = SDE yang tidak punya sirkulasi pengirim (hanya penerima)
-   * Pengirim diambil dari tabel eksternal berdasarkan field tempat (eksternal.id)
+   * Naskah Dinas = SDE dengan pengirim eksternal (field tempat berisi eksternal.id)
    */
   async getAll(
     positionId?: number,
   ): Promise<NdGetAllResponseDto> {
-    // Build query - SDE yang TIDAK punya sirkulasi pengirim
-    // Ini yang membedakan Naskah Dinas dari SDE biasa
+    // Build query - SDE dengan tempat not null (menandakan pengirim eksternal)
     let query = this.naskahRepository
       .createQueryBuilder('naskah')
       .where('naskah.jenis = :jenis', { jenis: 'SDE' })
-      .andWhere(qb => {
-        const subQuery = qb.subQuery()
-          .select('1')
-          .from('naskah_sirkulasi', 's')
-          .where('s.idNaskah = naskah.id')
-          .andWhere('s.sirkuler = :pengirim', { pengirim: 'pengirim' })
-          .getQuery();
-        return `NOT EXISTS ${subQuery}`;
-      })
+      .andWhere('naskah.tempat IS NOT NULL')
       .orderBy('naskah.tanggal', 'DESC');
 
     // If positionId provided, filter by penerima
@@ -560,7 +583,7 @@ export class NaskahDinasService {
    * Pengirim diambil dari tabel eksternal berdasarkan field tempat (eksternal.id)
    */
   async getDetail(id: string): Promise<NdGetDetailResponseDto> {
-    // Find naskah - SDE yang tidak punya sirkulasi pengirim
+    // Find naskah - SDE dengan tempat not null (pengirim eksternal)
     const naskah = await this.naskahRepository.findOne({
       where: { id, jenis: 'SDE' },
     });
@@ -569,17 +592,15 @@ export class NaskahDinasService {
       throw new NotFoundException(`Naskah Dinas dengan ID ${id} tidak ditemukan`);
     }
 
-    // Get sirkulasi - verify tidak ada pengirim (pattern Naskah Dinas)
+    // Verify bahwa ini Naskah Dinas (tempat harus berisi eksternal.id)
+    if (!naskah.tempat) {
+      throw new NotFoundException(`Naskah dengan ID ${id} adalah SDE biasa, bukan Naskah Dinas`);
+    }
+
+    // Get sirkulasi
     const sirkulasiList = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: id },
     });
-
-    const pengirimSirkulasi = sirkulasiList.find((s) => s.sirkuler === 'pengirim');
-    
-    // Jika ada pengirim, ini bukan Naskah Dinas tapi SDE biasa
-    if (pengirimSirkulasi) {
-      throw new NotFoundException(`Naskah dengan ID ${id} adalah SDE biasa, bukan Naskah Dinas`);
-    }
 
     const penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
 
