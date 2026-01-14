@@ -212,7 +212,7 @@ export class OrgDataController {
   }
 
   /**
-   * GET /org-data/get-recipient/managerial
+   * GET /org-data/pengirim/managerial
    * Get all managerial positions (chief=1) from org_data
    *
    * Returns all positions where chief = 1 without any relational filters.
@@ -223,7 +223,7 @@ export class OrgDataController {
    *
    * @throws 404 - Not Found (org_data not found for date)
    */
-  @Get('get-recipient/managerial')
+  @Get('pengirim/managerial')
   async getAllManagerialPositions(@Query() query: OrgFilterQueryDto) {
     return this.orgBuildService.getAllManagerialPositions(query.tgl);
   }
