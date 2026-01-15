@@ -5,8 +5,10 @@ import { KonsepService } from './services/konsep.service';
 import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
+import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
 import { NdEntity } from '../nota-dinas/entities/nd.entity';
 import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
+import { DiEntity } from '../disposisi/entities/di.entity';
 import { KonsepRiwayatEntity } from './entities/konsep-riwayat.entity';
 import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
@@ -22,8 +24,10 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
       NaskahEntity,
       NaskahSirkulasi,
       NaskahLampiranEntity,
+      NaskahReferensiEntity,
       NdEntity,
       SdiSdeEntity,
+      DiEntity,
       KonsepRiwayatEntity,
       NomorEntity,
       NomorRequestEntity,

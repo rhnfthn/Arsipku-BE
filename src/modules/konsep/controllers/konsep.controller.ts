@@ -117,18 +117,24 @@ export class KonsepController {
    * 
    * Konsep dibuat oleh konseptor (bawahan) untuk dikirim ke pemeriksa/pengirim (atasan)
    * 
+   * **TINDAK LANJUT DISPOSISI**:
+   * Konsep bisa dibuat sebagai tindak lanjut dari disposisi yang diterima
+   * Kirim field `id_disposisi_referensi` untuk menghubungkan konsep dengan disposisi asal
+   * 
    * Form-data fields:
    * - jenis: string (ND|SDI|SDE)
    * - from_position_id: number
    * - to_position_id: number
+   * - id_disposisi_referensi: string (OPTIONAL - ID naskah disposisi yang menjadi dasar konsep)
    * - perihal, konten, klasifikasi, sifat, etc.
    * - lampiran_temp_ids: string[] (RECOMMENDED - IDs dari POST /upload-temporary-konsep)
    * - lampiran_files: file[] (DEPRECATED - untuk backward compatibility)
    * 
    * RECOMMENDED FLOW:
-   * 1. Upload files via POST /upload-temporary-konsep
-   * 2. Get file IDs from response
-   * 3. Send lampiran_temp_ids to this endpoint
+   * 1. Terima disposisi (DI) dengan instruksi
+   * 2. Upload files via POST /upload-temporary-konsep
+   * 3. Get file IDs from response
+   * 4. Send lampiran_temp_ids + id_disposisi_referensi to this endpoint
    * 
    * @returns CreateKonsepResponseDto
    */
