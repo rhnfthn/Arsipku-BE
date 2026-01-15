@@ -218,11 +218,31 @@ export class KajianService {
     return recipients;
   }
 
-  /** 
-   * NOTE: Validasi penerima DIHAPUS karena FE sudah mengambil sendiri dari endpoint get-recipient
-   * FE sudah memfilter hanya menampilkan ATASAN yang valid dari parent organization
-   * Jadi validasi di BE tidak diperlukan lagi - trust FE input
+  /**
+   * Validate recipients: Hanya ATASAN (dari parent organization) yang valid
    */
+  private validateRecipients(
+    barisData: PositionData[],
+    pengirimPositionId: number,
+    penerimaPositionIds: number[],
+  ): void {
+    const validRecipients = this.filterByPositionKA(barisData, pengirimPositionId);
+    const validPositionIds = new Set(validRecipients.map((r) => Number(r.position)));
+
+    const invalidRecipients: number[] = [];
+    for (const penerimaId of penerimaPositionIds) {
+      if (!validPositionIds.has(Number(penerimaId))) {
+        invalidRecipients.push(penerimaId);
+      }
+    }
+
+    if (invalidRecipients.length > 0) {
+      throw new ForbiddenException(
+        `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
+          `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
+      );
+    }
+  }
 
   /**
    * Convert PositionData to SirkulasiInfoDto
@@ -798,11 +818,6 @@ export class KajianService {
     await queryRunner.startTransaction();
 
     try {
-      // Validate pengirim is provided
-      if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
-        throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
-      }
-
       // Get cached position data
       const barisData = await this.getPositionData();
 
@@ -1096,11 +1111,6 @@ export class KajianService {
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
-
-    // Validate pengirim is provided
-    if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
-      throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
-    }
 
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1528,11 +1538,6 @@ export class KajianService {
     await queryRunner.startTransaction();
 
     try {
-      // Validate pengirim is provided
-      if (!dto.pengirim || isNaN(Number(dto.pengirim))) {
-        throw new BadRequestException('Pengirim (position_id) harus diisi dengan nilai yang valid');
-      }
-
       const barisData = await this.getPositionData();
 
       // Validate pengirim (using new DTO field: pengirim)
@@ -2454,7 +2459,7 @@ export class KajianService {
     };
 
     const dto: CreateKajianDto = {
-      pengirim: body.pengirim !== undefined ? Number(body.pengirim) : 0,
+      pengirim: Number(body.pengirim),
       penerima: parseArray(body.penerima),
       tembusan: parseArray(body.tembusan),
       kop_logo: body.kop_logo || undefined,
