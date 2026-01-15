@@ -23,7 +23,7 @@ export class CekDokumenService {
     private readonly configService: ConfigService,
     private readonly digsigLogService: DigsigLogService,
   ) {
-    // TODO: Ganti dengan URL BSrE verify endpoint yang benar
+
     this.bsreBaseUrl = this.configService.get<string>('BSRE_BASE_URL') || 'http://172.20.16.115:7000';
   }
 
