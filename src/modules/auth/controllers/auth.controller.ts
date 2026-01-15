@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
+import { DelegasiService } from '../../delegasi/services/delegasi.service';
 import { VerifyTokenDto } from '../dto/verify-token.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
@@ -22,6 +23,7 @@ export class AuthController {
     private readonly sessionService: SessionService,
     private readonly configService: ConfigService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
+    private readonly delegasiService: DelegasiService,
   ) {}
 
   /**
@@ -315,6 +317,17 @@ export class AuthController {
       kota: string;
       alamat: string;
     } | null;
+    delegations?: Array<{
+      id: string;
+      position_status: string;
+      position_status_label: string;
+      position: string;
+      position_text: string;
+      organization: string;
+      organization_text: string;
+      start_date: Date;
+      end_date: Date;
+    }>;
   }> {
     // Get alamat info from sub_area_alamat based on user context
     let alamatInfo: { kantor: string; gedung: string; kota: string; alamat: string } | null = null;
@@ -342,10 +355,43 @@ export class AuthController {
       // Continue without alamat info
     }
 
+    // Get active delegations for this user (where user is the recipient)
+    let delegations: Array<{
+      id: string;
+      position_status: string;
+      position_status_label: string;
+      position: string;
+      position_text: string;
+      organization: string;
+      organization_text: string;
+      start_date: Date;
+      end_date: Date;
+    }> = [];
+    try {
+      if (user.persnum) {
+        const result = await this.delegasiService.getAvailableRoles(String(user.persnum));
+        delegations = result.delegations.map(d => ({
+          id: d.id,
+          position_status: d.position_status,
+          position_status_label: d.position_status_label,
+          position: d.position,
+          position_text: d.position_text,
+          organization: d.organization,
+          organization_text: d.organization_text,
+          start_date: d.start_date,
+          end_date: d.end_date,
+        }));
+      }
+    } catch (error) {
+      console.error('[getProfile] Error fetching delegations:', error);
+      // Continue without delegations
+    }
+
     return {
       message: 'Profile retrieved from JWT',
       user,
       alamatInfo,
+      delegations: delegations.length > 0 ? delegations : undefined,
     };
   }
 }
