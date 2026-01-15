@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: 172.20.16.115:5500
-  IMAGE_NAME: arsipku-be
+  IMAGE_NAME: arsipku/arsipku-be
   TAG: latest
 
 jobs:
