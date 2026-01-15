@@ -1,59 +1,53 @@
-name: Deploy Backend Arsipku
+name: Build & Deploy ArsipKu BE to Coolify
 
 on:
   push:
-    branches: [UAT]
+    branches: [ qas, prd ]
+
+env:
+  REGISTRY: 172.20.16.115:5500
+  IMAGE_NAME: arsipku-be
+  TAG: latest
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Show branch info
         run: |
           echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
-      
-      - name: Check secret exists
+          echo "Repo: ${{ github.repository }}"
+          echo "URL: $REGISTRY"
+          
+      - name: Checkout repository
         run: |
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "❌ SSH_PRIVATE_KEY is KOSONG"
-            exit 1
-          else
-            echo "✅ SSH_PRIVATE_KEY is PRESENTS"
-          fi
+          git clone \
+            --branch ${{ github.ref_name }} \
+            --single-branch \
+            http://${{ secrets.GITEAUSERNAME }}:${{ secrets.GITEATOKEN }}@${{ vars.HOST_URL }}/dani/arsipku-be.git \
+            .
 
-      - name: Setup SSH
+      - name: Debug workspace
         run: |
-          mkdir -p ~/.ssh
-          printf "%s\n" "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/gitea_runner_ci
-          chmod 600 ~/.ssh/gitea_runner_ci
-          ssh-keyscan -H 172.20.16.116 >> ~/.ssh/known_hosts
-      
-      - name: Test SSH
+          pwd
+          ls -lah
+          find . -name "Dockerfile"     
+
+      - name: Login Registry
         run: |
-          ssh -i ~/.ssh/gitea_runner_ci -o BatchMode=yes itqa@172.20.16.116 "echo SSH_OK"
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login $REGISTRY \
+            -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
 
-      - name: Deploy to UAT
-        if: ${{ github.ref_name == 'UAT' }}
+      - name: Build Image
         run: |
-          echo "Deploying to UAT..."
-          ssh -o BatchMode=yes \
-              -o IdentitiesOnly=yes \
-              -i ~/.ssh/gitea_runner_ci \
-              itqa@172.20.16.116 << 'EOF'
+          docker build -t $REGISTRY/$IMAGE_NAME:$TAG -f ./Dockerfile .     
 
-            set -e
+      - name: Push Image
+        run: |
+          docker push $REGISTRY/$IMAGE_NAME:$TAG
 
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-            cd /home/itdev/projects/arsipku/arsipku-backend
-
-            git pull origin UAT
-            npm ci
-            npm run build
-
-            pm2 reload ecosystem.config.js --env production || pm2 start ecosystem.config.js
-            pm2 save
-          EOF
+      - name: Trigger Deploy to Coolify
+        run: |
+          curl -X POST "${{ secrets.COOLIFY_WEBHOOK }}" \
+          -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
