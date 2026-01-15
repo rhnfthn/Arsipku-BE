@@ -75,6 +75,9 @@ export class InboxItemDto {
   is_arsip: boolean;
   is_note: boolean;
   
+  // Labels - array nama label yang di-assign ke naskah
+  labels: string[];
+  
   // Timestamps
   created_at: Date;
   updated_at: Date;
