@@ -11,6 +11,8 @@ import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lamp
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
+import { LabelService } from '../../label/services/label.service';
+import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
@@ -69,6 +71,9 @@ export class DraftService {
     private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     @InjectRepository(EksternalEntity)
     private readonly eksternalRepository: Repository<EksternalEntity>,
+    @InjectRepository(NaskahLabelEntity)
+    private readonly naskahLabelRepository: Repository<NaskahLabelEntity>,
+    private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -119,6 +124,38 @@ export class DraftService {
 
     // Execute query
     const naskahs = await queryBuilder.getMany();
+
+    // Get all naskah IDs untuk query labels
+    const naskahIds = naskahs.map(n => n.id);
+    const labelsMap = new Map<string, string[]>();
+
+    // Get labels for all naskah
+    if (naskahIds.length > 0) {
+      const labelsQuery = `
+        SELECT 
+          nl.naskah_id,
+          l.nama,
+          parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      
+      // Group labels by naskah_id
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) {
+          labelsMap.set(row.naskah_id, []);
+        }
+        const labelName = row.parent_nama 
+          ? `${row.parent_nama} > ${row.nama}` 
+          : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
+    }
 
     // Build response items
     const items: DraftListItemDto[] = [];
@@ -228,6 +265,7 @@ export class DraftService {
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
         tanggal: tanggal,
         waktu: waktuUTC,
+        labels: labelsMap.get(naskah.id) || [],
       });
     }
 

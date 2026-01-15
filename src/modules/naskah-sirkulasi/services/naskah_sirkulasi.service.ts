@@ -25,6 +25,8 @@ import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lamp
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+import { LabelService } from '../../label/services/label.service';
+import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -46,6 +48,9 @@ export class NaskahSirkulasiService {
     private readonly eksternalRepo: Repository<EksternalEntity>,
     @InjectRepository(SdiSdeEntity)
     private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
+    @InjectRepository(NaskahLabelEntity)
+    private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
+    private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -244,6 +249,7 @@ export class NaskahSirkulasiService {
     // Get all recipients (kepada) for each naskah
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
     const kepadaMap = new Map<string, any[]>();
+    const labelsMap = new Map<string, any[]>();
     
     if (naskahIds.length > 0) {
       const kepadaQuery = `
@@ -271,6 +277,33 @@ export class NaskahSirkulasiService {
           position_text: row.position_text || '',
           organization_text: row.organization_text || '',
         });
+      });
+
+      // Get labels for each naskah (include parent name untuk nested label)
+      const labelsQuery = `
+        SELECT 
+          nl.naskah_id,
+          l.nama,
+          parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      
+      // Group labels by naskah_id (with parent hierarchy)
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) {
+          labelsMap.set(row.naskah_id, []);
+        }
+        // Format: "Parent > Child" jika ada parent, atau hanya "Label" jika tidak ada parent
+        const labelName = row.parent_nama 
+          ? `${row.parent_nama} > ${row.nama}` 
+          : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
       });
     }
 
@@ -305,6 +338,7 @@ export class NaskahSirkulasiService {
       is_favorit: row.flag_favorit === 1,
       is_arsip: row.flag_arsip === 1,
       is_note: row.flag_note === 1,
+      labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
       created_at: row.created_at,
       updated_at: row.updated_at,
     }));
@@ -426,6 +460,38 @@ export class NaskahSirkulasiService {
           },
         },
       };
+    }
+
+    // Get all naskah IDs untuk query labels
+    const naskahIds = rows.map((r: any) => r.id_naskah);
+    const labelsMap = new Map<string, string[]>();
+
+    // Get labels for all naskah
+    if (naskahIds.length > 0) {
+      const labelsQuery = `
+        SELECT 
+          nl.naskah_id,
+          l.nama,
+          parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      
+      // Group labels by naskah_id
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) {
+          labelsMap.set(row.naskah_id, []);
+        }
+        const labelName = row.parent_nama 
+          ? `${row.parent_nama} > ${row.nama}` 
+          : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
     }
 
     // Untuk setiap naskah, ambil daftar penerima
@@ -562,6 +628,7 @@ export class NaskahSirkulasiService {
         favorit: !!row.flag_favorit,
         note: !!row.flag_note,
         arsip: !!row.flag_arsip,
+        labels: labelsMap.get(row.id_naskah) || [],
         created_at: row.created_at,
         updated_at: row.updated_at,
       });

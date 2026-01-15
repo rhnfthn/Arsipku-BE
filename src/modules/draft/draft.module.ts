@@ -8,6 +8,7 @@ import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampira
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
 import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
+import { LabelModule } from '../label/label.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
       SdiSdeEntity,
       EksternalEntity,
     ]),
+    LabelModule,
   ],
   controllers: [DraftController],
   providers: [DraftService],
