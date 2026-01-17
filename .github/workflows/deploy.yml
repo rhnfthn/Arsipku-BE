@@ -51,3 +51,15 @@ jobs:
         run: |
           curl -X POST "${{ secrets.COOLIFY_WEBHOOK }}" \
           -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
+
+      - name: Notifikasi Deploy via Whatsapp
+        run: |
+          curl --location "${{ vars.HOST_NOTIF }}" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n \
+              --arg repo "${{ github.repository }}" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg actor "${{ github.actor }}" \
+              --arg commit "${{ github.event.head_commit.message }}" \
+              --arg sha "${{ github.sha }}" \
+              '{repository:$repo, branch:$branch, actor:$actor, commit:$commit, sha:$sha}')"    
