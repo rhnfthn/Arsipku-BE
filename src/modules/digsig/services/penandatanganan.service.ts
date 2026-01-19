@@ -552,6 +552,7 @@ export class PenandatangananService {
       persnum: signer.persnum,
       nama: signer.nama,
       jabatan: signer.jabatan,
+      lokasi: signer.lokasi,
       status: signer.status,
       signedAt: signer.signedAt,
     };
