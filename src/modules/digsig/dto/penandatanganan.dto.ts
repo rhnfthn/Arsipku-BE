@@ -69,6 +69,7 @@ export interface SignerInfoDto {
   persnum: number;
   nama: string | null;
   jabatan: string | null;
+  lokasi: string | null;
   status: 'pending' | 'waiting' | 'signed' | 'rejected';
   signedAt: Date | null;
 }
