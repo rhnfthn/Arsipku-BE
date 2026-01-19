@@ -7,6 +7,9 @@ import { NaskahSirkulasi } from '../naskah-sirkulasi/entities/naskah_sirkulasi.e
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
 import { DiEntity } from '../disposisi/entities/di.entity';
+import { NdEntity } from '../nota-dinas/entities/nd.entity';
+import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -16,7 +19,10 @@ import { DiEntity } from '../disposisi/entities/di.entity';
       NaskahLampiranEntity,
       NaskahReferensiEntity,
       DiEntity,
+      NdEntity,
+      SdiSdeEntity,
     ]),
+    StorageModule,
   ],
   controllers: [NaskahController],
   providers: [NaskahService],
