@@ -36,6 +36,11 @@ export interface DigsigParams {
   no_wa: string;
 }
 
+export interface VerifyDigsigParams {
+  filename: string; // filename.pdf
+  fileurl: string;
+}
+
 /**
  * Optional context for logging BSrE activities
  * Pass this to hitDigsigEndpoint for automatic logging
@@ -1567,4 +1572,69 @@ export class DigsigService {
       };
     }
   }
+
+  async hitVerifyDigsig(params: VerifyDigsigParams) {
+    try {
+      console.log('[DigsigService] hitDigsigVerify - Starting...');
+      const filename = params.filename;
+      const fileurl = params.fileurl;
+      const finalfileurl = await this.storageService.getFileUrl(fileurl);
+      console.log(finalfileurl);
+      // 2. Payload sesuai spesifikasi
+      const payload = {
+        filename: filename,
+        fileurl: finalfileurl,
+      };
+
+      // 3. Hit endpoint
+      const response = await axios.post(
+        BSRE_VERIFY_URL,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      console.log('[DigsigService] BSrE Response:', response.data);
+      return response.data;
+    } catch (error: any) {      
+      if (axios.isAxiosError(error)) {
+        console.error('[DigsigService] Axios Error Message:', error.message);
+        console.error('[DigsigService] Status:', error.response?.status);
+        console.error('[DigsigService] Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('[DigsigService] Request URL:', error.config?.url);
+        const status =
+          error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
+
+        const message =
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          'Gagal mengambil data dari service external';
+
+        // 🔥 lempar ulang ke controller
+        throw new HttpException(
+          {
+            success: false,
+            message,
+            source: 'external-service',
+            detail: error.response?.data,
+          },
+          status,
+        );
+      }
+      console.error('[DigsigService] Unexpected Error:', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Unexpected error',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+  
 }
