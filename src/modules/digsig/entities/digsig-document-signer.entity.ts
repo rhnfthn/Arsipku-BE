@@ -42,6 +42,9 @@ export class DigsigDocumentSignerEntity {
   @Column({ name: 'jabatan', type: 'varchar', length: 255, nullable: true })
   jabatan: string | null;
 
+  @Column({ name: 'lokasi', type: 'varchar', length: 255, nullable: true })
+  lokasi: string | null;
+
   @Column({ name: 'position_id', type: 'int', nullable: true })
   positionId: number | null;
 
