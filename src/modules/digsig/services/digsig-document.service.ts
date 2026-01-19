@@ -698,24 +698,39 @@ export class DigsigDocumentService {
         return x.chief === 1 && x.area === userArea;
       });
 
+      console.log('[DigsigDocumentService] Found verifikator count:', verifikator.length);
+
       // Map to return format
-      const result = verifikator.map((v: any) => ({
-        persnum: v.persnum,
-        nama: v.persnum_text,
-        positionId: v.position,
-        jabatan: v.position_text,
-        company: v.company,
-        companyText: v.company_name,
-        area: v.area,
-        areaText: v.area_text,
-        subArea: v.sub_area,
-        subAreaText: v.sub_area_text,
-        organization: v.organization,
-        organizationText: v.organization_text,
-        abbreviation: v.abbreviation,
-        bodTag: v.bod_tag,
-        isChief: v.chief === 1,
-      }));
+      const result = verifikator.map((v: any) => {
+        // Build lokasi from subAreaText or areaText
+        const lokasi = v.sub_area_text || v.area_text || '';
+        
+        console.log('[DigsigDocumentService] Mapping verifikator:', {
+          persnum: v.persnum_person,
+          nama: v.persnum_person_text,
+          position: v.position,
+          jabatan: v.position_text,
+        });
+        
+        return {
+          persnum: v.persnum_person || null,
+          nama: v.persnum_person_text || null,
+          positionId: v.position || null,
+          jabatan: v.position_text || null,
+          lokasi: lokasi,
+          company: v.company || null,
+          companyText: v.company_name || null,
+          area: v.area || null,
+          areaText: v.area_text || null,
+          subArea: v.sub_area || null,
+          subAreaText: v.sub_area_text || null,
+          organization: v.organization || null,
+          organizationText: v.organization_text || null,
+          abbreviation: v.abbreviation || null,
+          bodTag: v.bod_tag || null,
+          isChief: v.chief === 1,
+        };
+      });
 
       return {
         success: true,
