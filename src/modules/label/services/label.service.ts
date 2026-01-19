@@ -264,15 +264,18 @@ export class LabelService {
   async getNaskahByLabel(
     labelId: string,
     positionId: string,
-  ): Promise<string[]> {
-    // Validasi label
-    await this.findOne(labelId, positionId);
+  ): Promise<{ namaLabel: string; naskahIds: string[] }> {
+    // Validasi label dan ambil data label
+    const label = await this.findOne(labelId, positionId);
 
     const naskahLabels = await this.naskahLabelRepository.find({
       where: { labelId },
     });
 
-    return naskahLabels.map((nl) => nl.naskahId);
+    return {
+      namaLabel: label.nama,
+      naskahIds: naskahLabels.map((nl) => nl.naskahId),
+    };
   }
 
   /**
