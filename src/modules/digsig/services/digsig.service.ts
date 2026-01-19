@@ -90,6 +90,10 @@ const COMPANY_ID = process.env.COMPANY_ID || '1000';
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
 const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.airnavindonesia.co.id/verify';
 
+// BSrE API Endpoints
+const BSRE_SIGNIN_URL = process.env.BSRE_SIGNIN_URL || 'http://172.20.16.115:7000/signin';
+const BSRE_VERIFY_URL = process.env.BSRE_VERIFY_URL || 'http://172.20.16.115:7000/verify';
+
 @Injectable()
 export class DigsigService {
   constructor(
@@ -164,11 +168,11 @@ export class DigsigService {
       };
 
       console.log('[DigsigService] Payload prepared, hitting BSrE API...');
-      console.log('[DigsigService] BSrE URL: http://172.20.16.115:7000/signin');
+      console.log('[DigsigService] BSrE URL:', BSRE_SIGNIN_URL);
 
       // 3. Hit endpoint
       const response = await axios.post(
-        'http://172.20.16.115:7000/signin',
+        BSRE_SIGNIN_URL,
         payload,
         {
           headers: {
@@ -1518,10 +1522,9 @@ export class DigsigService {
 
       // Hit BSrE verify endpoint
       // Note: URL endpoint verify BSrE perlu disesuaikan dengan dokumentasi BSrE
-      const verifyUrl = process.env.BSRE_VERIFY_URL || 'http://172.20.16.115:7000/verify';
       
       const response = await axios.post(
-        verifyUrl,
+        BSRE_VERIFY_URL,
         { name_doc: nameDoc },
         {
           headers: { 'Content-Type': 'application/json' },
