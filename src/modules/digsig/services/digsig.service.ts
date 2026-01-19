@@ -93,7 +93,7 @@ const DEFAULT_PASSPHRASE = '12345';
 const COMPANY_ID = process.env.COMPANY_ID || '1000';
 
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
-const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.airnavindonesia.co.id/verify';
+const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.a  irnavindonesia.co.id/verify';
 
 // BSrE API Endpoints
 const BSRE_SIGNIN_URL = process.env.BSRE_SIGNIN_URL || 'http://172.20.16.115:7000/signin';
