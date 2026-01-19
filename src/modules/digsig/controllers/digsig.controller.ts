@@ -22,11 +22,12 @@ import {
 import { CurrentUser } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { StorageService } from 'src/modules/storage/services/storage.service';
 
 @Controller('digsig')
 @UseGuards(JwtAuthGuard)
 export class DigsigController {
-  constructor(private readonly digsigService: DigsigService) {}
+  constructor(private readonly digsigService: DigsigService, private readonly storageService: StorageService) {}
 
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
@@ -52,6 +53,18 @@ export class DigsigController {
       no_wa: '',
     });
     return digsig;
+  }
+
+  @Post('testverify')
+  @HttpCode(HttpStatus.OK)
+  async verifai() {
+    const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135-1768806147569.pdf';
+    const finalPdfPath = `/nota-dinas/digsig/${filename}`;
+    const verify = this.digsigService.hitVerifyDigsig({
+      filename: filename,
+      fileurl: finalPdfPath
+    });
+    return verify;
   }
 
   /**
