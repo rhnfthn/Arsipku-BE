@@ -7,6 +7,9 @@ import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulas
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { DiEntity } from '../../disposisi/entities/di.entity';
+import { NdEntity } from '../../nota-dinas/entities/nd.entity';
+import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
+import { StorageService } from '../../storage/services/storage.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -39,6 +42,11 @@ export class NaskahService {
     private naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     @InjectRepository(DiEntity)
     private diRepository: Repository<DiEntity>,
+    @InjectRepository(NdEntity)
+    private ndRepository: Repository<NdEntity>,
+    @InjectRepository(SdiSdeEntity)
+    private sdiSdeRepository: Repository<SdiSdeEntity>,
+    private storageService: StorageService,
   ) {}
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
@@ -294,6 +302,304 @@ export class NaskahService {
       data: {
         position_id: positionId,
         count,
+      },
+    };
+  }
+
+  /**
+   * Get Detail Naskah dengan Rangkaian Referensi Lengkap
+   * 
+   * Menampilkan chain lengkap naskah dari awal sampai akhir:
+   * - Root naskah (awal)
+   * - Semua forward/disposisi turunan
+   * - Support semua jenis: ND, SDI, SDE, DI, KA
+   * 
+   * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
+   * 
+   * @param naskahId - ID naskah (bisa dari level mana saja)
+   * @returns Full chain dengan detail setiap naskah
+   */
+  async getDetailWithChain(naskahId: string): Promise<any> {
+    // Get naskah data
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
+    }
+
+    // ============================================================
+    // BUILD FULL CHAIN / RANGKAIAN
+    // ============================================================
+    
+    // STEP 1: Trace backward to find root
+    let rootNaskahId = naskahId;
+    let currentId = naskahId;
+    const visitedIds = new Set<string>([currentId]);
+    
+    while (true) {
+      const referensi = await this.naskahReferensiRepository.findOne({
+        where: { id_naskah: currentId },
+      });
+
+      if (!referensi || !referensi.ref_nomor) {
+        rootNaskahId = currentId;
+        break;
+      }
+
+      // Find parent by ref_nomor and ref_jenis
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { 
+          nomor: referensi.ref_nomor,
+          jenis: referensi.ref_jenis || undefined,
+        },
+      });
+
+      if (!parentNaskah || visitedIds.has(parentNaskah.id)) {
+        rootNaskahId = currentId;
+        break;
+      }
+
+      visitedIds.add(parentNaskah.id);
+      currentId = parentNaskah.id;
+    }
+
+    // STEP 2: Build flow from root forward
+    const flow: any[] = [];
+    const naskahIdToLevel = new Map<string, number>();
+    
+    // Helper function to build node data for flow
+    const buildFlowNode = async (
+      naskahData: NaskahEntity,
+      level: number,
+    ): Promise<any> => {
+      // Get pengirim
+      const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskahData.id,
+          sirkuler: 'pengirim',
+        },
+      });
+
+      // Get penerima list
+      const penerimaList = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskahData.id,
+          sirkuler: 'penerima',
+        },
+        order: { createdAt: 'ASC' },
+      });
+
+      // Get tembusan list
+      const tembusanList = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskahData.id,
+          sirkuler: 'tembusan',
+        },
+        order: { createdAt: 'ASC' },
+      });
+
+      // Get lampiran files
+      const lampiranFiles = await this.naskahLampiranRepository.find({
+        where: { id_naskah: naskahData.id },
+      });
+
+      // Get referensi
+      const referensiData = await this.naskahReferensiRepository.findOne({
+        where: { id_naskah: naskahData.id },
+      });
+
+      // Get jenis-specific data
+      let jenisSpecificData: any = null;
+
+      if (naskahData.jenis === 'DI') {
+        const diData = await this.diRepository.findOne({
+          where: { idNaskah: naskahData.id },
+        });
+        if (diData) {
+          jenisSpecificData = {
+            kop_logo: diData.kopLogo,
+            kop_judul: diData.kopJudul,
+            nama_jabatan: diData.namaJabatan,
+            nomor_agenda: diData.nomorAgenda,
+            tanggal_agenda: diData.tanggalAgenda,
+            surat_dari: diData.suratDari,
+            kepada_yth: diData.kepadaYth,
+            disposisi: diData.disposisi,
+            catatan: diData.catatan,
+            paraf: diData.paraf,
+          };
+        }
+      } else if (naskahData.jenis === 'ND') {
+        const ndData = await this.ndRepository.findOne({
+          where: { idNaskah: naskahData.id },
+        });
+        if (ndData) {
+          jenisSpecificData = {
+            kepada_yth: ndData.kepadaYth,
+            nama_tempat: ndData.namaTempat,
+            nama_jabatan: ndData.namaJabatan,
+            nama_lengkap: ndData.namaLengkap,
+            tanda_tangan: ndData.tandaTangan,
+          };
+        }
+      } else if (['SDI', 'SDE'].includes(naskahData.jenis || '')) {
+        const sdiSdeData = await this.sdiSdeRepository.findOne({
+          where: { idNaskah: naskahData.id },
+        });
+        if (sdiSdeData) {
+          jenisSpecificData = {
+            kepada_yth: sdiSdeData.kepadaYth,
+            tujuan: sdiSdeData.nama,
+            alamat_tujuan: sdiSdeData.alamat,
+            nama_tempat: sdiSdeData.namaTempat,
+            nama_jabatan: sdiSdeData.namaJabatan,
+            nama_lengkap: sdiSdeData.namaLengkap,
+            tanda_tangan: sdiSdeData.tandaTangan,
+            kop_logo: sdiSdeData.kopLogo,
+            kop_nama: sdiSdeData.kopNama,
+            alamat_perusahaan: sdiSdeData.alamatPerusahaan,
+          };
+        }
+      }
+
+      // Get final PDF URL
+      const finalPdfUrl = naskahData.final_pdf
+        ? await this.storageService.getFileUrl(naskahData.final_pdf)
+        : null;
+
+      // Build pengirim info
+      const pengirimInfo = pengirimSirkulasi
+        ? {
+            position_id: pengirimSirkulasi.position || '',
+            position_text: pengirimSirkulasi.positionText || '',
+            organization_text: pengirimSirkulasi.organizationText || '',
+            nama: pengirimSirkulasi.namaSirkuler || null,
+          }
+        : null;
+
+      // Build penerima list with read status
+      const penerimaInfo = penerimaList.map((p) => ({
+        position_id: p.position || '',
+        position_text: p.positionText || '',
+        organization_text: p.organizationText || '',
+        nama: p.namaSirkuler || null,
+        status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+        read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+      }));
+
+      // Build tembusan list
+      const tembusanInfo = tembusanList.map((t) => ({
+        position_id: t.position || '',
+        position_text: t.positionText || '',
+        organization_text: t.organizationText || '',
+        nama: t.namaSirkuler || null,
+      }));
+
+      // Build lampiran info with URLs
+      const lampiranInfo = await Promise.all(
+        lampiranFiles.map(async (l) => ({
+          id: l.id,
+          file_name: l.file_name || '',
+          file_path: l.file_pdf || '',
+          file_url: l.file_pdf
+            ? await this.storageService.getFileUrl(l.file_pdf)
+            : null,
+        })),
+      );
+
+      // Build referensi info
+      const referensiInfo = referensiData
+        ? {
+            ref_jenis: referensiData.ref_jenis,
+            ref_pengirim: referensiData.ref_pengirim,
+            ref_tanggal: referensiData.ref_tanggal,
+            ref_nomor: referensiData.ref_nomor,
+            ref_perihal: referensiData.ref_perihal,
+          }
+        : null;
+
+      return {
+        id: naskahData.id,
+        jenis: naskahData.jenis,
+        jenis_label: JENIS_LABELS[naskahData.jenis || ''] || naskahData.jenis,
+        nomor: naskahData.nomor,
+        tanggal: naskahData.tanggal,
+        perihal: naskahData.perihal,
+        konten: naskahData.konten,
+        sifat: naskahData.sifat,
+        klasifikasi: naskahData.klasifikasi,
+        klasifikasi_text: naskahData.klasifikasi_text,
+        status: naskahData.status,
+        lampiran: naskahData.lampiran,
+        
+        // Sirkulasi
+        pengirim: pengirimInfo,
+        penerima: penerimaInfo,
+        tembusan: tembusanInfo,
+        
+        // Lampiran files
+        lampiran_files: lampiranInfo,
+        jumlah_lampiran: lampiranFiles.length,
+        
+        // Final PDF
+        final_pdf: naskahData.final_pdf,
+        final_pdf_url: finalPdfUrl,
+        
+        // Referensi
+        referensi: referensiInfo,
+        
+        // Jenis-specific data
+        detail: jenisSpecificData,
+        
+        // Level
+        level,
+      };
+    };
+
+    // Recursive function to build tree
+    const buildTree = async (parentId: string, level: number): Promise<void> => {
+      const parentNode = await this.naskahRepository.findOne({
+        where: { id: parentId },
+      });
+
+      if (!parentNode) return;
+
+      naskahIdToLevel.set(parentId, level);
+      const node = await buildFlowNode(parentNode, level);
+      flow.push(node);
+
+      // Find all children (naskah yang mereferensi parent ini)
+      if (!parentNode.nomor) return;
+      
+      const children = await this.naskahReferensiRepository.find({
+        where: { ref_nomor: parentNode.nomor },
+      });
+
+      for (const child of children) {
+        if (child.id_naskah && !naskahIdToLevel.has(child.id_naskah)) {
+          await buildTree(child.id_naskah, level + 1);
+        }
+      }
+    };
+
+    // Build from root
+    await buildTree(rootNaskahId, 0);
+
+    // Sort descending by level (terbaru di atas)
+    flow.sort((a, b) => b.level - a.level);
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
+      data: {
+        current_naskah_id: naskahId,
+        root_naskah_id: rootNaskahId,
+        total_chain: flow.length,
+        chain: flow,
       },
     };
   }
