@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -21,7 +21,7 @@ import { DelegasiModule } from '../delegasi/delegasi.module';
     HttpModule,
     OrgDataModule,
     SubAreaAlamatModule,
-    DelegasiModule,
+    forwardRef(() => DelegasiModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

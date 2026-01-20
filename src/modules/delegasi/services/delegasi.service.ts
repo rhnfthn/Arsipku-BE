@@ -555,4 +555,82 @@ export class DelegasiService {
 
     return { delegations };
   }
+
+  /**
+   * Switch role - Activate a delegated role or switch back to original role
+   * @param persnum - Persnum of the user
+   * @param delegasiId - ID of delegation to activate (optional)
+   * @param position - Position to activate (optional)
+   * @param positionStatus - Position status to activate (optional)
+   * @param resetToOriginal - Set true to reset to original role (YBS)
+   * @returns Delegation info if switching to delegated role, or null if reset to original
+   */
+  async getDelegationForRoleSwitch(
+    persnum: string,
+    delegasiId?: string,
+    position?: string,
+    positionStatus?: PositionStatus,
+    resetToOriginal = false,
+  ): Promise<DelegasiWithStatus | null> {
+    // If reset to original, return null (caller will use original org_data)
+    if (resetToOriginal) {
+      return null;
+    }
+
+    // Validate input
+    if (!delegasiId && !position && !positionStatus) {
+      throw new BadRequestException(
+        'Harus menyediakan delegasiId atau position/positionStatus untuk switch role',
+      );
+    }
+
+    // Use local date (Asia/Jakarta timezone) instead of UTC
+    const now = new Date();
+    const localDate = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC+7
+    const todayStr = localDate.toISOString().split('T')[0];
+
+    let delegasi: DelegasiEntity | null = null;
+
+    if (delegasiId) {
+      // Find by delegation ID
+      delegasi = await this.delegasiRepository
+        .createQueryBuilder('d')
+        .where('d.id = :delegasiId', { delegasiId })
+        .andWhere('d.as_persnum = :persnum', { persnum })
+        .andWhere('d.start_date <= :today', { today: todayStr })
+        .andWhere('d.end_date >= :today', { today: todayStr })
+        .getOne();
+
+      if (!delegasi) {
+        throw new NotFoundException(
+          'Delegasi tidak ditemukan atau tidak aktif untuk user ini',
+        );
+      }
+    } else {
+      // Find by position and position_status
+      const qb = this.delegasiRepository
+        .createQueryBuilder('d')
+        .where('d.as_persnum = :persnum', { persnum })
+        .andWhere('d.start_date <= :today', { today: todayStr })
+        .andWhere('d.end_date >= :today', { today: todayStr });
+
+      if (position) {
+        qb.andWhere('d.as_position = :position', { position });
+      }
+
+      if (positionStatus) {
+        qb.andWhere('d.position_status = :positionStatus', { positionStatus });
+      }
+
+      delegasi = await qb.getOne();
+
+      if (!delegasi) {
+        throw new NotFoundException(
+          'Delegasi tidak ditemukan atau tidak aktif untuk position ini',
+        );
+      }
+    }
+
+    return this.addStatus(delegasi);
+  }
 }
