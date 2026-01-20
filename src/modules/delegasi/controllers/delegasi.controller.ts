@@ -63,10 +63,19 @@ export class DelegasiController {
    * GET /delegasi/personil
    * Data diambil dari organization_build.position_json (org_data)
    * Menampilkan daftar orang beserta jabatan mereka saat ini
+   * 
+   * Filter berdasarkan role:
+   * - superadmin: filter by area dari user yang login
+   * - admin: filter by sub_area dari user yang login
+   * - user: filter by sub_area dari user yang login
    */
   @Get('personil')
   @ApiOperation({ summary: 'Get list of personil for delegation' })
-  async getPersonil(@Query('company') company?: string, @Query('search') search?: string) {
+  async getPersonil(
+    @Query('company') company?: string, 
+    @Query('search') search?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
 
@@ -106,6 +115,21 @@ export class DelegasiController {
         personilList = personilList.filter(p => String(p.company) === String(company));
       }
 
+      // Filter berdasarkan role user yang login
+      if (user) {
+        if (user.role === 'superadmin') {
+          // Superadmin: filter by area dari user yang login
+          if (user.area) {
+            personilList = personilList.filter(p => String(p.area) === String(user.area));
+          }
+        } else {
+          // Admin & User: filter by sub_area dari user yang login
+          if (user.subArea) {
+            personilList = personilList.filter(p => String(p.subArea) === String(user.subArea));
+          }
+        }
+      }
+
       // Filter by search (name or position)
       if (search) {
         const searchLower = search.toLowerCase();
@@ -131,6 +155,11 @@ export class DelegasiController {
         success: true,
         data: uniquePersonil,
         total: uniquePersonil.length,
+        filterApplied: {
+          role: user?.role,
+          area: user?.role === 'superadmin' ? user?.area : undefined,
+          subArea: user?.role !== 'superadmin' ? user?.subArea : undefined,
+        },
       };
     } catch (error) {
       console.warn('Error getting personil from org_data:', error.message);
@@ -147,10 +176,18 @@ export class DelegasiController {
    * GET /delegasi/jabatan
    * Data diambil dari organization_build.position_json (org_data)
    * position_json berisi flat array dengan complete data (area, organization, dll)
+   * 
+   * Filter berdasarkan role:
+   * - superadmin: filter by area dari user yang login
+   * - admin: filter by sub_area dari user yang login
+   * - user: filter by sub_area dari user yang login
    */
   @Get('jabatan')
   @ApiOperation({ summary: 'Get list of jabatan for delegation with area info' })
-  async getJabatan(@Query('company') company?: string) {
+  async getJabatan(
+    @Query('company') company?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
     try {
       // Get latest org data from organization_build table
       const latestOrgData = await this.orgDataService.findLatestOrg();
@@ -207,6 +244,21 @@ export class DelegasiController {
         positionsList = positionsList.filter(pos => String(pos.company) === String(company));
       }
 
+      // Filter berdasarkan role user yang login
+      if (user) {
+        if (user.role === 'superadmin') {
+          // Superadmin: filter by area dari user yang login
+          if (user.area) {
+            positionsList = positionsList.filter(pos => String(pos.area) === String(user.area));
+          }
+        } else {
+          // Admin & User: filter by sub_area dari user yang login
+          if (user.subArea) {
+            positionsList = positionsList.filter(pos => String(pos.subArea) === String(user.subArea));
+          }
+        }
+      }
+
       // Sort by longText
       positionsList.sort((a, b) => (a.longText || '').localeCompare(b.longText || ''));
 
@@ -214,6 +266,11 @@ export class DelegasiController {
         success: true,
         data: positionsList,
         total: positionsList.length,
+        filterApplied: {
+          role: user?.role,
+          area: user?.role === 'superadmin' ? user?.area : undefined,
+          subArea: user?.role !== 'superadmin' ? user?.subArea : undefined,
+        },
       };
     } catch (error) {
       // Fallback ke simple position list jika error
