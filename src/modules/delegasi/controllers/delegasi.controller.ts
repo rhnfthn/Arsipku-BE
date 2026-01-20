@@ -16,11 +16,13 @@ import { DelegasiService } from '../services/delegasi.service';
 import { CreateDelegasiDto } from '../dto/create-delegasi.dto';
 import { UpdateDelegasiDto } from '../dto/update-delegasi.dto';
 import { QueryDelegasiDto } from '../dto/query-delegasi.dto';
+import { SwitchRoleDto } from '../dto/switch-role.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { PositionService } from '../../master-data/position/position.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { AuthService } from '../../auth/services/auth.service';
 import { DataSource } from 'typeorm';
 
 @ApiTags('Delegasi')
@@ -32,6 +34,7 @@ export class DelegasiController {
     private readonly delegasiService: DelegasiService,
     private readonly positionService: PositionService,
     private readonly orgDataService: OrgDataService,
+    private readonly authService: AuthService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -261,6 +264,58 @@ export class DelegasiController {
   @ApiOperation({ summary: 'Get available roles for profile switch' })
   getAvailableRoles(@CurrentUser() user: JwtPayload) {
     return this.delegasiService.getAvailableRoles(String(user.persnum));
+  }
+
+  /**
+   * Switch role to a delegated position or reset to original role
+   * POST /delegasi/switch-role
+   * 
+   * Example payload to switch to delegated role:
+   * { "delegasiId": "uuid-123" }
+   * 
+   * Example payload to reset to original role:
+   * { "resetToOriginal": true }
+   */
+  @Post('switch-role')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Switch role to delegated position or reset to original',
+    description: 'Generate new JWT with delegated position data or reset to original role (YBS)',
+  })
+  async switchRole(
+    @Body() dto: SwitchRoleDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    // Get delegation info from delegasi service
+    const delegasi = await this.delegasiService.getDelegationForRoleSwitch(
+      String(user.persnum),
+      dto.delegasiId,
+      dto.position,
+      dto.positionStatus,
+      dto.resetToOriginal,
+    );
+
+    // Generate new JWT with auth service
+    const result = await this.authService.switchRole(user, delegasi);
+
+    return {
+      success: true,
+      message: result.message,
+      data: {
+        accessToken: result.accessToken,
+        user: result.user,
+        ...(delegasi && {
+          activeDelegation: {
+            id: delegasi.id,
+            position: delegasi.as_position,
+            position_text: delegasi.as_position_text,
+            position_status: delegasi.position_status,
+            delegator_name: delegasi.name,
+            delegator_position_text: delegasi.position_text,
+          },
+        }),
+      },
+    };
   }
 
   /**
