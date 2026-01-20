@@ -471,4 +471,97 @@ export class AuthService {
       payloadRefresh: newPayload,
     };
   }
+
+  /**
+   * Switch role - Generate new JWT with delegated position data or reset to original
+   * @param currentUser - Current JWT payload (from @CurrentUser decorator)
+   * @param delegasi - Delegation info if switching to delegated role, or null to reset to original
+   * @returns New JWT token with updated position data
+   */
+  async switchRole(
+    currentUser: JwtPayload,
+    delegasi: { 
+      as_position: string; 
+      as_position_text: string;
+      as_organization: string;
+      as_organization_text: string;
+      as_area: string;
+      as_area_text: string;
+      as_sub_area: string;
+      as_sub_area_text: string;
+      company: string;
+      company_text: string;
+      position_status: string;
+    } | null,
+  ): Promise<{
+    message: string;
+    accessToken: string;
+    user: JwtPayload;
+  }> {
+    // Remove exp and iat from current user payload to avoid conflict with new token
+    const { exp, iat, ...basePayload } = currentUser;
+    
+    let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
+
+    if (delegasi) {
+      // Switch to delegated role
+      newPayload = {
+        ...basePayload,
+        // Update position data dengan data delegasi
+        position: delegasi.as_position,
+        positionText: delegasi.as_position_text,
+        organization: delegasi.as_organization,
+        organizationText: delegasi.as_organization_text,
+        area: delegasi.as_area,
+        areaText: delegasi.as_area_text,
+        subArea: delegasi.as_sub_area,
+        subAreaText: delegasi.as_sub_area_text,
+        company: delegasi.company,
+        companyText: delegasi.company_text,
+        // Keep original persnum and nama
+        // Role tetap sama
+      };
+    } else {
+      // Reset to original role - fetch from org_data
+      const orgData = await this.orgDataService.findByPersnum(basePayload.persnum);
+      
+      if (!orgData) {
+        throw new UnauthorizedException('User data not found in org_data');
+      }
+
+      newPayload = {
+        ...basePayload,
+        // Reset ke data asli dari org_data
+        company: orgData.company?.toString() || '',
+        companyText: orgData.companyText || '',
+        area: orgData.area || '',
+        areaText: orgData.areaText || '',
+        subArea: orgData.subArea?.toString() || '',
+        subAreaText: orgData.subAreaText || '',
+        organization: orgData.organization?.toString() || '',
+        organizationText: orgData.organizationText || '',
+        position: orgData.position?.toString() || '',
+        positionText: orgData.positionText || '',
+        bodTag: orgData.bodTag || '',
+        abbreviation: orgData.abbreviation || '',
+      };
+    }
+
+    // Generate new JWT with same expiry as current token
+    const expiresIn = exp 
+      ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
+      : 86400; // default 24 hours
+
+    const newJwt = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
+
+    return {
+      message: delegasi 
+        ? `Berhasil switch ke role ${delegasi.as_position_text}` 
+        : 'Berhasil kembali ke role asli',
+      accessToken: newJwt,
+      user: newPayload as JwtPayload,
+    };
+  }
 }
