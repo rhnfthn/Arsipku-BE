@@ -71,6 +71,9 @@ export class RekapNaskahService {
       }
     });
 
+    // Define valid status yang ditampilkan
+    const validStatuses = ['booking', 'terpakai', 'terpakai_final', 'hangus'];
+
     // Group by jenis + status dan hitung per bulan
     const rekapMap = new Map<string, RekapJenisData>();
 
@@ -79,7 +82,13 @@ export class RekapNaskahService {
       
       // Process setiap detail dengan status-nya
       for (const detail of request.details || []) {
-        const status = detail.status || 'Unknown';
+        const status = detail.status;
+        
+        // Skip jika status tidak termasuk dalam validStatuses
+        if (!status || !validStatuses.includes(status)) {
+          continue;
+        }
+        
         const mapKey = `${jenis}|${status}`;
         
         if (!rekapMap.has(mapKey)) {
@@ -150,11 +159,16 @@ export class RekapNaskahService {
       }
     }
 
-    // Convert map to array dan sort by jenis, kemudian status
+    // Convert map to array dan sort by jenis, kemudian status (sesuai urutan: booking, terpakai, terpakai_final, hangus)
+    const statusOrder = { booking: 1, terpakai: 2, terpakai_final: 3, hangus: 4 };
     const rekap = Array.from(rekapMap.values()).sort((a, b) => {
       const jenisCompare = a.jenis.localeCompare(b.jenis);
       if (jenisCompare !== 0) return jenisCompare;
-      return a.status.localeCompare(b.status);
+      
+      // Sort berdasarkan urutan status yang ditentukan
+      const orderA = statusOrder[a.status] || 999;
+      const orderB = statusOrder[b.status] || 999;
+      return orderA - orderB;
     });
 
     return {
@@ -170,8 +184,8 @@ export class RekapNaskahService {
   }
 
   /**
-   * Get detail naskah dinas yang sudah valid (terpakai)
-   * Menampilkan list nomor yang sudah disetujui dengan info lengkap
+   * Get detail naskah dinas
+   * Menampilkan list nomor dengan 4 status (booking, terpakai, terpakai_final, hangus)
    */
   async getDetailNaskah(
     query: DetailNaskahQueryDto,
@@ -179,9 +193,14 @@ export class RekapNaskahService {
     const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
     const area = query.area;
     const jenis = query.jenis;
-    const status = query.status || 'terpakai';
     const position = query.position;
     const search = query.search;
+
+    // Define valid status yang ditampilkan
+    const validStatuses = ['booking', 'terpakai', 'terpakai_final', 'hangus'];
+    
+    // Jika status diberikan, gunakan satu status; jika tidak, gunakan semua valid statuses
+    const statusesToShow = query.status ? [query.status] : validStatuses;
 
     // Build query untuk request dulu (karena filter berdasarkan area, jenis, dll)
     let requestQueryBuilder = this.nomorRequestRepository
@@ -223,11 +242,11 @@ export class RekapNaskahService {
       };
     }
 
-    // Query detail berdasarkan request ids yang sudah difilter
+    // Query detail berdasarkan request ids yang sudah difilter dan status
     let detailQueryBuilder = this.nomorRequestDetailRepository
       .createQueryBuilder('detail')
       .where('detail.id_request IN (:...requestIds)', { requestIds })
-      .andWhere('detail.status = :status', { status });
+      .andWhere('detail.status IN (:...statuses)', { statuses: statusesToShow });
 
     // Search by nomor jika ada
     if (search) {
