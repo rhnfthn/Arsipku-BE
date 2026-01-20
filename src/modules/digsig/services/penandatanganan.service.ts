@@ -542,6 +542,9 @@ export class PenandatangananService {
       createdBy: doc.createdBy,
       createdByName: doc.createdByName,
       createdByPosition: doc.createdByPosition,
+      rejectionReason: doc.rejectionReason,
+      rejectedBy: doc.rejectedBy,
+      rejectedAt: doc.rejectedAt,
     };
   }
 
@@ -555,6 +558,8 @@ export class PenandatangananService {
       lokasi: signer.lokasi,
       status: signer.status,
       signedAt: signer.signedAt,
+      rejectedAt: signer.rejectedAt,
+      keterangan: signer.keterangan,
     };
   }
 }
