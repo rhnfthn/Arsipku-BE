@@ -90,6 +90,7 @@ export class CekDokumenResponseDto {
       certificateChainValid?: boolean; // Apakah certificate chain valid
       timestampValid?: boolean; // Apakah timestamp valid
       revocationChecked?: boolean; // Apakah sudah dicek revocation status
+      summary?: string; // BSrE summary status (VALID, WARNING, INVALID)
     };
     
     // Metadata
@@ -100,70 +101,49 @@ export class CekDokumenResponseDto {
   };
 }
 
-// ======== BSrE API Response (expected structure) ========
+// ======== BSrE API Response (actual structure from BSrE) ========
 /**
- * Expected response structure dari BSrE API Verify
- * Ini adalah struktur yang diharapkan dari BSrE setelah verifikasi PDF signature
- * 
- * BSrE akan melakukan:
- * 1. Parse PDF file
- * 2. Extract semua digital signatures
- * 3. Verify setiap signature (certificate validity, chain, revocation)
- * 4. Return detail setiap signer dan status verifikasi
+ * Actual response structure dari BSrE API Verify
+ * Based on real response:
+ * {
+ *   "nama_dokumen": "...",
+ *   "jumlah_signature": 1,
+ *   "notes": "Dokumen valid, Sertifikat yang digunakan tidak terpercaya",
+ *   "details": [...],
+ *   "summary": "WARNING"
+ * }
  */
 export interface BsreVerifyResponse {
-  status: boolean; // Overall API call status
-  message: string; // API message
-  data?: {
-    // Document Info (dari PDF metadata)
-    doc_name?: string;
-    file_name?: string;
-    
-    // Overall Verification Status
-    is_valid?: boolean; // Apakah semua signature valid
-    status?: 'VALID' | 'INVALID' | 'UNKNOWN';
-    description?: string; // Deskripsi hasil verifikasi
-    
-    // Signatures (array karena PDF bisa punya multiple signatures)
-    signature_count?: number;
-    signatures?: Array<{
-      // Signer Identity (dari Certificate Subject DN)
-      name?: string; // Nama dari certificate CN (Common Name)
-      nik?: string; // NIK jika tersimpan di certificate
-      institution?: string; // Organization dari certificate
-      email?: string; // Email jika ada di certificate
-      
-      // Certificate Details
-      issuer_dn?: string; // Certificate Issuer - contoh: "C=ID,O=Lembaga Sandi Negara,CN=OSD LU Kelas 2"
-      subject_dn?: string; // Full Subject DN
-      
-      // Signature Timestamp & Details
-      signed_at?: string; // Waktu signature dibuat
-      signing_time?: string; // Alternative timestamp field
-      reason?: string; // Signature reason - contoh: "Dokumen ini ditandatangani secara elektronik"
-      location?: string; // Signature location
-      
-      // Algorithm & Certificate Validity
-      signature_algorithm?: string; // contoh: "RSA with SHA256"
-      valid_from?: string; // Certificate valid from date
-      valid_to?: string; // Certificate expiry date
-      
-      // Verification Results (hasil checking BSrE)
-      valid?: boolean; // Overall signature validity
-      certificate_valid?: boolean; // Certificate masih valid?
-      signature_valid?: boolean; // Signature integrity valid?
-    }>;
-    
-    // Technical Verification Details
-    verification?: {
-      algorithm?: string;
-      hash_valid?: boolean; // Document hash integrity
-      certificate_chain_valid?: boolean; // Certificate chain trusted?
-      timestamp_valid?: boolean; // Timestamp valid?
-      revocation_checked?: boolean; // Certificate revocation checked?
+  nama_dokumen?: string;
+  jumlah_signature?: number;
+  notes?: string;
+  summary?: 'VALID' | 'WARNING' | 'INVALID' | string;
+  details?: Array<{
+    signature_field?: string;
+    info_tsa?: {
+      name?: string;
+      tsa_cert_validity?: string | null;
     };
-    
-    // Metadata
-    verified_at?: string; // Timestamp verifikasi dilakukan
-  };
+    info_signer?: {
+      issuer_dn?: string;
+      signer_name?: string;
+      signer_cert_validity?: string;
+      signer_dn?: string;
+      cert_user_certified?: boolean;
+    };
+    signature_document?: {
+      signed_using_tsa?: boolean;
+      reason?: string;
+      document_integrity?: boolean;
+      signature_value?: string | null;
+      signed_in?: string;
+      location?: string;
+      hash_value?: string | null;
+    };
+  }>;
+  
+  // Legacy fields (untuk backward compatibility)
+  status?: boolean;
+  message?: string;
+  data?: any;
 }
