@@ -604,12 +604,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -728,12 +730,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -852,12 +856,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -951,12 +957,18 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
+      tandaTangan: signatureMetadata,
+    });
+
     // Status tetap final_pdf (tidak berubah)
-    // Hanya update tanda_tangan di nd table
+    // Hanya update tanda_tangan
 
     return {
       message: 'Nota Dinas berhasil ditandatangani (Internal)',
@@ -1051,7 +1063,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1150,7 +1168,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1169,7 +1193,6 @@ export class DigsigService {
       },
     };
   }
-
   // ============================================
   // HELPER METHODS
   // ============================================

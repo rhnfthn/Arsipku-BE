@@ -6,7 +6,8 @@ import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
-import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REFACTOR: SdiSdeEntity tidak lagi digunakan
+// import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { LabelModule } from '../label/label.module';
 
@@ -17,7 +18,8 @@ import { LabelModule } from '../label/label.module';
       NaskahSirkulasi,
       NaskahLampiranEntity,
       NaskahReferensiEntity,
-      SdiSdeEntity,
+      // REFACTOR: SdiSdeEntity tidak lagi digunakan
+      // SdiSdeEntity,
       EksternalEntity,
     ]),
     LabelModule,
