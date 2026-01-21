@@ -66,6 +66,6 @@ export class NaskahEntity {
   @Column('char', { length: 36, nullable: true, comment: 'ID naskah ND/SDI/SDE jika ini adalah konsep workflow (jenis K)' })
   id_naskah_asli: string | null;
 
-  @Column('text', { nullable: true, comment: 'Tanda tangan elektronik (base64 image atau path)' })
+  @Column('text', { name: 'tanda_tangan', nullable: true, comment: 'Tanda tangan elektronik (base64 image atau path)' })
   tandaTangan: string | null;
 }
