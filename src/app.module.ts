@@ -50,6 +50,7 @@ import { JenisModule } from './modules/jenis/jenis.module';
 import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
 import { DelegasiModule } from './modules/delegasi/delegasi.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { DelegasiModule } from './modules/delegasi/delegasi.module';
     JenisModule,
     DigsigModule,
     DelegasiModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
