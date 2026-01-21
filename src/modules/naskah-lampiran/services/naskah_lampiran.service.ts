@@ -70,7 +70,7 @@ export class NaskahLampiranService {
   async findFileTemp(): Promise<NaskahLampiranEntity[]> {
     return await this.naskahLampiranRepository
       .createQueryBuilder('lampiran')
-      .where('lampiran.is_temporary = :isTemporary', { isTemporary: 100 })
+      .where('lampiran.is_temporary = :isTemporary', { isTemporary: 1 })
       .andWhere('lampiran.update_at < DATE_ADD(NOW(), INTERVAL -5 DAY)')
       .limit(1)
       .getMany();
