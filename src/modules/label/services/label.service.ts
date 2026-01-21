@@ -186,6 +186,7 @@ export class LabelService {
     userId: string,
   ): Promise<NaskahLabelEntity[]> {
     const results: NaskahLabelEntity[] = [];
+    const source = addNaskahToLabelDto.source || 'inbox';
 
     for (const labelId of addNaskahToLabelDto.labelIds) {
       // Validasi label exists
@@ -219,6 +220,7 @@ export class LabelService {
         id: uuidv4(),
         naskahId,
         labelId,
+        source,
         createdBy: userId,
       });
 
@@ -264,7 +266,7 @@ export class LabelService {
   async getNaskahByLabel(
     labelId: string,
     positionId: string,
-  ): Promise<{ namaLabel: string; naskahIds: string[] }> {
+  ): Promise<{ namaLabel: string; naskah: Array<{ naskahId: string; source: 'inbox' | 'sent' | 'draft' }> }> {
     // Validasi label dan ambil data label
     const label = await this.findOne(labelId, positionId);
 
@@ -274,7 +276,10 @@ export class LabelService {
 
     return {
       namaLabel: label.nama,
-      naskahIds: naskahLabels.map((nl) => nl.naskahId),
+      naskah: naskahLabels.map((nl) => ({
+        naskahId: nl.naskahId,
+        source: nl.source || 'inbox',
+      })),
     };
   }
 
