@@ -169,7 +169,7 @@ export class LabelController {
   async getNaskahByLabel(
     @Param('labelId') labelId: string,
     @CurrentUser() user: JwtPayload,
-  ): Promise<{ namaLabel: string; naskahIds: string[] }> {
+  ): Promise<{ namaLabel: string; naskah: Array<{ naskahId: string; source: 'inbox' | 'sent' | 'draft' }> }> {
     return this.labelService.getNaskahByLabel(labelId, this.getPositionId(user));
   }
 }
