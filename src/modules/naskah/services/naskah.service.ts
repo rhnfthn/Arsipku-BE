@@ -7,8 +7,9 @@ import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulas
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { DiEntity } from '../../disposisi/entities/di.entity';
-import { NdEntity } from '../../nota-dinas/entities/nd.entity';
-import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
+// REMOVED: NdEntity and SdiSdeEntity - data now comes from naskah_sirkulasi and naskah
+// import { NdEntity } from '../../nota-dinas/entities/nd.entity';
+// import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
@@ -42,10 +43,11 @@ export class NaskahService {
     private naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     @InjectRepository(DiEntity)
     private diRepository: Repository<DiEntity>,
-    @InjectRepository(NdEntity)
-    private ndRepository: Repository<NdEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private sdiSdeRepository: Repository<SdiSdeEntity>,
+    // REMOVED: NdEntity and SdiSdeEntity repositories
+    // @InjectRepository(NdEntity)
+    // private ndRepository: Repository<NdEntity>,
+    // @InjectRepository(SdiSdeEntity)
+    // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private storageService: StorageService,
   ) {}
 
@@ -434,34 +436,40 @@ export class NaskahService {
           };
         }
       } else if (naskahData.jenis === 'ND') {
-        const ndData = await this.ndRepository.findOne({
-          where: { idNaskah: naskahData.id },
-        });
-        if (ndData) {
+        // ND: Get data from naskah_sirkulasi (pengirim) and naskah
+        if (pengirimSirkulasi) {
+          // Build kepada_yth from penerima list
+          const kepadaYth = penerimaList.map(p => p.positionText || '').join('; ');
           jenisSpecificData = {
-            kepada_yth: ndData.kepadaYth,
-            nama_tempat: ndData.namaTempat,
-            nama_jabatan: ndData.namaJabatan,
-            nama_lengkap: ndData.namaLengkap,
-            tanda_tangan: ndData.tandaTangan,
+            kepada_yth: kepadaYth,
+            nama_tempat: naskahData.tempat || null,
+            nama_jabatan: pengirimSirkulasi.positionText || null,
+            nama_lengkap: pengirimSirkulasi.namaSirkuler || null,
+            tanda_tangan: naskahData.tandaTangan || null,
           };
         }
       } else if (['SDI', 'SDE'].includes(naskahData.jenis || '')) {
-        const sdiSdeData = await this.sdiSdeRepository.findOne({
-          where: { idNaskah: naskahData.id },
-        });
-        if (sdiSdeData) {
+        // SDI/SDE: Get data from naskah_sirkulasi (pengirim and penerima) and naskah
+        if (pengirimSirkulasi) {
+          // Build kepada_yth from penerima list
+          const kepadaYth = naskahData.jenis === 'SDI'
+            ? penerimaList.map(p => `${p.positionText} - ${p.organizationText}`).join('; ')
+            : penerimaList.map(p => p.namaSirkuler || '').join('; ');
+          
+          // For SDE, get tujuan and alamat from first penerima (if external)
+          const firstPenerima = penerimaList.length > 0 ? penerimaList[0] : null;
+          
           jenisSpecificData = {
-            kepada_yth: sdiSdeData.kepadaYth,
-            tujuan: sdiSdeData.nama,
-            alamat_tujuan: sdiSdeData.alamat,
-            nama_tempat: sdiSdeData.namaTempat,
-            nama_jabatan: sdiSdeData.namaJabatan,
-            nama_lengkap: sdiSdeData.namaLengkap,
-            tanda_tangan: sdiSdeData.tandaTangan,
-            kop_logo: sdiSdeData.kopLogo,
-            kop_nama: sdiSdeData.kopNama,
-            alamat_perusahaan: sdiSdeData.alamatPerusahaan,
+            kepada_yth: kepadaYth,
+            tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.namaSirkuler || null) : null,
+            alamat_tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.alamat || null) : null,
+            nama_tempat: naskahData.tempat || null,
+            nama_jabatan: pengirimSirkulasi.positionText || null,
+            nama_lengkap: pengirimSirkulasi.namaSirkuler || null,
+            tanda_tangan: naskahData.tandaTangan || null,
+            kop_logo: null, // Dead code - removed
+            kop_nama: null, // Dead code - removed
+            alamat_perusahaan: null, // Dead code - removed
           };
         }
       }
