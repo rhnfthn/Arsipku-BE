@@ -6,8 +6,9 @@ import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../../shared/entities/naskah_referensi.entity';
-import { SdiSdeEntity } from '../entities/sdi_sde.entity';
-import { NdEntity } from '../../nota-dinas/entities/nd.entity';
+// REMOVED: SdiSdeEntity & NdEntity - fields now come from naskah_sirkulasi and naskah.tandaTangan
+// import { SdiSdeEntity } from '../entities/sdi_sde.entity';
+// import { NdEntity } from '../../nota-dinas/entities/nd.entity';
 import { NomorEntity } from '../../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
@@ -48,8 +49,9 @@ export class SuratDinasInternalService {
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahLampiranEntity)
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
+    // REMOVED: sdiSdeRepository - sdi_sde table no longer used
+    // @InjectRepository(SdiSdeEntity)
+    // private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
     @InjectRepository(NomorRequestEntity)
@@ -1463,41 +1465,22 @@ export class SuratDinasInternalService {
         }
       }
 
-      // PHASE 12: Insert ke tabel sdi_sde (konten lengkap SDI)
+      // PHASE 12: (REMOVED) - SdiSdeEntity tidak lagi digunakan
+      // Fields yang dulu ada di sdi_sde sekarang tersedia dari:
+      // - kepadaYth, dari, tembusan → dari naskah_sirkulasi
+      // - namaJabatan, namaLengkap → dari naskah_sirkulasi (pengirim)
+      // - tandaTangan → di naskah.tandaTangan
+      // - kopLogo, kopNama, alamatPerusahaan → dead code (tidak digunakan di PDF generation)
+      // - konten → di naskah.konten
+
+      // Build kepadaYthList untuk PDF generation
       const kepadaYthList = penerimaList.map(
         (p) => p.position_text
       );
-      const kepadaYth = kepadaYthList.join('; ');
 
       const tembusanTextList = tembusanList.map(
         (t) => t.position_text
       );
-      const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
-
-      // Use || instead of ?? to also handle empty strings from frontend
-      // Use persnum_person_text for person's name (actual field from org_data)
-      const sdiSdeEntity = this.sdiSdeRepository.create({
-        id: uuidv4(),
-        idNaskah: naskahId,
-        kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-        kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-        alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-        nomor: nomorSurat,
-        kepadaYth: kepadaYth,
-        perihal: dto.perihal,
-        konten: dto.konten,
-        namaTempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
-        tanggal: tanggalHariIni,
-        namaJabatan: dto.nama_jabatan || pengirim.position_text,
-        tandaTangan: dto.tanda_tangan || null,
-        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
-        tembusan: tembusanText,
-        sifat: dto.sifat,
-        lampiran: dto.lampiran || null,
-        nama: null,
-        alamat: null,
-      });
-      await queryRunner.manager.save(sdiSdeEntity);
 
       // PHASE 13: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
       let finalPdfPath: string | undefined = undefined;
@@ -1767,34 +1750,10 @@ export class SuratDinasInternalService {
         );
       }
 
-      // PHASE 9: Insert sdi_sde entity
+      // PHASE 9: (REMOVED) - SdiSdeEntity tidak lagi digunakan
+      // Fields tersedia dari naskah_sirkulasi dan naskah.tandaTangan
       const kepadaYthList = penerimaList.map((p) => p.position_text);
-      const kepadaYth = kepadaYthList.join('; ');
       const tembusanTextList = tembusanList.map((t) => t.position_text);
-      const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
-
-      const sdiSdeEntity = this.sdiSdeRepository.create({
-        id: uuidv4(),
-        idNaskah: naskahId,
-        kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-        kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-        alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-        nomor: nomorSurat,
-        kepadaYth: kepadaYth,
-        perihal: dto.perihal,
-        konten: dto.konten,
-        namaTempat: dto.nama_tempat || pengirim.sub_area_text || 'Tangerang',
-        tanggal: tanggalHariIni,
-        namaJabatan: dto.nama_jabatan || pengirim.position_text,
-        tandaTangan: null, // Will be updated if digsig
-        namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
-        tembusan: tembusanText,
-        sifat: dto.sifat,
-        lampiran: dto.lampiran || null,
-        nama: null,
-        alamat: null,
-      });
-      await queryRunner.manager.save(sdiSdeEntity);
 
       // PHASE 10: Generate PDF dengan QR code (jika signing)
       let finalPdfPath: string | undefined = undefined;
@@ -1999,7 +1958,8 @@ export class SuratDinasInternalService {
           { final_pdf: finalPdfPath },
         );
 
-        // Update sdi_sde with tanda_tangan metadata (if digsig)
+        // Update naskah with tanda_tangan metadata (if digsig)
+        // Note: SdiSdeEntity tidak lagi digunakan, tandaTangan sekarang di NaskahEntity
         if (signatureMetadata) {
           // Update path in metadata
           const metadataObj = JSON.parse(signatureMetadata);
@@ -2007,8 +1967,8 @@ export class SuratDinasInternalService {
           signatureMetadata = JSON.stringify(metadataObj);
 
           await queryRunner.manager.update(
-            SdiSdeEntity,
-            { id: sdiSdeEntity.id },
+            NaskahEntity,
+            { id: naskahId },
             { tandaTangan: signatureMetadata },
           );
         }
@@ -2229,28 +2189,16 @@ export class SuratDinasInternalService {
         }
       }
 
-      // PHASE 7: Update sdi_sde table
-      const sdiUpdateData: Partial<SdiSdeEntity> = {
-        nomor: nomorSurat,
-        tandaTangan: dto.tanda_tangan || null,
-      };
-      if (dto.kop_logo !== undefined) sdiUpdateData.kopLogo = dto.kop_logo;
-      if (dto.kop_nama !== undefined) sdiUpdateData.kopNama = dto.kop_nama;
-      if (dto.alamat_perusahaan !== undefined) sdiUpdateData.alamatPerusahaan = dto.alamat_perusahaan;
-      if (dto.perihal !== undefined) sdiUpdateData.perihal = dto.perihal;
-      if (dto.konten !== undefined) sdiUpdateData.konten = dto.konten;
-      if (dto.nama_tempat !== undefined) sdiUpdateData.namaTempat = dto.nama_tempat;
-      // Always set namaJabatan and namaLengkap with fallback to pengirimPosition
-      if (dto.nama_jabatan !== undefined) {
-        sdiUpdateData.namaJabatan = dto.nama_jabatan || pengirimPosition?.position_text || '';
+      // PHASE 7: (REMOVED) - SdiSdeEntity tidak lagi digunakan
+      // Data sudah tersimpan di naskah dan naskah_sirkulasi
+      // Update tanda_tangan di NaskahEntity
+      if (dto.tanda_tangan !== undefined) {
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { tandaTangan: dto.tanda_tangan },
+        );
       }
-      if (dto.nama_lengkap !== undefined) {
-        sdiUpdateData.namaLengkap = dto.nama_lengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || '';
-      }
-      if (dto.sifat !== undefined) sdiUpdateData.sifat = dto.sifat;
-      if (dto.lampiran !== undefined) sdiUpdateData.lampiran = dto.lampiran;
-
-      await queryRunner.manager.update(SdiSdeEntity, { idNaskah: naskahId }, sdiUpdateData);
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
       if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
@@ -2323,15 +2271,7 @@ export class SuratDinasInternalService {
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
-        // Update sdi_sde.kepadaYth
-        const kepadaYthList = penerimaList.map(
-          (p) => p.position_text,
-        );
-        await queryRunner.manager.update(
-          SdiSdeEntity,
-          { idNaskah: naskahId },
-          { kepadaYth: kepadaYthList.join('; ') },
-        );
+        // Note: SdiSdeEntity.kepadaYth tidak lagi digunakan - data dari naskah_sirkulasi
 
         // Re-insert tembusan with is_draft = FALSE and urutan
         for (let i = 0; i < tembusanList.length; i++) {
@@ -2340,23 +2280,7 @@ export class SuratDinasInternalService {
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
-        // Update sdi_sde.tembusan
-        if (tembusanList.length > 0) {
-          const tembusanTextList = tembusanList.map(
-            (t) => t.position_text,
-          );
-          await queryRunner.manager.update(
-            SdiSdeEntity,
-            { idNaskah: naskahId },
-            { tembusan: tembusanTextList.join('\n') },
-          );
-        } else {
-          await queryRunner.manager.update(
-            SdiSdeEntity,
-            { idNaskah: naskahId },
-            { tembusan: null },
-          );
-        }
+        // Note: SdiSdeEntity.tembusan tidak lagi digunakan - data dari naskah_sirkulasi
       } else {
         // No sirkulasi changes - just update isDraft = false
         await queryRunner.manager.update(
@@ -2384,12 +2308,7 @@ export class SuratDinasInternalService {
 
       // PHASE 10: Auto-generate PDF (same logic as createSdi PHASE 13)
       try {
-        // Get the updated sdi_sde data for PDF generation
-        const sdiSdeData = await queryRunner.manager.findOne(SdiSdeEntity, {
-          where: { idNaskah: naskahId },
-        });
-
-        // Get pengirim sirkulasi for fallback nama
+        // Get pengirim sirkulasi for fallback data (SdiSdeEntity tidak lagi digunakan)
         const pengirimSirkulasiForPdf = await queryRunner.manager.findOne(NaskahSirkulasi, {
           where: { idNaskah: naskahId, sirkuler: 'pengirim' },
         });
@@ -2416,9 +2335,9 @@ export class SuratDinasInternalService {
         const tanggalHariIni = naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
 
         // Use || to handle empty strings from frontend
-        // Fallback chain: dto -> sdiSdeData -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
-        const resolvedPositionText = dto.nama_jabatan || sdiSdeData?.namaJabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
-        const resolvedNamaLengkap = dto.nama_lengkap || sdiSdeData?.namaLengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
+        // Fallback chain: dto -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
+        const resolvedPositionText = dto.nama_jabatan || pengirimPosition?.position_text || pengirimSirkulasiForPdf?.positionText || '';
+        const resolvedNamaLengkap = dto.nama_lengkap || pengirimPosition?.persnum_person_text || pengirimPosition?.nama || pengirimSirkulasiForPdf?.namaSirkuler || '';
 
         // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
         const tanggalStr = dto.tgl || (naskah.tanggal instanceof Date ? this.formatDateToString(naskah.tanggal) : String(naskah.tanggal).split('T')[0]);
@@ -2431,11 +2350,14 @@ export class SuratDinasInternalService {
           tanggalStr,
         );
 
-        // Use kota from headerInfo if available
-        const dynamicNamaTempat = headerInfo?.kota || sdiSdeData?.namaTempat || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang';
+        // Use kota from headerInfo if available (NOT from SdiSdeEntity)
+        const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirimPosition?.sub_area_text || 'Tangerang';
+
+        // Get updated naskah for PDF content
+        const updatedNaskahForPdf = await queryRunner.manager.findOne(NaskahEntity, { where: { id: naskahId } });
 
         let pdfBuffer = await this.generatePdfSudinService.generatePdf({
-          html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
+          html: Buffer.from(dto.konten || updatedNaskahForPdf?.konten || naskah.konten || '', 'utf-8').toString('base64'),
           penerima: kepadaYthList,
           nama_tempat: dynamicNamaTempat,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
@@ -2446,10 +2368,10 @@ export class SuratDinasInternalService {
           positionText: resolvedPositionText,
           namaLengkap: resolvedNamaLengkap,
           tembusan: tembusanTextList,
-          perihal: sdiSdeData?.perihal || dto.perihal || naskah.perihal || '',
-          sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
+          perihal: dto.perihal || updatedNaskahForPdf?.perihal || naskah.perihal || '',
+          sifat: dto.sifat || updatedNaskahForPdf?.sifat || 'Biasa',
           nomor: nomorSurat,
-          lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+          lampiran: dto.lampiran || updatedNaskahForPdf?.lampiran || '-',
           // Dynamic header info dari sub_area_alamat
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,
@@ -2491,7 +2413,7 @@ export class SuratDinasInternalService {
 
           // Re-generate PDF with QR code in template
           pdfBuffer = await this.generatePdfSudinService.generatePdf({
-            html: Buffer.from(sdiSdeData?.konten || dto.konten || naskah.konten || '', 'utf-8').toString('base64'),
+            html: Buffer.from(dto.konten || updatedNaskahForPdf?.konten || naskah.konten || '', 'utf-8').toString('base64'),
             penerima: kepadaYthList,
             nama_tempat: dynamicNamaTempat,
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
@@ -2502,10 +2424,10 @@ export class SuratDinasInternalService {
             positionText: resolvedPositionText,
             namaLengkap: resolvedNamaLengkap,
             tembusan: tembusanTextList,
-            perihal: sdiSdeData?.perihal || dto.perihal || naskah.perihal || '',
-            sifat: sdiSdeData?.sifat || dto.sifat || 'Biasa',
+            perihal: dto.perihal || updatedNaskahForPdf?.perihal || naskah.perihal || '',
+            sifat: dto.sifat || updatedNaskahForPdf?.sifat || 'Biasa',
             nomor: nomorSurat,
-            lampiran: sdiSdeData?.lampiran || dto.lampiran || '-',
+            lampiran: dto.lampiran || updatedNaskahForPdf?.lampiran || '-',
             headerKantor: headerInfo?.kantor,
             headerGedung: headerInfo?.gedung,
             headerAlamat: headerInfo?.alamat,
@@ -2616,15 +2538,15 @@ export class SuratDinasInternalService {
           { final_pdf: finalPdfPath },
         );
 
-        // Update sdi_sde with signature metadata if digsig
+        // Update naskah with signature metadata if digsig (SdiSdeEntity tidak lagi digunakan)
         if (signatureMetadata) {
           const metadataObj = JSON.parse(signatureMetadata);
           metadataObj.path = finalPdfPath;
           signatureMetadata = JSON.stringify(metadataObj);
 
           await queryRunner.manager.update(
-            SdiSdeEntity,
-            { idNaskah: naskahId },
+            NaskahEntity,
+            { id: naskahId },
             { tandaTangan: signatureMetadata },
           );
         }
@@ -2755,28 +2677,14 @@ export class SuratDinasInternalService {
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
       if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
+      if (dto.tanda_tangan !== undefined) naskahUpdateData.tandaTangan = dto.tanda_tangan;
 
       if (Object.keys(naskahUpdateData).length > 0) {
         await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
       }
 
-      // PHASE 4: Update sdi_sde table (only fields that are provided)
-      const sdiUpdateData: Partial<SdiSdeEntity> = {};
-      if (dto.kop_logo !== undefined) sdiUpdateData.kopLogo = dto.kop_logo;
-      if (dto.kop_nama !== undefined) sdiUpdateData.kopNama = dto.kop_nama;
-      if (dto.alamat_perusahaan !== undefined) sdiUpdateData.alamatPerusahaan = dto.alamat_perusahaan;
-      if (dto.perihal !== undefined) sdiUpdateData.perihal = dto.perihal;
-      if (dto.konten !== undefined) sdiUpdateData.konten = dto.konten;
-      if (dto.nama_tempat !== undefined) sdiUpdateData.namaTempat = dto.nama_tempat;
-      if (dto.nama_jabatan !== undefined) sdiUpdateData.namaJabatan = dto.nama_jabatan;
-      if (dto.tanda_tangan !== undefined) sdiUpdateData.tandaTangan = dto.tanda_tangan;
-      if (dto.nama_lengkap !== undefined) sdiUpdateData.namaLengkap = dto.nama_lengkap;
-      if (dto.sifat !== undefined) sdiUpdateData.sifat = dto.sifat;
-      if (dto.lampiran !== undefined) sdiUpdateData.lampiran = dto.lampiran;
-
-      if (Object.keys(sdiUpdateData).length > 0) {
-        await queryRunner.manager.update(SdiSdeEntity, { idNaskah: naskahId }, sdiUpdateData);
-      }
+      // PHASE 4: (REMOVED) - SdiSdeEntity tidak lagi digunakan
+      // Data sudah tersimpan di naskah dan naskah_sirkulasi
 
       // PHASE 5: Handle sirkulasi - ALWAYS delete all and re-insert
       if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
@@ -2870,15 +2778,7 @@ export class SuratDinasInternalService {
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
-        // Update sdi_sde.kepadaYth
-        const kepadaYthList = penerimaList.map(
-          (p) => p.position_text,
-        );
-        await queryRunner.manager.update(
-          SdiSdeEntity,
-          { idNaskah: naskahId },
-          { kepadaYth: kepadaYthList.join('; ') },
-        );
+        // Note: SdiSdeEntity.kepadaYth tidak lagi digunakan - data dari naskah_sirkulasi
 
         // Re-insert tembusan with is_draft = true and urutan (only if there are any)
         for (let i = 0; i < tembusanList.length; i++) {
@@ -2887,24 +2787,7 @@ export class SuratDinasInternalService {
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
-        // Update sdi_sde.tembusan
-        if (tembusanList.length > 0) {
-          const tembusanTextList = tembusanList.map(
-            (t) => t.position_text,
-          );
-          await queryRunner.manager.update(
-            SdiSdeEntity,
-            { idNaskah: naskahId },
-            { tembusan: tembusanTextList.join('\n') },
-          );
-        } else {
-          // Clear tembusan in sdi_sde
-          await queryRunner.manager.update(
-            SdiSdeEntity,
-            { idNaskah: naskahId },
-            { tembusan: null },
-          );
-        }
+        // Note: SdiSdeEntity.tembusan tidak lagi digunakan - data dari naskah_sirkulasi
       }
 
       // PHASE 6: Update lampiran if changed
@@ -3046,11 +2929,6 @@ export class SuratDinasInternalService {
     const results: SendMessageItemDto[] = [];
 
     for (const naskah of draftNaskahList) {
-      // Get sdi_sde data for this naskah
-      const sdiData = await this.sdiSdeRepository.findOne({
-        where: { idNaskah: naskah.id },
-      });
-
       // Get pengirim sirkulasi
       const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
         where: {
@@ -3145,10 +3023,10 @@ export class SuratDinasInternalService {
         tanggal: tanggalStr,
         status: naskah.status,
 
-        // Kop Naskah (from sdi_sde table)
-        kop_logo: sdiData?.kopLogo || null,
-        kop_nama: sdiData?.kopNama || null,
-        alamat_perusahaan: sdiData?.alamatPerusahaan || null,
+        // Kop Naskah (dead code - removed, return null for compatibility)
+        kop_logo: null,
+        kop_nama: null,
+        alamat_perusahaan: null,
 
         // Header
         klasifikasi: naskah.klasifikasi || '',
@@ -3157,14 +3035,14 @@ export class SuratDinasInternalService {
         perihal: naskah.perihal || '',
         english: naskah.english === 1 || naskah.english === true,
 
-        // Batang Tubuh
-        konten: sdiData?.konten || naskah.konten || null,
+        // Batang Tubuh - from naskah
+        konten: naskah.konten || null,
 
-        // Kaki (from sdi_sde table)
-        nama_tempat: sdiData?.namaTempat || naskah.tempat || null,
-        nama_jabatan: sdiData?.namaJabatan || null,
-        tanda_tangan: sdiData?.tandaTangan || null,
-        nama_lengkap: sdiData?.namaLengkap || null,
+        // Kaki - from pengirimSirkulasi and naskah
+        nama_tempat: naskah.tempat || null,
+        nama_jabatan: pengirimSirkulasi?.positionText || null,
+        tanda_tangan: naskah.tanda_tangan || null, // from naskah.tandaTangan
+        nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
 
         // Sirkulasi
         pengirim: pengirimInfo,
@@ -3249,12 +3127,7 @@ export class SuratDinasInternalService {
       throw new NotFoundException(`Naskah bukan Surat Dinas Internal (SDI)`);
     }
 
-    // Get SDI data (konten lengkap SDI)
-    const sdiData = await this.sdiSdeRepository.findOne({
-      where: { idNaskah: naskahId },
-    });
-
-    // Get pengirim sirkulasi
+    // Get pengirim sirkulasi (SdiSdeEntity tidak lagi digunakan)
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: {
         idNaskah: naskahId,
@@ -3345,28 +3218,28 @@ export class SuratDinasInternalService {
         lampiran: naskah.lampiran || null,
         english: !!naskah.english,
 
-        // SDI specific info
-        kepada_yth: sdiData?.kepadaYth || '',
-        tembusan_text: sdiData?.tembusan || null,
+        // SDI specific info - kepada_yth built from penerima, tembusan from sirkulasi
+        kepada_yth: penerimaInfoList.map(p => `${p.positionText} - ${p.organizationText}`).join('; '),
+        tembusan_text: tembusanInfoList.map(t => `${t.positionText} - ${t.organizationText}`).join('; ') || null,
 
-        // Kop
-        kop_logo: sdiData?.kopLogo || null,
-        kop_nama: sdiData?.kopNama || null,
-        alamat_perusahaan: sdiData?.alamatPerusahaan || null,
+        // Kop (dead code - removed, return null for compatibility)
+        kop_logo: null,
+        kop_nama: null,
+        alamat_perusahaan: null,
 
         // Header
         klasifikasi: naskah.klasifikasi || '',
         klasifikasi_text: naskah.klasifikasi_text || null,
         sifat: naskah.sifat || '',
 
-        // Body
-        konten: sdiData?.konten || naskah.konten || null,
+        // Body - from naskah
+        konten: naskah.konten || null,
 
-        // Footer
-        nama_tempat: sdiData?.namaTempat || null,
-        nama_jabatan: sdiData?.namaJabatan || null,
-        tanda_tangan: sdiData?.tandaTangan || null,
-        nama_lengkap: sdiData?.namaLengkap || null,
+        // Footer - from pengirimSirkulasi and naskah
+        nama_tempat: naskah.tempat || null,
+        nama_jabatan: pengirimSirkulasi?.positionText || null,
+        tanda_tangan: naskah.tandaTangan || null,
+        nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
 
         // Sirkulasi
         pengirim: {
@@ -3626,6 +3499,7 @@ export class SuratDinasInternalService {
         status: 'final',
         lampiran: totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined,
         english: dto.english || false,
+        tandaTangan: dto.tanda_tangan || null, // Signature stored directly in naskah
       });
 
       await queryRunner.manager.save(naskah);
@@ -3642,77 +3516,10 @@ export class SuratDinasInternalService {
       });
       await queryRunner.manager.save(naskahReferensi);
 
-      // PHASE 7: Create entity content sesuai jenis
-      const kepadaYthList = penerimaList.map((p) => `${p.position_text} ${p.organization_text}`);
-      const kepadaYth = kepadaYthList.join('; ');
-      
-      // Get header info
-      const headerInfo = await this.getHeaderInfoByUser(
-        {
-          company: pengirim.company || undefined,
-          area: pengirim.area || undefined,
-          subArea: pengirim.sub_area ? String(pengirim.sub_area) : undefined,
-        },
-        tanggal,
-      );
-
-      const kopLogo = dto.kop_logo || DEFAULT_KOP_LOGO;
-      const kopNama = dto.kop_nama || (headerInfo?.kantor) || DEFAULT_KOP_NAMA;
-      const alamatPerusahaan = dto.alamat_perusahaan || (headerInfo?.alamat) || DEFAULT_ALAMAT_PERUSAHAAN;
-      const namaTempat = dto.nama_tempat || (headerInfo?.gedung) || pengirim.sub_area_text || '';
-      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
-      const namaLengkap = dto.nama_lengkap || pengirim.persnum_person_text || '';
-
-      if (dto.jenis === 'ND') {
-        // Create ND entity
-        const ndEntity = queryRunner.manager.create(NdEntity, {
-          id: uuidv4(),
-          idNaskah: naskahId,
-          kopLogo: kopLogo,
-          kopNama: kopNama,
-          alamatPerusahaan: alamatPerusahaan,
-          nomor: nomorSurat,
-          kepadaYth: kepadaYth,
-          dari: `${pengirim.position_text} ${pengirim.organization_text}`,
-          perihal: perihal,
-          konten: konten,
-          namaTempat: namaTempat,
-          tanggal: tanggalNaskah,
-          namaJabatan: namaJabatan,
-          tandaTangan: dto.tanda_tangan || null,
-          namaLengkap: namaLengkap,
-          tembusan: tembusanList.length > 0 
-            ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`).join('; ')
-            : null,
-        });
-        await queryRunner.manager.save(ndEntity);
-      } else {
-        // Create SDI/SDE entity
-        const sdiSdeEntity = queryRunner.manager.create(SdiSdeEntity, {
-          id: uuidv4(),
-          idNaskah: naskahId,
-          kopLogo: kopLogo,
-          kopNama: kopNama,
-          alamatPerusahaan: alamatPerusahaan,
-          namaTempat: namaTempat,
-          tanggal: tanggalNaskah,
-          nomor: nomorSurat,
-          sifat: dto.sifat,
-          lampiran: totalLampiranCount > 0 ? `${totalLampiranCount} file` : null,
-          perihal: perihal,
-          kepadaYth: kepadaYth,
-          nama: dto.jenis === 'SDE' ? (dto.tujuan || null) : null,
-          alamat: dto.jenis === 'SDE' ? (dto.alamat_tujuan || null) : null,
-          konten: konten,
-          namaJabatan: namaJabatan,
-          tandaTangan: dto.tanda_tangan || null,
-          namaLengkap: namaLengkap,
-          tembusan: tembusanList.length > 0 
-            ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`).join('; ')
-            : null,
-        });
-        await queryRunner.manager.save(sdiSdeEntity);
-      }
+      // PHASE 7: (REMOVED) - NdEntity/SdiSdeEntity tidak lagi digunakan
+      // Data sudah tersimpan di naskah dan naskah_sirkulasi
+      // kepada_yth, dari, tembusan akan diambil dari naskah_sirkulasi
+      // tanda_tangan sudah tersimpan di naskah.tandaTangan
 
       // PHASE 8: Create sirkulasi pengirim
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
@@ -3871,6 +3678,22 @@ export class SuratDinasInternalService {
       }
 
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
+      // Define variables for PDF generation
+      const kepadaYthList = penerimaList.map(p => `${p.position_text} - ${p.organization_text}`);
+      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
+      const namaLengkap = dto.nama_lengkap || pengirim.persnum_person_text || '';
+      const namaTempat = dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+      
+      // Get dynamic header info
+      const headerInfo = await this.getHeaderInfoByUser(
+        {
+          company: COMPANY_ID,
+          area: pengirim.area ?? undefined,
+          subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+        },
+        tanggal,
+      );
+
       let finalPdfPath: string | undefined = undefined;
       try {
         // Generate PDF sesuai jenis naskah

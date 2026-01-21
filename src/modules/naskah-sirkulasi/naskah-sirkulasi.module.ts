@@ -7,12 +7,20 @@ import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
-import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REMOVED: SdiSdeEntity - table sdi_sde no longer used
+// import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { LabelModule } from '../label/label.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([NaskahSirkulasi, NaskahEntity, NaskahLampiranEntity, NaskahReferensiEntity, EksternalEntity, SdiSdeEntity]),
+    TypeOrmModule.forFeature([
+      NaskahSirkulasi, 
+      NaskahEntity, 
+      NaskahLampiranEntity, 
+      NaskahReferensiEntity, 
+      EksternalEntity,
+      // REMOVED: SdiSdeEntity
+    ]),
     LabelModule,
   ],
   controllers: [NaskahSirkulasiController],

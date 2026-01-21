@@ -9,7 +9,8 @@ import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
-import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REFACTOR: SdiSdeEntity tidak lagi digunakan - data diambil dari naskah_sirkulasi
+// import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
@@ -67,8 +68,9 @@ export class DraftService {
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
     @InjectRepository(NaskahReferensiEntity)
     private readonly naskahReferensiRepository: Repository<NaskahReferensiEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
+    // REFACTOR: SdiSdeEntity tidak lagi digunakan
+    // @InjectRepository(SdiSdeEntity)
+    // private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
     @InjectRepository(EksternalEntity)
     private readonly eksternalRepository: Repository<EksternalEntity>,
     @InjectRepository(NaskahLabelEntity)
@@ -173,61 +175,68 @@ export class DraftService {
       // Get penerima for this naskah
       let penerima: any[] = [];
 
-      // For SDE, get penerima from eksternal table
+      // For SDE, get penerima from naskah_sirkulasi (REFACTORED)
       if (naskah.jenis === 'SDE') {
-        const sdeData = await this.sdiSdeRepository.findOne({
-          where: { idNaskah: naskah.id },
+        // REFACTOR: Data penerima eksternal sekarang ada di naskah_sirkulasi
+        const penerimaList = await this.naskahSirkulasiRepository.find({
+          where: {
+            idNaskah: naskah.id,
+            sirkuler: 'penerima',
+          },
         });
 
         console.log('🔍 SDE Draft Debug - Naskah ID:', naskah.id);
-        console.log('🔍 SDE Draft Debug - SDE Data found:', sdeData ? 'Yes' : 'No');
+        console.log('🔍 SDE Draft Debug - Penerima found from sirkulasi:', penerimaList.length);
 
-        if (sdeData) {
-          // Parse kepada_yth yang bisa berisi multiple penerima dipisah koma (nama, bukan UUID)
-          const penerimaNames = sdeData.kepadaYth 
-            ? sdeData.kepadaYth.split(',').map(n => n.trim()) 
-            : [sdeData.nama || ''];
-
-          console.log('🔍 SDE Draft Debug - penerima names:', penerimaNames);
-
-          // Untuk setiap nama penerima, coba cari di tabel eksternal
-          for (const namaP of penerimaNames) {
-            if (!namaP) continue;
-
-            // Try to find in eksternal table by name
+        for (const p of penerimaList) {
+          // idSirkuler untuk SDE adalah ID eksternal (UUID string)
+          const eksternalId = p.idSirkuler || null;
+          
+          // Jika ada ID eksternal, coba ambil detail dari tabel eksternal
+          if (eksternalId) {
             const eksternalData = await this.eksternalRepository.findOne({
-              where: { nama: namaP },
+              where: { id: eksternalId },
             });
 
             if (eksternalData) {
               penerima.push({
                 id: eksternalData.id,
                 nama: eksternalData.nama,
-                alamat: eksternalData.alamat || null,
-                telepon: eksternalData.telepon || null,
-                email: eksternalData.email || null,
+                alamat: eksternalData.alamat || p.alamat || null,
+                telepon: eksternalData.telepon || p.telepon || null,
+                email: eksternalData.email || p.email || null,
                 kontak: eksternalData.kontak || null,
-                company: eksternalData.company,
-                area: eksternalData.area,
+                company: eksternalData.company || p.companyText || null,
+                area: eksternalData.area || p.areaText || null,
               });
             } else {
-              // Jika tidak ketemu di eksternal, tampilkan data dari sdi_sde
+              // Fallback ke data dari sirkulasi
               penerima.push({
-                nama: namaP,
-                alamat: sdeData.alamat || null,
-                telepon: null,
-                email: null,
+                id: eksternalId,
+                nama: p.namaSirkuler || '',
+                alamat: p.alamat || null,
+                telepon: p.telepon || null,
+                email: p.email || null,
                 kontak: null,
-                company: null,
-                area: null,
+                company: p.companyText || null,
+                area: p.areaText || null,
               });
             }
+          } else {
+            // Tidak ada ID eksternal, gunakan data dari sirkulasi saja
+            penerima.push({
+              nama: p.namaSirkuler || p.positionText || '',
+              alamat: p.alamat || null,
+              telepon: p.telepon || null,
+              email: p.email || null,
+              kontak: null,
+              company: p.companyText || null,
+              area: p.areaText || null,
+            });
           }
-          
-          console.log('🔍 SDE Draft Debug - penerima found:', penerima.length);
-        } else {
-          console.log('⚠️ SDE Draft Warning - sdi_sde data not found for naskah:', naskah.id);
         }
+        
+        console.log('🔍 SDE Draft Debug - penerima processed:', penerima.length);
       } else {
         // For other jenis (ND, SDI, DI, KA), get from naskah_sirkulasi
         const penerimaList = await this.naskahSirkulasiRepository.find({

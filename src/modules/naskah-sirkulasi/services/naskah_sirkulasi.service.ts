@@ -24,7 +24,8 @@ import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
-import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REMOVED: SdiSdeEntity - data now comes from naskah_sirkulasi
+// import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 
@@ -46,8 +47,9 @@ export class NaskahSirkulasiService {
     private readonly naskahRepo: Repository<NaskahEntity>,
     @InjectRepository(EksternalEntity)
     private readonly eksternalRepo: Repository<EksternalEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
+    // REMOVED: SdiSdeEntity repository
+    // @InjectRepository(SdiSdeEntity)
+    // private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
     @InjectRepository(NaskahLabelEntity)
     private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
@@ -502,56 +504,65 @@ export class NaskahSirkulasiService {
     for (const row of rows) {
       let penerima: any[] = [];
 
-      // Untuk SDE, ambil data penerima dari tabel sdi_sde
+      // Untuk SDE, ambil data penerima dari naskah_sirkulasi (penerima eksternal)
       if (row.jenis === 'SDE') {
-        const sdeData = await this.sdiSdeRepo.findOne({
-          where: { idNaskah: row.id_naskah },
-        });
+        // Get penerima from naskah_sirkulasi (penerima eksternal stored with sirkuler='penerima')
+        const penerimaQuery = `
+          SELECT 
+            id_sirkuler as id,
+            nama_sirkuler as nama,
+            alamat,
+            telepon,
+            email,
+            company_text as company,
+            area_text as area
+          FROM naskah_sirkulasi
+          WHERE id_naskah = ?
+          AND sirkuler = 'penerima'
+          ORDER BY urutan ASC
+        `;
+        const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
 
         console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
-        console.log('🔍 SDE Debug - SDE Data found:', sdeData ? 'Yes' : 'No');
+        console.log('🔍 SDE Debug - Penerima count:', penerimaRows?.length || 0);
 
-        if (sdeData) {
-          // Parse kepada_yth yang bisa berisi multiple penerima dipisah koma
-          const penerimaNames = sdeData.kepadaYth 
-            ? sdeData.kepadaYth.split(',').map(n => n.trim()) 
-            : [sdeData.nama || ''];
-
-          // Untuk setiap nama penerima, coba cari di tabel eksternal
-          for (const namaP of penerimaNames) {
-            if (!namaP) continue;
-
-            // Try to find in eksternal table by name
-            const eksternalData = await this.eksternalRepo.findOne({
-              where: { nama: namaP },
-            });
-
-            if (eksternalData) {
-              penerima.push({
-                id: eksternalData.id,
-                nama: eksternalData.nama,
-                alamat: eksternalData.alamat || null,
-                telepon: eksternalData.telepon || null,
-                email: eksternalData.email || null,
-                kontak: eksternalData.kontak || null,
-                company: eksternalData.company,
-                area: eksternalData.area,
+        if (penerimaRows && penerimaRows.length > 0) {
+          // For each penerima, try to enrich with data from eksternal table
+          for (const p of penerimaRows) {
+            // Try to find in eksternal table by id
+            if (p.id) {
+              const eksternalData = await this.eksternalRepo.findOne({
+                where: { id: p.id },
               });
-            } else {
-              // Jika tidak ketemu di eksternal, tampilkan data dari sdi_sde
-              penerima.push({
-                nama: namaP,
-                alamat: sdeData.alamat || null,
-                telepon: null,
-                email: null,
-                kontak: null,
-                company: null,
-                area: null,
-              });
+
+              if (eksternalData) {
+                penerima.push({
+                  id: eksternalData.id,
+                  nama: eksternalData.nama,
+                  alamat: eksternalData.alamat || null,
+                  telepon: eksternalData.telepon || null,
+                  email: eksternalData.email || null,
+                  kontak: eksternalData.kontak || null,
+                  company: eksternalData.company,
+                  area: eksternalData.area,
+                });
+              } else {
+                // Fallback to sirkulasi data
+                penerima.push({
+                  id: p.id,
+                  nama: p.nama || '',
+                  alamat: p.alamat || null,
+                  telepon: p.telepon || null,
+                  email: p.email || null,
+                  kontak: null,
+                  company: p.company || null,
+                  area: p.area || null,
+                });
+              }
             }
           }
         } else {
-          console.log('⚠️ SDE Warning - sdi_sde data not found for naskah:', row.id_naskah);
+          console.log('⚠️ SDE Warning - No penerima found in sirkulasi for naskah:', row.id_naskah);
         }
       } else {
         // Untuk jenis lain (ND, SDI, DI, KA), ambil dari naskah_sirkulasi
