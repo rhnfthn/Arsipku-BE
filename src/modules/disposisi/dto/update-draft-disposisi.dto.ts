@@ -137,6 +137,10 @@ export class UpdateDraftDisposisiDto {
   @IsOptional()
   @IsString()
   paraf?: string;
+
+  // Priority Flag
+  @IsOptional()
+  is_priority?: boolean;
 }
 
 /**
@@ -157,6 +161,7 @@ export class UpdateDraftDisposisiResponseDto {
     penerima: DisposisiSirkulasiInfoDto[];
     disposisi?: string;
     catatan?: string;
+    is_priority?: boolean;
     lampiran?: {
       id: string;
       nama_file: string;

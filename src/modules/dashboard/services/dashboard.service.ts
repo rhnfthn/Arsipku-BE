@@ -163,6 +163,18 @@ export class DashboardService {
       .andWhere('ns.send_read_time IS NULL')
       .getCount();
 
+    // Disposisi High Priority (is_priority = 1)
+    const disposisiHighPriority = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .innerJoin('di', 'd', 'n.id = d.id_naskah')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
+      .getCount();
+
     // ==========================================
     // 4. SUMMARY DATA - DIGITAL SIGNATURE
     // ==========================================
@@ -245,6 +257,7 @@ export class DashboardService {
       // Disposisi
       disposisi_masuk: disposisiMasuk,
       disposisi_belum_dibaca: disposisiBelumDibaca,
+      disposisi_high_priority: disposisiHighPriority,
       // Digital Signature
       digsig_menunggu_ttd: digsigMenungguTtd,
       digsig_on_progress: digsigOnProgress,
@@ -275,6 +288,7 @@ export class DashboardService {
         'ns.flag_arsip as flag_arsip',
         'pengirim.nama_sirkuler as pengirim_nama',
         'pengirim.organization_text as pengirim_organization',
+        'di.is_priority as is_priority',
       ])
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .leftJoin(
@@ -282,6 +296,7 @@ export class DashboardService {
         'pengirim',
         "pengirim.id_naskah = ns.id_naskah AND pengirim.sirkuler = 'pengirim'",
       )
+      .leftJoin('di', 'di', 'n.id = di.id_naskah')
       .where('ns.position = :positionId', { positionId: positionIdStr })
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
@@ -290,20 +305,29 @@ export class DashboardService {
       .getRawMany();
 
     const suratMasukTerbaru: SuratMasukTerbaruItemDto[] = suratMasukRaw.map(
-      (row) => ({
-        id: row.id,
-        id_sirkulasi: row.id_sirkulasi,
-        jenis: row.jenis,
-        pengirim_nama: row.pengirim_nama,
-        pengirim_organization: row.pengirim_organization,
-        perihal: row.perihal,
-        tanggal: row.tanggal,
-        waktu_relatif: this.formatWaktuRelatif(row.tanggal),
-        sudah_dibaca: row.send_read_time !== null,
-        flag_favorit: row.flag_favorit === 1,
-        flag_note: row.flag_note === 1,
-        flag_arsip: row.flag_arsip === 1,
-      }),
+      (row) => {
+        const item: SuratMasukTerbaruItemDto = {
+          id: row.id,
+          id_sirkulasi: row.id_sirkulasi,
+          jenis: row.jenis,
+          pengirim_nama: row.pengirim_nama,
+          pengirim_organization: row.pengirim_organization,
+          perihal: row.perihal,
+          tanggal: row.tanggal,
+          waktu_relatif: this.formatWaktuRelatif(row.tanggal),
+          sudah_dibaca: row.send_read_time !== null,
+          flag_favorit: row.flag_favorit === 1,
+          flag_note: row.flag_note === 1,
+          flag_arsip: row.flag_arsip === 1,
+        };
+
+        // Add is_priority field hanya untuk disposisi (DI)
+        if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
+          item.is_priority = row.is_priority === 1;
+        }
+
+        return item;
+      },
     );
 
     // ==========================================
