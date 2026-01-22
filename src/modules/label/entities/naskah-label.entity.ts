@@ -19,6 +19,14 @@ export class NaskahLabelEntity {
   @Column('varchar', { length: 36, name: 'label_id' })
   labelId: string;
 
+  @Column('enum', {
+    name: 'source',
+    enum: ['inbox', 'sent', 'draft'],
+    default: 'inbox',
+    comment: 'Sumber naskah: inbox=kotak masuk, sent=terkirim, draft=draft',
+  })
+  source: 'inbox' | 'sent' | 'draft';
+
   @Column('varchar', { length: 36, name: 'created_by' })
   createdBy: string;
 

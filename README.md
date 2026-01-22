@@ -15,84 +15,153 @@
 <a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
 <a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
   <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
+   <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
   <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
 </p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+# Arsipku Backend
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Sistem manajemen surat dan arsip digital berbasis NestJS dengan fitur lengkap untuk pengelolaan naskah dinas, disposisi, dan tanda tangan digital.
 
-## Project setup
+## Tentang Aplikasi
 
+Arsipku adalah aplikasi untuk mengelola:
+- 📨 **Surat Masuk & Keluar** - Nota Dinas, Surat Dinas Internal/Eksternal
+- 📋 **Disposisi** - Instruksi dan delegasi surat
+- ✍️ **Digital Signature** - Tanda tangan digital untuk dokumen
+- 📝 **Konsep Surat** - Workflow approval draft surat
+- 📊 **Dashboard** - Monitoring dan statistik surat
+
+## Persiapan Awal
+
+Pastikan sudah terinstall:
+- **Node.js** versi 18 atau lebih baru ([Download](https://nodejs.org))
+- **MySQL** atau **MariaDB** ([Download](https://dev.mysql.com/downloads/))
+- **Git** (optional, untuk clone repository)
+
+## Cara Instalasi
+
+### 1. Clone atau Download Project
 ```bash
-$ npm install
+git clone <repository-url>
+cd arsipku-be
 ```
 
-## Compile and run the project
-
+### 2. Install Dependencies
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
+### 3. Setup Database
+- Buat database baru di MySQL:
+  ```sql
+  CREATE DATABASE navmail;
+  ```
+- Import file SQL yang ada di folder `db/`:
+  ```bash
+  mysql -u root -p navmail < db/nav-mailku.sql
+  ```
 
-```bash
-# unit tests
-$ npm run test
+### 4. Konfigurasi Environment
+Buat file `.env` di root project dan isi dengan:
+```env
+# Database
+DB_HOST=localhost
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=your_password
+DB_DATABASE=navmail
 
-# e2e tests
-$ npm run test:e2e
+# App
+PORT=3000
+NODE_ENV=development
 
-# test coverage
-$ npm run test:cov
+# JWT Secret (untuk authentication)
+JWT_SECRET=your_secret_key_here
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
+### 5. Jalankan Aplikasi
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development mode (auto-reload)
+npm run start:dev
+
+# Production mode
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Aplikasi akan berjalan di `http://localhost:3000`
 
-## Resources
+## Fitur Utama
 
-Check out a few resources that may come in handy when working with NestJS:
+### API Endpoints
+- `GET /dashboard` - Dashboard dengan statistik lengkap
+- `POST /auth/login` - Login user
+- `GET /naskah` - List surat/naskah
+- `GET /digsig` - Dokumen tanda tangan digital
+- `GET /disposisi` - List disposisi
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Dashboard Summary
+Dashboard menyediakan informasi:
+- Total pesan masuk & belum dibaca
+- Dokumen yang menunggu tanda tangan
+- Disposisi yang perlu diproses
+- Konsep yang perlu direview
+- Statistik bulanan dan per jenis surat
 
-## Support
+## Troubleshooting
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+**Error koneksi database:**
+- Pastikan MySQL/MariaDB sudah running
+- Cek username, password, dan nama database di file `.env`
 
-## Stay in touch
+**Port sudah digunakan:**
+- Ganti PORT di file `.env` ke port lain (misal: 3001)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+**Module not found:**
+- Jalankan ulang `npm install`
 
-## License
+## Dokumentasi Lengkap
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Untuk informasi lebih detail tentang NestJS framework:
+- [NestJS Documentation](https://docs.nestjs.com)
+- [TypeORM Documentation](https://typeorm.io)
+
+## Struktur Folder
+
+```
+arsipku-be/
+├── src/
+│   ├── modules/          # Modul fitur (auth, naskah, digsig, dll)
+│   ├── common/           # Utilities, guards, interceptors
+│   └── main.ts           # Entry point aplikasi
+├── db/                   # SQL migrations dan database schema
+├── storage/              # File upload storage
+└── .env                  # Konfigurasi environment (buat sendiri)
+```
+
+## Pengembangan
+
+```bash
+# Install dependencies
+npm install
+
+# Jalankan development server
+npm run start:dev
+
+# Build untuk production
+npm run build
+
+# Jalankan tests
+npm run test
+```
+
+## Tech Stack
+
+- **Framework:** NestJS (Node.js)
+- **Database:** MySQL/MariaDB
+- **ORM:** TypeORM
+- **Authentication:** JWT
+- **Language:** TypeScript
+
+---
+

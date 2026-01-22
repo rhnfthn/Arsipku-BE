@@ -2,13 +2,40 @@
  * DTO untuk Dashboard
  */
 
-// Summary cards (top section)
+// Summary cards (top section) - expanded with more info
 export class DashboardSummaryDto {
+  // Kotak Masuk
   total_pesan_masuk: number; // Total semua surat masuk
-  pesan_baru: number; // Surat masuk yang belum dibaca
+  pesan_baru: number; // Surat masuk yang belum dibaca (unread)
+  
+  // Kotak Keluar
   surat_terkirim: number; // Total surat yang sudah dikirim
-  disposisi_masuk: number; // Disposisi yang diterima (untuk non-managerial)
   draft_tersimpan: number; // Draft yang belum dikirim
+  
+  // Disposisi
+  disposisi_masuk: number; // Disposisi yang diterima
+  disposisi_belum_dibaca: number; // Disposisi yang belum dibaca
+  
+  // Digital Signature
+  digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user
+  digsig_on_progress: number; // Dokumen yang masih dalam proses TTD (waiting other signers)
+  
+  // Konsep (Draft Approval Workflow)
+  konsep_masuk: number; // Konsep yang perlu direview
+  konsep_belum_dibaca: number; // Konsep yang belum dibaca
+  
+  // Flags & Actions
+  surat_favorit: number; // Surat yang ditandai favorit
+  surat_arsip: number; // Surat yang diarsipkan
+  perlu_tindak_lanjut: number; // Surat yang perlu tindak lanjut
+}
+
+// Statistik per jenis surat
+export class StatistikJenisSuratDto {
+  jenis: string; // ND, SDI, SDE, DI, KA
+  jenis_label: string; // Nota Dinas, Surat Dinas Internal, etc
+  jumlah_masuk: number;
+  jumlah_keluar: number;
 }
 
 // Item untuk Surat Masuk Terbaru
@@ -27,6 +54,20 @@ export class SuratMasukTerbaruItemDto {
   flag_arsip: boolean;
 }
 
+// Item untuk dokumen digsig yang menunggu TTD
+export class DigsigMenungguTtdItemDto {
+  id: string;
+  id_document: string;
+  nomor_dokumen: string;
+  perihal: string | null;
+  jenis_naskah: string;
+  tanggal_dokumen: Date | null;
+  waktu_relatif: string;
+  created_by_name: string | null;
+  urutan: number;
+  total_signers: number;
+}
+
 // Statistik bulanan
 export class StatistikBulananDto {
   bulan: string; // "Jan", "Feb", dst
@@ -43,6 +84,8 @@ export class DashboardResponseDto {
   data: {
     summary: DashboardSummaryDto;
     surat_masuk_terbaru: SuratMasukTerbaruItemDto[];
-    statistik: StatistikBulananDto[];
+    digsig_menunggu_ttd: DigsigMenungguTtdItemDto[];
+    statistik_bulanan: StatistikBulananDto[];
+    statistik_jenis_surat: StatistikJenisSuratDto[];
   };
 }
