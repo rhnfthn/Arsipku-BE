@@ -347,8 +347,8 @@ export class NaskahSirkulasiService {
         is_arsip: row.flag_arsip === 1,
         is_note: row.flag_note === 1,
         is_tindak_lanjut: row.tindak_lanjut === 1,
-      is_locked: row.is_locked === 1,
-      labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        is_locked: row.is_locked === 1,
+        labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
         created_at: row.created_at,
         updated_at: row.updated_at,
       };
