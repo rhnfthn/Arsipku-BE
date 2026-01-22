@@ -242,10 +242,12 @@ export class NaskahSirkulasiService {
         s.position_text as penerima_position_text,
         s.organization_text as penerima_organization_text,
         CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at
+        CAST(s.updated_at AS DATETIME) as updated_at,
+        di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
+      LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
     `;
@@ -313,42 +315,51 @@ export class NaskahSirkulasiService {
     }
 
     // Map to InboxItemDto
-    const items: InboxItemDto[] = rows.map((row: any) => ({
-      id_sirkulasi: row.id_sirkulasi,
-      id_naskah: row.id_naskah,
-      jenis: row.jenis,
-      jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
-      nomor: row.nomor,
-      tanggal: row.tanggal,
-      perihal: row.perihal,
-      sifat: row.sifat,
-      status: row.status,
-      lampiran: row.lampiran,
-      pengirim: {
-        position_id: row.pengirim_position_id || '',
-        position_text: row.pengirim_position_text || '',
-        organization_text: row.pengirim_organization_text || '',
-        nama: row.pengirim_nama || '',
-      },
-      penerima: {
-        position_id: row.penerima_position_id || '',
-        persnum: parseInt(row.penerima_persnum || '0', 10),
-        nama: row.penerima_nama || '',
-        position_text: row.penerima_position_text || '',
-        organization_text: row.penerima_organization_text || '',
-      },
-      kepada: kepadaMap.get(row.id_naskah) || [], // Semua penerima yang dituju
-      status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
-      read_time: row.send_read_time,
-      is_favorit: row.flag_favorit === 1,
-      is_arsip: row.flag_arsip === 1,
-      is_note: row.flag_note === 1,
-      is_tindak_lanjut: row.tindak_lanjut === 1,
-      is_locked: row.is_locked === 1,
-      labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    const items: InboxItemDto[] = rows.map((row: any) => {
+      const item: InboxItemDto = {
+        id_sirkulasi: row.id_sirkulasi,
+        id_naskah: row.id_naskah,
+        jenis: row.jenis,
+        jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+        nomor: row.nomor,
+        tanggal: row.tanggal,
+        perihal: row.perihal,
+        sifat: row.sifat,
+        status: row.status,
+        lampiran: row.lampiran,
+        pengirim: {
+          position_id: row.pengirim_position_id || '',
+          position_text: row.pengirim_position_text || '',
+          organization_text: row.pengirim_organization_text || '',
+          nama: row.pengirim_nama || '',
+        },
+        penerima: {
+          position_id: row.penerima_position_id || '',
+          persnum: parseInt(row.penerima_persnum || '0', 10),
+          nama: row.penerima_nama || '',
+          position_text: row.penerima_position_text || '',
+          organization_text: row.penerima_organization_text || '',
+        },
+        kepada: kepadaMap.get(row.id_naskah) || [], // Semua penerima yang dituju
+        status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+        read_time: row.send_read_time,
+        is_favorit: row.flag_favorit === 1,
+        is_arsip: row.flag_arsip === 1,
+        is_note: row.flag_note === 1,
+        is_tindak_lanjut: row.tindak_lanjut === 1,
+        is_locked: row.is_locked === 1,
+        labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+
+      // Add is_priority field jika ini adalah disposisi (DI)
+      if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
+        item.is_priority = row.is_priority === 1;
+      }
+
+      return item;
+    });
 
     // Get summary counts
     const summaryQuery = `
