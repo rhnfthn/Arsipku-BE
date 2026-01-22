@@ -166,7 +166,7 @@ export class GeneratePdfNodinService {
           <tr>
             <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
-            <td style='font-size:9px; text-align:right;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
+            <td style='font-size:9px; text-align:left;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
           <tr>
             <td colspan='3' style='font-size:2px;'>&nbsp;</td>

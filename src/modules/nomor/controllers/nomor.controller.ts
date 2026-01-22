@@ -130,6 +130,43 @@ export class NomorController {
   }
 
   /**
+   * GET /admin/nomor-request-by-position/:id_posisi
+   * Admin melihat usulan nomor dengan filter posisi
+   * - Semua data dengan status selain "Belum Diajukan" ditampilkan
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
+   */
+  @Get('admin/nomor-request-by-position/:id_posisi')
+  async getAdminNomorRequestByPosition(
+    @Param('id_posisi') idPosisi: string,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    try {
+      const positionId = parseInt(idPosisi, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'Position ID must be a valid number',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getAdminNomorRequestByPosition(positionId);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to get admin nomor request by position',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /admin/nomor-request-submitted
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    */

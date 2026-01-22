@@ -1,0 +1,385 @@
+import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+
+/**
+ * Jenis dokumen yang bisa dicari
+ */
+export enum JenisNaskahEnum {
+  ND = 'ND',     // Nota Dinas
+  SDI = 'SDI',   // Surat Dinas Internal
+  SDE = 'SDE',   // Surat Dinas Eksternal
+  DI = 'DI',     // Disposisi Internal
+  KA = 'KA',     // Kajian
+  K = 'K',       // Konsep
+}
+
+/**
+ * Sifat kerahasiaan dokumen
+ */
+export enum SifatNaskahEnum {
+  SANGAT_RAHASIA = 'sangat_rahasia',
+  RAHASIA = 'rahasia',
+  TERBATAS = 'terbatas',
+  BIASA = 'biasa',
+  TERBUKA = 'terbuka',
+}
+
+/**
+ * Status dokumen
+ */
+export enum StatusNaskahEnum {
+  DRAF = 'draf',
+  FINAL = 'final',
+  FINAL_TTE = 'final_tte',
+}
+
+/**
+ * Rentang waktu pencarian (seperti Gmail Date Within)
+ */
+export enum DateWithinEnum {
+  ONE_DAY = '1_day',
+  THREE_DAYS = '3_days',
+  ONE_WEEK = '1_week',
+  TWO_WEEKS = '2_weeks',
+  ONE_MONTH = '1_month',
+  TWO_MONTHS = '2_months',
+  SIX_MONTHS = '6_months',
+  ONE_YEAR = '1_year',
+}
+
+/**
+ * Tipe ukuran file
+ */
+export enum SizeTypeEnum {
+  GREATER_THAN = 'greater_than',
+  LESS_THAN = 'less_than',
+}
+
+/**
+ * Unit ukuran file
+ */
+export enum SizeUnitEnum {
+  KB = 'KB',
+  MB = 'MB',
+  GB = 'GB',
+}
+
+/**
+ * Scope pencarian (All Mail di Gmail)
+ */
+export enum SearchScopeEnum {
+  ALL = 'all',               // Semua naskah
+  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima)
+  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim)
+  DRAFT = 'draft',           // Draft
+  ARCHIVED = 'archived',     // Arsip
+  FAVORITE = 'favorite',     // Favorit
+}
+
+/**
+ * DTO untuk Global Search
+ * Mirip dengan Gmail Advanced Search
+ */
+export class GlobalSearchDto {
+  // === SEARCH BY TEXT ===
+
+  /**
+   * Pencarian global (mencari di semua field text)
+   * Seperti "Search mail" di Gmail
+   */
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+
+  /**
+   * Pencarian di perihal/subject saja
+   */
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  /**
+   * "Has the words" - konten harus mengandung kata-kata ini
+   */
+  @IsOptional()
+  @IsString()
+  hasWords?: string;
+
+  /**
+   * "Doesn't have" - konten TIDAK boleh mengandung kata-kata ini
+   */
+  @IsOptional()
+  @IsString()
+  doesntHave?: string;
+
+  // === SEARCH BY SENDER/RECEIVER ===
+
+  /**
+   * Dari (pengirim) - nama atau organization
+   */
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  /**
+   * Kepada (penerima) - nama atau organization
+   */
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  /**
+   * Tembusan
+   */
+  @IsOptional()
+  @IsString()
+  cc?: string;
+
+  // === SEARCH BY DOCUMENT TYPE ===
+
+  /**
+   * Jenis naskah: ND, SDI, SDE, DI, KA, K
+   */
+  @IsOptional()
+  @IsEnum(JenisNaskahEnum)
+  jenis?: JenisNaskahEnum;
+
+  /**
+   * Sifat kerahasiaan: sangat_rahasia, rahasia, terbatas, biasa, terbuka
+   */
+  @IsOptional()
+  @IsEnum(SifatNaskahEnum)
+  sifat?: SifatNaskahEnum;
+
+  /**
+   * Status dokumen: draf, final, final_tte
+   */
+  @IsOptional()
+  @IsEnum(StatusNaskahEnum)
+  status?: StatusNaskahEnum;
+
+  /**
+   * Klasifikasi dokumen
+   */
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  // === SEARCH BY DATE ===
+
+  /**
+   * Tanggal mulai (format: YYYY-MM-DD)
+   */
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  /**
+   * Tanggal akhir (format: YYYY-MM-DD)
+   */
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  /**
+   * Date Within - rentang waktu dari tanggal referensi
+   * Seperti Gmail "Date within 1 day of..."
+   */
+  @IsOptional()
+  @IsEnum(DateWithinEnum)
+  dateWithin?: DateWithinEnum;
+
+  /**
+   * Tanggal referensi untuk dateWithin (format: YYYY-MM-DD)
+   */
+  @IsOptional()
+  @IsDateString()
+  dateReference?: string;
+
+  // === SEARCH BY NOMOR ===
+
+  /**
+   * Nomor surat
+   */
+  @IsOptional()
+  @IsString()
+  nomor?: string;
+
+  // === SEARCH BY ATTACHMENT/SIZE ===
+
+  /**
+   * Hanya cari yang punya lampiran
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  hasAttachment?: boolean;
+
+  /**
+   * Tipe ukuran: greater_than atau less_than
+   */
+  @IsOptional()
+  @IsEnum(SizeTypeEnum)
+  sizeType?: SizeTypeEnum;
+
+  /**
+   * Ukuran file
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sizeValue?: number;
+
+  /**
+   * Unit ukuran: KB, MB, GB
+   */
+  @IsOptional()
+  @IsEnum(SizeUnitEnum)
+  sizeUnit?: SizeUnitEnum;
+
+  // === SEARCH SCOPE ===
+
+  /**
+   * Scope pencarian: all, inbox, sent, draft, archived, favorite
+   */
+  @IsOptional()
+  @IsEnum(SearchScopeEnum)
+  scope?: SearchScopeEnum;
+
+  /**
+   * Position ID user yang sedang search (untuk filter inbox/sent)
+   */
+  @IsOptional()
+  @IsString()
+  positionId?: string;
+
+  /**
+   * Organization ID user yang sedang search
+   */
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  // === SEARCH BY ORGANIZATION ===
+
+  /**
+   * Area pengirim
+   */
+  @IsOptional()
+  @IsString()
+  areaFrom?: string;
+
+  /**
+   * Sub Area pengirim
+   */
+  @IsOptional()
+  @IsString()
+  subAreaFrom?: string;
+
+  /**
+   * Organization pengirim
+   */
+  @IsOptional()
+  @IsString()
+  organizationFrom?: string;
+
+  // === PAGINATION ===
+
+  /**
+   * Halaman (default: 1)
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  /**
+   * Jumlah per halaman (default: 20, max: 100)
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  // === SORTING ===
+
+  /**
+   * Sort by field: tanggal, nomor, perihal, jenis
+   */
+  @IsOptional()
+  @IsString()
+  sortBy?: string = 'tanggal';
+
+  /**
+   * Sort order: ASC atau DESC
+   */
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  sortOrder?: 'ASC' | 'DESC' = 'DESC';
+}
+
+/**
+ * Response DTO untuk hasil pencarian
+ */
+export class SearchResultItemDto {
+  id: string;
+  jenis: string;
+  jenisText: string;
+  nomor: string | null;
+  tanggal: Date;
+  perihal: string | null;
+  sifat: string;
+  status: string;
+  klasifikasi: string | null;
+  klasifikasiText: string | null;
+
+  // Pengirim
+  pengirim: {
+    nama: string | null;
+    jabatan: string | null;
+    organization: string | null;
+    area: string | null;
+  };
+
+  // Penerima (bisa multiple)
+  penerima: Array<{
+    nama: string | null;
+    jabatan: string | null;
+    organization: string | null;
+  }>;
+
+  // Lampiran count
+  lampiranCount: number;
+  hasAttachment: boolean;
+
+  // Final PDF
+  finalPdf: string | null;
+
+  // Metadata
+  createdAt: Date;
+}
+
+/**
+ * Response DTO untuk Global Search
+ */
+export class GlobalSearchResponseDto {
+  success: boolean;
+  message: string;
+  data: {
+    items: SearchResultItemDto[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+    filters: {
+      applied: string[];
+      keyword?: string;
+    };
+  };
+}

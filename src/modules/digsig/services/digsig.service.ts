@@ -36,6 +36,11 @@ export interface DigsigParams {
   no_wa: string;
 }
 
+export interface VerifyDigsigParams {
+  filename: string; // filename.pdf
+  fileurl: string;
+}
+
 /**
  * Optional context for logging BSrE activities
  * Pass this to hitDigsigEndpoint for automatic logging
@@ -88,7 +93,7 @@ const DEFAULT_PASSPHRASE = '12345';
 const COMPANY_ID = process.env.COMPANY_ID || '1000';
 
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
-const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.airnavindonesia.co.id/verify';
+const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.a  irnavindonesia.co.id/verify';
 
 @Injectable()
 export class DigsigService {
@@ -110,6 +115,24 @@ export class DigsigService {
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
   ) {}
+
+  /**
+   * Get BSrE Sign In URL from environment variable
+   * Evaluated at runtime to ensure env vars are loaded
+   * IMPORTANT: BSRE_SIGNIN_URL must be set in .env file
+   */
+  private get BSRE_SIGNIN_URL(): string {
+    return process.env.BSRE_SIGNIN_URL!;
+  }
+
+  /**
+   * Get BSrE Verify URL from environment variable
+   * Evaluated at runtime to ensure env vars are loaded
+   * IMPORTANT: BSRE_VERIFY_URL must be set in .env file
+   */
+  private get BSRE_VERIFY_URL(): string {
+    return process.env.BSRE_VERIFY_URL!;
+  }
 
 
 
@@ -164,11 +187,11 @@ export class DigsigService {
       };
 
       console.log('[DigsigService] Payload prepared, hitting BSrE API...');
-      console.log('[DigsigService] BSrE URL: http://172.20.16.115:7000/signin');
+      console.log('[DigsigService] BSrE URL:', this.BSRE_SIGNIN_URL);
 
       // 3. Hit endpoint
       const response = await axios.post(
-        'http://172.20.16.115:7000/signin',
+        this.BSRE_SIGNIN_URL,
         payload,
         {
           headers: {
@@ -581,12 +604,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -705,12 +730,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -829,12 +856,14 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -928,12 +957,18 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
+      tandaTangan: signatureMetadata,
+    });
+
     // Status tetap final_pdf (tidak berubah)
-    // Hanya update tanda_tangan di nd table
+    // Hanya update tanda_tangan
 
     return {
       message: 'Nota Dinas berhasil ditandatangani (Internal)',
@@ -1028,7 +1063,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1127,7 +1168,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1146,7 +1193,6 @@ export class DigsigService {
       },
     };
   }
-
   // ============================================
   // HELPER METHODS
   // ============================================
@@ -1518,10 +1564,9 @@ export class DigsigService {
 
       // Hit BSrE verify endpoint
       // Note: URL endpoint verify BSrE perlu disesuaikan dengan dokumentasi BSrE
-      const verifyUrl = process.env.BSRE_VERIFY_URL || 'http://172.20.16.115:7000/verify';
       
       const response = await axios.post(
-        verifyUrl,
+        this.BSRE_VERIFY_URL,
         { name_doc: nameDoc },
         {
           headers: { 'Content-Type': 'application/json' },
@@ -1564,4 +1609,69 @@ export class DigsigService {
       };
     }
   }
+
+  async hitVerifyDigsig(params: VerifyDigsigParams) {
+    try {
+      console.log('[DigsigService] hitDigsigVerify - Starting...');
+      const filename = params.filename;
+      const fileurl = params.fileurl;
+      const finalfileurl = await this.storageService.getFileUrl(fileurl);
+      console.log(finalfileurl);
+      // 2. Payload sesuai spesifikasi
+      const payload = {
+        filename: filename,
+        fileurl: finalfileurl,
+      };
+
+      // 3. Hit endpoint
+      const response = await axios.post(
+        this.BSRE_VERIFY_URL,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      console.log('[DigsigService] BSrE Response:', response.data);
+      return response.data;
+    } catch (error: any) {      
+      if (axios.isAxiosError(error)) {
+        console.error('[DigsigService] Axios Error Message:', error.message);
+        console.error('[DigsigService] Status:', error.response?.status);
+        console.error('[DigsigService] Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('[DigsigService] Request URL:', error.config?.url);
+        const status =
+          error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
+
+        const message =
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          'Gagal mengambil data dari service external';
+
+        // 🔥 lempar ulang ke controller
+        throw new HttpException(
+          {
+            success: false,
+            message,
+            source: 'external-service',
+            detail: error.response?.data,
+          },
+          status,
+        );
+      }
+      console.error('[DigsigService] Unexpected Error:', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Unexpected error',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+  
 }
