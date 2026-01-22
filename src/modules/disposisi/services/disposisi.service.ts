@@ -3253,5 +3253,52 @@ export class DisposisiService {
       },
     };
   }
+
+  /**
+   * Unset Priority Flag dari Disposisi
+   * Update is_priority menjadi 0 (false)
+   * 
+   * @param naskahId - ID Naskah Disposisi
+   * @returns Respons dengan status update
+   */
+  async unsetPriority(naskahId: string): Promise<any> {
+    try {
+      // Check if naskah exists dan merupakan DI
+      const naskah = await this.naskahRepository.findOne({
+        where: { id: naskahId, jenis: 'DI' },
+      });
+
+      if (!naskah) {
+        throw new NotFoundException('Disposisi tidak ditemukan');
+      }
+
+      // Find DI record
+      const di = await this.diRepository.findOne({
+        where: { idNaskah: naskahId },
+      });
+
+      if (!di) {
+        throw new NotFoundException('Record disposisi tidak ditemukan');
+      }
+
+      // Update is_priority to 0
+      di.isPriority = 0;
+      await this.diRepository.save(di);
+
+      return {
+        success: true,
+        message: 'Priority flag berhasil dihapus',
+        data: {
+          id_naskah: naskahId,
+          is_priority: false,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
