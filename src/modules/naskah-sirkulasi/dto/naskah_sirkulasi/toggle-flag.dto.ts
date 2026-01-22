@@ -9,10 +9,10 @@ export class ToggleFlagDto {
   id_sirkulasi: string;
 
   @IsNotEmpty()
-  @IsEnum(['favorit', 'note', 'arsip'], {
-    message: 'flag_type harus salah satu dari: favorit, note, arsip',
+  @IsEnum(['favorit', 'note', 'arsip', 'tindak_lanjut', 'lock'], {
+    message: 'flag_type harus salah satu dari: favorit, note, arsip, tindak_lanjut, lock',
   })
-  flag_type: 'favorit' | 'note' | 'arsip';
+  flag_type: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock';
 }
 
 /**

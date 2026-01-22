@@ -230,6 +230,8 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_arsip,
         s.flag_note,
+        s.tindak_lanjut,
+        s.is_locked,
         pengirim.position as pengirim_position_id,
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
@@ -344,7 +346,9 @@ export class NaskahSirkulasiService {
         is_favorit: row.flag_favorit === 1,
         is_arsip: row.flag_arsip === 1,
         is_note: row.flag_note === 1,
-        labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        is_tindak_lanjut: row.tindak_lanjut === 1,
+      is_locked: row.is_locked === 1,
+      labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
         created_at: row.created_at,
         updated_at: row.updated_at,
       };
@@ -709,7 +713,7 @@ export class NaskahSirkulasiService {
    */
   async toggleFlag(
     idSirkulasi: string,
-    flagType: 'favorit' | 'note' | 'arsip',
+    flagType: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock',
   ): Promise<ToggleFlagResponseDto> {
     // Cari record
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
@@ -740,6 +744,14 @@ export class NaskahSirkulasiService {
       case 'arsip':
         currentValue = sirkulasi.flagArsip || 0;
         fieldName = 'flagArsip';
+        break;
+      case 'tindak_lanjut':
+        currentValue = sirkulasi.tindakLanjut || 0;
+        fieldName = 'tindakLanjut';
+        break;
+      case 'lock':
+        currentValue = sirkulasi.isLocked || 0;
+        fieldName = 'isLocked';
         break;
     }
 
