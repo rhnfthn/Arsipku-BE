@@ -62,4 +62,8 @@ export class DiEntity {
   // Paraf
   @Column('varchar', { name: 'paraf', length: 100, nullable: true })
   paraf: string | null;
+
+  // Priority Flag
+  @Column('tinyint', { name: 'is_priority', nullable: true, default: 0 })
+  isPriority: number | null;
 }
