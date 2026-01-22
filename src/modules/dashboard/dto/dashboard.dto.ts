@@ -15,6 +15,7 @@ export class DashboardSummaryDto {
   // Disposisi
   disposisi_masuk: number; // Disposisi yang diterima
   disposisi_belum_dibaca: number; // Disposisi yang belum dibaca
+  disposisi_high_priority: number; // Disposisi dengan flag priority
   
   // Digital Signature
   digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user
@@ -52,6 +53,7 @@ export class SuratMasukTerbaruItemDto {
   flag_favorit: boolean;
   flag_note: boolean;
   flag_arsip: boolean;
+  is_priority?: boolean; // Priority flag (hanya untuk jenis='DI')
 }
 
 // Item untuk dokumen digsig yang menunggu TTD

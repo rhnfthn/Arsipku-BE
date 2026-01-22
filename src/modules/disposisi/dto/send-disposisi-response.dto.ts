@@ -35,6 +35,7 @@ export class DisposisiDataDto {
     tipe?: string;
   }[];
   id_naskah_sebelumnya?: string | null; // ID naskah disposisi sebelumnya (untuk disposisi lanjutan)
+  is_priority?: boolean; // Priority flag untuk disposisi
   final_pdf?: string; // Path to final PDF in storage
 }
 
