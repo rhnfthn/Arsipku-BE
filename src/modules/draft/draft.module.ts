@@ -6,8 +6,10 @@ import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_referensi.entity';
-import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REFACTOR: SdiSdeEntity tidak lagi digunakan
+// import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
+import { LabelModule } from '../label/label.module';
 
 @Module({
   imports: [
@@ -16,9 +18,11 @@ import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
       NaskahSirkulasi,
       NaskahLampiranEntity,
       NaskahReferensiEntity,
-      SdiSdeEntity,
+      // REFACTOR: SdiSdeEntity tidak lagi digunakan
+      // SdiSdeEntity,
       EksternalEntity,
     ]),
+    LabelModule,
   ],
   controllers: [DraftController],
   providers: [DraftService],

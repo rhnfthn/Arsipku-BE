@@ -24,13 +24,13 @@ import {
   SignDocumentDto,
   RejectDocumentDto,
   DigsigDocumentPaginatedResponseDto,
-  JENIS_NASKAH_OPTIONS,
 } from '../dto/digsig-document.dto';
 import { DigsigDocumentEntity } from '../entities/digsig-document.entity';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from '../../storage/services/storage.service';
+import { JenisService } from '../../jenis/services/jenis.service';
 
 @Controller('digsig/document')
 @UseGuards(JwtAuthGuard)
@@ -38,6 +38,7 @@ export class DigsigDocumentController {
   constructor(
     private readonly documentService: DigsigDocumentService,
     private readonly storageService: StorageService,
+    private readonly jenisService: JenisService,
   ) {}
 
   /**
@@ -187,12 +188,38 @@ export class DigsigDocumentController {
 
   /**
    * GET /digsig/document/jenis-naskah
-   * Get available jenis naskah options
+   * Get available jenis naskah options from master data
    */
   @Get('jenis-naskah')
   @HttpCode(HttpStatus.OK)
-  getJenisNaskahOptions() {
-    return JENIS_NASKAH_OPTIONS;
+  async getJenisNaskahOptions() {
+    const result = await this.jenisService.findAll();
+    
+    // Transform to match expected format
+    const options = result.data.map((item) => ({
+      value: item.jenis,
+      label: item.jenis_text,
+      id: item.id,
+      format_penomoran: item.format_penomoran,
+    }));
+
+    return {
+      success: true,
+      data: options,
+    };
+  }
+
+  /**
+   * GET /digsig/document/verifikator
+   * Get list of chiefs (verifikator) in the same area as the current user
+   * Returns users with chief = 1 and area = current user's area
+   */
+  @Get('verifikator')
+  @HttpCode(HttpStatus.OK)
+  async getVerifikator(
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.documentService.getVerifikator(user.area);
   }
 
   /**

@@ -61,6 +61,9 @@ export class NaskahEntity {
   @Column('boolean', { default: false })
   english: boolean;
 
+  @Column('text', { name: 'tanda_tangan', nullable: true, comment: 'Metadata TTE: signature_id, doc_id, verification_url, signed_at (JSON)' })
+  tandaTangan: string | null;
+
   @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
   createdByPosition: string | null;
 

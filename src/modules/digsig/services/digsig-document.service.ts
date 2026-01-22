@@ -77,6 +77,7 @@ export class DigsigDocumentService {
         let signerPersnum: number;
         let providedNama: string | null = null;
         let providedJabatan: string | null = null;
+        let providedLokasi: string | null = null;
         let providedPositionId: number | null = null;
 
         if (typeof signerItem === 'number') {
@@ -85,21 +86,23 @@ export class DigsigDocumentService {
           signerPersnum = signerItem.persnum;
           providedNama = signerItem.nama || null;
           providedJabatan = signerItem.jabatan || null;
+          providedLokasi = signerItem.lokasi || null;
           providedPositionId = signerItem.positionId || null;
         } else {
           console.warn(`Invalid signer item at index ${i}:`, signerItem);
           continue;
         }
 
-        // If nama/jabatan not provided, try to fetch from HR API
+        // If nama/jabatan/lokasi not provided, try to fetch from org_data
         let signerData = {
           persnum: signerPersnum,
           nama: providedNama,
           jabatan: providedJabatan,
+          lokasi: providedLokasi,
           positionId: providedPositionId,
         };
 
-        if (!providedNama || !providedJabatan) {
+        if (!providedNama || !providedJabatan || !providedLokasi) {
           try {
             // Use creator's session to fetch signer's data
             const userData = await this.fetchUserDataFromHR(signerPersnum, createdBy);
@@ -107,6 +110,7 @@ export class DigsigDocumentService {
               persnum: signerPersnum,
               nama: providedNama || userData.nama || null,
               jabatan: providedJabatan || userData.jabatan || null,
+              lokasi: providedLokasi || userData.lokasi || null,
               positionId: providedPositionId || userData.positionId || null,
             };
           } catch (error) {
@@ -122,6 +126,7 @@ export class DigsigDocumentService {
           persnum: signerData.persnum,
           nama: signerData.nama,
           jabatan: signerData.jabatan,
+          lokasi: signerData.lokasi,
           positionId: signerData.positionId,
           status: i === 0 ? 'waiting' : 'pending', // First signer is waiting
         });
@@ -144,6 +149,7 @@ export class DigsigDocumentService {
   ): Promise<{
     nama: string;
     jabatan: string;
+    lokasi: string;
     positionId: number | null;
   }> {
     try {
@@ -155,13 +161,23 @@ export class DigsigDocumentService {
         return {
           nama: `User ${targetPersnum}`,
           jabatan: '',
+          lokasi: '',
           positionId: null,
         };
+      }
+
+      // Build lokasi from area/subArea
+      let lokasi = '';
+      if (userData.subAreaText) {
+        lokasi = userData.subAreaText;
+      } else if (userData.areaText) {
+        lokasi = userData.areaText;
       }
 
       return {
         nama: userData.nama || `User ${targetPersnum}`,
         jabatan: userData.positionText || '',
+        lokasi: lokasi,
         positionId: userData.position || null,
       };
     } catch (error) {
@@ -170,6 +186,7 @@ export class DigsigDocumentService {
       return {
         nama: `User ${targetPersnum}`,
         jabatan: '',
+        lokasi: '',
         positionId: null,
       };
     }
@@ -232,6 +249,7 @@ export class DigsigDocumentService {
         let signerPersnum: number;
         let providedNama: string | null = null;
         let providedJabatan: string | null = null;
+        let providedLokasi: string | null = null;
         let providedPositionId: number | null = null;
 
         if (typeof signerItem === 'number') {
@@ -240,27 +258,30 @@ export class DigsigDocumentService {
           signerPersnum = signerItem.persnum;
           providedNama = signerItem.nama || null;
           providedJabatan = signerItem.jabatan || null;
+          providedLokasi = signerItem.lokasi || null;
           providedPositionId = signerItem.positionId || null;
         } else {
           console.warn(`Invalid signer item at index ${i}:`, signerItem);
           continue;
         }
 
-        // If nama/jabatan not provided, try to fetch from HR API
+        // If nama/jabatan/lokasi not provided, try to fetch from org_data
         let signerData = {
           persnum: signerPersnum,
           nama: providedNama,
           jabatan: providedJabatan,
+          lokasi: providedLokasi,
           positionId: providedPositionId,
         };
 
-        if (!providedNama || !providedJabatan) {
+        if (!providedNama || !providedJabatan || !providedLokasi) {
           try {
             const userData = await this.fetchUserDataFromHR(signerPersnum, document.createdBy);
             signerData = {
               persnum: signerPersnum,
               nama: providedNama || userData.nama || null,
               jabatan: providedJabatan || userData.jabatan || null,
+              lokasi: providedLokasi || userData.lokasi || null,
               positionId: providedPositionId || userData.positionId || null,
             };
           } catch (error) {
@@ -275,6 +296,7 @@ export class DigsigDocumentService {
           persnum: signerData.persnum,
           nama: signerData.nama,
           jabatan: signerData.jabatan,
+          lokasi: signerData.lokasi,
           positionId: signerData.positionId,
           status: i === 0 ? 'waiting' : 'pending',
         });
@@ -649,5 +671,75 @@ export class DigsigDocumentService {
         keterangan: s.keterangan,
       })),
     };
+  }
+
+  /**
+   * Get list of verifikator (chiefs in the same area)
+   * @param userArea - Area of the current user
+   * @returns List of users with chief = 1 and area = userArea
+   */
+  async getVerifikator(userArea: string) {
+    try {
+      // Get latest org data
+      const orgData = await this.orgDataService.findLatestOrg();
+
+      if (!orgData || !orgData.position_json) {
+        throw new NotFoundException('Data organisasi tidak ditemukan');
+      }
+
+      const positionJson = orgData.position_json;
+
+      if (!Array.isArray(positionJson)) {
+        throw new BadRequestException('Format data organisasi tidak valid');
+      }
+
+      // Filter: chief = 1 AND area = userArea
+      const verifikator = positionJson.filter((x: any) => {
+        return x.chief === 1 && x.area === userArea;
+      });
+
+      console.log('[DigsigDocumentService] Found verifikator count:', verifikator.length);
+
+      // Map to return format
+      const result = verifikator.map((v: any) => {
+        // Build lokasi from subAreaText or areaText
+        const lokasi = v.sub_area_text || v.area_text || '';
+        
+        console.log('[DigsigDocumentService] Mapping verifikator:', {
+          persnum: v.persnum_person,
+          nama: v.persnum_person_text,
+          position: v.position,
+          jabatan: v.position_text,
+        });
+        
+        return {
+          persnum: v.persnum_person || null,
+          nama: v.persnum_person_text || null,
+          positionId: v.position || null,
+          jabatan: v.position_text || null,
+          lokasi: lokasi,
+          company: v.company || null,
+          companyText: v.company_name || null,
+          area: v.area || null,
+          areaText: v.area_text || null,
+          subArea: v.sub_area || null,
+          subAreaText: v.sub_area_text || null,
+          organization: v.organization || null,
+          organizationText: v.organization_text || null,
+          abbreviation: v.abbreviation || null,
+          bodTag: v.bod_tag || null,
+          isChief: v.chief === 1,
+        };
+      });
+
+      return {
+        success: true,
+        data: result,
+        total: result.length,
+      };
+    } catch (error) {
+      console.error('[DigsigDocumentService] Error in getVerifikator:', error);
+      throw error;
+    }
   }
 }

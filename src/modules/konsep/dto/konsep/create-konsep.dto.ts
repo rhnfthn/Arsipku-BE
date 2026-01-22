@@ -43,6 +43,12 @@ export class CreateKonsepDto {
   @IsNumber()
   pengirim_position_id?: number; // Pengirim naskah final (bisa beda dari from_position_id)
 
+  // ============ REFERENSI DISPOSISI ============
+
+  @IsOptional()
+  @IsString()
+  id_disposisi_referensi?: string; // ID naskah disposisi (DI) yang menjadi dasar pembuatan konsep ini
+
   // ============ KONTEN NASKAH ============
 
   @IsOptional()

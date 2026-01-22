@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotaDinasController } from './controllers/nota-dinas.controller';
 import { NotaDinasService } from './services/nota-dinas.service';
-import { NdEntity } from './entities/nd.entity';
+// NdEntity removed - data now stored in naskah and naskah_sirkulasi
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
@@ -20,7 +20,7 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      NdEntity,
+      // NdEntity removed - no longer needed
       NaskahEntity,
       NaskahSirkulasi,
       NaskahLampiranEntity,

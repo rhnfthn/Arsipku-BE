@@ -71,7 +71,26 @@ export class ForwardDisposisiDto {
   @IsString()
   catatan?: string;
 
-  // Lampiran (opsional)
+  // ============================================================
+  // LAMPIRAN - 3 Opsi yang bisa dikombinasikan:
+  // 1. copy_lampiran_from_previous: true (copy dari naskah yang diterima)
+  // 2. lampiran_temp_ids: [...] (upload lampiran baru)
+  // 3. Kombinasi keduanya
+  // ============================================================
+
+  // Copy lampiran dari naskah yang diterima (default: true)
+  // Jika true, akan copy semua lampiran dari naskah_diterima
+  @IsOptional()
+  copy_lampiran_from_previous?: boolean;
+
+  // Lampiran Temporary IDs (untuk lampiran TAMBAHAN yang baru diupload)
+  // Array of lampiran IDs yang sudah diupload via /DI/upload-temporary-lampiran
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
+
+  // Lampiran (opsional) - Legacy direct upload (deprecated)
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -147,5 +166,6 @@ export class ForwardDisposisiResponseDto {
       tanggal: Date | null;
       jenis: string | null;
     };
+    final_pdf?: string; // Path to generated PDF file in storage
   };
 }

@@ -97,6 +97,41 @@ export class OrgDataService {
   }
 
   /**
+   * Get all managerial positions (chief=1) from org_data
+   * Returns all positions without any relational filters
+   * 
+   * @param tgl - Optional date (default: today)
+   * @returns Array of all managerial positions
+   */
+  async getAllManagerialPositions(
+    tgl?: string,
+  ): Promise<{ success: boolean; data: any[]; total: number; tanggal: string }> {
+    // Use today's date if not provided
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    // Get cached org data from org_data service
+    const orgData = await this.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: any[] = orgData.position_json;
+
+    // Filter only managerial positions (chief = 1)
+    const managerialPositions = barisData.filter((x) => x.chief === 1);
+
+    return {
+      success: true,
+      data: managerialPositions,
+      total: managerialPositions.length,
+      tanggal,
+    };
+  }
+
+  /**
    * Find user by persnum from organization_json
    * Used for SSO authentication
    * 
