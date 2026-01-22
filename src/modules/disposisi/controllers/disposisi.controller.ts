@@ -9,6 +9,7 @@ import {
   HttpException,
   HttpStatus,
   BadRequestException,
+  NotFoundException,
   UseGuards,
   UseInterceptors,
   Res,
@@ -1131,6 +1132,47 @@ export class DisposisiController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * PATCH /DI/:id/unset-priority
+   * Hapus flag priority dari disposisi (set is_priority menjadi false/0)
+   *
+   * @param id - ID Naskah Disposisi
+   * @returns Response dengan status update
+   */
+  @Patch(':id/unset-priority')
+  async unsetPriority(
+    @Param('id') id: string,
+  ): Promise<any> {
+    try {
+      return await this.disposisiService.unsetPriority(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      if (error instanceof NotFoundException) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.NOT_FOUND,
+            message: error.message,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal menghapus priority flag',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
