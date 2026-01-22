@@ -78,6 +78,9 @@ export class InboxItemDto {
   // Labels - array nama label yang di-assign ke naskah
   labels: string[];
   
+  // Priority flag (hanya untuk jenis='DI')
+  is_priority?: boolean;
+  
   // Timestamps
   created_at: Date;
   updated_at: Date;
