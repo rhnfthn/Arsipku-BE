@@ -97,24 +97,30 @@ export class DashboardService {
     // 1. SUMMARY DATA - KOTAK MASUK
     // ==========================================
 
-    // Total Pesan Masuk: semua surat yang diterima
-    const totalPesanMasuk = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        isDraft: false,
-      },
-    });
+    // Total Pesan Masuk: semua surat yang diterima (konsisten dengan inbox)
+    // Exclude: is_draft, is_konsep, dan hanya count naskah dengan status final/final_tte
+    const totalPesanMasuk = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // Pesan Baru: surat masuk yang BELUM DIBACA (send_read_time = null)
-    const pesanBaru = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        sendReadTime: IsNull(),
-        isDraft: false,
-      },
-    });
+    // Konsisten dengan inbox - exclude konsep dan hanya count final/final_tte
+    const pesanBaru = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.send_read_time IS NULL')
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // ==========================================
     // 2. SUMMARY DATA - KOTAK KELUAR
