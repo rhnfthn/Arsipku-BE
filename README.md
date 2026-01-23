@@ -21,7 +21,7 @@
 
 # Arsipku Backend
 
-Sistem manajemen surat dan arsip digital berbasis NestJS dengan fitur lengkap untuk pengelolaan naskah dinas, disposisi, dan tanda tangan digital.
+Sistem manajemen surat dan arsip digital dengan fitur lengkap untuk pengelolaan naskah dinas, disposisi, dan tanda tangan digital.
 
 ## Tentang Aplikasi
 

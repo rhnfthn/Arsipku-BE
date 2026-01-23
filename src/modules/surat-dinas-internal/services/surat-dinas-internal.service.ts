@@ -371,9 +371,17 @@ export class SuratDinasInternalService {
     nomor: string = '',
     lampiran: string = '-',
     headerInfo?: { kantor: string; gedung: string; alamat: string },
+    qrCodeHtml?: string,
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+
+      // Generate preview QR code jika qrCodeHtml tidak disediakan
+      let previewQrHtml = qrCodeHtml;
+      if (!previewQrHtml) {
+        previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+      }
+
       const pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
@@ -390,6 +398,8 @@ export class SuratDinasInternalService {
         headerKantor: headerInfo?.kantor,
         headerGedung: headerInfo?.gedung,
         headerAlamat: headerInfo?.alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       });
 
       return pdfBuffer;
