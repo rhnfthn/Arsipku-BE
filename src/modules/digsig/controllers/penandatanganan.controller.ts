@@ -81,6 +81,7 @@ export class PenandatangananController {
    * POST /digsig/penandatanganan/:id/sign
    * Sign document with BSrE passphrase
    * This endpoint processes digital signature using BSrE (Balai Sertifikasi Elektronik)
+   * NIK diambil dari JWT payload (user profile)
    */
   @Post(':id/sign')
   @HttpCode(HttpStatus.OK)
@@ -91,9 +92,8 @@ export class PenandatangananController {
   ): Promise<SigningResultDto> {
     return this.penandatangananService.signDocument(
       id,
-      user.persnum,
       dto,
-      user.nama,
+      user,
     );
   }
 
