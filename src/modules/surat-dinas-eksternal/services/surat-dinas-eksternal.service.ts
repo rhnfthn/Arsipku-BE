@@ -312,6 +312,9 @@ export class SuratDinasEksternalService {
         }
       }
 
+      // Generate preview QR code untuk preview PDF
+      const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
       let pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
@@ -329,6 +332,8 @@ export class SuratDinasEksternalService {
         headerKantor: headerInfo?.kantor,
         headerGedung: headerInfo?.gedung,
         headerAlamat: headerInfo?.alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       });
 
       // If lampiran files exist, merge with main PDF
