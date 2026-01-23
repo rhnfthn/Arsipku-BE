@@ -13,6 +13,7 @@ import { DigsigDocumentSignerEntity } from '../entities/digsig-document-signer.e
 import { DigsigService } from './digsig.service';
 import { DigsigLogService } from './digsig-log.service';
 import { StorageService } from '../../storage/services/storage.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import {
   FilterPenandatangananDto,
   SignWithPassphraseDto,
@@ -168,13 +169,19 @@ export class PenandatangananService {
 
   /**
    * Sign document with passphrase (BSrE)
+   * NIK dan noWa diambil dari JWT payload (user profile)
    */
   async signDocument(
     documentId: string,
-    persnum: number,
     dto: SignWithPassphraseDto,
-    userName?: string,
+    user: JwtPayload,
   ): Promise<SigningResultDto> {
+    const persnum = user.persnum;
+    const userName = user.nama;
+    
+    // Validasi NIK dari JWT payload
+    const userData = this.digsigService.getUserDataFromJwt(user);
+    
     const document = await this.documentRepository.findOne({
       where: { id: documentId },
       relations: ['signers'],
@@ -208,9 +215,6 @@ export class PenandatangananService {
     if (document.status !== 'on_progress') {
       throw new BadRequestException(`Dokumen tidak dapat ditandatangani (status: ${document.status})`);
     }
-
-    // Get user data for BSrE
-    const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
 
     // Safely convert tanggalDokumen to string (handle both Date and string)
     const tanggalRaw = document.tanggalDokumen as unknown;
