@@ -18,6 +18,7 @@ import { OrgDataService } from 'src/modules/master-data/org_data/org_data.servic
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
+import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -84,6 +85,7 @@ export class KonsepService {
     private storageService: StorageService,
     private generatePdfNodinService: GeneratePdfNodinService,
     private generatePdfSudinService: GeneratePdfSudinService,
+    private qrCodeService: QRCodeService,
     private dataSource: DataSource,
   ) {}
 
@@ -2160,7 +2162,7 @@ export class KonsepService {
     body: any,
   ): Promise<Buffer> {
     try {
-      const pdfDto = this.buildPdfDto(jenis, body);
+      const pdfDto = await this.buildPdfDto(jenis, body);
 
       if (jenis === 'ND') {
         return await this.generatePdfNodinService.generatePdf(pdfDto);
@@ -2206,7 +2208,7 @@ export class KonsepService {
   /**
    * Build DTO for PDF generation based on jenis
    */
-  private buildPdfDto(jenis: 'ND' | 'SDI' | 'SDE', body: any): any {
+  private async buildPdfDto(jenis: 'ND' | 'SDI' | 'SDE', body: any): Promise<any> {
     // Encode HTML content to base64 if needed
     let htmlContent = body.htmlContent || body.konten || '';
     if (htmlContent && !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
@@ -2232,6 +2234,9 @@ export class KonsepService {
     const penerimaArray = parseArray(body.penerima || body.tertuju);
     const tembusanArray = parseArray(body.tembusan);
 
+    // Generate preview QR code untuk preview PDF
+    const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+
     if (jenis === 'ND') {
       return {
         html: htmlContent,
@@ -2249,6 +2254,8 @@ export class KonsepService {
         headerKantor: body.header_kantor,
         headerGedung: body.header_gedung,
         headerAlamat: body.header_alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
     } else {
       // SDI/SDE
@@ -2270,6 +2277,8 @@ export class KonsepService {
         headerKantor: body.header_kantor,
         headerGedung: body.header_gedung,
         headerAlamat: body.header_alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
     }
   }
