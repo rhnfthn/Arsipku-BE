@@ -297,6 +297,7 @@ export class SuratDinasEksternalService {
     nomor: string = '',
     lampiran: string = '-',
     headerInfo?: { kantor: string; gedung: string; alamat: string },
+    english: boolean = false,
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -306,9 +307,9 @@ export class SuratDinasEksternalService {
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
-          // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran")
+          // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran" or "1 Attachment")
           const count = lampiranFiles.length;
-          lampiranText = `${count} Lampiran`;
+          lampiranText = english ? `${count} Attachment${count > 1 ? 's' : ''}` : `${count} Lampiran`;
         }
       }
 
@@ -334,6 +335,8 @@ export class SuratDinasEksternalService {
         headerAlamat: headerInfo?.alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        // English format flag
+        english: english,
       });
 
       // If lampiran files exist, merge with main PDF
@@ -1257,6 +1260,8 @@ export class SuratDinasEksternalService {
             headerKantor: headerInfo?.kantor,
             headerGedung: headerInfo?.gedung,
             headerAlamat: headerInfo?.alamat,
+            // English format flag
+            english: dto.english === true,
           });
 
           // Merge with lampiran if any
@@ -1625,6 +1630,8 @@ export class SuratDinasEksternalService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          // English format flag
+          english: dto.english === true,
         });
         console.log(`[SDE] PDF generated successfully`);
 
@@ -2642,6 +2649,8 @@ export class SuratDinasEksternalService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          // English format flag
+          english: dto.english === true,
         });
         console.log(`[SDE finalizeDraft] PDF generated successfully`);
 
@@ -3618,6 +3627,8 @@ export class SuratDinasEksternalService {
           headerGedung: headerInfo?.gedung,
           headerAlamat: headerInfo?.alamat,
           sifat: dto.sifat,
+          // English format flag
+          english: dto.english === true,
         });
 
         // Merge with lampiran if any
