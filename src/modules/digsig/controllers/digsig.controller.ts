@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   DigsigService,
@@ -70,7 +71,7 @@ export class DigsigController {
   /**
    * POST /digsig/sign-nota-dinas/:id
    * Tandatangani Nota Dinas dengan Digsig (BSrE)
-   * @deprecated Sementara tidak digunakan, gunakan endpoint internal
+   * NIK dan no_wa diambil dari JWT payload (user profile)
    */
   @Post('bsre/nota-dinas/:idNaskah')
   @HttpCode(HttpStatus.OK)
@@ -79,13 +80,13 @@ export class DigsigController {
     @Body() dto: SignBsreDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signNotaDinasBsre(idNaskah, dto, user.persnum);
+    return this.digsigService.signNotaDinasBsre(idNaskah, dto, user);
   }
 
   /**
    * POST /digsig/bsre/surat-internal/:idNaskah
    * Tandatangani Surat Dinas Internal dengan BSrE
-   * NIK dan no_wa otomatis diambil dari HR API berdasarkan persnum user yang login
+   * NIK dan no_wa diambil dari JWT payload (user profile)
    * 
    * Request Body:
    * {
@@ -99,13 +100,13 @@ export class DigsigController {
     @Body() dto: SignBsreDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signSdiBsre(idNaskah, dto, user.persnum);
+    return this.digsigService.signSdiBsre(idNaskah, dto, user);
   }
 
   /**
    * POST /digsig/bsre/surat-eksternal/:idNaskah
    * Tandatangani Surat Dinas Eksternal dengan BSrE
-   * NIK dan no_wa otomatis diambil dari HR API berdasarkan persnum user yang login
+   * NIK dan no_wa diambil dari JWT payload (user profile)
    * 
    * Request Body:
    * {
@@ -119,7 +120,7 @@ export class DigsigController {
     @Body() dto: SignBsreDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signSdeBsre(idNaskah, dto, user.persnum);
+    return this.digsigService.signSdeBsre(idNaskah, dto, user);
   }
 
   // ============================================
@@ -174,26 +175,33 @@ export class DigsigController {
 
   /**
    * GET /digsig/user-data
-   * Test endpoint untuk mendapatkan data user dari HR API (NIK dan no_wa)
-   * Data diambil berdasarkan persnum user yang login
+   * Endpoint untuk mendapatkan data user (NIK dan no_wa)
+   * Data diambil dari JWT payload (profile user)
+   * NIK dan noWa disimpan di JWT saat login
    */
   @Get('user-data')
   @HttpCode(HttpStatus.OK)
   async getUserData(@CurrentUser() user: JwtPayload) {
-    return this.digsigService.getUserDataForBsre(user.persnum.toString());
+    return this.digsigService.getUserDataFromJwt(user);
   }
 
   /**
    * GET /digsig/ktp
-   * Test endpoint untuk mendapatkan KTP user
-   * Data diambil berdasarkan persnum user yang login
+   * Endpoint untuk mendapatkan NIK user
+   * Data diambil dari JWT payload (profile user)
+   * NIK disimpan di JWT saat login (diambil dari HR API sekali saat login)
    */
   @Get('ktp')
   @HttpCode(HttpStatus.OK)
   async getktp(@CurrentUser() user: JwtPayload) {
-    return this.digsigService.getKTPUser({
-      persnum: user.persnum.toString()
-    });
+    if (!user.nik) {
+      throw new BadRequestException(
+        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
+      );
+    }
+    return {
+      noktp: user.nik,
+    };
   }
 
   // ============================================
