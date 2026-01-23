@@ -3317,6 +3317,7 @@ export class KajianService {
     tgl?: string,
     nama_tempat?: string,
     headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
+    qrCodeHtml?: string,
   ): Promise<Buffer> {
     try {
       let htmlToSend = htmlContent;
@@ -3338,6 +3339,12 @@ export class KajianService {
 
       const namaTempat = headerInfo?.kota || nama_tempat || 'Tangerang';
 
+      // Generate preview QR code jika qrCodeHtml tidak disediakan
+      let previewQrHtml = qrCodeHtml;
+      if (!previewQrHtml) {
+        previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+      }
+
       const pdfDto = {
         html: htmlToSend,
         filename: `kajian-${Date.now()}.pdf`,
@@ -3353,6 +3360,8 @@ export class KajianService {
         headerKantor: headerInfo?.kantor,
         headerGedung: headerInfo?.gedung,
         headerAlamat: headerInfo?.alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
 
       const pdfBuffer = await this.generatePdfKajianService.generatePdf(pdfDto);
