@@ -3,7 +3,7 @@
 # ========================
 FROM node:20-bookworm AS builder
 
-# ⬇️ WAJIB untuk node-canvas
+# Native deps untuk node-canvas (BUILD)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2-dev \
@@ -22,10 +22,21 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+
 # ========================
-# Runtime stage (Puppeteers)
+# Runtime stage (Puppeteer)
 # ========================
 FROM ghcr.io/puppeteer/puppeteer:22.9.0
+
+# Native deps untuk node-canvas (RUNTIME)
+RUN apt-get update && apt-get install -y \
+    libcairo2 \
+    libpango-1.0-0 \
+    libjpeg62-turbo \
+    libgif7 \
+    librsvg2-2 \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
