@@ -197,7 +197,7 @@ export class GeneratePdfService {
     const globalStyle = `
       <style>
         table, th, td {
-          border-width: 0.5px !important;
+          font-family: 'Times New Roman', Times, serif;
         }
       </style>
     `;
