@@ -3,7 +3,7 @@
 # ========================
 FROM node:20-bookworm AS builder
 
-# Native deps untuk node-canvas (BUILD)
+# Build deps canvas
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2-dev \
@@ -28,7 +28,9 @@ RUN npm run build
 # ========================
 FROM ghcr.io/puppeteer/puppeteer:22.9.0
 
-# Native deps untuk node-canvas (RUNTIME)
+# ⬇️ WAJIB ROOT UNTUK APT
+USER root
+
 RUN apt-get update && apt-get install -y \
     libcairo2 \
     libpango-1.0-0 \
@@ -37,6 +39,9 @@ RUN apt-get update && apt-get install -y \
     librsvg2-2 \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+# ⬇️ BALIK KE USER AMAN
+USER pptruser
 
 WORKDIR /app
 
