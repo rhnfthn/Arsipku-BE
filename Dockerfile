@@ -23,7 +23,7 @@ COPY . .
 RUN npm run build
 
 # ========================
-# Runtime stage (Puppeteer)
+# Runtime stage (Puppeteers)
 # ========================
 FROM ghcr.io/puppeteer/puppeteer:latest
 
