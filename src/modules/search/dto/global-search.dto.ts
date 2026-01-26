@@ -323,6 +323,16 @@ export class GlobalSearchDto {
 }
 
 /**
+ * Sumber/asal naskah untuk user
+ */
+export enum NaskahSourceEnum {
+  INBOX = 'inbox',       // Naskah masuk (user sebagai penerima/tembusan)
+  SENT = 'sent',         // Naskah keluar (user sebagai pengirim)
+  DRAFT = 'draft',       // Draft naskah
+  CC = 'cc',             // Tembusan
+}
+
+/**
  * Response DTO untuk hasil pencarian
  */
 export class SearchResultItemDto {
@@ -358,6 +368,43 @@ export class SearchResultItemDto {
 
   // Final PDF
   finalPdf: string | null;
+
+  // === ASAL NASKAH (BARU) ===
+  /**
+   * Sumber/asal naskah untuk user yang sedang login
+   * - inbox: User sebagai penerima
+   * - sent: User sebagai pengirim
+   * - draft: Naskah masih draft
+   * - cc: User sebagai tembusan
+   */
+  source: NaskahSourceEnum;
+
+  /**
+   * Label sumber untuk ditampilkan di UI
+   * - "Kotak Masuk", "Terkirim", "Draft", "Tembusan"
+   */
+  sourceLabel: string;
+
+  /**
+   * Semua peran user dalam naskah ini
+   * Bisa lebih dari satu (misal: pengirim sekaligus tembusan)
+   */
+  userRoles: Array<'pengirim' | 'penerima' | 'tembusan'>;
+
+  /**
+   * Apakah naskah sudah dibaca oleh user
+   */
+  isRead: boolean;
+
+  /**
+   * Apakah naskah di-arsipkan
+   */
+  isArchived: boolean;
+
+  /**
+   * Apakah naskah di-favoritkan
+   */
+  isFavorite: boolean;
 
   // Metadata
   createdAt: Date;
