@@ -65,6 +65,21 @@ export class GlobalSearchService {
     // Track applied filters
     const appliedFilters: string[] = [];
 
+    // === FILTER DEFAULT: HANYA NASKAH YANG USER TERLIBAT ===
+    // User hanya bisa melihat naskah dimana dia sebagai pengirim, penerima, atau tembusan
+    // KECUALI jika ada scope filter khusus (inbox/sent/draft/archived/favorite)
+    if (!scope || scope === 'all') {
+      queryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1 FROM naskah_sirkulasi ns_user 
+          WHERE ns_user.id_naskah = naskah.id 
+          AND ns_user.id_sirkuler = :userPersnum
+        )`,
+        { userPersnum: userPersnum.toString() },
+      );
+      appliedFilters.push('filter: naskah user');
+    }
+
     // === KEYWORD SEARCH (global) ===
     if (keyword) {
       queryBuilder.andWhere(
@@ -199,37 +214,66 @@ export class GlobalSearchService {
     if (scope) {
       switch (scope) {
         case 'inbox':
-          // Naskah masuk: user sebagai penerima
-          queryBuilder.andWhere('sirkulasi.id_sirkuler = :userPersnum', {
-            userPersnum: userPersnum.toString(),
-          });
-          queryBuilder.andWhere('sirkulasi.sirkuler IN (:...inboxSirkuler)', {
-            inboxSirkuler: ['penerima', 'tembusan'],
-          });
+          // Naskah masuk: user sebagai penerima atau tembusan
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_inbox 
+              WHERE ns_inbox.id_naskah = naskah.id 
+              AND ns_inbox.id_sirkuler = :userPersnumInbox
+              AND ns_inbox.sirkuler IN ('penerima', 'tembusan')
+            )`,
+            { userPersnumInbox: userPersnum.toString() },
+          );
           break;
         case 'sent':
           // Naskah keluar: user sebagai pengirim
-          queryBuilder.andWhere('sirkulasi.id_sirkuler = :userPersnum', {
-            userPersnum: userPersnum.toString(),
-          });
-          queryBuilder.andWhere('sirkulasi.sirkuler = :sentSirkuler', {
-            sentSirkuler: 'pengirim',
-          });
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_sent 
+              WHERE ns_sent.id_naskah = naskah.id 
+              AND ns_sent.id_sirkuler = :userPersnumSent
+              AND ns_sent.sirkuler = 'pengirim'
+            )`,
+            { userPersnumSent: userPersnum.toString() },
+          );
           break;
         case 'draft':
+          // Draft naskah user
           queryBuilder.andWhere('naskah.status = :draftStatus', {
             draftStatus: 'draf',
           });
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_draft 
+              WHERE ns_draft.id_naskah = naskah.id 
+              AND ns_draft.id_sirkuler = :userPersnumDraft
+            )`,
+            { userPersnumDraft: userPersnum.toString() },
+          );
           break;
         case 'archived':
-          queryBuilder.andWhere('sirkulasi.flag_arsip = :flagArsip', {
-            flagArsip: 1,
-          });
+          // Naskah yang diarsipkan oleh user
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_arch 
+              WHERE ns_arch.id_naskah = naskah.id 
+              AND ns_arch.id_sirkuler = :userPersnumArch
+              AND ns_arch.flag_arsip = 1
+            )`,
+            { userPersnumArch: userPersnum.toString() },
+          );
           break;
         case 'favorite':
-          queryBuilder.andWhere('sirkulasi.flag_favorit = :flagFavorit', {
-            flagFavorit: 1,
-          });
+          // Naskah favorit user
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_fav 
+              WHERE ns_fav.id_naskah = naskah.id 
+              AND ns_fav.id_sirkuler = :userPersnumFav
+              AND ns_fav.flag_favorit = 1
+            )`,
+            { userPersnumFav: userPersnum.toString() },
+          );
           break;
       }
       appliedFilters.push(`scope: ${scope}`);
