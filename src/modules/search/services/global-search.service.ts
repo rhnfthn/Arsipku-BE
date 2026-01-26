@@ -8,7 +8,16 @@ import {
   SearchResultItemDto,
   GlobalSearchResponseDto,
   DateWithinEnum,
+  NaskahSourceEnum,
 } from '../dto/global-search.dto';
+
+// Label untuk source
+const SOURCE_LABELS: Record<NaskahSourceEnum, string> = {
+  [NaskahSourceEnum.INBOX]: 'Kotak Masuk',
+  [NaskahSourceEnum.SENT]: 'Terkirim',
+  [NaskahSourceEnum.DRAFT]: 'Draft',
+  [NaskahSourceEnum.CC]: 'Tembusan',
+};
 
 /**
  * Service untuk Global Search
@@ -325,8 +334,8 @@ export class GlobalSearchService {
     // Execute query
     const [results, total] = await queryBuilder.getManyAndCount();
 
-    // Transform results
-    const items = await this.transformResults(results);
+    // Transform results with user context for source determination
+    const items = await this.transformResults(results, userPersnum);
 
     return {
       success: true,
@@ -416,6 +425,7 @@ export class GlobalSearchService {
    */
   private async transformResults(
     results: NaskahEntity[],
+    userPersnum: number,
   ): Promise<SearchResultItemDto[]> {
     // Get all naskah IDs
     const naskahIds = results.map((n) => n.id);
@@ -460,6 +470,43 @@ export class GlobalSearchService {
       // Check if has lampiran
       const hasLampiran = !!(naskah.lampiran && naskah.lampiran.trim() !== '');
 
+      // Determine user's roles and source in this naskah
+      // Convert userPersnum to string for comparison (idSirkuler is string in database)
+      const userPersStr = String(userPersnum);
+      const userSirkulasiRecords = sirkulasi.filter(
+        (s) => s.idSirkuler === userPersStr,
+      );
+      
+      // Get user's roles (pengirim, penerima, tembusan)
+      type RoleType = 'pengirim' | 'penerima' | 'tembusan';
+      const validRoles: RoleType[] = ['pengirim', 'penerima', 'tembusan'];
+      const userRoles: RoleType[] = userSirkulasiRecords
+        .map((s) => s.sirkuler)
+        .filter((role): role is RoleType => validRoles.includes(role as RoleType));
+
+      // Get user's main sirkulasi record for flags
+      const userMainSirkulasi = userSirkulasiRecords[0];
+
+      // Determine source based on user's role and naskah status
+      let source: NaskahSourceEnum;
+      if (naskah.status === 'draf') {
+        source = NaskahSourceEnum.DRAFT;
+      } else if (userRoles.includes('pengirim')) {
+        source = NaskahSourceEnum.SENT;
+      } else if (userRoles.includes('tembusan')) {
+        source = NaskahSourceEnum.CC;
+      } else if (userRoles.includes('penerima')) {
+        source = NaskahSourceEnum.INBOX;
+      } else {
+        // Fallback - shouldn't happen if user filter works correctly
+        source = NaskahSourceEnum.INBOX;
+      }
+
+      // Determine flags from user's sirkulasi record
+      const isRead = userMainSirkulasi?.sendReadTime !== null && userMainSirkulasi?.sendReadTime !== undefined;
+      const isArchived = userMainSirkulasi?.flagArsip === 1;
+      const isFavorite = userMainSirkulasi?.flagFavorit === 1;
+
       return {
         id: naskah.id,
         jenis: naskah.jenis,
@@ -482,6 +529,13 @@ export class GlobalSearchService {
         hasAttachment: hasLampiran,
         finalPdf: naskah.final_pdf,
         createdAt: naskah.createdAt,
+        // New source fields
+        source: source,
+        sourceLabel: SOURCE_LABELS[source],
+        userRoles: userRoles,
+        isRead: isRead,
+        isArchived: isArchived,
+        isFavorite: isFavorite,
       };
     });
   }
