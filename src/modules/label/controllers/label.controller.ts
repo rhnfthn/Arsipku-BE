@@ -163,13 +163,13 @@ export class LabelController {
 
   /**
    * GET /labels/:labelId/naskah
-   * Mengambil semua naskah dengan label tertentu
+   * Mengambil semua naskah dengan label tertentu beserta detail lengkap
    */
   @Get(':labelId/naskah')
   async getNaskahByLabel(
     @Param('labelId') labelId: string,
     @CurrentUser() user: JwtPayload,
-  ): Promise<{ namaLabel: string; naskah: Array<{ naskahId: string; source: 'inbox' | 'sent' | 'draft' }> }> {
+  ): Promise<any> {
     return this.labelService.getNaskahByLabel(labelId, this.getPositionId(user));
   }
 }
