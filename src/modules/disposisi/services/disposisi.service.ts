@@ -1401,6 +1401,7 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
         catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
 
@@ -1527,6 +1528,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          is_priority: dto.is_priority || false, // Include priority flag in response
           final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
@@ -1764,6 +1766,7 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
         catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
 
@@ -1789,6 +1792,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          is_priority: dto.is_priority || false, // Include priority flag in response
         },
       };
     } catch (error) {
@@ -2311,6 +2315,7 @@ export class DisposisiService {
           if (dto.disposisi !== undefined) existingDi.disposisi = dto.disposisi;
           if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
           if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
+          if (dto.is_priority !== undefined) existingDi.isPriority = dto.is_priority ? 1 : 0;
 
           // Update juga dari dto lainnya jika ada
           if (dto.tanggal_disposisi)
@@ -2447,6 +2452,7 @@ export class DisposisiService {
         penerima: penerimaDataResult.map((s) => sirkulasiToResponse(s)),
         disposisi: diData?.disposisi || undefined,
         catatan: diData?.catatan || undefined,
+        is_priority: diData?.isPriority ? true : false,
         lampiran: lampiranData.map((l) => ({
           id: l.id,
           nama_file: l.file_name,
@@ -2647,6 +2653,21 @@ export class DisposisiService {
         queryRunner
       );
 
+      // Calculate total lampiran count (from previous + new)
+      let totalLampiranCount = 0;
+      if (dto.copy_lampiran_from_previous !== false) {
+        const previousLampiranCount = await this.naskahLampiranRepository.count({
+          where: { id_naskah: dto.id_naskah_diterima },
+        });
+        totalLampiranCount += previousLampiranCount;
+      }
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        totalLampiranCount += dto.lampiran_temp_ids.length;
+      }
+      if (dto.lampiran && dto.lampiran.length > 0) {
+        totalLampiranCount += dto.lampiran.length;
+      }
+
       const naskah = this.naskahRepository.create({
         id: naskahId,
         jenis: 'DI',
@@ -2656,9 +2677,7 @@ export class DisposisiService {
         perihal: perihal,
         konten: dto.disposisi || undefined,
         status: 'final',
-        lampiran: dto.lampiran?.length
-          ? `${dto.lampiran.length} file`
-          : undefined,
+        lampiran: totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined,
       });
 
       await queryRunner.manager.save(naskah);
@@ -2738,7 +2757,68 @@ export class DisposisiService {
         tipe?: string;
       }> = [];
 
-      if (dto.lampiran && dto.lampiran.length > 0) {
+      // Option 1: Copy lampiran dari naskah sebelumnya (default behavior)
+      if (dto.copy_lampiran_from_previous !== false) {
+        // Get lampiran dari naskah yang diterima
+        const previousLampiran = await this.naskahLampiranRepository.find({
+          where: { id_naskah: dto.id_naskah_diterima },
+        });
+
+        if (previousLampiran.length > 0) {
+          console.log(`[DI forward] Copying ${previousLampiran.length} lampiran from previous naskah`);
+          
+          // Copy lampiran dengan ID baru tapi file_pdf sama (reference ke file yang sama)
+          for (const prevLamp of previousLampiran) {
+            const newLampiranId = uuidv4();
+            const newLampiran = this.naskahLampiranRepository.create({
+              id: newLampiranId,
+              id_naskah: naskahId,
+              file_name: prevLamp.file_name,
+              file_pdf: prevLamp.file_pdf, // Reference ke file yang sama, tidak perlu copy file
+              jenis: 'DI',
+              is_temporary: 0, // Final
+            });
+            await queryRunner.manager.save(newLampiran);
+
+            lampiranResponses.push({
+              id: newLampiranId,
+              nama_file: prevLamp.file_name,
+              url: prevLamp.file_pdf,
+            });
+          }
+        }
+      }
+
+      // Option 2: Handle temporary lampiran TAMBAHAN (bisa dikombinasi dengan copy)
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        console.log(`[DI forward] Adding ${dto.lampiran_temp_ids.length} new lampiran from temporary`);
+        
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'DI',
+          'disposisi/lampiran',
+        );
+
+        // Fetch moved lampiran untuk response
+        const movedLampiran = await this.naskahLampiranRepository.find({
+          where: { 
+            id_naskah: naskahId,
+            id: In(dto.lampiran_temp_ids),
+          },
+        });
+
+        for (const lamp of movedLampiran) {
+          lampiranResponses.push({
+            id: lamp.id,
+            nama_file: lamp.file_name,
+            url: lamp.file_pdf,
+          });
+        }
+      }
+      
+      // Option 3: Legacy direct lampiran upload (deprecated)
+      else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
           const lampiranId = uuidv4();
           const lampiran = this.naskahLampiranRepository.create({
@@ -2782,8 +2862,111 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null,
         catatan: dto.catatan ?? null,
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
+
+      // PHASE 11: Auto-generate PDF with lampiran (for forward, status is always 'final')
+      let finalPdfPath: string | undefined = undefined;
+      try {
+        // Parse disposisi string to array
+        let disposisiArray: string[] = [];
+        if (dto.disposisi) {
+          if (Array.isArray(dto.disposisi)) {
+            disposisiArray = dto.disposisi;
+          } else if (typeof dto.disposisi === 'string') {
+            disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+          }
+        }
+        
+        // Auto-check "Lainnya" if catatan is filled
+        if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+          disposisiArray.push('Lainnya');
+        }
+        console.log('[DI forward] disposisiArray:', disposisiArray);
+
+        // Get reference data from naskah sebelumnya (naskah yang diterima)
+        let refNomor = naskahDiterima.nomor || '';
+        let refPerihal = naskahDiterima.perihal || '';
+        let refTanggal = '';
+        let refPengirim = '';
+        
+        if (naskahDiterima.tanggal) {
+          const refDate = new Date(naskahDiterima.tanggal);
+          refTanggal = refDate.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+        }
+
+        // Get pengirim asli dari naskah sebelumnya
+        const pengirimAsli = await this.naskahSirkulasiRepository.findOne({
+          where: {
+            idNaskah: dto.id_naskah_diterima,
+            sirkuler: 'pengirim',
+          },
+        });
+        if (pengirimAsli) {
+          refPengirim = `${pengirimAsli.positionText} ${pengirimAsli.organizationText}`;
+        }
+
+        // Generate PDF with all data
+        let pdfBuffer = await this.generatePdfDispoService.generatePdf({
+          html: '',
+          penerima: kepadaYthList,
+          disposisi: disposisiArray,
+          sifat: dto.sifat || 'Biasa',
+          pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
+          tembusan: [],
+          perihal: perihal,
+          refNomor: refNomor,
+          refPerihal: refPerihal,
+          refTanggal: refTanggal,
+          refPengirim: refPengirim,
+          tanggal: tanggalDisposisi.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          catatan: dto.catatan || '',
+        });
+
+        // Merge with lampiran if any (dari copy previous atau temporary baru)
+        if (lampiranResponses.length > 0) {
+          // Get all lampiran IDs
+          const allLampiranIds = lampiranResponses.map(l => l.id);
+          const lampiranFiles = await this.getTemporaryLampiranFiles(allLampiranIds);
+          if (lampiranFiles && lampiranFiles.length > 0) {
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            console.log('[DI forward] Merged with', lampiranFiles.length, 'lampiran files');
+          }
+        }
+
+        // Upload PDF to storage
+        const timestamp = Date.now();
+        const pdfFileName = `DI-${generatedNomor.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const uploadResult = await this.storageService.uploadBuffer(
+          pdfBuffer,
+          pdfFileName,
+          'application/pdf',
+          'disposisi/final',
+        );
+
+        finalPdfPath = uploadResult.key;
+
+        // Update naskah with final_pdf path
+        await queryRunner.manager.update(
+          NaskahEntity,
+          { id: naskahId },
+          { final_pdf: finalPdfPath },
+        );
+
+        console.log('[DI forward] PDF auto-generated:', finalPdfPath);
+      } catch (error) {
+        console.error('[DI forward] Failed to auto-generate PDF:', error);
+        // Don't fail the whole transaction if PDF generation fails
+      }
 
       // Commit transaction
       await queryRunner.commitTransaction();
@@ -2804,6 +2987,7 @@ export class DisposisiService {
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
           catatan: dto.catatan,
+          is_priority: dto.is_priority || false,
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           referensi: {
@@ -2813,6 +2997,7 @@ export class DisposisiService {
             tanggal: naskahDiterima.tanggal,
             jenis: naskahDiterima.jenis,
           },
+          final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
     } catch (error) {
@@ -2825,7 +3010,8 @@ export class DisposisiService {
 
   /**
    * Get detail Disposisi by naskah ID
-   * Mengembalikan semua informasi disposisi termasuk data naskah, DI, pengirim, penerima, lampiran
+   * Mengembalikan flow lengkap disposisi dari awal sampai akhir
+   * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
    */
   async getDisposisiDetail(naskahId: string): Promise<any> {
     // Get naskah data
@@ -2843,164 +3029,142 @@ export class DisposisiService {
       throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
     }
 
-    // Get DI data (konten lengkap disposisi)
-    const diData = await this.diRepository.findOne({
-      where: { idNaskah: naskahId },
-    });
-
-    // Get pengirim sirkulasi
-    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
-      where: {
-        idNaskah: naskahId,
-        sirkuler: 'pengirim',
-      },
-    });
-
-    // Get all penerima sirkulasi
-    const penerimaList = await this.naskahSirkulasiRepository.find({
-      where: {
-        idNaskah: naskahId,
-        sirkuler: 'penerima',
-      },
-      order: { urutan: 'ASC', createdAt: 'ASC' },
-    });
-
-    // Get lampiran files
-    const lampiranFiles = await this.naskahLampiranRepository.find({
-      where: { id_naskah: naskahId },
-    });
-
-    // Get referensi naskah sebelumnya (jika ada)
-    const naskahReferensi = await this.naskahReferensiRepository.findOne({
-      where: { id_naskah: naskahId },
-    });
-
-    let referensiData: {
-      id_naskah: string;
-      nomor: string | null;
-      perihal: string | null;
-      tanggal: Date | null;
-      jenis: string;
-    } | null = null;
+    // ============================================================
+    // BUILD FULL CHAIN / RANGKAIAN
+    // ============================================================
     
-    // Jika ada referensi dari tabel naskah_referensi (ref_nomor, ref_perihal)
-    if (naskahReferensi) {
-      referensiData = {
-        id_naskah: naskahReferensi.id,
-        nomor: naskahReferensi.ref_nomor,
-        perihal: naskahReferensi.ref_perihal,
-        tanggal: naskahReferensi.ref_tanggal,
-        jenis: naskahReferensi.ref_jenis || 'DI',
-      };
+    // STEP 1: Trace backward to find root
+    let rootNaskahId = naskahId;
+    let currentId = naskahId;
+    const visitedIds = new Set<string>([currentId]);
+    
+    while (true) {
+      const referensi = await this.naskahReferensiRepository.findOne({
+        where: { id_naskah: currentId },
+      });
+
+      if (!referensi || !referensi.ref_nomor) {
+        rootNaskahId = currentId;
+        break;
+      }
+
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { 
+          nomor: referensi.ref_nomor,
+          jenis: 'DI',
+        },
+      });
+
+      if (!parentNaskah || visitedIds.has(parentNaskah.id)) {
+        rootNaskahId = currentId;
+        break;
+      }
+
+      visitedIds.add(parentNaskah.id);
+      currentId = parentNaskah.id;
     }
 
-    // Format tanggal
-    const tanggalStr =
-      naskah.tanggal instanceof Date
-        ? naskah.tanggal.toISOString().split('T')[0]
-        : String(naskah.tanggal || '').split('T')[0];
+    // STEP 2: Build flow from root forward
+    const flow: any[] = [];
+    const naskahIdToLevel = new Map<string, number>();
+    
+    // Helper function to build node data for flow
+    const buildFlowNode = async (
+      naskahData: NaskahEntity,
+      level: number,
+    ): Promise<any> => {
+      // Get pengirim
+      const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskahData.id,
+          sirkuler: 'pengirim',
+        },
+      });
 
-    const tanggalAgendaStr =
-      diData?.tanggalAgenda instanceof Date
-        ? diData.tanggalAgenda.toISOString().split('T')[0]
-        : diData?.tanggalAgenda
-          ? String(diData.tanggalAgenda).split('T')[0]
-          : null;
+      // Get penerima list
+      const penerimaList = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: naskahData.id,
+          sirkuler: 'penerima',
+        },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
+      });
 
-    // Get org data for position lookup
-    const tgl = tanggalStr || new Date().toISOString().split('T')[0];
-    const orgData = await this.orgDataService.findOrg(tgl);
-    const barisData: PositionData[] = orgData?.position_json || [];
+      // Get lampiran count
+      const lampiranCount = await this.naskahLampiranRepository.count({
+        where: { id_naskah: naskahData.id },
+      });
 
-    // Helper function to get position abbreviation
-    const getPositionAbbreviation = (positionId: number | null): string => {
-      if (!positionId) return '';
-      const position = barisData.find(p => p.position === positionId);
-      return position?.position_abbreviation || '';
-    };
+      // Get lampiran files
+      const lampiranFiles = await this.naskahLampiranRepository.find({
+        where: { id_naskah: naskahData.id },
+      });
 
-    // Build penerima info with read status
-    const penerimaInfoList = await Promise.all(
-      penerimaList.map(async (penerima) => {
-        const positionId = penerima.position
-          ? parseInt(penerima.position, 10)
-          : null;
-        const abbreviation = getPositionAbbreviation(positionId);
+      // Get DI data
+      const diData = await this.diRepository.findOne({
+        where: { idNaskah: naskahData.id },
+      });
 
-        return {
-          id: penerima.id,
-          persnum: parseInt(penerima.idSirkuler || '0', 10),
-          nama: penerima.namaSirkuler || '',
-          position_id: penerima.position || '',
-          abbreviation: abbreviation,
-          position_status: penerima.positionStatus || '',
-          positionText: penerima.positionText || '',
-          organizationText: penerima.organizationText || '',
-          subAreaText: penerima.subAreaText || '',
-          areaText: penerima.areaText || '',
-          status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
-          readTime: penerima.sendReadTime
-            ? penerima.sendReadTime.toISOString()
-            : null,
-        };
-      }),
-    );
-
-    // Build lampiran info with file URL
-    const lampiranInfoList = await Promise.all(
-      lampiranFiles.map(async (l) => ({
-        id: l.id,
-        fileName: l.file_name || '',
-        filePath: l.file_pdf || '',
-        fileUrl: l.file_pdf
-          ? await this.storageService.getFileUrl(l.file_pdf)
-          : null,
-      })),
-    );
-
-    // Get final PDF URL if exists
-    const finalPdfUrl = naskah.final_pdf
-      ? await this.storageService.getFileUrl(naskah.final_pdf)
-      : null;
-
-    // Get pengirim info
-    let pengirimInfo: any = null;
-    if (pengirimSirkulasi) {
-      const positionId = pengirimSirkulasi.position
-        ? parseInt(pengirimSirkulasi.position, 10)
+      // Format tanggal
+      const tanggalStr = naskahData.tanggal
+        ? (naskahData.tanggal instanceof Date
+            ? naskahData.tanggal.toISOString().split('T')[0]
+            : String(naskahData.tanggal).split('T')[0])
         : null;
-      const abbreviation = getPositionAbbreviation(positionId);
 
-      pengirimInfo = {
-        id: pengirimSirkulasi.id,
-        persnum: pengirimSirkulasi
-          ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10)
-          : 0,
-        nama: pengirimSirkulasi.namaSirkuler || '',
-        position_id: pengirimSirkulasi.position || '',
-        abbreviation: abbreviation,
-        position_status: pengirimSirkulasi.positionStatus || '',
-        positionText: pengirimSirkulasi.positionText || '',
-        organizationText: pengirimSirkulasi.organizationText || '',
-        subAreaText: pengirimSirkulasi.subAreaText || '',
-        areaText: pengirimSirkulasi.areaText || '',
-      };
-    }
+      const tanggalAgendaStr = diData?.tanggalAgenda
+        ? (diData.tanggalAgenda instanceof Date
+            ? diData.tanggalAgenda.toISOString().split('T')[0]
+            : String(diData.tanggalAgenda).split('T')[0])
+        : null;
 
-    // Build response
-    return {
-      success: true,
-      data: {
-        // Naskah info
-        id: naskah.id,
-        jenis: naskah.jenis,
-        nomor: naskah.nomor,
+      // Get final PDF URL
+      const finalPdfUrl = naskahData.final_pdf
+        ? await this.storageService.getFileUrl(naskahData.final_pdf)
+        : null;
+
+      // Build pengirim info
+      const pengirimInfo = pengirimSirkulasi
+        ? {
+            position_id: pengirimSirkulasi.position || '',
+            position_text: pengirimSirkulasi.positionText || '',
+            organization_text: pengirimSirkulasi.organizationText || '',
+            nama: pengirimSirkulasi.namaSirkuler || null,
+          }
+        : null;
+
+      // Build penerima list with read status
+      const penerimaInfo = penerimaList.map((p) => ({
+        position_id: p.position || '',
+        position_text: p.positionText || '',
+        organization_text: p.organizationText || '',
+        nama: p.namaSirkuler || null,
+        status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+        read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+      }));
+
+      // Build lampiran info
+      const lampiranInfo = await Promise.all(
+        lampiranFiles.map(async (l) => ({
+          id: l.id,
+          file_name: l.file_name || '',
+          file_path: l.file_pdf || '',
+          file_url: l.file_pdf
+            ? await this.storageService.getFileUrl(l.file_pdf)
+            : null,
+        })),
+      );
+
+      return {
+        id: naskahData.id,
+        jenis: naskahData.jenis,
+        nomor: naskahData.nomor,
         tanggal: tanggalStr,
-        status: naskah.status,
-        perihal: naskah.perihal,
-        lampiran: naskah.lampiran || null,
-
-        // DI specific info
+        perihal: naskahData.perihal,
+        sifat: naskahData.sifat,
+        status: naskahData.status,
+        
+        // DI specific fields
         kop_logo: diData?.kopLogo || null,
         kop_judul: diData?.kopJudul || null,
         nama_jabatan: diData?.namaJabatan || null,
@@ -3008,36 +3172,133 @@ export class DisposisiService {
         tanggal_agenda: tanggalAgendaStr,
         surat_dari: diData?.suratDari || null,
         kepada_yth: diData?.kepadaYth || null,
-        klasifikasi: diData?.klasifikasi || naskah.klasifikasi || null,
-        klasifikasi_text: naskah.klasifikasi_text || null,
-        sifat: naskah.sifat || null,
-
-        // Disposisi & Catatan
+        klasifikasi: diData?.klasifikasi || naskahData.klasifikasi || null,
+        
+        // Disposisi content
         disposisi: diData?.disposisi || null,
         catatan: diData?.catatan || null,
         paraf: diData?.paraf || null,
-
-        // Referensi (nomor surat dan perihal dari form)
-        ref_nomor: diData?.nomor || null,
-        ref_perihal: diData?.perihal || null,
-        ref_tanggal: diData?.tanggal
-          ? diData.tanggal instanceof Date
-            ? diData.tanggal.toISOString().split('T')[0]
-            : String(diData.tanggal).split('T')[0]
-          : null,
-
+        is_priority: diData?.isPriority ? true : false,
+        
         // Sirkulasi
         pengirim: pengirimInfo,
-        penerima: penerimaInfoList,
-
-        // Files
-        lampiran_files: lampiranInfoList,
-        final_pdf: naskah.final_pdf || null,
+        penerima: penerimaInfo,
+        
+        // Lampiran
+        lampiran: naskahData.lampiran || null,
+        jumlah_lampiran: lampiranCount,
+        lampiran_files: lampiranInfo,
+        
+        // PDF
+        final_pdf: naskahData.final_pdf || null,
         final_pdf_url: finalPdfUrl,
+        
+        // Level in chain
+        level: level,
+      };
+    };
 
-        // Naskah sebelumnya (jika forward)
-        naskah_sebelumnya: referensiData,
+    // Build root node
+    const rootNaskah = await this.naskahRepository.findOne({
+      where: { id: rootNaskahId },
+    });
+
+    if (rootNaskah) {
+      const rootNode = await buildFlowNode(rootNaskah, 0);
+      flow.push(rootNode);
+      naskahIdToLevel.set(rootNaskahId, 0);
+
+      // STEP 3: Recursively find all forwards
+      const findAllForwards = async (parentNaskah: NaskahEntity, parentLevel: number) => {
+        if (!parentNaskah.nomor) return;
+
+        const allReferensi = await this.naskahReferensiRepository
+          .createQueryBuilder('ref')
+          .where('ref.ref_nomor = :nomor', { nomor: parentNaskah.nomor })
+          .andWhere('ref.ref_jenis = :jenis', { jenis: 'DI' })
+          .getMany();
+
+        for (const ref of allReferensi) {
+          if (!ref.id_naskah || naskahIdToLevel.has(ref.id_naskah)) {
+            continue;
+          }
+
+          const childNaskah = await this.naskahRepository.findOne({
+            where: { id: ref.id_naskah, jenis: 'DI' },
+          });
+
+          if (childNaskah) {
+            const childLevel = parentLevel + 1;
+            const childNode = await buildFlowNode(childNaskah, childLevel);
+            flow.push(childNode);
+            naskahIdToLevel.set(childNaskah.id, childLevel);
+
+            await findAllForwards(childNaskah, childLevel);
+          }
+        }
+      };
+
+      await findAllForwards(rootNaskah, 0);
+    }
+
+    // Sort flow by level DESCENDING (terbaru di atas, awal di bawah)
+    flow.sort((a, b) => b.level - a.level);
+
+    // Build response - hanya flow saja
+    return {
+      success: true,
+      data: {
+        flow: flow,
+        total_flow: flow.length,
       },
     };
   }
+
+  /**
+   * Unset Priority Flag dari Disposisi
+   * Update is_priority menjadi 0 (false)
+   * 
+   * @param naskahId - ID Naskah Disposisi
+   * @returns Respons dengan status update
+   */
+  async unsetPriority(naskahId: string): Promise<any> {
+    try {
+      // Check if naskah exists dan merupakan DI
+      const naskah = await this.naskahRepository.findOne({
+        where: { id: naskahId, jenis: 'DI' },
+      });
+
+      if (!naskah) {
+        throw new NotFoundException('Disposisi tidak ditemukan');
+      }
+
+      // Find DI record
+      const di = await this.diRepository.findOne({
+        where: { idNaskah: naskahId },
+      });
+
+      if (!di) {
+        throw new NotFoundException('Record disposisi tidak ditemukan');
+      }
+
+      // Update is_priority to 0
+      di.isPriority = 0;
+      await this.diRepository.save(di);
+
+      return {
+        success: true,
+        message: 'Priority flag berhasil dihapus',
+        data: {
+          id_naskah: naskahId,
+          is_priority: false,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
+

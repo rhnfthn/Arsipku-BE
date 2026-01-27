@@ -211,6 +211,23 @@ export class OrgDataController {
     return dfs(tree);
   }
 
+  /**
+   * GET /org-data/pengirim/managerial
+   * Get all managerial positions (chief=1) from org_data
+   *
+   * Returns all positions where chief = 1 without any relational filters.
+   * Useful for getting list of all managerial users in the organization.
+   *
+   * @param tgl - Optional date in format YYYY-MM-DD (query parameter, default: today)
+   * @returns Array of all managerial positions
+   *
+   * @throws 404 - Not Found (org_data not found for date)
+   */
+  @Get('pengirim/managerial')
+  async getAllManagerialPositions(@Query() query: OrgFilterQueryDto) {
+    return this.orgBuildService.getAllManagerialPositions(query.tgl);
+  }
+
   @Get()
   async getCombinedData(@Query() query: OrgFilterQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];

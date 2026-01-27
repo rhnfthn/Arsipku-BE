@@ -26,6 +26,71 @@ export class AuthService {
     private userRoleRepo: Repository<UserRoleEntity>,
   ) {}
 
+  // ============================================
+  // Helper Methods untuk fetch data dari HR API
+  // ============================================
+
+  /**
+   * Get NIK/KTP user dari HR API berdasarkan persnum
+   * @param persnum - Persnum user
+   * @param accessToken - AirNav access token untuk authorization
+   * @returns NIK 16 digit atau null jika tidak ditemukan
+   */
+  private async fetchNikFromHrApi(persnum: number, accessToken: string): Promise<string | null> {
+    try {
+      console.log(`[AuthService] Fetching NIK for persnum: ${persnum}`);
+      
+      const response = await firstValueFrom(
+        this.httpService.get(
+          `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${persnum}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            timeout: 30000,
+          },
+        ),
+      );
+      
+      const data = response.data?.data ?? [];
+      // subType '01' = KTP
+      const filterktp = data.find((x: any) => x.subType === '01');
+      
+      if (filterktp) {
+        console.log(`[AuthService] NIK found: ${filterktp.number.substring(0, 4)}****`);
+        return filterktp.number;
+      }
+      
+      console.log('[AuthService] NIK not found in HR API');
+      return null;
+    } catch (error: any) {
+      console.error('[AuthService] Error fetching NIK:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch NIK dari HR API (sama dengan logic di /digsig/ktp)
+   * noWa tidak di-fetch karena data kosong/tidak tersedia
+   * @param persnum - Persnum user
+   * @param accessToken - AirNav access token
+   * @returns Object containing nik (noWa selalu null)
+   */
+  private async fetchUserPersonalData(
+    persnum: number,
+    accessToken: string,
+  ): Promise<{ nik: string | null; noWa: string | null }> {
+    console.log(`[AuthService] Fetching personal data for persnum: ${persnum}`);
+    
+    // Fetch NIK dari HR API (sama dengan /digsig/ktp)
+    const nik = await this.fetchNikFromHrApi(persnum, accessToken);
+    
+    // noWa tidak di-fetch karena data kosong/tidak tersedia
+    // Field tetap ada untuk compatibility
+    return { nik, noWa: null };
+  }
+
   /**
    * Login with username & password (call AirNav login API directly)
    */
@@ -113,7 +178,13 @@ export class AuthService {
     const role = userRole?.role || 'user';
 
     // ================================================================
-    // 4. Build JWT payload
+    // 4. Fetch NIK dan noWa dari HR API (parallel)
+    // ================================================================
+    const personalData = await this.fetchUserPersonalData(persnum, access_token);
+    console.log('[AuthService] Personal data fetched - NIK:', personalData.nik ? 'found' : 'not found', ', noWa:', personalData.noWa ? 'found' : 'not found');
+
+    // ================================================================
+    // 5. Build JWT payload
     // ================================================================
     const payload: JwtPayload = {
       persnum: orgData.persnum,
@@ -132,10 +203,14 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      
+      // Personal data dari HR API
+      nik: personalData.nik || undefined,
+      noWa: personalData.noWa || undefined,
     };
 
     // ================================================================
-    // 5. Generate JWT (expires sync dengan AirNav token)
+    // 6. Generate JWT (expires sync dengan AirNav token)
     // ================================================================
     const expiresIn = Math.floor(
       (new Date(expired_token).getTime() - Date.now()) / 1000,
@@ -146,7 +221,7 @@ export class AuthService {
     });
 
     // ================================================================
-    // 6. Save session
+    // 7. Save session
     // ================================================================
     const idPosition = orgData.position ? Number(orgData.position) : undefined;
     console.log('[AuthService] Creating session with id_position:', idPosition);
@@ -261,7 +336,13 @@ export class AuthService {
     console.log('[AuthService] User role:', role);
 
     // ================================================================
-    // 4. Build JWT payload
+    // 4. Fetch NIK dan noWa dari HR API (parallel)
+    // ================================================================
+    const personalData = await this.fetchUserPersonalData(persnum, ssoResponse.data.access_token);
+    console.log('[AuthService] Personal data fetched - NIK:', personalData.nik ? 'found' : 'not found', ', noWa:', personalData.noWa ? 'found' : 'not found');
+
+    // ================================================================
+    // 5. Build JWT payload
     // ================================================================
     const payload: JwtPayload = {
       persnum: orgData.persnum,
@@ -280,10 +361,14 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      
+      // Personal data dari HR API
+      nik: personalData.nik || undefined,
+      noWa: personalData.noWa || undefined,
     };
 
     // ================================================================
-    // 5. Generate JWT (expires sync dengan AirNav token)
+    // 6. Generate JWT (expires sync dengan AirNav token)
     // ================================================================
     console.log('[AuthService] Generating JWT token...');
     const expiresIn = Math.floor(
@@ -297,7 +382,7 @@ export class AuthService {
     console.log('[AuthService] JWT generated, expires in:', expiresIn, 'seconds');
 
     // ================================================================
-    // 6. Save session
+    // 7. Save session
     // ================================================================
     console.log('[AuthService] Creating session...');
     const idPosition = orgData.position ? Number(orgData.position) : undefined;
@@ -428,6 +513,9 @@ export class AuthService {
 
     const role = userRole?.role || 'user';
 
+    // Fetch fresh NIK dan noWa dari HR API
+    const personalData = await this.fetchUserPersonalData(payload.persnum, ssoRefresh.accessToken);
+
     const newPayload: JwtPayload = {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
@@ -445,6 +533,10 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      
+      // Personal data dari HR API
+      nik: personalData.nik || undefined,
+      noWa: personalData.noWa || undefined,
     };
 
     // ================================================================
@@ -469,6 +561,99 @@ export class AuthService {
       refreshToken: ssoRefresh.refreshToken,
       sessionId,
       payloadRefresh: newPayload,
+    };
+  }
+
+  /**
+   * Switch role - Generate new JWT with delegated position data or reset to original
+   * @param currentUser - Current JWT payload (from @CurrentUser decorator)
+   * @param delegasi - Delegation info if switching to delegated role, or null to reset to original
+   * @returns New JWT token with updated position data
+   */
+  async switchRole(
+    currentUser: JwtPayload,
+    delegasi: { 
+      as_position: string; 
+      as_position_text: string;
+      as_organization: string;
+      as_organization_text: string;
+      as_area: string;
+      as_area_text: string;
+      as_sub_area: string;
+      as_sub_area_text: string;
+      company: string;
+      company_text: string;
+      position_status: string;
+    } | null,
+  ): Promise<{
+    message: string;
+    accessToken: string;
+    user: JwtPayload;
+  }> {
+    // Remove exp and iat from current user payload to avoid conflict with new token
+    const { exp, iat, ...basePayload } = currentUser;
+    
+    let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
+
+    if (delegasi) {
+      // Switch to delegated role
+      newPayload = {
+        ...basePayload,
+        // Update position data dengan data delegasi
+        position: delegasi.as_position,
+        positionText: delegasi.as_position_text,
+        organization: delegasi.as_organization,
+        organizationText: delegasi.as_organization_text,
+        area: delegasi.as_area,
+        areaText: delegasi.as_area_text,
+        subArea: delegasi.as_sub_area,
+        subAreaText: delegasi.as_sub_area_text,
+        company: delegasi.company,
+        companyText: delegasi.company_text,
+        // Keep original persnum and nama
+        // Role tetap sama
+      };
+    } else {
+      // Reset to original role - fetch from org_data
+      const orgData = await this.orgDataService.findByPersnum(basePayload.persnum);
+      
+      if (!orgData) {
+        throw new UnauthorizedException('User data not found in org_data');
+      }
+
+      newPayload = {
+        ...basePayload,
+        // Reset ke data asli dari org_data
+        company: orgData.company?.toString() || '',
+        companyText: orgData.companyText || '',
+        area: orgData.area || '',
+        areaText: orgData.areaText || '',
+        subArea: orgData.subArea?.toString() || '',
+        subAreaText: orgData.subAreaText || '',
+        organization: orgData.organization?.toString() || '',
+        organizationText: orgData.organizationText || '',
+        position: orgData.position?.toString() || '',
+        positionText: orgData.positionText || '',
+        bodTag: orgData.bodTag || '',
+        abbreviation: orgData.abbreviation || '',
+      };
+    }
+
+    // Generate new JWT with same expiry as current token
+    const expiresIn = exp 
+      ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
+      : 86400; // default 24 hours
+
+    const newJwt = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
+
+    return {
+      message: delegasi 
+        ? `Berhasil switch ke role ${delegasi.as_position_text}` 
+        : 'Berhasil kembali ke role asli',
+      accessToken: newJwt,
+      user: newPayload as JwtPayload,
     };
   }
 }

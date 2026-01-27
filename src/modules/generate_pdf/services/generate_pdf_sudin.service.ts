@@ -26,6 +26,8 @@ interface SdiPdfOptions {
   headerAlamat?: string;
   // QR Code HTML (optional - passed from digsig signing)
   qrCodeHtml?: string;
+  // English format flag (untuk SDE)
+  english?: boolean;
 }
 
 @Injectable()
@@ -37,6 +39,423 @@ export class GeneratePdfSudinService {
   }
 
   private async _generatePdfInternal(body: SdiPdfOptions): Promise<Buffer> {
+    // Check if English format is requested
+    const isEnglish = body.english === true;
+    
+    if (isEnglish) {
+      return this._generatePdfEnglish(body);
+    }
+    
+    return this._generatePdfIndonesian(body);
+  }
+
+  /**
+   * Generate PDF dalam format Bahasa Inggris (untuk SDE)
+   */
+  private async _generatePdfEnglish(body: SdiPdfOptions): Promise<Buffer> {
+    let logoBase64 = '';
+    
+    try {
+      const possiblePaths = [
+        path.resolve(__dirname, '../../../../public/logo_airnav.jpg'),
+        path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
+        path.join(__dirname, '../../../../public/logo_airnav.jpg'),
+      ];
+      
+      for (const logoPath of possiblePaths) {
+        if (fs.existsSync(logoPath)) {
+          logoBase64 = fs.readFileSync(logoPath, 'base64');
+          break;
+        }
+      }
+    } catch (error) {
+      // Silently fail and use placeholder
+    }
+
+    const htmlContent = body.html || body.htmlContent;
+    if (!htmlContent) {
+      throw new Error('Missing required field: html or htmlContent');
+    }
+    
+    let decodedContent = '';
+    try {
+      if (htmlContent.includes('<') && htmlContent.includes('>')) {
+        decodedContent = htmlContent;
+      } else if (/^[A-Za-z0-9+/=]+$/.test(htmlContent)) {
+        const buffer = Buffer.from(htmlContent, 'base64');
+        decodedContent = buffer.toString('utf-8');
+      } else {
+        decodedContent = htmlContent;
+      }
+    } catch (e) {
+      decodedContent = htmlContent;
+    }
+
+    // Helper function untuk format tanggal ke format English (e.g., "December 29, 2025")
+    const formatDateToEnglish = (dateInput: string): string => {
+      if (!dateInput) return '';
+      const trimmed = dateInput.trim();
+      if (!trimmed) return '';
+      
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      
+      try {
+        let dateObj: Date | null = null;
+        
+        // DD-MM-YYYY format
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('-');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        }
+        // YYYY-MM-DD format
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          dateObj = new Date(trimmed + 'T00:00:00');
+        }
+        // DD/MM/YYYY format
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+          const [day, month, year] = trimmed.split('/');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        }
+        // Already has month name (Indonesian) - convert to English
+        else if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+          const indonesianMonths: { [key: string]: number } = {
+            'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'mei': 4, 'juni': 5,
+            'juli': 6, 'agustus': 7, 'september': 8, 'oktober': 9, 'november': 10, 'desember': 11
+          };
+          const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/i);
+          if (match) {
+            const day = parseInt(match[1]);
+            const monthName = match[2].toLowerCase();
+            const year = parseInt(match[3]);
+            const monthIndex = indonesianMonths[monthName];
+            if (monthIndex !== undefined) {
+              return `${monthNames[monthIndex]} ${day}, ${year}`;
+            }
+          }
+          return trimmed;
+        }
+        
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const month = monthNames[dateObj.getMonth()];
+          const day = dateObj.getDate();
+          const year = dateObj.getFullYear();
+          return `${month} ${day}, ${year}`;
+        }
+        
+        return trimmed;
+      } catch (e) {
+        console.error('[GeneratePdfSudin] Error formatting date to English:', e);
+        return trimmed;
+      }
+    };
+
+    // Map sifat Indonesia ke English
+    const sifatToEnglish = (sifat: string): string => {
+      const mapping: { [key: string]: string } = {
+        'biasa': 'Regular',
+        'terbatas': 'Limited',
+        'rahasia': 'Confidential',
+        'sangat_rahasia': 'Top Secret',
+        'sangat rahasia': 'Top Secret',
+        'terbuka': 'Open',
+      };
+      return mapping[sifat?.toLowerCase()] || sifat || 'Regular';
+    };
+    
+    const html = decodedContent;
+    const namaTempat = body.nama_tempat || 'Tangerang';
+    
+    let tanggalRaw = (body.tanggal || '').trim();
+    if (!tanggalRaw) {
+      const now = new Date();
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      tanggalRaw = `${monthNames[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    } else {
+      tanggalRaw = formatDateToEnglish(tanggalRaw);
+    }
+    
+    const tanggal = tanggalRaw;
+    const tanggalFormatted = `${namaTempat}, ${tanggal}`;
+    
+    const positionText = body.positionText || '';
+    const namaLengkap = body.namaLengkap || '';
+    const perihal = body.perihal || '';
+    const sifat = sifatToEnglish(body.sifat || 'Biasa');
+    const lampiranText = body.lampiran === '-' ? '-' : (body.lampiran || '-');
+    const nomor = body.nomor || '';
+    
+    // Format penerima
+    let penerimaArr: string[] = [];
+    if (Array.isArray(body.penerima)) {
+      penerimaArr = body.penerima;
+    } else if (typeof body.penerima === 'string') {
+      try {
+        const parsed = JSON.parse(body.penerima);
+        penerimaArr = Array.isArray(parsed) ? parsed : [body.penerima];
+      } catch {
+        penerimaArr = body.penerima ? [body.penerima] : [];
+      }
+    }
+    
+    // Format tembusan
+    let tembusanArr: string[] = [];
+    if (Array.isArray(body.tembusan)) {
+      tembusanArr = body.tembusan;
+    } else if (typeof body.tembusan === 'string') {
+      try {
+        const parsed = JSON.parse(body.tembusan);
+        tembusanArr = Array.isArray(parsed) ? parsed : [body.tembusan];
+      } catch {
+        tembusanArr = body.tembusan ? [body.tembusan] : [];
+      }
+    }
+
+    const penerimaExceedsLimit = penerimaArr.length > 5;
+    const tembusanExceedsLimit = tembusanArr.length > 5;
+    const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
+    
+    // Process penerima (English)
+    let penerimaHtml = '';
+    if (penerimaExceedsLimit) {
+      penerimaHtml = 'Please See Attached Address List<br>';
+    } else {
+      if (penerimaArr.length > 1) {
+        penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
+        penerimaArr.forEach((item) => {
+          penerimaHtml += `<li>${item}</li>`;
+        });
+        penerimaHtml += '</ol>';
+      } else if (penerimaArr.length === 1) {
+        penerimaHtml = penerimaArr[0] || '';
+      }
+    }
+    
+    // Process tembusan (English)
+    let tembusanHtml = '';
+    if (tembusanExceedsLimit) {
+      tembusanHtml = 'Please See Attached Address List';
+    } else {
+      if (tembusanArr.length > 1) {
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+        tembusanArr.forEach((item) => {
+          tembusanHtml += `<li>${item}</li>`;
+        });
+        tembusanHtml += '</ol>';
+      } else if (tembusanArr.length === 1) {
+        tembusanHtml = tembusanArr[0] || '';
+      }
+    }
+
+    // Tembusan section English
+    let tembusanKonten = '';
+    if (tembusanHtml !== '') {
+      tembusanKonten = `
+        <table style="width:100%;margin-top:20px;">
+          <tbody>
+            <tr>
+              <td style="vertical-align:top;">Copy to:<br>${tembusanHtml}</td>
+            </tr>
+          </tbody>
+        </table>`;
+    }
+
+    // Dynamic header info
+    const headerKantor = body.headerKantor || 'Head Office of Perum LPPNPI';
+    const headerGedung = body.headerGedung || 'AirNav Indonesia Building';
+    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Phone : +62 21 55915000<br>www.airnavindonesia.co.id';
+
+    // Header kop surat (English)
+    const header = `
+      <table width='100%' border='0' style='border-collapse:collapse;' cellpadding='2'>
+        <tbody>
+          <tr>
+            <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
+            <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
+            <td style='font-size:9px; text-align:left;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    // Header info surat (English)
+    const headerInfo = `
+      <table border="0" width="100%" style="margin-top:20px;">
+        <tbody>
+          <tr>
+            <td colspan="3" style="padding-top:10px;">${tanggalFormatted}</td>
+          </tr>
+          <tr>
+            <td colspan="3">
+              <table style="margin-top:10px;" width="100%">
+                <tbody>
+                  <tr>
+                    <td width="15%" valign="middle">Number</td>
+                    <td width="3%" valign="middle">:</td>
+                    <td valign="middle">${nomor}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Classification</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${sifat}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Attachment</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${lampiranText}</td>
+                  </tr>
+                  <tr>
+                    <td valign="top">Subject</td>
+                    <td valign="top">:</td>
+                    <td valign="top">${perihal}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
+                      Dear,<br>
+                      <div style="width:55%;">
+                        ${penerimaHtml}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    // Body konten
+    const bodyKonten = `
+      <div style="margin-top:15px;text-align:justify;">
+        ${html}
+      </div>
+    `;
+
+    // QR Code section
+    const qrCodeHtml = body.qrCodeHtml || '';
+
+    // TTD section (English)
+    const ttd = `
+      <table style="width:100%;margin-top:30px;">
+        <tbody>
+          <tr>
+            <td style="width:50%;"></td>
+            <td style="text-align:center;">
+              ${positionText}<br>
+              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+              ${namaLengkap}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    // Global CSS
+    const globalStyle = `
+      <style>
+        body {
+          font-family: 'Times New Roman', Times, serif;
+          font-size: 12pt;
+          line-height: 1.5;
+        }
+        table {
+          border-collapse: collapse;
+        }
+        td {
+          vertical-align: top;
+        }
+      </style>
+    `;
+
+    const konten = globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+
+    // Generate address page if needed (English)
+    let addressPageContent = '';
+    if (needsAddressPage) {
+      let penerimaListHtml = '';
+      if (penerimaExceedsLimit) {
+        penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        penerimaArr.forEach((item) => {
+          penerimaListHtml += `<li>${item}</li>`;
+        });
+        penerimaListHtml += '</ol>';
+      }
+
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArr.forEach((item) => {
+          tembusanListHtml += `<li>${item}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
+      addressPageContent = `
+        <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
+            <tr>
+              <td style="width: 50%;">&nbsp;</td>
+              <td style="width: 50%; text-align: right; vertical-align: top;">
+                <div style="display: inline-block; text-align: left;">
+                  Letter Attachment<br>
+                  Letter Number : ${nomor}<br>
+                  Letter Date : ${tanggalFormatted}
+                </div>
+              </td>
+            </tr>
+          </table>
+          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+            ${penerimaExceedsLimit ? `<tr>
+              <td style="vertical-align:top; padding-bottom:20px;">
+                <b>TO :</b><br>
+                ${penerimaListHtml}
+              </td>
+            </tr>` : ''}
+            ${tembusanExceedsLimit ? `<tr>
+              <td style="vertical-align:top;">
+                <b>COPY TO :</b><br>
+                ${tembusanListHtml}
+              </td>
+            </tr>` : ''}
+          </table>
+        </div>
+      `;
+    }
+
+    const finalKonten = konten + addressPageContent;
+
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '15mm',
+          bottom: '20mm',
+          left: '25mm',
+          right: '20mm',
+        },
+      });
+
+      return Buffer.from(pdf);
+    } finally {
+      await page.close();
+    }
+  }
+
+  /**
+   * Generate PDF dalam format Bahasa Indonesia (default)
+   */
+  private async _generatePdfIndonesian(body: SdiPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
     
     try {
@@ -250,7 +669,7 @@ export class GeneratePdfSudinService {
           <tr>
             <td style='width:10%;'>${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="width:100%;" />` : '<div style="width:100%;background:#e0e0e0;border:1px solid #999;"></div>'}</td>
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
-            <td style='font-size:9px; text-align:right;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
+            <td style='font-size:9px; text-align:left;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
         </tbody>
       </table>

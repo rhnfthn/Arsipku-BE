@@ -57,9 +57,21 @@ export class NaskahController {
     return this.naskahService.countDraftByPosition(parseInt(positionId, 10));
   }
 
+  /**
+   * GET /persuratan/naskah/:id
+   * Get Rangkaian Naskah Lengkap dari Awal sampai Akhir
+   * 
+   * Support semua jenis naskah (ND, SDI, SDE, DI, KA)
+   * Menampilkan chain lengkap dengan referensi parent-child
+   * 
+   * Format mirip GET /DI/:id tapi universal untuk semua jenis
+   * 
+   * @param id - ID naskah (bisa dari level mana saja)
+   * @returns Chain lengkap urutan terbaru → awal
+   */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.naskahService.findOne(id);
+  getDetailWithChain(@Param('id') id: string): Promise<any> {
+    return this.naskahService.getDetailWithChain(id);
   }
 
   @Put(':id')

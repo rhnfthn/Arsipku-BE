@@ -651,6 +651,102 @@ export class NomorService {
   }
 
   /**
+   * Admin melihat semua usulan nomor dengan filter posisi
+   * - Semua data dengan status selain "Belum Diajukan" ditampilkan
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
+   */
+  async getAdminNomorRequestByPosition(positionId: number): Promise<GetAdminNomorRequestResponseDto> {
+    const requests = await this.nomorRequestRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    // Get latest org_data to extract position details
+    let positionJsonData: any[] = [];
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+        
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    const data = await Promise.all(
+      requests.map(async (request) => {
+        // Ambil detail untuk menentukan status
+        const details = await this.nomorRequestDetailRepository.find({
+          where: { idRequest: request.id },
+        });
+
+        let status = 'Belum Diajukan';
+        if (details.length > 0) {
+          const hasBooking = details.some((d) => d.status === 'booking');
+          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+          const allHangus = details.every((d) => d.status === 'hangus');
+          const allDitolak = details.every((d) => d.status === 'ditolak');
+          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+          if (hasTerpakai) {
+            status = 'Disetujui';
+          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
+            status = 'Ditolak';
+          } else if (hasBooking) {
+            status = 'Menunggu Verifikasi';
+          }
+        }
+
+        // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
+        if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
+          return null;
+        }
+
+        // Get position data to extract persnum and nama
+        const positionNumber = parseInt(request.position!, 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        
+        const persnum = positionData?.persnum_person || null;
+        const nama = positionData?.persnum_person_text || null;
+
+        return {
+          id: request.id,
+          company: request.company!,
+          area: request.area!,
+          sub_area: request.subArea!,
+          organization: request.organization!,
+          position: request.position!,
+          persnum,
+          nama,
+          tanggal: request.tanggal!,
+          jenis: request.jenis!,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal!,
+          jumlah: request.jumlah!,
+          penandatangan: request.penandatangan,
+          created_at: request.createdAt,
+          status,
+        };
+      }),
+    );
+
+    // Filter out null values (request yang difilter)
+    const filteredData = data.filter((item) => item !== null);
+
+    return {
+      success: true,
+      message: 'Data usulan nomor berhasil diambil',
+      data: filteredData,
+    };
+  }
+
+  /**
    * Get detail usulan nomor berdasarkan ID (usulan saja, tanpa details)
    */
   async getNomorRequestDetail(

@@ -246,4 +246,72 @@ export class QRCodeService {
       </div>
     `;
   }
+
+  /**
+   * Generate Preview QR Code dengan text "PREVIEW" di tengah
+   * Ukuran sama dengan QR code asli agar layout konsisten saat preview
+   */
+  async generatePreviewQRCodeBase64(): Promise<string> {
+    const qrSize = 200;
+    const canvas = createCanvas(qrSize, qrSize);
+    const ctx = canvas.getContext('2d');
+
+    // Background putih
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, qrSize, qrSize);
+
+    // Border kotak (simulate QR code appearance)
+    ctx.strokeStyle = '#CCCCCC';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(5, 5, qrSize - 10, qrSize - 10);
+
+    // Pattern kotak-kotak untuk simulate QR code pattern
+    ctx.fillStyle = '#E0E0E0';
+    const boxSize = 10;
+    for (let i = 0; i < qrSize / boxSize; i++) {
+      for (let j = 0; j < qrSize / boxSize; j++) {
+        if ((i + j) % 3 === 0) {
+          ctx.fillRect(i * boxSize + 10, j * boxSize + 10, boxSize - 2, boxSize - 2);
+        }
+      }
+    }
+
+    // Background putih di tengah untuk logo/text
+    const centerBoxSize = 80;
+    const centerX = (qrSize - centerBoxSize) / 2;
+    const centerY = (qrSize - centerBoxSize) / 2;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(centerX, centerY, centerBoxSize, centerBoxSize);
+
+    // Load dan gambar logo di tengah jika ada
+    if (this.logoBase64) {
+      try {
+        const logoSize = 50;
+        const logoImage = await loadImage(`data:image/jpeg;base64,${this.logoBase64}`);
+        const logoX = (qrSize - logoSize) / 2;
+        const logoY = (qrSize - logoSize) / 2 - 10;
+        ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+      } catch (error) {
+        console.error('[QRCodeService] Failed to add logo to preview QR:', error);
+      }
+    }
+
+    // Text "PREVIEW" di bawah logo
+    ctx.fillStyle = '#888888';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PREVIEW', qrSize / 2, qrSize / 2 + 30);
+
+    return canvas.toDataURL('image/png');
+  }
+
+  /**
+   * Generate Preview QR Code HTML untuk digunakan di preview PDF
+   * Menghasilkan HTML img tag dengan ukuran yang sama dengan QR code final
+   */
+  async generatePreviewQRCodeHtml(): Promise<string> {
+    const previewQrBase64 = await this.generatePreviewQRCodeBase64();
+    return `<img src="${previewQrBase64}" style="width: 80px; height: 80px;" alt="Preview QR Code" />`;
+  }
 }

@@ -24,7 +24,10 @@ import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
-import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+// REMOVED: SdiSdeEntity - data now comes from naskah_sirkulasi
+// import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
+import { LabelService } from '../../label/services/label.service';
+import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -44,8 +47,12 @@ export class NaskahSirkulasiService {
     private readonly naskahRepo: Repository<NaskahEntity>,
     @InjectRepository(EksternalEntity)
     private readonly eksternalRepo: Repository<EksternalEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
+    // REMOVED: SdiSdeEntity repository
+    // @InjectRepository(SdiSdeEntity)
+    // private readonly sdiSdeRepo: Repository<SdiSdeEntity>,
+    @InjectRepository(NaskahLabelEntity)
+    private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
+    private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -189,6 +196,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler = 'penerima'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const params: any[] = [positionId];
@@ -222,6 +230,8 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_arsip,
         s.flag_note,
+        s.tindak_lanjut,
+        s.is_locked,
         pengirim.position as pengirim_position_id,
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
@@ -232,10 +242,12 @@ export class NaskahSirkulasiService {
         s.position_text as penerima_position_text,
         s.organization_text as penerima_organization_text,
         CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at
+        CAST(s.updated_at AS DATETIME) as updated_at,
+        di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
+      LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
     `;
@@ -244,6 +256,7 @@ export class NaskahSirkulasiService {
     // Get all recipients (kepada) for each naskah
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
     const kepadaMap = new Map<string, any[]>();
+    const labelsMap = new Map<string, any[]>();
     
     if (naskahIds.length > 0) {
       const kepadaQuery = `
@@ -272,42 +285,81 @@ export class NaskahSirkulasiService {
           organization_text: row.organization_text || '',
         });
       });
+
+      // Get labels for each naskah (include parent name untuk nested label)
+      const labelsQuery = `
+        SELECT 
+          nl.naskah_id,
+          l.nama,
+          parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      
+      // Group labels by naskah_id (with parent hierarchy)
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) {
+          labelsMap.set(row.naskah_id, []);
+        }
+        // Format: "Parent > Child" jika ada parent, atau hanya "Label" jika tidak ada parent
+        const labelName = row.parent_nama 
+          ? `${row.parent_nama} > ${row.nama}` 
+          : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
     }
 
     // Map to InboxItemDto
-    const items: InboxItemDto[] = rows.map((row: any) => ({
-      id_sirkulasi: row.id_sirkulasi,
-      id_naskah: row.id_naskah,
-      jenis: row.jenis,
-      jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
-      nomor: row.nomor,
-      tanggal: row.tanggal,
-      perihal: row.perihal,
-      sifat: row.sifat,
-      status: row.status,
-      lampiran: row.lampiran,
-      pengirim: {
-        position_id: row.pengirim_position_id || '',
-        position_text: row.pengirim_position_text || '',
-        organization_text: row.pengirim_organization_text || '',
-        nama: row.pengirim_nama || '',
-      },
-      penerima: {
-        position_id: row.penerima_position_id || '',
-        persnum: parseInt(row.penerima_persnum || '0', 10),
-        nama: row.penerima_nama || '',
-        position_text: row.penerima_position_text || '',
-        organization_text: row.penerima_organization_text || '',
-      },
-      kepada: kepadaMap.get(row.id_naskah) || [], // Semua penerima yang dituju
-      status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
-      read_time: row.send_read_time,
-      is_favorit: row.flag_favorit === 1,
-      is_arsip: row.flag_arsip === 1,
-      is_note: row.flag_note === 1,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    const items: InboxItemDto[] = rows.map((row: any) => {
+      const item: InboxItemDto = {
+        id_sirkulasi: row.id_sirkulasi,
+        id_naskah: row.id_naskah,
+        jenis: row.jenis,
+        jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+        nomor: row.nomor,
+        tanggal: row.tanggal,
+        perihal: row.perihal,
+        sifat: row.sifat,
+        status: row.status,
+        lampiran: row.lampiran,
+        pengirim: {
+          position_id: row.pengirim_position_id || '',
+          position_text: row.pengirim_position_text || '',
+          organization_text: row.pengirim_organization_text || '',
+          nama: row.pengirim_nama || '',
+        },
+        penerima: {
+          position_id: row.penerima_position_id || '',
+          persnum: parseInt(row.penerima_persnum || '0', 10),
+          nama: row.penerima_nama || '',
+          position_text: row.penerima_position_text || '',
+          organization_text: row.penerima_organization_text || '',
+        },
+        kepada: kepadaMap.get(row.id_naskah) || [], // Semua penerima yang dituju
+        status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+        read_time: row.send_read_time,
+        is_favorit: row.flag_favorit === 1,
+        is_arsip: row.flag_arsip === 1,
+        is_note: row.flag_note === 1,
+        is_tindak_lanjut: row.tindak_lanjut === 1,
+        is_locked: row.is_locked === 1,
+        labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+
+      // Add is_priority field jika ini adalah disposisi (DI)
+      if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
+        item.is_priority = row.is_priority === 1;
+      }
+
+      return item;
+    });
 
     // Get summary counts
     const summaryQuery = `
@@ -324,6 +376,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler = 'penerima'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
@@ -428,62 +481,103 @@ export class NaskahSirkulasiService {
       };
     }
 
+    // Get all naskah IDs untuk query labels
+    const naskahIds = rows.map((r: any) => r.id_naskah);
+    const labelsMap = new Map<string, string[]>();
+
+    // Get labels for all naskah
+    if (naskahIds.length > 0) {
+      const labelsQuery = `
+        SELECT 
+          nl.naskah_id,
+          l.nama,
+          parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      
+      // Group labels by naskah_id
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) {
+          labelsMap.set(row.naskah_id, []);
+        }
+        const labelName = row.parent_nama 
+          ? `${row.parent_nama} > ${row.nama}` 
+          : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
+    }
+
     // Untuk setiap naskah, ambil daftar penerima
     const items: SentMessageItemDto[] = [];
     
     for (const row of rows) {
       let penerima: any[] = [];
 
-      // Untuk SDE, ambil data penerima dari tabel sdi_sde
+      // Untuk SDE, ambil data penerima dari naskah_sirkulasi (penerima eksternal)
       if (row.jenis === 'SDE') {
-        const sdeData = await this.sdiSdeRepo.findOne({
-          where: { idNaskah: row.id_naskah },
-        });
+        // Get penerima from naskah_sirkulasi (penerima eksternal stored with sirkuler='penerima')
+        const penerimaQuery = `
+          SELECT 
+            id_sirkuler as id,
+            nama_sirkuler as nama,
+            alamat,
+            telepon,
+            email,
+            company_text as company,
+            area_text as area
+          FROM naskah_sirkulasi
+          WHERE id_naskah = ?
+          AND sirkuler = 'penerima'
+          ORDER BY urutan ASC
+        `;
+        const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
 
         console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
-        console.log('🔍 SDE Debug - SDE Data found:', sdeData ? 'Yes' : 'No');
+        console.log('🔍 SDE Debug - Penerima count:', penerimaRows?.length || 0);
 
-        if (sdeData) {
-          // Parse kepada_yth yang bisa berisi multiple penerima dipisah koma
-          const penerimaNames = sdeData.kepadaYth 
-            ? sdeData.kepadaYth.split(',').map(n => n.trim()) 
-            : [sdeData.nama || ''];
-
-          // Untuk setiap nama penerima, coba cari di tabel eksternal
-          for (const namaP of penerimaNames) {
-            if (!namaP) continue;
-
-            // Try to find in eksternal table by name
-            const eksternalData = await this.eksternalRepo.findOne({
-              where: { nama: namaP },
-            });
-
-            if (eksternalData) {
-              penerima.push({
-                id: eksternalData.id,
-                nama: eksternalData.nama,
-                alamat: eksternalData.alamat || null,
-                telepon: eksternalData.telepon || null,
-                email: eksternalData.email || null,
-                kontak: eksternalData.kontak || null,
-                company: eksternalData.company,
-                area: eksternalData.area,
+        if (penerimaRows && penerimaRows.length > 0) {
+          // For each penerima, try to enrich with data from eksternal table
+          for (const p of penerimaRows) {
+            // Try to find in eksternal table by id
+            if (p.id) {
+              const eksternalData = await this.eksternalRepo.findOne({
+                where: { id: p.id },
               });
-            } else {
-              // Jika tidak ketemu di eksternal, tampilkan data dari sdi_sde
-              penerima.push({
-                nama: namaP,
-                alamat: sdeData.alamat || null,
-                telepon: null,
-                email: null,
-                kontak: null,
-                company: null,
-                area: null,
-              });
+
+              if (eksternalData) {
+                penerima.push({
+                  id: eksternalData.id,
+                  nama: eksternalData.nama,
+                  alamat: eksternalData.alamat || null,
+                  telepon: eksternalData.telepon || null,
+                  email: eksternalData.email || null,
+                  kontak: eksternalData.kontak || null,
+                  company: eksternalData.company,
+                  area: eksternalData.area,
+                });
+              } else {
+                // Fallback to sirkulasi data
+                penerima.push({
+                  id: p.id,
+                  nama: p.nama || '',
+                  alamat: p.alamat || null,
+                  telepon: p.telepon || null,
+                  email: p.email || null,
+                  kontak: null,
+                  company: p.company || null,
+                  area: p.area || null,
+                });
+              }
             }
           }
         } else {
-          console.log('⚠️ SDE Warning - sdi_sde data not found for naskah:', row.id_naskah);
+          console.log('⚠️ SDE Warning - No penerima found in sirkulasi for naskah:', row.id_naskah);
         }
       } else {
         // Untuk jenis lain (ND, SDI, DI, KA), ambil dari naskah_sirkulasi
@@ -562,6 +656,7 @@ export class NaskahSirkulasiService {
         favorit: !!row.flag_favorit,
         note: !!row.flag_note,
         arsip: !!row.flag_arsip,
+        labels: labelsMap.get(row.id_naskah) || [],
         created_at: row.created_at,
         updated_at: row.updated_at,
       });
@@ -618,7 +713,7 @@ export class NaskahSirkulasiService {
    */
   async toggleFlag(
     idSirkulasi: string,
-    flagType: 'favorit' | 'note' | 'arsip',
+    flagType: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock',
   ): Promise<ToggleFlagResponseDto> {
     // Cari record
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
@@ -649,6 +744,14 @@ export class NaskahSirkulasiService {
       case 'arsip':
         currentValue = sirkulasi.flagArsip || 0;
         fieldName = 'flagArsip';
+        break;
+      case 'tindak_lanjut':
+        currentValue = sirkulasi.tindakLanjut || 0;
+        fieldName = 'tindakLanjut';
+        break;
+      case 'lock':
+        currentValue = sirkulasi.isLocked || 0;
+        fieldName = 'isLocked';
         break;
     }
 
@@ -789,6 +892,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler = 'penerima'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND s.send_read_time IS NULL
       AND n.status IN ('final', 'final_tte')
     `;

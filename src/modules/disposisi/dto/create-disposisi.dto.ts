@@ -151,5 +151,12 @@ export class CreateDisposisiDto {
   @IsOptional()
   @IsString()
   paraf?: string;
+
+  // ============================================================
+  // PRIORITY FLAG - Menandai disposisi sebagai prioritas
+  // Jika true, disposisi akan tampil prioritas di penerima
+  // ============================================================
+  @IsOptional()
+  is_priority?: boolean;
 }
 

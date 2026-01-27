@@ -4,8 +4,9 @@ import { Repository, DataSource } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
-import { NdEntity } from '../../nota-dinas/entities/nd.entity';
-import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
+// REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan - data diambil dari naskah_sirkulasi
+// import { NdEntity } from '../../nota-dinas/entities/nd.entity';
+// import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -47,10 +48,11 @@ export class KonsepService {
     private naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahLampiranEntity)
     private naskahLampiranRepository: Repository<NaskahLampiranEntity>,
-    @InjectRepository(NdEntity)
-    private ndRepository: Repository<NdEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private sdiSdeRepository: Repository<SdiSdeEntity>,
+    // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan
+    // @InjectRepository(NdEntity)
+    // private ndRepository: Repository<NdEntity>,
+    // @InjectRepository(SdiSdeEntity)
+    // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private orgDataService: OrgDataService,
     private storageService: StorageService,
     private dataSource: DataSource,
@@ -175,51 +177,15 @@ export class KonsepService {
       }
 
       // ==========================================
-      // 5. CREATE ND/SDI/SDE CONTENT
+      // 5. SAVE TANDA TANGAN TO NASKAH (REFACTORED)
       // ==========================================
-      if (dto.jenis === 'ND') {
-        const ndEntity = this.ndRepository.create({
-          id: uuidv4(),
-          idNaskah: naskahAsliId,
-          kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-          kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-          alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-          nomor: naskahAsli.nomor,
-          kepadaYth: dto.kepada_yth,
-          dari: dto.dari,
-          perihal: dto.perihal,
-          konten: dto.konten,
-          namaTempat: dto.nama_tempat || fromPos.sub_area_text,
-          tanggal: naskahAsli.tanggal,
-          namaJabatan: dto.nama_jabatan,
-          tandaTangan: dto.tanda_tangan,
-          namaLengkap: dto.nama_lengkap,
-          tembusan: dto.tembusan,
-        });
-        await queryRunner.manager.save(ndEntity);
-      } else if (dto.jenis === 'SDI' || dto.jenis === 'SDE') {
-        const sdiSdeEntity = this.sdiSdeRepository.create({
-          id: uuidv4(),
-          idNaskah: naskahAsliId,
-          kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-          kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-          alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-          namaTempat: dto.nama_tempat || fromPos.sub_area_text,
-          tanggal: naskahAsli.tanggal,
-          nomor: naskahAsli.nomor,
-          sifat: dto.sifat,
-          lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : null,
-          perihal: dto.perihal,
-          kepadaYth: dto.kepada_yth,
-          nama: dto.nama_lengkap,
-          alamat: dto.alamat,
-          konten: dto.konten,
-          namaJabatan: dto.nama_jabatan,
-          tandaTangan: dto.tanda_tangan,
-          namaLengkap: dto.nama_lengkap,
-          tembusan: dto.tembusan,
-        });
-        await queryRunner.manager.save(sdiSdeEntity);
+      // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan
+      // Semua data (kepada_yth, dari, nama_jabatan, nama_lengkap, tembusan) 
+      // sudah tersedia di naskah_sirkulasi.
+      // Hanya tandaTangan yang perlu disimpan di tabel naskah.
+      if (dto.tanda_tangan) {
+        naskahAsli.tandaTangan = dto.tanda_tangan;
+        await queryRunner.manager.save(naskahAsli);
       }
 
       // ==========================================

@@ -69,8 +69,11 @@ export interface SignerInfoDto {
   persnum: number;
   nama: string | null;
   jabatan: string | null;
+  lokasi: string | null;
   status: 'pending' | 'waiting' | 'signed' | 'rejected';
   signedAt: Date | null;
+  rejectedAt: Date | null;
+  keterangan: string | null;
 }
 
 export interface PenandatangananItemDto {
@@ -160,4 +163,9 @@ export interface PenandatangananDetailDto {
   createdBy: number;
   createdByName: string | null;
   createdByPosition: string | null;
+  
+  // Rejection info (if document was rejected)
+  rejectionReason: string | null;
+  rejectedBy: number | null;
+  rejectedAt: Date | null;
 }

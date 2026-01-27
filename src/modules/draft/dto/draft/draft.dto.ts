@@ -48,6 +48,7 @@ export class DraftListItemDto {
   isi_pesan: string; // Perihal
   tanggal: Date;
   waktu: string; // HH:mm format
+  labels: string[]; // Array nama label yang di-assign ke naskah
 }
 
 export class GetDraftListResponseDto {

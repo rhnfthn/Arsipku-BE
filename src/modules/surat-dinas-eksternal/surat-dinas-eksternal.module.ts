@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SuratDinasEksternalController } from './controllers/surat-dinas-eksternal.controller';
 import { SuratDinasEksternalService } from './services/surat-dinas-eksternal.service';
-import { SdiSdeEntity } from './entities/sdi_sde.entity';
+// REMOVED: SdiSdeEntity - table sdi_sde tidak lagi digunakan
+// import { SdiSdeEntity } from './entities/sdi_sde.entity';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
@@ -21,7 +22,7 @@ import { DigsigModule } from '../digsig/digsig.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      SdiSdeEntity,
+      // SdiSdeEntity removed - table sdi_sde tidak lagi digunakan
       NaskahEntity,
       NaskahSirkulasi,
       NaskahLampiranEntity,

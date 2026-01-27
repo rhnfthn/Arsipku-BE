@@ -4,8 +4,11 @@ import { Repository, DataSource, In } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
-import { NdEntity } from '../../nota-dinas/entities/nd.entity';
-import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
+import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
+// REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan - data diambil dari naskah_sirkulasi
+// import { NdEntity } from '../../nota-dinas/entities/nd.entity';
+// import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
+import { DiEntity } from '../../disposisi/entities/di.entity';
 import { KonsepRiwayatEntity } from '../entities/konsep-riwayat.entity';
 import { NomorEntity } from '../../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
@@ -15,6 +18,7 @@ import { OrgDataService } from 'src/modules/master-data/org_data/org_data.servic
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
+import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -58,10 +62,15 @@ export class KonsepService {
     private naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahLampiranEntity)
     private naskahLampiranRepository: Repository<NaskahLampiranEntity>,
-    @InjectRepository(NdEntity)
-    private ndRepository: Repository<NdEntity>,
-    @InjectRepository(SdiSdeEntity)
-    private sdiSdeRepository: Repository<SdiSdeEntity>,
+    @InjectRepository(NaskahReferensiEntity)
+    private naskahReferensiRepository: Repository<NaskahReferensiEntity>,
+    // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan
+    // @InjectRepository(NdEntity)
+    // private ndRepository: Repository<NdEntity>,
+    // @InjectRepository(SdiSdeEntity)
+    // private sdiSdeRepository: Repository<SdiSdeEntity>,
+    @InjectRepository(DiEntity)
+    private diRepository: Repository<DiEntity>,
     @InjectRepository(KonsepRiwayatEntity)
     private konsepRiwayatRepository: Repository<KonsepRiwayatEntity>,
     @InjectRepository(NomorEntity)
@@ -76,6 +85,7 @@ export class KonsepService {
     private storageService: StorageService,
     private generatePdfNodinService: GeneratePdfNodinService,
     private generatePdfSudinService: GeneratePdfSudinService,
+    private qrCodeService: QRCodeService,
     private dataSource: DataSource,
   ) {}
 
@@ -87,6 +97,8 @@ export class KonsepService {
    * 2. Naskah jenis 'ND/SDI/SDE' (actual document) - the final document content
    * 
    * Both connected via sirkulasi with is_konsep=1 until finalized
+   * 
+   * Optional: Can be linked to a Disposisi (DI) as tindak lanjut via id_disposisi_referensi
    */
   async createKonsep(dto: CreateKonsepDto): Promise<CreateKonsepResponseDto> {
     const barisData = await this.getPositionData();
@@ -155,6 +167,28 @@ export class KonsepService {
       });
       await queryRunner.manager.save(naskahAsli);
 
+      // ==========================================
+      // 2a. CREATE REFERENSI TO DISPOSISI (if provided)
+      // ==========================================
+      if (dto.id_disposisi_referensi) {
+        // Validate disposisi exists
+        const disposisiRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_disposisi_referensi, jenis: 'DI' },
+        });
+
+        if (disposisiRef) {
+          const naskahReferensi = new NaskahReferensiEntity();
+          naskahReferensi.id = uuidv4();
+          naskahReferensi.id_naskah = naskahKonsepId; // Konsep workflow (K) adalah child
+          naskahReferensi.ref_jenis = 'DI';
+          naskahReferensi.ref_nomor = disposisiRef.nomor;
+          naskahReferensi.ref_tanggal = disposisiRef.tanggal;
+          naskahReferensi.ref_perihal = disposisiRef.perihal;
+          naskahReferensi.ref_pengirim = null; // Could get from disposisi sirkulasi if needed
+          await queryRunner.manager.save(naskahReferensi);
+        }
+      }
+
       // Update naskah konsep with link to naskah asli
       naskahKonsep.id_naskah_asli = naskahAsliId;
       await queryRunner.manager.save(naskahKonsep);
@@ -202,51 +236,15 @@ export class KonsepService {
       }
 
       // ==========================================
-      // 5. CREATE ND/SDI/SDE CONTENT
+      // 5. SAVE TANDA TANGAN TO NASKAH (REFACTORED)
       // ==========================================
-      if (dto.jenis === 'ND') {
-        const ndEntity = this.ndRepository.create({
-          id: uuidv4(),
-          idNaskah: naskahAsliId,
-          kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-          kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-          alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-          nomor: naskahAsli.nomor,
-          kepadaYth: dto.kepada_yth,
-          dari: dto.dari,
-          perihal: dto.perihal,
-          konten: dto.konten,
-          namaTempat: dto.nama_tempat || fromPos.sub_area_text,
-          tanggal: naskahAsli.tanggal,
-          namaJabatan: dto.nama_jabatan,
-          tandaTangan: dto.tanda_tangan,
-          namaLengkap: dto.nama_lengkap,
-          tembusan: dto.tembusan,
-        });
-        await queryRunner.manager.save(ndEntity);
-      } else if (dto.jenis === 'SDI' || dto.jenis === 'SDE') {
-        const sdiSdeEntity = this.sdiSdeRepository.create({
-          id: uuidv4(),
-          idNaskah: naskahAsliId,
-          kopLogo: dto.kop_logo || DEFAULT_KOP_LOGO,
-          kopNama: dto.kop_nama || DEFAULT_KOP_NAMA,
-          alamatPerusahaan: dto.alamat_perusahaan || DEFAULT_ALAMAT_PERUSAHAAN,
-          namaTempat: dto.nama_tempat || fromPos.sub_area_text,
-          tanggal: naskahAsli.tanggal,
-          nomor: naskahAsli.nomor,
-          sifat: dto.sifat,
-          lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : null,
-          perihal: dto.perihal,
-          kepadaYth: dto.kepada_yth,
-          nama: dto.nama_lengkap,
-          alamat: dto.alamat,
-          konten: dto.konten,
-          namaJabatan: dto.nama_jabatan,
-          tandaTangan: dto.tanda_tangan,
-          namaLengkap: dto.nama_lengkap,
-          tembusan: dto.tembusan,
-        });
-        await queryRunner.manager.save(sdiSdeEntity);
+      // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan
+      // Semua data (kepada_yth, dari, nama_jabatan, nama_lengkap, tembusan)
+      // sudah tersedia di naskah_sirkulasi.
+      // Hanya tandaTangan yang perlu disimpan di tabel naskah.
+      if (dto.tanda_tangan) {
+        naskahAsli.tandaTangan = dto.tanda_tangan;
+        await queryRunner.manager.save(naskahAsli);
       }
 
       // ==========================================
@@ -678,6 +676,7 @@ export class KonsepService {
       from_position_id: Number(body.from_position_id),
       to_position_id: Number(body.to_position_id),
       pengirim_position_id: body.pengirim_position_id ? Number(body.pengirim_position_id) : undefined,
+      id_disposisi_referensi: body.id_disposisi_referensi || undefined,
       perihal: body.perihal,
       konten: body.konten,
       klasifikasi: body.klasifikasi,
@@ -1865,16 +1864,38 @@ export class KonsepService {
         });
 
         if (naskahAsli) {
-          // Get ND/SDI/SDE content
-          if (naskahAsli.jenis === 'ND') {
-            naskahContent = await this.ndRepository.findOne({
-              where: { idNaskah: naskahAsli.id },
-            });
-          } else if (naskahAsli.jenis === 'SDI' || naskahAsli.jenis === 'SDE') {
-            naskahContent = await this.sdiSdeRepository.findOne({
-              where: { idNaskah: naskahAsli.id },
-            });
-          }
+          // REFACTOR: Get ND/SDI/SDE content dari naskah_sirkulasi, bukan dari nd/sdi_sde entity
+          const pengirimAsli = await this.naskahSirkulasiRepository.findOne({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
+          });
+          const penerimaAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
+          });
+          const tembusanAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
+          });
+          
+          // Build naskahContent from naskah + sirkulasi data
+          naskahContent = {
+            id: naskahAsli.id,
+            idNaskah: naskahAsli.id,
+            kopLogo: DEFAULT_KOP_LOGO,
+            kopNama: DEFAULT_KOP_NAMA,
+            alamatPerusahaan: DEFAULT_ALAMAT_PERUSAHAAN,
+            nomor: naskahAsli.nomor,
+            kepadaYth: penerimaAsliList.map(p => p.positionText).join('; '),
+            dari: pengirimAsli?.positionText || null,
+            perihal: naskahAsli.perihal,
+            konten: naskahAsli.konten,
+            namaTempat: naskahAsli.tempat,
+            tanggal: naskahAsli.tanggal,
+            namaJabatan: pengirimAsli?.positionText || null,
+            tandaTangan: naskahAsli.tandaTangan || null,
+            namaLengkap: pengirimAsli?.namaSirkuler || null,
+            tembusan: tembusanAsliList.map(t => t.positionText).join('; ') || null,
+            sifat: naskahAsli.sifat,
+            lampiran: naskahAsli.lampiran,
+          };
         }
       }
 
@@ -1890,6 +1911,106 @@ export class KonsepService {
             where: { id_naskah: naskahAsli.id },
           })
         : [];
+
+      // Get referensi disposisi (jika ada)
+      let disposisiReferensi: any = null;
+      const naskahReferensi = await this.naskahReferensiRepository.findOne({
+        where: { id_naskah: naskahKonsep.id, ref_jenis: 'DI' },
+      });
+
+      if (naskahReferensi && naskahReferensi.ref_nomor) {
+        // Get disposisi naskah detail
+        const disposisiNaskah = await this.naskahRepository.findOne({
+          where: { nomor: naskahReferensi.ref_nomor, jenis: 'DI' },
+        });
+
+        if (disposisiNaskah) {
+          // Get DI content
+          const diContent = await this.diRepository.findOne({
+            where: { idNaskah: disposisiNaskah.id },
+          });
+
+          // Get pengirim disposisi
+          const pengirimDispo = await this.naskahSirkulasiRepository.findOne({
+            where: {
+              idNaskah: disposisiNaskah.id,
+              sirkuler: 'pengirim',
+            },
+          });
+
+          // Get penerima disposisi
+          const penerimaDispo = await this.naskahSirkulasiRepository.find({
+            where: {
+              idNaskah: disposisiNaskah.id,
+              sirkuler: 'penerima',
+            },
+          });
+
+          // Get lampiran disposisi
+          const lampiranDispo = await this.naskahLampiranRepository.find({
+            where: { id_naskah: disposisiNaskah.id },
+          });
+
+          disposisiReferensi = {
+            id: disposisiNaskah.id,
+            jenis: disposisiNaskah.jenis,
+            nomor: disposisiNaskah.nomor,
+            tanggal: disposisiNaskah.tanggal,
+            perihal: disposisiNaskah.perihal,
+            sifat: disposisiNaskah.sifat,
+            status: disposisiNaskah.status,
+            
+            // DI specific fields
+            kop_logo: diContent?.kopLogo || null,
+            kop_judul: diContent?.kopJudul || null,
+            nama_jabatan: diContent?.namaJabatan || null,
+            nomor_agenda: diContent?.nomorAgenda || null,
+            tanggal_agenda: diContent?.tanggalAgenda || null,
+            surat_dari: diContent?.suratDari || null,
+            kepada_yth: diContent?.kepadaYth || null,
+            klasifikasi: diContent?.klasifikasi || disposisiNaskah.klasifikasi || null,
+            disposisi: diContent?.disposisi || null,
+            catatan: diContent?.catatan || null,
+            
+            // Pengirim
+            pengirim: pengirimDispo ? {
+              position_id: pengirimDispo.position || '',
+              position_text: pengirimDispo.positionText || '',
+              organization_text: pengirimDispo.organizationText || '',
+              nama: pengirimDispo.namaSirkuler || null,
+            } : null,
+            
+            // Penerima
+            penerima: penerimaDispo.map((p) => ({
+              position_id: p.position || '',
+              position_text: p.positionText || '',
+              organization_text: p.organizationText || '',
+              nama: p.namaSirkuler || null,
+              status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+              read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+            })),
+            
+            // Lampiran
+            jumlah_lampiran: lampiranDispo.length,
+            lampiran_files: await Promise.all(
+              lampiranDispo.map(async (l) => ({
+                id: l.id,
+                file_name: l.file_name || '',
+                file_path: l.file_pdf || '',
+                file_url: l.file_pdf
+                  ? await this.storageService.getFileUrl(l.file_pdf)
+                  : null,
+              })),
+            ),
+            
+            // Final PDF
+            final_pdf: disposisiNaskah.final_pdf || null,
+            final_pdf_url: disposisiNaskah.final_pdf
+              ? await this.storageService.getFileUrl(disposisiNaskah.final_pdf)
+              : null,
+          };
+        }
+      }
 
       // Get current pengirim (latest pengirim sirkulasi for konsep)
       const currentPengirim = await this.naskahSirkulasiRepository.findOne({
@@ -1942,6 +2063,7 @@ export class KonsepService {
             status: naskahKonsep.status,
             created_at: naskahKonsep.tanggal,
           },
+          disposisi_referensi: disposisiReferensi, // Disposisi asal (jika konsep ini adalah tindak lanjut)
           current_workflow: {
             pengirim: currentPengirim ? {
               position_id: parseInt(currentPengirim.position || '0'),
@@ -2040,7 +2162,7 @@ export class KonsepService {
     body: any,
   ): Promise<Buffer> {
     try {
-      const pdfDto = this.buildPdfDto(jenis, body);
+      const pdfDto = await this.buildPdfDto(jenis, body);
 
       if (jenis === 'ND') {
         return await this.generatePdfNodinService.generatePdf(pdfDto);
@@ -2086,7 +2208,7 @@ export class KonsepService {
   /**
    * Build DTO for PDF generation based on jenis
    */
-  private buildPdfDto(jenis: 'ND' | 'SDI' | 'SDE', body: any): any {
+  private async buildPdfDto(jenis: 'ND' | 'SDI' | 'SDE', body: any): Promise<any> {
     // Encode HTML content to base64 if needed
     let htmlContent = body.htmlContent || body.konten || '';
     if (htmlContent && !htmlContent.match(/^[A-Za-z0-9+/=]+$/)) {
@@ -2112,6 +2234,9 @@ export class KonsepService {
     const penerimaArray = parseArray(body.penerima || body.tertuju);
     const tembusanArray = parseArray(body.tembusan);
 
+    // Generate preview QR code untuk preview PDF
+    const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+
     if (jenis === 'ND') {
       return {
         html: htmlContent,
@@ -2129,6 +2254,8 @@ export class KonsepService {
         headerKantor: body.header_kantor,
         headerGedung: body.header_gedung,
         headerAlamat: body.header_alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
     } else {
       // SDI/SDE
@@ -2150,6 +2277,8 @@ export class KonsepService {
         headerKantor: body.header_kantor,
         headerGedung: body.header_gedung,
         headerAlamat: body.header_alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
     }
   }

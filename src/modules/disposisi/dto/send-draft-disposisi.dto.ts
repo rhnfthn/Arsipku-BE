@@ -123,6 +123,16 @@ export class SendDraftDisposisiDto {
   @IsOptional()
   @IsString()
   paraf?: string;
+
+  // Priority Flag
+  @IsOptional()
+  is_priority?: boolean;
+
+  // Lampiran Temp IDs
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  lampiran_temp_ids?: string[];
 }
 
 /**
@@ -143,6 +153,7 @@ export class SendDraftDisposisiResponseDto {
     penerima: DisposisiSirkulasiInfoDto[];
     disposisi?: string;
     catatan?: string;
+    is_priority?: boolean;
     lampiran?: {
       id: string;
       nama_file: string;
