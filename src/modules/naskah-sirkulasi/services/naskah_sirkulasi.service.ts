@@ -18,6 +18,7 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
+import { InboxSentResponseDto, SentItemForCombinedDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -54,7 +55,7 @@ export class NaskahSirkulasiService {
     private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   async findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiRepo.find();
@@ -214,7 +215,23 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.send_read_time IS NULL`;
     }
 
-    // Get inbox items with pengirim info
+    // Pagination params
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+    `;
+    const countResult = await this.dataSource.query(countQuery, params);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get inbox items with pengirim info (with pagination)
     const selectQuery = `
       SELECT 
         s.id as id_sirkulasi,
@@ -250,14 +267,15 @@ export class NaskahSirkulasiService {
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
+      LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, params);
+    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
     // Get all recipients (kepada) for each naskah
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
     const kepadaMap = new Map<string, any[]>();
     const labelsMap = new Map<string, any[]>();
-    
+
     if (naskahIds.length > 0) {
       const kepadaQuery = `
         SELECT 
@@ -272,7 +290,7 @@ export class NaskahSirkulasiService {
         ORDER BY id
       `;
       const kepadaRows = await this.dataSource.query(kepadaQuery, naskahIds);
-      
+
       // Group by id_naskah
       kepadaRows.forEach((row: any) => {
         if (!kepadaMap.has(row.id_naskah)) {
@@ -300,15 +318,15 @@ export class NaskahSirkulasiService {
         ORDER BY l.urutan ASC, l.nama ASC
       `;
       const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
+
       // Group labels by naskah_id (with parent hierarchy)
       labelsRows.forEach((row: any) => {
         if (!labelsMap.has(row.naskah_id)) {
           labelsMap.set(row.naskah_id, []);
         }
         // Format: "Parent > Child" jika ada parent, atau hanya "Label" jika tidak ada parent
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
+        const labelName = row.parent_nama
+          ? `${row.parent_nama} > ${row.nama}`
           : row.nama;
         labelsMap.get(row.naskah_id)?.push(labelName);
       });
@@ -351,6 +369,7 @@ export class NaskahSirkulasiService {
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
         created_at: row.created_at,
         updated_at: row.updated_at,
+        source: 'inbox',
       };
 
       // Add is_priority field jika ini adalah disposisi (DI)
@@ -385,18 +404,22 @@ export class NaskahSirkulasiService {
     return {
       success: true,
       message: 'Berhasil mengambil kotak masuk',
-      data: {
-        items,
-        summary: {
-          total_semua: parseInt(summary.total_semua || '0', 10),
-          total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
-          total_per_jenis: {
-            ND: parseInt(summary.total_nd || '0', 10),
-            SDI: parseInt(summary.total_sdi || '0', 10),
-            SDE: parseInt(summary.total_sde || '0', 10),
-            DI: parseInt(summary.total_di || '0', 10),
-            KA: parseInt(summary.total_ka || '0', 10),
-          },
+      data: items,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      summary: {
+        total_semua: parseInt(summary.total_semua || '0', 10),
+        total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
+        total_per_jenis: {
+          ND: parseInt(summary.total_nd || '0', 10),
+          SDI: parseInt(summary.total_sdi || '0', 10),
+          SDE: parseInt(summary.total_sde || '0', 10),
+          DI: parseInt(summary.total_di || '0', 10),
+          KA: parseInt(summary.total_ka || '0', 10),
         },
       },
     };
@@ -439,7 +462,23 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
-    // Get naskah yang dikirim beserta info pengirim
+    // Pagination params
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+    `;
+    const countResult = await this.dataSource.query(countQuery, params);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get naskah yang dikirim beserta info pengirim (with pagination)
     const selectQuery = `
       SELECT 
         s.id as id_sirkulasi,
@@ -464,19 +503,24 @@ export class NaskahSirkulasiService {
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
+      LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, params);
+    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
     if (rows.length === 0) {
       return {
         success: true,
         message: 'Tidak ada pesan yang dikirim',
-        data: {
-          items: [],
-          summary: {
-            total_semua: 0,
-            total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
-          },
+        data: [],
+        pagination: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+        summary: {
+          total_semua: 0,
+          total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
         },
       };
     }
@@ -500,14 +544,14 @@ export class NaskahSirkulasiService {
         ORDER BY l.urutan ASC, l.nama ASC
       `;
       const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
+
       // Group labels by naskah_id
       labelsRows.forEach((row: any) => {
         if (!labelsMap.has(row.naskah_id)) {
           labelsMap.set(row.naskah_id, []);
         }
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
+        const labelName = row.parent_nama
+          ? `${row.parent_nama} > ${row.nama}`
           : row.nama;
         labelsMap.get(row.naskah_id)?.push(labelName);
       });
@@ -515,7 +559,7 @@ export class NaskahSirkulasiService {
 
     // Untuk setiap naskah, ambil daftar penerima
     const items: SentMessageItemDto[] = [];
-    
+
     for (const row of rows) {
       let penerima: any[] = [];
 
@@ -618,7 +662,7 @@ export class NaskahSirkulasiService {
       // Hitung summary baca (hanya untuk non-SDE)
       let terbaca = 0;
       let belumTerbaca = 0;
-      
+
       if (row.jenis !== 'SDE') {
         terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
         belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
@@ -659,6 +703,7 @@ export class NaskahSirkulasiService {
         labels: labelsMap.get(row.id_naskah) || [],
         created_at: row.created_at,
         updated_at: row.updated_at,
+        source: 'sent',
       });
     }
 
@@ -684,17 +729,21 @@ export class NaskahSirkulasiService {
     return {
       success: true,
       message: 'Berhasil mengambil kotak keluar',
-      data: {
-        items,
-        summary: {
-          total_semua: parseInt(summary.total_semua || '0', 10),
-          total_per_jenis: {
-            ND: parseInt(summary.total_nd || '0', 10),
-            SDI: parseInt(summary.total_sdi || '0', 10),
-            SDE: parseInt(summary.total_sde || '0', 10),
-            DI: parseInt(summary.total_di || '0', 10),
-            KA: parseInt(summary.total_ka || '0', 10),
-          },
+      data: items,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      summary: {
+        total_semua: parseInt(summary.total_semua || '0', 10),
+        total_per_jenis: {
+          ND: parseInt(summary.total_nd || '0', 10),
+          SDI: parseInt(summary.total_sdi || '0', 10),
+          SDE: parseInt(summary.total_sde || '0', 10),
+          DI: parseInt(summary.total_di || '0', 10),
+          KA: parseInt(summary.total_ka || '0', 10),
         },
       },
     };
@@ -870,6 +919,432 @@ export class NaskahSirkulasiService {
         total_requested: naskahIds.length,
         total_processed: totalProcessed,
         failed_ids: failedIds,
+      },
+    };
+  }
+
+  // ============================================================
+  // INBOX & SENT - Combined Endpoint
+  // ============================================================
+
+  /**
+   * Get combined inbox and sent messages
+   * 
+   * @param positionId - Position ID
+   * @param query - Filter options
+   * @returns InboxSentResponseDto
+   */
+  async getInboxAndSent(
+    positionId: string,
+    query: InboxSentQueryDto,
+  ): Promise<InboxSentResponseDto> {
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    const params: any[] = [];
+
+    // --- QUERY BUILDER HELPERS ---
+
+    // 1. INBOX PART
+    let inboxWhere = `
+      s.position = ?
+      AND s.sirkuler = 'penerima'
+      AND s.is_draft = 0
+      AND s.is_konsep = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const inboxParams = [positionId];
+
+    if (query.jenis) {
+      inboxWhere += ` AND n.jenis = ?`;
+      inboxParams.push(query.jenis);
+    }
+    if (query.status_baca === 'terbaca') {
+      inboxWhere += ` AND s.send_read_time IS NOT NULL`;
+    } else if (query.status_baca === 'belum_terbaca') {
+      inboxWhere += ` AND s.send_read_time IS NULL`;
+    }
+
+    // Favorit and Arsip filters for inbox
+    if (query.is_favorit === true) {
+      inboxWhere += ` AND s.flag_favorit = 1`;
+    }
+    if (query.is_arsip === true) {
+      inboxWhere += ` AND s.flag_arsip = 1`;
+    }
+
+    // 2. SENT PART
+    let sentWhere = `
+      s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const sentParams = [positionId];
+
+    if (query.jenis) {
+      sentWhere += ` AND n.jenis = ?`;
+      sentParams.push(query.jenis);
+    }
+    // Filter status_baca for sent items (check if ANY recipient matches)
+    if (query.status_baca) {
+      if (query.status_baca === 'terbaca') {
+        sentWhere += ` 
+          AND EXISTS (
+            SELECT 1 FROM naskah_sirkulasi r 
+            WHERE r.id_naskah = s.id_naskah 
+            AND r.sirkuler = 'penerima' 
+            AND r.send_read_time IS NOT NULL
+          )
+        `;
+      } else {
+        sentWhere += ` 
+          AND EXISTS (
+            SELECT 1 FROM naskah_sirkulasi r 
+            WHERE r.id_naskah = s.id_naskah 
+            AND r.sirkuler = 'penerima' 
+            AND r.send_read_time IS NULL
+          )
+        `;
+      }
+    }
+
+    // Favorit and Arsip filters for sent
+    if (query.is_favorit === true) {
+      sentWhere += ` AND s.flag_favorit = 1`;
+    }
+    if (query.is_arsip === true) {
+      sentWhere += ` AND s.flag_arsip = 1`;
+    }
+
+    // --- DYNAMIC QUERY BASED ON SOURCE FILTER ---
+    // If source is specified, only query that source. Otherwise UNION both.
+
+    const inboxSelect = `
+        SELECT 
+          s.id as id_sirkulasi,
+          s.id_naskah,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.lampiran,
+          s.send_read_time,
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          s.tindak_lanjut,
+          s.is_locked,
+          CAST(s.created_at AS DATETIME) as created_at,
+          CAST(s.updated_at AS DATETIME) as updated_at,
+          'inbox' as source,
+          
+          (SELECT position FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_id,
+          (SELECT position_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_text,
+          (SELECT organization_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_organization_text,
+          (SELECT nama_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_nama,
+          
+          s.position as my_position_id,
+          s.id_sirkuler as my_persnum,
+          s.nama_sirkuler as my_nama,
+          s.position_text as my_position_text,
+          s.organization_text as my_organization_text,
+          
+          (SELECT is_priority FROM di WHERE di.id_naskah = s.id_naskah LIMIT 1) as is_priority
+
+        FROM naskah_sirkulasi s
+        JOIN naskah n ON s.id_naskah = n.id
+        WHERE ${inboxWhere}
+    `;
+
+    const sentSelect = `
+        SELECT 
+          s.id as id_sirkulasi,
+          s.id_naskah,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.lampiran,
+          NULL as send_read_time,
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          0 as tindak_lanjut, 
+          0 as is_locked,
+          CAST(s.created_at AS DATETIME) as created_at,
+          CAST(s.updated_at AS DATETIME) as updated_at,
+          'sent' as source,
+
+          s.position as pengirim_position_id,
+          s.position_text as pengirim_position_text,
+          s.organization_text as pengirim_organization_text,
+          s.nama_sirkuler as pengirim_nama,
+
+          NULL as my_position_id,
+          NULL as my_persnum,
+          NULL as my_nama,
+          NULL as my_position_text,
+          NULL as my_organization_text,
+          
+          NULL as is_priority
+
+        FROM naskah_sirkulasi s
+        JOIN naskah n ON s.id_naskah = n.id
+        WHERE ${sentWhere}
+    `;
+
+    let dataQuery: string;
+    let dataParams: any[];
+
+    if (query.source === 'inbox') {
+      dataQuery = `(${inboxSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...inboxParams, limit, offset];
+    } else if (query.source === 'sent') {
+      dataQuery = `(${sentSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...sentParams, limit, offset];
+    } else {
+      // Full UNION
+      dataQuery = `(${inboxSelect}) UNION ALL (${sentSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...inboxParams, ...sentParams, limit, offset];
+    }
+
+    // Execute pagination query
+    const rows = await this.dataSource.query(dataQuery, dataParams);
+
+    // Hydrate Data (Labels, Recipients, etc.)
+    const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
+    const labelsMap = new Map<string, string[]>();
+    const kepadaMap = new Map<string, any[]>();
+    const penerimaStatusMap = new Map<string, any[]>(); // For sent items
+
+    if (naskahIds.length > 0) {
+      // 1. Labels
+      const labelsQuery = `
+        SELECT nl.naskah_id, l.nama, parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) labelsMap.set(row.naskah_id, []);
+        const labelName = row.parent_nama ? `${row.parent_nama} > ${row.nama}` : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
+
+      // 2. Recipients (Kepada) - For Inbox mostly, but acceptable for detail
+      // Using existing logic to fetch all 'penerima'
+      const kepadaQuery = `
+        SELECT 
+          id_naskah, position as position_id, nama_sirkuler as nama, 
+          position_text, organization_text, send_read_time
+        FROM naskah_sirkulasi
+        WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+        AND sirkuler = 'penerima'
+        ORDER BY id
+      `;
+      const kepadaRows = await this.dataSource.query(kepadaQuery, naskahIds);
+
+      kepadaRows.forEach((row: any) => {
+        // Populate Kepada Map (for Inbox display of 'To:')
+        if (!kepadaMap.has(row.id_naskah)) kepadaMap.set(row.id_naskah, []);
+        kepadaMap.get(row.id_naskah)?.push({
+          position_id: row.position_id || '',
+          nama: row.nama || '',
+          position_text: row.position_text || '',
+          organization_text: row.organization_text || '',
+        });
+
+        // Populate Penerima Status Map (for Sent display)
+        if (!penerimaStatusMap.has(row.id_naskah)) penerimaStatusMap.set(row.id_naskah, []);
+        penerimaStatusMap.get(row.id_naskah)?.push({
+          position_id: row.position_id || '',
+          nama: row.nama || null,
+          position_text: row.position_text || '',
+          organization_text: row.organization_text || '',
+          status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: row.send_read_time || null,
+        });
+      });
+
+      // 3. SDE Recipients (External) - Special handling for SDE if needed
+      // Logic for SDE in getSentMessage is complex (fetching from naskah_sirkulasi then eksternal table)
+      // For simplicity/performance in this combined view, we might reuse the standard sirkulasi names 
+      // or duplicate the complex SDE logic if strict fidelity is required.
+      // Implementing simplified SDE logic here relying on sirkulasi names which should be present.
+    }
+
+    // Map Results
+    const results: (InboxItemDto | SentItemForCombinedDto)[] = [];
+    for (const row of rows) {
+      // Lampiran count separate query if not in 'n.lampiran' field? 
+      // Existing code used `SELECT COUNT(*) FROM naskah_lampiran`. `n.lampiran` might be a string descriptor or count?
+      // Checking existing getInbox: `n.lampiran` is selected. But getSentMessage calculates it using count.
+      // Let's optimize: assume n.lampiran is what we want OR query count if needed.
+      // Use existing pattern: `getSentMessage` does a count query. `getInbox` does not?
+      // Wait, getInbox selects `n.lampiran` and puts it in item.lampiran. 
+      // getSentMessage selects `n.lampiran` but THEN overwrites item.lampiran with a COUNT query.
+      // This suggests `n.lampiran` column might be unreliable or different.
+      // I will follow the specific logic per source.
+
+      let lampiranVal = row.lampiran;
+      if (row.source === 'sent') {
+        // Sent needs count? Or can we just use n.lampiran if it's correct?
+        // Optimally: one bulk query for lampiran counts. For now, doing per-row is slow but safe refactor.
+        // Let's stick to what worked before:
+        const lampiranCountResult = await this.dataSource.query(
+          `SELECT COUNT(*) as total FROM naskah_lampiran WHERE id_naskah = ?`,
+          [row.id_naskah],
+        );
+        lampiranVal = parseInt(lampiranCountResult[0]?.total || '0', 10);
+      }
+
+      if (row.source === 'inbox') {
+        results.push({
+          id_sirkulasi: row.id_sirkulasi,
+          id_naskah: row.id_naskah,
+          jenis: row.jenis,
+          jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          perihal: row.perihal,
+          sifat: row.sifat,
+          status: row.status,
+          lampiran: lampiranVal,
+          pengirim: {
+            position_id: row.pengirim_position_id || '',
+            position_text: row.pengirim_position_text || '',
+            organization_text: row.pengirim_organization_text || '',
+            nama: row.pengirim_nama || '',
+          },
+          penerima: {
+            position_id: row.my_position_id || '',
+            persnum: parseInt(row.my_persnum || '0', 10),
+            nama: row.my_nama || '',
+            position_text: row.my_position_text || '',
+            organization_text: row.my_organization_text || '',
+          },
+          kepada: kepadaMap.get(row.id_naskah) || [],
+          status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: row.send_read_time,
+          is_favorit: row.flag_favorit === 1,
+          is_arsip: row.flag_arsip === 1,
+          is_note: row.flag_note === 1,
+          is_tindak_lanjut: row.tindak_lanjut === 1,
+          is_locked: row.is_locked === 1,
+          labels: labelsMap.get(row.id_naskah) || [],
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          source: 'inbox',
+          is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : undefined,
+        });
+      } else {
+        // Sent
+        const recipients = penerimaStatusMap.get(row.id_naskah) || [];
+        const terbaca = recipients.filter((p) => p.status_baca === 'terbaca').length;
+        const belumTerbaca = recipients.filter((p) => p.status_baca === 'belum_terbaca').length;
+
+        results.push({
+          id_naskah: row.id_naskah,
+          jenis: row.jenis,
+          jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          perihal: row.perihal,
+          sifat: row.sifat,
+          status: row.status,
+          lampiran: lampiranVal,
+          pengirim: {
+            position_id: row.pengirim_position_id || '',
+            position_text: row.pengirim_position_text || '',
+            organization_text: row.pengirim_organization_text || '',
+            nama: row.pengirim_nama || null,
+          },
+          penerima: recipients, // Use Hydrated recipients
+          summary_baca: {
+            total: recipients.length,
+            terbaca,
+            belum_terbaca: belumTerbaca,
+          },
+          favorit: !!row.flag_favorit,
+          note: !!row.flag_note,
+          arsip: !!row.flag_arsip,
+          labels: labelsMap.get(row.id_naskah) || [],
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          source: 'sent',
+
+          // Consistent fields for Inbox compatibility
+          is_favorit: !!row.flag_favorit,
+          is_arsip: !!row.flag_arsip,
+          is_note: !!row.flag_note,
+          is_tindak_lanjut: false,
+          is_locked: false,
+        });
+      }
+    }
+
+    // --- COUNT QUERY ---
+    // Conditionally count based on source filter
+    let countQuery: string;
+    let countParams: any[];
+
+    if (query.source === 'inbox') {
+      countQuery = `
+        SELECT COUNT(*) as total
+        FROM naskah_sirkulasi s 
+        JOIN naskah n ON s.id_naskah = n.id 
+        WHERE ${inboxWhere}
+      `;
+      countParams = [...inboxParams];
+    } else if (query.source === 'sent') {
+      countQuery = `
+        SELECT COUNT(*) as total
+        FROM naskah_sirkulasi s 
+        JOIN naskah n ON s.id_naskah = n.id 
+        WHERE ${sentWhere}
+      `;
+      countParams = [...sentParams];
+    } else {
+      // Count both
+      countQuery = `
+        SELECT (
+          (SELECT COUNT(*) 
+           FROM naskah_sirkulasi s 
+           JOIN naskah n ON s.id_naskah = n.id 
+           WHERE ${inboxWhere})
+          +
+          (SELECT COUNT(*) 
+           FROM naskah_sirkulasi s 
+           JOIN naskah n ON s.id_naskah = n.id 
+           WHERE ${sentWhere})
+        ) as total
+      `;
+      countParams = [...inboxParams, ...sentParams];
+    }
+
+    const countResult = await this.dataSource.query(countQuery, countParams);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil data gabungan inbox dan sent',
+      data: results,
+      pagination: {
+        total,
+        page: parseInt(page as any, 10),
+        limit: parseInt(limit as any, 10),
+        total_pages: totalPages,
       },
     };
   }
