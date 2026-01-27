@@ -30,7 +30,7 @@ export class InboxQueryDto {
 export class InboxItemDto {
   id_sirkulasi: string;
   id_naskah: string;
-  
+
   // Info Naskah (dari tabel naskah)
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
   jenis_label: string;
@@ -40,7 +40,7 @@ export class InboxItemDto {
   sifat: string;
   status: string;
   lampiran: string | null;
-  
+
   // Info Pengirim
   pengirim: {
     position_id: string;
@@ -65,24 +65,27 @@ export class InboxItemDto {
     position_text: string;
     organization_text: string;
   }>;
-  
+
   // Status Baca
   status_baca: 'terbaca' | 'belum_terbaca';
   read_time: Date | null;
-  
+
   // Flags
   is_favorit: boolean;
   is_arsip: boolean;
   is_note: boolean;
   is_tindak_lanjut: boolean;
   is_locked: boolean;
-  
+
   // Labels - array nama label yang di-assign ke naskah
   labels: string[];
-  
+
   // Priority flag (hanya untuk jenis='DI')
   is_priority?: boolean;
-  
+
+  // Source identifier (inbox/sent)
+  source?: 'inbox' | 'sent';
+
   // Timestamps
   created_at: Date;
   updated_at: Date;
