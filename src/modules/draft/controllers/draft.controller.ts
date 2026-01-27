@@ -34,6 +34,8 @@ export class DraftController {
    * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA (optional)
    * @query search - Search by perihal/nomor (optional)
    * @query days - Filter by days, default 30 (optional)
+   * @query page - Page number, default 1 (optional)
+   * @query limit - Items per page, default 10 (optional)
    *
    * @returns GetDraftListResponseDto
    */
@@ -43,6 +45,8 @@ export class DraftController {
     @Query('jenis') jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
     @Query('search') search?: string,
     @Query('days') days?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ): Promise<GetDraftListResponseDto> {
     try {
       // Validate position_id
@@ -54,7 +58,11 @@ export class DraftController {
       // Parse days
       const daysNum = days ? parseInt(days, 10) : 30;
 
-      return await this.draftService.getDraftList(position, jenis, search, daysNum);
+      // Parse pagination
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : 10;
+
+      return await this.draftService.getDraftList(position, jenis, search, daysNum, pageNum, limitNum);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
