@@ -317,7 +317,6 @@ export class NaskahSirkulasiService {
     // Map to InboxItemDto
     const items: InboxItemDto[] = rows.map((row: any) => {
       const item: InboxItemDto = {
-        id_sirkulasi: row.id_sirkulasi,
         id_naskah: row.id_naskah,
         jenis: row.jenis,
         jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
