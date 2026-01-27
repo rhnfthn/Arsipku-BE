@@ -185,6 +185,18 @@ export class DashboardService {
       .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
       .getCount();
 
+    // Disposisi Belum Ditindaklanjuti (sudah dibaca tapi tindak_lanjut = 0)
+    const disposisiBelumTinjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.send_read_time IS NOT NULL')
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+      .getCount();
+
     // ==========================================
     // 4. SUMMARY DATA - DIGITAL SIGNATURE
     // ==========================================
@@ -266,6 +278,17 @@ export class DashboardService {
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
+    // Surat Sudah Ditindaklanjuti: surat masuk yang sudah ditandai tindak lanjut
+    const suratSudahDitinjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
+
     const summary: DashboardSummaryDto = {
       // Kotak Masuk
       total_pesan_masuk: totalPesanMasuk,
@@ -277,6 +300,7 @@ export class DashboardService {
       disposisi_masuk: disposisiMasuk,
       disposisi_belum_dibaca: disposisiBelumDibaca,
       disposisi_high_priority: disposisiHighPriority,
+      disposisi_belum_tinjut: disposisiBelumTinjut,
       // Digital Signature
       digsig_menunggu_ttd: digsigMenungguTtd,
       digsig_on_progress: digsigOnProgress,
@@ -287,6 +311,7 @@ export class DashboardService {
       surat_favorit: suratFavorit,
       surat_arsip: suratArsip,
       perlu_tindak_lanjut: perluTindakLanjut,
+      surat_sudah_ditinjut: suratSudahDitinjut,
     };
 
     // ==========================================
