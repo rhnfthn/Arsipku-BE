@@ -12,7 +12,7 @@ RUN npm run build
 # ========================
 # Runtime stage (Puppeteer)
 # ========================
-FROM ghcr.io/puppeteer/puppeteer:22.9.0
+FROM ghcr.io/puppeteer/puppeteer:latest
 
 WORKDIR /app
 
