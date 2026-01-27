@@ -5,4 +5,10 @@ export class InboxSentResponseDto {
     success: boolean;
     message: string;
     data: (InboxItemDto | SentMessageItemDto)[];
+    meta?: {
+        total: number;
+        page: number;
+        limit: number;
+        total_pages: number;
+    };
 }
