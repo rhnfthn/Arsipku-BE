@@ -1,25 +1,31 @@
-import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { DashboardService } from '../services/dashboard.service';
 import { DashboardResponseDto } from '../dto/dashboard.dto';
+import { JwtAuthGuard } from '../../../common/guards';
+import { CurrentUser } from '../../../common/decorators';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('dashboard')
+@UseGuards(JwtAuthGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   /**
-   * GET /dashboard/:position_id
+   * GET /dashboard
    * 
-   * Mendapatkan data dashboard berdasarkan position_id
+   * Mendapatkan data dashboard berdasarkan user yang login (dari JWT)
+   * Menggunakan position dan persnum dari JWT untuk query
    * 
    * Response:
    * - summary: pesan_baru, surat_terkirim, disposisi_masuk, draft_tersimpan
    * - surat_masuk_terbaru: 10 surat terbaru yang diterima
    * - statistik: statistik surat masuk & keluar 6 bulan terakhir
    */
-  @Get(':position_id')
+  @Get()
   async getDashboard(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: JwtPayload,
   ): Promise<DashboardResponseDto> {
-    return this.dashboardService.getDashboardData(positionId);
+    const positionId = parseInt(user.position, 10);
+    return this.dashboardService.getDashboardData(positionId, user.persnum);
   }
 }
