@@ -33,13 +33,14 @@ import {
   BulkArchiveSentResponseDto,
 } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
+import { InboxSentResponseDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 
 @Controller('naskah_sirkulasi')
 export class NaskahSirkulasiController {
   constructor(
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
-  ) {}
+  ) { }
 
   // ============================================================
   // GLOBAL: Update Read Status (harus di atas route :id)
@@ -103,6 +104,23 @@ export class NaskahSirkulasiController {
     @Param('position_id') positionId: string,
   ): Promise<CountUnreadInboxResponseDto> {
     return this.naskahSirkulasiService.countUnreadInbox(positionId);
+  }
+
+  /**
+   * GET /naskah_sirkulasi/inbox-sent/:position_id
+   *
+   * Mengambil kotak masuk dan kotak keluar sekaligus
+   *
+   * @param positionId - Position ID
+   * @param query - Filter options
+   * @returns InboxSentResponseDto
+   */
+  @Get('inbox-sent/:position_id')
+  async getInboxAndSent(
+    @Param('position_id') positionId: string,
+    @Query() query: InboxSentQueryDto,
+  ): Promise<InboxSentResponseDto> {
+    return this.naskahSirkulasiService.getInboxAndSent(positionId, query);
   }
 
   // ============================================================
