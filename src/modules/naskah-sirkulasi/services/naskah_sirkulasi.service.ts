@@ -18,7 +18,7 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
-import { InboxSentResponseDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
+import { InboxSentResponseDto, SentItemForCombinedDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -1121,7 +1121,7 @@ export class NaskahSirkulasiService {
     }
 
     // Map Results
-    const results: (InboxItemDto | SentMessageItemDto)[] = [];
+    const results: (InboxItemDto | SentItemForCombinedDto)[] = [];
     for (const row of rows) {
       // Lampiran count separate query if not in 'n.lampiran' field? 
       // Existing code used `SELECT COUNT(*) FROM naskah_lampiran`. `n.lampiran` might be a string descriptor or count?
@@ -1219,6 +1219,13 @@ export class NaskahSirkulasiService {
           created_at: row.created_at,
           updated_at: row.updated_at,
           source: 'sent',
+
+          // Consistent fields for Inbox compatibility
+          is_favorit: !!row.flag_favorit,
+          is_arsip: !!row.flag_arsip,
+          is_note: !!row.flag_note,
+          is_tindak_lanjut: false,
+          is_locked: false,
         });
       }
     }
@@ -1253,7 +1260,7 @@ export class NaskahSirkulasiService {
       success: true,
       message: 'Berhasil mengambil data gabungan inbox dan sent',
       data: results,
-      meta: {
+      pagination: {
         total,
         page: parseInt(page as any, 10),
         limit: parseInt(limit as any, 10),
