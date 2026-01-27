@@ -68,12 +68,13 @@ export enum SizeUnitEnum {
  * Scope pencarian (All Mail di Gmail)
  */
 export enum SearchScopeEnum {
-  ALL = 'all',               // Semua naskah
-  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima)
-  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim)
-  DRAFT = 'draft',           // Draft
-  ARCHIVED = 'archived',     // Arsip
-  FAVORITE = 'favorite',     // Favorit
+  ALL = 'all',               // Semua naskah (termasuk archived)
+  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima) - exclude archived
+  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim) - exclude archived
+  DRAFT = 'draft',           // Draft - exclude archived
+  ARCHIVED = 'archived',     // Arsip saja
+  FAVORITE = 'favorite',     // Favorit (bisa include archived)
+  ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
 }
 
 /**
@@ -241,6 +242,15 @@ export class GlobalSearchDto {
   // === SEARCH SCOPE ===
 
   /**
+   * Position ID untuk filter (opsional)
+   * Jika tidak diberikan, akan menggunakan position dari JWT
+   * Berguna untuk user dengan multiple jabatan atau delegasi
+   */
+  @IsOptional()
+  @IsString()
+  position_id?: string;
+
+  /**
    * Scope pencarian: all, inbox, sent, draft, archived, favorite
    */
   @IsOptional()
@@ -323,6 +333,16 @@ export class GlobalSearchDto {
 }
 
 /**
+ * Sumber/asal naskah untuk user
+ */
+export enum NaskahSourceEnum {
+  INBOX = 'inbox',       // Naskah masuk (user sebagai penerima/tembusan)
+  SENT = 'sent',         // Naskah keluar (user sebagai pengirim)
+  DRAFT = 'draft',       // Draft naskah
+  CC = 'cc',             // Tembusan
+}
+
+/**
  * Response DTO untuk hasil pencarian
  */
 export class SearchResultItemDto {
@@ -358,6 +378,43 @@ export class SearchResultItemDto {
 
   // Final PDF
   finalPdf: string | null;
+
+  // === ASAL NASKAH (BARU) ===
+  /**
+   * Sumber/asal naskah untuk user yang sedang login
+   * - inbox: User sebagai penerima
+   * - sent: User sebagai pengirim
+   * - draft: Naskah masih draft
+   * - cc: User sebagai tembusan
+   */
+  source: NaskahSourceEnum;
+
+  /**
+   * Label sumber untuk ditampilkan di UI
+   * - "Kotak Masuk", "Terkirim", "Draft", "Tembusan"
+   */
+  sourceLabel: string;
+
+  /**
+   * Semua peran user dalam naskah ini
+   * Bisa lebih dari satu (misal: pengirim sekaligus tembusan)
+   */
+  userRoles: Array<'pengirim' | 'penerima' | 'tembusan'>;
+
+  /**
+   * Apakah naskah sudah dibaca oleh user
+   */
+  isRead: boolean;
+
+  /**
+   * Apakah naskah di-arsipkan
+   */
+  isArchived: boolean;
+
+  /**
+   * Apakah naskah di-favoritkan
+   */
+  isFavorite: boolean;
 
   // Metadata
   createdAt: Date;

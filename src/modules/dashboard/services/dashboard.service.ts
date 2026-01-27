@@ -89,45 +89,55 @@ export class DashboardService {
 
   /**
    * Get Dashboard Data berdasarkan position_id
+   * @param positionId - position_id untuk query naskah sirkulasi
+   * @param persnum - persnum dari JWT untuk query digsig (agar konsisten dengan penandatanganan)
    */
-  async getDashboardData(positionId: number): Promise<DashboardResponseDto> {
+  async getDashboardData(positionId: number, persnum?: number): Promise<DashboardResponseDto> {
     const positionIdStr = positionId.toString();
 
     // ==========================================
     // 1. SUMMARY DATA - KOTAK MASUK
     // ==========================================
 
-    // Total Pesan Masuk: semua surat yang diterima
-    const totalPesanMasuk = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        isDraft: false,
-      },
-    });
+    // Total Pesan Masuk: semua surat yang diterima (konsisten dengan inbox)
+    // Exclude: is_draft, is_konsep, dan hanya count naskah dengan status final/final_tte
+    const totalPesanMasuk = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // Pesan Baru: surat masuk yang BELUM DIBACA (send_read_time = null)
-    const pesanBaru = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        sendReadTime: IsNull(),
-        isDraft: false,
-      },
-    });
+    // Konsisten dengan inbox - exclude konsep dan hanya count final/final_tte
+    const pesanBaru = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.send_read_time IS NULL')
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // ==========================================
     // 2. SUMMARY DATA - KOTAK KELUAR
     // ==========================================
 
     // Surat Terkirim: total surat yang sudah dikirim (bukan draft)
-    const suratTerkirim = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'pengirim',
-        isDraft: false,
-      },
-    });
+    // PENTING: Hanya count naskah dengan status final/final_tte (konsisten dengan endpoint /sent)
+    const suratTerkirim = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // Draft Tersimpan: naskah dengan status 'draf' yang dibuat user ini
     const draftTersimpan = await this.naskahSirkulasiRepo
@@ -163,26 +173,58 @@ export class DashboardService {
       .andWhere('ns.send_read_time IS NULL')
       .getCount();
 
+    // Disposisi High Priority (is_priority = 1)
+    const disposisiHighPriority = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .innerJoin('di', 'd', 'n.id = d.id_naskah')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
+      .getCount();
+
+    // Disposisi Belum Ditindaklanjuti (sudah dibaca tapi tindak_lanjut = 0)
+    const disposisiBelumTinjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('ns.send_read_time IS NOT NULL')
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+      .getCount();
+
     // ==========================================
     // 4. SUMMARY DATA - DIGITAL SIGNATURE
     // ==========================================
 
-    // Dokumen yang menunggu TTD dari user ini (status = 'waiting')
-    const digsigMenungguTtd = await this.digsigSignerRepo.count({
-      where: {
-        positionId: positionId,
-        status: 'waiting',
-      },
-    });
+    // Dokumen yang menunggu TTD dari user ini (status = 'waiting', dokumen on_progress)
+    // PENTING: Menggunakan persnum (bukan position_id) agar konsisten dengan penandatanganan service
+    // Karena digsig signer disimpan berdasarkan persnum, bukan position
+    let digsigMenungguTtd = 0;
+    let digsigOnProgress = 0;
 
-    // Dokumen yang masih on_progress (user sudah TTD tapi menunggu signer lain)
-    const digsigOnProgress = await this.digsigSignerRepo
-      .createQueryBuilder('ds')
-      .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
-      .where('ds.position_id = :positionId', { positionId })
-      .andWhere('ds.status = :status', { status: 'signed' })
-      .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
-      .getCount();
+    if (persnum) {
+      digsigMenungguTtd = await this.digsigSignerRepo
+        .createQueryBuilder('ds')
+        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+        .where('ds.persnum = :persnum', { persnum })
+        .andWhere('ds.status = :status', { status: 'waiting' })
+        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+        .getCount();
+
+      // Dokumen yang masih on_progress (user sudah TTD tapi menunggu signer lain)
+      digsigOnProgress = await this.digsigSignerRepo
+        .createQueryBuilder('ds')
+        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+        .where('ds.persnum = :persnum', { persnum })
+        .andWhere('ds.status = :status', { status: 'signed' })
+        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+        .getCount();
+    }
 
     // ==========================================
     // 5. SUMMARY DATA - KONSEP (Draft Workflow)
@@ -225,15 +267,27 @@ export class DashboardService {
       },
     });
 
-    // Perlu Tindak Lanjut
-    const perluTindakLanjut = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        tindakLanjut: 0,
-        isDraft: false,
-      },
-    });
+    // Perlu Tindak Lanjut: surat masuk yang belum ditandai tindak lanjut
+    const perluTindakLanjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
+
+    // Surat Sudah Ditindaklanjuti: surat masuk yang sudah ditandai tindak lanjut
+    const suratSudahDitinjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     const summary: DashboardSummaryDto = {
       // Kotak Masuk
@@ -245,6 +299,8 @@ export class DashboardService {
       // Disposisi
       disposisi_masuk: disposisiMasuk,
       disposisi_belum_dibaca: disposisiBelumDibaca,
+      disposisi_high_priority: disposisiHighPriority,
+      disposisi_belum_tinjut: disposisiBelumTinjut,
       // Digital Signature
       digsig_menunggu_ttd: digsigMenungguTtd,
       digsig_on_progress: digsigOnProgress,
@@ -255,6 +311,7 @@ export class DashboardService {
       surat_favorit: suratFavorit,
       surat_arsip: suratArsip,
       perlu_tindak_lanjut: perluTindakLanjut,
+      surat_sudah_ditinjut: suratSudahDitinjut,
     };
 
     // ==========================================
@@ -275,6 +332,7 @@ export class DashboardService {
         'ns.flag_arsip as flag_arsip',
         'pengirim.nama_sirkuler as pengirim_nama',
         'pengirim.organization_text as pengirim_organization',
+        'di.is_priority as is_priority',
       ])
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .leftJoin(
@@ -282,6 +340,7 @@ export class DashboardService {
         'pengirim',
         "pengirim.id_naskah = ns.id_naskah AND pengirim.sirkuler = 'pengirim'",
       )
+      .leftJoin('di', 'di', 'n.id = di.id_naskah')
       .where('ns.position = :positionId', { positionId: positionIdStr })
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
@@ -290,20 +349,29 @@ export class DashboardService {
       .getRawMany();
 
     const suratMasukTerbaru: SuratMasukTerbaruItemDto[] = suratMasukRaw.map(
-      (row) => ({
-        id: row.id,
-        id_sirkulasi: row.id_sirkulasi,
-        jenis: row.jenis,
-        pengirim_nama: row.pengirim_nama,
-        pengirim_organization: row.pengirim_organization,
-        perihal: row.perihal,
-        tanggal: row.tanggal,
-        waktu_relatif: this.formatWaktuRelatif(row.tanggal),
-        sudah_dibaca: row.send_read_time !== null,
-        flag_favorit: row.flag_favorit === 1,
-        flag_note: row.flag_note === 1,
-        flag_arsip: row.flag_arsip === 1,
-      }),
+      (row) => {
+        const item: SuratMasukTerbaruItemDto = {
+          id: row.id,
+          id_sirkulasi: row.id_sirkulasi,
+          jenis: row.jenis,
+          pengirim_nama: row.pengirim_nama,
+          pengirim_organization: row.pengirim_organization,
+          perihal: row.perihal,
+          tanggal: row.tanggal,
+          waktu_relatif: this.formatWaktuRelatif(row.tanggal),
+          sudah_dibaca: row.send_read_time !== null,
+          flag_favorit: row.flag_favorit === 1,
+          flag_note: row.flag_note === 1,
+          flag_arsip: row.flag_arsip === 1,
+        };
+
+        // Add is_priority field hanya untuk disposisi (DI)
+        if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
+          item.is_priority = row.is_priority === 1;
+        }
+
+        return item;
+      },
     );
 
     // ==========================================

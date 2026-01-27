@@ -59,6 +59,9 @@ export class GlobalSearchController {
     @Query() dto: GlobalSearchDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<GlobalSearchResponseDto> {
-    return this.globalSearchService.search(dto, user.persnum);
+    // Use position_id from query if provided (untuk multi-jabatan/delegasi),
+    // otherwise use position from JWT
+    const positionId = dto.position_id || user.position;
+    return this.globalSearchService.search(dto, positionId, user.persnum);
   }
 }

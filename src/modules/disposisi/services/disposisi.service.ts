@@ -1401,6 +1401,7 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
         catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
 
@@ -1527,6 +1528,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          is_priority: dto.is_priority || false, // Include priority flag in response
           final_pdf: finalPdfPath, // Include generated PDF path in response
         },
       };
@@ -1764,6 +1766,7 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
         catatan: dto.catatan ?? null, // Untuk checkbox "Lainnya"
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
 
@@ -1789,6 +1792,7 @@ export class DisposisiService {
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
+          is_priority: dto.is_priority || false, // Include priority flag in response
         },
       };
     } catch (error) {
@@ -2311,6 +2315,7 @@ export class DisposisiService {
           if (dto.disposisi !== undefined) existingDi.disposisi = dto.disposisi;
           if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
           if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
+          if (dto.is_priority !== undefined) existingDi.isPriority = dto.is_priority ? 1 : 0;
 
           // Update juga dari dto lainnya jika ada
           if (dto.tanggal_disposisi)
@@ -2447,6 +2452,7 @@ export class DisposisiService {
         penerima: penerimaDataResult.map((s) => sirkulasiToResponse(s)),
         disposisi: diData?.disposisi || undefined,
         catatan: diData?.catatan || undefined,
+        is_priority: diData?.isPriority ? true : false,
         lampiran: lampiranData.map((l) => ({
           id: l.id,
           nama_file: l.file_name,
@@ -2856,6 +2862,7 @@ export class DisposisiService {
         disposisi: dto.disposisi ?? null,
         catatan: dto.catatan ?? null,
         paraf: dto.paraf ?? null,
+        isPriority: dto.is_priority ? 1 : 0, // Priority flag
       });
       await queryRunner.manager.save(diEntity);
 
@@ -2980,6 +2987,7 @@ export class DisposisiService {
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
           catatan: dto.catatan,
+          is_priority: dto.is_priority || false,
           lampiran:
             lampiranResponses.length > 0 ? lampiranResponses : undefined,
           referensi: {
@@ -3170,6 +3178,7 @@ export class DisposisiService {
         disposisi: diData?.disposisi || null,
         catatan: diData?.catatan || null,
         paraf: diData?.paraf || null,
+        is_priority: diData?.isPriority ? true : false,
         
         // Sirkulasi
         pengirim: pengirimInfo,
@@ -3243,6 +3252,53 @@ export class DisposisiService {
         total_flow: flow.length,
       },
     };
+  }
+
+  /**
+   * Unset Priority Flag dari Disposisi
+   * Update is_priority menjadi 0 (false)
+   * 
+   * @param naskahId - ID Naskah Disposisi
+   * @returns Respons dengan status update
+   */
+  async unsetPriority(naskahId: string): Promise<any> {
+    try {
+      // Check if naskah exists dan merupakan DI
+      const naskah = await this.naskahRepository.findOne({
+        where: { id: naskahId, jenis: 'DI' },
+      });
+
+      if (!naskah) {
+        throw new NotFoundException('Disposisi tidak ditemukan');
+      }
+
+      // Find DI record
+      const di = await this.diRepository.findOne({
+        where: { idNaskah: naskahId },
+      });
+
+      if (!di) {
+        throw new NotFoundException('Record disposisi tidak ditemukan');
+      }
+
+      // Update is_priority to 0
+      di.isPriority = 0;
+      await this.diRepository.save(di);
+
+      return {
+        success: true,
+        message: 'Priority flag berhasil dihapus',
+        data: {
+          id_naskah: naskahId,
+          is_priority: false,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

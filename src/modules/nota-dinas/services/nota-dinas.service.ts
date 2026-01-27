@@ -544,6 +544,7 @@ export class NotaDinasService {
     tgl?: string,
     nama_tempat?: string,
     headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
+    qrCodeHtml?: string,
   ): Promise<Buffer> {
     try {
       // Smart detection: is htmlContent already base64 or plain text?
@@ -574,6 +575,12 @@ export class NotaDinasService {
       // Use kota from headerInfo if available, else fallback to nama_tempat or 'Tangerang'
       const namaTempat = headerInfo?.kota || nama_tempat || 'Tangerang';
 
+      // Generate preview QR code jika qrCodeHtml tidak disediakan
+      let previewQrHtml = qrCodeHtml;
+      if (!previewQrHtml) {
+        previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+      }
+
       const pdfDto = {
         html: htmlToSend,
         filename: `nota-dinas-${Date.now()}.pdf`,
@@ -590,6 +597,8 @@ export class NotaDinasService {
         headerKantor: headerInfo?.kantor,
         headerGedung: headerInfo?.gedung,
         headerAlamat: headerInfo?.alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
       };
 
       const pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfDto);
