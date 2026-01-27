@@ -28,7 +28,6 @@ export class InboxQueryDto {
  * Item dalam daftar inbox
  */
 export class InboxItemDto {
-  id_sirkulasi: string;
   id_naskah: string;
   
   // Info Naskah (dari tabel naskah)
