@@ -460,16 +460,38 @@ export class LabelService {
 
   /**
    * Menghitung jumlah naskah per label
+   * Only counts naskah that actually exist in the naskah table
    */
   async countNaskahPerLabel(positionId: string): Promise<Record<string, number>> {
     const labels = await this.findAllFlat(positionId);
     const counts: Record<string, number> = {};
 
+    if (labels.length === 0) {
+      return counts;
+    }
+
+    const labelIds = labels.map((l) => l.id);
+
+    // Count naskah per label, only counting naskah that exist in naskah table
+    const countQuery = `
+      SELECT 
+        nl.label_id,
+        COUNT(DISTINCT nl.naskah_id) as count
+      FROM naskah_label nl
+      INNER JOIN naskah n ON n.id = nl.naskah_id
+      WHERE nl.label_id IN (${labelIds.map(() => '?').join(',')})
+      GROUP BY nl.label_id
+    `;
+    const countRows = await this.dataSource.query(countQuery, labelIds);
+
+    // Initialize all labels with 0
     for (const label of labels) {
-      const count = await this.naskahLabelRepository.count({
-        where: { labelId: label.id },
-      });
-      counts[label.id] = count;
+      counts[label.id] = 0;
+    }
+
+    // Update counts from query results
+    for (const row of countRows) {
+      counts[row.label_id] = parseInt(row.count, 10);
     }
 
     return counts;
