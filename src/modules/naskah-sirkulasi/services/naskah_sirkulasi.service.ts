@@ -214,7 +214,23 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.send_read_time IS NULL`;
     }
 
-    // Get inbox items with pengirim info
+    // Pagination params
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+    `;
+    const countResult = await this.dataSource.query(countQuery, params);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get inbox items with pengirim info (with pagination)
     const selectQuery = `
       SELECT 
         s.id as id_sirkulasi,
@@ -250,8 +266,9 @@ export class NaskahSirkulasiService {
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
+      LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, params);
+    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
     // Get all recipients (kepada) for each naskah
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
@@ -385,18 +402,22 @@ export class NaskahSirkulasiService {
     return {
       success: true,
       message: 'Berhasil mengambil kotak masuk',
-      data: {
-        items,
-        summary: {
-          total_semua: parseInt(summary.total_semua || '0', 10),
-          total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
-          total_per_jenis: {
-            ND: parseInt(summary.total_nd || '0', 10),
-            SDI: parseInt(summary.total_sdi || '0', 10),
-            SDE: parseInt(summary.total_sde || '0', 10),
-            DI: parseInt(summary.total_di || '0', 10),
-            KA: parseInt(summary.total_ka || '0', 10),
-          },
+      data: items,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      summary: {
+        total_semua: parseInt(summary.total_semua || '0', 10),
+        total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
+        total_per_jenis: {
+          ND: parseInt(summary.total_nd || '0', 10),
+          SDI: parseInt(summary.total_sdi || '0', 10),
+          SDE: parseInt(summary.total_sde || '0', 10),
+          DI: parseInt(summary.total_di || '0', 10),
+          KA: parseInt(summary.total_ka || '0', 10),
         },
       },
     };
@@ -439,7 +460,23 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
-    // Get naskah yang dikirim beserta info pengirim
+    // Pagination params
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+    `;
+    const countResult = await this.dataSource.query(countQuery, params);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get naskah yang dikirim beserta info pengirim (with pagination)
     const selectQuery = `
       SELECT 
         s.id as id_sirkulasi,
@@ -464,19 +501,24 @@ export class NaskahSirkulasiService {
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
       ORDER BY n.tanggal DESC, s.id DESC
+      LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, params);
+    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
     if (rows.length === 0) {
       return {
         success: true,
         message: 'Tidak ada pesan yang dikirim',
-        data: {
-          items: [],
-          summary: {
-            total_semua: 0,
-            total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
-          },
+        data: [],
+        pagination: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+        summary: {
+          total_semua: 0,
+          total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
         },
       };
     }
@@ -684,17 +726,21 @@ export class NaskahSirkulasiService {
     return {
       success: true,
       message: 'Berhasil mengambil kotak keluar',
-      data: {
-        items,
-        summary: {
-          total_semua: parseInt(summary.total_semua || '0', 10),
-          total_per_jenis: {
-            ND: parseInt(summary.total_nd || '0', 10),
-            SDI: parseInt(summary.total_sdi || '0', 10),
-            SDE: parseInt(summary.total_sde || '0', 10),
-            DI: parseInt(summary.total_di || '0', 10),
-            KA: parseInt(summary.total_ka || '0', 10),
-          },
+      data: items,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      summary: {
+        total_semua: parseInt(summary.total_semua || '0', 10),
+        total_per_jenis: {
+          ND: parseInt(summary.total_nd || '0', 10),
+          SDI: parseInt(summary.total_sdi || '0', 10),
+          SDE: parseInt(summary.total_sde || '0', 10),
+          DI: parseInt(summary.total_di || '0', 10),
+          KA: parseInt(summary.total_ka || '0', 10),
         },
       },
     };
