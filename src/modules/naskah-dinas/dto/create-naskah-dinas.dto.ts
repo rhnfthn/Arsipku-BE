@@ -78,9 +78,9 @@ export class CreateNaskahDinasDto {
   // ============================================
   // OPTIONAL FIELDS
   // ============================================
-  @IsOptional()
+  @IsNotEmpty({ message: 'Klasifikasi harus diisi' })
   @IsString()
-  klasifikasi?: string;
+  klasifikasi: string;
 
   @IsOptional()
   @IsString()
