@@ -597,7 +597,7 @@ export class KonsepService {
       .replace(/\/\//g, '/')  // Hapus double slash
       .trim();                 // Trim spasi di awal/akhir
 
-    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari konsep)
     const detailId = uuidv4();
     const detail = this.nomorRequestDetailRepository.create({
       id: detailId,
@@ -605,7 +605,7 @@ export class KonsepService {
       nomor: nomorBaru,
       fileName: null,
       fileText: null,
-      status: 'terpakai',
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(detail);
