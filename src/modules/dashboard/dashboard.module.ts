@@ -6,6 +6,8 @@ import { NaskahSirkulasi } from '../naskah-sirkulasi/entities/naskah_sirkulasi.e
 import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { DigsigDocumentEntity, DigsigDocumentSignerEntity } from '../digsig/entities';
 import { KonsepEntity } from '../konsep/entities/konsep.entity';
+import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
+import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail.entity';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { KonsepEntity } from '../konsep/entities/konsep.entity';
       DigsigDocumentEntity,
       DigsigDocumentSignerEntity,
       KonsepEntity,
+      NomorRequestEntity,
+      NomorRequestDetailEntity,
     ]),
   ],
   controllers: [DashboardController],

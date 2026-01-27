@@ -15,10 +15,12 @@ export class DashboardSummaryDto {
   // Disposisi
   disposisi_masuk: number; // Disposisi yang diterima
   disposisi_belum_dibaca: number; // Disposisi yang belum dibaca
+  disposisi_high_priority: number; // Disposisi dengan flag priority
+  disposisi_belum_tinjut: number; // Disposisi yang sudah dibaca tapi belum ditindaklanjuti
   
   // Digital Signature
-  digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user
-  digsig_on_progress: number; // Dokumen yang masih dalam proses TTD (waiting other signers)
+  digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user (status waiting)
+  digsig_on_progress: number; // Total dokumen on_progress dimana user adalah salah satu signer
   
   // Konsep (Draft Approval Workflow)
   konsep_masuk: number; // Konsep yang perlu direview
@@ -28,6 +30,7 @@ export class DashboardSummaryDto {
   surat_favorit: number; // Surat yang ditandai favorit
   surat_arsip: number; // Surat yang diarsipkan
   perlu_tindak_lanjut: number; // Surat yang perlu tindak lanjut
+  surat_sudah_ditinjut: number; // Surat yang sudah ditindaklanjuti
 }
 
 // Statistik per jenis surat
@@ -52,6 +55,7 @@ export class SuratMasukTerbaruItemDto {
   flag_favorit: boolean;
   flag_note: boolean;
   flag_arsip: boolean;
+  is_priority?: boolean; // Priority flag (hanya untuk jenis='DI')
 }
 
 // Item untuk dokumen digsig yang menunggu TTD

@@ -4,15 +4,42 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
 
+interface NodinPdfOptions {
+  html?: string;
+  htmlContent?: string;
+  filename?: string;
+  dari?: string;
+  tanggal?: string;
+  tgl?: string;
+  positionText?: string;
+  namaLengkap?: string;
+  penandatangan?: string;
+  perihal?: string;
+  tertuju?: string[];
+  penerima?: string[];
+  tembusan?: string[];
+  nomor?: string;
+  nama_tempat?: string;
+  namaTempat?: string;
+  sifat?: string;
+  lampiran?: string;
+  // Dynamic header info dari sub_area_alamat
+  headerKantor?: string;
+  headerGedung?: string;
+  headerAlamat?: string;
+  // QR Code HTML (optional - passed from digsig signing or preview)
+  qrCodeHtml?: string;
+}
+
 @Injectable()
 export class GeneratePdfNodinService {
-  async generatePdf(body: any): Promise<Buffer> {
+  async generatePdf(body: NodinPdfOptions): Promise<Buffer> {
     return pdfQueue.add(() => this._generatePdfInternal(body), {
       timeout: 30000,
     });
   }
 
-  private async _generatePdfInternal(body: any): Promise<Buffer> {
+  private async _generatePdfInternal(body: NodinPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
     
     try {
@@ -236,7 +263,6 @@ export class GeneratePdfNodinService {
           line-height: 1.5;
         }
         table, th, td {
-          border-width: 0.5px !important;
           font-family: 'Times New Roman', Times, serif;
         }
       </style>

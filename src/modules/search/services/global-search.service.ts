@@ -8,7 +8,16 @@ import {
   SearchResultItemDto,
   GlobalSearchResponseDto,
   DateWithinEnum,
+  NaskahSourceEnum,
 } from '../dto/global-search.dto';
+
+// Label untuk source
+const SOURCE_LABELS: Record<NaskahSourceEnum, string> = {
+  [NaskahSourceEnum.INBOX]: 'Kotak Masuk',
+  [NaskahSourceEnum.SENT]: 'Terkirim',
+  [NaskahSourceEnum.DRAFT]: 'Draft',
+  [NaskahSourceEnum.CC]: 'Tembusan',
+};
 
 /**
  * Service untuk Global Search
@@ -28,6 +37,7 @@ export class GlobalSearchService {
    */
   async search(
     dto: GlobalSearchDto,
+    userPosition: string,
     userPersnum: number,
   ): Promise<GlobalSearchResponseDto> {
     const {
@@ -57,13 +67,47 @@ export class GlobalSearchService {
       sortOrder = 'DESC',
     } = dto;
 
-    // Build query - use left join manually since NaskahEntity doesn't have relations
-    const queryBuilder = this.naskahRepository
-      .createQueryBuilder('naskah')
-      .leftJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.id_naskah = naskah.id');
+    // Check if we need to join with sirkulasi table (for from/to/area filters)
+    const needsSirkulasiJoin = !!(from || to || areaFrom || subAreaFrom || organizationFrom);
+
+    // Build query
+    const queryBuilder = this.naskahRepository.createQueryBuilder('naskah');
+    
+    // Only join sirkulasi if needed for filtering (from/to/area)
+    if (needsSirkulasiJoin) {
+      queryBuilder.leftJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.id_naskah = naskah.id');
+    }
 
     // Track applied filters
     const appliedFilters: string[] = [];
+
+    // Debug: log scope value
+    console.log('[SEARCH] scope:', scope, 'userPosition:', userPosition, 'userPersnum:', userPersnum);
+
+    // === FILTER DEFAULT: HANYA NASKAH YANG USER TERLIBAT ===
+    // User hanya bisa melihat naskah dimana dia sebagai pengirim, penerima, atau tembusan
+    // Default (tanpa scope atau scope='all'): tampilkan SEMUA naskah user
+    // IMPORTANT: Use position (like inbox endpoint) and exclude draft/konsep entries
+    // Inbox filter: is_draft=0 AND is_konsep=0 AND status IN ('final', 'final_tte')
+    // Search filter: include all sirkulasi roles but exclude draft/konsep entries
+    if (!scope || scope === 'all') {
+      console.log('[SEARCH] Using default filter (all user naskah by position, exclude draft/konsep)');
+      queryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1 FROM naskah_sirkulasi ns_user 
+          WHERE ns_user.id_naskah = naskah.id 
+          AND ns_user.position = :userPosition
+          AND (ns_user.is_draft = 0 OR ns_user.is_draft IS NULL)
+          AND (ns_user.is_konsep = 0 OR ns_user.is_konsep IS NULL)
+        )`,
+        { userPosition },
+      );
+      // Also filter by naskah status (final or final_tte only, exclude draf)
+      queryBuilder.andWhere('naskah.status IN (:...finalStatuses)', {
+        finalStatuses: ['final', 'final_tte'],
+      });
+      appliedFilters.push('filter: semua naskah user (final only, exclude draft/konsep)');
+    }
 
     // === KEYWORD SEARCH (global) ===
     if (keyword) {
@@ -196,40 +240,85 @@ export class GlobalSearchService {
     }
 
     // === SCOPE ===
+    // IMPORTANT: All scope filters use position (like inbox endpoint) instead of persnum
     if (scope) {
       switch (scope) {
         case 'inbox':
-          // Naskah masuk: user sebagai penerima
-          queryBuilder.andWhere('sirkulasi.id_sirkuler = :userPersnum', {
-            userPersnum: userPersnum.toString(),
-          });
-          queryBuilder.andWhere('sirkulasi.sirkuler IN (:...inboxSirkuler)', {
-            inboxSirkuler: ['penerima', 'tembusan'],
-          });
+          // Naskah masuk: user sebagai penerima atau tembusan (exclude archived)
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_inbox 
+              WHERE ns_inbox.id_naskah = naskah.id 
+              AND ns_inbox.position = :userPositionInbox
+              AND ns_inbox.sirkuler IN ('penerima', 'tembusan')
+              AND (ns_inbox.flag_arsip IS NULL OR ns_inbox.flag_arsip = 0)
+            )`,
+            { userPositionInbox: userPosition },
+          );
           break;
         case 'sent':
-          // Naskah keluar: user sebagai pengirim
-          queryBuilder.andWhere('sirkulasi.id_sirkuler = :userPersnum', {
-            userPersnum: userPersnum.toString(),
-          });
-          queryBuilder.andWhere('sirkulasi.sirkuler = :sentSirkuler', {
-            sentSirkuler: 'pengirim',
-          });
+          // Naskah keluar: user sebagai pengirim (exclude archived)
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_sent 
+              WHERE ns_sent.id_naskah = naskah.id 
+              AND ns_sent.position = :userPositionSent
+              AND ns_sent.sirkuler = 'pengirim'
+              AND (ns_sent.flag_arsip IS NULL OR ns_sent.flag_arsip = 0)
+            )`,
+            { userPositionSent: userPosition },
+          );
           break;
         case 'draft':
+          // Draft naskah user (exclude archived)
           queryBuilder.andWhere('naskah.status = :draftStatus', {
             draftStatus: 'draf',
           });
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_draft 
+              WHERE ns_draft.id_naskah = naskah.id 
+              AND ns_draft.position = :userPositionDraft
+              AND (ns_draft.flag_arsip IS NULL OR ns_draft.flag_arsip = 0)
+            )`,
+            { userPositionDraft: userPosition },
+          );
           break;
         case 'archived':
-          queryBuilder.andWhere('sirkulasi.flag_arsip = :flagArsip', {
-            flagArsip: 1,
-          });
+          // Naskah yang diarsipkan oleh user
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_arch 
+              WHERE ns_arch.id_naskah = naskah.id 
+              AND ns_arch.position = :userPositionArch
+              AND ns_arch.flag_arsip = 1
+            )`,
+            { userPositionArch: userPosition },
+          );
           break;
         case 'favorite':
-          queryBuilder.andWhere('sirkulasi.flag_favorit = :flagFavorit', {
-            flagFavorit: 1,
-          });
+          // Naskah favorit user (could be archived or not)
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_fav 
+              WHERE ns_fav.id_naskah = naskah.id 
+              AND ns_fav.position = :userPositionFav
+              AND ns_fav.flag_favorit = 1
+            )`,
+            { userPositionFav: userPosition },
+          );
+          break;
+        case 'active':
+          // Naskah aktif (inbox + sent + draft) exclude archived
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_active 
+              WHERE ns_active.id_naskah = naskah.id 
+              AND ns_active.position = :userPositionActive
+              AND (ns_active.flag_arsip IS NULL OR ns_active.flag_arsip = 0)
+            )`,
+            { userPositionActive: userPosition },
+          );
           break;
       }
       appliedFilters.push(`scope: ${scope}`);
@@ -267,22 +356,45 @@ export class GlobalSearchService {
       appliedFilters.push(`organizationFrom: ${organizationFrom}`);
     }
 
-    // === DISTINCT (karena join dengan sirkulasi bisa duplicate) ===
-    queryBuilder.distinct(true);
+    // === DISTINCT (hanya jika join dengan sirkulasi untuk menghindari duplicate) ===
+    if (needsSirkulasiJoin) {
+      queryBuilder.distinct(true);
+    }
 
     // === SORTING ===
     const sortField = this.getSortField(sortBy);
     queryBuilder.orderBy(sortField, sortOrder);
 
+    // === COUNT - hitung total sebelum pagination ===
+    // Clone query builder untuk count (tanpa pagination)
+    const countQuery = queryBuilder.clone();
+    let total: number;
+    
+    if (needsSirkulasiJoin) {
+      // Jika ada JOIN, gunakan COUNT DISTINCT untuk akurasi
+      const countResult = await countQuery
+        .select('COUNT(DISTINCT naskah.id)', 'total')
+        .getRawOne();
+      total = parseInt(countResult?.total || '0', 10);
+      console.log('[SEARCH] COUNT with JOIN:', total);
+    } else {
+      // Jika tidak ada JOIN, gunakan getCount() biasa (lebih cepat)
+      total = await countQuery.getCount();
+      console.log('[SEARCH] COUNT without JOIN:', total);
+    }
+
+    console.log('[SEARCH] Applied filters:', appliedFilters);
+
     // === PAGINATION ===
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
 
-    // Execute query
-    const [results, total] = await queryBuilder.getManyAndCount();
+    // Execute query untuk data
+    const results = await queryBuilder.getMany();
 
-    // Transform results
-    const items = await this.transformResults(results);
+    // Transform results with user context for source determination
+    // Use position (like inbox) instead of persnum
+    const items = await this.transformResults(results, userPosition);
 
     return {
       success: true,
@@ -372,6 +484,7 @@ export class GlobalSearchService {
    */
   private async transformResults(
     results: NaskahEntity[],
+    userPosition: string,
   ): Promise<SearchResultItemDto[]> {
     // Get all naskah IDs
     const naskahIds = results.map((n) => n.id);
@@ -416,6 +529,42 @@ export class GlobalSearchService {
       // Check if has lampiran
       const hasLampiran = !!(naskah.lampiran && naskah.lampiran.trim() !== '');
 
+      // Determine user's roles and source in this naskah
+      // Use position (like inbox) instead of persnum
+      const userSirkulasiRecords = sirkulasi.filter(
+        (s) => s.position === userPosition,
+      );
+      
+      // Get user's roles (pengirim, penerima, tembusan)
+      type RoleType = 'pengirim' | 'penerima' | 'tembusan';
+      const validRoles: RoleType[] = ['pengirim', 'penerima', 'tembusan'];
+      const userRoles: RoleType[] = userSirkulasiRecords
+        .map((s) => s.sirkuler)
+        .filter((role): role is RoleType => validRoles.includes(role as RoleType));
+
+      // Get user's main sirkulasi record for flags
+      const userMainSirkulasi = userSirkulasiRecords[0];
+
+      // Determine source based on user's role and naskah status
+      let source: NaskahSourceEnum;
+      if (naskah.status === 'draf') {
+        source = NaskahSourceEnum.DRAFT;
+      } else if (userRoles.includes('pengirim')) {
+        source = NaskahSourceEnum.SENT;
+      } else if (userRoles.includes('tembusan')) {
+        source = NaskahSourceEnum.CC;
+      } else if (userRoles.includes('penerima')) {
+        source = NaskahSourceEnum.INBOX;
+      } else {
+        // Fallback - shouldn't happen if user filter works correctly
+        source = NaskahSourceEnum.INBOX;
+      }
+
+      // Determine flags from user's sirkulasi record
+      const isRead = userMainSirkulasi?.sendReadTime !== null && userMainSirkulasi?.sendReadTime !== undefined;
+      const isArchived = userMainSirkulasi?.flagArsip === 1;
+      const isFavorite = userMainSirkulasi?.flagFavorit === 1;
+
       return {
         id: naskah.id,
         jenis: naskah.jenis,
@@ -438,6 +587,13 @@ export class GlobalSearchService {
         hasAttachment: hasLampiran,
         finalPdf: naskah.final_pdf,
         createdAt: naskah.createdAt,
+        // New source fields
+        source: source,
+        sourceLabel: SOURCE_LABELS[source],
+        userRoles: userRoles,
+        isRead: isRead,
+        isArchived: isArchived,
+        isFavorite: isFavorite,
       };
     });
   }

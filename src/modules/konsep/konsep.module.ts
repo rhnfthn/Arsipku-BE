@@ -18,6 +18,7 @@ import { JenisEntity } from '../nomor/entities/jenis.entity';
 import { OrgDataModule } from 'src/modules/master-data/org_data/org_data.module';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { DigsigModule } from '../digsig/digsig.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
     OrgDataModule,
     StorageModule,
     GeneratePdfModule,
+    DigsigModule,
   ],
   controllers: [KonsepController],
   providers: [KonsepService],
