@@ -897,13 +897,23 @@ export class NaskahSirkulasiService {
       this.getSentMessage(positionId, query),
     ]);
 
+    // Combine both lists
+    const combinedData = [
+      ...inboxResult.data.items,
+      ...sentResult.data.items,
+    ];
+
+    // Sort by created_at (descending - newest first)
+    combinedData.sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime();
+      const dateB = new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
+
     return {
       success: true,
-      message: 'Berhasil mengambil kotak masuk dan keluar',
-      data: {
-        inbox: inboxResult.data.items,
-        sent: sentResult.data.items,
-      },
+      message: 'Berhasil mengambil data gabungan inbox dan sent',
+      data: combinedData,
     };
   }
 
