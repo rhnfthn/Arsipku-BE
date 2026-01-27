@@ -68,12 +68,13 @@ export enum SizeUnitEnum {
  * Scope pencarian (All Mail di Gmail)
  */
 export enum SearchScopeEnum {
-  ALL = 'all',               // Semua naskah
-  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima)
-  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim)
-  DRAFT = 'draft',           // Draft
-  ARCHIVED = 'archived',     // Arsip
-  FAVORITE = 'favorite',     // Favorit
+  ALL = 'all',               // Semua naskah (termasuk archived)
+  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima) - exclude archived
+  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim) - exclude archived
+  DRAFT = 'draft',           // Draft - exclude archived
+  ARCHIVED = 'archived',     // Arsip saja
+  FAVORITE = 'favorite',     // Favorit (bisa include archived)
+  ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
 }
 
 /**
