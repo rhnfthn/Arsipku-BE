@@ -1247,11 +1247,13 @@ export class DisposisiService {
 
       await queryRunner.manager.save(naskah);
 
-      // PHASE 4: Insert ke tabel NASKAH_REFERENSI (HANYA jika disposisi lanjutan)
-      // Disposisi pertama: TIDAK insert ke naskah_referensi
-      // Disposisi lanjutan: Insert dengan referensi ke naskah yang diterima sebelumnya
+      // PHASE 4: Insert ke tabel NASKAH_REFERENSI
+      // Bisa dari 2 sumber:
+      // 1. id_naskah_sebelumnya: disposisi lanjutan dari DI sebelumnya
+      // 2. id_referensi_naskah: disposisi pertama dari jenis naskah lain (ND, SDI, SDE, K, dll)
+      
       if (dto.id_naskah_sebelumnya) {
-        // Ambil data naskah sebelumnya untuk referensi
+        // Referensi ke disposisi sebelumnya
         const naskahSebelumnya = await this.naskahRepository.findOne({
           where: { id: dto.id_naskah_sebelumnya },
         });
@@ -1261,14 +1263,36 @@ export class DisposisiService {
           naskahReferensi.id = uuidv4();
           naskahReferensi.id_naskah = naskahId;
           naskahReferensi.ref_jenis = naskahSebelumnya.jenis || 'DI';
-          naskahReferensi.ref_pengirim = null; // Bisa diisi dari sirkulasi pengirim sebelumnya jika perlu
+          naskahReferensi.ref_pengirim = null;
           naskahReferensi.ref_tanggal = naskahSebelumnya.tanggal || null;
-          naskahReferensi.ref_nomor = naskahSebelumnya.nomor || null; // ref_nomor dari naskah sebelumnya
+          naskahReferensi.ref_nomor = naskahSebelumnya.nomor || null;
           naskahReferensi.ref_perihal = naskahSebelumnya.perihal || null;
           await queryRunner.manager.save(naskahReferensi);
         }
+      } else if (dto.id_referensi_naskah) {
+        // Referensi ke naskah jenis lain (untuk disposisi pertama dari berbagai jenis naskah)
+        const naskahRef = await this.naskahRepository.findOne({
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '')
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA')
+            : 'ND';
+
+          const naskahReferensi = new NaskahReferensiEntity();
+          naskahReferensi.id = uuidv4();
+          naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.ref_jenis = refJenis;
+          naskahReferensi.ref_pengirim = null;
+          naskahReferensi.ref_tanggal = naskahRef.tanggal || null;
+          naskahReferensi.ref_nomor = naskahRef.nomor || null;
+          naskahReferensi.ref_perihal = naskahRef.perihal || null;
+          await queryRunner.manager.save(naskahReferensi);
+        }
       }
-      // Jika disposisi pertama (tanpa id_naskah_sebelumnya), TIDAK ada insert ke naskah_referensi
 
       // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
@@ -1612,11 +1636,13 @@ export class DisposisiService {
 
       await queryRunner.manager.save(naskah);
 
-      // PHASE 4: Insert ke tabel NASKAH_REFERENSI (HANYA jika disposisi lanjutan)
-      // Disposisi pertama: TIDAK insert ke naskah_referensi
-      // Disposisi lanjutan: Insert dengan referensi ke naskah yang diterima sebelumnya
+      // PHASE 4: Insert ke tabel NASKAH_REFERENSI
+      // Bisa dari 2 sumber:
+      // 1. id_naskah_sebelumnya: disposisi lanjutan dari DI sebelumnya
+      // 2. id_referensi_naskah: disposisi pertama dari jenis naskah lain (ND, SDI, SDE, K, dll)
+      
       if (dto.id_naskah_sebelumnya) {
-        // Ambil data naskah sebelumnya untuk referensi
+        // Referensi ke disposisi sebelumnya
         const naskahSebelumnya = await this.naskahRepository.findOne({
           where: { id: dto.id_naskah_sebelumnya },
         });
@@ -1632,8 +1658,30 @@ export class DisposisiService {
           naskahReferensi.ref_perihal = naskahSebelumnya.perihal || null;
           await queryRunner.manager.save(naskahReferensi);
         }
+      } else if (dto.id_referensi_naskah) {
+        // Referensi ke naskah jenis lain (untuk disposisi pertama dari berbagai jenis naskah)
+        const naskahRef = await this.naskahRepository.findOne({
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '')
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA')
+            : 'ND';
+
+          const naskahReferensi = new NaskahReferensiEntity();
+          naskahReferensi.id = uuidv4();
+          naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.ref_jenis = refJenis;
+          naskahReferensi.ref_pengirim = null;
+          naskahReferensi.ref_tanggal = naskahRef.tanggal || null;
+          naskahReferensi.ref_nomor = naskahRef.nomor || null;
+          naskahReferensi.ref_perihal = naskahRef.perihal || null;
+          await queryRunner.manager.save(naskahReferensi);
+        }
       }
-      // Jika disposisi pertama (tanpa id_naskah_sebelumnya), TIDAK ada insert ke naskah_referensi
 
       // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim (dengan isDraft = true)
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
