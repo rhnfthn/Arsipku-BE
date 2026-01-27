@@ -725,6 +725,9 @@ export class SuratDinasInternalService {
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
 
+      // Referensi Naskah (untuk sirkulasi persuratan)
+      id_referensi_naskah: body.id_referensi_naskah,
+
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
 
@@ -1421,6 +1424,27 @@ export class SuratDinasInternalService {
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
+      // PHASE 7a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDI',
+            ref_pengirim: null, // Bisa diisi dari sirkulasi pengirim jika perlu
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
+
       // PHASE 8: Insert sirkulasi - pengirim
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -1727,6 +1751,27 @@ export class SuratDinasInternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
+
+      // PHASE 6a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDI',
+            ref_pengirim: null,
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
 
       // PHASE 7: Insert sirkulasi
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);

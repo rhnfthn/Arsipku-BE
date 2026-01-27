@@ -77,6 +77,14 @@ export class CreateDisposisiDto {
   @IsString()
   id_naskah_sebelumnya?: string;
 
+  // ID Naskah Referensi (opsional) - untuk sirkulasi persuratan
+  // Diisi jika disposisi ini merupakan referensi/balasan dari naskah jenis lain (ND, SDI, SDE, K, Konsep, dll)
+  // Digunakan untuk disposisi pertama dari berbagai jenis naskah
+  // Jika diisi, akan otomatis insert ke tabel naskah_referensi
+  @IsOptional()
+  @IsString()
+  id_referensi_naskah?: string;
+
   // ============================================================
   // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
   // Field ini diisi oleh FE dengan format string yang sudah diformat
