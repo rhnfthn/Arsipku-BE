@@ -44,6 +44,19 @@ export class CreateSuratDinasEksternalDto {
   tgl?: string; // Optional date in format YYYY-MM-DD (for org_data lookup)
 
   // ============================================
+  // REFERENSI NASKAH (untuk sirkulasi persuratan)
+  // ============================================
+  /**
+   * ID Naskah Referensi (opsional)
+   * Diisi jika surat ini merupakan tindak lanjut/balasan dari surat sebelumnya.
+   * Jika diisi, akan otomatis insert ke tabel naskah_referensi dengan data dari surat yang direferensikan.
+   * Bisa referensi ke semua jenis naskah: ND, SDI, SDE, DI, KA, K
+   */
+  @IsOptional()
+  @IsString()
+  id_referensi_naskah?: string;
+
+  // ============================================
   // KOP NASKAH (KEPALA)
   // ============================================
   @IsOptional()
