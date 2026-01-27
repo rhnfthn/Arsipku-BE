@@ -49,6 +49,8 @@ import { RekapNaskahModule } from './modules/rekap-naskah/rekap-naskah.module';
 import { JenisModule } from './modules/jenis/jenis.module';
 import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
+import { DelegasiModule } from './modules/delegasi/delegasi.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -115,6 +117,8 @@ import { DigsigModule } from './modules/digsig/digsig.module';
     RekapNaskahModule,
     JenisModule,
     DigsigModule,
+    DelegasiModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],

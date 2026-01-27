@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
+import { ForwardSuratDinasEksternalDto, ForwardSuratDinasEksternalResponseDto } from '../dto/forward-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
@@ -182,6 +183,99 @@ export class SuratDinasEksternalController {
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /SDE/save-draft
+   * Save Surat Dinas Eksternal as draft
+   * 
+   * Accepts: form-data with optional files
+   * 
+   * Status: 'draf'
+   * Nomor: DRAFT-{timestamp}
+   *
+   * @param body - Raw form body
+   * @param files - Optional uploaded files (AnyFilesInterceptor)
+   * @returns SdeSendMessageResponseDto
+   */
+  /**
+   * POST /SDE/forward
+   * Forward Surat Dinas Eksternal to other recipients
+   * Can change document type during forwarding (ND/SDI/SDE)
+   *
+   * Accepts: form-data with optional files
+   * 
+   * @param body - Raw form body
+   * @param files - Optional uploaded files
+   * @param user - Current user from JWT
+   * @returns ForwardSuratDinasEksternalResponseDto
+   */
+  @Post('forward')
+  @UseInterceptors(AnyFilesInterceptor())
+  async forward(
+    @Body() body: any,
+    @UploadedFiles() files?: Express.Multer.File[],
+    @CurrentUser() user?: any,
+  ): Promise<any> {
+    try {
+      // Convert string JSON to actual arrays for penerima, tembusan, and lampiran_temp_ids
+      const penerimaStr = body.penerima || '[]';
+      const tembusanStr = body.tembusan || '[]';
+      const lampiranTempIdsStr = body.lampiran_temp_ids || '[]';
+
+      let penerima: number[] = [];
+      let tembusan: number[] = [];
+      let lampiranTempIds: string[] = [];
+
+      try {
+        penerima = JSON.parse(penerimaStr);
+      } catch {
+        const singleValue = parseInt(penerimaStr, 10);
+        penerima = !isNaN(singleValue) ? [singleValue] : [];
+      }
+
+      try {
+        tembusan = JSON.parse(tembusanStr);
+      } catch {
+        const singleValue = parseInt(tembusanStr, 10);
+        tembusan = !isNaN(singleValue) ? [singleValue] : [];
+      }
+
+      try {
+        lampiranTempIds = JSON.parse(lampiranTempIdsStr);
+      } catch {
+        lampiranTempIds = [];
+      }
+
+      // Create DTO with converted arrays
+      const forwardDto: ForwardSuratDinasEksternalDto = {
+        id_naskah_referensi: body.id_naskah_referensi,
+        pengirim: parseInt(body.pengirim, 10),
+        penerima,
+        tembusan,
+        jenis: body.jenis || 'SDE',
+        sifat: body.sifat || '',
+        klasifikasi: body.klasifikasi || '',
+        klasifikasi_text: body.klasifikasi_text || null,
+        perihal: body.perihal || '',
+        konten: body.konten || '',
+        tujuan: body.tujuan || null,
+        alamat_tujuan: body.alamat_tujuan || null,
+        copy_lampiran_from_previous: body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === true,
+        lampiran_temp_ids: lampiranTempIds || [],
+      };
+
+      return await this.sdeService.forwardSuratDinasEksternal(forwardDto, user);
+    } catch (error) {
+      throw new HttpException(
+        {
+          statusCode: error.status || HttpStatus.BAD_REQUEST,
+          message: error.message || 'Gagal meneruskan surat dinas eksternal',
+          error: error.getResponse?.() || error.message,
+        },
+        error.status || HttpStatus.BAD_REQUEST,
       );
     }
   }
@@ -584,6 +678,7 @@ export class SuratDinasEksternalController {
         body.nomor || '',
         body.lampiran || '-',
         headerInfo || undefined,
+        body.english === true || body.english === 'true',
       );
 
       res.set({
@@ -714,6 +809,7 @@ export class SuratDinasEksternalController {
         body.nomor || '',
         body.lampiran || '-',
         headerInfo || undefined,
+        body.english === true || body.english === 'true',
       );
 
       res.set({

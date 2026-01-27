@@ -20,6 +20,7 @@ import { DigsigLogService } from './digsig-log.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import axios, { AxiosError } from 'axios';
 
 export interface DigsigParams {
@@ -34,6 +35,11 @@ export interface DigsigParams {
   passphrase: string;
   path_dokumen: string;
   no_wa: string;
+}
+
+export interface VerifyDigsigParams {
+  filename: string; // filename.pdf
+  fileurl: string;
 }
 
 /**
@@ -88,7 +94,7 @@ const DEFAULT_PASSPHRASE = '12345';
 const COMPANY_ID = process.env.COMPANY_ID || '1000';
 
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
-const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.airnavindonesia.co.id/verify';
+const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.a  irnavindonesia.co.id/verify';
 
 @Injectable()
 export class DigsigService {
@@ -110,6 +116,24 @@ export class DigsigService {
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
   ) {}
+
+  /**
+   * Get BSrE Sign In URL from environment variable
+   * Evaluated at runtime to ensure env vars are loaded
+   * IMPORTANT: BSRE_SIGNIN_URL must be set in .env file
+   */
+  private get BSRE_SIGNIN_URL(): string {
+    return process.env.BSRE_SIGNIN_URL!;
+  }
+
+  /**
+   * Get BSrE Verify URL from environment variable
+   * Evaluated at runtime to ensure env vars are loaded
+   * IMPORTANT: BSRE_VERIFY_URL must be set in .env file
+   */
+  private get BSRE_VERIFY_URL(): string {
+    return process.env.BSRE_VERIFY_URL!;
+  }
 
 
 
@@ -164,11 +188,11 @@ export class DigsigService {
       };
 
       console.log('[DigsigService] Payload prepared, hitting BSrE API...');
-      console.log('[DigsigService] BSrE URL: http://172.20.16.115:7000/signin');
+      console.log('[DigsigService] BSrE URL:', this.BSRE_SIGNIN_URL);
 
       // 3. Hit endpoint
       const response = await axios.post(
-        'http://172.20.16.115:7000/signin',
+        this.BSRE_SIGNIN_URL,
         payload,
         {
           headers: {
@@ -298,195 +322,130 @@ export class DigsigService {
   }
 
   /**
-   * Get NIK/KTP user dari HR API berdasarkan persnum
-   * Token diambil dari session user yang sedang login
-   * @param params.persnum - Persnum user yang login
-   * @returns Object containing noktp (NIK 16 digit)
+   * Get data user untuk BSrE signing (NIK dan no_wa) dari JWT payload
+   * Gunakan method ini untuk fitur baru yang sudah menerima JwtPayload
+   * @param user - JwtPayload user yang login (berisi NIK dan noWa)
+   * @returns Object containing nik dan no_wa
    */
-  async getKTPUser(params: { persnum: string }): Promise<{ noktp: string }> {
-    try {
-      // Ambil token dari session berdasarkan persnum
-      const token = await this.getAirnavTokenFromSession(Number(params.persnum));
-      
-      const response = await axios.get(
-        `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${params.persnum}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          timeout: 30000,
-        },
-      );
-      const data = response.data?.data ?? [];
-      // subType '01' = KTP
-      const filterktp = data.find((x) => x.subType === '01');
-      if (!filterktp) {
-        throw new BadRequestException('Data KTP dengan subType 01 tidak ditemukan');
-      }
-      return {
-        noktp: filterktp.number
-      };
-    } catch (error: any) {
-      // Re-throw BadRequestException dari getAirnavTokenFromSession
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      if (axios.isAxiosError(error)) {
-        console.error('Axios Error Message:', error.message);
-        console.error('Status:', error.response?.status);
-        console.error('Response Data:', error.response?.data);
-        const status =
-          error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-
-        const message =
-          error.response?.data?.message ||
-          error.response?.data?.error ||
-          error.response?.data?.errors ||
-          'Gagal mengambil data KTP dari HR API';
-
-        throw new HttpException(
-          {
-            success: false,
-            message,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          status,
-        );
-      }
-      const msgerror = error?.message ?? 'Unexpected error';
-      console.error('Unexpected Error:', error);
-      throw new HttpException(
-        {
-          success: false,
-          message: msgerror,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
+  getUserDataFromJwt(user: JwtPayload): { nik: string; no_wa: string } {
+    if (!user.nik) {
+      throw new BadRequestException(
+        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
       );
     }
-  }
-
-  /**
-   * Get nomor HP/WhatsApp user dari HR API berdasarkan persnum
-   * Token diambil dari session user yang sedang login
-   * @param params.persnum - Persnum user yang login
-   * @returns Object containing no_wa (nomor WhatsApp)
-   */
-  async getPhoneUser(params: { persnum: string }): Promise<{ no_wa: string }> {
-    try {
-      // Ambil token dari session berdasarkan persnum
-      const token = await this.getAirnavTokenFromSession(Number(params.persnum));
-      
-      const response = await axios.get(
-        `https://api.airnavindonesia.co.id/dataset-dev/hc/communication-infos/${params.persnum}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          timeout: 30000,
-        },
-      );
-      const data = response.data?.data ?? [];
-      // commType '2' = Mobile Phone / WhatsApp
-      const phoneData = data.find((x) => x.commType === '2');
-      if (!phoneData) {
-        throw new BadRequestException('Data nomor HP/WhatsApp tidak ditemukan');
-      }
-      
-      // Format nomor dengan prefix +62 jika diperlukan
-      let no_wa = phoneData.id;
-      if (no_wa && no_wa.startsWith('0')) {
-        no_wa = '+62' + no_wa.substring(1);
-      } else if (no_wa && !no_wa.startsWith('+')) {
-        no_wa = '+' + no_wa;
-      }
-      
-      return { no_wa };
-    } catch (error: any) {
-      // Re-throw BadRequestException dari getAirnavTokenFromSession
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      if (axios.isAxiosError(error)) {
-        console.error('Axios Error getting phone:', error.message);
-        const status = error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-        const message = error.response?.data?.message || 'Gagal mengambil data nomor HP dari HR API';
-
-        throw new HttpException(
-          {
-            success: false,
-            message,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          status,
-        );
-      }
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal mengambil data nomor HP',
-          error: error instanceof Error ? error.message : String(error),
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    
+    console.log(`[DigsigService] Getting user data from JWT, persnum: ${user.persnum}`);
+    console.log(`[DigsigService] NIK: ${user.nik.substring(0, 4)}****, noWa: ${user.noWa ? user.noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
+    
+    return {
+      nik: user.nik,
+      no_wa: user.noWa || '',
+    };
   }
 
   /**
    * Get data user untuk BSrE signing (NIK dan no_wa) dari HR API
+   * @deprecated Gunakan getUserDataFromJwt() yang mengambil dari JWT payload
+   * Method ini tetap ada untuk backward compatibility dengan service lain (nota-dinas, surat-dinas-internal, dll)
    * @param persnum - Persnum user yang login
    * @returns Object containing nik dan no_wa
    */
   async getUserDataForBsre(persnum: string): Promise<{ nik: string; no_wa: string }> {
-    console.log(`[DigsigService] Getting user data for BSrE, persnum: ${persnum}`);
+    console.log(`[DigsigService] DEPRECATED: Getting user data for BSrE from HR API, persnum: ${persnum}`);
+    console.log(`[DigsigService] Consider using getUserDataFromJwt() instead for better performance`);
     
-    // Fetch NIK terlebih dahulu (wajib)
-    const ktpResult = await this.getKTPUser({ persnum });
+    // Fetch NIK dari HR API
+    const token = await this.getAirnavTokenFromSession(Number(persnum));
     
-    // Fetch phone (optional - tidak block jika gagal)
+    // Get KTP
+    let nik = '';
+    try {
+      const ktpResponse = await axios.get(
+        `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${persnum}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          timeout: 30000,
+        },
+      );
+      const ktpData = ktpResponse.data?.data ?? [];
+      const filterktp = ktpData.find((x) => x.subType === '01');
+      if (!filterktp) {
+        throw new BadRequestException('Data KTP dengan subType 01 tidak ditemukan');
+      }
+      nik = filterktp.number;
+    } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      const message = axios.isAxiosError(error)
+        ? (error.response?.data?.message || 'Gagal mengambil data KTP dari HR API')
+        : (error.message || 'Unexpected error');
+      throw new BadRequestException(message);
+    }
+    
+    // Get phone (optional)
     let no_wa = '';
     try {
-      const phoneResult = await this.getPhoneUser({ persnum });
-      no_wa = phoneResult.no_wa;
+      const phoneResponse = await axios.get(
+        `https://api.airnavindonesia.co.id/dataset-dev/hc/communication-infos/${persnum}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          timeout: 30000,
+        },
+      );
+      const phoneData = phoneResponse.data?.data ?? [];
+      const phone = phoneData.find((x) => x.commType === '2');
+      if (phone) {
+        no_wa = phone.id;
+        if (no_wa && no_wa.startsWith('0')) {
+          no_wa = '+62' + no_wa.substring(1);
+        } else if (no_wa && !no_wa.startsWith('+')) {
+          no_wa = '+' + no_wa;
+        }
+      }
     } catch (error) {
       console.warn(`[DigsigService] Gagal mengambil nomor HP untuk persnum ${persnum}:`, error.message);
-      // Jika phone tidak tersedia, gunakan placeholder atau kosong
-      // BSrE mungkin tetap bisa berjalan tanpa no_wa tergantung konfigurasi
-      no_wa = '';
+      // Phone optional, continue without it
     }
 
-    console.log(`[DigsigService] NIK: ${ktpResult.noktp}, Phone: ${no_wa || '(tidak tersedia)'}`);
+    console.log(`[DigsigService] NIK: ${nik}, Phone: ${no_wa || '(tidak tersedia)'}`);
     
-    return {
-      nik: ktpResult.noktp,
-      no_wa: no_wa,
-    };
+    return { nik, no_wa };
   }
 
   // ============================================
-  // SIGN DENGAN BSrE - Auto-fetch NIK dan no_wa
+  // SIGN DENGAN BSrE - NIK dan no_wa dari JWT
   // ============================================
 
   /**
-   * Sign Nota Dinas dengan BSrE (NIK dan no_wa otomatis dari HR API)
+   * Sign Nota Dinas dengan BSrE (NIK dan no_wa dari JWT payload)
    * @param idNaskah - ID dari tabel naskah
    * @param dto - Object containing passphrase dan optional klasifikasi
-   * @param persnum - Persnum user yang login (untuk fetch NIK dan no_wa)
+   * @param user - JwtPayload user yang login (berisi NIK dan noWa)
    */
   async signNotaDinasBsre(
     idNaskah: string,
     dto: { passphrase: string; klasifikasi?: string },
-    persnum: number,
+    user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signNotaDinasBsre - idNaskah: ${idNaskah}, persnum: ${persnum}`);
+    console.log(`[DigsigService] signNotaDinasBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
 
-    // 1. Fetch NIK dan no_wa dari HR API
-    const userData = await this.getUserDataForBsre(persnum.toString());
-    console.log(`[DigsigService] User data fetched - NIK: ${userData.nik}, no_wa: ${userData.no_wa}`);
+    // 1. Validasi NIK dari JWT payload
+    if (!user.nik) {
+      throw new BadRequestException(
+        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
+      );
+    }
+    
+    const nik = user.nik;
+    const noWa = user.noWa || '';
+    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
 
     // 2. Cari naskah berdasarkan idNaskah
     const naskah = await this.naskahRepository.findOne({
@@ -528,10 +487,10 @@ export class DigsigService {
       klasifikasi: dto.klasifikasi || naskah.klasifikasi || 'Biasa',
       jenisNaskah: 'Nota Dinas',
       perihal: nd.perihal || naskah.perihal || '-',
-      nik: userData.nik,
+      nik: nik,
       passphrase: dto.passphrase,
       path_dokumen: 'nota-dinas/digsig/',
-      no_wa: userData.no_wa,
+      no_wa: noWa,
     };
 
     // 4. Hit digsig endpoint
@@ -574,19 +533,21 @@ export class DigsigService {
       doc_id: response.doc_id || response.data?.doc_id,
       signature_id: signatureId,
       signed_at: signedAt,
-      signer_nik: userData.nik,
+      signer_nik: nik,
       signer_name: signerName,
       signer_jabatan: signerJabatan,
       path: finalPdfPath,
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -597,21 +558,28 @@ export class DigsigService {
   }
 
   /**
-   * Sign Surat Dinas Internal dengan BSrE (NIK dan no_wa otomatis dari HR API)
+   * Sign Surat Dinas Internal dengan BSrE (NIK dan no_wa dari JWT payload)
    * @param idNaskah - ID dari tabel naskah
    * @param dto - Object containing passphrase dan optional klasifikasi
-   * @param persnum - Persnum user yang login (untuk fetch NIK dan no_wa)
+   * @param user - JwtPayload user yang login (berisi NIK dan noWa)
    */
   async signSdiBsre(
     idNaskah: string,
     dto: { passphrase: string; klasifikasi?: string },
-    persnum: number,
+    user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signSdiBsre - idNaskah: ${idNaskah}, persnum: ${persnum}`);
+    console.log(`[DigsigService] signSdiBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
 
-    // 1. Fetch NIK dan no_wa dari HR API
-    const userData = await this.getUserDataForBsre(persnum.toString());
-    console.log(`[DigsigService] User data fetched - NIK: ${userData.nik}, no_wa: ${userData.no_wa}`);
+    // 1. Validasi NIK dari JWT payload
+    if (!user.nik) {
+      throw new BadRequestException(
+        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
+      );
+    }
+    
+    const nik = user.nik;
+    const noWa = user.noWa || '';
+    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
 
     // 2. Cari naskah berdasarkan idNaskah
     const naskah = await this.naskahRepository.findOne({
@@ -653,10 +621,10 @@ export class DigsigService {
       klasifikasi: dto.klasifikasi || naskah.klasifikasi || 'Biasa',
       jenisNaskah: 'Surat Dinas Internal',
       perihal: sdi.perihal || naskah.perihal || '-',
-      nik: userData.nik,
+      nik: nik,
       passphrase: dto.passphrase,
       path_dokumen: 'surat-dinas-internal/digsig/',
-      no_wa: userData.no_wa,
+      no_wa: noWa,
     };
 
     // 4. Hit digsig endpoint
@@ -698,19 +666,21 @@ export class DigsigService {
       doc_id: response.doc_id || response.data?.doc_id,
       signature_id: signatureId,
       signed_at: signedAt,
-      signer_nik: userData.nik,
+      signer_nik: nik,
       signer_name: signerName,
       signer_jabatan: signerJabatan,
       path: finalPdfPath,
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -721,21 +691,30 @@ export class DigsigService {
   }
 
   /**
-   * Sign Surat Dinas Eksternal dengan BSrE (NIK dan no_wa otomatis dari HR API)
+   * Sign Surat Dinas Eksternal dengan BSrE (NIK dan no_wa dari JWT payload)
    * @param idNaskah - ID dari tabel naskah
    * @param dto - Object containing passphrase dan optional klasifikasi
-   * @param persnum - Persnum user yang login (untuk fetch NIK dan no_wa)
+   * @param user - JwtPayload user yang login (berisi NIK dan noWa)
    */
   async signSdeBsre(
     idNaskah: string,
     dto: { passphrase: string; klasifikasi?: string },
-    persnum: number,
+    user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signSdeBsre - idNaskah: ${idNaskah}, persnum: ${persnum}`);
+    console.log(`[DigsigService] signSdeBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
 
-    // 1. Fetch NIK dan no_wa dari HR API
-    const userData = await this.getUserDataForBsre(persnum.toString());
-    console.log(`[DigsigService] User data fetched - NIK: ${userData.nik}, no_wa: ${userData.no_wa}`);
+    // 1. Validasi NIK dari JWT payload
+    if (!user.nik) {
+      throw new BadRequestException(
+        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
+      );
+    }
+    
+    const nik = user.nik;
+    const noWa = user.noWa || '';
+    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
+
+    // 2. Cari naskah berdasarkan idNaskah
 
     // 2. Cari naskah berdasarkan idNaskah
     const naskah = await this.naskahRepository.findOne({
@@ -777,10 +756,10 @@ export class DigsigService {
       klasifikasi: dto.klasifikasi || naskah.klasifikasi || 'Biasa',
       jenisNaskah: 'Surat Dinas Eksternal',
       perihal: sde.perihal || naskah.perihal || '-',
-      nik: userData.nik,
+      nik: nik,
       passphrase: dto.passphrase,
       path_dokumen: 'surat-dinas-eksternal/digsig/',
-      no_wa: userData.no_wa,
+      no_wa: noWa,
     };
 
     // 4. Hit digsig endpoint
@@ -822,19 +801,21 @@ export class DigsigService {
       doc_id: response.doc_id || response.data?.doc_id,
       signature_id: signatureId,
       signed_at: signedAt,
-      signer_nik: userData.nik,
+      signer_nik: nik,
       signer_name: signerName,
       signer_jabatan: signerJabatan,
       path: finalPdfPath,
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
       tandaTangan: signatureMetadata,
     });
 
     await this.naskahRepository.update(idNaskah, {
       status: 'final_tte',
+      tandaTangan: signatureMetadata, // REFACTOR: Juga simpan di naskah
     });
 
     return {
@@ -928,12 +909,18 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di nd (backward compat) dan juga di naskah
     await this.ndRepository.update(nd.id, {
       tandaTangan: signatureMetadata,
     });
 
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
+      tandaTangan: signatureMetadata,
+    });
+
     // Status tetap final_pdf (tidak berubah)
-    // Hanya update tanda_tangan di nd table
+    // Hanya update tanda_tangan
 
     return {
       message: 'Nota Dinas berhasil ditandatangani (Internal)',
@@ -1028,7 +1015,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sdi.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1127,7 +1120,13 @@ export class DigsigService {
       verification_url: verificationUrl,
     });
 
+    // REFACTOR: Update tandaTangan di sdi_sde (backward compat) dan juga di naskah
     await this.sdiSdeRepository.update(sde.id, {
+      tandaTangan: signatureMetadata,
+    });
+
+    // REFACTOR: Juga update tandaTangan di naskah
+    await this.naskahRepository.update(idNaskah, {
       tandaTangan: signatureMetadata,
     });
 
@@ -1146,7 +1145,6 @@ export class DigsigService {
       },
     };
   }
-
   // ============================================
   // HELPER METHODS
   // ============================================
@@ -1518,10 +1516,9 @@ export class DigsigService {
 
       // Hit BSrE verify endpoint
       // Note: URL endpoint verify BSrE perlu disesuaikan dengan dokumentasi BSrE
-      const verifyUrl = process.env.BSRE_VERIFY_URL || 'http://172.20.16.115:7000/verify';
       
       const response = await axios.post(
-        verifyUrl,
+        this.BSRE_VERIFY_URL,
         { name_doc: nameDoc },
         {
           headers: { 'Content-Type': 'application/json' },
@@ -1564,4 +1561,69 @@ export class DigsigService {
       };
     }
   }
+
+  async hitVerifyDigsig(params: VerifyDigsigParams) {
+    try {
+      console.log('[DigsigService] hitDigsigVerify - Starting...');
+      const filename = params.filename;
+      const fileurl = params.fileurl;
+      const finalfileurl = await this.storageService.getFileUrl(fileurl);
+      console.log(finalfileurl);
+      // 2. Payload sesuai spesifikasi
+      const payload = {
+        filename: filename,
+        fileurl: finalfileurl,
+      };
+
+      // 3. Hit endpoint
+      const response = await axios.post(
+        this.BSRE_VERIFY_URL,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      console.log('[DigsigService] BSrE Response:', response.data);
+      return response.data;
+    } catch (error: any) {      
+      if (axios.isAxiosError(error)) {
+        console.error('[DigsigService] Axios Error Message:', error.message);
+        console.error('[DigsigService] Status:', error.response?.status);
+        console.error('[DigsigService] Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('[DigsigService] Request URL:', error.config?.url);
+        const status =
+          error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
+
+        const message =
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          'Gagal mengambil data dari service external';
+
+        // 🔥 lempar ulang ke controller
+        throw new HttpException(
+          {
+            success: false,
+            message,
+            source: 'external-service',
+            detail: error.response?.data,
+          },
+          status,
+        );
+      }
+      console.error('[DigsigService] Unexpected Error:', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Unexpected error',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+  
 }

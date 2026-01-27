@@ -9,6 +9,7 @@ import {
   HttpException,
   HttpStatus,
   BadRequestException,
+  NotFoundException,
   UseGuards,
   UseInterceptors,
   Res,
@@ -51,22 +52,27 @@ export class DisposisiController {
 
   /**
    * GET /DI/:id
-   * Get detail Disposisi by naskah ID
+   * Get flow lengkap disposisi dari awal sampai akhir
    *
-   * Kondisi: User ingin melihat detail lengkap disposisi
+   * Kondisi: User ingin melihat flow disposisi lengkap
    *
-   * Deskripsi: Mengembalikan semua informasi disposisi termasuk:
-   * - Data naskah (nomor, tanggal, perihal, status, dll)
-   * - Data DI (disposisi, catatan, nomor agenda, dll)
-   * - Pengirim dengan info lengkap
-   * - Penerima dengan status baca
-   * - Lampiran dengan URL
-   * - Final PDF
+   * Deskripsi: Mengembalikan array flow disposisi lengkap dengan urutan:
+   * - Paling atas = disposisi terbaru (level tertinggi)
+   * - Paling bawah = disposisi awal (level 0 / root)
+   * 
+   * Setiap item flow berisi:
+   * - Data naskah (id, nomor, tanggal, perihal, status, sifat)
+   * - Data DI (disposisi, catatan, kop, nomor agenda, dll)
+   * - Pengirim dengan info lengkap (position, nama, organization)
+   * - Penerima dengan status baca (terbaca/belum_dibaca, read_time)
+   * - Lampiran files dengan URL download
+   * - Final PDF dengan URL
+   * - Level dalam chain
    *
-   * @param id - ID Naskah (UUID)
-   * @returns Detail disposisi
+   * @param id - ID Naskah (UUID) - bisa dari level mana saja, sistem akan trace ke root
+   * @returns Flow disposisi lengkap (descending: terbaru → awal)
    *
-   * @throws 404 - Not Found (naskah tidak ditemukan)
+   * @throws 404 - Not Found (naskah tidak ditemukan / bukan disposisi)
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
@@ -713,7 +719,7 @@ export class DisposisiController {
    * 3. User B klik "Forward" dan pilih bawahan (User C)
    * 4. Sistem buat naskah baru dengan referensi ke naskah yang diterima User B
    *
-   * @param dto - ForwardDisposisiDto
+   * @param body - Form data dengan field ForwardDisposisiDto
    * @returns ForwardDisposisiResponseDto
    *
    * @throws 400 - Bad Request (validation error / naskah bukan disposisi)
@@ -723,12 +729,89 @@ export class DisposisiController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
+  @UseInterceptors(AnyFilesInterceptor())
   @Post('forward')
   async forwardDisposisi(
-    @Body() dto: ForwardDisposisiDto,
+    @Body() body: any,
   ): Promise<ForwardDisposisiResponseDto> {
     try {
-      return await this.disposisiService.forwardDisposisi(dto);
+      console.log('[forward] Raw body:', JSON.stringify(body, null, 2));
+
+      // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
+      if (body.pengirim && !body.pengirim_position_id) {
+        body.pengirim_position_id = parseInt(body.pengirim, 10);
+      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+        body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
+      }
+
+      console.log('[forward] Parsed pengirim_position_id:', body.pengirim_position_id);
+
+      // Parse tertuju/penerima from form-data
+      if (body.tertuju && !body.penerima_position_ids) {
+        if (typeof body.tertuju === 'string') {
+          try {
+            body.penerima_position_ids = JSON.parse(body.tertuju);
+          } catch {
+            body.penerima_position_ids = [parseInt(body.tertuju, 10)];
+          }
+        } else {
+          body.penerima_position_ids = body.tertuju;
+        }
+      }
+
+      // Parse penerima_position_ids if it's a string from form-data
+      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+        try {
+          body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
+        } catch {
+          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+        }
+      }
+
+      // Ensure penerima_position_ids are numbers
+      if (Array.isArray(body.penerima_position_ids)) {
+        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
+          typeof id === 'string' ? parseInt(id, 10) : id
+        );
+      }
+
+      // Parse tanggal_disposisi from form-data
+      if (!body.tanggal_disposisi && body.tanggal) {
+        body.tanggal_disposisi = body.tanggal;
+      }
+
+      // Parse disposisi array to string if needed
+      if (body.disposisi && typeof body.disposisi === 'string') {
+        try {
+          const disposisiArr = JSON.parse(body.disposisi);
+          if (Array.isArray(disposisiArr)) {
+            body.disposisi = disposisiArr.join('\n');
+          }
+        } catch {
+          // Already a string, keep as is
+        }
+      }
+
+      // Parse lampiran_temp_ids if it's a string from form-data
+      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+        try {
+          body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
+        } catch {
+          body.lampiran_temp_ids = [body.lampiran_temp_ids];
+        }
+      }
+
+      // Parse copy_lampiran_from_previous (default: true jika tidak ada lampiran baru)
+      if (body.copy_lampiran_from_previous === undefined || body.copy_lampiran_from_previous === null) {
+        // Default: copy lampiran dari naskah sebelumnya jika tidak ada lampiran baru
+        body.copy_lampiran_from_previous = !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
+      } else if (typeof body.copy_lampiran_from_previous === 'string') {
+        body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
+      }
+
+      console.log('[forward] Parsed body:', JSON.stringify(body, null, 2));
+
+      return await this.disposisiService.forwardDisposisi(body as ForwardDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -1049,6 +1132,47 @@ export class DisposisiController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * PATCH /DI/:id/unset-priority
+   * Hapus flag priority dari disposisi (set is_priority menjadi false/0)
+   *
+   * @param id - ID Naskah Disposisi
+   * @returns Response dengan status update
+   */
+  @Patch(':id/unset-priority')
+  async unsetPriority(
+    @Param('id') id: string,
+  ): Promise<any> {
+    try {
+      return await this.disposisiService.unsetPriority(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      if (error instanceof NotFoundException) {
+        throw new HttpException(
+          {
+            success: false,
+            statusCode: HttpStatus.NOT_FOUND,
+            message: error.message,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal menghapus priority flag',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

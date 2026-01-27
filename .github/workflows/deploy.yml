@@ -1,0 +1,65 @@
+name: Build & Deploy ArsipKu BE to Coolify
+
+on:
+  push:
+    branches: [ qas, prd ]
+
+env:
+  REGISTRY: 172.20.16.115:5500
+  IMAGE_NAME: dani/arsipku-be
+  TAG: latest
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show Branch Info
+        run: |
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Repo: ${{ github.repository }}"
+          echo "URL: $REGISTRY"
+          
+      - name: Checkout repository
+        run: |
+          git clone \
+            --branch ${{ github.ref_name }} \
+            --single-branch \
+            http://${{ secrets.GITEAUSERNAME }}:${{ secrets.GITEATOKEN }}@${{ vars.HOST_URL }}/dani/arsipku-be.git \
+            .
+
+      - name: Debug workspace
+        run: |
+          pwd
+          ls -lah
+          find . -name "Dockerfile"     
+
+      - name: Login Registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login $REGISTRY \
+            -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build Image
+        run: |
+          docker build -t $REGISTRY/$IMAGE_NAME:$TAG -f ./Dockerfile .     
+
+      - name: Push Image
+        run: |
+          docker push $REGISTRY/$IMAGE_NAME:$TAG
+
+      - name: Trigger Deploy to Coolify
+        run: |
+          curl -X POST "${{ secrets.COOLIFY_WEBHOOK }}" \
+          -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
+
+      - name: Notifikasi Deploy via Whatsapp
+        run: |
+          curl --location "${{ vars.HOST_NOTIF }}" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n \
+              --arg repo "${{ github.repository }}" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg actor "${{ github.actor }}" \
+              --arg commit "${{ github.event.head_commit.message }}" \
+              --arg sha "${{ github.sha }}" \
+              '{repository:$repo, branch:$branch, actor:$actor, commit:$commit, sha:$sha}')"    

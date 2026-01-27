@@ -58,6 +58,7 @@ export class SentMessageItemDto {
   favorit: boolean;
   note: boolean;
   arsip: boolean;
+  labels: string[]; // Array nama label yang di-assign ke naskah
   created_at: Date;
   updated_at: Date;
 }

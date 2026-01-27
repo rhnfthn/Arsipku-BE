@@ -28,6 +28,10 @@ export class SignerDto {
   @IsOptional()
   jabatan?: string;
 
+  @IsString()
+  @IsOptional()
+  lokasi?: string;
+
   @IsInt()
   @IsOptional()
   @Type(() => Number)
@@ -93,7 +97,7 @@ export class CreateDigsigDocumentDto {
     }
     return Array.isArray(value) ? value : undefined;
   })
-  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; positionId?: number }>;
+  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; lokasi?: string; positionId?: number }>;
 
   // File akan dihandle terpisah via multipart
   // filePath, fileName, fileSize, fileMimeType akan diisi dari file upload
@@ -158,7 +162,7 @@ export class UpdateDigsigDocumentDto {
     }
     return Array.isArray(value) ? value : undefined;
   })
-  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; positionId?: number }>;
+  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; lokasi?: string; positionId?: number }>;
 }
 
 // ======== Filter/Query DTO ========
