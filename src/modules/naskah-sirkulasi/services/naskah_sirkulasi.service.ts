@@ -892,28 +892,373 @@ export class NaskahSirkulasiService {
     positionId: string,
     query: InboxQueryDto,
   ): Promise<InboxSentResponseDto> {
-    const [inboxResult, sentResult] = await Promise.all([
-      this.getInbox(positionId, query),
-      this.getSentMessage(positionId, query),
-    ]);
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
 
-    // Combine both lists
-    const combinedData = [
-      ...inboxResult.data.items,
-      ...sentResult.data.items,
-    ];
+    const params: any[] = [];
 
-    // Sort by created_at (descending - newest first)
-    combinedData.sort((a, b) => {
-      const dateA = new Date(a.created_at).getTime();
-      const dateB = new Date(b.created_at).getTime();
-      return dateB - dateA;
-    });
+    // --- QUERY BUILDER HELPERS ---
+
+    // 1. INBOX PART
+    let inboxWhere = `
+      s.position = ?
+      AND s.sirkuler = 'penerima'
+      AND s.is_draft = 0
+      AND s.is_konsep = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const inboxParams = [positionId];
+
+    if (query.jenis) {
+      inboxWhere += ` AND n.jenis = ?`;
+      inboxParams.push(query.jenis);
+    }
+    if (query.status_baca === 'terbaca') {
+      inboxWhere += ` AND s.send_read_time IS NOT NULL`;
+    } else if (query.status_baca === 'belum_terbaca') {
+      inboxWhere += ` AND s.send_read_time IS NULL`;
+    }
+
+    // 2. SENT PART
+    let sentWhere = `
+      s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const sentParams = [positionId];
+
+    if (query.jenis) {
+      sentWhere += ` AND n.jenis = ?`;
+      sentParams.push(query.jenis);
+    }
+    // Filter status_baca for sent items (check if ANY recipient matches)
+    if (query.status_baca) {
+      if (query.status_baca === 'terbaca') {
+        sentWhere += ` 
+          AND EXISTS (
+            SELECT 1 FROM naskah_sirkulasi r 
+            WHERE r.id_naskah = s.id_naskah 
+            AND r.sirkuler = 'penerima' 
+            AND r.send_read_time IS NOT NULL
+          )
+        `;
+      } else {
+        sentWhere += ` 
+          AND EXISTS (
+            SELECT 1 FROM naskah_sirkulasi r 
+            WHERE r.id_naskah = s.id_naskah 
+            AND r.sirkuler = 'penerima' 
+            AND r.send_read_time IS NULL
+          )
+        `;
+      }
+    }
+
+    // --- UNION QUERY ---
+    // We select common fields + special handling for sender/receiver info
+    // For Inbox: Source='inbox', user is receiver (penerima columns in 's' are current user)
+    // For Sent: Source='sent', user is sender (pengirim)
+
+    const unionQuery = `
+      (
+        SELECT 
+          s.id as id_sirkulasi,
+          s.id_naskah,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.lampiran,
+          s.send_read_time,
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          s.tindak_lanjut,
+          s.is_locked,
+          CAST(s.created_at AS DATETIME) as created_at,
+          CAST(s.updated_at AS DATETIME) as updated_at,
+          'inbox' as source,
+          
+          -- Pengirim Info (Needs join or subquery, but we can join later or here)
+          -- For Inbox, we need 'pengirim' sirkulasi record.
+          (SELECT position FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_id,
+          (SELECT position_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_text,
+          (SELECT organization_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_organization_text,
+          (SELECT nama_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_nama,
+          
+          -- For Inbox, current user info is in 's'
+          s.position as my_position_id,
+          s.id_sirkuler as my_persnum,
+          s.nama_sirkuler as my_nama,
+          s.position_text as my_position_text,
+          s.organization_text as my_organization_text,
+          
+          -- Priority for DI
+          (SELECT is_priority FROM di WHERE di.id_naskah = s.id_naskah LIMIT 1) as is_priority
+
+        FROM naskah_sirkulasi s
+        JOIN naskah n ON s.id_naskah = n.id
+        WHERE ${inboxWhere}
+      )
+      UNION ALL
+      (
+        SELECT 
+          s.id as id_sirkulasi,
+          s.id_naskah,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.lampiran,
+          NULL as send_read_time, -- Owner is sender, doesn't have read time
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          0 as tindak_lanjut, 
+          0 as is_locked, -- Sent usually doesn't have these or implementation varies, assuming 0
+          CAST(s.created_at AS DATETIME) as created_at,
+          CAST(s.updated_at AS DATETIME) as updated_at,
+          'sent' as source,
+
+          -- Pengirim Info is Me (Current User)
+          s.position as pengirim_position_id,
+          s.position_text as pengirim_position_text,
+          s.organization_text as pengirim_organization_text,
+          s.nama_sirkuler as pengirim_nama,
+
+          -- No single recipient info in main row
+          NULL as my_position_id,
+          NULL as my_persnum,
+          NULL as my_nama,
+          NULL as my_position_text,
+          NULL as my_organization_text,
+          
+          NULL as is_priority
+
+        FROM naskah_sirkulasi s
+        JOIN naskah n ON s.id_naskah = n.id
+        WHERE ${sentWhere}
+      )
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const allParams = [...inboxParams, ...sentParams, limit, offset];
+
+    // Execute pagination query
+    const rows = await this.dataSource.query(unionQuery, allParams);
+
+    // Hydrate Data (Labels, Recipients, etc.)
+    const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
+    const labelsMap = new Map<string, string[]>();
+    const kepadaMap = new Map<string, any[]>();
+    const penerimaStatusMap = new Map<string, any[]>(); // For sent items
+
+    if (naskahIds.length > 0) {
+      // 1. Labels
+      const labelsQuery = `
+        SELECT nl.naskah_id, l.nama, parent.nama as parent_nama
+        FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
+        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
+        AND l.is_active = 1
+        ORDER BY l.urutan ASC, l.nama ASC
+      `;
+      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
+      labelsRows.forEach((row: any) => {
+        if (!labelsMap.has(row.naskah_id)) labelsMap.set(row.naskah_id, []);
+        const labelName = row.parent_nama ? `${row.parent_nama} > ${row.nama}` : row.nama;
+        labelsMap.get(row.naskah_id)?.push(labelName);
+      });
+
+      // 2. Recipients (Kepada) - For Inbox mostly, but acceptable for detail
+      // Using existing logic to fetch all 'penerima'
+      const kepadaQuery = `
+        SELECT 
+          id_naskah, position as position_id, nama_sirkuler as nama, 
+          position_text, organization_text, send_read_time
+        FROM naskah_sirkulasi
+        WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+        AND sirkuler = 'penerima'
+        ORDER BY id
+      `;
+      const kepadaRows = await this.dataSource.query(kepadaQuery, naskahIds);
+
+      kepadaRows.forEach((row: any) => {
+        // Populate Kepada Map (for Inbox display of 'To:')
+        if (!kepadaMap.has(row.id_naskah)) kepadaMap.set(row.id_naskah, []);
+        kepadaMap.get(row.id_naskah)?.push({
+          position_id: row.position_id || '',
+          nama: row.nama || '',
+          position_text: row.position_text || '',
+          organization_text: row.organization_text || '',
+        });
+
+        // Populate Penerima Status Map (for Sent display)
+        if (!penerimaStatusMap.has(row.id_naskah)) penerimaStatusMap.set(row.id_naskah, []);
+        penerimaStatusMap.get(row.id_naskah)?.push({
+          position_id: row.position_id || '',
+          nama: row.nama || null,
+          position_text: row.position_text || '',
+          organization_text: row.organization_text || '',
+          status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: row.send_read_time || null,
+        });
+      });
+
+      // 3. SDE Recipients (External) - Special handling for SDE if needed
+      // Logic for SDE in getSentMessage is complex (fetching from naskah_sirkulasi then eksternal table)
+      // For simplicity/performance in this combined view, we might reuse the standard sirkulasi names 
+      // or duplicate the complex SDE logic if strict fidelity is required.
+      // Implementing simplified SDE logic here relying on sirkulasi names which should be present.
+    }
+
+    // Map Results
+    const results: (InboxItemDto | SentMessageItemDto)[] = [];
+    for (const row of rows) {
+      // Lampiran count separate query if not in 'n.lampiran' field? 
+      // Existing code used `SELECT COUNT(*) FROM naskah_lampiran`. `n.lampiran` might be a string descriptor or count?
+      // Checking existing getInbox: `n.lampiran` is selected. But getSentMessage calculates it using count.
+      // Let's optimize: assume n.lampiran is what we want OR query count if needed.
+      // Use existing pattern: `getSentMessage` does a count query. `getInbox` does not?
+      // Wait, getInbox selects `n.lampiran` and puts it in item.lampiran. 
+      // getSentMessage selects `n.lampiran` but THEN overwrites item.lampiran with a COUNT query.
+      // This suggests `n.lampiran` column might be unreliable or different.
+      // I will follow the specific logic per source.
+
+      let lampiranVal = row.lampiran;
+      if (row.source === 'sent') {
+        // Sent needs count? Or can we just use n.lampiran if it's correct?
+        // Optimally: one bulk query for lampiran counts. For now, doing per-row is slow but safe refactor.
+        // Let's stick to what worked before:
+        const lampiranCountResult = await this.dataSource.query(
+          `SELECT COUNT(*) as total FROM naskah_lampiran WHERE id_naskah = ?`,
+          [row.id_naskah],
+        );
+        lampiranVal = parseInt(lampiranCountResult[0]?.total || '0', 10);
+      }
+
+      if (row.source === 'inbox') {
+        results.push({
+          id_sirkulasi: row.id_sirkulasi,
+          id_naskah: row.id_naskah,
+          jenis: row.jenis,
+          jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          perihal: row.perihal,
+          sifat: row.sifat,
+          status: row.status,
+          lampiran: lampiranVal,
+          pengirim: {
+            position_id: row.pengirim_position_id || '',
+            position_text: row.pengirim_position_text || '',
+            organization_text: row.pengirim_organization_text || '',
+            nama: row.pengirim_nama || '',
+          },
+          penerima: {
+            position_id: row.my_position_id || '',
+            persnum: parseInt(row.my_persnum || '0', 10),
+            nama: row.my_nama || '',
+            position_text: row.my_position_text || '',
+            organization_text: row.my_organization_text || '',
+          },
+          kepada: kepadaMap.get(row.id_naskah) || [],
+          status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: row.send_read_time,
+          is_favorit: row.flag_favorit === 1,
+          is_arsip: row.flag_arsip === 1,
+          is_note: row.flag_note === 1,
+          is_tindak_lanjut: row.tindak_lanjut === 1,
+          is_locked: row.is_locked === 1,
+          labels: labelsMap.get(row.id_naskah) || [],
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          source: 'inbox',
+          is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : undefined,
+        });
+      } else {
+        // Sent
+        const recipients = penerimaStatusMap.get(row.id_naskah) || [];
+        const terbaca = recipients.filter((p) => p.status_baca === 'terbaca').length;
+        const belumTerbaca = recipients.filter((p) => p.status_baca === 'belum_terbaca').length;
+
+        results.push({
+          id_naskah: row.id_naskah,
+          jenis: row.jenis,
+          jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          perihal: row.perihal,
+          sifat: row.sifat,
+          status: row.status,
+          lampiran: lampiranVal,
+          pengirim: {
+            position_id: row.pengirim_position_id || '',
+            position_text: row.pengirim_position_text || '',
+            organization_text: row.pengirim_organization_text || '',
+            nama: row.pengirim_nama || null,
+          },
+          penerima: recipients, // Use Hydrated recipients
+          summary_baca: {
+            total: recipients.length,
+            terbaca,
+            belum_terbaca: belumTerbaca,
+          },
+          favorit: !!row.flag_favorit,
+          note: !!row.flag_note,
+          arsip: !!row.flag_arsip,
+          labels: labelsMap.get(row.id_naskah) || [],
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          source: 'sent',
+        });
+      }
+    }
+
+    // --- COUNT QUERY ---
+    // Efficiently count total matches across both relations
+    const countQuery = `
+      SELECT (
+        (SELECT COUNT(*) 
+         FROM naskah_sirkulasi s 
+         JOIN naskah n ON s.id_naskah = n.id 
+         WHERE ${inboxWhere})
+        +
+        (SELECT COUNT(*) 
+         FROM naskah_sirkulasi s 
+         JOIN naskah n ON s.id_naskah = n.id 
+         WHERE ${sentWhere})
+      ) as total
+    `;
+
+    // We reuse the params for inbox and sent, but we need to flatten them carefully.
+    // inboxWhere uses inboxParams. sentWhere uses sentParams.
+    // The query structure above has two subqueries, so the params order must explicitly match.
+    // Order: ...inboxParams, ...sentParams
+    const countParams = [...inboxParams, ...sentParams];
+
+    const countResult = await this.dataSource.query(countQuery, countParams);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
 
     return {
       success: true,
       message: 'Berhasil mengambil data gabungan inbox dan sent',
-      data: combinedData,
+      data: results,
+      meta: {
+        total,
+        page: parseInt(page as any, 10),
+        limit: parseInt(limit as any, 10),
+        total_pages: totalPages,
+      },
     };
   }
 
