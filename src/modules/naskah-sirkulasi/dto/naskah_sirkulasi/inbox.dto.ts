@@ -94,18 +94,22 @@ export class InboxItemDto {
 export class InboxResponseDto {
   success: boolean;
   message: string;
-  data: {
-    items: InboxItemDto[];
-    summary: {
-      total_semua: number;
-      total_belum_dibaca: number;
-      total_per_jenis: {
-        ND: number;
-        SDI: number;
-        SDE: number;
-        DI: number;
-        KA: number;
-      };
+  data: InboxItemDto[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  summary: {
+    total_semua: number;
+    total_belum_dibaca: number;
+    total_per_jenis: {
+      ND: number;
+      SDI: number;
+      SDE: number;
+      DI: number;
+      KA: number;
     };
   };
 }
