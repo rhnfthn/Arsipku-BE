@@ -5,7 +5,7 @@ import { HttpExceptionFilter, AllExceptionsFilter } from './common/filters';
 import { TransformResponseInterceptor } from './common/interceptors';
 
 async function bootstrap() {
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = process.env.PORT;
   console.log(`Running Server on PORT : ${PORT}`);
   const app = await NestFactory.create(AppModule);
 
@@ -31,6 +31,6 @@ async function bootstrap() {
   // Enable CORS if needed
   app.enableCors();
 
-  await app.listen(PORT);
+  await app.listen(PORT ?? 3000);
 }
 bootstrap();
