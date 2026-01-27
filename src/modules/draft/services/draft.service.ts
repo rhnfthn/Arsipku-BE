@@ -91,6 +91,8 @@ export class DraftService {
     jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
     search?: string,
     days: number = 30,
+    page: number = 1,
+    limit: number = 10,
   ): Promise<GetDraftListResponseDto> {
     // Calculate date filter
     const dateFrom = new Date();
@@ -123,6 +125,14 @@ export class DraftService {
 
     // Order by tanggal desc
     queryBuilder.orderBy('naskah.tanggal', 'DESC');
+
+    // Get total count for pagination
+    const total = await queryBuilder.getCount();
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+
+    // Apply pagination
+    queryBuilder.skip(offset).take(limit);
 
     // Execute query
     const naskahs = await queryBuilder.getMany();
@@ -280,9 +290,12 @@ export class DraftService {
 
     return {
       success: true,
-      data: {
-        total: items.length,
-        items,
+      data: items,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
       },
     };
   }
