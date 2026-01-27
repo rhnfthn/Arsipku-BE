@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, ParseIntPipe } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
@@ -11,6 +11,16 @@ export class CompanyController {
   @Get()
   findAll(): Promise<OmCompany[]> {
     return this.companyService.findAll();
+  }
+
+  /**
+   * Get complete organizational tree structure for a company
+   * Includes: Organizations → Positions → Persons
+   * @example GET /company/1/tree
+   */
+  @Get(':companyId/tree')
+  getCompanyTree(@Param('companyId', ParseIntPipe) companyId: number) {
+    return this.companyService.getCompanyTree(companyId);
   }
 
   @Get(':id')
