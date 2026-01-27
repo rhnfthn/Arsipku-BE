@@ -89,8 +89,10 @@ export class DashboardService {
 
   /**
    * Get Dashboard Data berdasarkan position_id
+   * @param positionId - position_id untuk query naskah sirkulasi
+   * @param persnum - persnum dari JWT untuk query digsig (agar konsisten dengan penandatanganan)
    */
-  async getDashboardData(positionId: number): Promise<DashboardResponseDto> {
+  async getDashboardData(positionId: number, persnum?: number): Promise<DashboardResponseDto> {
     const positionIdStr = positionId.toString();
 
     // ==========================================
@@ -127,13 +129,15 @@ export class DashboardService {
     // ==========================================
 
     // Surat Terkirim: total surat yang sudah dikirim (bukan draft)
-    const suratTerkirim = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'pengirim',
-        isDraft: false,
-      },
-    });
+    // PENTING: Hanya count naskah dengan status final/final_tte (konsisten dengan endpoint /sent)
+    const suratTerkirim = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     // Draft Tersimpan: naskah dengan status 'draf' yang dibuat user ini
     const draftTersimpan = await this.naskahSirkulasiRepo
@@ -185,22 +189,30 @@ export class DashboardService {
     // 4. SUMMARY DATA - DIGITAL SIGNATURE
     // ==========================================
 
-    // Dokumen yang menunggu TTD dari user ini (status = 'waiting')
-    const digsigMenungguTtd = await this.digsigSignerRepo.count({
-      where: {
-        positionId: positionId,
-        status: 'waiting',
-      },
-    });
+    // Dokumen yang menunggu TTD dari user ini (status = 'waiting', dokumen on_progress)
+    // PENTING: Menggunakan persnum (bukan position_id) agar konsisten dengan penandatanganan service
+    // Karena digsig signer disimpan berdasarkan persnum, bukan position
+    let digsigMenungguTtd = 0;
+    let digsigOnProgress = 0;
 
-    // Dokumen yang masih on_progress (user sudah TTD tapi menunggu signer lain)
-    const digsigOnProgress = await this.digsigSignerRepo
-      .createQueryBuilder('ds')
-      .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
-      .where('ds.position_id = :positionId', { positionId })
-      .andWhere('ds.status = :status', { status: 'signed' })
-      .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
-      .getCount();
+    if (persnum) {
+      digsigMenungguTtd = await this.digsigSignerRepo
+        .createQueryBuilder('ds')
+        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+        .where('ds.persnum = :persnum', { persnum })
+        .andWhere('ds.status = :status', { status: 'waiting' })
+        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+        .getCount();
+
+      // Dokumen yang masih on_progress (user sudah TTD tapi menunggu signer lain)
+      digsigOnProgress = await this.digsigSignerRepo
+        .createQueryBuilder('ds')
+        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+        .where('ds.persnum = :persnum', { persnum })
+        .andWhere('ds.status = :status', { status: 'signed' })
+        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+        .getCount();
+    }
 
     // ==========================================
     // 5. SUMMARY DATA - KONSEP (Draft Workflow)
@@ -243,15 +255,16 @@ export class DashboardService {
       },
     });
 
-    // Perlu Tindak Lanjut
-    const perluTindakLanjut = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        sirkuler: 'penerima',
-        tindakLanjut: 0,
-        isDraft: false,
-      },
-    });
+    // Perlu Tindak Lanjut: surat masuk yang belum ditandai tindak lanjut
+    const perluTindakLanjut = await this.naskahSirkulasiRepo
+      .createQueryBuilder('ns')
+      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+      .where('ns.position = :positionId', { positionId: positionIdStr })
+      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .getCount();
 
     const summary: DashboardSummaryDto = {
       // Kotak Masuk
