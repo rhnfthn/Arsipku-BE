@@ -18,6 +18,7 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
+import { InboxSentResponseDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -54,7 +55,7 @@ export class NaskahSirkulasiService {
     private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   async findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiRepo.find();
@@ -257,7 +258,7 @@ export class NaskahSirkulasiService {
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
     const kepadaMap = new Map<string, any[]>();
     const labelsMap = new Map<string, any[]>();
-    
+
     if (naskahIds.length > 0) {
       const kepadaQuery = `
         SELECT 
@@ -272,7 +273,7 @@ export class NaskahSirkulasiService {
         ORDER BY id
       `;
       const kepadaRows = await this.dataSource.query(kepadaQuery, naskahIds);
-      
+
       // Group by id_naskah
       kepadaRows.forEach((row: any) => {
         if (!kepadaMap.has(row.id_naskah)) {
@@ -300,15 +301,15 @@ export class NaskahSirkulasiService {
         ORDER BY l.urutan ASC, l.nama ASC
       `;
       const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
+
       // Group labels by naskah_id (with parent hierarchy)
       labelsRows.forEach((row: any) => {
         if (!labelsMap.has(row.naskah_id)) {
           labelsMap.set(row.naskah_id, []);
         }
         // Format: "Parent > Child" jika ada parent, atau hanya "Label" jika tidak ada parent
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
+        const labelName = row.parent_nama
+          ? `${row.parent_nama} > ${row.nama}`
           : row.nama;
         labelsMap.get(row.naskah_id)?.push(labelName);
       });
@@ -351,6 +352,7 @@ export class NaskahSirkulasiService {
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
         created_at: row.created_at,
         updated_at: row.updated_at,
+        source: 'inbox',
       };
 
       // Add is_priority field jika ini adalah disposisi (DI)
@@ -500,14 +502,14 @@ export class NaskahSirkulasiService {
         ORDER BY l.urutan ASC, l.nama ASC
       `;
       const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
+
       // Group labels by naskah_id
       labelsRows.forEach((row: any) => {
         if (!labelsMap.has(row.naskah_id)) {
           labelsMap.set(row.naskah_id, []);
         }
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
+        const labelName = row.parent_nama
+          ? `${row.parent_nama} > ${row.nama}`
           : row.nama;
         labelsMap.get(row.naskah_id)?.push(labelName);
       });
@@ -515,7 +517,7 @@ export class NaskahSirkulasiService {
 
     // Untuk setiap naskah, ambil daftar penerima
     const items: SentMessageItemDto[] = [];
-    
+
     for (const row of rows) {
       let penerima: any[] = [];
 
@@ -618,7 +620,7 @@ export class NaskahSirkulasiService {
       // Hitung summary baca (hanya untuk non-SDE)
       let terbaca = 0;
       let belumTerbaca = 0;
-      
+
       if (row.jenis !== 'SDE') {
         terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
         belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
@@ -659,6 +661,7 @@ export class NaskahSirkulasiService {
         labels: labelsMap.get(row.id_naskah) || [],
         created_at: row.created_at,
         updated_at: row.updated_at,
+        source: 'sent',
       });
     }
 
@@ -870,6 +873,36 @@ export class NaskahSirkulasiService {
         total_requested: naskahIds.length,
         total_processed: totalProcessed,
         failed_ids: failedIds,
+      },
+    };
+  }
+
+  // ============================================================
+  // INBOX & SENT - Combined Endpoint
+  // ============================================================
+
+  /**
+   * Get combined inbox and sent messages
+   * 
+   * @param positionId - Position ID
+   * @param query - Filter options
+   * @returns InboxSentResponseDto
+   */
+  async getInboxAndSent(
+    positionId: string,
+    query: InboxQueryDto,
+  ): Promise<InboxSentResponseDto> {
+    const [inboxResult, sentResult] = await Promise.all([
+      this.getInbox(positionId, query),
+      this.getSentMessage(positionId, query),
+    ]);
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil kotak masuk dan keluar',
+      data: {
+        inbox: inboxResult.data.items,
+        sent: sentResult.data.items,
       },
     };
   }
