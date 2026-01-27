@@ -242,6 +242,15 @@ export class GlobalSearchDto {
   // === SEARCH SCOPE ===
 
   /**
+   * Position ID untuk filter (opsional)
+   * Jika tidak diberikan, akan menggunakan position dari JWT
+   * Berguna untuk user dengan multiple jabatan atau delegasi
+   */
+  @IsOptional()
+  @IsString()
+  position_id?: string;
+
+  /**
    * Scope pencarian: all, inbox, sent, draft, archived, favorite
    */
   @IsOptional()

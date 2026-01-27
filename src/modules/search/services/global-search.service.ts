@@ -37,6 +37,7 @@ export class GlobalSearchService {
    */
   async search(
     dto: GlobalSearchDto,
+    userPosition: string,
     userPersnum: number,
   ): Promise<GlobalSearchResponseDto> {
     const {
@@ -80,20 +81,32 @@ export class GlobalSearchService {
     // Track applied filters
     const appliedFilters: string[] = [];
 
+    // Debug: log scope value
+    console.log('[SEARCH] scope:', scope, 'userPosition:', userPosition, 'userPersnum:', userPersnum);
+
     // === FILTER DEFAULT: HANYA NASKAH YANG USER TERLIBAT ===
     // User hanya bisa melihat naskah dimana dia sebagai pengirim, penerima, atau tembusan
-    // Default (tanpa scope atau scope='all'): tampilkan SEMUA naskah user (termasuk archived)
-    // Ini seperti Gmail - search menampilkan semua, archived hanya "hidden" dari view inbox
+    // Default (tanpa scope atau scope='all'): tampilkan SEMUA naskah user
+    // IMPORTANT: Use position (like inbox endpoint) and exclude draft/konsep entries
+    // Inbox filter: is_draft=0 AND is_konsep=0 AND status IN ('final', 'final_tte')
+    // Search filter: include all sirkulasi roles but exclude draft/konsep entries
     if (!scope || scope === 'all') {
+      console.log('[SEARCH] Using default filter (all user naskah by position, exclude draft/konsep)');
       queryBuilder.andWhere(
         `EXISTS (
           SELECT 1 FROM naskah_sirkulasi ns_user 
           WHERE ns_user.id_naskah = naskah.id 
-          AND ns_user.id_sirkuler = :userPersnum
+          AND ns_user.position = :userPosition
+          AND (ns_user.is_draft = 0 OR ns_user.is_draft IS NULL)
+          AND (ns_user.is_konsep = 0 OR ns_user.is_konsep IS NULL)
         )`,
-        { userPersnum: userPersnum.toString() },
+        { userPosition },
       );
-      appliedFilters.push('filter: semua naskah user');
+      // Also filter by naskah status (final or final_tte only, exclude draf)
+      queryBuilder.andWhere('naskah.status IN (:...finalStatuses)', {
+        finalStatuses: ['final', 'final_tte'],
+      });
+      appliedFilters.push('filter: semua naskah user (final only, exclude draft/konsep)');
     }
 
     // === KEYWORD SEARCH (global) ===
@@ -227,6 +240,7 @@ export class GlobalSearchService {
     }
 
     // === SCOPE ===
+    // IMPORTANT: All scope filters use position (like inbox endpoint) instead of persnum
     if (scope) {
       switch (scope) {
         case 'inbox':
@@ -235,11 +249,11 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_inbox 
               WHERE ns_inbox.id_naskah = naskah.id 
-              AND ns_inbox.id_sirkuler = :userPersnumInbox
+              AND ns_inbox.position = :userPositionInbox
               AND ns_inbox.sirkuler IN ('penerima', 'tembusan')
               AND (ns_inbox.flag_arsip IS NULL OR ns_inbox.flag_arsip = 0)
             )`,
-            { userPersnumInbox: userPersnum.toString() },
+            { userPositionInbox: userPosition },
           );
           break;
         case 'sent':
@@ -248,11 +262,11 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_sent 
               WHERE ns_sent.id_naskah = naskah.id 
-              AND ns_sent.id_sirkuler = :userPersnumSent
+              AND ns_sent.position = :userPositionSent
               AND ns_sent.sirkuler = 'pengirim'
               AND (ns_sent.flag_arsip IS NULL OR ns_sent.flag_arsip = 0)
             )`,
-            { userPersnumSent: userPersnum.toString() },
+            { userPositionSent: userPosition },
           );
           break;
         case 'draft':
@@ -264,10 +278,10 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_draft 
               WHERE ns_draft.id_naskah = naskah.id 
-              AND ns_draft.id_sirkuler = :userPersnumDraft
+              AND ns_draft.position = :userPositionDraft
               AND (ns_draft.flag_arsip IS NULL OR ns_draft.flag_arsip = 0)
             )`,
-            { userPersnumDraft: userPersnum.toString() },
+            { userPositionDraft: userPosition },
           );
           break;
         case 'archived':
@@ -276,10 +290,10 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_arch 
               WHERE ns_arch.id_naskah = naskah.id 
-              AND ns_arch.id_sirkuler = :userPersnumArch
+              AND ns_arch.position = :userPositionArch
               AND ns_arch.flag_arsip = 1
             )`,
-            { userPersnumArch: userPersnum.toString() },
+            { userPositionArch: userPosition },
           );
           break;
         case 'favorite':
@@ -288,10 +302,10 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_fav 
               WHERE ns_fav.id_naskah = naskah.id 
-              AND ns_fav.id_sirkuler = :userPersnumFav
+              AND ns_fav.position = :userPositionFav
               AND ns_fav.flag_favorit = 1
             )`,
-            { userPersnumFav: userPersnum.toString() },
+            { userPositionFav: userPosition },
           );
           break;
         case 'active':
@@ -300,10 +314,10 @@ export class GlobalSearchService {
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_active 
               WHERE ns_active.id_naskah = naskah.id 
-              AND ns_active.id_sirkuler = :userPersnumActive
+              AND ns_active.position = :userPositionActive
               AND (ns_active.flag_arsip IS NULL OR ns_active.flag_arsip = 0)
             )`,
-            { userPersnumActive: userPersnum.toString() },
+            { userPositionActive: userPosition },
           );
           break;
       }
@@ -351,15 +365,36 @@ export class GlobalSearchService {
     const sortField = this.getSortField(sortBy);
     queryBuilder.orderBy(sortField, sortOrder);
 
+    // === COUNT - hitung total sebelum pagination ===
+    // Clone query builder untuk count (tanpa pagination)
+    const countQuery = queryBuilder.clone();
+    let total: number;
+    
+    if (needsSirkulasiJoin) {
+      // Jika ada JOIN, gunakan COUNT DISTINCT untuk akurasi
+      const countResult = await countQuery
+        .select('COUNT(DISTINCT naskah.id)', 'total')
+        .getRawOne();
+      total = parseInt(countResult?.total || '0', 10);
+      console.log('[SEARCH] COUNT with JOIN:', total);
+    } else {
+      // Jika tidak ada JOIN, gunakan getCount() biasa (lebih cepat)
+      total = await countQuery.getCount();
+      console.log('[SEARCH] COUNT without JOIN:', total);
+    }
+
+    console.log('[SEARCH] Applied filters:', appliedFilters);
+
     // === PAGINATION ===
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
 
-    // Execute query
-    const [results, total] = await queryBuilder.getManyAndCount();
+    // Execute query untuk data
+    const results = await queryBuilder.getMany();
 
     // Transform results with user context for source determination
-    const items = await this.transformResults(results, userPersnum);
+    // Use position (like inbox) instead of persnum
+    const items = await this.transformResults(results, userPosition);
 
     return {
       success: true,
@@ -449,7 +484,7 @@ export class GlobalSearchService {
    */
   private async transformResults(
     results: NaskahEntity[],
-    userPersnum: number,
+    userPosition: string,
   ): Promise<SearchResultItemDto[]> {
     // Get all naskah IDs
     const naskahIds = results.map((n) => n.id);
@@ -495,10 +530,9 @@ export class GlobalSearchService {
       const hasLampiran = !!(naskah.lampiran && naskah.lampiran.trim() !== '');
 
       // Determine user's roles and source in this naskah
-      // Convert userPersnum to string for comparison (idSirkuler is string in database)
-      const userPersStr = String(userPersnum);
+      // Use position (like inbox) instead of persnum
       const userSirkulasiRecords = sirkulasi.filter(
-        (s) => s.idSirkuler === userPersStr,
+        (s) => s.position === userPosition,
       );
       
       // Get user's roles (pengirim, penerima, tembusan)
