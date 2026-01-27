@@ -1,4 +1,5 @@
-import { IsOptional, IsEnum } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * Query params untuk filter sent messages (kotak keluar)
@@ -11,6 +12,16 @@ export class SentMessageQueryDto {
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
   status_baca?: 'terbaca' | 'belum_terbaca';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number = 10;
 }
 
 /**
@@ -59,6 +70,9 @@ export class SentMessageItemDto {
   note: boolean;
   arsip: boolean;
   labels: string[]; // Array nama label yang di-assign ke naskah
+
+  // Source identifier (inbox/sent)
+  source?: 'inbox' | 'sent';
   created_at: Date;
   updated_at: Date;
 }
@@ -69,17 +83,21 @@ export class SentMessageItemDto {
 export class SentMessageResponseDto {
   success: boolean;
   message: string;
-  data: {
-    items: SentMessageItemDto[];
-    summary: {
-      total_semua: number;
-      total_per_jenis: {
-        ND: number;
-        SDI: number;
-        SDE: number;
-        DI: number;
-        KA: number;
-      };
+  data: SentMessageItemDto[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  summary: {
+    total_semua: number;
+    total_per_jenis: {
+      ND: number;
+      SDI: number;
+      SDE: number;
+      DI: number;
+      KA: number;
     };
   };
 }
