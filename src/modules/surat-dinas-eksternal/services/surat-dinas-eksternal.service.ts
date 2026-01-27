@@ -655,14 +655,14 @@ export class SuratDinasEksternalService {
       await queryRunner.manager.save(newNomor);
     }
 
-    // 7. Insert nomor_request_detail dengan status 'terpakai'
+    // 7. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari SDE)
     const nomorRequestDetail = this.nomorRequestDetailRepository.create({
       id: uuidv4(),
       idRequest: requestId,
       nomor: nomorLengkap,
       fileName: null,
       fileText: null,
-      status: 'terpakai',
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(nomorRequestDetail);
