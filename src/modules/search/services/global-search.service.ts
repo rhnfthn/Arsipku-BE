@@ -66,17 +66,24 @@ export class GlobalSearchService {
       sortOrder = 'DESC',
     } = dto;
 
-    // Build query - use left join manually since NaskahEntity doesn't have relations
-    const queryBuilder = this.naskahRepository
-      .createQueryBuilder('naskah')
-      .leftJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.id_naskah = naskah.id');
+    // Check if we need to join with sirkulasi table (for from/to/area filters)
+    const needsSirkulasiJoin = !!(from || to || areaFrom || subAreaFrom || organizationFrom);
+
+    // Build query
+    const queryBuilder = this.naskahRepository.createQueryBuilder('naskah');
+    
+    // Only join sirkulasi if needed for filtering (from/to/area)
+    if (needsSirkulasiJoin) {
+      queryBuilder.leftJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.id_naskah = naskah.id');
+    }
 
     // Track applied filters
     const appliedFilters: string[] = [];
 
     // === FILTER DEFAULT: HANYA NASKAH YANG USER TERLIBAT ===
     // User hanya bisa melihat naskah dimana dia sebagai pengirim, penerima, atau tembusan
-    // KECUALI jika ada scope filter khusus (inbox/sent/draft/archived/favorite)
+    // Default (tanpa scope atau scope='all'): tampilkan SEMUA naskah user (termasuk archived)
+    // Ini seperti Gmail - search menampilkan semua, archived hanya "hidden" dari view inbox
     if (!scope || scope === 'all') {
       queryBuilder.andWhere(
         `EXISTS (
@@ -86,7 +93,7 @@ export class GlobalSearchService {
         )`,
         { userPersnum: userPersnum.toString() },
       );
-      appliedFilters.push('filter: naskah user');
+      appliedFilters.push('filter: semua naskah user');
     }
 
     // === KEYWORD SEARCH (global) ===
@@ -223,31 +230,33 @@ export class GlobalSearchService {
     if (scope) {
       switch (scope) {
         case 'inbox':
-          // Naskah masuk: user sebagai penerima atau tembusan
+          // Naskah masuk: user sebagai penerima atau tembusan (exclude archived)
           queryBuilder.andWhere(
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_inbox 
               WHERE ns_inbox.id_naskah = naskah.id 
               AND ns_inbox.id_sirkuler = :userPersnumInbox
               AND ns_inbox.sirkuler IN ('penerima', 'tembusan')
+              AND (ns_inbox.flag_arsip IS NULL OR ns_inbox.flag_arsip = 0)
             )`,
             { userPersnumInbox: userPersnum.toString() },
           );
           break;
         case 'sent':
-          // Naskah keluar: user sebagai pengirim
+          // Naskah keluar: user sebagai pengirim (exclude archived)
           queryBuilder.andWhere(
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_sent 
               WHERE ns_sent.id_naskah = naskah.id 
               AND ns_sent.id_sirkuler = :userPersnumSent
               AND ns_sent.sirkuler = 'pengirim'
+              AND (ns_sent.flag_arsip IS NULL OR ns_sent.flag_arsip = 0)
             )`,
             { userPersnumSent: userPersnum.toString() },
           );
           break;
         case 'draft':
-          // Draft naskah user
+          // Draft naskah user (exclude archived)
           queryBuilder.andWhere('naskah.status = :draftStatus', {
             draftStatus: 'draf',
           });
@@ -256,6 +265,7 @@ export class GlobalSearchService {
               SELECT 1 FROM naskah_sirkulasi ns_draft 
               WHERE ns_draft.id_naskah = naskah.id 
               AND ns_draft.id_sirkuler = :userPersnumDraft
+              AND (ns_draft.flag_arsip IS NULL OR ns_draft.flag_arsip = 0)
             )`,
             { userPersnumDraft: userPersnum.toString() },
           );
@@ -273,7 +283,7 @@ export class GlobalSearchService {
           );
           break;
         case 'favorite':
-          // Naskah favorit user
+          // Naskah favorit user (could be archived or not)
           queryBuilder.andWhere(
             `EXISTS (
               SELECT 1 FROM naskah_sirkulasi ns_fav 
@@ -282,6 +292,18 @@ export class GlobalSearchService {
               AND ns_fav.flag_favorit = 1
             )`,
             { userPersnumFav: userPersnum.toString() },
+          );
+          break;
+        case 'active':
+          // Naskah aktif (inbox + sent + draft) exclude archived
+          queryBuilder.andWhere(
+            `EXISTS (
+              SELECT 1 FROM naskah_sirkulasi ns_active 
+              WHERE ns_active.id_naskah = naskah.id 
+              AND ns_active.id_sirkuler = :userPersnumActive
+              AND (ns_active.flag_arsip IS NULL OR ns_active.flag_arsip = 0)
+            )`,
+            { userPersnumActive: userPersnum.toString() },
           );
           break;
       }
@@ -320,8 +342,10 @@ export class GlobalSearchService {
       appliedFilters.push(`organizationFrom: ${organizationFrom}`);
     }
 
-    // === DISTINCT (karena join dengan sirkulasi bisa duplicate) ===
-    queryBuilder.distinct(true);
+    // === DISTINCT (hanya jika join dengan sirkulasi untuk menghindari duplicate) ===
+    if (needsSirkulasiJoin) {
+      queryBuilder.distinct(true);
+    }
 
     // === SORTING ===
     const sortField = this.getSortField(sortBy);
