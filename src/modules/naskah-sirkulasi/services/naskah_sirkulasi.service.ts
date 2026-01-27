@@ -18,7 +18,7 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
-import { InboxSentResponseDto, SentItemForCombinedDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
+import { InboxSentResponseDto, SentItemForCombinedDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -890,7 +890,7 @@ export class NaskahSirkulasiService {
    */
   async getInboxAndSent(
     positionId: string,
-    query: InboxQueryDto,
+    query: InboxSentQueryDto,
   ): Promise<InboxSentResponseDto> {
     const page = query.page || 1;
     const limit = query.limit || 10;
@@ -918,6 +918,14 @@ export class NaskahSirkulasiService {
       inboxWhere += ` AND s.send_read_time IS NOT NULL`;
     } else if (query.status_baca === 'belum_terbaca') {
       inboxWhere += ` AND s.send_read_time IS NULL`;
+    }
+
+    // Favorit and Arsip filters for inbox
+    if (query.is_favorit === true) {
+      inboxWhere += ` AND s.flag_favorit = 1`;
+    }
+    if (query.is_arsip === true) {
+      inboxWhere += ` AND s.flag_arsip = 1`;
     }
 
     // 2. SENT PART
@@ -956,13 +964,18 @@ export class NaskahSirkulasiService {
       }
     }
 
-    // --- UNION QUERY ---
-    // We select common fields + special handling for sender/receiver info
-    // For Inbox: Source='inbox', user is receiver (penerima columns in 's' are current user)
-    // For Sent: Source='sent', user is sender (pengirim)
+    // Favorit and Arsip filters for sent
+    if (query.is_favorit === true) {
+      sentWhere += ` AND s.flag_favorit = 1`;
+    }
+    if (query.is_arsip === true) {
+      sentWhere += ` AND s.flag_arsip = 1`;
+    }
 
-    const unionQuery = `
-      (
+    // --- DYNAMIC QUERY BASED ON SOURCE FILTER ---
+    // If source is specified, only query that source. Otherwise UNION both.
+
+    const inboxSelect = `
         SELECT 
           s.id as id_sirkulasi,
           s.id_naskah,
@@ -983,29 +996,25 @@ export class NaskahSirkulasiService {
           CAST(s.updated_at AS DATETIME) as updated_at,
           'inbox' as source,
           
-          -- Pengirim Info (Needs join or subquery, but we can join later or here)
-          -- For Inbox, we need 'pengirim' sirkulasi record.
           (SELECT position FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_id,
           (SELECT position_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_text,
           (SELECT organization_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_organization_text,
           (SELECT nama_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_nama,
           
-          -- For Inbox, current user info is in 's'
           s.position as my_position_id,
           s.id_sirkuler as my_persnum,
           s.nama_sirkuler as my_nama,
           s.position_text as my_position_text,
           s.organization_text as my_organization_text,
           
-          -- Priority for DI
           (SELECT is_priority FROM di WHERE di.id_naskah = s.id_naskah LIMIT 1) as is_priority
 
         FROM naskah_sirkulasi s
         JOIN naskah n ON s.id_naskah = n.id
         WHERE ${inboxWhere}
-      )
-      UNION ALL
-      (
+    `;
+
+    const sentSelect = `
         SELECT 
           s.id as id_sirkulasi,
           s.id_naskah,
@@ -1016,23 +1025,21 @@ export class NaskahSirkulasiService {
           n.sifat,
           n.status,
           n.lampiran,
-          NULL as send_read_time, -- Owner is sender, doesn't have read time
+          NULL as send_read_time,
           s.flag_favorit,
           s.flag_arsip,
           s.flag_note,
           0 as tindak_lanjut, 
-          0 as is_locked, -- Sent usually doesn't have these or implementation varies, assuming 0
+          0 as is_locked,
           CAST(s.created_at AS DATETIME) as created_at,
           CAST(s.updated_at AS DATETIME) as updated_at,
           'sent' as source,
 
-          -- Pengirim Info is Me (Current User)
           s.position as pengirim_position_id,
           s.position_text as pengirim_position_text,
           s.organization_text as pengirim_organization_text,
           s.nama_sirkuler as pengirim_nama,
 
-          -- No single recipient info in main row
           NULL as my_position_id,
           NULL as my_persnum,
           NULL as my_nama,
@@ -1044,15 +1051,25 @@ export class NaskahSirkulasiService {
         FROM naskah_sirkulasi s
         JOIN naskah n ON s.id_naskah = n.id
         WHERE ${sentWhere}
-      )
-      ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
     `;
 
-    const allParams = [...inboxParams, ...sentParams, limit, offset];
+    let dataQuery: string;
+    let dataParams: any[];
+
+    if (query.source === 'inbox') {
+      dataQuery = `(${inboxSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...inboxParams, limit, offset];
+    } else if (query.source === 'sent') {
+      dataQuery = `(${sentSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...sentParams, limit, offset];
+    } else {
+      // Full UNION
+      dataQuery = `(${inboxSelect}) UNION ALL (${sentSelect}) ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      dataParams = [...inboxParams, ...sentParams, limit, offset];
+    }
 
     // Execute pagination query
-    const rows = await this.dataSource.query(unionQuery, allParams);
+    const rows = await this.dataSource.query(dataQuery, dataParams);
 
     // Hydrate Data (Labels, Recipients, etc.)
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
@@ -1231,26 +1248,43 @@ export class NaskahSirkulasiService {
     }
 
     // --- COUNT QUERY ---
-    // Efficiently count total matches across both relations
-    const countQuery = `
-      SELECT (
-        (SELECT COUNT(*) 
-         FROM naskah_sirkulasi s 
-         JOIN naskah n ON s.id_naskah = n.id 
-         WHERE ${inboxWhere})
-        +
-        (SELECT COUNT(*) 
-         FROM naskah_sirkulasi s 
-         JOIN naskah n ON s.id_naskah = n.id 
-         WHERE ${sentWhere})
-      ) as total
-    `;
+    // Conditionally count based on source filter
+    let countQuery: string;
+    let countParams: any[];
 
-    // We reuse the params for inbox and sent, but we need to flatten them carefully.
-    // inboxWhere uses inboxParams. sentWhere uses sentParams.
-    // The query structure above has two subqueries, so the params order must explicitly match.
-    // Order: ...inboxParams, ...sentParams
-    const countParams = [...inboxParams, ...sentParams];
+    if (query.source === 'inbox') {
+      countQuery = `
+        SELECT COUNT(*) as total
+        FROM naskah_sirkulasi s 
+        JOIN naskah n ON s.id_naskah = n.id 
+        WHERE ${inboxWhere}
+      `;
+      countParams = [...inboxParams];
+    } else if (query.source === 'sent') {
+      countQuery = `
+        SELECT COUNT(*) as total
+        FROM naskah_sirkulasi s 
+        JOIN naskah n ON s.id_naskah = n.id 
+        WHERE ${sentWhere}
+      `;
+      countParams = [...sentParams];
+    } else {
+      // Count both
+      countQuery = `
+        SELECT (
+          (SELECT COUNT(*) 
+           FROM naskah_sirkulasi s 
+           JOIN naskah n ON s.id_naskah = n.id 
+           WHERE ${inboxWhere})
+          +
+          (SELECT COUNT(*) 
+           FROM naskah_sirkulasi s 
+           JOIN naskah n ON s.id_naskah = n.id 
+           WHERE ${sentWhere})
+        ) as total
+      `;
+      countParams = [...inboxParams, ...sentParams];
+    }
 
     const countResult = await this.dataSource.query(countQuery, countParams);
     const total = parseInt(countResult[0]?.total || '0', 10);
