@@ -6,6 +6,7 @@ import {
   Put,
   Param,
   Delete,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { PositionService } from './position.service';
 import { CreatePositionDto } from './dto/create-position.dto';
@@ -21,19 +22,79 @@ export class PositionController {
     return this.positionService.findAll();
   }
 
+  /**
+   * Get all positions by company
+   * @example GET /position/company/1
+   */
+  @Get('company/:companyId')
+  findByCompany(
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ): Promise<OmPosition[]> {
+    return this.positionService.findByCompany(companyId);
+  }
+
+  /**
+   * Get all positions by company and organization
+   * @example GET /position/company/1/organization/100
+   */
+  @Get('company/:companyId/organization/:organizationId')
+  findByCompanyAndOrganization(
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('organizationId', ParseIntPipe) organizationId: number,
+  ): Promise<OmPosition[]> {
+    return this.positionService.findByCompanyAndOrganization(companyId, organizationId);
+  }
+
+  /**
+   * Get positions with person count
+   * @example GET /position/company/1/with-persons
+   */
+  @Get('company/:companyId/with-persons')
+  findByCompanyWithPersons(
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ) {
+    return this.positionService.findByCompanyWithPersons(companyId);
+  }
+
+  /**
+   * Get chief positions only (managerial positions)
+   * @example GET /position/company/1/chiefs
+   */
+  @Get('company/:companyId/chiefs')
+  findChiefPositions(
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ): Promise<OmPosition[]> {
+    return this.positionService.findChiefPositions(companyId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string): Promise<OmPosition> {
     return this.positionService.findOne(id);
   }
 
-  @Post()
-  create(@Body() data: CreatePositionDto) {
-    return this.positionService.create(data);
+  /**
+   * Create position for a company
+   * @example POST /position/company/1
+   */
+  @Post('company/:companyId')
+  create(
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() data: CreatePositionDto,
+  ) {
+    return this.positionService.create(companyId, data);
   }
 
-  @Put(':id')
-  update(@Param('id') id: string, @Body() data: UpdatePositionDto) {
-    return this.positionService.update(id, data);
+  /**
+   * Update position
+   * @example PUT /position/company/1/:id
+   */
+  @Put('company/:companyId/:id')
+  update(
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('id') id: string,
+    @Body() data: UpdatePositionDto,
+  ) {
+    return this.positionService.update(id, companyId, data);
   }
 
   @Delete(':id')
