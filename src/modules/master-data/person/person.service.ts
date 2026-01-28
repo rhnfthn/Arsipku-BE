@@ -16,7 +16,7 @@ export class PersonService {
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
     private readonly orgDataService: OrgDataService,
-  ) {}
+  ) { }
 
   async findAll(): Promise<Person[]> {
     return this.cRepo.find({
@@ -97,8 +97,8 @@ export class PersonService {
     // Using position_json which is already flattened and contains sub_area_text
     const positionMap = new Map<number, any>();
 
-    const positionJsonData = Array.isArray(latestOrgData.position_json) 
-      ? latestOrgData.position_json 
+    const positionJsonData = Array.isArray(latestOrgData.position_json)
+      ? latestOrgData.position_json
       : [];
 
     for (const position of positionJsonData) {
