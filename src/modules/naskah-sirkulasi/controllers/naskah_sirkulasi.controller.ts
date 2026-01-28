@@ -12,6 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { NaskahSirkulasiService } from '../services/naskah_sirkulasi.service';
 import { CreateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/create_naskah_sirkulasi.dto';
 import { UpdateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/update_naskah_sirkulasi.dto';
@@ -220,19 +221,28 @@ export class NaskahSirkulasiController {
     );
   }
 
+  // ============================================================
+  // CRUD OPERATIONS - MUST BE LAST!
+  // ============================================================
+  // IMPORTANT: The @Get(':id') route must be placed AFTER all named routes
+  // like 'inbox-sent', 'toggle-flag', etc. Otherwise, NestJS will match
+  // 'inbox-sent' as an :id parameter and call findOne() instead of the
+  // correct handler. This caused the 404 error on remote deployment.
+
   @Get()
   findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
-    return this.naskahSirkulasiService.findOne(id);
-  }
-
   @Post()
   create(@Body() data: CreateNaskahSirkulasiDto) {
     return this.naskahSirkulasiService.create(data);
+  }
+
+  // IMPORTANT: This must be the LAST @Get() route in this controller!
+  @Get(':id')
+  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
+    return this.naskahSirkulasiService.findOne(id);
   }
 
   @Put(':id')
