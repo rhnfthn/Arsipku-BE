@@ -534,21 +534,48 @@ export class NaskahSirkulasiService {
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
+    // Get summary counts FIRST (untuk semua, tanpa filter jenis dan status_baca)
+    const summaryQuery = `
+      SELECT 
+        COUNT(DISTINCT s.id_naskah) as total_semua,
+        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
+        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
+        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryData = summaryResult[0] || {};
+    
+    const summary = {
+      total_semua: parseInt(summaryData.total_semua || '0', 10),
+      total_per_jenis: {
+        ND: parseInt(summaryData.total_nd || '0', 10),
+        SDI: parseInt(summaryData.total_sdi || '0', 10),
+        SDE: parseInt(summaryData.total_sde || '0', 10),
+        DI: parseInt(summaryData.total_di || '0', 10),
+        KA: parseInt(summaryData.total_ka || '0', 10),
+      },
+    };
+
     if (rows.length === 0) {
       return {
         success: true,
         message: 'Tidak ada pesan yang dikirim',
         data: [],
         pagination: {
-          total: 0,
+          total,
           page,
           limit,
-          totalPages: 0,
+          totalPages,
         },
-        summary: {
-          total_semua: 0,
-          total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
-        },
+        summary,
       };
     }
 
@@ -734,25 +761,6 @@ export class NaskahSirkulasiService {
       });
     }
 
-    // Get summary counts (untuk semua, tanpa filter status_baca)
-    const summaryQuery = `
-      SELECT 
-        COUNT(DISTINCT s.id_naskah) as total_semua,
-        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
-        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
-        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
-        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
-        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
-      FROM naskah_sirkulasi s
-      INNER JOIN naskah n ON s.id_naskah = n.id
-      WHERE s.position = ?
-      AND s.sirkuler = 'pengirim'
-      AND s.is_draft = 0
-      AND n.status IN ('final', 'final_tte')
-    `;
-    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
-    const summary = summaryResult[0] || {};
-
     return {
       success: true,
       message: 'Berhasil mengambil kotak keluar',
@@ -763,16 +771,7 @@ export class NaskahSirkulasiService {
         limit,
         totalPages,
       },
-      summary: {
-        total_semua: parseInt(summary.total_semua || '0', 10),
-        total_per_jenis: {
-          ND: parseInt(summary.total_nd || '0', 10),
-          SDI: parseInt(summary.total_sdi || '0', 10),
-          SDE: parseInt(summary.total_sde || '0', 10),
-          DI: parseInt(summary.total_di || '0', 10),
-          KA: parseInt(summary.total_ka || '0', 10),
-        },
-      },
+      summary,
     };
   }
 
