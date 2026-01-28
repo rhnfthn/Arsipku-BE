@@ -38,8 +38,8 @@ export class KajianController {
   constructor(private readonly kajianService: KajianService) {}
 
   /**
-   * GET /KA/get-recipient/{positionId}
-   * Get eligible recipients for Kajian based on position ID (using org_data)
+   * GET /KA/get-recipient
+   * Get eligible recipients for Kajian based on position ID from JWT token
    * 
    * Kajian Rules:
    * - Sender: Semua (Managerial, Fungsional, Staff)
@@ -47,16 +47,18 @@ export class KajianController {
    * - BAWAHAN: [] (tidak boleh ke bawahan)
    * - REKAN: [] (tidak boleh ke sesama level)
    *
-   * @param positionId - Position ID (path parameter)
+   * @param user - User dari JWT token (contains position)
    * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
    * @returns KajianRecipientResponseDto
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getKajianRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
   ): Promise<KajianRecipientResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       // Note: tgl param from query is available but not currently used
       return await this.kajianService.getKajianRecipients(positionId);
     } catch (error) {
