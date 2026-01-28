@@ -1,4 +1,5 @@
-import { IsOptional, IsNumberString, IsString } from 'class-validator';
+import { IsOptional, IsNumberString, IsString, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * DTO untuk query parameter naskah masuk
@@ -23,6 +24,18 @@ export class NaskahMasukQueryDto {
   @IsOptional()
   @IsString()
   klasifikasi?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  limit?: number;
 }
 
 /**
@@ -59,5 +72,11 @@ export class NaskahMasukResponseDto {
     jenis?: string;
     klasifikasi?: string;
     rekap: NaskahMasukJenisData[];
+  };
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
   };
 }

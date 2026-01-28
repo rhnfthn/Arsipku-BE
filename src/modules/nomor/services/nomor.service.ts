@@ -340,7 +340,7 @@ export class NomorService {
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    */
-  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -427,10 +427,24 @@ export class NomorService {
       item !== null && item.status !== 'Belum Diajukan'
     );
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = submittedData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = submittedData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data usulan nomor yang diajukan berhasil diambil',
-      data: submittedData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -598,7 +612,7 @@ export class NomorService {
    * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
    */
-  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -694,10 +708,24 @@ export class NomorService {
     // Filter out null values (data dari tulis surat)
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -707,7 +735,7 @@ export class NomorService {
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    * - Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    */
-  async getAdminNomorRequestByPosition(positionId: number): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -799,10 +827,24 @@ export class NomorService {
     // Filter out null values (request yang difilter)
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -2152,10 +2194,24 @@ export class NomorService {
     // Filter out null values
     const filteredData = data.filter((item) => item !== null);
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
