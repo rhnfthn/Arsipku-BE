@@ -10,7 +10,9 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { NaskahSirkulasiService } from '../services/naskah_sirkulasi.service';
 import { CreateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/create_naskah_sirkulasi.dto';
 import { UpdateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/update_naskah_sirkulasi.dto';
@@ -35,6 +37,9 @@ import {
 import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
 import { InboxSentResponseDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
+import { JwtAuthGuard } from '../../../common/guards';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('naskah_sirkulasi')
 export class NaskahSirkulasiController {
@@ -107,20 +112,23 @@ export class NaskahSirkulasiController {
   }
 
   /**
-   * GET /naskah_sirkulasi/inbox-sent/:position_id
+   * GET /naskah_sirkulasi/inbox-sent
    *
-   * Mengambil kotak masuk dan kotak keluar sekaligus
+   * Mengambil kotak masuk dan kotak keluar sekaligus (authenticated)
+   * Position diambil dari JWT token
    *
-   * @param positionId - Position ID
+   * @param user - Authenticated user from JWT
    * @param query - Filter options
    * @returns InboxSentResponseDto
    */
-  @Get('inbox-sent/:position_id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox-sent')
   async getInboxAndSent(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: JwtPayload,
     @Query() query: InboxSentQueryDto,
   ): Promise<InboxSentResponseDto> {
-    return this.naskahSirkulasiService.getInboxAndSent(positionId, query);
+    return this.naskahSirkulasiService.getInboxAndSent(user.position, query);
   }
 
   // ============================================================
@@ -209,19 +217,28 @@ export class NaskahSirkulasiController {
     );
   }
 
+  // ============================================================
+  // CRUD OPERATIONS - MUST BE LAST!
+  // ============================================================
+  // IMPORTANT: The @Get(':id') route must be placed AFTER all named routes
+  // like 'inbox-sent', 'toggle-flag', etc. Otherwise, NestJS will match
+  // 'inbox-sent' as an :id parameter and call findOne() instead of the
+  // correct handler. This caused the 404 error on remote deployment.
+
   @Get()
   findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
-    return this.naskahSirkulasiService.findOne(id);
-  }
-
   @Post()
   create(@Body() data: CreateNaskahSirkulasiDto) {
     return this.naskahSirkulasiService.create(data);
+  }
+
+  // IMPORTANT: This must be the LAST @Get() route in this controller!
+  @Get(':id')
+  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
+    return this.naskahSirkulasiService.findOne(id);
   }
 
   @Put(':id')
