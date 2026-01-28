@@ -26,6 +26,12 @@ export class GetMyNomorRequestResponseDto {
       created_at: Date;
     }[];
   }[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 /**
@@ -60,4 +66,10 @@ export class GetAdminNomorRequestResponseDto {
       created_at: Date;
     }[];
   }[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
