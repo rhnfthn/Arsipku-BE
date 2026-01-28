@@ -32,6 +32,7 @@ import { OmAreaSub } from '../master-data/areasub/entities/om-areasub.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
@@ -55,9 +56,10 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
     OrgDataModule,
     StorageModule,
     GeneratePdfModule,
+    SearchModule,
   ],
   controllers: [DisposisiController],
   providers: [DisposisiService, NomorSuratService],
   exports: [DisposisiService],
 })
-export class DisposisiModule {}
+export class DisposisiModule { }

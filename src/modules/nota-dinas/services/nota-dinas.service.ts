@@ -48,6 +48,7 @@ import { DigsigService } from 'src/modules/digsig/services';
 import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -82,7 +83,8 @@ export class NotaDinasService {
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   // ============================================================
   // HELPER: GET HEADER INFO FROM SUB_AREA_ALAMAT
@@ -108,7 +110,7 @@ export class NotaDinasService {
       }
 
       const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
-      
+
       const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
         company,
         area,
@@ -685,9 +687,9 @@ export class NotaDinasService {
     body: any,
     files?:
       | {
-          lampiran_files?: Express.Multer.File[];
-          final_pdf?: Express.Multer.File[];
-        }
+        lampiran_files?: Express.Multer.File[];
+        final_pdf?: Express.Multer.File[];
+      }
       | Express.Multer.File[],
   ): Promise<CreateNotaDinasDto> {
     // Helper: Parse array field (bisa JSON string atau comma-separated)
@@ -1254,7 +1256,7 @@ export class NotaDinasService {
         `Pengirim dengan positionId ${dto.pengirim} tidak ditemukan dalam org_data`,
       );
     }
-    
+
     if (pengirim.chief !== 1) {
       throw new ForbiddenException(
         `Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`,
@@ -1517,6 +1519,9 @@ export class NotaDinasService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Return response
       return {
         success: true,
@@ -1561,7 +1566,7 @@ export class NotaDinasService {
    * @param persnum - Persnum user untuk BSrE signing (optional, required if sign_option=digsig)
    */
   async sendMessage(
-    dto: CreateNotaDinasDto, 
+    dto: CreateNotaDinasDto,
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     // Validate sign_option + passphrase combination
@@ -1967,9 +1972,12 @@ export class NotaDinasService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Build response - match SDI format
-      const lampiranTextResponse = lampiranFileNames.length > 0 
-        ? lampiranFileNames.join(', ') 
+      const lampiranTextResponse = lampiranFileNames.length > 0
+        ? lampiranFileNames.join(', ')
         : (dto.lampiran || undefined);
 
       return {
@@ -3656,7 +3664,7 @@ export class NotaDinasService {
       }
 
       const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-      
+
       // Get org_data
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
@@ -3664,11 +3672,11 @@ export class NotaDinasService {
       }
 
       const positionJson: OrgDataPositionDto[] = orgData.position_json;
-      
+
       const pos = positionJson.find(
         (p) => String(p.position) === String(positionId),
       );
-      
+
       if (pos) {
         // Use persnum_person_text as primary source for person name
         return pos.persnum_person_text || '';
@@ -3929,14 +3937,14 @@ export class NotaDinasService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim} bukan penerima dari naskah ${dto.id_naskah_referensi}. ` +
-            `Hanya penerima yang bisa forward naskah dinas.`,
+          `Hanya penerima yang bisa forward naskah dinas.`,
         );
       }
 
       // PHASE 3: Get org_data dan validasi pengirim & penerima
       const tanggal = new Date().toISOString().split('T')[0];
       const orgData = await this.orgDataService.findOrg(tanggal);
-      
+
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(
           `Data organisasi untuk tanggal ${tanggal} tidak ditemukan`,
@@ -4224,7 +4232,7 @@ export class NotaDinasService {
       const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
       const namaLengkap = dto.nama_lengkap || pengirim.persnum_person_text || '';
       const namaTempat = dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
-      
+
       // Get dynamic header info
       const headerInfo = await this.getHeaderInfoByUser(
         {
@@ -4242,7 +4250,7 @@ export class NotaDinasService {
           htmlContent: konten,
           nomor: nomorSurat,
           tertuju: kepadaYthList,
-          tembusan: tembusanList.length > 0 
+          tembusan: tembusanList.length > 0
             ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`)
             : [],
           perihal: perihal,

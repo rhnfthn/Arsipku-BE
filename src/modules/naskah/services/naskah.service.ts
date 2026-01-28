@@ -11,6 +11,7 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 // import { NdEntity } from '../../nota-dinas/entities/nd.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -49,14 +50,20 @@ export class NaskahService {
     // @InjectRepository(SdiSdeEntity)
     // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private storageService: StorageService,
-  ) {}
+    private meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
     const naskah = new NaskahEntity();
     naskah.id = uuidv4();
     Object.assign(naskah, createNaskahDto);
 
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(saved.id).catch(() => { });
+
+    return saved;
   }
 
   async findAll(
@@ -108,12 +115,20 @@ export class NaskahService {
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     Object.assign(naskah, updateNaskahDto);
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
     const naskah = await this.findOne(id);
     await this.naskahRepository.remove(naskah);
+
+    // Remove from Meilisearch (non-blocking)
+    this.meilisearchSyncService.deleteNaskah(id).catch(() => { });
   }
 
   async updateStatus(
@@ -122,7 +137,12 @@ export class NaskahService {
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     naskah.status = status;
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+
+    return saved;
   }
 
   /**
@@ -336,12 +356,12 @@ export class NaskahService {
     // ============================================================
     // BUILD FULL CHAIN / RANGKAIAN
     // ============================================================
-    
+
     // STEP 1: Trace backward to find root
     let rootNaskahId = naskahId;
     let currentId = naskahId;
     const visitedIds = new Set<string>([currentId]);
-    
+
     while (true) {
       const referensi = await this.naskahReferensiRepository.findOne({
         where: { id_naskah: currentId },
@@ -354,7 +374,7 @@ export class NaskahService {
 
       // Find parent by ref_nomor and ref_jenis
       const parentNaskah = await this.naskahRepository.findOne({
-        where: { 
+        where: {
           nomor: referensi.ref_nomor,
           jenis: referensi.ref_jenis || undefined,
         },
@@ -372,7 +392,7 @@ export class NaskahService {
     // STEP 2: Build flow from root forward
     const flow: any[] = [];
     const naskahIdToLevel = new Map<string, number>();
-    
+
     // Helper function to build node data for flow
     const buildFlowNode = async (
       naskahData: NaskahEntity,
@@ -455,10 +475,10 @@ export class NaskahService {
           const kepadaYth = naskahData.jenis === 'SDI'
             ? penerimaList.map(p => `${p.positionText} - ${p.organizationText}`).join('; ')
             : penerimaList.map(p => p.namaSirkuler || '').join('; ');
-          
+
           // For SDE, get tujuan and alamat from first penerima (if external)
           const firstPenerima = penerimaList.length > 0 ? penerimaList[0] : null;
-          
+
           jenisSpecificData = {
             kepada_yth: kepadaYth,
             tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.namaSirkuler || null) : null,
@@ -482,11 +502,11 @@ export class NaskahService {
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-            position_id: pengirimSirkulasi.position || '',
-            position_text: pengirimSirkulasi.positionText || '',
-            organization_text: pengirimSirkulasi.organizationText || '',
-            nama: pengirimSirkulasi.namaSirkuler || null,
-          }
+          position_id: pengirimSirkulasi.position || '',
+          position_text: pengirimSirkulasi.positionText || '',
+          organization_text: pengirimSirkulasi.organizationText || '',
+          nama: pengirimSirkulasi.namaSirkuler || null,
+        }
         : null;
 
       // Build penerima list with read status
@@ -522,12 +542,12 @@ export class NaskahService {
       // Build referensi info
       const referensiInfo = referensiData
         ? {
-            ref_jenis: referensiData.ref_jenis,
-            ref_pengirim: referensiData.ref_pengirim,
-            ref_tanggal: referensiData.ref_tanggal,
-            ref_nomor: referensiData.ref_nomor,
-            ref_perihal: referensiData.ref_perihal,
-          }
+          ref_jenis: referensiData.ref_jenis,
+          ref_pengirim: referensiData.ref_pengirim,
+          ref_tanggal: referensiData.ref_tanggal,
+          ref_nomor: referensiData.ref_nomor,
+          ref_perihal: referensiData.ref_perihal,
+        }
         : null;
 
       return {
@@ -543,26 +563,26 @@ export class NaskahService {
         klasifikasi_text: naskahData.klasifikasi_text,
         status: naskahData.status,
         lampiran: naskahData.lampiran,
-        
+
         // Sirkulasi
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         tembusan: tembusanInfo,
-        
+
         // Lampiran files
         lampiran_files: lampiranInfo,
         jumlah_lampiran: lampiranFiles.length,
-        
+
         // Final PDF
         final_pdf: naskahData.final_pdf,
         final_pdf_url: finalPdfUrl,
-        
+
         // Referensi
         referensi: referensiInfo,
-        
+
         // Jenis-specific data
         detail: jenisSpecificData,
-        
+
         // Level
         level,
       };
@@ -582,7 +602,7 @@ export class NaskahService {
 
       // Find all children (naskah yang mereferensi parent ini)
       if (!parentNode.nomor) return;
-      
+
       const children = await this.naskahReferensiRepository.find({
         where: { ref_nomor: parentNode.nomor },
       });
