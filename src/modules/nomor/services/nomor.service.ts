@@ -338,8 +338,9 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    */
-  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -369,6 +370,14 @@ export class NomorService {
         const details = await this.nomorRequestDetailRepository.find({
           where: { idRequest: request.id },
         });
+
+        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
+        if (details.length > 0) {
+          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+          if (allDirectTerpakai) {
+            return null; // Skip data dari tulis surat
+          }
+        }
 
         let status = 'Belum Diajukan';
         if (details.length > 0) {
@@ -413,18 +422,35 @@ export class NomorService {
       }),
     );
 
-    // Filter only requests with status != 'Belum Diajukan'
-    const submittedData = data.filter((item) => item.status !== 'Belum Diajukan');
+    // Filter out null values (data dari tulis surat) and requests with status 'Belum Diajukan'
+    const submittedData = data.filter((item): item is Exclude<typeof item, null> => 
+      item !== null && item.status !== 'Belum Diajukan'
+    );
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = submittedData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = submittedData.slice(skip, skip + limit);
 
     return {
       success: true,
       message: 'Data usulan nomor yang diajukan berhasil diambil',
-      data: submittedData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
   /**
    * Count nomor request by status (for admin dashboard)
+   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
    */
   async getAdminCountNomorRequest(): Promise<any> {
     const requests = await this.nomorRequestRepository.find();
@@ -442,6 +468,14 @@ export class NomorService {
       const details = await this.nomorRequestDetailRepository.find({
         where: { idRequest: request.id },
       });
+
+      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
+      if (details.length > 0) {
+        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+        if (allDirectTerpakai) {
+          continue; // Skip data dari tulis surat
+        }
+      }
 
       let status = 'belum_diajukan';
       if (details.length > 0) {
@@ -494,6 +528,7 @@ export class NomorService {
 
   /**
    * Count nomor request by status filtered by position ID
+   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
    */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
     const requests = await this.nomorRequestRepository.find({
@@ -513,6 +548,14 @@ export class NomorService {
       const details = await this.nomorRequestDetailRepository.find({
         where: { idRequest: request.id },
       });
+
+      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
+      if (details.length > 0) {
+        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+        if (allDirectTerpakai) {
+          continue; // Skip data dari tulis surat
+        }
+      }
 
       let status = 'belum_diajukan';
       if (details.length > 0) {
@@ -566,8 +609,10 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor
+   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+   * Filter: Request yang pernah memiliki detail dengan status 'booking'
    */
-  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -597,6 +642,23 @@ export class NomorService {
         const details = await this.nomorRequestDetailRepository.find({
           where: { idRequest: request.id },
         });
+
+        // Filter: Hanya tampilkan request yang pernah/sedang punya status 'booking'
+        // Karena request dari tulis surat langsung 'terpakai' tanpa 'booking'
+        const hasEverBeenBooked = details.some((d) => 
+          d.status === 'booking' || 
+          d.status === 'terpakai' || 
+          d.status === 'terpakai_final' ||
+          d.status === 'hangus'
+        );
+
+        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
+        if (details.length > 0) {
+          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+          if (allDirectTerpakai) {
+            return null; // Skip data dari tulis surat
+          }
+        }
 
         let status = 'Belum Diajukan';
         if (details.length > 0) {
@@ -643,10 +705,27 @@ export class NomorService {
       }),
     );
 
+    // Filter out null values (data dari tulis surat)
+    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -654,8 +733,9 @@ export class NomorService {
    * Admin melihat semua usulan nomor dengan filter posisi
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
+   * - Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    */
-  async getAdminNomorRequestByPosition(positionId: number): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -685,6 +765,14 @@ export class NomorService {
         const details = await this.nomorRequestDetailRepository.find({
           where: { idRequest: request.id },
         });
+
+        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
+        if (details.length > 0) {
+          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+          if (allDirectTerpakai) {
+            return null; // Skip data dari tulis surat
+          }
+        }
 
         let status = 'Belum Diajukan';
         if (details.length > 0) {
@@ -737,12 +825,26 @@ export class NomorService {
     );
 
     // Filter out null values (request yang difilter)
-    const filteredData = data.filter((item) => item !== null);
+    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
 
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -2092,10 +2194,24 @@ export class NomorService {
     // Filter out null values
     const filteredData = data.filter((item) => item !== null);
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -2438,13 +2554,13 @@ export class NomorService {
           penandatanganArea,
         );
 
-        // Insert nomor_request_detail dengan status terpakai
+        // Insert nomor_request_detail dengan status terpakai_final (langsung dari admin)
         const detailId = uuidv4();
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
           idRequest: requestId,
           nomor: nomorBaru,
-          status: 'terpakai',
+          status: 'terpakai_final',
         });
 
         await queryRunner.manager.save(detail);

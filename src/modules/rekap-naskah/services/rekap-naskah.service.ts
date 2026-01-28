@@ -243,12 +243,18 @@ export class RekapNaskahService {
     const requests = await requestQueryBuilder.getMany();
     const requestIds = requests.map(r => r.id);
 
-    // Jika tidak ada request yang match, return empty
+    // Jika tidak ada request yang match, return empty dengan pagination
     if (requestIds.length === 0) {
       return {
         success: true,
         message: 'Detail naskah dinas berhasil diambil',
         data: [],
+        pagination: {
+          page: query.page || 1,
+          limit: query.limit || 10,
+          total: 0,
+          totalPages: 0,
+        },
       };
     }
 
@@ -263,7 +269,7 @@ export class RekapNaskahService {
       detailQueryBuilder = detailQueryBuilder.andWhere('detail.nomor LIKE :search', { search: `%${search}%` });
     }
 
-    // Get semua data tanpa pagination
+    // Get semua data tanpa pagination dulu untuk count
     const details = await detailQueryBuilder
       .orderBy('detail.created_at', 'DESC')
       .getMany();
@@ -300,9 +306,17 @@ export class RekapNaskahService {
     const requestMap = new Map<string, NomorRequestEntity>();
     requests.forEach(req => requestMap.set(req.id, req));
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = details.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedDetails = details.slice(skip, skip + limit);
+
     // Map data dengan request info
     const data: DetailNaskahData[] = await Promise.all(
-      details.map(async (detail) => {
+      paginatedDetails.map(async (detail) => {
         // Lookup request dari map
         const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
 
@@ -359,6 +373,12 @@ export class RekapNaskahService {
       success: true,
       message: 'Detail naskah dinas berhasil diambil',
       data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -508,6 +528,14 @@ export class RekapNaskahService {
       a.jenis.localeCompare(b.jenis),
     );
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = rekap.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedRekap = rekap.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Naskah masuk berhasil diambil',
@@ -517,7 +545,13 @@ export class RekapNaskahService {
         area,
         jenis,
         klasifikasi,
-        rekap,
+        rekap: paginatedRekap,
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
       },
     };
   }
@@ -573,12 +607,18 @@ export class RekapNaskahService {
     const requests = await requestQueryBuilder.getMany();
     const requestIds = requests.map(r => r.id);
 
-    // Jika tidak ada request yang match, return empty
+    // Jika tidak ada request yang match, return empty dengan pagination
     if (requestIds.length === 0) {
       return {
         success: true,
         message: 'Detail naskah masuk berhasil diambil',
         data: [],
+        pagination: {
+          page: query.page || 1,
+          limit: query.limit || 10,
+          total: 0,
+          totalPages: 0,
+        },
       };
     }
 
@@ -597,7 +637,7 @@ export class RekapNaskahService {
       detailQueryBuilder = detailQueryBuilder.andWhere('detail.nomor LIKE :search', { search: `%${search}%` });
     }
 
-    // Get semua data tanpa pagination
+    // Get semua data tanpa pagination dulu untuk count
     const details = await detailQueryBuilder
       .orderBy('detail.created_at', 'DESC')
       .getMany();
@@ -634,9 +674,17 @@ export class RekapNaskahService {
     const requestMap = new Map<string, NomorRequestEntity>();
     requests.forEach(req => requestMap.set(req.id, req));
 
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = details.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedDetails = details.slice(skip, skip + limit);
+
     // Map data dengan request info
     const data: DetailNaskahMasukData[] = await Promise.all(
-      details.map(async (detail) => {
+      paginatedDetails.map(async (detail) => {
         // Lookup request dari map
         const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
 
@@ -679,6 +727,12 @@ export class RekapNaskahService {
       success: true,
       message: 'Detail naskah masuk berhasil diambil',
       data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 }

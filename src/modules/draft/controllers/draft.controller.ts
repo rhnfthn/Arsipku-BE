@@ -10,6 +10,7 @@ import {
   HttpException,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { DraftService } from '../services/draft.service';
 import {
@@ -21,16 +22,18 @@ import {
   BulkDeleteDraftDto,
   BulkDeleteDraftResponseDto,
 } from '../dto/draft/draft.dto';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../../common/decorators';
 
 @Controller('draft')
 export class DraftController {
   constructor(private readonly draftService: DraftService) {}
 
   /**
-   * GET /draft/list/:position_id
-   * Get list of draft naskah for a position
+   * GET /draft/list
+   * Get list of draft naskah for a position (from JWT token)
    *
-   * @param position_id - Position ID pengirim (required)
+   * @param user - User dari JWT token (contains position)
    * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA (optional)
    * @query search - Search by perihal/nomor (optional)
    * @query days - Filter by days, default 30 (optional)
@@ -39,9 +42,10 @@ export class DraftController {
    *
    * @returns GetDraftListResponseDto
    */
-  @Get('list/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('list')
   async getDraftList(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query('jenis') jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
     @Query('search') search?: string,
     @Query('days') days?: string,
@@ -49,10 +53,10 @@ export class DraftController {
     @Query('limit') limit?: string,
   ): Promise<GetDraftListResponseDto> {
     try {
-      // Validate position_id
-      const position = parseInt(positionId, 10);
+      // Get position_id from JWT token
+      const position = parseInt(user.position, 10);
       if (isNaN(position)) {
-        throw new BadRequestException('position_id must be a valid number');
+        throw new BadRequestException('Invalid position in token');
       }
 
       // Parse days
@@ -84,23 +88,21 @@ export class DraftController {
    * Get detail of a draft naskah
    *
    * @param id - ID Naskah (UUID)
-   * @query position_id - Position ID untuk validasi ownership (required)
+   * @param user - User dari JWT token (contains position)
    *
    * @returns GetDraftDetailResponseDto
    */
+  @UseGuards(JwtAuthGuard)
   @Get('detail/:id')
   async getDraftDetail(
     @Param('id') id: string,
-    @Query('position_id') positionId?: string,
+    @CurrentUser() user: any,
   ): Promise<GetDraftDetailResponseDto> {
     try {
-      // Validate position_id
-      if (!positionId) {
-        throw new BadRequestException('position_id is required');
-      }
-      const position = parseInt(positionId, 10);
+      // Get position_id from JWT token
+      const position = parseInt(user.position, 10);
       if (isNaN(position)) {
-        throw new BadRequestException('position_id must be a valid number');
+        throw new BadRequestException('Invalid position in token');
       }
 
       return await this.draftService.getDraftDetail(id, position);
@@ -121,24 +123,25 @@ export class DraftController {
   }
 
   /**
-   * DELETE /draft/delete/:position_id/:id
-   * Delete a draft naskah
+   * DELETE /draft/delete/:id
+   * Delete a draft naskah (position_id from JWT token)
    *
-   * @param position_id - Position ID untuk validasi ownership (required)
    * @param id - ID Naskah (UUID)
+   * @param user - User dari JWT token (contains position)
    *
    * @returns DeleteDraftResponseDto
    */
-  @Delete('delete/:position_id/:id')
+  @UseGuards(JwtAuthGuard)
+  @Delete('delete/:id')
   async deleteDraft(
-    @Param('position_id') positionId: string,
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<DeleteDraftResponseDto> {
     try {
-      // Validate position_id
-      const position = parseInt(positionId, 10);
+      // Get position_id from JWT token
+      const position = parseInt(user.position, 10);
       if (isNaN(position)) {
-        throw new BadRequestException('position_id must be a valid number');
+        throw new BadRequestException('Invalid position in token');
       }
 
       return await this.draftService.deleteDraft(id, position);

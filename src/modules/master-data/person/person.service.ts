@@ -24,30 +24,144 @@ export class PersonService {
     });
   }
 
-  async findOne(id: string): Promise<Person> {
-    const company = await this.cRepo.findOne({ where: { id } });
-    if (!company) {
-      throw new NotFoundException(`Area with ID ${id} not found`);
+  /**
+   * Get persons by company (via relation tables)
+   */
+  async findByCompany(companyId: number): Promise<Person[]> {
+    // Use relation tables to find persons by company
+    const query = `
+      SELECT DISTINCT p.*
+      FROM pa_personal p
+      INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
+      WHERE rsp.company = ?
+      ORDER BY p.name ASC
+    `;
+    
+    const results = await this.cRepo.query(query, [companyId]);
+    return results;
+  }
+
+  /**
+   * Get persons by position
+   */
+  async findByPosition(positionId: number) {
+    const query = `
+      SELECT DISTINCT p.*, rsp.position, pos.short_text as position_name
+      FROM pa_personal p
+      INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
+      LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
+      WHERE rsp.position = ?
+      ORDER BY p.name ASC
+    `;
+    
+    const results = await this.cRepo.query(query, [positionId]);
+    return results;
+  }
+
+  /**
+   * Get persons by organization
+   */
+  async findByOrganization(companyId: number, organizationId: number) {
+    const query = `
+      SELECT DISTINCT p.*, rsp.position, pos.short_text as position_name,
+             org.short_text as organization_name
+      FROM pa_personal p
+      INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
+      LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
+      LEFT JOIN om_relation_oo roo ON roo.company = rsp.company
+      LEFT JOIN om_organization org ON org.organization = roo.organization AND org.company = roo.company
+      WHERE rsp.company = ? AND org.organization = ?
+      ORDER BY p.name ASC
+    `;
+    
+    const results = await this.cRepo.query(query, [companyId, organizationId]);
+    return results;
+  }
+
+  /**
+   * Search persons by name
+   */
+  async searchByName(name: string): Promise<Person[]> {
+    return this.cRepo
+      .createQueryBuilder('person')
+      .where('person.name LIKE :name', { name: `%${name}%` })
+      .orderBy('person.name', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Get person with full details (position, organization, etc)
+   */
+  async findOneWithDetails(persnum: number) {
+    const query = `
+      SELECT 
+        p.*,
+        rsp.position,
+        pos.short_text as position_name,
+        pos.long_text as position_description,
+        rsp.company,
+        comp.short_text as company_name,
+        org.organization,
+        org.short_text as organization_name,
+        area.area as area_code,
+        area.short_text as area_name,
+        asub.sub_area as sub_area_code,
+        asub.short_text as sub_area_name
+      FROM pa_personal p
+      LEFT JOIN om_relation_sp rsp ON rsp.persnum = p.persnum
+      LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
+      LEFT JOIN om_company comp ON comp.company = rsp.company
+      LEFT JOIN om_relation_oo roo ON roo.company = rsp.company
+      LEFT JOIN om_organization org ON org.organization = roo.organization AND org.company = roo.company
+      LEFT JOIN om_area area ON area.company = rsp.company
+      LEFT JOIN om_area_sub asub ON asub.company = rsp.company AND asub.area = area.area
+      WHERE p.persnum = ?
+      LIMIT 1
+    `;
+    
+    const results = await this.cRepo.query(query, [persnum]);
+    
+    if (!results || results.length === 0) {
+      throw new NotFoundException(`Person with persnum ${persnum} not found`);
     }
-    return company;
+    
+    return results[0];
+  }
+
+  async findOne(id: string): Promise<Person> {
+    const person = await this.cRepo.findOne({ where: { id } });
+    if (!person) {
+      throw new NotFoundException(`Person with ID ${id} not found`);
+    }
+    return person;
   }
 
   async create(dto: CreatePersonDto): Promise<Person> {
-    // Jika tidak ada id, generate UUID otomatis (karena di DB defaultnya UUID())
-    const newCompany = this.cRepo.create(dto);
-    return this.cRepo.save(newCompany);
+    // Check if persnum already exists
+    const existing = await this.cRepo.findOne({
+      where: { persnum: dto.persnum },
+    });
+
+    if (existing) {
+      throw new NotFoundException(
+        `Person with persnum ${dto.persnum} already exists`
+      );
+    }
+
+    const newPerson = this.cRepo.create(dto);
+    return this.cRepo.save(newPerson);
   }
 
   async update(id: string, dto: UpdatePersonDto): Promise<Person> {
-    const company = await this.findOne(id);
-    const updated = Object.assign(company, dto);
+    const person = await this.findOne(id);
+    const updated = Object.assign(person, dto);
     return this.cRepo.save(updated);
   }
 
   async remove(id: string): Promise<{ message: string }> {
-    const company = await this.findOne(id);
-    await this.cRepo.remove(company);
-    return { message: `Area ${id} deleted successfully` };
+    const person = await this.findOne(id);
+    await this.cRepo.remove(person);
+    return { message: `Person ${id} deleted successfully` };
   }
 
   async countNaskahBySirkuler(
