@@ -215,6 +215,33 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.send_read_time IS NULL`;
     }
 
+    // Filter by favorite
+    if (query.favorite === true) {
+      whereClause += ` AND s.flag_favorit = 1`;
+    }
+
+    // Filter by tindak lanjut
+    if (query.tinjut === 'sudah_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 1`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+    }
+
+    // Filter by lock
+    if (query.lock === true) {
+      whereClause += ` AND s.is_locked = 1`;
+    }
+
+    // Filter by note
+    if (query.note === true) {
+      whereClause += ` AND s.flag_note = 1`;
+    }
+
+    // Filter by arsip
+    if (query.arsip === true) {
+      whereClause += ` AND s.flag_arsip = 1`;
+    }
+
     // Pagination params
     const page = query.page || 1;
     const limit = query.limit || 10;
