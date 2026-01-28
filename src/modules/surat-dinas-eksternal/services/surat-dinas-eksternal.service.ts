@@ -655,14 +655,14 @@ export class SuratDinasEksternalService {
       await queryRunner.manager.save(newNomor);
     }
 
-    // 7. Insert nomor_request_detail dengan status 'terpakai'
+    // 7. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari SDE)
     const nomorRequestDetail = this.nomorRequestDetailRepository.create({
       id: uuidv4(),
       idRequest: requestId,
       nomor: nomorLengkap,
       fileName: null,
       fileText: null,
-      status: 'terpakai',
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(nomorRequestDetail);
@@ -1142,6 +1142,27 @@ export class SuratDinasEksternalService {
       // Determine if this is a draft
       const isDraft = status === 'draf';
 
+      // PHASE 5a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDE',
+            ref_pengirim: null,
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
+
       // PHASE 6: Insert sirkulasi - pengirim dan tembusan
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -1490,6 +1511,27 @@ export class SuratDinasEksternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
+
+      // PHASE 6a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDE',
+            ref_pengirim: null,
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
 
       // PHASE 7: Insert sirkulasi
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
@@ -1870,6 +1912,9 @@ export class SuratDinasEksternalService {
       penerima: penerimaArray,
       tembusan: tembusanArray.length > 0 ? tembusanArray : undefined,
       tgl: body.tgl,
+
+      // Referensi Naskah (untuk sirkulasi persuratan)
+      id_referensi_naskah: body.id_referensi_naskah,
 
       // Kop
       kop_logo: body.kop_logo,

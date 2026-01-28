@@ -37,9 +37,8 @@ import {
 import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
 import { InboxSentResponseDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
-import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../../common/decorators';
 
 @Controller('naskah_sirkulasi')
 export class NaskahSirkulasiController {
@@ -73,62 +72,65 @@ export class NaskahSirkulasiController {
   // ============================================================
 
   /**
-   * GET /naskah_sirkulasi/inbox/:position_id
+   * GET /naskah_sirkulasi/inbox
    *
-   * Mengambil kotak masuk untuk position tertentu
+   * Mengambil kotak masuk untuk position tertentu (dari JWT token)
    * Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
    *
-   * @param positionId - Position ID penerima
+   * @param user - User dari JWT token (contains position)
    * @param query - Filter options (jenis, status_baca)
    * @returns InboxResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/inbox/123?jenis=DI&status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/inbox?jenis=DI&status_baca=belum_terbaca
    */
-  @Get('inbox/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox')
   async getInbox(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query() query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.getInbox(positionId, query);
   }
 
   /**
-   * GET /naskah_sirkulasi/inbox-count/:position_id
+   * GET /naskah_sirkulasi/inbox-count
    *
-   * Menampilkan jumlah kotak masuk yang belum dibaca
+   * Menampilkan jumlah kotak masuk yang belum dibaca (dari JWT token)
    *
-   * @param positionId - Position ID penerima
+   * @param user - User dari JWT token (contains position)
    * @returns CountUnreadInboxResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/inbox-count/123
+   * GET /naskah_sirkulasi/inbox-count
    */
-  @Get('inbox-count/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox-count')
   async countUnreadInbox(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
   ): Promise<CountUnreadInboxResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.countUnreadInbox(positionId);
   }
 
   /**
    * GET /naskah_sirkulasi/inbox-sent
    *
-   * Mengambil kotak masuk dan kotak keluar sekaligus (authenticated)
-   * Position diambil dari JWT token
+   * Mengambil kotak masuk dan kotak keluar sekaligus (dari JWT token)
    *
-   * @param user - Authenticated user from JWT
+   * @param user - User dari JWT token (contains position)
    * @param query - Filter options
    * @returns InboxSentResponseDto
    */
-  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('inbox-sent')
   async getInboxAndSent(
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user: any,
     @Query() query: InboxSentQueryDto,
   ): Promise<InboxSentResponseDto> {
-    return this.naskahSirkulasiService.getInboxAndSent(user.position, query);
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getInboxAndSent(positionId, query);
   }
 
   // ============================================================
@@ -136,25 +138,27 @@ export class NaskahSirkulasiController {
   // ============================================================
 
   /**
-   * GET /naskah_sirkulasi/sent/:position_id
+   * GET /naskah_sirkulasi/sent
    *
-   * Mengambil kotak keluar (pesan terkirim) untuk position tertentu
+   * Mengambil kotak keluar (pesan terkirim) untuk position tertentu (dari JWT token)
    * Termasuk status baca per penerima
    *
-   * @param positionId - Position ID pengirim
+   * @param user - User dari JWT token (contains position)
    * @param query - Filter options (jenis, status_baca)
    * @returns SentMessageResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/sent/123
-   * GET /naskah_sirkulasi/sent/123?jenis=DI
-   * GET /naskah_sirkulasi/sent/123?status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/sent
+   * GET /naskah_sirkulasi/sent?jenis=DI
+   * GET /naskah_sirkulasi/sent?status_baca=belum_terbaca
    */
-  @Get('sent/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('sent')
   async getSentMessage(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query() query: SentMessageQueryDto,
   ): Promise<SentMessageResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.getSentMessage(positionId, query);
   }
 

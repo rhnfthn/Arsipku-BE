@@ -284,7 +284,7 @@ export class NotaDinasService {
       .replace(/\/\//g, '/') // Hapus double slash
       .trim(); // Trim spasi di awal/akhir
 
-    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari ND)
     const detailId = uuidv4();
     const detail = this.nomorRequestDetailRepository.create({
       id: detailId,
@@ -292,7 +292,7 @@ export class NotaDinasService {
       nomor: nomorBaru,
       fileName: null,
       fileText: null,
-      status: 'terpakai',
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(detail);
@@ -789,6 +789,9 @@ export class NotaDinasService {
         : undefined,
       lampiran_files:
         lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      // Referensi Naskah (untuk sirkulasi persuratan)
+      id_referensi_naskah: body.id_referensi_naskah,
 
       // PDF & Tanggal
       final_pdf: finalPdfPath || body.final_pdf,
@@ -1427,6 +1430,31 @@ export class NotaDinasService {
         }
       }
 
+      // PHASE 11b: Insert referensi naskah (if any) - untuk sirkulasi persuratan
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          // Jika jenis tidak sesuai enum, default ke 'ND'
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '') 
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') 
+            : 'ND';
+
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: refJenis,
+            ref_tanggal: naskahRef.tanggal,
+            ref_nomor: naskahRef.nomor,
+            ref_perihal: naskahRef.perihal,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
+
       // PHASE 12: Insert ke tabel nd (konten lengkap Nota Dinas)
       const kepadaYthList = penerimaList.map(
         (p) => p.position_text,
@@ -1729,6 +1757,30 @@ export class NotaDinasService {
           'ND',
           'nota-dinas/lampiran',
         );
+      }
+
+      // PHASE 8b: Insert referensi naskah (if any) - untuk sirkulasi persuratan
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '') 
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') 
+            : 'ND';
+
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: refJenis,
+            ref_tanggal: naskahRef.tanggal,
+            ref_nomor: naskahRef.nomor,
+            ref_perihal: naskahRef.perihal,
+          });
+          await queryRunner.manager.save(referensi);
+        }
       }
 
       // PHASE 9: Insert nd entity
