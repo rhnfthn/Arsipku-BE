@@ -560,6 +560,8 @@ export class SuratDinasEksternalService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'SDE';
     const tahun = tanggal.getFullYear();
@@ -660,8 +662,8 @@ export class SuratDinasEksternalService {
       id: uuidv4(),
       idRequest: requestId,
       nomor: nomorLengkap,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -1312,6 +1314,18 @@ export class SuratDinasEksternalService {
             { id: naskahId },
             { final_pdf: finalPdfPath },
           );
+
+          // Update nomor_request_detail dengan file PDF yang sudah di-generate
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update('nomor_request_detail')
+            .set({
+              fileName: pdfFileName,
+              fileText: finalPdfPath,
+            })
+            .where('nomor = :nomor', { nomor: nomorSurat })
+            .andWhere('status = :status', { status: 'terpakai_final' })
+            .execute();
         } catch (error) {
           // Don't fail the whole transaction if PDF generation fails
         }
@@ -1797,6 +1811,18 @@ export class SuratDinasEksternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // COMMIT TRANSACTION
         await queryRunner.commitTransaction();
@@ -2828,6 +2854,18 @@ export class SuratDinasEksternalService {
           { final_pdf: finalPdfPath },
         );
 
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
+
         // Update naskah with tanda_tangan metadata (if digsig)
         if (signatureMetadata) {
           // Update path in metadata
@@ -3703,6 +3741,18 @@ export class SuratDinasEksternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         console.log(`[SDE Forward] PDF generated: ${finalPdfPath}`);
       } catch (error) {
