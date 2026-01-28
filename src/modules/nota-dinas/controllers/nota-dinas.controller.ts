@@ -20,10 +20,10 @@ export class NotaDinasController {
   constructor(private readonly notaDinasService: NotaDinasService) {}
 
   /**
-   * GET /ND/get-recipient/{positionId}
-   * Get eligible recipients for Nota Dinas based on position ID (using org_data)
+   * GET /ND/get-recipient
+   * Get eligible recipients for Nota Dinas based on position ID from JWT token
    *
-   * @param positionId - Position ID (path parameter)
+   * @param user - User dari JWT token (contains position)
    * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
    * @returns NotaDinasRecipientResponseDto
    *
@@ -35,12 +35,14 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (non-managerial position)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getNotaDinasRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is

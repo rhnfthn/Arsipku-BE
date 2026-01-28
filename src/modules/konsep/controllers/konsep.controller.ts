@@ -46,17 +46,19 @@ export class KonsepController {
   // ============================================================
 
   /**
-   * GET /KONSEP/get-recipient/:position_id
-   * Dapatkan daftar atasan yang bisa dipilih sebagai penerima konsep
+   * GET /KONSEP/get-recipient
+   * Dapatkan daftar atasan yang bisa dipilih sebagai penerima konsep (from JWT token)
    * 
-   * @param position_id Position ID pembuat konsep
+   * @param user - User dari JWT token (contains position)
    * @returns Sender info dan list of managerial positions (ATASAN)
    */
-  @Get('get-recipient/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getRecipient(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.konsepService.getRecipient(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -180,17 +182,19 @@ export class KonsepController {
   // ============================================================
 
   /**
-   * GET /KONSEP/inbox/:position_id
-   * Dapatkan inbox konsep untuk pemeriksa/pengirim
+   * GET /KONSEP/inbox
+   * Dapatkan inbox konsep untuk pemeriksa/pengirim (from JWT token)
    * 
-   * @param position_id Position ID pemeriksa/pengirim
+   * @param user - User dari JWT token (contains position)
    * @returns KonsepInboxResponseDto
    */
-  @Get('inbox/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox')
   async getInbox(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<KonsepInboxResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.konsepService.getInbox(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -213,17 +217,19 @@ export class KonsepController {
   // ============================================================
 
   /**
-   * GET /KONSEP/sent/:position_id
-   * Dapatkan konsep yang dikirim oleh konseptor/pemeriksa
+   * GET /KONSEP/sent
+   * Dapatkan konsep yang dikirim oleh konseptor/pemeriksa (from JWT token)
    * 
-   * @param position_id Position ID konseptor/pemeriksa
+   * @param user - User dari JWT token (contains position)
    * @returns KonsepSentResponseDto
    */
-  @Get('sent/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('sent')
   async getSent(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<KonsepSentResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.konsepService.getSent(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
