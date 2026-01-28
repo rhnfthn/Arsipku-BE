@@ -502,6 +502,8 @@ export class KonsepService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const tahun = tanggal.getFullYear();
     const bulan = tanggal.getMonth() + 1;
@@ -603,8 +605,8 @@ export class KonsepService {
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
