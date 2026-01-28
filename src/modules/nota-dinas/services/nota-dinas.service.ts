@@ -207,6 +207,8 @@ export class NotaDinasService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'ND';
     const tahun = tanggal.getFullYear();
@@ -290,8 +292,8 @@ export class NotaDinasService {
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -1334,6 +1336,8 @@ export class NotaDinasService {
           dto.perihal,
           tanggalNomor,
           queryRunner,
+          dto.final_pdf || undefined,
+          dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
         );
       }
 
@@ -1702,6 +1706,8 @@ export class NotaDinasService {
         dto.perihal,
         tanggalNomor,
         queryRunner,
+        dto.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
       );
 
       // PHASE 6: Insert naskah
@@ -2233,6 +2239,8 @@ export class NotaDinasService {
         // Use dto.tgl if provided, else use naskah's existing date, else today
         dto.tgl ? this.parseDateString(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date()),
         queryRunner,
+        dto.final_pdf || naskah.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : (naskah.final_pdf ? naskah.final_pdf.split('/').pop() : undefined),
       );
 
       // PHASE 6B: Update naskah table (all fields + finalization fields)
@@ -2661,6 +2669,18 @@ export class NotaDinasService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // Update naskah with tanda_tangan metadata (if digsig)
         if (signatureMetadata) {
@@ -4064,6 +4084,8 @@ export class NotaDinasService {
         perihal,
         tanggalNaskah,
         queryRunner,
+        undefined,
+        undefined,
       );
 
       // Calculate total lampiran count

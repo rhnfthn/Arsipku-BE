@@ -235,6 +235,8 @@ export class DisposisiService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'DI';
     const tahun = tanggal.getFullYear();
@@ -318,8 +320,8 @@ export class DisposisiService {
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -1523,6 +1525,18 @@ export class DisposisiService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: generatedNomor })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         console.log('[DI sendMessage] PDF auto-generated:', finalPdfPath);
       } catch (error) {
@@ -3009,6 +3023,18 @@ export class DisposisiService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: generatedNomor })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         console.log('[DI forward] PDF auto-generated:', finalPdfPath);
       } catch (error) {
