@@ -32,6 +32,7 @@ import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -71,7 +72,8 @@ export class SuratDinasInternalService {
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
     private readonly pdfQrEmbedService: PdfQrEmbedService,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   // ============================================================
   // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
@@ -123,7 +125,7 @@ export class SuratDinasInternalService {
       }
 
       const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
-      
+
       const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
         company,
         area,
@@ -325,7 +327,7 @@ export class SuratDinasInternalService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
     }
@@ -336,7 +338,7 @@ export class SuratDinasInternalService {
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
       const position = barisData.find((p: any) => p.position === numericId);
-      
+
       if (position) {
         // Return position_text only (without organization_text)
         const fullName = `${position.position_text}`;
@@ -431,7 +433,7 @@ export class SuratDinasInternalService {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
       let lampiranText = lampiran;
       let lampiranFiles: any[] = [];
-      
+
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
@@ -494,7 +496,7 @@ export class SuratDinasInternalService {
         filePath: string;
         tempFolderId: string | null;
       }> = [];
-      
+
       for (const lampiran of tempLampiran) {
         files.push({
           id: lampiran.id,
@@ -686,7 +688,7 @@ export class SuratDinasInternalService {
 
     // Build DTO - support both 'penerima' and 'tertuju' field names
     const penerimaData = body.penerima || body.tertuju;
-    
+
     // Parse sign_option ke enum SignOption
     let signOption: SignOption | undefined;
     if (body.sign_option) {
@@ -980,9 +982,9 @@ export class SuratDinasInternalService {
       positionStatus: 'ybs',
       // Ensure idSirkuler and namaSirkuler are always populated.
       // Prefer persnum_person/persnum_person_text, then persnum/nama, then fallback to position/position_text
-        // Use persnum_person if available (employee in the position), otherwise fall back to persnum or position
-        idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
-        namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+      // Use persnum_person if available (employee in the position), otherwise fall back to persnum or position
+      idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
+      namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
       urutan: urutan,
     });
@@ -1039,7 +1041,7 @@ export class SuratDinasInternalService {
    * @param persnum - Persnum user untuk BSrE signing (optional, required if sign_option=digsig)
    */
   async sendMessage(
-    dto: CreateSuratDinasInternalDto, 
+    dto: CreateSuratDinasInternalDto,
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     // Validate sign_option + passphrase combination
@@ -1210,7 +1212,7 @@ export class SuratDinasInternalService {
     // Cari item current berdasarkan position
     const current = barisData.find((x) => Number(x.position) === Number(positionParam));
     if (!current) {
-      return { REKAN: [], TEMBUSAN: [] }; 
+      return { REKAN: [], TEMBUSAN: [] };
     }
 
     // Filter: chief=1, SAMA organization_parent, BEDA sub_area, bukan diri sendiri
@@ -1378,7 +1380,7 @@ export class SuratDinasInternalService {
       // - Draft: nomor temporary
       // - Final: generate nomor resmi dengan integrasi ke nomor_request
       let nomorSurat: string;
-      
+
       if (status === 'draf') {
         nomorSurat = `DRAFT-${Date.now()}`;
       } else {
@@ -1451,7 +1453,7 @@ export class SuratDinasInternalService {
         // Get file names before moving
         const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
         lampiranFileNames = lampiranFiles.map(f => f.fileName);
-        
+
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1567,9 +1569,12 @@ export class SuratDinasInternalService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Build lampiran text from file names
-      const lampiranText = lampiranFileNames.length > 0 
-        ? lampiranFileNames.join(', ') 
+      const lampiranText = lampiranFileNames.length > 0
+        ? lampiranFileNames.join(', ')
         : (dto.lampiran || undefined);
 
       // Return response
@@ -1994,9 +1999,12 @@ export class SuratDinasInternalService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Build response
-      const lampiranTextResponse = lampiranFileNames.length > 0 
-        ? lampiranFileNames.join(', ') 
+      const lampiranTextResponse = lampiranFileNames.length > 0
+        ? lampiranFileNames.join(', ')
         : (dto.lampiran || undefined);
 
       return {
@@ -2401,7 +2409,7 @@ export class SuratDinasInternalService {
         // ========================================
         if ((dto.sign_option === SignOption.DIGSIG && persnum) || dto.sign_option === SignOption.QR_ONLY) {
           console.log(`[SDI finalizeDraft] Processing signing, sign_option: ${dto.sign_option}`);
-          
+
           // Generate QR Code data
           const signedAt = new Date().toISOString();
           const signatureId = generateSignatureId();
@@ -2455,9 +2463,9 @@ export class SuratDinasInternalService {
           // If DIGSIG, hit BSrE API
           if (dto.sign_option === SignOption.DIGSIG && persnum) {
             console.log(`[SDI finalizeDraft] Hitting BSrE API for persnum: ${persnum}`);
-            
+
             const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
-            
+
             // Upload temp PDF for BSrE
             const tempTimestamp = Date.now();
             const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
@@ -2596,7 +2604,7 @@ export class SuratDinasInternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2728,14 +2736,14 @@ export class SuratDinasInternalService {
             if (!penerima) {
               throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
             }
-            
+
             // Check if penerima is managerial
             if (penerima.chief !== 1) {
               throw new ForbiddenException(
                 `Penerima ${penerima.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            
+
             // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
@@ -2758,14 +2766,14 @@ export class SuratDinasInternalService {
             if (!tembusan) {
               throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
             }
-            
+
             // Check if tembusan is managerial
             if (tembusan.chief !== 1) {
               throw new ForbiddenException(
                 `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). SDI hanya dapat dikirim ke managerial.`
               );
             }
-            
+
             // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
@@ -2846,7 +2854,7 @@ export class SuratDinasInternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2891,7 +2899,7 @@ export class SuratDinasInternalService {
     // Get org_data to validate position exists
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tanggal);
-    
+
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException('Data organisasi tidak ditemukan');
     }
@@ -3095,7 +3103,7 @@ export class SuratDinasInternalService {
       }
 
       const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-      
+
       // Get org_data
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
@@ -3103,11 +3111,11 @@ export class SuratDinasInternalService {
       }
 
       const positionJson: SdiOrgDataPositionDto[] = orgData.position_json;
-      
+
       const pos = positionJson.find(
         (p) => String(p.position) === String(positionId),
       );
-      
+
       if (pos) {
         // Use persnum_person_text as primary source for person name
         return (pos as any).persnum_person_text || pos.nama || '';
@@ -3277,70 +3285,70 @@ export class SuratDinasInternalService {
   }
 
   async getSenderKonsep(
-      positionId: number,
-      tgl?: string,
-    ): Promise<SdiOrgDataPositionDto[]> {
-      const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-  
-      // Get cached org data from org_data service
-      const orgData = await this.orgDataService.findOrg(tanggal);
-  
-      if (!orgData || !orgData.position_json) {
-        throw new NotFoundException(
-          `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
-        );
-      }
-  
-      const data: SdiOrgDataPositionDto[] = orgData.position_json;
-  
-      const result: SdiOrgDataPositionDto[] = [];
-      const added = new Set<number>(); // penanda duplicate
-  
-      // helper push aman
-      const pushUnique = (item?: SdiOrgDataPositionDto) => {
-        if (!item) return;
-        const key = Number(item.position);
-        if (added.has(key)) return;
-        added.add(key);
-        result.push(item);
-      };
-  
-      // cari posisi awal
-      let current = data.find((x) => Number(x.position) === Number(positionId));
-      if (!current) return result;
-      const bods = ['BOD', 'BOD-1'];
-      // kalau bukan chief → ambil chiefs
-      if (current.chief === 0) {
-        const chiefs = data.filter(
-          (x) =>
-            Number(x.divisi_id) === Number(current!.divisi_id) && x.chief === 1 && bods.includes(x.bod_tag as string),
-        );
-  
-        chiefs.forEach(pushUnique);
-  
-        current = chiefs.find((x) => x.bod_tag === 'BOD-1');
-      }
-  
-      // loop ke atas sampai parent tertinggi
-      while (current) {
-        if(bods.includes(current.bod_tag as string)){
-          pushUnique(current);
-        }
-  
-        const parent = data.find(
-          (x) =>
-            Number(x.organization_id) === Number(current!.organization_parent) &&
-            x.chief === 1 && x.sub_area===current?.sub_area,
-        );
-  
-        if (!parent) break;
-        current = parent;
-      }
-  
-      // sort akhir
-      result.sort((a, b) => Number(a.level) - Number(b.level));
-      return result;
+    positionId: number,
+    tgl?: string,
+  ): Promise<SdiOrgDataPositionDto[]> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    // Get cached org data from org_data service
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
     }
+
+    const data: SdiOrgDataPositionDto[] = orgData.position_json;
+
+    const result: SdiOrgDataPositionDto[] = [];
+    const added = new Set<number>(); // penanda duplicate
+
+    // helper push aman
+    const pushUnique = (item?: SdiOrgDataPositionDto) => {
+      if (!item) return;
+      const key = Number(item.position);
+      if (added.has(key)) return;
+      added.add(key);
+      result.push(item);
+    };
+
+    // cari posisi awal
+    let current = data.find((x) => Number(x.position) === Number(positionId));
+    if (!current) return result;
+    const bods = ['BOD', 'BOD-1'];
+    // kalau bukan chief → ambil chiefs
+    if (current.chief === 0) {
+      const chiefs = data.filter(
+        (x) =>
+          Number(x.divisi_id) === Number(current!.divisi_id) && x.chief === 1 && bods.includes(x.bod_tag as string),
+      );
+
+      chiefs.forEach(pushUnique);
+
+      current = chiefs.find((x) => x.bod_tag === 'BOD-1');
+    }
+
+    // loop ke atas sampai parent tertinggi
+    while (current) {
+      if (bods.includes(current.bod_tag as string)) {
+        pushUnique(current);
+      }
+
+      const parent = data.find(
+        (x) =>
+          Number(x.organization_id) === Number(current!.organization_parent) &&
+          x.chief === 1 && x.sub_area === current?.sub_area,
+      );
+
+      if (!parent) break;
+      current = parent;
+    }
+
+    // sort akhir
+    result.sort((a, b) => Number(a.level) - Number(b.level));
+    return result;
+  }
 
   // ============================================================
   // FORWARD SURAT DINAS INTERNAL
@@ -3399,14 +3407,14 @@ export class SuratDinasInternalService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim} bukan penerima dari naskah ${dto.id_naskah_referensi}. ` +
-            `Hanya penerima yang bisa forward naskah dinas.`,
+          `Hanya penerima yang bisa forward naskah dinas.`,
         );
       }
 
       // PHASE 3: Get org_data dan validasi pengirim & penerima
       const tanggal = new Date().toISOString().split('T')[0];
       const orgData = await this.orgDataService.findOrg(tanggal);
-      
+
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(
           `Data organisasi untuk tanggal ${tanggal} tidak ditemukan`,
@@ -3693,7 +3701,7 @@ export class SuratDinasInternalService {
       const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
       const namaLengkap = dto.nama_lengkap || pengirim.persnum_person_text || '';
       const namaTempat = dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
-      
+
       // Get dynamic header info
       const headerInfo = await this.getHeaderInfoByUser(
         {
@@ -3712,7 +3720,7 @@ export class SuratDinasInternalService {
           htmlContent: konten,
           nomor: nomorSurat,
           penerima: kepadaYthList,
-          tembusan: tembusanList.length > 0 
+          tembusan: tembusanList.length > 0
             ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`)
             : [],
           perihal: perihal,

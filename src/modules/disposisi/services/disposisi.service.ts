@@ -54,6 +54,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -141,7 +142,8 @@ export class DisposisiService {
     private readonly generatePdfDispoService: GeneratePdfDispoService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   // ============================================================
   // HELPER METHODS FOR POSITION CONVERSION
@@ -166,7 +168,7 @@ export class DisposisiService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
@@ -178,7 +180,7 @@ export class DisposisiService {
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
       const position = barisData.find(p => p.position === numericId);
-      
+
       if (position) {
         // Return position_text with organization_text
         const fullName = `${position.position_text} - ${position.organization_text}`;
@@ -391,13 +393,13 @@ export class DisposisiService {
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      
+
       // Format tanggal default jika tidak disediakan
-      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       });
 
       // Auto-check "Lainnya" if catatan is filled
@@ -465,7 +467,7 @@ export class DisposisiService {
         filePath: string;
         tempFolderId: string | null;
       }> = [];
-      
+
       for (const lampiran of tempLampiran) {
         files.push({
           id: lampiran.id,
@@ -774,12 +776,12 @@ export class DisposisiService {
     const bod1: OrgDataPosition[] =
       current.bod_tag === 'BOD'
         ? allData.filter(
-            (x) =>
-              x.sub_area === current.sub_area &&
-              x.chief === 1 &&
-              x.direktorat_id !== current.direktorat_id &&
-              x.bod_tag === 'BOD-1',
-          )
+          (x) =>
+            x.sub_area === current.sub_area &&
+            x.chief === 1 &&
+            x.direktorat_id !== current.direktorat_id &&
+            x.bod_tag === 'BOD-1',
+        )
         : [];
 
     /* 3️⃣ MERGE + DEDUP */
@@ -866,11 +868,11 @@ export class DisposisiService {
       const gm =
         current.bod_tag === 'BOD'
           ? barisData.filter(
-              (x) =>
-                x.chief === 1 &&
-                x.area !== current.area &&
-                x.bod_tag === 'BOD-1',
-            )
+            (x) =>
+              x.chief === 1 &&
+              x.area !== current.area &&
+              x.bod_tag === 'BOD-1',
+          )
           : [];
       return [...children, ...gm];
     }
@@ -987,7 +989,7 @@ export class DisposisiService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-          `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
+        `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
       );
     }
   }
@@ -1419,7 +1421,7 @@ export class DisposisiService {
             disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
           }
         }
-        
+
         // Auto-check "Lainnya" if catatan is filled
         if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
           disposisiArray.push('Lainnya');
@@ -1431,7 +1433,7 @@ export class DisposisiService {
         let refPerihal = '';
         let refTanggal = '';
         let refPengirim = '';
-        
+
         if (dto.id_naskah_sebelumnya) {
           const naskahRef = await this.naskahRepository.findOne({
             where: { id: dto.id_naskah_sebelumnya },
@@ -1508,6 +1510,9 @@ export class DisposisiService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
 
       // Build response
       return {
@@ -2269,10 +2274,10 @@ export class DisposisiService {
         // Update temporary lampiran: set id_naskah and is_temporary = 0
         await queryRunner.manager.update(
           NaskahLampiranEntity,
-          { 
+          {
             id: In(dto.lampiran_temp_ids),
           },
-          { 
+          {
             id_naskah: naskahId,
             is_temporary: 0,
           },
@@ -2512,20 +2517,20 @@ export class DisposisiService {
       message: 'Draft disposisi berhasil dikirim',
       data: result.data
         ? {
-            id: result.data.id,
-            jenis: result.data.jenis,
-            nomor: result.data.nomor || '',
-            tanggal: result.data.tanggal,
-            status: 'final' as const,
-            sifat: result.data.sifat,
-            perihal: result.data.perihal,
-            pengirim: result.data.pengirim,
-            penerima: result.data.penerima,
-            disposisi: result.data.disposisi,
-            catatan: result.data.catatan,
-            lampiran: result.data.lampiran,
-            id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
-          }
+          id: result.data.id,
+          jenis: result.data.jenis,
+          nomor: result.data.nomor || '',
+          tanggal: result.data.tanggal,
+          status: 'final' as const,
+          sifat: result.data.sifat,
+          perihal: result.data.perihal,
+          pengirim: result.data.pengirim,
+          penerima: result.data.penerima,
+          disposisi: result.data.disposisi,
+          catatan: result.data.catatan,
+          lampiran: result.data.lampiran,
+          id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
+        }
         : undefined,
     };
   }
@@ -2584,7 +2589,7 @@ export class DisposisiService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim_position_id} bukan penerima dari naskah ${dto.id_naskah_diterima}. ` +
-            `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
+          `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
         );
       }
 
@@ -2766,7 +2771,7 @@ export class DisposisiService {
 
         if (previousLampiran.length > 0) {
           console.log(`[DI forward] Copying ${previousLampiran.length} lampiran from previous naskah`);
-          
+
           // Copy lampiran dengan ID baru tapi file_pdf sama (reference ke file yang sama)
           for (const prevLamp of previousLampiran) {
             const newLampiranId = uuidv4();
@@ -2792,7 +2797,7 @@ export class DisposisiService {
       // Option 2: Handle temporary lampiran TAMBAHAN (bisa dikombinasi dengan copy)
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
         console.log(`[DI forward] Adding ${dto.lampiran_temp_ids.length} new lampiran from temporary`);
-        
+
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -2802,7 +2807,7 @@ export class DisposisiService {
 
         // Fetch moved lampiran untuk response
         const movedLampiran = await this.naskahLampiranRepository.find({
-          where: { 
+          where: {
             id_naskah: naskahId,
             id: In(dto.lampiran_temp_ids),
           },
@@ -2816,7 +2821,7 @@ export class DisposisiService {
           });
         }
       }
-      
+
       // Option 3: Legacy direct lampiran upload (deprecated)
       else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
@@ -2878,7 +2883,7 @@ export class DisposisiService {
             disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
           }
         }
-        
+
         // Auto-check "Lainnya" if catatan is filled
         if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
           disposisiArray.push('Lainnya');
@@ -2890,7 +2895,7 @@ export class DisposisiService {
         let refPerihal = naskahDiterima.perihal || '';
         let refTanggal = '';
         let refPengirim = '';
-        
+
         if (naskahDiterima.tanggal) {
           const refDate = new Date(naskahDiterima.tanggal);
           refTanggal = refDate.toLocaleDateString('id-ID', {
@@ -3032,12 +3037,12 @@ export class DisposisiService {
     // ============================================================
     // BUILD FULL CHAIN / RANGKAIAN
     // ============================================================
-    
+
     // STEP 1: Trace backward to find root
     let rootNaskahId = naskahId;
     let currentId = naskahId;
     const visitedIds = new Set<string>([currentId]);
-    
+
     while (true) {
       const referensi = await this.naskahReferensiRepository.findOne({
         where: { id_naskah: currentId },
@@ -3049,7 +3054,7 @@ export class DisposisiService {
       }
 
       const parentNaskah = await this.naskahRepository.findOne({
-        where: { 
+        where: {
           nomor: referensi.ref_nomor,
           jenis: 'DI',
         },
@@ -3067,7 +3072,7 @@ export class DisposisiService {
     // STEP 2: Build flow from root forward
     const flow: any[] = [];
     const naskahIdToLevel = new Map<string, number>();
-    
+
     // Helper function to build node data for flow
     const buildFlowNode = async (
       naskahData: NaskahEntity,
@@ -3108,14 +3113,14 @@ export class DisposisiService {
       // Format tanggal
       const tanggalStr = naskahData.tanggal
         ? (naskahData.tanggal instanceof Date
-            ? naskahData.tanggal.toISOString().split('T')[0]
-            : String(naskahData.tanggal).split('T')[0])
+          ? naskahData.tanggal.toISOString().split('T')[0]
+          : String(naskahData.tanggal).split('T')[0])
         : null;
 
       const tanggalAgendaStr = diData?.tanggalAgenda
         ? (diData.tanggalAgenda instanceof Date
-            ? diData.tanggalAgenda.toISOString().split('T')[0]
-            : String(diData.tanggalAgenda).split('T')[0])
+          ? diData.tanggalAgenda.toISOString().split('T')[0]
+          : String(diData.tanggalAgenda).split('T')[0])
         : null;
 
       // Get final PDF URL
@@ -3126,11 +3131,11 @@ export class DisposisiService {
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-            position_id: pengirimSirkulasi.position || '',
-            position_text: pengirimSirkulasi.positionText || '',
-            organization_text: pengirimSirkulasi.organizationText || '',
-            nama: pengirimSirkulasi.namaSirkuler || null,
-          }
+          position_id: pengirimSirkulasi.position || '',
+          position_text: pengirimSirkulasi.positionText || '',
+          organization_text: pengirimSirkulasi.organizationText || '',
+          nama: pengirimSirkulasi.namaSirkuler || null,
+        }
         : null;
 
       // Build penerima list with read status
@@ -3163,7 +3168,7 @@ export class DisposisiService {
         perihal: naskahData.perihal,
         sifat: naskahData.sifat,
         status: naskahData.status,
-        
+
         // DI specific fields
         kop_logo: diData?.kopLogo || null,
         kop_judul: diData?.kopJudul || null,
@@ -3173,26 +3178,26 @@ export class DisposisiService {
         surat_dari: diData?.suratDari || null,
         kepada_yth: diData?.kepadaYth || null,
         klasifikasi: diData?.klasifikasi || naskahData.klasifikasi || null,
-        
+
         // Disposisi content
         disposisi: diData?.disposisi || null,
         catatan: diData?.catatan || null,
         paraf: diData?.paraf || null,
         is_priority: diData?.isPriority ? true : false,
-        
+
         // Sirkulasi
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
-        
+
         // Lampiran
         lampiran: naskahData.lampiran || null,
         jumlah_lampiran: lampiranCount,
         lampiran_files: lampiranInfo,
-        
+
         // PDF
         final_pdf: naskahData.final_pdf || null,
         final_pdf_url: finalPdfUrl,
-        
+
         // Level in chain
         level: level,
       };
