@@ -1,4 +1,5 @@
 import { IsOptional, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * Query params untuk get nomor
@@ -6,8 +7,21 @@ import { IsOptional, IsInt, Min } from 'class-validator';
 export class GetNomorQueryDto {
   @IsOptional()
   @IsInt()
+  @Type(() => Number)
   @Min(2000)
   tahun?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  limit?: number;
 }
 
 /**
@@ -28,6 +42,12 @@ export class GetNomorResponseDto {
     nama_pengirim: string | null;
     waktu: Date;
   }[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 /**
