@@ -44,8 +44,8 @@ export class SuratDinasInternalController {
   ) {}
 
   /**
-   * GET /SDI/get-recipient/:positionId
-   * Get eligible recipients for Surat Dinas Internal using org_data
+   * GET /SDI/get-recipient
+   * Get eligible recipients for Surat Dinas Internal using org_data (from JWT token)
    *
    * SDI Rules:
    * - Hanya REKAN (tidak ada ATASAN/BAWAHAN)
@@ -54,8 +54,8 @@ export class SuratDinasInternalController {
    * - Managerial only (chief = 1)
    * - Uses cached org_data for better performance
    *
-   * @param positionId - Position ID of the sender (path parameter)
-   * @param tgl - Optional date in format YYYY-MM-DD (query parameter)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Optional query params (tgl in format YYYY-MM-DD)
    * @returns SdiRecipientResponseDto
    *
    * @throws 400 - Bad Request (invalid positionId)
@@ -63,12 +63,14 @@ export class SuratDinasInternalController {
    * @throws 403 - Forbidden (non-managerial role)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getSdiRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdiRecipientQueryDto,
   ): Promise<SdiRecipientResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSdiRecipients(
         positionId,
         query.tgl,

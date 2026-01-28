@@ -54,45 +54,49 @@ export class SuratDinasEksternalController {
   }
 
   /**
-   * GET /SDE/get-recipient/:positionId
-   * Get Surat Dinas Eksternal (SDE) recipients for a sender
+   * GET /SDE/get-recipient
+   * Get Surat Dinas Eksternal (SDE) recipients for a sender (from JWT token)
    *
    * SDE Rules:
    * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
-   * @param positionId - Position ID of the sender
+   * @param user - User dari JWT token (contains position)
    * @param query - Optional query params (tgl in format YYYY-MM-DD)
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getSdeRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<SdeRecipientResponseDto> {
+    const positionId = parseInt(user.position, 10);
     return this.sdeService.getSdeRecipients(positionId, query.tgl);
   }
 
   /**
-   * GET /SDE/get-tembusan/:positionId
-   * Get tembusan (CC) recipients for SDE using org_data
+   * GET /SDE/get-tembusan
+   * Get tembusan (CC) recipients for SDE using org_data (from JWT token)
    *
    * Tembusan Rules (same as SDI):
    * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
    * - Tembusan: internal positions dengan chief=1, bod_tag='BOD', sama company
    * 
-   * @param positionId - Position ID of the sender
+   * @param user - User dari JWT token (contains position)
    * @param query - Optional query params (tgl in format YYYY-MM-DD)
    * @returns Tembusan recipients list
    *
    * @example
-   * GET /SDE/get-tembusan/123
-   * GET /SDE/get-tembusan/123?tgl=2024-01-15
+   * GET /SDE/get-tembusan
+   * GET /SDE/get-tembusan?tgl=2024-01-15
    */
-  @Get('get-tembusan/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-tembusan')
   async getSdeTembusan(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<any> {
+    const positionId = parseInt(user.position, 10);
     return this.sdeService.getSdeTembusan(positionId, query.tgl);
   }
 
