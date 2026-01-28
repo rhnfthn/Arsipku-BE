@@ -1,3 +1,27 @@
+import { IsOptional, IsInt, Min, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+
+/**
+ * Query params untuk get nomor request
+ */
+export class GetNomorRequestQueryDto {
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
 /**
  * Response DTO untuk get nomor request (user view)
  */
