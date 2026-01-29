@@ -6,8 +6,7 @@ export class CreatePositionDto {
   id?: string;
 
   @IsInt()
-  @IsOptional()
-  company?: number;
+  company: number; // Required for creating position
 
   @IsInt()
   position: number;
@@ -34,9 +33,21 @@ export class CreatePositionDto {
   @MaxLength(250)
   abbreviation?: string; // Titelatur
 
-  @IsBoolean()
+  // Relation to organization (om_relation_os)
+  @IsInt()
   @IsOptional()
-  chief?: boolean; // Chief position (managerial)
+  organization?: number;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  organizationText?: string;
+
+  // BOD tag for cost center relation (om_relation_osc)
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  bodTag?: string;
 
   @IsString()
   @IsOptional()
