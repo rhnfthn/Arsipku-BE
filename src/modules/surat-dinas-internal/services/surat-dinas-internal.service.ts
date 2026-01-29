@@ -190,6 +190,8 @@ export class SuratDinasInternalService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'SDI';
     const tahun = tanggal.getFullYear();
@@ -267,15 +269,15 @@ export class SuratDinasInternalService {
       .replace(/\/\//g, '/')
       .trim();
 
-    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari SDI)
     const detailId = uuidv4();
     const detail = this.nomorRequestDetailRepository.create({
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
-      status: 'terpakai',
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(detail);
@@ -726,6 +728,9 @@ export class SuratDinasInternalService {
       lampiran: body.lampiran,
       lampiran_files: lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
+
+      // Referensi Naskah (untuk sirkulasi persuratan)
+      id_referensi_naskah: body.id_referensi_naskah,
 
       final_pdf: finalPdfPath || body.final_pdf,
       tgl: body.tgl,
@@ -1394,6 +1399,8 @@ export class SuratDinasInternalService {
           dto.perihal,
           tanggalNomor,
           queryRunner,
+          dto.final_pdf || undefined,
+          dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
         );
       }
 
@@ -1422,6 +1429,27 @@ export class SuratDinasInternalService {
 
       // Determine if this is a draft
       const isDraft = status === 'draf';
+
+      // PHASE 7a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDI',
+            ref_pengirim: null, // Bisa diisi dari sirkulasi pengirim jika perlu
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
 
       // PHASE 8: Insert sirkulasi - pengirim
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
@@ -1709,6 +1737,8 @@ export class SuratDinasInternalService {
         dto.perihal,
         tanggalNomor,
         queryRunner,
+        dto.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
       );
 
       // PHASE 6: Insert naskah
@@ -1732,6 +1762,27 @@ export class SuratDinasInternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
+
+      // PHASE 6a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
+      // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+
+        if (naskahRef) {
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: naskahRef.jenis || 'SDI',
+            ref_pengirim: null,
+            ref_tanggal: naskahRef.tanggal || null,
+            ref_nomor: naskahRef.nomor || null,
+            ref_perihal: naskahRef.perihal || null,
+          });
+          await queryRunner.manager.save(referensi);
+        }
+      }
 
       // PHASE 7: Insert sirkulasi
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
@@ -2171,7 +2222,9 @@ export class SuratDinasInternalService {
         klasifikasi,
         perihal,
         tanggalNomor,
-        queryRunner
+        queryRunner,
+        dto.final_pdf || naskah.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : (naskah.final_pdf ? naskah.final_pdf.split('/').pop() : undefined),
       );
 
       // PHASE 6: Update naskah table (all fields + finalization fields)
@@ -2555,6 +2608,18 @@ export class SuratDinasInternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // Update naskah with signature metadata if digsig (SdiSdeEntity tidak lagi digunakan)
         if (signatureMetadata) {
@@ -3278,8 +3343,8 @@ export class SuratDinasInternalService {
         final_pdf_url: finalPdfUrl,
 
         // Metadata
-        created_at: null,
-        updated_at: null,
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
   }
@@ -3490,6 +3555,8 @@ export class SuratDinasInternalService {
         perihal,
         tanggalNaskah,
         queryRunner,
+        undefined,
+        undefined,
       );
 
       // Calculate total lampiran count

@@ -113,6 +113,19 @@ export class CreateNotaDinasDto {
   lampiran_files?: string[]; // Array file paths untuk lampiran
 
   // ============================================
+  // REFERENSI NASKAH (untuk sirkulasi persuratan)
+  // ============================================
+  /**
+   * ID Naskah Referensi (opsional)
+   * Diisi jika nota dinas ini merupakan tindak lanjut/balasan dari surat sebelumnya.
+   * Jika diisi, akan otomatis insert ke tabel naskah_referensi.
+   * Bisa referensi ke semua jenis naskah: ND, SDI, SDE, DI, KA
+   */
+  @IsOptional()
+  @IsString()
+  id_referensi_naskah?: string;
+
+  // ============================================
   // PDF FINAL
   // ============================================
   @IsOptional()

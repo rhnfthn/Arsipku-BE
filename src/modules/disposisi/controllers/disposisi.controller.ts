@@ -51,6 +51,57 @@ export class DisposisiController {
   constructor(private readonly disposisiService: DisposisiService) {}
 
   /**
+   * GET /DI/get-recipient
+   * Get eligible recipients for Disposisi based on position_id from JWT token
+   *
+   * Rules: Managerial ke managerial/fungsional/staf di bawahnya
+   * (langsung/tidak langsung) dalam Company yang sama
+   * 
+   * Barrier depth otomatis berdasarkan level pengirim:
+   * - EVP (Level 0) → depth 3 (dapat kirim ke Level 1, 2, 3)
+   * - VP (Level 1) → depth 2 (dapat kirim ke Level 2, 3)
+   * - Manager (Level 2) → depth 1 (dapat kirim ke Level 3)
+   * - Staff (Level 3) → tidak bisa kirim Disposisi
+   *
+   * @param user - User dari JWT token (contains position)
+   * @returns DisposisiRecipientResponseDto
+   *
+   * @throws 400 - Bad Request (invalid position_id)
+   * @throws 404 - Not Found (position not found)
+   * @throws 403 - Forbidden (non-managerial role or level 3)
+   * @throws 500 - Internal Server Error
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
+  async getDisposisiRecipients(
+    @CurrentUser() user: any,
+  ): Promise<DisposisiRecipientResponseDto> {
+    try {
+      const position = parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position in token');
+      }
+
+      return await this.disposisiService.getDisposisiRecipients(position);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Disposisi recipients',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /DI/:id
    * Get flow lengkap disposisi dari awal sampai akhir
    *
@@ -91,56 +142,6 @@ export class DisposisiController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get Disposisi detail',
-          error: error instanceof Error ? error.message : String(error),
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * GET /DI/get-recipient/:position_id
-   * Get eligible recipients for Disposisi based on position_id
-   *
-   * Rules: Managerial ke managerial/fungsional/staf di bawahnya
-   * (langsung/tidak langsung) dalam Company yang sama
-   * 
-   * Barrier depth otomatis berdasarkan level pengirim:
-   * - EVP (Level 0) → depth 3 (dapat kirim ke Level 1, 2, 3)
-   * - VP (Level 1) → depth 2 (dapat kirim ke Level 2, 3)
-   * - Manager (Level 2) → depth 1 (dapat kirim ke Level 3)
-   * - Staff (Level 3) → tidak bisa kirim Disposisi
-   *
-   * @param position_id - Position ID (path parameter)
-   * @returns DisposisiRecipientResponseDto
-   *
-   * @throws 400 - Bad Request (invalid position_id)
-   * @throws 404 - Not Found (position not found)
-   * @throws 403 - Forbidden (non-managerial role or level 3)
-   * @throws 500 - Internal Server Error
-   */
-  @Get('get-recipient/:position_id')
-  async getDisposisiRecipients(
-    @Param('position_id') positionId: string,
-  ): Promise<DisposisiRecipientResponseDto> {
-    try {
-      const position = parseInt(positionId, 10);
-      if (isNaN(position)) {
-        throw new BadRequestException('position_id must be a valid number');
-      }
-
-      return await this.disposisiService.getDisposisiRecipients(position);
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Disposisi recipients',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

@@ -27,6 +27,14 @@ export class GetDraftListQueryDto {
   @IsOptional()
   @IsString()
   days?: string; // Filter by days (default 30)
+
+  @IsOptional()
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @IsNumber()
+  limit?: number = 10;
 }
 
 // ============================================================
@@ -54,9 +62,12 @@ export class DraftListItemDto {
 export class GetDraftListResponseDto {
   success: boolean;
   message?: string;
-  data: {
+  data: DraftListItemDto[];
+  pagination: {
     total: number;
-    items: DraftListItemDto[];
+    page: number;
+    limit: number;
+    totalPages: number;
   };
 }
 
