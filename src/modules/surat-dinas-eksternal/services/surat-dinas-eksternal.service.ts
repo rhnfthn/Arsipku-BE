@@ -3356,8 +3356,8 @@ export class SuratDinasEksternalService {
         final_pdf_url: finalPdfUrl,
 
         // Metadata
-        created_at: null,
-        updated_at: null,
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
   }

@@ -2781,6 +2781,10 @@ export class KajianService {
         lampiran_files: lampiranInfoList,
         final_pdf: naskah.final_pdf || null,
         final_pdf_url: finalPdfUrl,
+        
+        // Metadata
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
   }
