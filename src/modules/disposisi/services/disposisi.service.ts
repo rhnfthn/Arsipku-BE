@@ -3267,6 +3267,10 @@ export class DisposisiService {
         final_pdf: naskahData.final_pdf || null,
         final_pdf_url: finalPdfUrl,
         
+        // Metadata
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
+        
         // Level in chain
         level: level,
       };
