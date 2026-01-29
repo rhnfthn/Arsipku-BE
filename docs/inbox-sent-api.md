@@ -2,17 +2,20 @@
 
 ## Endpoint
 
-**GET** `/naskah_sirkulasi/inbox-sent/:position_id`
+**GET** `/naskah_sirkulasi/inbox-sent`
 
-Fetches both inbox (received) and sent messages for a given position ID, combined into a single sorted list with pagination.
+Fetches both inbox (received) and sent messages for the authenticated user, combined into a single sorted list with pagination.
+
+> **Authentication Required**: This endpoint requires a valid JWT Bearer token. The position ID is automatically extracted from the authenticated user's token.
 
 ---
 
-## Path Parameters
+## Authentication
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `position_id` | string | **Required.** The position ID to fetch messages for. |
+**Header Required:**
+```
+Authorization: Bearer <your_jwt_token>
+```
 
 ---
 
@@ -48,80 +51,9 @@ Fetches both inbox (received) and sent messages for a given position ID, combine
       "jenis": "ND",
       "jenis_label": "Nota Dinas",
       "nomor": "ND/001/2026",
-      "tanggal": "2026-01-27",
-      "perihal": "Subject of the document",
-      "sifat": "biasa",
-      "status": "final",
-      "lampiran": 2,
-      "pengirim": {
-        "position_id": "pos-123",
-        "position_text": "Manager",
-        "organization_text": "Department A",
-        "nama": "John Doe"
-      },
-      "penerima": {
-        "position_id": "pos-456",
-        "persnum": 12345,
-        "nama": "Jane Smith",
-        "position_text": "Staff",
-        "organization_text": "Department B"
-      },
-      "kepada": [...],
-      "status_baca": "terbaca",
-      "read_time": "2026-01-27T10:30:00Z",
       "is_favorit": false,
       "is_arsip": false,
-      "is_note": false,
-      "is_tindak_lanjut": false,
-      "is_locked": false,
-      "labels": ["Label 1", "Parent > Child"],
-      "created_at": "2026-01-27T09:00:00Z",
-      "updated_at": "2026-01-27T09:00:00Z",
-      "is_priority": false
-    },
-    {
-      "id_naskah": "uuid-string",
-      "source": "sent",
-      "jenis": "SDI",
-      "jenis_label": "Surat Dinas Internal",
-      "nomor": "SDI/002/2026",
-      "tanggal": "2026-01-26",
-      "perihal": "Sent document subject",
-      "sifat": "segera",
-      "status": "final_tte",
-      "lampiran": 1,
-      "pengirim": {
-        "position_id": "pos-456",
-        "position_text": "Manager",
-        "organization_text": "Department B",
-        "nama": "Jane Smith"
-      },
-      "penerima": [
-        {
-          "position_id": "pos-789",
-          "position_text": "Director",
-          "organization_text": "HQ",
-          "nama": "Bob Johnson",
-          "status_baca": "terbaca",
-          "read_time": "2026-01-26T14:00:00Z"
-        }
-      ],
-      "summary_baca": {
-        "total": 1,
-        "terbaca": 1,
-        "belum_terbaca": 0
-      },
-      "favorit": true,
-      "note": false,
-      "arsip": false,
-      "is_favorit": true,
-      "is_arsip": false,
-      "is_note": false,
-      "is_tindak_lanjut": false,
-      "is_locked": false,
-      "labels": [],
-      "created_at": "2026-01-26T08:00:00Z",
-      "updated_at": "2026-01-26T08:00:00Z"
+      ...
     }
   ],
   "pagination": {
@@ -133,89 +65,41 @@ Fetches both inbox (received) and sent messages for a given position ID, combine
 }
 ```
 
----
+### Error Response (Unauthorized)
 
-## Field Descriptions
+**Status Code:** `401 Unauthorized`
 
-### Common Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id_naskah` | string | Unique ID of the document. |
-| `source` | enum | Indicates the origin: `inbox` or `sent`. |
-| `jenis` | enum | Document type code. |
-| `jenis_label` | string | Human-readable document type label. |
-| `nomor` | string \| null | Document number. |
-| `tanggal` | date | Document date. |
-| `perihal` | string \| null | Document subject. |
-| `sifat` | string | Document priority (e.g., `biasa`, `segera`). |
-| `status` | string | Document status (`final`, `final_tte`). |
-| `lampiran` | number | Number of attachments. |
-| `is_favorit` | boolean | Whether the item is marked as favorite. |
-| `is_arsip` | boolean | Whether the item is archived. |
-| `is_note` | boolean | Whether the item has a note. |
-| `labels` | string[] | Labels assigned to the document. |
-| `created_at` | datetime | Creation timestamp. |
-| `updated_at` | datetime | Last update timestamp. |
-
-### Inbox-specific Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id_sirkulasi` | string | Unique sirkulasi ID (for inbox items). |
-| `penerima` | object | Current user's recipient info. |
-| `kepada` | array | All recipients of the document. |
-| `status_baca` | enum | Read status: `terbaca` or `belum_terbaca`. |
-| `read_time` | datetime \| null | When the item was read. |
-| `is_tindak_lanjut` | boolean | Follow-up flag. |
-| `is_locked` | boolean | Whether the item is locked. |
-| `is_priority` | boolean | Priority flag (only for `DI` type). |
-
-### Sent-specific Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `penerima` | array | List of recipients with their read status. |
-| `summary_baca` | object | Summary of read status across all recipients. |
-| `favorit` | boolean | (Legacy) Favorite flag. |
-| `note` | boolean | (Legacy) Note flag. |
-| `arsip` | boolean | (Legacy) Archive flag. |
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
 
 ---
 
 ## Example Requests
 
 ### Get all items (inbox + sent)
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?page=1&limit=20
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:3000/naskah_sirkulasi/inbox-sent?page=1&limit=20"
 ```
 
 ### Get inbox only
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?source=inbox&page=1&limit=10
-```
-
-### Get sent only
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?source=sent&page=1&limit=10
-```
-
-### Filter by document type
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?jenis=ND
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:3000/naskah_sirkulasi/inbox-sent?source=inbox"
 ```
 
 ### Get only favorited items
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?is_favorit=true
-```
-
-### Get archived items from inbox
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?source=inbox&is_arsip=true
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:3000/naskah_sirkulasi/inbox-sent?is_favorit=true"
 ```
 
 ### Combined filters
-```
-GET /naskah_sirkulasi/inbox-sent/pos-123?source=sent&jenis=SDI&is_favorit=true&page=2&limit=5
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:3000/naskah_sirkulasi/inbox-sent?source=sent&jenis=SDI&page=2&limit=5"
 ```

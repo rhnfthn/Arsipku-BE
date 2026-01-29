@@ -29,6 +29,7 @@ import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -55,6 +56,7 @@ export class NaskahSirkulasiService {
     private readonly naskahLabelRepo: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
+    private readonly meilisearchSyncService: MeilisearchSyncService,
   ) { }
 
   async findAll(): Promise<NaskahSirkulasi[]> {
@@ -73,7 +75,14 @@ export class NaskahSirkulasiService {
 
   async create(dto: CreateNaskahSirkulasiDto): Promise<NaskahSirkulasi> {
     const newNaskahSirkulasi = this.naskahSirkulasiRepo.create(dto);
-    return this.naskahSirkulasiRepo.save(newNaskahSirkulasi);
+    const saved = await this.naskahSirkulasiRepo.save(newNaskahSirkulasi);
+
+    // Sync to Meilisearch when sirkulasi changes (affects pengirim/penerima info)
+    if (saved.idNaskah) {
+      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => { });
+    }
+
+    return saved;
   }
 
   async update(
@@ -82,7 +91,14 @@ export class NaskahSirkulasiService {
   ): Promise<NaskahSirkulasi> {
     const naskahSirkulasi = await this.findOne(id);
     const updated = Object.assign(naskahSirkulasi, dto);
-    return this.naskahSirkulasiRepo.save(updated);
+    const saved = await this.naskahSirkulasiRepo.save(updated);
+
+    // Sync to Meilisearch when sirkulasi changes
+    if (saved.idNaskah) {
+      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => { });
+    }
+
+    return saved;
   }
 
   async remove(id: string): Promise<{ message: string }> {

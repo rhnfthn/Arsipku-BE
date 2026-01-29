@@ -10,21 +10,23 @@ import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 // REMOVED: SdiSdeEntity - table sdi_sde no longer used
 // import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { LabelModule } from '../label/label.module';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      NaskahSirkulasi, 
-      NaskahEntity, 
-      NaskahLampiranEntity, 
-      NaskahReferensiEntity, 
+      NaskahSirkulasi,
+      NaskahEntity,
+      NaskahLampiranEntity,
+      NaskahReferensiEntity,
       EksternalEntity,
       // REMOVED: SdiSdeEntity
     ]),
     LabelModule,
+    SearchModule,
   ],
   controllers: [NaskahSirkulasiController],
   providers: [NaskahSirkulasiService],
   exports: [NaskahSirkulasiService, TypeOrmModule],
 })
-export class NaskahSirkulasiModule {}
+export class NaskahSirkulasiModule { }
