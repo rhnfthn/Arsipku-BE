@@ -24,6 +24,7 @@ import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_al
 import { DigsigService } from '../../digsig/services/digsig.service';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import {
   KajianRecipientResponseDto,
   OrgDataPositionDto,
@@ -115,7 +116,8 @@ export class KajianService {
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   // ============================================================
   // ORG_DATA INTEGRATION
@@ -239,7 +241,7 @@ export class KajianService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-          `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
+        `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
       );
     }
   }
@@ -954,6 +956,9 @@ export class KajianService {
       }
 
       await queryRunner.commitTransaction();
+
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -1276,8 +1281,8 @@ export class KajianService {
 
       // Prepare signing data BEFORE generating PDF (untuk embed QR di template)
       const signerName = dto.nama_lengkap || pengirim.persnum_person_text || '';
-      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim()) 
-        ? dto.nama_jabatan 
+      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim())
+        ? dto.nama_jabatan
         : pengirim.position_text;
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
@@ -2083,8 +2088,8 @@ export class KajianService {
 
     const tanggalStr = updatedNaskah?.tanggal
       ? (updatedNaskah.tanggal instanceof Date
-          ? updatedNaskah.tanggal.toISOString().split('T')[0]
-          : String(updatedNaskah.tanggal).split('T')[0])
+        ? updatedNaskah.tanggal.toISOString().split('T')[0]
+        : String(updatedNaskah.tanggal).split('T')[0])
       : '';
 
     // Get lampiran with signed URLs
@@ -2171,10 +2176,10 @@ export class KajianService {
       // Auto-generate nomor if empty
       if ((!naskah.nomor || naskah.nomor === '') && pengirimData) {
         // Ensure tanggal is a Date object for nomor generation
-        const tanggalDate = naskah.tanggal instanceof Date 
-          ? naskah.tanggal 
+        const tanggalDate = naskah.tanggal instanceof Date
+          ? naskah.tanggal
           : (naskah.tanggal ? new Date(naskah.tanggal) : new Date());
-          
+
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'KA',
           positionText: pengirimData.position_text,
@@ -2299,8 +2304,8 @@ export class KajianService {
 
     const tanggalStr = updatedNaskah?.tanggal
       ? (updatedNaskah.tanggal instanceof Date
-          ? updatedNaskah.tanggal.toISOString().split('T')[0]
-          : String(updatedNaskah.tanggal).split('T')[0])
+        ? updatedNaskah.tanggal.toISOString().split('T')[0]
+        : String(updatedNaskah.tanggal).split('T')[0])
       : '';
 
     // Get lampiran with signed URLs
@@ -2998,7 +3003,7 @@ export class KajianService {
       if (!naskah.nomor && pengirimData) {
         // Convert tanggal string to Date object for nomor generation
         const tanggalDate = new Date(tanggalStr);
-        
+
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'KA',
           positionText: pengirimData.position_text,
@@ -3068,11 +3073,11 @@ export class KajianService {
       // Determine konten and perihal for PDF
       const kontenForPdf = dto.konten || naskah.konten || '';
       const perihalForPdf = dto.perihal || naskah.perihal || '';
-      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim()) 
-        ? dto.nama_jabatan 
+      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim())
+        ? dto.nama_jabatan
         : (pengirimData?.position_text || pengirimSirkulasi?.positionText || '');
       const signerName = dto.nama_lengkap || pengirimData?.persnum_person_text || pengirimSirkulasi?.namaSirkuler || '';
-      const dariForPdf = pengirimData 
+      const dariForPdf = pengirimData
         ? pengirimData.position_text
         : pengirimSirkulasi?.positionText || '';
 
@@ -3131,7 +3136,7 @@ export class KajianService {
       const existingLampiran = await this.naskahLampiranRepository.find({
         where: { id_naskah: naskahId, is_temporary: 0 },
       });
-      
+
       if (existingLampiran && existingLampiran.length > 0) {
         const lampiranFiles = existingLampiran
           .filter(l => l.file_pdf && l.file_pdf.trim() !== '')
@@ -3140,7 +3145,7 @@ export class KajianService {
             fileType: 'application/pdf',
             fileName: l.file_name || '',
           }));
-        
+
         if (lampiranFiles.length > 0) {
           pdfBuffer = await this.mergePdfWithLampiranFiles(pdfBuffer, lampiranFiles);
           console.log(`[KA finalizeDraft] Lampiran merged successfully`);
