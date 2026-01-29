@@ -36,7 +36,10 @@ export class DraftController {
    * @param user - User dari JWT token (contains position)
    * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA (optional)
    * @query search - Search by perihal/nomor (optional)
-   * @query days - Filter by days, default 30 (optional)
+   * @query days - Filter by days, default 30 (optional) - DEPRECATED, use preset instead
+   * @query start_date - Start date filter YYYY-MM-DD (optional)
+   * @query end_date - End date filter YYYY-MM-DD (optional)
+   * @query preset - Date preset: 7_hari, 30_hari, 60_hari, 1_tahun, semua (optional)
    * @query page - Page number, default 1 (optional)
    * @query limit - Items per page, default 10 (optional)
    *
@@ -49,6 +52,9 @@ export class DraftController {
     @Query('jenis') jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
     @Query('search') search?: string,
     @Query('days') days?: string,
+    @Query('start_date') startDate?: string,
+    @Query('end_date') endDate?: string,
+    @Query('preset') preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<GetDraftListResponseDto> {
@@ -59,14 +65,29 @@ export class DraftController {
         throw new BadRequestException('Invalid position in token');
       }
 
-      // Parse days
-      const daysNum = days ? parseInt(days, 10) : 30;
+      // Parse days (deprecated, for backward compatibility)
+      const daysNum = days ? parseInt(days, 10) : undefined;
 
       // Parse pagination
       const pageNum = page ? parseInt(page, 10) : 1;
       const limitNum = limit ? parseInt(limit, 10) : 10;
 
-      return await this.draftService.getDraftList(position, jenis, search, daysNum, pageNum, limitNum);
+      // Normalize preset
+      const normalizedPreset = preset 
+        ? String(preset).toLowerCase().trim().replace(/\s+/g, '_') as '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua'
+        : undefined;
+
+      return await this.draftService.getDraftList(
+        position, 
+        jenis, 
+        search, 
+        daysNum, 
+        startDate, 
+        endDate, 
+        normalizedPreset, 
+        pageNum, 
+        limitNum
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

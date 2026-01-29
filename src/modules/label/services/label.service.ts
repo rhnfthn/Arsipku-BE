@@ -198,6 +198,13 @@ export class LabelService {
     const results: NaskahLabelEntity[] = [];
     const source = addNaskahToLabelDto.source || 'inbox';
 
+    // DEBUG: Log untuk cek nilai source
+    console.log('=== DEBUG ADD NASKAH TO LABEL ===');
+    console.log('DTO received:', JSON.stringify(addNaskahToLabelDto));
+    console.log('DTO source:', addNaskahToLabelDto.source);
+    console.log('Final source:', source);
+    console.log('=================================');
+
     for (const labelId of addNaskahToLabelDto.labelIds) {
       // Validasi label exists
       const label = await this.labelRepository.findOne({
