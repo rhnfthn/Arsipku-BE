@@ -233,6 +233,64 @@ export class OrganizationService {
     };
   }
 
+  /**
+   * Get all child organizations by parent organization ID
+   */
+  async findChildOrganizations(parentOrgId: number) {
+    // First find the parent organization to get companyId
+    const parentOrg = await this.orgRepo.findOne({
+      where: {
+        organization: parentOrgId,
+      },
+    });
+
+    if (!parentOrg || parentOrg.company === null) {
+      throw new NotFoundException(
+        `Parent organization with ID ${parentOrgId} not found`
+      );
+    }
+
+    const companyId = parentOrg.company;
+
+    // Find all child relations where relation_organization = parentOrgId
+    const childRelations = await this.relationOoRepo.find({
+      where: {
+        company: companyId,
+        relation_organization: parentOrgId,
+      },
+    });
+
+    // Get the organization details for each child
+    const children = await Promise.all(
+      childRelations.map(async (rel) => {
+        if (rel.organization === null) return null;
+        const child = await this.orgRepo.findOne({
+          where: {
+            company: companyId,
+            organization: rel.organization,
+          },
+        });
+        return child ? {
+          id: child.id,
+          organization: child.organization,
+          shortText: child.shortText,
+          longText: child.longText,
+          abbreviation: child.abbreviation,
+          startDate: child.startDate,
+          endDate: child.endDate,
+          relation: {
+            relationOrganization: rel.relation_organization,
+            relationOrganizationText: rel.relation_organization_text,
+            startDate: rel.startDate,
+            endDate: rel.endDate,
+          },
+        } : null;
+      })
+    );
+
+    return children.filter(c => c !== null);
+  }
+
   async create(dto: CreateOrganizationDto): Promise<OmOrganization> {
     // Check if organization code already exists for this company
     const existing = await this.orgRepo.findOne({
