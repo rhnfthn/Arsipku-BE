@@ -6,7 +6,9 @@ import {
   IsNumber,
   IsUUID,
   IsArray,
+  IsDateString,
 } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 // ============================================================
 // GET /draft/list - Query Parameters
@@ -26,13 +28,34 @@ export class GetDraftListQueryDto {
 
   @IsOptional()
   @IsString()
-  days?: string; // Filter by days (default 30)
+  days?: string; // Filter by days (default 30) - DEPRECATED, use preset instead
+
+  // Date Range Filter
+  @IsOptional()
+  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  start_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
+  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  end_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Normalize preset value: "7 hari" -> "7_hari", etc.
+    const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    return normalized;
+  })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
+
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   page?: number = 1;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   limit?: number = 10;
 }

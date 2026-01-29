@@ -79,6 +79,93 @@ export class DraftService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Helper: Convert preset/custom date range to start & end date strings
+   * @param startDate - Custom start date (YYYY-MM-DD)
+   * @param endDate - Custom end date (YYYY-MM-DD)
+   * @param preset - Preset: 7_hari, 30_hari, 60_hari, 1_tahun, semua
+   * @param days - Legacy days parameter (deprecated)
+   * @returns { startDate: string | null, endDate: string | null }
+   */
+  private getDateRangeFromQuery(
+    startDate?: string,
+    endDate?: string,
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    days?: number,
+  ): { startDate: string | null; endDate: string | null } {
+    // Jika preset 'semua', return null (tanpa filter tanggal)
+    if (preset === 'semua') {
+      return { startDate: null, endDate: null };
+    }
+
+    // Jika ada custom date range, gunakan itu
+    if (startDate || endDate) {
+      return {
+        startDate: startDate || null,
+        endDate: endDate || null,
+      };
+    }
+
+    // Jika ada preset, hitung range dari hari ini
+    if (preset) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      let daysBack: number;
+      switch (preset) {
+        case '7_hari':
+          daysBack = 7;
+          break;
+        case '30_hari':
+          daysBack = 30;
+          break;
+        case '60_hari':
+          daysBack = 60;
+          break;
+        case '1_tahun':
+          daysBack = 365;
+          break;
+        default:
+          return { startDate: null, endDate: null };
+      }
+
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - daysBack);
+      const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+      return {
+        startDate: startDateStr,
+        endDate: todayStr,
+      };
+    }
+
+    // Legacy: jika ada days parameter (backward compatibility)
+    if (days && days > 0) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - days);
+      const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+      return {
+        startDate: startDateStr,
+        endDate: todayStr,
+      };
+    }
+
+    // Default: 30 hari terakhir
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const startDateCalc = new Date(today);
+    startDateCalc.setDate(startDateCalc.getDate() - 30);
+    const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+    return {
+      startDate: startDateStr,
+      endDate: todayStr,
+    };
+  }
+
   // ============================================================
   // GET /draft/list
   // ============================================================
@@ -90,13 +177,15 @@ export class DraftService {
     positionId: number,
     jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
     search?: string,
-    days: number = 30,
+    days?: number, // DEPRECATED: use startDate/endDate/preset instead
+    startDate?: string, // Format: YYYY-MM-DD
+    endDate?: string, // Format: YYYY-MM-DD
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
     page: number = 1,
     limit: number = 10,
   ): Promise<GetDraftListResponseDto> {
-    // Calculate date filter
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - days);
+    // Calculate date range
+    const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
 
     // Build query
     const queryBuilder = this.naskahRepository
@@ -107,8 +196,15 @@ export class DraftService {
         'sirkulasi.id_naskah = naskah.id AND sirkulasi.sirkuler = :sirkuler AND sirkulasi.position = :position',
         { sirkuler: 'pengirim', position: String(positionId) },
       )
-      .where('naskah.status = :status', { status: 'draf' })
-      .andWhere('naskah.tanggal >= :dateFrom', { dateFrom });
+      .where('naskah.status = :status', { status: 'draf' });
+
+    // Apply date range filter
+    if (dateRange.startDate) {
+      queryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
+    }
+    if (dateRange.endDate) {
+      queryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
+    }
 
     // Filter by jenis if provided
     if (jenis) {
