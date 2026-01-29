@@ -55,14 +55,20 @@ export class SuratDinasEksternalController {
 
   /**
    * GET /SDE/get-recipient
-   * Get Surat Dinas Eksternal (SDE) recipients for a sender (from JWT token)
+   * Get Surat Dinas Eksternal (SDE) recipients for a sender
    *
    * SDE Rules:
    * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
    * @param user - User dari JWT token (contains position)
-   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
+   *
+   * @example
+   * GET /SDE/get-recipient (gunakan position dari JWT)
+   * GET /SDE/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
@@ -70,25 +76,28 @@ export class SuratDinasEksternalController {
     @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<SdeRecipientResponseDto> {
-    const positionId = parseInt(user.position, 10);
+    // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+    const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
     return this.sdeService.getSdeRecipients(positionId, query.tgl);
   }
 
   /**
    * GET /SDE/get-tembusan
-   * Get tembusan (CC) recipients for SDE using org_data (from JWT token)
+   * Get tembusan (CC) recipients for SDE using org_data
    *
    * Tembusan Rules (same as SDI):
    * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
    * - Tembusan: internal positions dengan chief=1, bod_tag='BOD', sama company
    * 
    * @param user - User dari JWT token (contains position)
-   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
    * @returns Tembusan recipients list
    *
    * @example
-   * GET /SDE/get-tembusan
-   * GET /SDE/get-tembusan?tgl=2024-01-15
+   * GET /SDE/get-tembusan (gunakan position dari JWT)
+   * GET /SDE/get-tembusan?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-tembusan')
@@ -96,7 +105,8 @@ export class SuratDinasEksternalController {
     @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<any> {
-    const positionId = parseInt(user.position, 10);
+    // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+    const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
     return this.sdeService.getSdeTembusan(positionId, query.tgl);
   }
 
