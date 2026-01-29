@@ -215,6 +215,33 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.send_read_time IS NULL`;
     }
 
+    // Filter by favorite
+    if (query.favorite === true) {
+      whereClause += ` AND s.flag_favorit = 1`;
+    }
+
+    // Filter by tindak lanjut
+    if (query.tinjut === 'sudah_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 1`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+    }
+
+    // Filter by lock
+    if (query.lock === true) {
+      whereClause += ` AND s.is_locked = 1`;
+    }
+
+    // Filter by note
+    if (query.note === true) {
+      whereClause += ` AND s.flag_note = 1`;
+    }
+
+    // Filter by arsip
+    if (query.arsip === true) {
+      whereClause += ` AND s.flag_arsip = 1`;
+    }
+
     // Pagination params
     const page = query.page || 1;
     const limit = query.limit || 10;
@@ -258,8 +285,8 @@ export class NaskahSirkulasiService {
         s.nama_sirkuler as penerima_nama,
         s.position_text as penerima_position_text,
         s.organization_text as penerima_organization_text,
-        CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at,
+        pengirim.created_at,
+        pengirim.updated_at,
         di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
@@ -497,8 +524,8 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_note,
         s.flag_arsip,
-        CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
@@ -507,21 +534,48 @@ export class NaskahSirkulasiService {
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
+    // Get summary counts FIRST (untuk semua, tanpa filter jenis dan status_baca)
+    const summaryQuery = `
+      SELECT 
+        COUNT(DISTINCT s.id_naskah) as total_semua,
+        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
+        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
+        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 0
+      AND n.status IN ('final', 'final_tte')
+    `;
+    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryData = summaryResult[0] || {};
+    
+    const summary = {
+      total_semua: parseInt(summaryData.total_semua || '0', 10),
+      total_per_jenis: {
+        ND: parseInt(summaryData.total_nd || '0', 10),
+        SDI: parseInt(summaryData.total_sdi || '0', 10),
+        SDE: parseInt(summaryData.total_sde || '0', 10),
+        DI: parseInt(summaryData.total_di || '0', 10),
+        KA: parseInt(summaryData.total_ka || '0', 10),
+      },
+    };
+
     if (rows.length === 0) {
       return {
         success: true,
         message: 'Tidak ada pesan yang dikirim',
         data: [],
         pagination: {
-          total: 0,
+          total,
           page,
           limit,
-          totalPages: 0,
+          totalPages,
         },
-        summary: {
-          total_semua: 0,
-          total_per_jenis: { ND: 0, SDI: 0, SDE: 0, DI: 0, KA: 0 },
-        },
+        summary,
       };
     }
 
@@ -707,25 +761,6 @@ export class NaskahSirkulasiService {
       });
     }
 
-    // Get summary counts (untuk semua, tanpa filter status_baca)
-    const summaryQuery = `
-      SELECT 
-        COUNT(DISTINCT s.id_naskah) as total_semua,
-        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
-        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
-        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
-        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
-        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
-      FROM naskah_sirkulasi s
-      INNER JOIN naskah n ON s.id_naskah = n.id
-      WHERE s.position = ?
-      AND s.sirkuler = 'pengirim'
-      AND s.is_draft = 0
-      AND n.status IN ('final', 'final_tte')
-    `;
-    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
-    const summary = summaryResult[0] || {};
-
     return {
       success: true,
       message: 'Berhasil mengambil kotak keluar',
@@ -736,16 +771,7 @@ export class NaskahSirkulasiService {
         limit,
         totalPages,
       },
-      summary: {
-        total_semua: parseInt(summary.total_semua || '0', 10),
-        total_per_jenis: {
-          ND: parseInt(summary.total_nd || '0', 10),
-          SDI: parseInt(summary.total_sdi || '0', 10),
-          SDE: parseInt(summary.total_sde || '0', 10),
-          DI: parseInt(summary.total_di || '0', 10),
-          KA: parseInt(summary.total_ka || '0', 10),
-        },
-      },
+      summary,
     };
   }
 
@@ -1038,8 +1064,8 @@ export class NaskahSirkulasiService {
           s.flag_note,
           s.tindak_lanjut,
           s.is_locked,
-          CAST(s.created_at AS DATETIME) as created_at,
-          CAST(s.updated_at AS DATETIME) as updated_at,
+          s.created_at,
+          s.updated_at,
           'inbox' as source,
           
           (SELECT position FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_id,
@@ -1077,8 +1103,8 @@ export class NaskahSirkulasiService {
           s.flag_note,
           0 as tindak_lanjut, 
           0 as is_locked,
-          CAST(s.created_at AS DATETIME) as created_at,
-          CAST(s.updated_at AS DATETIME) as updated_at,
+          s.created_at,
+          s.updated_at,
           'sent' as source,
 
           s.position as pengirim_position_id,

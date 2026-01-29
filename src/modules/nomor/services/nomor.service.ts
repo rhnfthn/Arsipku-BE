@@ -401,7 +401,7 @@ export class NomorService {
         const persnum = positionData?.persnum_person || null;
         const nama = positionData?.persnum_person_text || null;
 
-        return {
+        const responseItem = {
           id: request.id,
           company: request.company!,
           area: request.area!,
@@ -419,6 +419,38 @@ export class NomorService {
           created_at: request.createdAt,
           status,
         };
+
+        // Apply search filter across all fields
+        if (query?.search) {
+          const searchLower = query.search.toLowerCase();
+          const searchFields = [
+            responseItem.id?.toString(),
+            responseItem.company,
+            responseItem.area,
+            responseItem.sub_area,
+            responseItem.organization,
+            responseItem.position,
+            responseItem.persnum?.toString(),
+            responseItem.nama,
+            responseItem.tanggal,
+            responseItem.jenis,
+            responseItem.klasifikasi,
+            responseItem.perihal,
+            responseItem.jumlah?.toString(),
+            responseItem.penandatangan,
+            responseItem.status,
+          ];
+          
+          const isMatch = searchFields.some(field => 
+            field && field.toLowerCase().includes(searchLower)
+          );
+          
+          if (!isMatch) {
+            return null;
+          }
+        }
+
+        return responseItem;
       }),
     );
 
@@ -684,6 +716,19 @@ export class NomorService {
         const persnum = positionData?.persnum_person || null;
         const nama = positionData?.persnum_person_text || null;
 
+        // Apply search filter jika ada
+        // Search by perihal atau jenis
+        if (query?.search) {
+          const searchLower = query.search.toLowerCase();
+          const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+          const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+          const nomorMatch = request.penandatangan && request.penandatangan.toLowerCase().includes(searchLower);
+          
+          if (!perihalMatch && !jenisMatch && !nomorMatch) {
+            return null;
+          }
+        }
+
         return {
           id: request.id,
           company: request.company!,
@@ -803,7 +848,7 @@ export class NomorService {
         const persnum = positionData?.persnum_person || null;
         const nama = positionData?.persnum_person_text || null;
 
-        return {
+        const responseItem = {
           id: request.id,
           company: request.company!,
           area: request.area!,
@@ -821,6 +866,38 @@ export class NomorService {
           created_at: request.createdAt,
           status,
         };
+
+        // Apply search filter across all fields
+        if (query?.search) {
+          const searchLower = query.search.toLowerCase();
+          const searchFields = [
+            responseItem.id?.toString(),
+            responseItem.company,
+            responseItem.area,
+            responseItem.sub_area,
+            responseItem.organization,
+            responseItem.position,
+            responseItem.persnum?.toString(),
+            responseItem.nama,
+            responseItem.tanggal,
+            responseItem.jenis,
+            responseItem.klasifikasi,
+            responseItem.perihal,
+            responseItem.jumlah?.toString(),
+            responseItem.penandatangan,
+            responseItem.status,
+          ];
+          
+          const isMatch = searchFields.some(field => 
+            field && field.toLowerCase().includes(searchLower)
+          );
+          
+          if (!isMatch) {
+            return null;
+          }
+        }
+
+        return responseItem;
       }),
     );
 
@@ -2157,6 +2234,19 @@ export class NomorService {
         if (query.tahun) {
           const detailTahun = new Date(request.tanggal!).getFullYear();
           if (detailTahun !== query.tahun) {
+            return null;
+          }
+        }
+
+        // Apply search filter jika ada
+        // Search by nomor, perihal, atau jenis
+        if (query.search) {
+          const searchLower = query.search.toLowerCase();
+          const nomorMatch = detail.nomor && detail.nomor.toLowerCase().includes(searchLower);
+          const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+          const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+          
+          if (!nomorMatch && !perihalMatch && !jenisMatch) {
             return null;
           }
         }

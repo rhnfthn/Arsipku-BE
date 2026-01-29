@@ -78,11 +78,13 @@ export class NaskahSirkulasiController {
    * Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
    *
    * @param user - User dari JWT token (contains position)
-   * @param query - Filter options (jenis, status_baca)
+   * @param query - Filter options (jenis, status_baca, favorite, tinjut, lock, note, arsip)
    * @returns InboxResponseDto
    *
    * @example
    * GET /naskah_sirkulasi/inbox?jenis=DI&status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/inbox?favorite=true
+   * GET /naskah_sirkulasi/inbox?tinjut=sudah_tinjut&lock=true
    */
   @UseGuards(JwtAuthGuard)
   @Get('inbox')
