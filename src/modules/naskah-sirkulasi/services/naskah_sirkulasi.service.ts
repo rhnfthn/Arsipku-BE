@@ -40,6 +40,9 @@ const JENIS_LABELS: Record<string, string> = {
   KA: 'Kajian',
 };
 
+// Type untuk preset date range
+type DatePreset = '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
+
 @Injectable()
 export class NaskahSirkulasiService {
   constructor(
@@ -58,6 +61,68 @@ export class NaskahSirkulasiService {
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
   ) { }
+
+  /**
+   * Helper: Convert preset/custom date range to start & end date strings
+   * @param startDate - Custom start date (YYYY-MM-DD)
+   * @param endDate - Custom end date (YYYY-MM-DD)
+   * @param preset - Preset: 7_hari, 30_hari, 60_hari, 1_tahun, semua
+   * @returns { startDate: string | null, endDate: string | null }
+   */
+  private getDateRangeFromQuery(
+    startDate?: string,
+    endDate?: string,
+    preset?: DatePreset,
+  ): { startDate: string | null; endDate: string | null } {
+    // Jika preset 'semua' atau tidak ada filter, return null (tanpa filter tanggal)
+    if (preset === 'semua') {
+      return { startDate: null, endDate: null };
+    }
+
+    // Jika ada custom date range, gunakan itu
+    if (startDate || endDate) {
+      return {
+        startDate: startDate || null,
+        endDate: endDate || null,
+      };
+    }
+
+    // Jika ada preset, hitung range dari hari ini
+    if (preset) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      let daysBack: number;
+      switch (preset) {
+        case '7_hari':
+          daysBack = 7;
+          break;
+        case '30_hari':
+          daysBack = 30;
+          break;
+        case '60_hari':
+          daysBack = 60;
+          break;
+        case '1_tahun':
+          daysBack = 365;
+          break;
+        default:
+          return { startDate: null, endDate: null };
+      }
+
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - daysBack);
+      const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+      return {
+        startDate: startDateStr,
+        endDate: todayStr,
+      };
+    }
+
+    // Default: tidak ada filter tanggal
+    return { startDate: null, endDate: null };
+  }
 
   async findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiRepo.find();
@@ -258,6 +323,17 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.flag_arsip = 1`;
     }
 
+    // Date Range Filter
+    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    if (dateRange.startDate) {
+      whereClause += ` AND DATE(s.created_at) >= ?`;
+      params.push(dateRange.startDate);
+    }
+    if (dateRange.endDate) {
+      whereClause += ` AND DATE(s.created_at) <= ?`;
+      params.push(dateRange.endDate);
+    }
+
     // Pagination params
     const page = query.page || 1;
     const limit = query.limit || 10;
@@ -309,7 +385,7 @@ export class NaskahSirkulasiService {
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
-      ORDER BY n.tanggal DESC, s.id DESC
+      ORDER BY (CASE WHEN s.send_read_time IS NULL THEN 0 ELSE 1 END) ASC, s.created_at DESC, s.id DESC
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
@@ -503,6 +579,17 @@ export class NaskahSirkulasiService {
     if (query.jenis) {
       whereClause += ` AND n.jenis = ?`;
       params.push(query.jenis);
+    }
+
+    // Date Range Filter
+    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    if (dateRange.startDate) {
+      whereClause += ` AND DATE(s.created_at) >= ?`;
+      params.push(dateRange.startDate);
+    }
+    if (dateRange.endDate) {
+      whereClause += ` AND DATE(s.created_at) <= ?`;
+      params.push(dateRange.endDate);
     }
 
     // Pagination params

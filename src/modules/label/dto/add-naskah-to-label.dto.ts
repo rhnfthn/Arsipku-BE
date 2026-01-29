@@ -1,4 +1,5 @@
 import { IsString, IsArray, ArrayMinSize, IsEnum, IsOptional } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class AddNaskahToLabelDto {
   @IsArray()
@@ -10,5 +11,6 @@ export class AddNaskahToLabelDto {
   @IsEnum(['inbox', 'sent', 'draft'], {
     message: 'source harus salah satu dari: inbox, sent, draft',
   })
-  source?: 'inbox' | 'sent' | 'draft' = 'inbox';
+  @Transform(({ value }) => value ?? 'inbox')
+  source?: 'inbox' | 'sent' | 'draft';
 }

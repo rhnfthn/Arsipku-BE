@@ -1,5 +1,5 @@
-import { IsOptional, IsEnum, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsEnum, IsNumber, IsDateString } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 /**
  * Query params untuk filter sent messages (kotak keluar)
@@ -12,6 +12,25 @@ export class SentMessageQueryDto {
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
   status_baca?: 'terbaca' | 'belum_terbaca';
+
+  // Date Range Filter
+  @IsOptional()
+  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  start_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  end_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Normalize preset value: "7 hari" -> "7_hari", "7hari" -> "7_hari", etc.
+    const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    return normalized;
+  })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
   @Type(() => Number)
