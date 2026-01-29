@@ -45,7 +45,7 @@ export class SuratDinasInternalController {
 
   /**
    * GET /SDI/get-recipient
-   * Get eligible recipients for Surat Dinas Internal using org_data (from JWT token)
+   * Get eligible recipients for Surat Dinas Internal using org_data
    *
    * SDI Rules:
    * - Hanya REKAN (tidak ada ATASAN/BAWAHAN)
@@ -55,8 +55,14 @@ export class SuratDinasInternalController {
    * - Uses cached org_data for better performance
    *
    * @param user - User dari JWT token (contains position)
-   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
    * @returns SdiRecipientResponseDto
+   *
+   * @example
+   * GET /SDI/get-recipient (gunakan position dari JWT)
+   * GET /SDI/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    *
    * @throws 400 - Bad Request (invalid positionId)
    * @throws 404 - Not Found (position not found)
@@ -70,7 +76,8 @@ export class SuratDinasInternalController {
     @Query() query: GetSdiRecipientQueryDto,
   ): Promise<SdiRecipientResponseDto> {
     try {
-      const positionId = parseInt(user.position, 10);
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSdiRecipients(
         positionId,
         query.tgl,
