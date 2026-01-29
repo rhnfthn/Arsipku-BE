@@ -70,6 +70,7 @@ interface NaskahDocument {
     penerima_names: string[];
     penerima_organizations: string[];
     tembusan_positions: string[];
+    access_positions: string[]; // Unified access control
     searchable_text: string;
     createdAt: number;
     updatedAt: number;
@@ -156,6 +157,7 @@ async function bootstrap() {
             'pengirim_organization_text',
             'penerima_positions',
             'tembusan_positions',
+            'access_positions', // Unified access control
             'klasifikasi',
             'createdAt',
         ]);
@@ -237,6 +239,13 @@ async function bootstrap() {
                 penerima_organizations: penerimaList.map((p) => p.organization_text).filter(Boolean) as string[],
 
                 tembusan_positions: tembusanList.map((t) => t.position).filter(Boolean) as string[],
+
+                // Unified access control - all positions that can see this document
+                access_positions: [
+                    ...(pengirim?.position ? [pengirim.position] : []),
+                    ...penerimaList.map((p) => p.position).filter(Boolean) as string[],
+                    ...tembusanList.map((t) => t.position).filter(Boolean) as string[],
+                ].filter((v, i, a) => a.indexOf(v) === i), // Dedupe
 
                 searchable_text: searchableText,
 
