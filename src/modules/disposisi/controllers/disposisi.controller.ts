@@ -6,6 +6,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   HttpException,
   HttpStatus,
   BadRequestException,
@@ -52,7 +53,7 @@ export class DisposisiController {
 
   /**
    * GET /DI/get-recipient
-   * Get eligible recipients for Disposisi based on position_id from JWT token
+   * Get eligible recipients for Disposisi based on position_id
    *
    * Rules: Managerial ke managerial/fungsional/staf di bawahnya
    * (langsung/tidak langsung) dalam Company yang sama
@@ -64,7 +65,12 @@ export class DisposisiController {
    * - Staff (Level 3) → tidak bisa kirim Disposisi
    *
    * @param user - User dari JWT token (contains position)
+   * @param pengirim - Optional position_id pengirim (untuk kasus konsep/draft)
    * @returns DisposisiRecipientResponseDto
+   *
+   * @example
+   * GET /DI/get-recipient (gunakan position dari JWT)
+   * GET /DI/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    *
    * @throws 400 - Bad Request (invalid position_id)
    * @throws 404 - Not Found (position not found)
@@ -75,11 +81,13 @@ export class DisposisiController {
   @Get('get-recipient')
   async getDisposisiRecipients(
     @CurrentUser() user: any,
+    @Query('pengirim') pengirim?: string,
   ): Promise<DisposisiRecipientResponseDto> {
     try {
-      const position = parseInt(user.position, 10);
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const position = pengirim ? parseInt(pengirim, 10) : parseInt(user.position, 10);
       if (isNaN(position)) {
-        throw new BadRequestException('Invalid position in token');
+        throw new BadRequestException('Invalid position');
       }
 
       return await this.disposisiService.getDisposisiRecipients(position);
