@@ -47,18 +47,25 @@ export class KonsepController {
 
   /**
    * GET /KONSEP/get-recipient
-   * Dapatkan daftar atasan yang bisa dipilih sebagai penerima konsep (from JWT token)
+   * Dapatkan daftar atasan yang bisa dipilih sebagai penerima konsep
    * 
    * @param user - User dari JWT token (contains position)
+   * @param pengirim - Optional position_id pengirim (untuk kasus konsep dimana pengirim dipilih dari dropdown)
    * @returns Sender info dan list of managerial positions (ATASAN)
+   *
+   * @example
+   * GET /KONSEP/get-recipient (gunakan position dari JWT)
+   * GET /KONSEP/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
   async getRecipient(
     @CurrentUser() user: any,
+    @Query('pengirim') pengirim?: string,
   ): Promise<any> {
     try {
-      const positionId = parseInt(user.position, 10);
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = pengirim ? parseInt(pengirim, 10) : parseInt(user.position, 10);
       return await this.konsepService.getRecipient(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
