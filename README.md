@@ -78,9 +78,33 @@ NODE_ENV=development
 
 # JWT Secret (untuk authentication)
 JWT_SECRET=your_secret_key_here
+
+# Meilisearch (optional - untuk search v2)
+MEILISEARCH_ENABLED=true
+MEILISEARCH_HOST=http://localhost:7700
+MEILISEARCH_API_KEY=your_master_key_here
+MEILISEARCH_INDEX_NASKAH=naskah
 ```
 
-### 5. Jalankan Aplikasi
+### 5. Setup Meilisearch (Optional)
+Meilisearch digunakan untuk fitur pencarian cepat `/search/v2`.
+
+**Menggunakan Docker:**
+```bash
+docker run -d --name meilisearch \
+  -p 7700:7700 \
+  -e MEILI_MASTER_KEY='your_master_key_here' \
+  -v $(pwd)/meili_data:/meili_data \
+  getmeili/meilisearch:latest
+```
+
+**Atau download binary:**
+- Download dari [Meilisearch Releases](https://github.com/meilisearch/meilisearch/releases)
+- Jalankan: `./meilisearch --master-key="your_master_key_here"`
+
+Meilisearch akan berjalan di `http://localhost:7700`
+
+### 6. Jalankan Aplikasi
 ```bash
 # Development mode (auto-reload)
 npm run start:dev
