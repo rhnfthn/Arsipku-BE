@@ -77,6 +77,17 @@ export class OrganizationController {
     return this.organizationService.findOneWithParent(id, companyId);
   }
 
+  /**
+   * Get all child organizations by parent organization ID
+   * @example GET /organization/10001072/children
+   */
+  @Get(':parentOrgId/children')
+  findChildOrganizations(
+    @Param('parentOrgId', ParseIntPipe) parentOrgId: number,
+  ) {
+    return this.organizationService.findChildOrganizations(parentOrgId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string): Promise<OmOrganization> {
     return this.organizationService.findOne(id);
