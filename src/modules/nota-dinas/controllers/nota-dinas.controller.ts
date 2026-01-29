@@ -20,15 +20,21 @@ export class NotaDinasController {
 
   /**
    * GET /ND/get-recipient
-   * Get eligible recipients for Nota Dinas based on position ID from JWT token
+   * Get eligible recipients for Nota Dinas based on position ID
    *
    * @param user - User dari JWT token (contains position)
-   * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft dimana pengirim dipilih dari dropdown)
    * @returns NotaDinasRecipientResponseDto
    *
    * Response format mengikuti struktur position_json dari org_data:
    * - sender: OrgDataPositionDto (data posisi pengirim)
    * - recipients: { ATASAN, REKAN, BAWAHAN } (grouped recipients)
+   *
+   * @example
+   * GET /ND/get-recipient (gunakan position dari JWT)
+   * GET /ND/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    *
    * @throws 404 - Not Found (position or org data not found)
    * @throws 403 - Forbidden (non-managerial position)
@@ -41,7 +47,8 @@ export class NotaDinasController {
     @Query() query: GetRecipientQueryDto,
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
-      const positionId = parseInt(user.position, 10);
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
       return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
