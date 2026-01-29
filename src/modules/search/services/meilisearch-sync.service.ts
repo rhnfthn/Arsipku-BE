@@ -192,6 +192,13 @@ export class MeilisearchSyncService {
             // Tembusan
             tembusan_positions: tembusanList.map((t) => t.position).filter(Boolean) as string[],
 
+            // Access control - unified list of all positions that can see this document
+            access_positions: [
+                ...(pengirim?.position ? [pengirim.position] : []),
+                ...penerimaList.map((p) => p.position).filter(Boolean) as string[],
+                ...tembusanList.map((t) => t.position).filter(Boolean) as string[],
+            ].filter((v, i, a) => a.indexOf(v) === i), // Dedupe
+
             // Searchable text
             searchable_text: searchableText,
 

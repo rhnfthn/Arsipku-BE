@@ -16,6 +16,16 @@ Requires JWT Bearer token in Authorization header.
 Authorization: Bearer <your_jwt_token>
 ```
 
+## Access Control
+
+Search results are **automatically filtered** based on the authenticated user's position. Users only see documents where they are involved as:
+
+- **Pengirim** (Sender)
+- **Penerima** (Recipient)  
+- **Tembusan** (CC)
+
+This is enforced via the `access_positions` index field which contains all position IDs with access to each document.
+
 ---
 
 ## Query Parameters

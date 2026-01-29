@@ -125,13 +125,11 @@ export class MeilisearchSearchService {
         // === BUILD FILTER ARRAY ===
         const filters: string[] = [];
 
-        // Default filter: only naskah where user is involved (by position)
-        // Scope determines which role(s) to filter
+        // Default filter: only naskah where user has access (unified access_positions field)
+        // Scope determines additional role-based filtering
         if (!scope || scope === 'all' || scope === 'active') {
-            // User can see as pengirim, penerima, or tembusan
-            filters.push(
-                `(pengirim_position = "${userPosition}" OR penerima_positions = "${userPosition}" OR tembusan_positions = "${userPosition}")`
-            );
+            // User can see any document where they have access
+            filters.push(`access_positions = "${userPosition}"`);
 
             // Exclude draft status for 'all' and 'active'
             filters.push(`status IN ["final", "final_tte"]`);
@@ -139,25 +137,26 @@ export class MeilisearchSearchService {
         } else {
             switch (scope) {
                 case SearchScopeEnum.INBOX:
+                    // Inbox: user is penerima (but still must have access)
+                    filters.push(`access_positions = "${userPosition}"`);
                     filters.push(`penerima_positions = "${userPosition}"`);
                     filters.push(`status IN ["final", "final_tte"]`);
                     break;
                 case SearchScopeEnum.SENT:
+                    // Sent: user is pengirim
+                    filters.push(`access_positions = "${userPosition}"`);
                     filters.push(`pengirim_position = "${userPosition}"`);
                     filters.push(`status IN ["final", "final_tte"]`);
                     break;
                 case SearchScopeEnum.DRAFT:
-                    filters.push(
-                        `(pengirim_position = "${userPosition}" OR penerima_positions = "${userPosition}")`
-                    );
+                    // Draft: user has access and status is draf
+                    filters.push(`access_positions = "${userPosition}"`);
                     filters.push(`status = "draf"`);
                     break;
                 // Note: archived and favorite require sirkulasi flags which we don't have in Meilisearch
                 // We'll handle these with post-processing or store flags in document
                 default:
-                    filters.push(
-                        `(pengirim_position = "${userPosition}" OR penerima_positions = "${userPosition}" OR tembusan_positions = "${userPosition}")`
-                    );
+                    filters.push(`access_positions = "${userPosition}"`);
             }
             appliedFilters.push(`scope: ${scope}`);
         }

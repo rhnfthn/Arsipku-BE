@@ -41,6 +41,9 @@ export interface NaskahDocument {
     // Timestamps
     createdAt: number;
     updatedAt: number;
+
+    // Access control - all positions that can see this document
+    access_positions: string[];
 }
 
 /**
@@ -148,6 +151,7 @@ export class MeilisearchService implements OnModuleInit {
             'tembusan_positions',
             'klasifikasi',
             'createdAt',
+            'access_positions', // Unified access control field
         ]);
 
         // Sortable attributes
