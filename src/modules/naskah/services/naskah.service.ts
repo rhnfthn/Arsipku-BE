@@ -255,6 +255,8 @@ export class NaskahService {
       is_draft: s.isDraft ?? false,
       flag_favorit: !!s.flagFavorit,
       flag_arsip: !!s.flagArsip,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
     };
   }
 
@@ -629,6 +631,10 @@ export class NaskahService {
         
         // Level
         level,
+        
+        // Timestamps - menggunakan created_at dari pengirim sirkulasi (UTC dari database)
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       };
     };
 
