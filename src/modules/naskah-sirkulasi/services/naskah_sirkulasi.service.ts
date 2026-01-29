@@ -285,8 +285,8 @@ export class NaskahSirkulasiService {
         s.nama_sirkuler as penerima_nama,
         s.position_text as penerima_position_text,
         s.organization_text as penerima_organization_text,
-        CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at,
+        pengirim.created_at,
+        pengirim.updated_at,
         di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
@@ -524,8 +524,8 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_note,
         s.flag_arsip,
-        CAST(s.created_at AS DATETIME) as created_at,
-        CAST(s.updated_at AS DATETIME) as updated_at
+        s.created_at,
+        s.updated_at
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
@@ -1064,8 +1064,8 @@ export class NaskahSirkulasiService {
           s.flag_note,
           s.tindak_lanjut,
           s.is_locked,
-          CAST(s.created_at AS DATETIME) as created_at,
-          CAST(s.updated_at AS DATETIME) as updated_at,
+          s.created_at,
+          s.updated_at,
           'inbox' as source,
           
           (SELECT position FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_id,
@@ -1103,8 +1103,8 @@ export class NaskahSirkulasiService {
           s.flag_note,
           0 as tindak_lanjut, 
           0 as is_locked,
-          CAST(s.created_at AS DATETIME) as created_at,
-          CAST(s.updated_at AS DATETIME) as updated_at,
+          s.created_at,
+          s.updated_at,
           'sent' as source,
 
           s.position as pengirim_position_id,
