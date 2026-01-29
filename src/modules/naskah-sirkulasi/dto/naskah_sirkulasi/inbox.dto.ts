@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber, IsBoolean } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber, IsBoolean, IsDateString } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -36,6 +36,25 @@ export class InboxQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   arsip?: boolean;
+
+  // Date Range Filter
+  @IsOptional()
+  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  start_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  end_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Normalize preset value: "7 hari" -> "7_hari", "7hari" -> "7_hari", etc.
+    const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    return normalized;
+  })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
   @Type(() => Number)
