@@ -188,6 +188,8 @@ export class SuratDinasInternalService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'SDI';
     const tahun = tanggal.getFullYear();
@@ -271,8 +273,8 @@ export class SuratDinasInternalService {
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -1395,6 +1397,8 @@ export class SuratDinasInternalService {
           dto.perihal,
           tanggalNomor,
           queryRunner,
+          dto.final_pdf || undefined,
+          dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
         );
       }
 
@@ -1728,6 +1732,8 @@ export class SuratDinasInternalService {
         dto.perihal,
         tanggalNomor,
         queryRunner,
+        dto.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
       );
 
       // PHASE 6: Insert naskah
@@ -2208,7 +2214,9 @@ export class SuratDinasInternalService {
         klasifikasi,
         perihal,
         tanggalNomor,
-        queryRunner
+        queryRunner,
+        dto.final_pdf || naskah.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : (naskah.final_pdf ? naskah.final_pdf.split('/').pop() : undefined),
       );
 
       // PHASE 6: Update naskah table (all fields + finalization fields)
@@ -2592,6 +2600,18 @@ export class SuratDinasInternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // Update naskah with signature metadata if digsig (SdiSdeEntity tidak lagi digunakan)
         if (signatureMetadata) {
@@ -3315,8 +3335,8 @@ export class SuratDinasInternalService {
         final_pdf_url: finalPdfUrl,
 
         // Metadata
-        created_at: null,
-        updated_at: null,
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
   }
@@ -3527,6 +3547,8 @@ export class SuratDinasInternalService {
         perihal,
         tanggalNaskah,
         queryRunner,
+        undefined,
+        undefined,
       );
 
       // Calculate total lampiran count
