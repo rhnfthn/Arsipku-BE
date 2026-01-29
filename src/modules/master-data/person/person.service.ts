@@ -1,20 +1,26 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { Person } from './entities/person.entity';
+import { RelationSp } from '../relation_sp/entities/relation_sp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { OrgDataService } from '../org_data/org_data.service';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
+import { OmPosition } from '../position/entities/om-position.entity';
 
 @Injectable()
 export class PersonService {
   constructor(
     @InjectRepository(Person)
     private readonly cRepo: Repository<Person>,
+    @InjectRepository(RelationSp)
+    private readonly relationSpRepo: Repository<RelationSp>,
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
+    @InjectRepository(OmPosition)
+    private readonly positionRepo: Repository<OmPosition>,
     private readonly orgDataService: OrgDataService,
   ) {}
 
@@ -143,23 +149,124 @@ export class PersonService {
     });
 
     if (existing) {
-      throw new NotFoundException(
+      throw new BadRequestException(
         `Person with persnum ${dto.persnum} already exists`
       );
     }
 
     const newPerson = this.cRepo.create(dto);
-    return this.cRepo.save(newPerson);
+    const savedPerson = await this.cRepo.save(newPerson);
+
+    // Create relation to position (om_relation_sp) if provided
+    if (dto.company && dto.position && dto.persnum) {
+      // Auto-fetch position_text from om_position
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: dto.position,
+          company: dto.company,
+        },
+      });
+      
+      const relationSp = this.relationSpRepo.create({
+        company: dto.company,
+        position: dto.position,
+        position_text: positionData?.shortText || dto.positionText,
+        relation_persnum: dto.persnum,
+        relation_persnum_text: dto.name,
+        startDate: dto.startDate || '2025-01-01',
+        endDate: dto.endDate || '9999-12-31',
+        uname: dto.uname,
+      });
+      await this.relationSpRepo.save(relationSp);
+    }
+
+    return savedPerson;
   }
 
   async update(id: string, dto: UpdatePersonDto): Promise<Person> {
     const person = await this.findOne(id);
+    
+    if (person.persnum === null) {
+      throw new BadRequestException('Person has invalid data');
+    }
+
+    // Update person fields
     const updated = Object.assign(person, dto);
-    return this.cRepo.save(updated);
+    const savedPerson = await this.cRepo.save(updated);
+
+    // Handle position relation (om_relation_sp)
+    if (dto.position !== undefined || dto.company !== undefined) {
+      // Find existing relation
+      const existingRelation = await this.relationSpRepo.findOne({
+        where: {
+          relation_persnum: person.persnum,
+        },
+      });
+
+      if (dto.position === null || dto.company === null) {
+        // Remove relation if set to null
+        if (existingRelation) {
+          await this.relationSpRepo.remove(existingRelation);
+        }
+      } else if (dto.company && dto.position) {
+        // Auto-fetch position_text from om_position
+        const positionData = await this.positionRepo.findOne({
+          where: {
+            position: dto.position,
+            company: dto.company,
+          },
+        });
+        
+        const positionText = positionData?.shortText || dto.positionText;
+        
+        // Update or create relation
+        if (existingRelation) {
+          existingRelation.company = dto.company;
+          existingRelation.position = dto.position;
+          existingRelation.position_text = positionText || null;
+          existingRelation.relation_persnum_text = dto.name || person.name;
+          existingRelation.startDate = dto.startDate || person.startDate;
+          existingRelation.endDate = dto.endDate || person.endDate;
+          existingRelation.uname = dto.uname || null;
+          await this.relationSpRepo.save(existingRelation);
+        } else {
+          const newRelation = this.relationSpRepo.create({
+            company: dto.company,
+            position: dto.position,
+            position_text: positionText,
+            relation_persnum: person.persnum,
+            relation_persnum_text: dto.name || person.name,
+            startDate: dto.startDate || person.startDate || '2025-01-01',
+            endDate: dto.endDate || person.endDate || '9999-12-31',
+            uname: dto.uname,
+          });
+          await this.relationSpRepo.save(newRelation);
+        }
+      }
+    }
+
+    return savedPerson;
   }
 
   async remove(id: string): Promise<{ message: string }> {
     const person = await this.findOne(id);
+    
+    if (person.persnum === null) {
+      throw new BadRequestException('Person has invalid data');
+    }
+
+    // Delete position relation (om_relation_sp) if exists
+    const relationSp = await this.relationSpRepo.findOne({
+      where: {
+        relation_persnum: person.persnum,
+      },
+    });
+
+    if (relationSp) {
+      await this.relationSpRepo.remove(relationSp);
+    }
+
+    // Delete the person
     await this.cRepo.remove(person);
     return { message: `Person ${id} deleted successfully` };
   }
