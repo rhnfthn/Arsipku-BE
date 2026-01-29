@@ -502,6 +502,8 @@ export class KonsepService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const tahun = tanggal.getFullYear();
     const bulan = tanggal.getMonth() + 1;
@@ -597,15 +599,15 @@ export class KonsepService {
       .replace(/\/\//g, '/')  // Hapus double slash
       .trim();                 // Trim spasi di awal/akhir
 
-    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari konsep)
     const detailId = uuidv4();
     const detail = this.nomorRequestDetailRepository.create({
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
-      status: 'terpakai',
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(detail);
@@ -2022,6 +2024,15 @@ export class KonsepService {
         order: { id: 'DESC' },
       });
 
+      // Get initial pengirim sirkulasi for konsep (for created_at)
+      const initialPengirim = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskahKonsep.id,
+          sirkuler: 'pengirim',
+        },
+        order: { id: 'ASC' },
+      });
+
       // Get current penerima (latest penerima sirkulasi for konsep)
       const currentPenerima = await this.naskahSirkulasiRepository.findOne({
         where: {
@@ -2061,7 +2072,8 @@ export class KonsepService {
             id: naskahKonsep.id,
             perihal: naskahKonsep.perihal,
             status: naskahKonsep.status,
-            created_at: naskahKonsep.tanggal,
+            created_at: initialPengirim?.createdAt || naskahKonsep.tanggal,
+            updated_at: currentPengirim?.updatedAt || null,
           },
           disposisi_referensi: disposisiReferensi, // Disposisi asal (jika konsep ini adalah tindak lanjut)
           current_workflow: {

@@ -44,8 +44,8 @@ export class SuratDinasInternalController {
   ) {}
 
   /**
-   * GET /SDI/get-recipient/:positionId
-   * Get eligible recipients for Surat Dinas Internal using org_data
+   * GET /SDI/get-recipient
+   * Get eligible recipients for Surat Dinas Internal using org_data (from JWT token)
    *
    * SDI Rules:
    * - Hanya REKAN (tidak ada ATASAN/BAWAHAN)
@@ -54,8 +54,8 @@ export class SuratDinasInternalController {
    * - Managerial only (chief = 1)
    * - Uses cached org_data for better performance
    *
-   * @param positionId - Position ID of the sender (path parameter)
-   * @param tgl - Optional date in format YYYY-MM-DD (query parameter)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Optional query params (tgl in format YYYY-MM-DD)
    * @returns SdiRecipientResponseDto
    *
    * @throws 400 - Bad Request (invalid positionId)
@@ -63,12 +63,14 @@ export class SuratDinasInternalController {
    * @throws 403 - Forbidden (non-managerial role)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getSdiRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdiRecipientQueryDto,
   ): Promise<SdiRecipientResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSdiRecipients(
         positionId,
         query.tgl,
@@ -361,122 +363,7 @@ export class SuratDinasInternalController {
     }
   }
 
-  /**
-   * POST /SDI/forward
-   * Forward Surat Dinas Internal yang sudah diterima ke user lain
-   * 
-   * Fitur khusus: Bisa mengubah jenis naskah saat forward
-   * - SDI → ND / SDE
-   * - ND → SDI / SDE
-   * - SDE → SDI / ND
-   * 
-   * Kondisi:
-   * - User harus merupakan penerima dari naskah yang akan di-forward
-   * - User harus managerial
-   * - Penerima baru harus managerial yang valid
-   * - Otomatis membuat referensi ke naskah yang diterima
-   * 
-   * Form-data fields:
-   * - id_naskah_referensi: string (UUID naskah referensi/yang diterima)
-   * - pengirim: number (position_id user yang forward)
-   * - penerima: number[] (array of position_id penerima baru)
-   * - tembusan: number[] (optional)
-   * - jenis: string (ND|SDI|SDE - jenis naskah)
-   * - sifat: string (sangat_rahasia|rahasia|terbatas|biasa|terbuka)
-   * - klasifikasi: string (optional untuk ND/SDI)
-   * - perihal: string (optional, default dari naskah sebelumnya)
-   * - konten: string (optional, default dari naskah sebelumnya)
-   * - copy_lampiran_from_previous: boolean (default: true)
-   * - lampiran_temp_ids: string[] (optional, lampiran tambahan)
-   * - tujuan: string (optional, untuk SDE - nama organisasi eksternal)
-   * - alamat_tujuan: string (optional, untuk SDE)
-   * 
-   * @param body - Form-data body
-   * @returns ForwardSuratDinasInternalResponseDto
-   * 
-   * @throws 400 - Bad Request (validation error / naskah bukan ND/SDI/SDE)
-   * @throws 403 - Forbidden (bukan penerima / bukan managerial)
-   * @throws 404 - Not Found (naskah/position not found)
-   * @throws 500 - Internal Server Error
-   */
-  @UseInterceptors(AnyFilesInterceptor())
-  @Post('forward')
-  async forwardSuratDinasInternal(@Body() body: any): Promise<any> {
-    try {
-      console.log('[SDI forward] Raw body:', JSON.stringify(body, null, 2));
 
-      // Parse pengirim
-      if (typeof body.pengirim === 'string') {
-        body.pengirim = parseInt(body.pengirim, 10);
-      }
-
-      // Parse penerima
-      if (typeof body.penerima === 'string') {
-        try {
-          body.penerima = JSON.parse(body.penerima);
-        } catch {
-          body.penerima = [parseInt(body.penerima, 10)];
-        }
-      }
-
-      if (Array.isArray(body.penerima)) {
-        body.penerima = body.penerima.map((id: any) =>
-          typeof id === 'string' ? parseInt(id, 10) : id,
-        );
-      }
-
-      // Parse tembusan
-      if (body.tembusan) {
-        if (typeof body.tembusan === 'string') {
-          try {
-            body.tembusan = JSON.parse(body.tembusan);
-          } catch {
-            body.tembusan = [parseInt(body.tembusan, 10)];
-          }
-        }
-
-        if (Array.isArray(body.tembusan)) {
-          body.tembusan = body.tembusan.map((id: any) =>
-            typeof id === 'string' ? parseInt(id, 10) : id,
-          );
-        }
-      }
-
-      // Parse lampiran_temp_ids
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
-        try {
-          body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
-        } catch {
-          body.lampiran_temp_ids = [body.lampiran_temp_ids];
-        }
-      }
-
-      // Parse copy_lampiran_from_previous
-      if (body.copy_lampiran_from_previous === undefined || body.copy_lampiran_from_previous === null) {
-        body.copy_lampiran_from_previous = !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
-      } else if (typeof body.copy_lampiran_from_previous === 'string') {
-        body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
-      }
-
-      console.log('[SDI forward] Parsed body:', JSON.stringify(body, null, 2));
-
-      return await this.suratDinasInternalService.forwardSuratDinasInternal(body);
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        {
-          success: false,
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to forward surat dinas internal',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
 
   /**
    * GET /SDI/draft-list/:positionId

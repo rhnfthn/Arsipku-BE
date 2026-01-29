@@ -25,6 +25,8 @@ export class SirkulasiDetailDto {
   is_draft: boolean;
   flag_favorit: boolean;
   flag_arsip: boolean;
+  created_at: Date;
+  updated_at: Date | null;
 }
 
 // Info lampiran
