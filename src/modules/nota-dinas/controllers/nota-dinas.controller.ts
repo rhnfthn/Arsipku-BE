@@ -69,6 +69,48 @@ export class NotaDinasController {
   }
 
   /**
+   * GET /ND/get-senders
+   * Get eligible senders for Konsep Nota Dinas
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns OrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /ND/get-senders (gunakan position dari JWT)
+   * GET /ND/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getNotaDinasSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /ND/:id
    * Get detail Nota Dinas by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
@@ -882,31 +924,6 @@ export class NotaDinasController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  @Get('get-senders/:positionId')
-  async getNotaDinasSenders(
-    @Param('positionId', ParseIntPipe) positionId: number,
-    @Query() query: GetRecipientQueryDto,
-  ): Promise<OrgDataPositionDto[]> {
-    try {
-      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Nota Dinas recipients',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 }
