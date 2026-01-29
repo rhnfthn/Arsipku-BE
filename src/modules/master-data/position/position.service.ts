@@ -4,6 +4,7 @@ import { UpdatePositionDto } from './dto/update-position.dto';
 import { OmPosition } from './entities/om-position.entity';
 import { RelationOs } from '../relation_os/entities/relation_os.entity';
 import { RelationOsc } from '../relation_osc/entities/relation_osc.entity';
+import { OmOrganization } from '../organization/entities/om-organization.entity';
 import { Repository, DataSource } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -16,6 +17,8 @@ export class PositionService {
     private readonly relationOsRepo: Repository<RelationOs>,
     @InjectRepository(RelationOsc)
     private readonly relationOscRepo: Repository<RelationOsc>,
+    @InjectRepository(OmOrganization)
+    private readonly organizationRepo: Repository<OmOrganization>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -122,10 +125,18 @@ export class PositionService {
 
     // Create relation to organization (om_relation_os) if provided
     if (dto.organization) {
+      // Auto-fetch organization_text from om_organization
+      const orgData = await this.organizationRepo.findOne({
+        where: {
+          organization: dto.organization,
+          company: dto.company,
+        },
+      });
+      
       const relationOs = this.relationOsRepo.create({
         company: dto.company,
         organization: dto.organization,
-        organization_text: dto.organizationText,
+        organization_text: orgData?.shortText || dto.organizationText,
         relation_position: dto.position,
         relation_position_text: dto.shortText,
         startDate: dto.startDate || '2025-01-01',
@@ -137,10 +148,18 @@ export class PositionService {
 
     // Create cost center relation (om_relation_osc) if bodTag provided
     if (dto.bodTag && dto.organization) {
+      // Auto-fetch organization_text from om_organization
+      const orgData = await this.organizationRepo.findOne({
+        where: {
+          organization: dto.organization,
+          company: dto.company,
+        },
+      });
+      
       const relationOsc = this.relationOscRepo.create({
         company: dto.company,
         organization: dto.organization,
-        organization_text: dto.organizationText,
+        organization_text: orgData?.shortText || dto.organizationText,
         relation_position: dto.position,
         relation_position_text: dto.shortText,
         bod_tag: dto.bodTag,
@@ -192,10 +211,20 @@ export class PositionService {
           await this.relationOsRepo.remove(existingOs);
         }
       } else {
+        // Auto-fetch organization_text from om_organization
+        const orgData = updatedPosition.company ? await this.organizationRepo.findOne({
+          where: {
+            organization: dto.organization,
+            company: updatedPosition.company,
+          },
+        }) : null;
+        
+        const orgText = orgData?.shortText || dto.organizationText || null;
+        
         // Update or create relation
         if (existingOs) {
           existingOs.organization = dto.organization;
-          existingOs.organization_text = dto.organizationText || null;
+          existingOs.organization_text = orgText;
           existingOs.relation_position_text = dto.shortText || position.shortText;
           existingOs.startDate = dto.startDate || position.startDate;
           existingOs.endDate = dto.endDate || position.endDate;
@@ -205,7 +234,7 @@ export class PositionService {
           const newRelationOs = this.relationOsRepo.create({
             company: position.company,
             organization: dto.organization,
-            organization_text: dto.organizationText,
+            organization_text: orgText,
             relation_position: position.position,
             relation_position_text: dto.shortText || position.shortText,
             startDate: dto.startDate || position.startDate || '2025-01-01',
@@ -232,10 +261,20 @@ export class PositionService {
           await this.relationOscRepo.remove(existingOsc);
         }
       } else if (dto.organization) {
+        // Auto-fetch organization_text from om_organization
+        const orgData = position.company ? await this.organizationRepo.findOne({
+          where: {
+            organization: dto.organization,
+            company: position.company,
+          },
+        }) : null;
+        
+        const orgText = orgData?.shortText || dto.organizationText || null;
+        
         // Update or create relation (requires organization)
         if (existingOsc) {
           existingOsc.organization = dto.organization;
-          existingOsc.organization_text = dto.organizationText || null;
+          existingOsc.organization_text = orgText;
           existingOsc.relation_position_text = dto.shortText || position.shortText;
           existingOsc.bod_tag = dto.bodTag;
           existingOsc.startDate = dto.startDate || position.startDate;
@@ -246,7 +285,7 @@ export class PositionService {
           const newRelationOsc = this.relationOscRepo.create({
             company: position.company,
             organization: dto.organization,
-            organization_text: dto.organizationText,
+            organization_text: orgText,
             relation_position: position.position,
             relation_position_text: dto.shortText || position.shortText,
             bod_tag: dto.bodTag,
