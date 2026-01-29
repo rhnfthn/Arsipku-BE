@@ -6,7 +6,6 @@ import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
-import { ForwardNotaDinasDto, ForwardNotaDinasResponseDto } from '../dto/forward-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
@@ -20,10 +19,10 @@ export class NotaDinasController {
   constructor(private readonly notaDinasService: NotaDinasService) {}
 
   /**
-   * GET /ND/get-recipient/{positionId}
-   * Get eligible recipients for Nota Dinas based on position ID (using org_data)
+   * GET /ND/get-recipient
+   * Get eligible recipients for Nota Dinas based on position ID from JWT token
    *
-   * @param positionId - Position ID (path parameter)
+   * @param user - User dari JWT token (contains position)
    * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
    * @returns NotaDinasRecipientResponseDto
    *
@@ -35,12 +34,14 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (non-managerial position)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getNotaDinasRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -398,123 +399,6 @@ export class NotaDinasController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to finalize draft',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * POST /ND/forward
-   * Forward Nota Dinas / Surat Dinas yang sudah diterima ke user lain
-   * 
-   * Fitur khusus: Bisa mengubah jenis naskah saat forward
-   * - ND → SDI / SDE
-   * - SDI → ND / SDE
-   * - SDE → ND / SDI
-   * 
-   * Kondisi:
-   * - User harus merupakan penerima dari naskah yang akan di-forward
-   * - User harus managerial
-   * - Penerima baru harus managerial yang valid
-   * - Otomatis membuat referensi ke naskah yang diterima
-   * 
-   * Form-data fields:
-   * - id_naskah_referensi: string (UUID naskah referensi/yang diterima)
-   * - pengirim: number (position_id user yang forward)
-   * - penerima: number[] (array of position_id penerima baru)
-   * - tembusan: number[] (optional)
-   * - jenis: string (ND|SDI|SDE - jenis naskah)
-   * - sifat: string (sangat_rahasia|rahasia|terbatas|biasa|terbuka)
-   * - klasifikasi: string (optional untuk ND/SDI)
-   * - perihal: string (optional, default dari naskah sebelumnya)
-   * - konten: string (optional, default dari naskah sebelumnya)
-   * - copy_lampiran_from_previous: boolean (default: true)
-   * - lampiran_temp_ids: string[] (optional, lampiran tambahan)
-   * - tujuan: string (optional, untuk SDE - nama organisasi eksternal)
-   * - alamat_tujuan: string (optional, untuk SDE)
-   * 
-   * @param body - Form-data body
-   * @returns ForwardNotaDinasResponseDto
-   * 
-   * @throws 400 - Bad Request (validation error / naskah bukan ND/SDI/SDE)
-   * @throws 403 - Forbidden (bukan penerima / bukan managerial)
-   * @throws 404 - Not Found (naskah/position not found)
-   * @throws 500 - Internal Server Error
-   */
-  @UseInterceptors(AnyFilesInterceptor())
-  @Post('forward')
-  async forwardNotaDinas(@Body() body: any): Promise<any> {
-    try {
-      console.log('[ND forward] Raw body:', JSON.stringify(body, null, 2));
-
-      // Parse pengirim
-      if (typeof body.pengirim === 'string') {
-        body.pengirim = parseInt(body.pengirim, 10);
-      }
-
-      // Parse penerima
-      if (typeof body.penerima === 'string') {
-        try {
-          body.penerima = JSON.parse(body.penerima);
-        } catch {
-          body.penerima = [parseInt(body.penerima, 10)];
-        }
-      }
-
-      if (Array.isArray(body.penerima)) {
-        body.penerima = body.penerima.map((id: any) =>
-          typeof id === 'string' ? parseInt(id, 10) : id,
-        );
-      }
-
-      // Parse tembusan
-      if (body.tembusan) {
-        if (typeof body.tembusan === 'string') {
-          try {
-            body.tembusan = JSON.parse(body.tembusan);
-          } catch {
-            body.tembusan = [parseInt(body.tembusan, 10)];
-          }
-        }
-
-        if (Array.isArray(body.tembusan)) {
-          body.tembusan = body.tembusan.map((id: any) =>
-            typeof id === 'string' ? parseInt(id, 10) : id,
-          );
-        }
-      }
-
-      // Parse lampiran_temp_ids
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
-        try {
-          body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
-        } catch {
-          body.lampiran_temp_ids = [body.lampiran_temp_ids];
-        }
-      }
-
-      // Parse copy_lampiran_from_previous
-      if (body.copy_lampiran_from_previous === undefined || body.copy_lampiran_from_previous === null) {
-        body.copy_lampiran_from_previous = !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
-      } else if (typeof body.copy_lampiran_from_previous === 'string') {
-        body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
-      }
-
-      console.log('[ND forward] Parsed body:', JSON.stringify(body, null, 2));
-
-      return await this.notaDinasService.forwardNotaDinas(body);
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        {
-          success: false,
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to forward nota dinas',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

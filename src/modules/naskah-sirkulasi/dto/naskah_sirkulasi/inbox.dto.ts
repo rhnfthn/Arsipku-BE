@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 /**
  * Query params untuk filter inbox
@@ -12,6 +12,30 @@ export class InboxQueryDto {
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
   status_baca?: 'terbaca' | 'belum_terbaca';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  tinjut?: 'sudah_tinjut' | 'belum_tinjut';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
 
   @IsOptional()
   @Type(() => Number)
@@ -97,18 +121,22 @@ export class InboxItemDto {
 export class InboxResponseDto {
   success: boolean;
   message: string;
-  data: {
-    items: InboxItemDto[];
-    summary: {
-      total_semua: number;
-      total_belum_dibaca: number;
-      total_per_jenis: {
-        ND: number;
-        SDI: number;
-        SDE: number;
-        DI: number;
-        KA: number;
-      };
+  data: InboxItemDto[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  summary: {
+    total_semua: number;
+    total_belum_dibaca: number;
+    total_per_jenis: {
+      ND: number;
+      SDI: number;
+      SDE: number;
+      DI: number;
+      KA: number;
     };
   };
 }

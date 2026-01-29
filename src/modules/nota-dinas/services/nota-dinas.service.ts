@@ -209,6 +209,8 @@ export class NotaDinasService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'ND';
     const tahun = tanggal.getFullYear();
@@ -286,15 +288,15 @@ export class NotaDinasService {
       .replace(/\/\//g, '/') // Hapus double slash
       .trim(); // Trim spasi di awal/akhir
 
-    // 6. Insert nomor_request_detail dengan status 'terpakai'
+    // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari ND)
     const detailId = uuidv4();
     const detail = this.nomorRequestDetailRepository.create({
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
-      status: 'terpakai',
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
+      status: 'terpakai_final',
     });
 
     await queryRunner.manager.save(detail);
@@ -791,6 +793,9 @@ export class NotaDinasService {
         : undefined,
       lampiran_files:
         lampiranFilePaths.length > 0 ? lampiranFilePaths : undefined,
+
+      // Referensi Naskah (untuk sirkulasi persuratan)
+      id_referensi_naskah: body.id_referensi_naskah,
 
       // PDF & Tanggal
       final_pdf: finalPdfPath || body.final_pdf,
@@ -1333,6 +1338,8 @@ export class NotaDinasService {
           dto.perihal,
           tanggalNomor,
           queryRunner,
+          dto.final_pdf || undefined,
+          dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
         );
       }
 
@@ -1426,6 +1433,31 @@ export class NotaDinasService {
             is_temporary: 0,
           });
           await queryRunner.manager.save(lampiran);
+        }
+      }
+
+      // PHASE 11b: Insert referensi naskah (if any) - untuk sirkulasi persuratan
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          // Jika jenis tidak sesuai enum, default ke 'ND'
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '') 
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') 
+            : 'ND';
+
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: refJenis,
+            ref_tanggal: naskahRef.tanggal,
+            ref_nomor: naskahRef.nomor,
+            ref_perihal: naskahRef.perihal,
+          });
+          await queryRunner.manager.save(referensi);
         }
       }
 
@@ -1679,6 +1711,8 @@ export class NotaDinasService {
         dto.perihal,
         tanggalNomor,
         queryRunner,
+        dto.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : undefined,
       );
 
       // PHASE 6: Insert naskah
@@ -1734,6 +1768,30 @@ export class NotaDinasService {
           'ND',
           'nota-dinas/lampiran',
         );
+      }
+
+      // PHASE 8b: Insert referensi naskah (if any) - untuk sirkulasi persuratan
+      if (dto.id_referensi_naskah) {
+        const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_referensi_naskah },
+        });
+        if (naskahRef) {
+          // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
+          const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '') 
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') 
+            : 'ND';
+
+          const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
+            id: uuidv4(),
+            id_naskah: naskahId,
+            ref_jenis: refJenis,
+            ref_tanggal: naskahRef.tanggal,
+            ref_nomor: naskahRef.nomor,
+            ref_perihal: naskahRef.perihal,
+          });
+          await queryRunner.manager.save(referensi);
+        }
       }
 
       // PHASE 9: Insert nd entity
@@ -2189,6 +2247,8 @@ export class NotaDinasService {
         // Use dto.tgl if provided, else use naskah's existing date, else today
         dto.tgl ? this.parseDateString(dto.tgl) : (naskah.tanggal instanceof Date ? naskah.tanggal : new Date()),
         queryRunner,
+        dto.final_pdf || naskah.final_pdf || undefined,
+        dto.final_pdf ? dto.final_pdf.split('/').pop() : (naskah.final_pdf ? naskah.final_pdf.split('/').pop() : undefined),
       );
 
       // PHASE 6B: Update naskah table (all fields + finalization fields)
@@ -2617,6 +2677,18 @@ export class NotaDinasService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // Update naskah with tanda_tangan metadata (if digsig)
         if (signatureMetadata) {
@@ -3878,8 +3950,8 @@ export class NotaDinasService {
         final_pdf_url: finalPdfUrl,
 
         // Metadata
-        created_at: null,
-        updated_at: null,
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
   }
@@ -4020,6 +4092,8 @@ export class NotaDinasService {
         perihal,
         tanggalNaskah,
         queryRunner,
+        undefined,
+        undefined,
       );
 
       // Calculate total lampiran count

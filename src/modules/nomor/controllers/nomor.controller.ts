@@ -114,9 +114,9 @@ export class NomorController {
    * Admin melihat semua usulan nomor
    */
   @Get('admin/nomor-request')
-  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(@Query() query: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminNomorRequest();
+      return await this.nomorService.getAdminNomorRequest(query);
     } catch (error) {
       throw new HttpException(
         {
@@ -138,6 +138,7 @@ export class NomorController {
   @Get('admin/nomor-request-by-position/:id_posisi')
   async getAdminNomorRequestByPosition(
     @Param('id_posisi') idPosisi: string,
+    @Query() query: GetNomorQueryDto,
   ): Promise<GetAdminNomorRequestResponseDto> {
     try {
       const positionId = parseInt(idPosisi, 10);
@@ -150,7 +151,7 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminNomorRequestByPosition(positionId);
+      return await this.nomorService.getAdminNomorRequestByPosition(positionId, query);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -171,9 +172,9 @@ export class NomorController {
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    */
   @Get('admin/nomor-request-submitted')
-  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(@Query() query: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminNomorRequestSubmitted();
+      return await this.nomorService.getAdminNomorRequestSubmitted(query);
     } catch (error) {
       throw new HttpException(
         {
