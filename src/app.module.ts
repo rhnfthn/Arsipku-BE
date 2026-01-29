@@ -67,6 +67,7 @@ import { SearchModule } from './modules/search/search.module';
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: false, // hanya untuk development
+        timezone: 'Z', // Force UTC timezone untuk konsistensi timestamp
         extra: {
           maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
         },

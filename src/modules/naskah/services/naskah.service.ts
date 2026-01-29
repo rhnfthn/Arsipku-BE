@@ -275,6 +275,8 @@ export class NaskahService {
       is_draft: s.isDraft ?? false,
       flag_favorit: !!s.flagFavorit,
       flag_arsip: !!s.flagArsip,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
     };
   }
 
@@ -354,45 +356,109 @@ export class NaskahService {
     }
 
     // ============================================================
-    // BUILD FULL CHAIN / RANGKAIAN
+    // BUILD FULL CHAIN / RANGKAIAN dengan level berdasarkan depth referensi
     // ============================================================
-
-    // STEP 1: Trace backward to find root
-    let rootNaskahId = naskahId;
-    let currentId = naskahId;
-    const visitedIds = new Set<string>([currentId]);
-
-    while (true) {
-      const referensi = await this.naskahReferensiRepository.findOne({
-        where: { id_naskah: currentId },
-      });
-
+    
+    // STEP 1: Collect semua naskah yang terhubung dalam chain
+    const allNaskahInChain = new Set<string>();
+    const allReferensiMap = new Map<string, any>(); // id_naskah -> referensi data
+    
+    // Trace both directions: backward (ke parent) dan forward (dari children)
+    const traceBothDirections = async (startId: string) => {
+      const visited = new Set<string>();
+      const queue = [startId];
+      
+      while (queue.length > 0) {
+        const currentId = queue.shift();
+        if (!currentId || visited.has(currentId)) continue;
+        
+        visited.add(currentId);
+        allNaskahInChain.add(currentId);
+        
+        // Backward: cari naskah yang direferensikan
+        const referensi = await this.naskahReferensiRepository.findOne({
+          where: { id_naskah: currentId },
+        });
+        
+        if (referensi) {
+          allReferensiMap.set(currentId, referensi);
+          // Find parent by ref_nomor
+          const whereClause: any = { nomor: referensi.ref_nomor };
+          if (referensi.ref_jenis) {
+            whereClause.jenis = referensi.ref_jenis;
+          }
+          const parentNaskah = await this.naskahRepository.findOne({
+            where: whereClause,
+          });
+          if (parentNaskah && !visited.has(parentNaskah.id)) {
+            queue.push(parentNaskah.id);
+          }
+        }
+        
+        // Forward: cari naskah yang mereferensikan currentId (children)
+        const naskahCurrent = await this.naskahRepository.findOne({
+          where: { id: currentId },
+        });
+        
+        if (naskahCurrent && naskahCurrent.nomor) {
+          const children = await this.naskahReferensiRepository.find({
+            where: { ref_nomor: naskahCurrent.nomor },
+          });
+          
+          for (const child of children) {
+            if (child.id_naskah && !visited.has(child.id_naskah)) {
+              queue.push(child.id_naskah);
+            }
+          }
+        }
+      }
+    };
+    
+    await traceBothDirections(naskahId);
+    
+    // STEP 2: Calculate level untuk setiap naskah berdasarkan kedalaman referensi
+    // Level = depth dari referenced parent (0 jika tidak ada referensi)
+    const naskahIdToLevel = new Map<string, number>();
+    
+    const calculateLevel = async (naskahIdParam: string): Promise<number> => {
+      if (naskahIdToLevel.has(naskahIdParam)) {
+        return naskahIdToLevel.get(naskahIdParam)!;
+      }
+      
+      const referensi = allReferensiMap.get(naskahIdParam);
       if (!referensi || !referensi.ref_nomor) {
-        rootNaskahId = currentId;
-        break;
+        naskahIdToLevel.set(naskahIdParam, 0);
+        return 0;
       }
-
-      // Find parent by ref_nomor and ref_jenis
+      
+      // Find parent
+      const whereClause: any = { nomor: referensi.ref_nomor };
+      if (referensi.ref_jenis) {
+        whereClause.jenis = referensi.ref_jenis;
+      }
       const parentNaskah = await this.naskahRepository.findOne({
-        where: {
-          nomor: referensi.ref_nomor,
-          jenis: referensi.ref_jenis || undefined,
-        },
+        where: whereClause,
       });
-
-      if (!parentNaskah || visitedIds.has(parentNaskah.id)) {
-        rootNaskahId = currentId;
-        break;
+      
+      if (!parentNaskah) {
+        naskahIdToLevel.set(naskahIdParam, 0);
+        return 0;
       }
-
-      visitedIds.add(parentNaskah.id);
-      currentId = parentNaskah.id;
+      
+      const parentLevel = await calculateLevel(parentNaskah.id);
+      const currentLevel = parentLevel + 1;
+      naskahIdToLevel.set(naskahIdParam, currentLevel);
+      return currentLevel;
+    };
+    
+    // Calculate level untuk semua naskah dalam chain
+    for (const naskahId of allNaskahInChain) {
+      await calculateLevel(naskahId);
     }
 
-    // STEP 2: Build flow from root forward
+    // STEP 3: Build flow dengan level yang sudah dihitung
     const flow: any[] = [];
-    const naskahIdToLevel = new Map<string, number>();
-
+    
     // Helper function to build node data for flow
     const buildFlowNode = async (
       naskahData: NaskahEntity,
@@ -585,50 +651,39 @@ export class NaskahService {
 
         // Level
         level,
+        
+        // Timestamps - menggunakan created_at dari pengirim sirkulasi (UTC dari database)
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       };
     };
 
-    // Recursive function to build tree
-    const buildTree = async (parentId: string, level: number): Promise<void> => {
-      const parentNode = await this.naskahRepository.findOne({
-        where: { id: parentId },
+    // Build nodes untuk semua naskah dalam chain
+    for (const naskahIdInChain of allNaskahInChain) {
+      const naskahData = await this.naskahRepository.findOne({
+        where: { id: naskahIdInChain },
       });
-
-      if (!parentNode) return;
-
-      naskahIdToLevel.set(parentId, level);
-      const node = await buildFlowNode(parentNode, level);
-      flow.push(node);
-
-      // Find all children (naskah yang mereferensi parent ini)
-      if (!parentNode.nomor) return;
-
-      const children = await this.naskahReferensiRepository.find({
-        where: { ref_nomor: parentNode.nomor },
-      });
-
-      for (const child of children) {
-        if (child.id_naskah && !naskahIdToLevel.has(child.id_naskah)) {
-          await buildTree(child.id_naskah, level + 1);
-        }
+      
+      if (naskahData) {
+        const level = naskahIdToLevel.get(naskahIdInChain) || 0;
+        const node = await buildFlowNode(naskahData, level);
+        flow.push(node);
       }
-    };
+    }
 
-    // Build from root
-    await buildTree(rootNaskahId, 0);
-
-    // Sort descending by level (terbaru di atas)
-    flow.sort((a, b) => b.level - a.level);
+    // Sort: pertama by level desc (level tinggi di atas), kemudian by tanggal desc (terbaru di atas dalam level yang sama)
+    flow.sort((a, b) => {
+      if (a.level !== b.level) {
+        return b.level - a.level; // Higher level first
+      }
+      // Same level - sort by tanggal descending (terbaru di atas)
+      return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
+    });
 
     return {
       success: true,
       message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
-      data: {
-        current_naskah_id: naskahId,
-        root_naskah_id: rootNaskahId,
-        total_chain: flow.length,
-        chain: flow,
-      },
+      data: flow,
     };
   }
 }

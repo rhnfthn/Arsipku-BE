@@ -1,3 +1,27 @@
+import { IsOptional, IsInt, Min, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+
+/**
+ * Query params untuk get nomor request
+ */
+export class GetNomorRequestQueryDto {
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
 /**
  * Response DTO untuk get nomor request (user view)
  */
@@ -26,6 +50,12 @@ export class GetMyNomorRequestResponseDto {
       created_at: Date;
     }[];
   }[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 /**
@@ -60,4 +90,10 @@ export class GetAdminNomorRequestResponseDto {
       created_at: Date;
     }[];
   }[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
