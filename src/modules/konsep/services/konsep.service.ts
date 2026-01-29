@@ -2024,6 +2024,15 @@ export class KonsepService {
         order: { id: 'DESC' },
       });
 
+      // Get initial pengirim sirkulasi for konsep (for created_at)
+      const initialPengirim = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskahKonsep.id,
+          sirkuler: 'pengirim',
+        },
+        order: { id: 'ASC' },
+      });
+
       // Get current penerima (latest penerima sirkulasi for konsep)
       const currentPenerima = await this.naskahSirkulasiRepository.findOne({
         where: {
@@ -2063,7 +2072,8 @@ export class KonsepService {
             id: naskahKonsep.id,
             perihal: naskahKonsep.perihal,
             status: naskahKonsep.status,
-            created_at: naskahKonsep.tanggal,
+            created_at: initialPengirim?.createdAt || naskahKonsep.tanggal,
+            updated_at: currentPengirim?.updatedAt || null,
           },
           disposisi_referensi: disposisiReferensi, // Disposisi asal (jika konsep ini adalah tindak lanjut)
           current_workflow: {
