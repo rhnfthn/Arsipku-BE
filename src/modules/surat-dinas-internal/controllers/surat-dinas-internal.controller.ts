@@ -99,6 +99,51 @@ export class SuratDinasInternalController {
   }
 
   /**
+   * GET /SDI/get-senders
+   * Get eligible senders for Konsep Surat Dinas Internal
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns SdiOrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /SDI/get-senders (gunakan position dari JWT)
+   * GET /SDI/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getSdiSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetSdiRecipientQueryDto,
+  ): Promise<SdiOrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.suratDinasInternalService.getSenderKonsep(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDI senders',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /SDI/:id
    * Get detail Surat Dinas Internal by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
@@ -771,34 +816,6 @@ export class SuratDinasInternalController {
           error: 'Failed to generate PDF',
           detail: error instanceof Error ? error.message : String(error),
         });
-    }
-  }
-
-  @Get('get-senders/:positionId')
-  async getNotaDinasSenders(
-    @Param('positionId', ParseIntPipe) positionId: number,
-    @Query() query: GetSdiRecipientQueryDto,
-  ): Promise<SdiOrgDataPositionDto[]> {
-    try {
-      return await this.suratDinasInternalService.getSenderKonsep(
-        positionId,
-        query.tgl,
-      );
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Nota Dinas recipients',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 }
