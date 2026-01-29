@@ -6,8 +6,7 @@ export class CreateOrganizationDto {
   id?: string;
 
   @IsInt()
-  @IsOptional()
-  company?: number;
+  company: number;
 
   @IsInt()
   organization: number;
@@ -33,6 +32,24 @@ export class CreateOrganizationDto {
   @IsOptional()
   @MaxLength(250)
   abbreviation?: string; // Titelatur
+
+  @IsInt()
+  @IsOptional()
+  subArea?: number; // Sub area ID (relation_sub_area in om_relation_oa)
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  subAreaText?: string; // Sub area text (relation_sub_area_text in om_relation_oa)
+
+  @IsInt()
+  @IsOptional()
+  parentOrganization?: number; // Parent organization ID (null = top level)
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  parentOrganizationText?: string; // Parent organization text
 
   @IsString()
   @IsOptional()
