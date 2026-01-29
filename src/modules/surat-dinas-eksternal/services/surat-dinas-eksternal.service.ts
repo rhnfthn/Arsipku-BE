@@ -31,6 +31,7 @@ import { DigsigService } from '../../digsig/services/digsig.service';
 import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -68,7 +69,8 @@ export class SuratDinasEksternalService {
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+  ) { }
 
   // ============================================================
   // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
@@ -120,7 +122,7 @@ export class SuratDinasEksternalService {
       }
 
       const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
-      
+
       const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
         company,
         area,
@@ -160,7 +162,7 @@ export class SuratDinasEksternalService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
     }
@@ -171,7 +173,7 @@ export class SuratDinasEksternalService {
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
       const position = barisData.find((p: any) => p.position === numericId);
-      
+
       if (position) {
         // Return position_text with organization_text
         const fullName = `${position.position_text} - ${position.organization_text}`;
@@ -194,7 +196,7 @@ export class SuratDinasEksternalService {
     throwOnNotFound: boolean = false,
   ): Promise<EksternalEntity[]> {
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (!penerimaIds || penerimaIds.length === 0) {
       return penerimaList;
     }
@@ -250,15 +252,15 @@ export class SuratDinasEksternalService {
 
     for (const extId of eksternalIds) {
       const cleanId = String(extId).trim();
-      
+
       // Check if it's a UUID (contains dashes)
       const isUuid = cleanId.includes('-') && cleanId.length === 36;
-      
+
       if (isUuid) {
         const eksternal = await this.eksternalRepository.findOne({
           where: { id: cleanId, aktif: true },
         });
-        
+
         if (eksternal) {
           names.push(eksternal.nama);
         } else {
@@ -303,7 +305,7 @@ export class SuratDinasEksternalService {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
       let lampiranText = lampiran;
       let lampiranFiles: any[] = [];
-      
+
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
@@ -376,7 +378,7 @@ export class SuratDinasEksternalService {
         filePath: string;
         tempFolderId: string | null;
       }> = [];
-      
+
       for (const lampiran of tempLampiran) {
         files.push({
           id: lampiran.id,
@@ -476,7 +478,7 @@ export class SuratDinasEksternalService {
         file_name: l.file_name,
         jenis: l.jenis,
       })));
-      
+
       throw new NotFoundException('Lampiran temporary tidak ditemukan');
     }
 
@@ -1053,17 +1055,17 @@ export class SuratDinasEksternalService {
     // - UUID (id dari tabel eksternal) - untuk string UUID
     // - Position ID (id_position_pembuat) - untuk angka/number
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (dto.penerima && dto.penerima.length > 0) {
       for (const penerimaValue of dto.penerima) {
         // Trim whitespace from value
         const cleanValue = String(penerimaValue).trim();
-        
+
         // Check if it's a UUID (contains dashes and is 36 chars) or a number (position ID)
         const isUuid = cleanValue.includes('-') && cleanValue.length === 36;
-        
+
         let eksternal: EksternalEntity | null = null;
-        
+
         if (isUuid) {
           // Search by eksternal.id (UUID)
           eksternal = await this.eksternalRepository.findOne({
@@ -1075,11 +1077,11 @@ export class SuratDinasEksternalService {
             where: { id_position_pembuat: cleanValue, aktif: true },
           });
         }
-        
+
         if (!eksternal) {
           continue; // Skip instead of throwing error to be more lenient
         }
-        
+
         // Avoid duplicates
         if (!penerimaList.find(p => p.id === eksternal!.id)) {
           penerimaList.push(eksternal);
@@ -1195,7 +1197,7 @@ export class SuratDinasEksternalService {
         // Get file names before moving
         const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
         lampiranFileNames = lampiranFiles.map(f => f.fileName);
-        
+
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1224,7 +1226,7 @@ export class SuratDinasEksternalService {
       const kepadaYth = kepadaYthList.join('; ');
 
       // Build alamat dari penerima pertama (atau gabungan)
-      const alamatPenerima = penerimaList.length === 1 
+      const alamatPenerima = penerimaList.length === 1
         ? penerimaList[0].alamat || ''
         : penerimaList.map(p => `${p.nama}: ${p.alamat || '-'}`).join('\n');
 
@@ -1240,7 +1242,7 @@ export class SuratDinasEksternalService {
 
       // PHASE 10: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
       let finalPdfPath: string | undefined = undefined;
-      
+
       if (status !== 'draf') {
         try {
           // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
@@ -1298,7 +1300,7 @@ export class SuratDinasEksternalService {
           // Upload PDF to storage with organized folder structure
           const timestamp = Date.now();
           const pdfFileName = `SDE-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
-          
+
           const uploadResult = await this.storageService.uploadBuffer(
             pdfBuffer,
             pdfFileName,
@@ -1334,6 +1336,9 @@ export class SuratDinasEksternalService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Build penerima response
       const penerimaResponses: SdePenerimaInfoDto[] = penerimaList.map(
         (ext) => this.toEksternalPenerimaInfo(ext)
@@ -1351,8 +1356,8 @@ export class SuratDinasEksternalService {
       }
 
       // Build lampiran text from file names
-      const lampiranText = lampiranFileNames.length > 0 
-        ? lampiranFileNames.join(', ') 
+      const lampiranText = lampiranFileNames.length > 0
+        ? lampiranFileNames.join(', ')
         : (dto.lampiran || undefined);
 
       // Return response - use toSirkulasiInfo directly from org_data (same as SDI)
@@ -1437,17 +1442,17 @@ export class SuratDinasEksternalService {
 
     // PHASE 3: Validate penerima dari tabel eksternal (sama seperti createSde)
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (dto.penerima && dto.penerima.length > 0) {
       for (const penerimaValue of dto.penerima) {
         // Trim whitespace from value
         const cleanValue = String(penerimaValue).trim();
-        
+
         // Check if it's a UUID (contains dashes and is 36 chars) or a number (position ID)
         const isUuid = cleanValue.includes('-') && cleanValue.length === 36;
-        
+
         let eksternal: EksternalEntity | null = null;
-        
+
         if (isUuid) {
           // Search by eksternal.id (UUID)
           eksternal = await this.eksternalRepository.findOne({
@@ -1459,11 +1464,11 @@ export class SuratDinasEksternalService {
             where: { id_position_pembuat: cleanValue, aktif: true },
           });
         }
-        
+
         if (!eksternal) {
           continue; // Skip instead of throwing error to be more lenient
         }
-        
+
         // Avoid duplicates
         if (!penerimaList.find(p => p.id === eksternal!.id)) {
           penerimaList.push(eksternal);
@@ -1577,12 +1582,12 @@ export class SuratDinasEksternalService {
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids:`, dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids type:`, typeof dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids[0]:`, dto.lampiran_temp_ids[0]);
-        
+
         // Get file names before moving
         const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - Found ${lampiranFiles.length} lampiran files`);
         lampiranFileNames = lampiranFiles.map(f => f.fileName);
-        
+
         // Move lampiran dari temporary ke final folder
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
@@ -1653,18 +1658,18 @@ export class SuratDinasEksternalService {
       try {
         // Generate PDF dengan QR code di template (jika ada)
         console.log(`[SDE] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`);
-        
+
         // Use fallback for empty string, not just undefined/null
-        const finalPositionText = (dto.nama_jabatan && dto.nama_jabatan.trim()) 
-          ? dto.nama_jabatan 
+        const finalPositionText = (dto.nama_jabatan && dto.nama_jabatan.trim())
+          ? dto.nama_jabatan
           : pengirim.position_text;
         const finalNamaLengkap = (dto.nama_lengkap && dto.nama_lengkap.trim())
           ? dto.nama_lengkap
           : pengirim.persnum_person_text || '';
-        
+
         console.log(`[SDE] positionText for PDF: ${finalPositionText}`);
         console.log(`[SDE] namaLengkap for PDF: ${finalNamaLengkap}`);
-        
+
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: dto.konten,
           htmlContent: dto.konten,
@@ -1828,6 +1833,9 @@ export class SuratDinasEksternalService {
         await queryRunner.commitTransaction();
         console.log(`[SDE] Transaction committed successfully`);
 
+        // Sync to Meilisearch (non-blocking, after successful commit)
+        this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
         // Format lampiran text
         const lampiranText = lampiranFileNames.length > 0 ? lampiranFileNames.join(', ') : '';
 
@@ -1894,7 +1902,7 @@ export class SuratDinasEksternalService {
         if (cleanValue.startsWith('{') && cleanValue.endsWith('}')) {
           cleanValue = '[' + cleanValue.slice(1, -1) + ']';
         }
-        
+
         try {
           // Try parse as JSON
           const parsed = JSON.parse(cleanValue);
@@ -2158,7 +2166,7 @@ export class SuratDinasEksternalService {
       // PHASE 6.1: Handle sirkulasi tembusan - ALWAYS ensure consistency
       // Get existing tembusan positions before deleting
       let tembusanPositionsToInsert: number[] = [];
-      
+
       if (dto.tembusan !== undefined) {
         // Use provided tembusan from DTO
         tembusanPositionsToInsert = dto.tembusan;
@@ -2276,7 +2284,7 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2323,20 +2331,20 @@ export class SuratDinasEksternalService {
         status: 'draf',
         perihal: updatedNaskah?.perihal || '',
         // Use toSirkulasiInfo directly from org_data (same as SDI)
-        pengirim: fallbackPengirimPosition 
+        pengirim: fallbackPengirimPosition
           ? this.toSirkulasiInfo(fallbackPengirimPosition)
           : {
-              position: parseInt(pengirimSirkulasi?.position || '0', 10),
-              position_text: pengirimSirkulasi?.positionText || '',
-              persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
-              nama: pengirimSirkulasi?.namaSirkuler || null,
-              organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
-              organization_text: pengirimSirkulasi?.organizationText || '',
-              sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
-              sub_area_text: pengirimSirkulasi?.subAreaText || null,
-              area: pengirimSirkulasi?.area || null,
-              area_text: pengirimSirkulasi?.areaText || null,
-            },
+            position: parseInt(pengirimSirkulasi?.position || '0', 10),
+            position_text: pengirimSirkulasi?.positionText || '',
+            persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
+            nama: pengirimSirkulasi?.namaSirkuler || null,
+            organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
+            organization_text: pengirimSirkulasi?.organizationText || '',
+            sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
+            sub_area_text: pengirimSirkulasi?.subAreaText || null,
+            area: pengirimSirkulasi?.area || null,
+            area_text: pengirimSirkulasi?.areaText || null,
+          },
         penerima: penerimaResponses,
         tembusan: tembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
@@ -2538,7 +2546,7 @@ export class SuratDinasEksternalService {
       // PHASE 8.1: Handle sirkulasi tembusan - ALWAYS ensure consistency  
       // Determine tembusan list to insert
       let tembusanPositionsToInsert: number[] = [];
-      
+
       if (dto.tembusan !== undefined) {
         // Use provided tembusan from DTO
         tembusanPositionsToInsert = dto.tembusan;
@@ -2608,7 +2616,7 @@ export class SuratDinasEksternalService {
       let pdfBuffer: Buffer;
       let signatureMetadata: string | null = null;
       let bsreNameDoc: string | null = null;
-      
+
       try {
         // Get pengirim sirkulasi for fallback data
         const pengirimSirkulasiForPdf = await queryRunner.manager.findOne(NaskahSirkulasi, {
@@ -2938,7 +2946,7 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2987,20 +2995,20 @@ export class SuratDinasEksternalService {
         status: newStatus,
         perihal: updatedNaskah?.perihal || '',
         // Use toSirkulasiInfo directly from org_data (same as SDI)
-        pengirim: fallbackPengirimPosition 
+        pengirim: fallbackPengirimPosition
           ? this.toSirkulasiInfo(fallbackPengirimPosition)
           : {
-              position: parseInt(pengirimSirkulasi?.position || '0', 10),
-              position_text: pengirimSirkulasi?.positionText || '',
-              persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
-              nama: pengirimSirkulasi?.namaSirkuler || null,
-              organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
-              organization_text: pengirimSirkulasi?.organizationText || '',
-              sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
-              sub_area_text: pengirimSirkulasi?.subAreaText || null,
-              area: pengirimSirkulasi?.area || null,
-              area_text: pengirimSirkulasi?.areaText || null,
-            },
+            position: parseInt(pengirimSirkulasi?.position || '0', 10),
+            position_text: pengirimSirkulasi?.positionText || '',
+            persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
+            nama: pengirimSirkulasi?.namaSirkuler || null,
+            organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
+            organization_text: pengirimSirkulasi?.organizationText || '',
+            sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
+            sub_area_text: pengirimSirkulasi?.subAreaText || null,
+            area: pengirimSirkulasi?.area || null,
+            area_text: pengirimSirkulasi?.areaText || null,
+          },
         penerima: penerimaResponses,
         tembusan: finalizeTembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
@@ -3026,7 +3034,7 @@ export class SuratDinasEksternalService {
     // Get org_data to validate position exists
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tanggal);
-    
+
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException('Data organisasi tidak ditemukan');
     }
@@ -3407,7 +3415,7 @@ export class SuratDinasEksternalService {
       // PHASE 2: Get org_data dan validasi pengirim & penerima
       const tanggal = new Date().toISOString().split('T')[0];
       const orgData = await this.orgDataService.findOrg(tanggal);
-      
+
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(
           `Data organisasi untuk tanggal ${tanggal} tidak ditemukan`,
@@ -3514,7 +3522,7 @@ export class SuratDinasEksternalService {
       // PHASE 7: Create entity content sesuai jenis
       const kepadaYthList = penerimaList.map((p) => `${p.position_text} ${p.organization_text}`);
       const kepadaYth = kepadaYthList.join('; ');
-      
+
       // Get header info
       const headerInfo = await this.getHeaderInfoByUser(
         {
@@ -3694,7 +3702,7 @@ export class SuratDinasEksternalService {
           htmlContent: konten,
           nomor: nomorSurat,
           penerima: kepadaYthList,
-          tembusan: tembusanList.length > 0 
+          tembusan: tembusanList.length > 0
             ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`)
             : [],
           perihal: perihal,
@@ -3794,7 +3802,7 @@ export class SuratDinasEksternalService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('[SDE Forward] Error:', error);
-      
+
       throw new HttpException(
         {
           statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR,
