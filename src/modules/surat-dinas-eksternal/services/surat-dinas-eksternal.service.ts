@@ -175,8 +175,8 @@ export class SuratDinasEksternalService {
       const position = barisData.find((p: any) => p.position === numericId);
 
       if (position) {
-        // Return position_text with organization_text
-        const fullName = `${position.position_text} - ${position.organization_text}`;
+        // Return position_text only (without organization_text) - sama seperti SDI
+        const fullName = `${position.position_text}`;
         names.push(fullName);
       } else {
         // Fallback if position not found
