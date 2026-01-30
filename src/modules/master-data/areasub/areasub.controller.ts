@@ -18,7 +18,7 @@ export class AreasubController {
   constructor(private readonly subAreaService: AreasubService) {}
 
   @Get()
-  findAll(): Promise<OmAreaSub[]> {
+  findAll(): Promise<any[]> {
     return this.subAreaService.findAll();
   }
 
@@ -27,7 +27,7 @@ export class AreasubController {
    * @example GET /areasub/company/1
    */
   @Get('company/:companyId')
-  findByCompany(@Param('companyId', ParseIntPipe) companyId: number): Promise<OmAreaSub[]> {
+  findByCompany(@Param('companyId', ParseIntPipe) companyId: number): Promise<any[]> {
     return this.subAreaService.findByCompany(companyId);
   }
 
@@ -39,12 +39,12 @@ export class AreasubController {
   findByCompanyAndArea(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Param('areaCode') areaCode: string,
-  ): Promise<OmAreaSub[]> {
+  ): Promise<any[]> {
     return this.subAreaService.findByCompanyAndArea(companyId, areaCode);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string): Promise<OmAreaSub> {
+  findOne(@Param('id') id: string): Promise<any> {
     return this.subAreaService.findOne(id);
   }
 
