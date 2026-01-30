@@ -4,12 +4,14 @@ import { UpdateAreasubDto } from './dto/update-areasub.dto';
 import { OmAreaSub } from './entities/om-areasub.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 
 @Injectable()
 export class AreasubService {
   constructor(
     @InjectRepository(OmAreaSub)
     private readonly subAreaRepo: Repository<OmAreaSub>,
+    private readonly subAreaAlamatService: SubAreaAlamatService,
   ) {}
 
   async findAll(): Promise<OmAreaSub[]> {
@@ -47,11 +49,55 @@ export class AreasubService {
   }
 
   async create(companyId: number, dto: CreateAreasubDto): Promise<OmAreaSub> {
+    // Create sub area
     const newSubArea = this.subAreaRepo.create({
-      ...dto,
+      area: dto.area,
+      sub_area: dto.sub_area,
+      shortText: dto.shortText,
+      longText: dto.longText,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      uname: dto.uname,
       company: companyId,
     });
-    return this.subAreaRepo.save(newSubArea);
+    const savedSubArea = await this.subAreaRepo.save(newSubArea);
+
+    // Auto-insert ke sub_area_alamat jika ada field alamat
+    if (
+      dto.kantor ||
+      dto.kantor_english ||
+      dto.gedung ||
+      dto.gedung_english ||
+      dto.alamat ||
+      dto.alamat_english ||
+      dto.telepon ||
+      dto.logo ||
+      dto.kota
+    ) {
+      try {
+        await this.subAreaAlamatService.create({
+          company: companyId.toString(),
+          area: dto.area,
+          sub_area: dto.sub_area.toString(),
+          start_date: dto.startDate,
+          end_date: dto.endDate,
+          kantor: dto.kantor,
+          kantor_english: dto.kantor_english,
+          gedung: dto.gedung,
+          gedung_english: dto.gedung_english,
+          alamat: dto.alamat,
+          alamat_english: dto.alamat_english,
+          telepon: dto.telepon,
+          logo: dto.logo,
+          kota: dto.kota,
+        });
+      } catch (error) {
+        // Log error tapi tidak throw agar create sub area tetap sukses
+        console.error('Failed to create sub_area_alamat:', error);
+      }
+    }
+
+    return savedSubArea;
   }
 
   async update(id: string, companyId: number, dto: UpdateAreasubDto): Promise<OmAreaSub> {
