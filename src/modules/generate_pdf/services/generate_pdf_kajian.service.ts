@@ -266,10 +266,26 @@ export class GeneratePdfKajianService {
         table, th, td {
           font-family: 'Times New Roman', Times, serif;
         }
+        /* Wrapper untuk body content dengan margin */
+        .body-content {
+          margin-top: 20px;
+          margin-bottom: 20px;
+          text-align: justify;
+        }
+        /* Wrapper untuk ttd dengan margin top */
+        .ttd-wrapper {
+          margin-top: 25px;
+        }
       </style>
     `;
 
-    const konten = globalStyle + header + header2 + header3 + html + ttd + tembusanKonten;
+    // Wrap body content dengan margin
+    const bodyContent = `<div class="body-content">${html}</div>`;
+    
+    // Wrap ttd dengan margin top
+    const ttdWrapped = `<div class="ttd-wrapper">${ttd}</div>`;
+    
+    const konten = globalStyle + header + header2 + header3 + bodyContent + ttdWrapped + tembusanKonten;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = '';

@@ -332,7 +332,7 @@ export class GeneratePdfSudinService {
 
     // Body konten
     const bodyKonten = `
-      <div style="margin-top:15px;text-align:justify;">
+      <div style="margin-top:20px;margin-bottom:20px;text-align:justify;">
         ${html}
       </div>
     `;
@@ -342,7 +342,7 @@ export class GeneratePdfSudinService {
 
     // TTD section (English)
     const ttd = `
-      <table style="width:100%;margin-top:30px;">
+      <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
             <td style="width:50%;"></td>
@@ -735,7 +735,7 @@ export class GeneratePdfSudinService {
 
     // TTD section - dinamis dengan QR code di tengah
     const ttd = `
-      <table style="width:100%;margin-top:30px;">
+      <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
             <td style="width:50%;"></td>
