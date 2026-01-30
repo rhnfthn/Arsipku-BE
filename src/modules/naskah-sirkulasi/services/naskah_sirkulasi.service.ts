@@ -632,7 +632,7 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
-      ORDER BY n.tanggal DESC, s.id DESC
+      ORDER BY s.created_at DESC, s.id DESC
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
