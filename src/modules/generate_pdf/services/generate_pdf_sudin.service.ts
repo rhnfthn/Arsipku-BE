@@ -227,7 +227,7 @@ export class GeneratePdfSudinService {
     const tembusanExceedsLimit = tembusanArr.length > 5;
     const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
     
-    // Process penerima (English)
+    // Process penerima (English) - hanya tampilkan position_text (sebelum " - ")
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
       penerimaHtml = 'Please See Attached Address List<br>';
@@ -235,11 +235,11 @@ export class GeneratePdfSudinService {
       if (penerimaArr.length > 1) {
         penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
-          penerimaHtml += `<li>${item}</li>`;
+          penerimaHtml += `<li>${extractPositionText(item)}</li>`;
         });
         penerimaHtml += '</ol>';
       } else if (penerimaArr.length === 1) {
-        penerimaHtml = penerimaArr[0] || '';
+        penerimaHtml = extractPositionText(penerimaArr[0]) || '';
       }
     }
     
@@ -389,7 +389,8 @@ export class GeneratePdfSudinService {
       if (penerimaExceedsLimit) {
         penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
         penerimaArr.forEach((item) => {
-          penerimaListHtml += `<li>${item}</li>`;
+          // Hanya tampilkan position_text (sebelum " - ")
+          penerimaListHtml += `<li>${extractPositionText(item)}</li>`;
         });
         penerimaListHtml += '</ol>';
       }
