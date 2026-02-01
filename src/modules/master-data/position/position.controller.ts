@@ -35,12 +35,13 @@ export class PositionController {
 
   /**
    * Get all positions by organization
+   * Includes bod_tag from om_relation_osc
    * @example GET /position/organization/100
    */
   @Get('organization/:organizationId')
   findByOrganization(
     @Param('organizationId', ParseIntPipe) organizationId: number,
-  ): Promise<OmPosition[]> {
+  ) {
     return this.positionService.findByOrganization(organizationId);
   }
 

@@ -40,25 +40,27 @@ export class PositionService {
 
   /**
    * Get all positions by organization (via relation_os)
+   * Includes bod_tag from om_relation_osc
    */
   async findByOrganization(
     organizationId: number,
-  ): Promise<OmPosition[]> {
-    // Get positions via relation_os table
-    const relations = await this.relationOsRepo.find({
-      where: { organization: organizationId },
-    });
+  ): Promise<any[]> {
+    // Get positions via relation_os table with bod_tag from relation_osc
+    const query = `
+      SELECT 
+        p.*,
+        osc.bod_tag
+      FROM om_position p
+      INNER JOIN om_relation_os os ON os.relation_position = p.position AND os.company = p.company
+      LEFT JOIN om_relation_osc osc ON osc.relation_position = p.position 
+        AND osc.company = p.company 
+        AND osc.organization = os.organization
+      WHERE os.organization = ?
+      ORDER BY p.position ASC
+    `;
 
-    if (relations.length === 0) {
-      return [];
-    }
-
-    const positionIds = relations.map(r => r.relation_position).filter(p => p !== null) as number[];
-    
-    return this.positionRepo.find({
-      where: positionIds.map(pos => ({ position: pos })),
-      order: { position: 'ASC' },
-    });
+    const results = await this.dataSource.query(query, [organizationId]);
+    return results;
   }
 
   /**
