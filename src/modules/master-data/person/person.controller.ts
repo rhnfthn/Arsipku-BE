@@ -8,14 +8,19 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { PersonService } from './person.service';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
+import { AssignPositionDto } from './dto/assign-position.dto';
 import { Person } from './entities/person.entity';
 import { GetMessageDto } from './dto/get-message.dto';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
 
+@ApiTags('Person Management')
 @Controller('person')
 export class PersonController {
   constructor(private readonly personService: PersonService) {}
@@ -101,6 +106,59 @@ export class PersonController {
   @Post('get-message')
   getMessage(@Body() data: GetMessageDto) {
     return this.personService.countNaskahBySirkuler(data.persnum, data.type);
+  }
+
+  /**
+   * Assign additional position to existing person
+   * Creates om_relation_sp record for multi-company positions
+   * @example POST /person/assign-position
+   */
+  @Post('assign-position')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Assign additional position to existing person',
+    description: 'Creates new position assignment in om_relation_sp without modifying pa_personal. Allows one person to have multiple positions across different companies.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Position successfully assigned',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Person not found',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Position already assigned or validation error',
+  })
+  assignPosition(@Body() data: AssignPositionDto) {
+    return this.personService.assignPosition(data);
+  }
+
+  /**
+   * Get all position assignments for a person
+   * @example GET /person/:persnum/positions
+   */
+  @Get(':persnum/positions')
+  @ApiOperation({
+    summary: 'Get all positions for a person',
+    description: 'Returns all position assignments (across all companies) for a specific persnum',
+  })
+  @ApiParam({
+    name: 'persnum',
+    description: 'Person number (persnum)',
+    type: Number,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of position assignments',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Person not found',
+  })
+  getPersonPositions(@Param('persnum', ParseIntPipe) persnum: number) {
+    return this.personService.getPersonPositions(persnum);
   }
 
   @Put(':id')
