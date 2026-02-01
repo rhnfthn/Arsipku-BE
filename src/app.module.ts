@@ -51,6 +51,7 @@ import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
 import { DelegasiModule } from './modules/delegasi/delegasi.module';
 import { SearchModule } from './modules/search/search.module';
+import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 
 @Module({
   imports: [
@@ -120,6 +121,7 @@ import { SearchModule } from './modules/search/search.module';
     DigsigModule,
     DelegasiModule,
     SearchModule,
+    CompanySwitchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
