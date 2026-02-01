@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { AssignPositionDto } from './dto/assign-position.dto';
+import { UpdateAssignPositionDto } from './dto/update-assign-position.dto';
 import { Person } from './entities/person.entity';
 import { RelationSp } from '../relation_sp/entities/relation_sp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -431,6 +432,72 @@ export class PersonService {
       success: true,
       message: `Successfully assigned position ${dto.position} to ${person.name} (persnum: ${dto.persnum})`,
       data: savedRelation,
+    };
+  }
+
+  /**
+   * Update existing position assignment
+   * Modifies om_relation_sp record by id
+   * 
+   * @param id - RelationSp record id
+   * @param dto - Update data
+   * @returns Updated RelationSp record
+   */
+  async updateAssignPosition(
+    id: string,
+    dto: UpdateAssignPositionDto,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: RelationSp;
+  }> {
+    // 1. Find the position assignment record
+    const relationSp = await this.relationSpRepo.findOne({
+      where: { id },
+    });
+
+    if (!relationSp) {
+      throw new NotFoundException(
+        `Position assignment with ID ${id} not found`
+      );
+    }
+
+    // 2. Auto-fetch position_text from om_position if dto has positionText but we want to update it
+    // or if the existing relation doesn't have position_text
+    if (dto.positionText === undefined && !relationSp.position_text) {
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: relationSp.position || undefined,
+          company: relationSp.company || undefined,
+        },
+      });
+      
+      if (positionData) {
+        dto.positionText = positionData.shortText || positionData.longText || undefined;
+      }
+    }
+
+    // 3. Update the record with provided data
+    if (dto.positionText !== undefined) {
+      relationSp.position_text = dto.positionText || null;
+    }
+    if (dto.startDate !== undefined) {
+      relationSp.startDate = dto.startDate;
+    }
+    if (dto.endDate !== undefined) {
+      relationSp.endDate = dto.endDate;
+    }
+    if (dto.uname !== undefined) {
+      relationSp.uname = dto.uname;
+    }
+
+    // 4. Save the updated record
+    const updatedRelation = await this.relationSpRepo.save(relationSp);
+
+    return {
+      success: true,
+      message: `Successfully updated position assignment for ${relationSp.relation_persnum_text || 'person'} (ID: ${id})`,
+      data: updatedRelation,
     };
   }
 
