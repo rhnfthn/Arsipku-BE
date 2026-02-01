@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
+import { AssignPositionDto } from './dto/assign-position.dto';
 import { Person } from './entities/person.entity';
 import { RelationSp } from '../relation_sp/entities/relation_sp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -356,5 +357,158 @@ export class PersonService {
           sub_area_text: posData.sub_area_text,
         };
       });
+  }
+
+  /**
+   * Assign additional position to existing person
+   * Creates new om_relation_sp record without modifying pa_personal
+   * Allows one person to have multiple positions (e.g., in different companies)
+   * 
+   * @param dto - Position assignment data
+   * @returns Created RelationSp record
+   */
+  async assignPosition(dto: AssignPositionDto): Promise<{
+    success: boolean;
+    message: string;
+    data: RelationSp;
+  }> {
+    // 1. Verify person exists
+    const person = await this.cRepo.findOne({
+      where: { persnum: dto.persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Person with persnum ${dto.persnum} not found. Please create the person first.`
+      );
+    }
+
+    // 2. Check if this exact position assignment already exists
+    const existingRelation = await this.relationSpRepo.findOne({
+      where: {
+        relation_persnum: dto.persnum,
+        company: dto.company,
+        position: dto.position,
+      },
+    });
+
+    if (existingRelation) {
+      throw new BadRequestException(
+        `Position ${dto.position} in company ${dto.company} is already assigned to person ${dto.persnum}`
+      );
+    }
+
+    // 3. Auto-fetch position_text from om_position if not provided
+    let positionText = dto.positionText;
+    if (!positionText) {
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: dto.position,
+          company: dto.company,
+        },
+      });
+      
+      if (positionData) {
+        positionText = positionData.shortText || positionData.longText || undefined;
+      }
+    }
+
+    // 4. Create new position assignment (om_relation_sp)
+    const relationSp = this.relationSpRepo.create({
+      company: dto.company,
+      position: dto.position,
+      position_text: positionText,
+      relation_persnum: dto.persnum,
+      relation_persnum_text: person.name,
+      startDate: dto.startDate || '2025-01-01',
+      endDate: dto.endDate || '9999-12-31',
+      uname: dto.uname,
+    });
+
+    const savedRelation = await this.relationSpRepo.save(relationSp);
+
+    return {
+      success: true,
+      message: `Successfully assigned position ${dto.position} to ${person.name} (persnum: ${dto.persnum})`,
+      data: savedRelation,
+    };
+  }
+
+  /**
+   * Get all position assignments for a person
+   * Returns all positions across all companies for a specific persnum
+   * 
+   * @param persnum - Person's persnum
+   * @returns List of position assignments
+   */
+  async getPersonPositions(persnum: number): Promise<{
+    success: boolean;
+    persnum: number;
+    personName: string;
+    positions: Array<{
+      id: string;
+      company: number;
+      companyText?: string;
+      position: number;
+      positionText: string;
+      startDate: string;
+      endDate: string;
+      isActive: boolean;
+    }>;
+    total: number;
+  }> {
+    // 1. Verify person exists
+    const person = await this.cRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Person with persnum ${persnum} not found`
+      );
+    }
+
+    // 2. Get all position assignments
+    const relations = await this.relationSpRepo
+      .createQueryBuilder('sp')
+      .where('sp.relation_persnum = :persnum', { persnum })
+      .orderBy('sp.company', 'ASC')
+      .addOrderBy('sp.position', 'ASC')
+      .getMany();
+
+    // 3. Get today for active status check
+    const now = new Date();
+    const localDate = new Date(now.getTime() + 7 * 60 * 60 * 1000); // UTC+7
+    const todayStr = localDate.toISOString().split('T')[0];
+
+    // 4. Format response
+    const positions = relations.map(rel => {
+      const startDate = new Date(rel.startDate || '2025-01-01');
+      const endDate = new Date(rel.endDate || '9999-12-31');
+      const today = new Date(todayStr);
+      
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+
+      return {
+        id: rel.id,
+        company: rel.company || 0,
+        companyText: undefined,
+        position: rel.position || 0,
+        positionText: rel.position_text || `Position ${rel.position}`,
+        startDate: rel.startDate || '2025-01-01',
+        endDate: rel.endDate || '9999-12-31',
+        isActive: today >= startDate && today <= endDate,
+      };
+    });
+
+    return {
+      success: true,
+      persnum,
+      personName: person.name || `Person ${persnum}`,
+      positions,
+      total: positions.length,
+    };
   }
 }
