@@ -51,6 +51,7 @@ import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
 import { DelegasiModule } from './modules/delegasi/delegasi.module';
 import { SearchModule } from './modules/search/search.module';
+import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { SearchModule } from './modules/search/search.module';
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: false, // hanya untuk development
+        timezone: 'Z', // Force UTC timezone untuk konsistensi timestamp
         extra: {
           maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
         },
@@ -119,6 +121,7 @@ import { SearchModule } from './modules/search/search.module';
     DigsigModule,
     DelegasiModule,
     SearchModule,
+    CompanySwitchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
