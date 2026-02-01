@@ -656,4 +656,104 @@ export class AuthService {
       user: newPayload as JwtPayload,
     };
   }
+
+  /**
+   * Switch company - Generate new JWT with different company/position data
+   * @param currentUser - Current JWT payload (from @CurrentUser decorator)
+   * @param companySwitchData - Company switch data, or null to reset to default
+   * @returns New JWT token with updated company/position data
+   */
+  async switchCompany(
+    currentUser: JwtPayload,
+    companySwitchData: {
+      company: string;
+      companyText: string;
+      position: string;
+      positionText: string;
+      organization: string;
+      organizationText: string;
+      area: string;
+      areaText: string;
+      subArea: string;
+      subAreaText: string;
+      bodTag?: string;
+      abbreviation?: string;
+    } | null,
+  ): Promise<{
+    message: string;
+    accessToken: string;
+    user: JwtPayload;
+  }> {
+    // Remove exp and iat from current user payload to avoid conflict with new token
+    const { exp, iat, ...basePayload } = currentUser;
+    
+    let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
+
+    if (companySwitchData) {
+      // Switch to different company
+      newPayload = {
+        ...basePayload,
+        // Update company and position data
+        company: companySwitchData.company,
+        companyText: companySwitchData.companyText,
+        position: companySwitchData.position,
+        positionText: companySwitchData.positionText,
+        organization: companySwitchData.organization,
+        organizationText: companySwitchData.organizationText,
+        area: companySwitchData.area,
+        areaText: companySwitchData.areaText,
+        subArea: companySwitchData.subArea,
+        subAreaText: companySwitchData.subAreaText,
+        bodTag: companySwitchData.bodTag || '',
+        abbreviation: companySwitchData.abbreviation || '',
+        // Keep original persnum, nama, and role
+      };
+
+      console.log('[AuthService] Switching company to:', companySwitchData.companyText);
+      console.log('[AuthService] New position:', companySwitchData.positionText);
+    } else {
+      // Reset to default company - fetch from org_data
+      const orgData = await this.orgDataService.findByPersnum(basePayload.persnum);
+      
+      if (!orgData) {
+        throw new UnauthorizedException('User data not found in org_data');
+      }
+
+      newPayload = {
+        ...basePayload,
+        // Reset ke data asli dari org_data
+        company: orgData.company?.toString() || '',
+        companyText: orgData.companyText || '',
+        area: orgData.area || '',
+        areaText: orgData.areaText || '',
+        subArea: orgData.subArea?.toString() || '',
+        subAreaText: orgData.subAreaText || '',
+        organization: orgData.organization?.toString() || '',
+        organizationText: orgData.organizationText || '',
+        position: orgData.position?.toString() || '',
+        positionText: orgData.positionText || '',
+        bodTag: orgData.bodTag || '',
+        abbreviation: orgData.abbreviation || '',
+      };
+
+      console.log('[AuthService] Resetting to default company');
+    }
+
+    // Generate new JWT with same expiry as current token
+    const expiresIn = exp 
+      ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
+      : 86400; // default 24 hours
+
+    const newJwt = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
+
+    return {
+      message: companySwitchData 
+        ? `Berhasil switch ke ${companySwitchData.companyText}` 
+        : 'Berhasil kembali ke company default',
+      accessToken: newJwt,
+      user: newPayload as JwtPayload,
+    };
+  }
 }
