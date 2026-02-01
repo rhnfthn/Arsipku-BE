@@ -16,6 +16,7 @@ import { PersonService } from './person.service';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { AssignPositionDto } from './dto/assign-position.dto';
+import { UpdateAssignPositionDto } from './dto/update-assign-position.dto';
 import { Person } from './entities/person.entity';
 import { GetMessageDto } from './dto/get-message.dto';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
@@ -159,6 +160,36 @@ export class PersonController {
   })
   getPersonPositions(@Param('persnum', ParseIntPipe) persnum: number) {
     return this.personService.getPersonPositions(persnum);
+  }
+
+  /**
+   * Update an existing position assignment
+   * @example PUT /person/assign-position/:id
+   */
+  @Put('assign-position/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update existing position assignment',
+    description: 'Updates position assignment details in om_relation_sp. Can modify position_text, startDate, endDate, and uname.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Position assignment ID (om_relation_sp.id)',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Position assignment successfully updated',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Position assignment not found',
+  })
+  updateAssignPosition(
+    @Param('id') id: string,
+    @Body() data: UpdateAssignPositionDto,
+  ) {
+    return this.personService.updateAssignPosition(id, data);
   }
 
   @Put(':id')
