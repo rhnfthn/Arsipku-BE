@@ -545,23 +545,43 @@ export class KonsepController {
       }
 
       // Parse and convert penerima/tertuju to names if needed
-      let penerimaArray = this.parseArray(body.penerima || body.tertuju);
+      // Also check penerima_position_ids (from konsep form)
+      let penerimaArray = this.parseArray(body.penerima || body.tertuju || body.penerima_position_ids);
       if (penerimaArray.length > 0 && this.isPositionId(penerimaArray[0])) {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
       // Parse and convert tembusan to names if needed
-      let tembusanArray = this.parseArray(body.tembusan);
+      // Also check tembusan_position_ids (from konsep form)
+      let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
       }
 
+      // Parse and convert pengirim (dari) to name if needed
+      // Pengirim adalah pengirim_position_id atau to_position_id (atasan penandatangan)
+      let dariText = body.dari || body.nama_jabatan || '';
+      const pengirimPosId = body.pengirim_position_id || body.to_position_id;
+      if (!dariText && pengirimPosId && this.isPositionId(pengirimPosId)) {
+        const pengirimNames = await this.konsepService.convertPositionIdsToNames([pengirimPosId], body.tgl);
+        if (pengirimNames.length > 0) {
+          dariText = pengirimNames[0];
+        }
+      }
+
       // Build body with converted arrays
+      // Set kepada_yth dari penerimaArray jika belum ada
+      const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
+      
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
         tertuju: penerimaArray,
         tembusan: tembusanArray,
+        kepada_yth: kepadaYth,
+        kepadaYth: kepadaYth,
+        dari: dariText,
+        nama_jabatan: dariText || body.nama_jabatan,
       };
 
       const pdfBuffer = await this.konsepService.generatePlainPdf(jenis, pdfBody);
@@ -635,15 +655,28 @@ export class KonsepController {
       }
 
       // Parse and convert penerima/tertuju to names if needed
-      let penerimaArray = this.parseArray(body.penerima || body.tertuju);
+      // Also check penerima_position_ids (from konsep form)
+      let penerimaArray = this.parseArray(body.penerima || body.tertuju || body.penerima_position_ids);
       if (penerimaArray.length > 0 && this.isPositionId(penerimaArray[0])) {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
       // Parse and convert tembusan to names if needed
-      let tembusanArray = this.parseArray(body.tembusan);
+      // Also check tembusan_position_ids (from konsep form)
+      let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
+      }
+
+      // Parse and convert pengirim (dari) to name if needed
+      // Pengirim adalah pengirim_position_id atau to_position_id (atasan penandatangan)
+      let dariText = body.dari || body.nama_jabatan || '';
+      const pengirimPosId = body.pengirim_position_id || body.to_position_id;
+      if (!dariText && pengirimPosId && this.isPositionId(pengirimPosId)) {
+        const pengirimNames = await this.konsepService.convertPositionIdsToNames([pengirimPosId], body.tgl);
+        if (pengirimNames.length > 0) {
+          dariText = pengirimNames[0];
+        }
       }
 
       // Parse lampiran_temp_ids
@@ -653,11 +686,18 @@ export class KonsepController {
       }
 
       // Build body with converted arrays
+      // Set kepada_yth dari penerimaArray jika belum ada
+      const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
+      
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
         tertuju: penerimaArray,
         tembusan: tembusanArray,
+        kepada_yth: kepadaYth,
+        kepadaYth: kepadaYth,
+        dari: dariText,
+        nama_jabatan: dariText || body.nama_jabatan,
       };
 
       const pdfBuffer = await this.konsepService.generatePreviewPdf(jenis, pdfBody, lampiranTempIds);
