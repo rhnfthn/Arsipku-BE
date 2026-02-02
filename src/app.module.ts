@@ -53,6 +53,7 @@ import { DelegasiModule } from './modules/delegasi/delegasi.module';
 import { SearchModule } from './modules/search/search.module';
 import { FcmModule } from './modules/fcm/fcm.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     SearchModule,
     FcmModule,
     NotificationModule,
+    CompanySwitchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
