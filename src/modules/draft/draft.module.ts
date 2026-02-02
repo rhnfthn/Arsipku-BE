@@ -10,6 +10,7 @@ import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_refer
 // import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { LabelModule } from '../label/label.module';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { LabelModule } from '../label/label.module';
       EksternalEntity,
     ]),
     LabelModule,
+    SearchModule,
   ],
   controllers: [DraftController],
   providers: [DraftService],
