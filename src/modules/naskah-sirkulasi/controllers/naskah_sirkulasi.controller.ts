@@ -171,22 +171,29 @@ export class NaskahSirkulasiController {
   /**
    * PATCH /naskah_sirkulasi/toggle-flag
    *
-   * Toggle flag (favorit, note, arsip) pada item surat
+   * Toggle atau hapus flag (favorit, note, arsip) pada item surat
    * Global untuk semua jenis naskah: ND, SDI, SDE, DI, KA
    *
-   * @param dto - ToggleFlagDto { id_sirkulasi, flag_type }
+   * @param dto - ToggleFlagDto { id_sirkulasi, flag_type, action? }
    * @returns ToggleFlagResponseDto
    *
    * @example
-   * PATCH /naskah_sirkulasi/toggle-flag
+   * Toggle: PATCH /naskah_sirkulasi/toggle-flag
    * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit" }
+   * 
+   * Delete: PATCH /naskah_sirkulasi/toggle-flag
+   * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit", "action": "delete" }
    */
   @Patch('toggle-flag')
   @HttpCode(HttpStatus.OK)
   async toggleFlag(
     @Body() dto: ToggleFlagDto,
   ): Promise<ToggleFlagResponseDto> {
-    return this.naskahSirkulasiService.toggleFlag(dto.id_sirkulasi, dto.flag_type);
+    return this.naskahSirkulasiService.toggleFlag(
+      dto.id_sirkulasi,
+      dto.flag_type,
+      dto.action,
+    );
   }
 
   // ============================================================
