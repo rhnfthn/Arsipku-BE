@@ -14,6 +14,7 @@ import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_re
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
@@ -77,6 +78,7 @@ export class DraftService {
     private readonly naskahLabelRepository: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
+    private readonly meilisearchSyncService: MeilisearchSyncService,
   ) {}
 
   /**
@@ -694,6 +696,9 @@ export class DraftService {
 
     await this.naskahRepository.save(naskah);
 
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(idNaskah).catch(() => { });
+
     return {
       success: true,
       message: 'Naskah berhasil ditandatangani (TTE)',
@@ -788,6 +793,9 @@ export class DraftService {
           // Commit
           await queryRunner.commitTransaction();
           totalDeleted++;
+
+          // Remove from Meilisearch (non-blocking)
+          this.meilisearchSyncService.deleteNaskah(naskahId).catch(() => { });
         } catch (error) {
           await queryRunner.rollbackTransaction();
           failedIds.push(naskahId);
