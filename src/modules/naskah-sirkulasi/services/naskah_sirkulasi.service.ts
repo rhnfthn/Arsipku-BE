@@ -785,11 +785,13 @@ export class NaskahSirkulasiService {
    *
    * @param idSirkulasi - ID sirkulasi
    * @param flagType - Jenis flag: 'favorit' | 'note' | 'arsip'
+   * @param action - Action: 'toggle' (default) | 'delete'
    * @returns ToggleFlagResponseDto
    */
   async toggleFlag(
     idSirkulasi: string,
     flagType: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock',
+    action: 'toggle' | 'delete' = 'toggle',
   ): Promise<ToggleFlagResponseDto> {
     // Cari record
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
@@ -831,8 +833,19 @@ export class NaskahSirkulasiService {
         break;
     }
 
-    // Toggle value
-    const newValue = currentValue === 1 ? 0 : 1;
+    // Handle action: toggle or delete
+    let newValue: number;
+    let message: string;
+
+    if (action === 'delete') {
+      // Delete: Set value to 0 (remove flag)
+      newValue = 0;
+      message = `Flag ${flagType} berhasil dihapus`;
+    } else {
+      // Toggle: Switch between 0 and 1
+      newValue = currentValue === 1 ? 0 : 1;
+      message = `Flag ${flagType} berhasil diubah`;
+    }
 
     // Update database
     await this.naskahSirkulasiRepo.update(idSirkulasi, {
@@ -841,11 +854,12 @@ export class NaskahSirkulasiService {
 
     return {
       success: true,
-      message: `Flag ${flagType} berhasil diubah`,
+      message,
       data: {
         id_sirkulasi: idSirkulasi,
         flag_type: flagType,
         new_value: newValue === 1,
+        action,
       },
     };
   }
