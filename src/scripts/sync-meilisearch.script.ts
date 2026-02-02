@@ -168,6 +168,14 @@ async function bootstrap() {
         const beforeStats = await index.getStats();
         console.log(`📊 Before sync: ${beforeStats.numberOfDocuments} documents\n`);
 
+        // Delete all existing documents first to ensure clean sync
+        console.log('🗑️  Deleting all existing documents...');
+        const deleteTask = await index.deleteAllDocuments();
+        
+        // Wait for delete task to complete
+        await meilisearch.tasks.waitForTask(deleteTask.taskUid);
+        console.log('✅ All existing documents deleted\n');
+
         // Fetch all naskah
         console.log('📥 Fetching naskah data...');
         const naskahRows = await dataSource.query<NaskahRow[]>('SELECT * FROM naskah ORDER BY created_at DESC');
