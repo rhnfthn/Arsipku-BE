@@ -2845,13 +2845,13 @@ export class NomorService {
           penandatanganArea,
         );
 
-        // Insert nomor_request_detail dengan status terpakai_final (langsung dari admin)
+        // Insert nomor_request_detail dengan status terpakai (langsung dari admin)
         const detailId = uuidv4();
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
           idRequest: requestId,
           nomor: nomorBaru,
-          status: 'terpakai_final',
+          status: 'terpakai',
         });
 
         await queryRunner.manager.save(detail);
