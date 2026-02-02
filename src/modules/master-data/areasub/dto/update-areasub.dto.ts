@@ -32,4 +32,44 @@ export class UpdateAreasubDto {
   @IsString()
   @MaxLength(11)
   uname?: string;
+
+  // Alamat lengkap untuk update di sub_area_alamat
+  @IsOptional()
+  @IsString()
+  kantor?: string;
+
+  @IsOptional()
+  @IsString()
+  kantor_english?: string;
+
+  @IsOptional()
+  @IsString()
+  gedung?: string;
+
+  @IsOptional()
+  @IsString()
+  gedung_english?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat?: string;
+
+  @IsOptional()
+  @IsString()
+  alamat_english?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  telepon?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  logo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  kota?: string;
 }

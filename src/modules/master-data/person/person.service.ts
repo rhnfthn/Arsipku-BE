@@ -1,20 +1,28 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
+import { AssignPositionDto } from './dto/assign-position.dto';
+import { UpdateAssignPositionDto } from './dto/update-assign-position.dto';
 import { Person } from './entities/person.entity';
+import { RelationSp } from '../relation_sp/entities/relation_sp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { OrgDataService } from '../org_data/org_data.service';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
+import { OmPosition } from '../position/entities/om-position.entity';
 
 @Injectable()
 export class PersonService {
   constructor(
     @InjectRepository(Person)
     private readonly cRepo: Repository<Person>,
+    @InjectRepository(RelationSp)
+    private readonly relationSpRepo: Repository<RelationSp>,
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
+    @InjectRepository(OmPosition)
+    private readonly positionRepo: Repository<OmPosition>,
     private readonly orgDataService: OrgDataService,
   ) { }
 
@@ -143,23 +151,124 @@ export class PersonService {
     });
 
     if (existing) {
-      throw new NotFoundException(
+      throw new BadRequestException(
         `Person with persnum ${dto.persnum} already exists`
       );
     }
 
     const newPerson = this.cRepo.create(dto);
-    return this.cRepo.save(newPerson);
+    const savedPerson = await this.cRepo.save(newPerson);
+
+    // Create relation to position (om_relation_sp) if provided
+    if (dto.company && dto.position && dto.persnum) {
+      // Auto-fetch position_text from om_position
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: dto.position,
+          company: dto.company,
+        },
+      });
+      
+      const relationSp = this.relationSpRepo.create({
+        company: dto.company,
+        position: dto.position,
+        position_text: positionData?.shortText || dto.positionText,
+        relation_persnum: dto.persnum,
+        relation_persnum_text: dto.name,
+        startDate: dto.startDate || '2025-01-01',
+        endDate: dto.endDate || '9999-12-31',
+        uname: dto.uname,
+      });
+      await this.relationSpRepo.save(relationSp);
+    }
+
+    return savedPerson;
   }
 
   async update(id: string, dto: UpdatePersonDto): Promise<Person> {
     const person = await this.findOne(id);
+    
+    if (person.persnum === null) {
+      throw new BadRequestException('Person has invalid data');
+    }
+
+    // Update person fields
     const updated = Object.assign(person, dto);
-    return this.cRepo.save(updated);
+    const savedPerson = await this.cRepo.save(updated);
+
+    // Handle position relation (om_relation_sp)
+    if (dto.position !== undefined || dto.company !== undefined) {
+      // Find existing relation
+      const existingRelation = await this.relationSpRepo.findOne({
+        where: {
+          relation_persnum: person.persnum,
+        },
+      });
+
+      if (dto.position === null || dto.company === null) {
+        // Remove relation if set to null
+        if (existingRelation) {
+          await this.relationSpRepo.remove(existingRelation);
+        }
+      } else if (dto.company && dto.position) {
+        // Auto-fetch position_text from om_position
+        const positionData = await this.positionRepo.findOne({
+          where: {
+            position: dto.position,
+            company: dto.company,
+          },
+        });
+        
+        const positionText = positionData?.shortText || dto.positionText;
+        
+        // Update or create relation
+        if (existingRelation) {
+          existingRelation.company = dto.company;
+          existingRelation.position = dto.position;
+          existingRelation.position_text = positionText || null;
+          existingRelation.relation_persnum_text = dto.name || person.name;
+          existingRelation.startDate = dto.startDate || person.startDate;
+          existingRelation.endDate = dto.endDate || person.endDate;
+          existingRelation.uname = dto.uname || null;
+          await this.relationSpRepo.save(existingRelation);
+        } else {
+          const newRelation = this.relationSpRepo.create({
+            company: dto.company,
+            position: dto.position,
+            position_text: positionText,
+            relation_persnum: person.persnum,
+            relation_persnum_text: dto.name || person.name,
+            startDate: dto.startDate || person.startDate || '2025-01-01',
+            endDate: dto.endDate || person.endDate || '9999-12-31',
+            uname: dto.uname,
+          });
+          await this.relationSpRepo.save(newRelation);
+        }
+      }
+    }
+
+    return savedPerson;
   }
 
   async remove(id: string): Promise<{ message: string }> {
     const person = await this.findOne(id);
+    
+    if (person.persnum === null) {
+      throw new BadRequestException('Person has invalid data');
+    }
+
+    // Delete position relation (om_relation_sp) if exists
+    const relationSp = await this.relationSpRepo.findOne({
+      where: {
+        relation_persnum: person.persnum,
+      },
+    });
+
+    if (relationSp) {
+      await this.relationSpRepo.remove(relationSp);
+    }
+
+    // Delete the person
     await this.cRepo.remove(person);
     return { message: `Person ${id} deleted successfully` };
   }
@@ -249,5 +358,224 @@ export class PersonService {
           sub_area_text: posData.sub_area_text,
         };
       });
+  }
+
+  /**
+   * Assign additional position to existing person
+   * Creates new om_relation_sp record without modifying pa_personal
+   * Allows one person to have multiple positions (e.g., in different companies)
+   * 
+   * @param dto - Position assignment data
+   * @returns Created RelationSp record
+   */
+  async assignPosition(dto: AssignPositionDto): Promise<{
+    success: boolean;
+    message: string;
+    data: RelationSp;
+  }> {
+    // 1. Verify person exists
+    const person = await this.cRepo.findOne({
+      where: { persnum: dto.persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Person with persnum ${dto.persnum} not found. Please create the person first.`
+      );
+    }
+
+    // 2. Check if this exact position assignment already exists
+    const existingRelation = await this.relationSpRepo.findOne({
+      where: {
+        relation_persnum: dto.persnum,
+        company: dto.company,
+        position: dto.position,
+      },
+    });
+
+    if (existingRelation) {
+      throw new BadRequestException(
+        `Position ${dto.position} in company ${dto.company} is already assigned to person ${dto.persnum}`
+      );
+    }
+
+    // 3. Auto-fetch position_text from om_position if not provided
+    let positionText = dto.positionText;
+    if (!positionText) {
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: dto.position,
+          company: dto.company,
+        },
+      });
+      
+      if (positionData) {
+        positionText = positionData.shortText || positionData.longText || undefined;
+      }
+    }
+
+    // 4. Create new position assignment (om_relation_sp)
+    const relationSp = this.relationSpRepo.create({
+      company: dto.company,
+      position: dto.position,
+      position_text: positionText,
+      relation_persnum: dto.persnum,
+      relation_persnum_text: person.name,
+      startDate: dto.startDate || '2025-01-01',
+      endDate: dto.endDate || '9999-12-31',
+      uname: dto.uname,
+    });
+
+    const savedRelation = await this.relationSpRepo.save(relationSp);
+
+    return {
+      success: true,
+      message: `Successfully assigned position ${dto.position} to ${person.name} (persnum: ${dto.persnum})`,
+      data: savedRelation,
+    };
+  }
+
+  /**
+   * Update existing position assignment
+   * Modifies om_relation_sp record by id
+   * 
+   * @param id - RelationSp record id
+   * @param dto - Update data
+   * @returns Updated RelationSp record
+   */
+  async updateAssignPosition(
+    id: string,
+    dto: UpdateAssignPositionDto,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: RelationSp;
+  }> {
+    // 1. Find the position assignment record
+    const relationSp = await this.relationSpRepo.findOne({
+      where: { id },
+    });
+
+    if (!relationSp) {
+      throw new NotFoundException(
+        `Position assignment with ID ${id} not found`
+      );
+    }
+
+    // 2. Auto-fetch position_text from om_position if dto has positionText but we want to update it
+    // or if the existing relation doesn't have position_text
+    if (dto.positionText === undefined && !relationSp.position_text) {
+      const positionData = await this.positionRepo.findOne({
+        where: {
+          position: relationSp.position || undefined,
+          company: relationSp.company || undefined,
+        },
+      });
+      
+      if (positionData) {
+        dto.positionText = positionData.shortText || positionData.longText || undefined;
+      }
+    }
+
+    // 3. Update the record with provided data
+    if (dto.positionText !== undefined) {
+      relationSp.position_text = dto.positionText || null;
+    }
+    if (dto.startDate !== undefined) {
+      relationSp.startDate = dto.startDate;
+    }
+    if (dto.endDate !== undefined) {
+      relationSp.endDate = dto.endDate;
+    }
+    if (dto.uname !== undefined) {
+      relationSp.uname = dto.uname;
+    }
+
+    // 4. Save the updated record
+    const updatedRelation = await this.relationSpRepo.save(relationSp);
+
+    return {
+      success: true,
+      message: `Successfully updated position assignment for ${relationSp.relation_persnum_text || 'person'} (ID: ${id})`,
+      data: updatedRelation,
+    };
+  }
+
+  /**
+   * Get all position assignments for a person
+   * Returns all positions across all companies for a specific persnum
+   * 
+   * @param persnum - Person's persnum
+   * @returns List of position assignments
+   */
+  async getPersonPositions(persnum: number): Promise<{
+    success: boolean;
+    persnum: number;
+    personName: string;
+    positions: Array<{
+      id: string;
+      company: number;
+      companyText?: string;
+      position: number;
+      positionText: string;
+      startDate: string;
+      endDate: string;
+      isActive: boolean;
+    }>;
+    total: number;
+  }> {
+    // 1. Verify person exists
+    const person = await this.cRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Person with persnum ${persnum} not found`
+      );
+    }
+
+    // 2. Get all position assignments
+    const relations = await this.relationSpRepo
+      .createQueryBuilder('sp')
+      .where('sp.relation_persnum = :persnum', { persnum })
+      .orderBy('sp.company', 'ASC')
+      .addOrderBy('sp.position', 'ASC')
+      .getMany();
+
+    // 3. Get today for active status check
+    const now = new Date();
+    const localDate = new Date(now.getTime() + 7 * 60 * 60 * 1000); // UTC+7
+    const todayStr = localDate.toISOString().split('T')[0];
+
+    // 4. Format response
+    const positions = relations.map(rel => {
+      const startDate = new Date(rel.startDate || '2025-01-01');
+      const endDate = new Date(rel.endDate || '9999-12-31');
+      const today = new Date(todayStr);
+      
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+
+      return {
+        id: rel.id,
+        company: rel.company || 0,
+        companyText: undefined,
+        position: rel.position || 0,
+        positionText: rel.position_text || `Position ${rel.position}`,
+        startDate: rel.startDate || '2025-01-01',
+        endDate: rel.endDate || '9999-12-31',
+        isActive: today >= startDate && today <= endDate,
+      };
+    });
+
+    return {
+      success: true,
+      persnum,
+      personName: person.name || `Person ${persnum}`,
+      positions,
+      total: positions.length,
+    };
   }
 }

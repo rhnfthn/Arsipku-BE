@@ -287,6 +287,7 @@ export class NomorService {
    */
   async getNomorRequestByPosition(
     positionId: number,
+    query?: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
     const requests = await this.nomorRequestRepository.find({
       where: { position: positionId.toString() },
@@ -329,11 +330,84 @@ export class NomorService {
       }),
     );
 
-    return {
+    // Apply search filter
+    let filteredData = data;
+    if (query?.search) {
+      const searchLower = query.search.toLowerCase();
+      filteredData = data.filter((item) => {
+        const perihalMatch = item.perihal && item.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = item.jenis && item.jenis.toLowerCase().includes(searchLower);
+        const penandatanganMatch = item.penandatangan && item.penandatangan.toLowerCase().includes(searchLower);
+        return perihalMatch || jenisMatch || penandatanganMatch;
+      });
+    }
+
+    // Apply status filter
+    if (query?.status && query.status !== 'Semua') {
+      filteredData = filteredData.filter((item) => {
+        // Determine status from details
+        const details = item.details || [];
+        let status = 'Belum Diajukan';
+        if (details.length > 0) {
+          const hasBooking = details.some((d) => d.status === 'booking');
+          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+          const allHangus = details.every((d) => d.status === 'hangus');
+          const allDitolak = details.every((d) => d.status === 'ditolak');
+          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+          if (hasTerpakai) {
+            status = 'Disetujui';
+          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
+            status = 'Ditolak';
+          } else if (hasBooking) {
+            status = 'Menunggu Verifikasi';
+          }
+        }
+        return status === query.status;
+      });
+    }
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
+
+    // Apply pagination
+    let paginatedData = filteredData;
+    const result: any = {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data,
+      data: filteredData,
     };
+
+    if (query?.page || query?.limit) {
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const total = filteredData.length;
+      const totalPages = Math.ceil(total / limit);
+      const skip = (page - 1) * limit;
+      paginatedData = filteredData.slice(skip, skip + limit);
+      result.data = paginatedData;
+      result.pagination = { page, limit, total, totalPages };
+    }
+
+    return result;
   }
 
   /**
@@ -450,6 +524,11 @@ export class NomorService {
           }
         }
 
+        // Apply status filter jika ada (dan bukan "Semua")
+        if (query?.status && query.status !== 'Semua' && status !== query.status) {
+          return null;
+        }
+
         return responseItem;
       }),
     );
@@ -458,6 +537,35 @@ export class NomorService {
     const submittedData = data.filter((item): item is Exclude<typeof item, null> => 
       item !== null && item.status !== 'Belum Diajukan'
     );
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      submittedData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
 
     // Apply pagination
     const page = query?.page || 1;
@@ -729,6 +837,11 @@ export class NomorService {
           }
         }
 
+        // Apply status filter jika ada (dan bukan "Semua")
+        if (query?.status && query.status !== 'Semua' && status !== query.status) {
+          return null;
+        }
+
         return {
           id: request.id,
           company: request.company!,
@@ -752,6 +865,35 @@ export class NomorService {
 
     // Filter out null values (data dari tulis surat)
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
 
     // Apply pagination
     const page = query?.page || 1;
@@ -897,12 +1039,46 @@ export class NomorService {
           }
         }
 
+        // Apply status filter jika ada (dan bukan "Semua")
+        if (query?.status && query.status !== 'Semua' && status !== query.status) {
+          return null;
+        }
+
         return responseItem;
       }),
     );
 
     // Filter out null values (request yang difilter)
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
 
     // Apply pagination
     const page = query?.page || 1;
@@ -2283,6 +2459,31 @@ export class NomorService {
 
     // Filter out null values
     const filteredData = data.filter((item) => item !== null);
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = a.tanggal ? new Date(a.tanggal).getTime() : 0;
+          bValue = b.tanggal ? new Date(b.tanggal).getTime() : 0;
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.waktu).getTime();
+          bValue = new Date(b.waktu).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
 
     // Apply pagination
     const page = query?.page || 1;
