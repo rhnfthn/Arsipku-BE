@@ -34,15 +34,15 @@ export class PositionController {
   }
 
   /**
-   * Get all positions by company and organization
-   * @example GET /position/company/1/organization/100
+   * Get all positions by organization
+   * Includes bod_tag from om_relation_osc
+   * @example GET /position/organization/100
    */
-  @Get('company/:companyId/organization/:organizationId')
-  findByCompanyAndOrganization(
-    @Param('companyId', ParseIntPipe) companyId: number,
+  @Get('organization/:organizationId')
+  findByOrganization(
     @Param('organizationId', ParseIntPipe) organizationId: number,
-  ): Promise<OmPosition[]> {
-    return this.positionService.findByCompanyAndOrganization(companyId, organizationId);
+  ) {
+    return this.positionService.findByOrganization(organizationId);
   }
 
   /**
@@ -73,28 +73,26 @@ export class PositionController {
   }
 
   /**
-   * Create position for a company
-   * @example POST /position/company/1
+   * Create position
+   * @example POST /position
    */
-  @Post('company/:companyId')
+  @Post()
   create(
-    @Param('companyId', ParseIntPipe) companyId: number,
     @Body() data: CreatePositionDto,
   ) {
-    return this.positionService.create(companyId, data);
+    return this.positionService.create(data);
   }
 
   /**
    * Update position
-   * @example PUT /position/company/1/:id
+   * @example PUT /position/:id
    */
-  @Put('company/:companyId/:id')
+  @Put(':id')
   update(
-    @Param('companyId', ParseIntPipe) companyId: number,
     @Param('id') id: string,
     @Body() data: UpdatePositionDto,
   ) {
-    return this.positionService.update(id, companyId, data);
+    return this.positionService.update(id, data);
   }
 
   @Delete(':id')

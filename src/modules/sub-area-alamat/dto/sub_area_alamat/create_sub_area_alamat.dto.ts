@@ -58,4 +58,9 @@ export class CreateSubAreaAlamatDto {
   @IsOptional()
   @MaxLength(255)
   logo?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  kota?: string;
 }
