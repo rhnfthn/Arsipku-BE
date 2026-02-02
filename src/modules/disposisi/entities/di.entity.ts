@@ -47,8 +47,8 @@ export class DiEntity {
   @Column('varchar', { name: 'klasifikasi', length: 100, nullable: true })
   klasifikasi: string | null;
 
-  // Kepada
-  @Column('varchar', { name: 'kepada_yth', length: 255, nullable: true })
+  // Kepada (TEXT untuk support banyak penerima)
+  @Column('text', { name: 'kepada_yth', nullable: true })
   kepadaYth: string | null;
 
   // Isi Disposisi

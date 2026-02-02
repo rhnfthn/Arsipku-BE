@@ -2283,6 +2283,20 @@ export class DisposisiService {
           });
           await queryRunner.manager.save(penerimaSirkulasi);
         }
+
+        // Update kepadaYth di tabel "di" dengan penerima baru
+        const kepadaYthList = penerimaDataList.map(
+          (p) => `${p.position_text} ${p.organization_text}`,
+        );
+        const kepadaYth = kepadaYthList.join('; ');
+
+        const existingDiForPenerima = await this.diRepository.findOne({
+          where: { idNaskah: naskahId },
+        });
+        if (existingDiForPenerima) {
+          existingDiForPenerima.kepadaYth = kepadaYth;
+          await queryRunner.manager.save(existingDiForPenerima);
+        }
       }
 
       // Update isDraft pada sirkulasi pengirim jika action = kirim
@@ -2393,6 +2407,37 @@ export class DisposisiService {
           await queryRunner.manager.save(existingDi);
         } else {
           // Insert data baru
+          // Build kepadaYth dari sirkulasi penerima yang sudah ada atau dari dto
+          let kepadaYthNew = '';
+          if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+            // Build dari dto penerima_position_ids yang sudah divalidasi di PHASE 5
+            const penerimaDataForDi: PositionData[] = [];
+            for (const penerimaId of dto.penerima_position_ids) {
+              const penerimaData = this.findByPosition(barisData, penerimaId);
+              if (penerimaData) {
+                penerimaDataForDi.push(penerimaData);
+              }
+            }
+            if (penerimaDataForDi.length > 0) {
+              const kepadaYthListNew = penerimaDataForDi.map(
+                (p) => `${p.position_text} ${p.organization_text}`,
+              );
+              kepadaYthNew = kepadaYthListNew.join('; ');
+            }
+          } else {
+            // Fallback: ambil dari sirkulasi penerima yang sudah ada
+            const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+              where: { idNaskah: naskahId, sirkuler: 'penerima' },
+              order: { urutan: 'ASC' },
+            });
+            if (existingPenerima.length > 0) {
+              const kepadaYthListExisting = existingPenerima.map(
+                (p) => `${p.positionText} ${p.organizationText}`,
+              );
+              kepadaYthNew = kepadaYthListExisting.join('; ');
+            }
+          }
+
           const diEntity = this.diRepository.create({
             idNaskah: naskahId,
             kopLogo: dto.kop_logo || '',
@@ -2409,7 +2454,7 @@ export class DisposisiService {
             nomor: dto.ref_nomor_surat || '',
             perihal: dto.perihal || '',
             klasifikasi: dto.klasifikasi || '',
-            kepadaYth: '', // Will be filled from penerima
+            kepadaYth: kepadaYthNew,
             disposisi: dto.disposisi || '',
             catatan: dto.catatan || '',
             paraf: dto.paraf || '',
