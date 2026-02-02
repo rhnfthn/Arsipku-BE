@@ -207,15 +207,20 @@ export class KonsepService {
       // ==========================================
       // 4. CREATE SIRKULASI FOR NASKAH ASLI (ND/SDI/SDE) with is_konsep=1
       // ==========================================
-      // Pengirim naskah final (gunakan pengirim_position_id jika ada, fallback ke from_position_id)
-      const pengirimPosId = dto.pengirim_position_id || dto.from_position_id;
+      // Pengirim naskah final (gunakan pengirim_position_id jika ada, fallback ke to_position_id sebagai penandatangan)
+      // PENTING: Pengirim naskah adalah ATASAN (to_position_id) yang akan menandatangani, bukan pembuat konsep
+      const pengirimPosId = dto.pengirim_position_id || dto.to_position_id;
       const pengirimPos = this.findByPosition(barisData, pengirimPosId);
       if (pengirimPos) {
         const sirkulasiNaskahPengirim = this.createSirkulasi(naskahAsliId, 'pengirim', pengirimPos, true);
         await queryRunner.manager.save(sirkulasiNaskahPengirim);
+      } else {
+        // Fallback: gunakan toPos (penerima konsep) sebagai pengirim naskah final
+        const sirkulasiNaskahPengirim = this.createSirkulasi(naskahAsliId, 'pengirim', toPos, true);
+        await queryRunner.manager.save(sirkulasiNaskahPengirim);
       }
 
-      // Penerima naskah final (dari penerima_position_ids)
+      // Penerima naskah final (dari penerima_position_ids, atau fallback ke data dari DTO)
       if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
         for (const posId of dto.penerima_position_ids) {
           const pos = this.findByPosition(barisData, posId);
@@ -223,6 +228,18 @@ export class KonsepService {
           const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true);
           await queryRunner.manager.save(sirkulasi);
         }
+      } else if (dto.kepada_yth) {
+        // Fallback: Jika penerima_position_ids tidak ada tapi kepada_yth ada (text input)
+        // Buat sirkulasi penerima manual dengan text saja
+        const sirkulasiPenerima = new NaskahSirkulasi();
+        sirkulasiPenerima.id = uuidv4();
+        sirkulasiPenerima.idNaskah = naskahAsliId;
+        sirkulasiPenerima.sirkuler = 'penerima';
+        sirkulasiPenerima.company = String(COMPANY_ID);
+        sirkulasiPenerima.positionText = dto.kepada_yth;
+        sirkulasiPenerima.namaSirkuler = dto.kepada_yth;
+        sirkulasiPenerima.isKonsep = 1;
+        await queryRunner.manager.save(sirkulasiPenerima);
       }
 
       // Tembusan naskah final (dari tembusan_position_ids)
@@ -233,6 +250,17 @@ export class KonsepService {
           const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true);
           await queryRunner.manager.save(sirkulasi);
         }
+      } else if (dto.tembusan) {
+        // Fallback: Jika tembusan_position_ids tidak ada tapi tembusan text ada
+        const sirkulasiTembusan = new NaskahSirkulasi();
+        sirkulasiTembusan.id = uuidv4();
+        sirkulasiTembusan.idNaskah = naskahAsliId;
+        sirkulasiTembusan.sirkuler = 'tembusan';
+        sirkulasiTembusan.company = String(COMPANY_ID);
+        sirkulasiTembusan.positionText = dto.tembusan;
+        sirkulasiTembusan.namaSirkuler = dto.tembusan;
+        sirkulasiTembusan.isKonsep = 1;
+        await queryRunner.manager.save(sirkulasiTembusan);
       }
 
       // ==========================================
@@ -284,6 +312,7 @@ export class KonsepService {
         dto.jenis,
         'create',
         1,
+        queryRunner, // Pass queryRunner untuk akses data dalam transaksi
       );
 
       await this.saveRiwayat(
@@ -1069,6 +1098,7 @@ export class KonsepService {
           naskahAsliForPdf.jenis as 'ND' | 'SDI' | 'SDE',
           'forward',
           nextUrutan,
+          queryRunner, // Pass queryRunner untuk akses data dalam transaksi
         );
       }
 
@@ -1387,6 +1417,7 @@ export class KonsepService {
         jenis as 'ND' | 'SDI' | 'SDE',
         'finalize',
         nextUrutan,
+        queryRunner, // Pass queryRunner untuk akses data dalam transaksi
       );
 
       await this.saveRiwayat(
@@ -2254,6 +2285,7 @@ export class KonsepService {
         html: htmlContent,
         filename: `konsep-nota-dinas-${Date.now()}.pdf`,
         tertuju: penerimaArray,
+        kepadaYth: body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '',
         dari: body.dari || body.nama_jabatan || '',
         perihal: body.perihal || '',
         tanggal: body.tanggal || body.tgl || '',
@@ -2269,12 +2301,14 @@ export class KonsepService {
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
       };
-    } else {
-      // SDI/SDE
+    } else if (jenis === 'SDI') {
+      // SDI - Surat Dinas Internal (Bahasa Indonesia)
       return {
         html: htmlContent,
-        filename: `konsep-surat-dinas-${jenis.toLowerCase()}-${Date.now()}.pdf`,
+        filename: `konsep-surat-dinas-internal-${Date.now()}.pdf`,
         penerima: penerimaArray,
+        kepadaYth: body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '',
+        alamat: body.alamat || '',
         dari: body.dari || body.nama_jabatan || '',
         perihal: body.perihal || '',
         tanggal: body.tanggal || body.tgl || '',
@@ -2284,13 +2318,40 @@ export class KonsepService {
         tembusan: tembusanArray,
         nama_tempat: body.nama_tempat || 'Tangerang',
         sifat: body.sifat || 'Biasa',
-        lampiran: body.lampiran_text || '-',
+        lampiran: body.lampiran_text || body.lampiran || '-',
         nomor: body.nomor || '',
         headerKantor: body.header_kantor,
         headerGedung: body.header_gedung,
         headerAlamat: body.header_alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        english: false, // SDI menggunakan format Bahasa Indonesia
+      };
+    } else {
+      // SDE - Surat Dinas Eksternal (Bahasa Inggris)
+      return {
+        html: htmlContent,
+        filename: `konsep-surat-dinas-eksternal-${Date.now()}.pdf`,
+        penerima: penerimaArray,
+        kepadaYth: body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '',
+        alamat: body.alamat || '',
+        dari: body.dari || body.nama_jabatan || '',
+        perihal: body.perihal || '',
+        tanggal: body.tanggal || body.tgl || '',
+        positionText: body.nama_jabatan || '',
+        namaLengkap: body.nama_lengkap || '',
+        nama_jabatan: body.nama_jabatan || '',
+        tembusan: tembusanArray,
+        nama_tempat: body.nama_tempat || 'Tangerang',
+        sifat: body.sifat || 'Biasa',
+        lampiran: body.lampiran_text || body.lampiran || '-',
+        nomor: body.nomor || '',
+        headerKantor: body.header_kantor,
+        headerGedung: body.header_gedung,
+        headerAlamat: body.header_alamat,
+        // QR Code HTML untuk preview
+        qrCodeHtml: previewQrHtml,
+        english: true, // SDE menggunakan format Bahasa Inggris
       };
     }
   }
@@ -2475,6 +2536,7 @@ export class KonsepService {
    * @param jenis Jenis naskah (ND|SDI|SDE)
    * @param aksi Aksi workflow (create, forward, finalize, dll)
    * @param urutan Urutan riwayat
+   * @param queryRunner Optional QueryRunner untuk akses data dalam transaksi
    * @returns URL file PDF di storage atau null jika gagal
    */
   private async generateAndUploadPdfSnapshot(
@@ -2482,6 +2544,7 @@ export class KonsepService {
     jenis: 'ND' | 'SDI' | 'SDE',
     aksi: string,
     urutan: number,
+    queryRunner?: any,
   ): Promise<string | null> {
     try {
       // 1. Prepare data untuk generate PDF
@@ -2491,48 +2554,108 @@ export class KonsepService {
         ? tanggalDate.toISOString().split('T')[0] 
         : String(tanggalDate);
 
-      const pdfBody: any = {
-        jenis,
-        htmlContent: naskahAsli.konten || '',
-        perihal: naskahAsli.perihal || '',
-        tanggal: tanggalString,
-        tgl: tanggalString,
-        sifat: naskahAsli.sifat || 'biasa',
-        nomor: naskahAsli.nomor || '',
-        klasifikasi: naskahAsli.klasifikasi || '',
-        nama_tempat: naskahAsli.tempat || 'Tangerang',
-        lampiran: naskahAsli.lampiran || '-',
-      };
-
       // 2. Get penerima and tembusan dari sirkulasi
-      const sirkulasiPenerima = await this.naskahSirkulasiRepository.find({
-        where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
-      });
-      
-      const sirkulasiTembusan = await this.naskahSirkulasiRepository.find({
-        where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
-      });
+      // Gunakan queryRunner.manager jika ada (dalam transaksi), fallback ke repository
+      let sirkulasiPenerima: NaskahSirkulasi[];
+      let sirkulasiTembusan: NaskahSirkulasi[];
+      let sirkulasiPengirim: NaskahSirkulasi | null;
 
-      // Build penerima and tembusan arrays
-      pdfBody.penerima = sirkulasiPenerima.map(s => s.positionText || s.namaSirkuler || '');
-      pdfBody.tertuju = pdfBody.penerima;
-      pdfBody.tembusan = sirkulasiTembusan.map(s => s.positionText || s.namaSirkuler || '');
-
-      // Get pengirim data
-      const sirkulasiPengirim = await this.naskahSirkulasiRepository.findOne({
-        where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
-      });
-
-      if (sirkulasiPengirim) {
-        pdfBody.nama_jabatan = sirkulasiPengirim.positionText || '';
-        pdfBody.nama_lengkap = sirkulasiPengirim.namaSirkuler || '';
+      if (queryRunner) {
+        sirkulasiPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
+        });
+        sirkulasiTembusan = await queryRunner.manager.find(NaskahSirkulasi, {
+          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
+        });
+        sirkulasiPengirim = await queryRunner.manager.findOne(NaskahSirkulasi, {
+          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
+        });
+      } else {
+        sirkulasiPenerima = await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
+        });
+        sirkulasiTembusan = await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
+        });
+        sirkulasiPengirim = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
+        });
       }
 
-      // 3. Generate PDF buffer
+      // Build penerima and tembusan arrays
+      const penerimaArray = sirkulasiPenerima.map(s => s.positionText || s.namaSirkuler || '');
+      const tembusanArray = sirkulasiTembusan.map(s => s.positionText || s.namaSirkuler || '');
+
+      const namaJabatan = sirkulasiPengirim?.positionText || '';
+      const namaLengkap = sirkulasiPengirim?.namaSirkuler || '';
+
+      // 3. Build PDF body based on jenis
+      let pdfBody: any;
       let pdfBuffer: Buffer;
+
       if (jenis === 'ND') {
+        // ND - Nota Dinas menggunakan generatePdfNodinService
+        pdfBody = {
+          html: naskahAsli.konten || '',
+          htmlContent: naskahAsli.konten || '',
+          filename: `snapshot-nota-dinas-${aksi}-${urutan}-${Date.now()}.pdf`,
+          tertuju: penerimaArray, // ND uses 'tertuju'
+          dari: namaJabatan, // ND uses 'dari' for sender
+          perihal: naskahAsli.perihal || '',
+          tanggal: tanggalString,
+          tgl: tanggalString,
+          positionText: namaJabatan,
+          namaLengkap: namaLengkap,
+          tembusan: tembusanArray,
+          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nomor: naskahAsli.nomor || '',
+          sifat: naskahAsli.sifat || 'biasa',
+          lampiran: naskahAsli.lampiran || '-',
+        };
         pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfBody);
+      } else if (jenis === 'SDI') {
+        // SDI - Surat Dinas Internal menggunakan generatePdfSudinService (Bahasa Indonesia)
+        pdfBody = {
+          html: naskahAsli.konten || '',
+          htmlContent: naskahAsli.konten || '',
+          filename: `snapshot-surat-dinas-internal-${aksi}-${urutan}-${Date.now()}.pdf`,
+          penerima: penerimaArray, // SDI uses 'penerima'
+          kepadaYth: penerimaArray.join('; ') || '',
+          dari: namaJabatan,
+          perihal: naskahAsli.perihal || '',
+          tanggal: tanggalString,
+          positionText: namaJabatan,
+          namaLengkap: namaLengkap,
+          nama_jabatan: namaJabatan,
+          tembusan: tembusanArray,
+          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nomor: naskahAsli.nomor || '',
+          sifat: naskahAsli.sifat || 'Biasa',
+          lampiran: naskahAsli.lampiran || '-',
+          english: false, // SDI menggunakan format Bahasa Indonesia
+        };
+        pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       } else {
+        // SDE - Surat Dinas Eksternal menggunakan generatePdfSudinService (Bahasa Inggris)
+        pdfBody = {
+          html: naskahAsli.konten || '',
+          htmlContent: naskahAsli.konten || '',
+          filename: `snapshot-surat-dinas-eksternal-${aksi}-${urutan}-${Date.now()}.pdf`,
+          penerima: penerimaArray, // SDE uses 'penerima'
+          kepadaYth: penerimaArray.join('; ') || '',
+          dari: namaJabatan,
+          perihal: naskahAsli.perihal || '',
+          tanggal: tanggalString,
+          positionText: namaJabatan,
+          namaLengkap: namaLengkap,
+          nama_jabatan: namaJabatan,
+          tembusan: tembusanArray,
+          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nomor: naskahAsli.nomor || '',
+          sifat: naskahAsli.sifat || 'Biasa',
+          lampiran: naskahAsli.lampiran || '-',
+          english: true, // SDE menggunakan format Bahasa Inggris
+        };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       }
 
