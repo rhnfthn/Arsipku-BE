@@ -25,6 +25,7 @@ import { DigsigService } from '../../digsig/services/digsig.service';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
 import {
   KajianRecipientResponseDto,
   OrgDataPositionDto,
@@ -117,6 +118,7 @@ export class KajianService {
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   // ============================================================
@@ -1233,6 +1235,25 @@ export class KajianService {
         });
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
+
+        // Send notification to penerima
+        console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'KA',
+          nomor: generatedNomor.nomor,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: false,
+        }).then(notif => {
+          console.log(`[KA:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[KA:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+        });
       }
 
       // Insert sirkulasi - tembusan
@@ -1259,6 +1280,25 @@ export class KajianService {
         });
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan
+        console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(tembusan.position),
+          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: tembusanSirkulasi.id,
+          jenis: 'KA',
+          nomor: generatedNomor.nomor,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: true,
+        }).then(notif => {
+          console.log(`[KA:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[KA:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+        });
       }
 
       // PHASE 7: Handle lampiran
