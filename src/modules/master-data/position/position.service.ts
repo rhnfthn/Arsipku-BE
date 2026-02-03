@@ -30,23 +30,37 @@ export class PositionService {
 
   /**
    * Get all positions by company
+   * @param companyId - Company ID
+   * @param search - Optional search query to filter positions by name
    */
-  async findByCompany(companyId: number): Promise<OmPosition[]> {
-    return this.positionRepo.find({
-      where: { company: companyId },
-      order: { position: 'ASC' },
-    });
+  async findByCompany(companyId: number, search?: string) {
+    const queryBuilder = this.positionRepo.createQueryBuilder('pos')
+      .where('pos.company = :companyId', { companyId })
+      .orderBy('pos.position', 'ASC');
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      queryBuilder.andWhere(
+        '(pos.shortText LIKE :search OR pos.longText LIKE :search OR pos.abbreviation LIKE :search)',
+        { search: `%${search.trim()}%` }
+      );
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
    * Get all positions by organization (via relation_os)
    * Includes bod_tag from om_relation_osc
+   * @param organizationId - Organization ID
+   * @param search - Optional search query to filter positions by name
    */
   async findByOrganization(
     organizationId: number,
+    search?: string,
   ): Promise<any[]> {
     // Get positions via relation_os table with bod_tag from relation_osc
-    const query = `
+    let query = `
       SELECT 
         p.*,
         osc.bod_tag
@@ -56,10 +70,20 @@ export class PositionService {
         AND osc.company = p.company 
         AND osc.organization = os.organization
       WHERE os.organization = ?
-      ORDER BY p.position ASC
     `;
 
-    const results = await this.dataSource.query(query, [organizationId]);
+    const params: any[] = [organizationId];
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      query += ` AND (p.short_text LIKE ? OR p.long_text LIKE ? OR p.abbreviation LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+
+    query += ` ORDER BY p.position ASC`;
+
+    const results = await this.dataSource.query(query, params);
     return results;
   }
 
