@@ -32,6 +32,7 @@ import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service'
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -70,6 +71,7 @@ export class SuratDinasEksternalService {
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   // ============================================================
@@ -1177,6 +1179,22 @@ export class SuratDinasEksternalService {
           const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
           await queryRunner.manager.save(tembusanSirkulasi);
+
+          // Send notification to tembusan internal (only for final naskah, not draft)
+          if (!isDraft) {
+            this.notificationService.createNaskahMasukNotification({
+              positionId: String(tembusan.position),
+              userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+              naskahId,
+              sirkulasiId: tembusanSirkulasi.id,
+              jenis: 'SDE',
+              nomor: nomorSurat,
+              perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text,
+              isTembusan: true,
+            }).catch(err => console.error('[SuratDinasEksternal] Failed to send notification to tembusan:', err));
+          }
         }
       }
 
@@ -1574,6 +1592,25 @@ export class SuratDinasEksternalService {
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan (internal only, penerima is external)
+        console.log(`[SDE:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(tembusan.position),
+          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: tembusanSirkulasi.id,
+          jenis: 'SDE',
+          nomor: nomorSurat,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: true,
+        }).then(notif => {
+          console.log(`[SDE:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[SDE:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+        });
       }
 
       // PHASE 8: Handle lampiran - Move dari temporary ke final folder
@@ -2577,6 +2614,23 @@ export class SuratDinasEksternalService {
             if (tembusanPos) {
               const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, false, i);
               await queryRunner.manager.save(tembusanSirkulasi);
+
+              // Send notification to tembusan internal (finalized naskah)
+              const finalPerihal = dto.perihal ?? naskah.perihal ?? '';
+              const finalPengirimName = finalPengirimPosition?.persnum_person_text || finalPengirimPosition?.position_text || existingPengirim?.namaSirkuler || '';
+              const finalPengirimPositionText = finalPengirimPosition?.position_text || existingPengirim?.positionText || '';
+              this.notificationService.createNaskahMasukNotification({
+                positionId: String(tembusanPos.position),
+                userPersnum: tembusanPos.persnum_person ? Number(tembusanPos.persnum_person) : undefined,
+                naskahId,
+                sirkulasiId: tembusanSirkulasi.id,
+                jenis: 'SDE',
+                nomor: nomorSurat,
+                perihal: finalPerihal,
+                pengirim: finalPengirimName,
+                pengirimPosition: finalPengirimPositionText,
+                isTembusan: true,
+              }).catch(err => console.error('[SuratDinasEksternal:Finalize] Failed to send notification to tembusan:', err));
             }
           }
         }
