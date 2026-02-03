@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { PositionService } from './position.service';
 import { CreatePositionDto } from './dto/create-position.dto';
@@ -24,25 +25,27 @@ export class PositionController {
 
   /**
    * Get all positions by company
-   * @example GET /position/company/1
+   * @example GET /position/company/1?search=manager
    */
   @Get('company/:companyId')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
-  ): Promise<OmPosition[]> {
-    return this.positionService.findByCompany(companyId);
+    @Query('search') search?: string,
+  ) {
+    return this.positionService.findByCompany(companyId, search);
   }
 
   /**
    * Get all positions by organization
    * Includes bod_tag from om_relation_osc
-   * @example GET /position/organization/100
+   * @example GET /position/organization/100?search=manager
    */
   @Get('organization/:organizationId')
   findByOrganization(
     @Param('organizationId', ParseIntPipe) organizationId: number,
+    @Query('search') search?: string,
   ) {
-    return this.positionService.findByOrganization(organizationId);
+    return this.positionService.findByOrganization(organizationId, search);
   }
 
   /**

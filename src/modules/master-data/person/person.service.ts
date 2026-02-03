@@ -24,7 +24,7 @@ export class PersonService {
     @InjectRepository(OmPosition)
     private readonly positionRepo: Repository<OmPosition>,
     private readonly orgDataService: OrgDataService,
-  ) { }
+  ) {}
 
   async findAll(): Promise<Person[]> {
     return this.cRepo.find({
@@ -34,35 +34,57 @@ export class PersonService {
 
   /**
    * Get persons by company (via relation tables)
+   * @param companyId - Company ID
+   * @param search - Optional search query to filter persons by name
    */
-  async findByCompany(companyId: number): Promise<Person[]> {
+  async findByCompany(companyId: number, search?: string): Promise<Person[]> {
     // Use relation tables to find persons by company
-    const query = `
+    let query = `
       SELECT DISTINCT p.*
       FROM pa_personal p
       INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
       WHERE rsp.company = ?
-      ORDER BY p.name ASC
     `;
+
+    const params: any[] = [companyId];
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      query += ` AND p.name LIKE ?`;
+      params.push(`%${search.trim()}%`);
+    }
+
+    query += ` ORDER BY p.name ASC`;
     
-    const results = await this.cRepo.query(query, [companyId]);
+    const results = await this.cRepo.query(query, params);
     return results;
   }
 
   /**
    * Get persons by position
+   * @param positionId - Position ID
+   * @param search - Optional search query to filter persons by name
    */
-  async findByPosition(positionId: number) {
-    const query = `
+  async findByPosition(positionId: number, search?: string) {
+    let query = `
       SELECT DISTINCT p.*, rsp.position, pos.short_text as position_name
       FROM pa_personal p
       INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
       LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
       WHERE rsp.position = ?
-      ORDER BY p.name ASC
     `;
+
+    const params: any[] = [positionId];
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      query += ` AND p.name LIKE ?`;
+      params.push(`%${search.trim()}%`);
+    }
+
+    query += ` ORDER BY p.name ASC`;
     
-    const results = await this.cRepo.query(query, [positionId]);
+    const results = await this.cRepo.query(query, params);
     return results;
   }
 
@@ -320,8 +342,8 @@ export class PersonService {
     // Using position_json which is already flattened and contains sub_area_text
     const positionMap = new Map<number, any>();
 
-    const positionJsonData = Array.isArray(latestOrgData.position_json)
-      ? latestOrgData.position_json
+    const positionJsonData = Array.isArray(latestOrgData.position_json) 
+      ? latestOrgData.position_json 
       : [];
 
     for (const position of positionJsonData) {
