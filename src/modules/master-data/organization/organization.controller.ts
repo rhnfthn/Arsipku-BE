@@ -25,24 +25,26 @@ export class OrganizationController {
 
   /**
    * Get all organizations by company
-   * @example GET /organization/company/1
+   * @example GET /organization/company/1?search=finance
    */
   @Get('company/:companyId')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
-  ): Promise<OmOrganization[]> {
-    return this.organizationService.findByCompany(companyId);
+    @Query('search') search?: string,
+  ) {
+    return this.organizationService.findByCompany(companyId, search);
   }
 
   /**
    * Get organization tree structure by company
-   * @example GET /organization/company/1/tree
+   * @example GET /organization/company/1/tree?search=finance
    */
   @Get('company/:companyId/tree')
   findTreeByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
+    @Query('search') search?: string,
   ) {
-    return this.organizationService.findTreeByCompany(companyId);
+    return this.organizationService.findTreeByCompany(companyId, search);
   }
 
   /**

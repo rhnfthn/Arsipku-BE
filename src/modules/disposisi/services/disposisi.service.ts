@@ -55,6 +55,7 @@ import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lamp
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -143,6 +144,7 @@ export class DisposisiService {
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   // ============================================================
@@ -1350,6 +1352,34 @@ export class DisposisiService {
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
+        // Send notification to penerima (for final disposisi, not draft)
+        console.log('='.repeat(60));
+        console.log('[Disposisi] 🔔 TRIGGERING NOTIFICATION for penerima');
+        console.log('[Disposisi] positionId:', String(penerima.position));
+        console.log('[Disposisi] userPersnum:', penerima.persnum_person);
+        console.log('[Disposisi] naskahId:', naskahId);
+        console.log('[Disposisi] sirkulasiId:', penerimaSirkulasi.id);
+        console.log('[Disposisi] perihal:', naskah.perihal || dto.perihal);
+        console.log('='.repeat(60));
+        
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'DI',
+          nomor: naskah.nomor || undefined,
+          perihal: naskah.perihal || dto.perihal,
+          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+          pengirimPosition: pengirimData.position_text,
+          isTembusan: false,
+        }).then(result => {
+          console.log('[Disposisi] ✅ Notification SUCCESS for penerima. ID:', result?.id);
+        }).catch(err => {
+          console.error('[Disposisi] ❌ Failed to send notification to penerima:', err.message);
+          console.error('[Disposisi] ❌ Stack:', err.stack);
+        });
+
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
 
@@ -2282,6 +2312,36 @@ export class DisposisiService {
             urutan: i, // urutan sesuai input form
           });
           await queryRunner.manager.save(penerimaSirkulasi);
+
+          // Send notification to penerima (only when sending/finalizing, not draft)
+          if (!isDraft && pengirimData) {
+            this.notificationService.createNaskahMasukNotification({
+              positionId: String(penerima.position),
+              userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+              naskahId,
+              sirkulasiId: penerimaSirkulasi.id,
+              jenis: 'DI',
+              nomor: naskah.nomor || undefined,
+              perihal: naskah.perihal || dto.perihal || '',
+              pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+              pengirimPosition: pengirimData.position_text,
+              isTembusan: false,
+            }).catch(err => console.error('[Disposisi:UpdateDraft] Failed to send notification to penerima:', err));
+          }
+        }
+
+        // Update kepadaYth di tabel "di" dengan penerima baru
+        const kepadaYthList = penerimaDataList.map(
+          (p) => `${p.position_text} ${p.organization_text}`,
+        );
+        const kepadaYth = kepadaYthList.join('; ');
+
+        const existingDiForPenerima = await this.diRepository.findOne({
+          where: { idNaskah: naskahId },
+        });
+        if (existingDiForPenerima) {
+          existingDiForPenerima.kepadaYth = kepadaYth;
+          await queryRunner.manager.save(existingDiForPenerima);
         }
       }
 
@@ -2393,6 +2453,37 @@ export class DisposisiService {
           await queryRunner.manager.save(existingDi);
         } else {
           // Insert data baru
+          // Build kepadaYth dari sirkulasi penerima yang sudah ada atau dari dto
+          let kepadaYthNew = '';
+          if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+            // Build dari dto penerima_position_ids yang sudah divalidasi di PHASE 5
+            const penerimaDataForDi: PositionData[] = [];
+            for (const penerimaId of dto.penerima_position_ids) {
+              const penerimaData = this.findByPosition(barisData, penerimaId);
+              if (penerimaData) {
+                penerimaDataForDi.push(penerimaData);
+              }
+            }
+            if (penerimaDataForDi.length > 0) {
+              const kepadaYthListNew = penerimaDataForDi.map(
+                (p) => `${p.position_text} ${p.organization_text}`,
+              );
+              kepadaYthNew = kepadaYthListNew.join('; ');
+            }
+          } else {
+            // Fallback: ambil dari sirkulasi penerima yang sudah ada
+            const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+              where: { idNaskah: naskahId, sirkuler: 'penerima' },
+              order: { urutan: 'ASC' },
+            });
+            if (existingPenerima.length > 0) {
+              const kepadaYthListExisting = existingPenerima.map(
+                (p) => `${p.positionText} ${p.organizationText}`,
+              );
+              kepadaYthNew = kepadaYthListExisting.join('; ');
+            }
+          }
+
           const diEntity = this.diRepository.create({
             idNaskah: naskahId,
             kopLogo: dto.kop_logo || '',
@@ -2409,7 +2500,7 @@ export class DisposisiService {
             nomor: dto.ref_nomor_surat || '',
             perihal: dto.perihal || '',
             klasifikasi: dto.klasifikasi || '',
-            kepadaYth: '', // Will be filled from penerima
+            kepadaYth: kepadaYthNew,
             disposisi: dto.disposisi || '',
             catatan: dto.catatan || '',
             paraf: dto.paraf || '',
@@ -2812,6 +2903,20 @@ export class DisposisiService {
           urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
+
+        // Send notification to penerima (for forwarded disposisi)
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'DI',
+          nomor: generatedNomor,
+          perihal: perihal,
+          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+          pengirimPosition: pengirimData.position_text,
+          isTembusan: false,
+        }).catch(err => console.error('[Disposisi:Forward] Failed to send notification to penerima:', err));
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
