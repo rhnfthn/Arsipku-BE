@@ -67,7 +67,7 @@ export class PersonService {
    */
   async findByPosition(positionId: number, search?: string) {
     let query = `
-      SELECT DISTINCT p.*, rsp.position, pos.short_text as position_name
+      SELECT DISTINCT p.*, rsp.id as id_relation_sp, rsp.position, pos.short_text as position_name
       FROM pa_personal p
       INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
       LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
@@ -520,6 +520,41 @@ export class PersonService {
       success: true,
       message: `Successfully updated position assignment for ${relationSp.relation_persnum_text || 'person'} (ID: ${id})`,
       data: updatedRelation,
+    };
+  }
+
+  /**
+   * Delete existing position assignment
+   * Removes om_relation_sp record by id
+   * 
+   * @param id - RelationSp record id
+   * @returns Success message
+   */
+  async deleteAssignPosition(id: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    // 1. Find the position assignment record
+    const relationSp = await this.relationSpRepo.findOne({
+      where: { id },
+    });
+
+    if (!relationSp) {
+      throw new NotFoundException(
+        `Position assignment with ID ${id} not found`
+      );
+    }
+
+    // Store info for response message before deletion
+    const personName = relationSp.relation_persnum_text || 'person';
+    const positionInfo = relationSp.position_text || `Position ${relationSp.position}`;
+
+    // 2. Delete the record
+    await this.relationSpRepo.remove(relationSp);
+
+    return {
+      success: true,
+      message: `Successfully deleted position assignment: ${positionInfo} from ${personName}`,
     };
   }
 
