@@ -33,6 +33,7 @@ import { formatSignatureData, generateSignatureId } from '../../../common/helper
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -73,6 +74,7 @@ export class SuratDinasInternalService {
     private readonly qrCodeService: QRCodeService,
     private readonly pdfQrEmbedService: PdfQrEmbedService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   // ============================================================
@@ -1462,6 +1464,22 @@ export class SuratDinasInternalService {
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
+
+        // Send notification to penerima (only for final naskah, not draft)
+        if (!isDraft) {
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            jenis: 'SDI',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: false,
+          }).catch(err => console.error('[SuratDinasInternal] Failed to send notification to penerima:', err));
+        }
       }
 
       // PHASE 10: Insert sirkulasi - tembusan with urutan
@@ -1471,6 +1489,22 @@ export class SuratDinasInternalService {
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan (only for final naskah, not draft)
+        if (!isDraft) {
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'SDI',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).catch(err => console.error('[SuratDinasInternal] Failed to send notification to tembusan:', err));
+        }
       }
 
       // PHASE 11: Handle lampiran
@@ -1794,6 +1828,25 @@ export class SuratDinasInternalService {
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
+
+        // Send notification to penerima
+        console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'SDI',
+          nomor: nomorSurat,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: false,
+        }).then(notif => {
+          console.log(`[SDI:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[SDI:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+        });
       }
 
       const tembusanResponses: SirkulasiInfoDto[] = [];
@@ -1802,6 +1855,25 @@ export class SuratDinasInternalService {
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan
+        console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(tembusan.position),
+          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: tembusanSirkulasi.id,
+          jenis: 'SDI',
+          nomor: nomorSurat,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: true,
+        }).then(notif => {
+          console.log(`[SDI:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[SDI:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+        });
       }
 
       // PHASE 8: Handle lampiran
@@ -3654,6 +3726,20 @@ export class SuratDinasInternalService {
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
+        // Send notification to penerima (for balas surat - always final, not draft)
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: dto.jenis,
+          nomor: dto.nomor,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: false,
+        }).catch(err => console.error('[SuratDinasInternal:Balas] Failed to send notification to penerima:', err));
+
         penerimaResponses.push({
           id: penerimaSirkulasi.id,
           persnum: penerima.persnum_person || 0,
@@ -3693,6 +3779,20 @@ export class SuratDinasInternalService {
           urutan: i,
         });
         await queryRunner.manager.save(tembusanSirkulasi);
+
+        // Send notification to tembusan (for balas surat - always final, not draft)
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(tembusan.position),
+          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: tembusanSirkulasi.id,
+          jenis: dto.jenis,
+          nomor: dto.nomor,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: true,
+        }).catch(err => console.error('[SuratDinasInternal:Balas] Failed to send notification to tembusan:', err));
 
         tembusanResponses.push({
           id: tembusanSirkulasi.id,

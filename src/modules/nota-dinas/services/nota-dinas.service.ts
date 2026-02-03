@@ -49,6 +49,7 @@ import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service'
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -84,6 +85,7 @@ export class NotaDinasService {
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   // ============================================================
@@ -1392,6 +1394,39 @@ export class NotaDinasService {
         );
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
+
+        // Send notification to penerima (only for final naskah, not draft)
+        if (!isDraft) {
+          console.log('='.repeat(60));
+          console.log('[NotaDinas] 🔔 TRIGGERING NOTIFICATION for penerima');
+          console.log('[NotaDinas] isDraft:', isDraft);
+          console.log('[NotaDinas] positionId:', String(penerima.position));
+          console.log('[NotaDinas] userPersnum:', penerima.persnum_person);
+          console.log('[NotaDinas] naskahId:', naskahId);
+          console.log('[NotaDinas] sirkulasiId:', penerimaSirkulasi.id);
+          console.log('[NotaDinas] perihal:', dto.perihal);
+          console.log('='.repeat(60));
+          
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            jenis: 'ND',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: false,
+          }).then(result => {
+            console.log('[NotaDinas] ✅ Notification SUCCESS for penerima. ID:', result?.id);
+          }).catch(err => {
+            console.error('[NotaDinas] ❌ Failed to send notification to penerima:', err.message);
+            console.error('[NotaDinas] ❌ Stack:', err.stack);
+          });
+        } else {
+          console.log('[NotaDinas] ⏭️ SKIPPING notification - isDraft:', isDraft);
+        }
       }
 
       // PHASE 10: Insert sirkulasi - tembusan with urutan
@@ -1407,6 +1442,38 @@ export class NotaDinasService {
         );
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan (only for final naskah, not draft)
+        if (!isDraft) {
+          console.log('='.repeat(60));
+          console.log('[NotaDinas] 🔔 TRIGGERING NOTIFICATION for tembusan');
+          console.log('[NotaDinas] isDraft:', isDraft);
+          console.log('[NotaDinas] positionId:', String(tembusan.position));
+          console.log('[NotaDinas] userPersnum:', tembusan.persnum_person);
+          console.log('[NotaDinas] naskahId:', naskahId);
+          console.log('[NotaDinas] sirkulasiId:', tembusanSirkulasi.id);
+          console.log('='.repeat(60));
+          
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'ND',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(result => {
+            console.log('[NotaDinas] ✅ Notification SUCCESS for tembusan. ID:', result?.id);
+          }).catch(err => {
+            console.error('[NotaDinas] ❌ Failed to send notification to tembusan:', err.message);
+            console.error('[NotaDinas] ❌ Stack:', err.stack);
+          });
+        } else {
+          console.log('[NotaDinas] ⏭️ SKIPPING tembusan notification - isDraft:', isDraft);
+        }
       }
 
       // PHASE 11: Insert lampiran (if any)
@@ -1747,6 +1814,25 @@ export class NotaDinasService {
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
+
+        // Send notification to penerima
+        console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'ND',
+          nomor: nomorSurat,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: false,
+        }).then(notif => {
+          console.log(`[ND:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[ND:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+        });
       }
 
       const tembusanResponses: SirkulasiInfoDto[] = [];
@@ -1755,6 +1841,25 @@ export class NotaDinasService {
         const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan
+        console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(tembusan.position),
+          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: tembusanSirkulasi.id,
+          jenis: 'ND',
+          nomor: nomorSurat,
+          perihal: dto.perihal,
+          pengirim: pengirim.persnum_person_text || pengirim.position_text,
+          pengirimPosition: pengirim.position_text,
+          isTembusan: true,
+        }).then(notif => {
+          console.log(`[ND:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+        }).catch(err => {
+          console.error(`[ND:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+        });
       }
 
       // PHASE 8: Handle lampiran
