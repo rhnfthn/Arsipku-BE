@@ -385,7 +385,7 @@ export class NaskahSirkulasiService {
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
-      ORDER BY (CASE WHEN s.send_read_time IS NULL THEN 0 ELSE 1 END) ASC, s.created_at DESC, s.id DESC
+      ORDER BY s.created_at DESC, s.id DESC
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
