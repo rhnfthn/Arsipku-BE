@@ -42,24 +42,26 @@ export class PersonController {
 
   /**
    * Get persons by company
-   * @example GET /person/company/1
+   * @example GET /person/company/1?search=ahmad
    */
   @Get('company/:companyId')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
-  ): Promise<Person[]> {
-    return this.personService.findByCompany(companyId);
+    @Query('search') search?: string,
+  ) {
+    return this.personService.findByCompany(companyId, search);
   }
 
   /**
    * Get persons by position
-   * @example GET /person/position/1000
+   * @example GET /person/position/1000?search=ahmad
    */
   @Get('position/:positionId')
   findByPosition(
     @Param('positionId', ParseIntPipe) positionId: number,
+    @Query('search') search?: string,
   ) {
-    return this.personService.findByPosition(positionId);
+    return this.personService.findByPosition(positionId, search);
   }
 
   /**

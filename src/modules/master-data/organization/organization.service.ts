@@ -29,19 +29,42 @@ export class OrganizationService {
 
   /**
    * Get all organizations by company
+   * @param companyId - Company ID
+   * @param search - Optional search query to filter organizations by name
    */
-  async findByCompany(companyId: number): Promise<OmOrganization[]> {
-    return this.orgRepo.find({
-      where: { company: companyId },
-      order: { organization: 'ASC' },
-    });
+  async findByCompany(companyId: number, search?: string) {
+    const queryBuilder = this.orgRepo.createQueryBuilder('org')
+      .where('org.company = :companyId', { companyId })
+      .orderBy('org.organization', 'ASC');
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      queryBuilder.andWhere(
+        '(org.shortText LIKE :search OR org.longText LIKE :search OR org.abbreviation LIKE :search)',
+        { search: `%${search.trim()}%` }
+      );
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
    * Get organization tree structure with hierarchy
+   * @param companyId - Company ID
+   * @param search - Optional search query to filter organizations by name
    */
-  async findTreeByCompany(companyId: number) {
-    const organizations = await this.findByCompany(companyId);
+  async findTreeByCompany(companyId: number, search?: string) {
+    let organizations = await this.findByCompany(companyId);
+    
+    // Filter organizations by search query if provided
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      organizations = organizations.filter(org => 
+        org.shortText?.toLowerCase().includes(searchLower) ||
+        org.longText?.toLowerCase().includes(searchLower) ||
+        org.abbreviation?.toLowerCase().includes(searchLower)
+      );
+    }
     
     // Get all parent-child relationships for this company
     const relations = await this.relationOoRepo.find({
