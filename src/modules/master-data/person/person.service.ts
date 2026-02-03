@@ -67,7 +67,8 @@ export class PersonService {
    */
   async findByPosition(positionId: number, search?: string) {
     let query = `
-      SELECT DISTINCT p.*, rsp.id as id_relation_sp, rsp.position, pos.short_text as position_name
+      SELECT DISTINCT p.*, rsp.id as id_relation_sp, rsp.position, pos.short_text as position_name,
+             rsp.start_date, rsp.end_date
       FROM pa_personal p
       INNER JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
       LEFT JOIN om_position pos ON pos.position = rsp.position AND pos.company = rsp.company
