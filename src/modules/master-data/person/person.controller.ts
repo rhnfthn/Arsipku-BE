@@ -194,6 +194,33 @@ export class PersonController {
     return this.personService.updateAssignPosition(id, data);
   }
 
+  /**
+   * Delete an existing position assignment
+   * @example DELETE /person/assign-position/:id
+   */
+  @Delete('assign-position/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete existing position assignment',
+    description: 'Removes position assignment from om_relation_sp. Use this to unassign a position from a person.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Position assignment ID (om_relation_sp.id)',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Position assignment successfully deleted',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Position assignment not found',
+  })
+  deleteAssignPosition(@Param('id') id: string) {
+    return this.personService.deleteAssignPosition(id);
+  }
+
   @Put(':id')
   update(@Param('id') id: string, @Body() data: UpdatePersonDto) {
     return this.personService.update(id, data);
