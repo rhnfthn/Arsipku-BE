@@ -125,6 +125,33 @@ export class MeilisearchSearchService {
         // === BUILD FILTER ARRAY ===
         const filters: string[] = [];
 
+        // Pre-fetch naskah IDs for archived/favorite scopes (user-specific flags from sirkulasi)
+        let scopeNaskahIds: string[] | null = null;
+        if (scope === SearchScopeEnum.ARCHIVED || scope === SearchScopeEnum.FAVORITE) {
+            const flagField = scope === SearchScopeEnum.ARCHIVED ? 'flag_arsip' : 'flag_favorit';
+            const flaggedSirkulasi = await this.naskahSirkulasiRepository
+                .createQueryBuilder('s')
+                .select('s.id_naskah', 'id_naskah')
+                .where('s.position = :userPosition', { userPosition })
+                .andWhere(`s.${flagField} = 1`)
+                .getRawMany();
+            
+            scopeNaskahIds = flaggedSirkulasi.map(s => s.id_naskah).filter(Boolean);
+            
+            // If no archived/favorite naskah found, return empty result early
+            if (scopeNaskahIds.length === 0) {
+                return {
+                    success: true,
+                    message: `Tidak ada naskah ${scope === SearchScopeEnum.ARCHIVED ? 'arsip' : 'favorit'}`,
+                    data: {
+                        items: [],
+                        pagination: { page, limit, total: 0, totalPages: 0 },
+                        filters: { applied: [`scope: ${scope}`], keyword: keyword || undefined },
+                    },
+                };
+            }
+        }
+
         // Default filter: only naskah where user has access (unified access_positions field)
         // Scope determines additional role-based filtering
         if (!scope || scope === 'all' || scope === 'active') {
@@ -153,8 +180,23 @@ export class MeilisearchSearchService {
                     filters.push(`access_positions = "${userPosition}"`);
                     filters.push(`status = "draf"`);
                     break;
-                // Note: archived and favorite require sirkulasi flags which we don't have in Meilisearch
-                // We'll handle these with post-processing or store flags in document
+                case SearchScopeEnum.ARCHIVED:
+                    // Archived: filter by pre-fetched naskah IDs with flag_arsip=1
+                    filters.push(`access_positions = "${userPosition}"`);
+                    if (scopeNaskahIds && scopeNaskahIds.length > 0) {
+                        // Meilisearch filter: id IN ["id1", "id2", ...]
+                        const idList = scopeNaskahIds.map(id => `"${id}"`).join(', ');
+                        filters.push(`id IN [${idList}]`);
+                    }
+                    break;
+                case SearchScopeEnum.FAVORITE:
+                    // Favorite: filter by pre-fetched naskah IDs with flag_favorit=1
+                    filters.push(`access_positions = "${userPosition}"`);
+                    if (scopeNaskahIds && scopeNaskahIds.length > 0) {
+                        const idList = scopeNaskahIds.map(id => `"${id}"`).join(', ');
+                        filters.push(`id IN [${idList}]`);
+                    }
+                    break;
                 default:
                     filters.push(`access_positions = "${userPosition}"`);
             }
