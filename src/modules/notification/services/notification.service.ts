@@ -14,7 +14,9 @@ export class NotificationService {
     @InjectRepository(NotificationEntity)
     private readonly notificationRepository: Repository<NotificationEntity>,
     private readonly fcmService: FcmService,
-  ) {}
+  ) {
+    this.logger.log('✅ NotificationService initialized');
+  }
 
   /**
    * Create notification and optionally send push notification
@@ -23,30 +25,48 @@ export class NotificationService {
     dto: CreateNotificationDto,
     sendPush = true,
   ): Promise<NotificationEntity> {
-    const notification = this.notificationRepository.create({
-      id: uuidv4(),
-      positionId: dto.positionId,
-      userPersnum: dto.userPersnum || null,
-      type: dto.type,
-      title: dto.title,
-      body: dto.body,
-      data: dto.data || null,
-      isRead: false,
-    });
+    this.logger.log('='.repeat(60));
+    this.logger.log('📥 [createNotification] CALLED');
+    this.logger.log(`📥 DTO: ${JSON.stringify(dto, null, 2)}`);
+    this.logger.log(`📥 sendPush: ${sendPush}`);
+    
+    try {
+      const notification = this.notificationRepository.create({
+        id: uuidv4(),
+        positionId: dto.positionId,
+        userPersnum: dto.userPersnum || null,
+        type: dto.type,
+        title: dto.title,
+        body: dto.body,
+        data: dto.data || null,
+        isRead: false,
+      });
 
-    const saved = await this.notificationRepository.save(notification);
+      this.logger.log(`📝 [createNotification] Created entity: ${JSON.stringify(notification, null, 2)}`);
 
-    // Send push notification if userPersnum is provided
-    if (sendPush && dto.userPersnum) {
-      await this.fcmService.sendToUser(
-        dto.userPersnum,
-        dto.title,
-        dto.body,
-        this.convertDataToString(dto.data),
-      );
+      const saved = await this.notificationRepository.save(notification);
+      this.logger.log(`✅ [createNotification] SAVED to database! ID: ${saved.id}`);
+
+      // Send push notification if userPersnum is provided
+      if (sendPush && dto.userPersnum) {
+        this.logger.log(`📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`);
+        await this.fcmService.sendToUser(
+          dto.userPersnum,
+          dto.title,
+          dto.body,
+          this.convertDataToString(dto.data),
+        );
+        this.logger.log(`✅ [createNotification] Push notification sent`);
+      } else {
+        this.logger.log(`⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`);
+      }
+
+      return saved;
+    } catch (error) {
+      this.logger.error(`❌ [createNotification] ERROR: ${error.message}`);
+      this.logger.error(`❌ [createNotification] Stack: ${error.stack}`);
+      throw error;
     }
-
-    return saved;
   }
 
   /**
@@ -56,34 +76,55 @@ export class NotificationService {
     dto: CreateNaskahMasukNotificationDto,
     sendPush = true,
   ): Promise<NotificationEntity> {
-    const jenisLabel = this.getJenisLabel(dto.jenis);
-    const type = dto.isTembusan ? NotificationType.NASKAH_TEMBUSAN : NotificationType.NASKAH_MASUK;
-    const title = dto.isTembusan ? 'Tembusan Naskah Baru' : 'Naskah Masuk Baru';
-    
-    const body = `${jenisLabel} dari ${dto.pengirim} - Perihal: ${dto.perihal}`;
+    this.logger.log('='.repeat(60));
+    this.logger.log('🔔 [createNaskahMasukNotification] CALLED');
+    this.logger.log(`🔔 DTO: ${JSON.stringify(dto, null, 2)}`);
+    this.logger.log(`🔔 sendPush: ${sendPush}`);
 
-    const data: NaskahMasukNotificationData = {
-      naskahId: dto.naskahId,
-      sirkulasiId: dto.sirkulasiId,
-      jenis: dto.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA',
-      nomor: dto.nomor || null,
-      perihal: dto.perihal,
-      pengirim: dto.pengirim,
-      pengirimPosition: dto.pengirimPosition,
-      action: 'OPEN_INBOX_DETAIL',
-    };
+    try {
+      const jenisLabel = this.getJenisLabel(dto.jenis);
+      const type = dto.isTembusan ? NotificationType.NASKAH_TEMBUSAN : NotificationType.NASKAH_MASUK;
+      const title = dto.isTembusan ? 'Tembusan Naskah Baru' : 'Naskah Masuk Baru';
+      
+      const body = `${jenisLabel} dari ${dto.pengirim} - Perihal: ${dto.perihal}`;
 
-    return this.createNotification(
-      {
-        positionId: dto.positionId,
-        userPersnum: dto.userPersnum,
-        type,
-        title,
-        body,
-        data,
-      },
-      sendPush,
-    );
+      this.logger.log(`🔔 [createNaskahMasukNotification] jenisLabel: ${jenisLabel}`);
+      this.logger.log(`🔔 [createNaskahMasukNotification] type: ${type}`);
+      this.logger.log(`🔔 [createNaskahMasukNotification] title: ${title}`);
+      this.logger.log(`🔔 [createNaskahMasukNotification] body: ${body}`);
+
+      const data: NaskahMasukNotificationData = {
+        naskahId: dto.naskahId,
+        sirkulasiId: dto.sirkulasiId,
+        jenis: dto.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA',
+        nomor: dto.nomor || null,
+        perihal: dto.perihal,
+        pengirim: dto.pengirim,
+        pengirimPosition: dto.pengirimPosition,
+        action: 'OPEN_INBOX_DETAIL',
+      };
+
+      this.logger.log(`🔔 [createNaskahMasukNotification] data: ${JSON.stringify(data, null, 2)}`);
+
+      const result = await this.createNotification(
+        {
+          positionId: dto.positionId,
+          userPersnum: dto.userPersnum,
+          type,
+          title,
+          body,
+          data,
+        },
+        sendPush,
+      );
+
+      this.logger.log(`✅ [createNaskahMasukNotification] SUCCESS! Notification ID: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`❌ [createNaskahMasukNotification] ERROR: ${error.message}`);
+      this.logger.error(`❌ [createNaskahMasukNotification] Stack: ${error.stack}`);
+      throw error;
+    }
   }
 
   /**
