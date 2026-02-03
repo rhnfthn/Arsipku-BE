@@ -51,7 +51,7 @@ This is enforced via the `access_positions` index field which contains all posit
 | `status` | string | `draf`, `final`, `final_tte` | Document status |
 | `klasifikasi` | string | - | Classification code |
 | `hasAttachment` | boolean | `true`, `false` | Filter by attachment presence |
-| `scope` | string | `inbox`, `sent`, `draft`, `all`, `active` | Filter by folder/source |
+| `scope` | string | `inbox`, `sent`, `draft`, `all`, `active`, `archived`, `favorite` | Filter by folder/source |
 
 ### Date Filters
 
