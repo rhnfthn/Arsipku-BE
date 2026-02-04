@@ -189,16 +189,34 @@ export class DraftService {
     // Calculate date range
     const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
 
-    // Build query
+    // Step 1: Get sirkulasi records for this position as pengirim
+    const sirkulasiQuery = this.naskahSirkulasiRepository
+      .createQueryBuilder('sirkulasi')
+      .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+      .andWhere('sirkulasi.position = :position', { position: String(positionId) });
+
+    const sirkulasiRecords = await sirkulasiQuery.getMany();
+    const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
+
+    // If no sirkulasi found, return empty result
+    if (naskahIdsFromSirkulasi.length === 0) {
+      return {
+        success: true,
+        data: [],
+        pagination: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
+    }
+
+    // Step 2: Build query for naskah
     const queryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
-      .innerJoin(
-        'naskah_sirkulasi',
-        'sirkulasi',
-        'sirkulasi.id_naskah = naskah.id AND sirkulasi.sirkuler = :sirkuler AND sirkulasi.position = :position',
-        { sirkuler: 'pengirim', position: String(positionId) },
-      )
-      .where('naskah.status = :status', { status: 'draf' });
+      .where('naskah.id IN (:...naskahIds)', { naskahIds: naskahIdsFromSirkulasi })
+      .andWhere('naskah.status = :status', { status: 'draf' });
 
     // Apply date range filter
     if (dateRange.startDate) {
@@ -242,32 +260,34 @@ export class DraftService {
     const naskahIds = naskahs.map(n => n.id);
     const labelsMap = new Map<string, string[]>();
 
-    // Get labels for all naskah
+    // Get labels for all naskah using repository approach
     if (naskahIds.length > 0) {
-      const labelsQuery = `
-        SELECT 
-          nl.naskah_id,
-          l.nama,
-          parent.nama as parent_nama
-        FROM naskah_label nl
-        INNER JOIN label l ON nl.label_id = l.id
-        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
-        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
-        AND l.is_active = 1
-        ORDER BY l.urutan ASC, l.nama ASC
-      `;
-      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
-      // Group labels by naskah_id
-      labelsRows.forEach((row: any) => {
-        if (!labelsMap.has(row.naskah_id)) {
-          labelsMap.set(row.naskah_id, []);
+      try {
+        const naskahLabels = await this.naskahLabelRepository.find({
+          where: {
+            naskahId: In(naskahIds),
+          },
+          relations: ['label', 'label.parent'],
+        });
+
+        // Group labels by naskah_id
+        for (const nl of naskahLabels) {
+          if (!nl.label || !nl.label.isActive) continue;
+
+          if (!labelsMap.has(nl.naskahId)) {
+            labelsMap.set(nl.naskahId, []);
+          }
+
+          const labelName = nl.label.parent?.nama && nl.label.parent.isActive
+            ? `${nl.label.parent.nama} > ${nl.label.nama}`
+            : nl.label.nama;
+          
+          labelsMap.get(nl.naskahId)?.push(labelName);
         }
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
-          : row.nama;
-        labelsMap.get(row.naskah_id)?.push(labelName);
-      });
+      } catch (error) {
+        // Log error but continue without labels
+        console.error('Error fetching labels for draft list:', error);
+      }
     }
 
     // Build response items
