@@ -239,10 +239,9 @@ export class DraftService {
       );
     }
 
-    // Order by tanggal dan waktu terbaru (updated_at sebagai proxy waktu terakhir diubah)
+    // Order by tanggal terbaru
     queryBuilder
-      .orderBy('naskah.updated_at', 'DESC')
-      .addOrderBy('naskah.tanggal', 'DESC')
+      .orderBy('naskah.tanggal', 'DESC')
       .addOrderBy('naskah.id', 'DESC');
 
     // Get total count for pagination
