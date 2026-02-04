@@ -130,11 +130,18 @@ export class KonsepController {
    * Konsep bisa dibuat sebagai tindak lanjut dari disposisi yang diterima
    * Kirim field `id_disposisi_referensi` untuk menghubungkan konsep dengan disposisi asal
    * 
+   * **DISPOSISI CHAIN TRACKING**:
+   * Sistem akan otomatis trace disposisi ke asal/root:
+   * - Jika A kirim DI-001 → B forward DI-002 → C terima DI-002
+   * - C buat konsep dengan id_disposisi_referensi = DI-002 (yang diterima)
+   * - Sistem akan simpan referensi ke DI-002 (langsung) DAN DI-001 (asal)
+   * - Pada GET detail, akan tampil disposisi_referensi dengan type='chain'
+   * 
    * Form-data fields:
    * - jenis: string (ND|SDI|SDE)
    * - from_position_id: number
    * - to_position_id: number
-   * - id_disposisi_referensi: string (OPTIONAL - ID naskah disposisi yang menjadi dasar konsep)
+   * - id_disposisi_referensi: string (OPTIONAL - ID naskah disposisi yang diterima/langsung)
    * - perihal, konten, klasifikasi, sifat, etc.
    * - lampiran_temp_ids: string[] (RECOMMENDED - IDs dari POST /upload-temporary-konsep)
    * - lampiran_files: file[] (DEPRECATED - untuk backward compatibility)
@@ -143,7 +150,8 @@ export class KonsepController {
    * 1. Terima disposisi (DI) dengan instruksi
    * 2. Upload files via POST /upload-temporary-konsep
    * 3. Get file IDs from response
-   * 4. Send lampiran_temp_ids + id_disposisi_referensi to this endpoint
+   * 4. Send lampiran_temp_ids + id_disposisi_referensi (ID disposisi yang diterima) to this endpoint
+   * 5. Sistem akan otomatis trace ke disposisi asal dan simpan kedua referensi
    * 
    * @returns CreateKonsepResponseDto
    */

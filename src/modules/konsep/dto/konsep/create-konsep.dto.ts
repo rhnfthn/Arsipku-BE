@@ -47,7 +47,10 @@ export class CreateKonsepDto {
 
   @IsOptional()
   @IsString()
-  id_disposisi_referensi?: string; // ID naskah disposisi (DI) yang menjadi dasar pembuatan konsep ini
+  id_disposisi_referensi?: string; // ID naskah disposisi (DI) yang diterima langsung
+  // Sistem akan otomatis trace ke disposisi asal/root jika ini adalah forward
+  // Contoh: A kirim DI-001 → B forward DI-002 → C buat konsep
+  // Isi dengan ID DI-002 (yang diterima), sistem akan simpan ref ke DI-002 DAN DI-001
 
   // ============ KONTEN NASKAH ============
 

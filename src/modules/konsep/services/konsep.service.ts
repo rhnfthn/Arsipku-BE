@@ -156,7 +156,7 @@ export class KonsepService {
         klasifikasi: dto.klasifikasi,
         klasifikasi_text: dto.klasifikasi_text,
         sifat: dto.sifat || 'biasa',
-        nomor: `KONSEP-${Date.now()}`, // Temporary, will be replaced on finalize
+        nomor: '-', // Konsep tidak perlu nomor, will be replaced on finalize
         tanggal: dto.tgl ? new Date(dto.tgl) : tanggalHariIni,
         lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
         perihal: dto.perihal,
@@ -170,6 +170,9 @@ export class KonsepService {
       // ==========================================
       // 2a. CREATE REFERENSI TO DISPOSISI (if provided)
       // ==========================================
+      // IMPORTANT: Trace disposisi ke root/asal untuk mendapatkan disposisi pertama kali
+      // Skenario: A kirim DI-001 → B forward DI-002 (ref DI-001) → C buat konsep
+      // Konsep C harus merujuk ke DI-001 (asal) DAN DI-002 (langsung)
       if (dto.id_disposisi_referensi) {
         // Validate disposisi exists
         const disposisiRef = await queryRunner.manager.findOne(NaskahEntity, {
@@ -177,15 +180,43 @@ export class KonsepService {
         });
 
         if (disposisiRef) {
-          const naskahReferensi = new NaskahReferensiEntity();
-          naskahReferensi.id = uuidv4();
-          naskahReferensi.id_naskah = naskahKonsepId; // Konsep workflow (K) adalah child
-          naskahReferensi.ref_jenis = 'DI';
-          naskahReferensi.ref_nomor = disposisiRef.nomor;
-          naskahReferensi.ref_tanggal = disposisiRef.tanggal;
-          naskahReferensi.ref_perihal = disposisiRef.perihal;
-          naskahReferensi.ref_pengirim = null; // Could get from disposisi sirkulasi if needed
-          await queryRunner.manager.save(naskahReferensi);
+          // Trace to root disposisi
+          const { rootId, rootNaskah, chain } = await this.traceDisposisiToRoot(
+            dto.id_disposisi_referensi,
+            queryRunner,
+          );
+
+          console.log(`[CreateKonsep] Disposisi chain: ${chain.join(' → ')}`);
+          console.log(`[CreateKonsep] Root disposisi: ${rootId}`);
+
+          // Simpan referensi ke disposisi LANGSUNG (yang diterima dari B)
+          const naskahReferensiLangsung = new NaskahReferensiEntity();
+          naskahReferensiLangsung.id = uuidv4();
+          naskahReferensiLangsung.id_naskah = naskahKonsepId;
+          naskahReferensiLangsung.ref_jenis = 'DI';
+          naskahReferensiLangsung.ref_nomor = disposisiRef.nomor;
+          naskahReferensiLangsung.ref_tanggal = disposisiRef.tanggal;
+          naskahReferensiLangsung.ref_perihal = disposisiRef.perihal;
+          naskahReferensiLangsung.ref_pengirim = null;
+          await queryRunner.manager.save(naskahReferensiLangsung);
+
+          // Jika ada root yang berbeda (bukan disposisi langsung), simpan juga referensi ke root
+          // Root = disposisi ASAL (dari A)
+          if (rootId !== dto.id_disposisi_referensi && rootNaskah) {
+            const naskahReferensiRoot = new NaskahReferensiEntity();
+            naskahReferensiRoot.id = uuidv4();
+            naskahReferensiRoot.id_naskah = naskahKonsepId;
+            naskahReferensiRoot.ref_jenis = 'DI'; // Masih DI, tapi ini root
+            naskahReferensiRoot.ref_nomor = rootNaskah.nomor;
+            naskahReferensiRoot.ref_tanggal = rootNaskah.tanggal;
+            naskahReferensiRoot.ref_perihal = rootNaskah.perihal;
+            naskahReferensiRoot.ref_pengirim = null;
+            await queryRunner.manager.save(naskahReferensiRoot);
+
+            console.log(`[CreateKonsep] Saved 2 referensi: langsung (${disposisiRef.nomor}) + root (${rootNaskah.nomor})`);
+          } else {
+            console.log(`[CreateKonsep] Disposisi langsung = root. Saved 1 referensi (${disposisiRef.nomor})`);
+          }
         }
       }
 
@@ -499,6 +530,96 @@ export class KonsepService {
   private getBulanRomawi(bulan: number): string {
     const romawi = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
     return romawi[bulan - 1] || '';
+  }
+
+  /**
+   * Trace disposisi ke asal (root disposisi pertama kali)
+   * Karena forward disposisi membuat naskah DI baru dengan referensi ke sebelumnya,
+   * method ini akan trace sampai ke disposisi paling awal.
+   * 
+   * Contoh chain:
+   * A kirim DI-001 → B forward sebagai DI-002 (ref ke DI-001) → C forward sebagai DI-003 (ref ke DI-002)
+   * Jika input DI-003, akan return DI-001 (disposisi asal)
+   * 
+   * @param disposisiId - ID naskah disposisi yang mau di-trace
+   * @param queryRunner - Optional query runner untuk transaction
+   * @returns ID disposisi asal (root) atau null jika tidak ada referensi
+   */
+  private async traceDisposisiToRoot(
+    disposisiId: string,
+    queryRunner?: any,
+  ): Promise<{ rootId: string; rootNaskah: NaskahEntity | null; chain: string[] }> {
+    const manager = queryRunner ? queryRunner.manager : this.dataSource.manager;
+    const visitedIds = new Set<string>();
+    const chain: string[] = [disposisiId];
+    let currentId = disposisiId;
+    let rootNaskah: NaskahEntity | null = null;
+
+    // Max depth untuk prevent infinite loop (safety)
+    const maxDepth = 50;
+    let depth = 0;
+
+    while (depth < maxDepth) {
+      // Check if already visited (circular reference protection)
+      if (visitedIds.has(currentId)) {
+        console.warn(`[traceDisposisiToRoot] Circular reference detected at ${currentId}`);
+        break;
+      }
+      visitedIds.add(currentId);
+
+      // Get current naskah
+      const currentNaskah = await manager.findOne(NaskahEntity, {
+        where: { id: currentId, jenis: 'DI' },
+      });
+
+      if (!currentNaskah) {
+        console.warn(`[traceDisposisiToRoot] Naskah ${currentId} not found or not DI`);
+        break;
+      }
+
+      rootNaskah = currentNaskah; // Update root naskah
+
+      // Find referensi ke disposisi sebelumnya
+      const referensi = await manager.findOne(NaskahReferensiEntity, {
+        where: { 
+          id_naskah: currentId,
+          ref_jenis: 'DI',
+        },
+      });
+
+      if (!referensi || !referensi.ref_nomor) {
+        // Tidak ada referensi lagi, ini adalah root
+        break;
+      }
+
+      // Find naskah by ref_nomor
+      const previousNaskah = await manager.findOne(NaskahEntity, {
+        where: { 
+          nomor: referensi.ref_nomor,
+          jenis: 'DI',
+        },
+      });
+
+      if (!previousNaskah) {
+        // Referensi nomor tidak ditemukan, stop di sini
+        break;
+      }
+
+      // Continue to previous disposisi
+      currentId = previousNaskah.id;
+      chain.unshift(currentId); // Add to beginning of chain
+      depth++;
+    }
+
+    if (depth >= maxDepth) {
+      console.error(`[traceDisposisiToRoot] Max depth reached. Possible circular reference.`);
+    }
+
+    return {
+      rootId: currentId,
+      rootNaskah,
+      chain,
+    };
   }
 
   /**
@@ -993,6 +1114,7 @@ export class KonsepService {
 
         if (naskahAsli) {
           // Update naskah asli fields if provided
+          // REFACTOR: All fields now stored in naskah table, no need to update nd/sdi_sde tables
           if (dto.perihal) naskahAsli.perihal = dto.perihal;
           if (dto.konten) naskahAsli.konten = dto.konten;
           if (dto.klasifikasi) naskahAsli.klasifikasi = dto.klasifikasi;
@@ -1000,40 +1122,9 @@ export class KonsepService {
           if (dto.sifat) naskahAsli.sifat = dto.sifat;
           await queryRunner.manager.save(naskahAsli);
 
-          // Update ND/SDI/SDE content if exists
-          const jenis = naskahAsli.jenis;
-          if (jenis === 'ND') {
-            await queryRunner.manager.update('nd', { idNaskah: naskahAsliId }, {
-              perihal: dto.perihal || undefined,
-              konten: dto.konten || undefined,
-              kopLogo: dto.kop_logo || undefined,
-              kopNama: dto.kop_nama || undefined,
-              alamatPerusahaan: dto.alamat_perusahaan || undefined,
-              namaTempat: dto.nama_tempat || undefined,
-              namaJabatan: dto.nama_jabatan || undefined,
-              namaLengkap: dto.nama_lengkap || undefined,
-              dari: dto.dari || undefined,
-              tembusan: dto.tembusan || undefined,
-            });
-          } else if (jenis === 'SDI' || jenis === 'SDE') {
-            await queryRunner.manager.update('sdi_sde', { idNaskah: naskahAsliId }, {
-              perihal: dto.perihal || undefined,
-              konten: dto.konten || undefined,
-              kopLogo: dto.kop_logo || undefined,
-              kopNama: dto.kop_nama || undefined,
-              alamatPerusahaan: dto.alamat_perusahaan || undefined,
-              namaTempat: dto.nama_tempat || undefined,
-              namaJabatan: dto.nama_jabatan || undefined,
-              namaLengkap: dto.nama_lengkap || undefined,
-              kepadaYth: dto.kepada_yth || undefined,
-              alamat: dto.alamat || undefined,
-              tembusan: dto.tembusan || undefined,
-            });
-          }
-
           // Handle new lampiran if provided
           if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-            await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, jenis as 'ND' | 'SDI' | 'SDE');
+            await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, naskahAsli.jenis as 'ND' | 'SDI' | 'SDE');
           }
 
           // Handle penerima update if provided
@@ -1284,41 +1375,7 @@ export class KonsepService {
         { isKonsep: 0 },
       );
 
-      // 8. Update ND/SDI/SDE content
-      if (jenis === 'ND') {
-        await queryRunner.manager.update('nd', { idNaskah: naskahAsliId }, {
-          nomor: nomorSurat,
-          tanggal: tanggal,
-          perihal: dto.perihal || undefined,
-          konten: dto.konten || undefined,
-          kopLogo: dto.kop_logo || undefined,
-          kopNama: dto.kop_nama || undefined,
-          alamatPerusahaan: dto.alamat_perusahaan || undefined,
-          namaTempat: dto.nama_tempat || undefined,
-          namaJabatan: dto.nama_jabatan || undefined,
-          namaLengkap: dto.nama_lengkap || undefined,
-          tandaTangan: dto.tanda_tangan || undefined,
-          dari: dto.dari || undefined,
-          tembusan: dto.tembusan || undefined,
-        });
-      } else if (jenis === 'SDI' || jenis === 'SDE') {
-        await queryRunner.manager.update('sdi_sde', { idNaskah: naskahAsliId }, {
-          nomor: nomorSurat,
-          tanggal: tanggal,
-          perihal: dto.perihal || undefined,
-          konten: dto.konten || undefined,
-          kopLogo: dto.kop_logo || undefined,
-          kopNama: dto.kop_nama || undefined,
-          alamatPerusahaan: dto.alamat_perusahaan || undefined,
-          namaTempat: dto.nama_tempat || undefined,
-          namaJabatan: dto.nama_jabatan || undefined,
-          namaLengkap: dto.nama_lengkap || undefined,
-          tandaTangan: dto.tanda_tangan || undefined,
-          kepadaYth: dto.kepada_yth || undefined,
-          alamat: dto.alamat || undefined,
-          tembusan: dto.tembusan || undefined,
-        });
-      }
+      // 8. REFACTOR: No need to update nd/sdi_sde tables - all data now in naskah table
 
       // 8. Handle new penerima if provided (update sirkulasi)
       const penerimaList: Array<{ position_id: number; position_text: string; nama: string | null }> = [];
@@ -1872,10 +1929,23 @@ export class KonsepService {
 
   /**
    * GET /KONSEP/:id
-   * Dapatkan detail lengkap konsep beserta naskah asli dan riwayat
+   * Dapatkan detail lengkap konsep beserta flow disposisi dan konsep
+   * 
+   * SIMPLIFIED RESPONSE:
+   * Response langsung menampilkan flow dari disposisi sampai konsep
+   * URUTAN ARRAY: ASC by date (oldest first at [0], newest last at [end])
+   * URUTAN TAMPILAN: Dari bawah ke atas (flow[0] tampil di bawah, flow[last] tampil di atas)
+   * 
+   * Flow format:
+   * 1. Disposisi chain (jika ada) - dari A ke B ke C
+   * 2. Konsep workflow - dari create → forward → finalize
+   * 
+   * Contoh: A dispo B → B dispo C → C konsep B → B forward konsep A
+   * Flow array: [dispo_1, dispo_2, create, forward, finalize]
+   * Display: dispo_1 (bawah) → dispo_2 → create → forward → finalize (atas)
    * 
    * @param id ID naskah konsep (jenis='K')
-   * @returns Detail konsep lengkap
+   * @returns Detail konsep dengan flow lengkap
    */
   async getKonsepDetail(id: string): Promise<any> {
     try {
@@ -1891,6 +1961,10 @@ export class KonsepService {
       // Get naskah asli
       let naskahAsli: NaskahEntity | null = null;
       let naskahContent: any = null;
+      let pengirimAsli: NaskahSirkulasi | null = null;
+      let penerimaAsliList: NaskahSirkulasi[] = [];
+      let tembusanAsliList: NaskahSirkulasi[] = [];
+      
       if (naskahKonsep.id_naskah_asli) {
         naskahAsli = await this.naskahRepository.findOne({
           where: { id: naskahKonsep.id_naskah_asli },
@@ -1898,13 +1972,13 @@ export class KonsepService {
 
         if (naskahAsli) {
           // REFACTOR: Get ND/SDI/SDE content dari naskah_sirkulasi, bukan dari nd/sdi_sde entity
-          const pengirimAsli = await this.naskahSirkulasiRepository.findOne({
+          pengirimAsli = await this.naskahSirkulasiRepository.findOne({
             where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
           });
-          const penerimaAsliList = await this.naskahSirkulasiRepository.find({
+          penerimaAsliList = await this.naskahSirkulasiRepository.find({
             where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
           });
-          const tembusanAsliList = await this.naskahSirkulasiRepository.find({
+          tembusanAsliList = await this.naskahSirkulasiRepository.find({
             where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
           });
           
@@ -1932,7 +2006,7 @@ export class KonsepService {
         }
       }
 
-      // Get riwayat
+      // Get riwayat konsep
       const riwayatList = await this.konsepRiwayatRepository.find({
         where: { idNaskahKonsep: id },
         order: { urutan: 'ASC' },
@@ -1945,182 +2019,197 @@ export class KonsepService {
           })
         : [];
 
-      // Get referensi disposisi (jika ada)
-      let disposisiReferensi: any = null;
-      const naskahReferensi = await this.naskahReferensiRepository.findOne({
+      // ==========================================
+      // BUILD FLOW - SIMPLIFIED RESPONSE
+      // ==========================================
+      // Flow menggabungkan disposisi chain + konsep workflow
+      // dalam 1 array dengan urutan ASC by date:
+      // - flow[0] = event pertama (terlama) - akan ditampilkan di BAWAH
+      // - flow[last] = event terbaru - akan ditampilkan di ATAS
+      
+      const flow: any[] = [];
+      let urutanCounter = 1;
+
+      // PHASE 1: Get ALL disposisi referensi (disposisi chain)
+      const allDisposisiReferensi = await this.naskahReferensiRepository.find({
         where: { id_naskah: naskahKonsep.id, ref_jenis: 'DI' },
+        order: { ref_tanggal: 'ASC' },
       });
 
-      if (naskahReferensi && naskahReferensi.ref_nomor) {
-        // Get disposisi naskah detail
+      // Build disposisi chain dengan detail lengkap
+      const disposisiDetails: any[] = [];
+      for (const ref of allDisposisiReferensi) {
+        if (!ref.ref_nomor) continue;
+
         const disposisiNaskah = await this.naskahRepository.findOne({
-          where: { nomor: naskahReferensi.ref_nomor, jenis: 'DI' },
+          where: { nomor: ref.ref_nomor, jenis: 'DI' },
         });
 
-        if (disposisiNaskah) {
-          // Get DI content
-          const diContent = await this.diRepository.findOne({
-            where: { idNaskah: disposisiNaskah.id },
-          });
+        if (!disposisiNaskah) continue;
 
-          // Get pengirim disposisi
-          const pengirimDispo = await this.naskahSirkulasiRepository.findOne({
-            where: {
-              idNaskah: disposisiNaskah.id,
-              sirkuler: 'pengirim',
-            },
-          });
+        // Get DI content
+        const diContent = await this.diRepository.findOne({
+          where: { idNaskah: disposisiNaskah.id },
+        });
 
-          // Get penerima disposisi
-          const penerimaDispo = await this.naskahSirkulasiRepository.find({
-            where: {
-              idNaskah: disposisiNaskah.id,
-              sirkuler: 'penerima',
-            },
-          });
+        // Get pengirim disposisi
+        const pengirimDispo = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: disposisiNaskah.id, sirkuler: 'pengirim' },
+        });
 
-          // Get lampiran disposisi
-          const lampiranDispo = await this.naskahLampiranRepository.find({
-            where: { id_naskah: disposisiNaskah.id },
-          });
+        // Get penerima disposisi
+        const penerimaDispo = await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: disposisiNaskah.id, sirkuler: 'penerima' },
+          order: { createdAt: 'ASC' },
+        });
 
-          disposisiReferensi = {
-            id: disposisiNaskah.id,
-            jenis: disposisiNaskah.jenis,
-            nomor: disposisiNaskah.nomor,
-            tanggal: disposisiNaskah.tanggal,
-            perihal: disposisiNaskah.perihal,
-            sifat: disposisiNaskah.sifat,
-            status: disposisiNaskah.status,
-            
-            // DI specific fields
-            kop_logo: diContent?.kopLogo || null,
-            kop_judul: diContent?.kopJudul || null,
-            nama_jabatan: diContent?.namaJabatan || null,
-            nomor_agenda: diContent?.nomorAgenda || null,
-            tanggal_agenda: diContent?.tanggalAgenda || null,
-            surat_dari: diContent?.suratDari || null,
-            kepada_yth: diContent?.kepadaYth || null,
-            klasifikasi: diContent?.klasifikasi || disposisiNaskah.klasifikasi || null,
-            disposisi: diContent?.disposisi || null,
-            catatan: diContent?.catatan || null,
-            
-            // Pengirim
-            pengirim: pengirimDispo ? {
-              position_id: pengirimDispo.position || '',
-              position_text: pengirimDispo.positionText || '',
-              organization_text: pengirimDispo.organizationText || '',
-              nama: pengirimDispo.namaSirkuler || null,
-            } : null,
-            
-            // Penerima
-            penerima: penerimaDispo.map((p) => ({
-              position_id: p.position || '',
-              position_text: p.positionText || '',
-              organization_text: p.organizationText || '',
-              nama: p.namaSirkuler || null,
-              status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
-              read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
-            })),
-            
-            // Lampiran
-            jumlah_lampiran: lampiranDispo.length,
-            lampiran_files: await Promise.all(
-              lampiranDispo.map(async (l) => ({
-                id: l.id,
-                file_name: l.file_name || '',
-                file_path: l.file_pdf || '',
-                file_url: l.file_pdf
-                  ? await this.storageService.getFileUrl(l.file_pdf)
-                  : null,
-              })),
-            ),
-            
-            // Final PDF
-            final_pdf: disposisiNaskah.final_pdf || null,
-            final_pdf_url: disposisiNaskah.final_pdf
-              ? await this.storageService.getFileUrl(disposisiNaskah.final_pdf)
-              : null,
-          };
-        }
+        disposisiDetails.push({
+          naskah: disposisiNaskah,
+          di: diContent,
+          pengirim: pengirimDispo,
+          penerima: penerimaDispo,
+        });
       }
 
-      // Get current pengirim (latest pengirim sirkulasi for konsep)
-      const currentPengirim = await this.naskahSirkulasiRepository.findOne({
-        where: {
-          idNaskah: naskahKonsep.id,
-          sirkuler: 'pengirim',
-          isKonsep: 0,
-        },
-        order: { id: 'DESC' },
+      // Trace disposisi chain untuk mendapatkan urutan forward
+      // Jika ada 2 disposisi: [DI-001, DI-002], berarti DI-001 → forward → DI-002
+      for (let i = 0; i < disposisiDetails.length; i++) {
+        const dispo = disposisiDetails[i];
+        const isForward = i > 0; // Index > 0 = hasil forward
+        const previousDispo = i > 0 ? disposisiDetails[i - 1] : null;
+
+        // Generate final_pdf URL if exists
+        const finalPdf = dispo.naskah.final_pdf 
+          ? await this.storageService.getFileUrl(dispo.naskah.final_pdf)
+          : null;
+
+        flow.push({
+          urutan: urutanCounter++,
+          type: 'disposisi',
+          aksi: isForward ? 'forward_disposisi' : 'kirim_disposisi',
+          tanggal: dispo.naskah.tanggal,
+          
+          from: dispo.pengirim ? {
+            position_id: dispo.pengirim.position || '',
+            position_text: dispo.pengirim.positionText || '',
+            organization_text: dispo.pengirim.organizationText || '',
+            nama: dispo.pengirim.namaSirkuler || null,
+          } : null,
+          
+          to: dispo.penerima.map((p: any) => ({
+            position_id: p.position || '',
+            position_text: p.positionText || '',
+            organization_text: p.organizationText || '',
+            nama: p.namaSirkuler || null,
+          })),
+          
+          naskah: {
+            id: dispo.naskah.id,
+            jenis: 'DI',
+            nomor: dispo.naskah.nomor,
+            perihal: dispo.naskah.perihal,
+            sifat: dispo.naskah.sifat,
+            status: dispo.naskah.status,
+            final_pdf: finalPdf,
+          },
+          
+          disposisi_content: {
+            disposisi: dispo.di?.disposisi || null,
+            catatan: dispo.di?.catatan || null,
+            klasifikasi: dispo.di?.klasifikasi || null,
+            nomor_agenda: dispo.di?.nomorAgenda || null,
+          },
+          
+          // Jika forward, tampilkan naskah sebelumnya
+          referensi: isForward && previousDispo ? {
+            nomor: previousDispo.naskah.nomor,
+            perihal: previousDispo.naskah.perihal,
+          } : null,
+        });
+      }
+
+      // PHASE 2: Add konsep workflow events (create, forward, finalize, reject)
+      for (const riwayat of riwayatList) {
+        flow.push({
+          urutan: urutanCounter++,
+          type: 'konsep',
+          tanggal: riwayat.createdAt, // For sorting
+          
+          from: {
+            position_id: riwayat.fromPositionId,
+            position_text: riwayat.fromPositionText || '',
+            nama: riwayat.fromNama || null,
+          },
+          
+          to: riwayat.toPositionId ? {
+            position_id: riwayat.toPositionId,
+            position_text: riwayat.toPositionText || '',
+            nama: riwayat.toNama || null,
+          } : null,
+          
+          aksi: riwayat.aksi, // 'create' | 'forward' | 'approve' | 'reject' | 'finalize'
+          catatan: riwayat.catatan || null,
+          pdf_snapshot: riwayat.pdfSnapshot || null,
+          created_at: riwayat.createdAt,
+          created_by: riwayat.createdBy || null,
+        });
+      }
+
+      // Sort flow by tanggal ASC (oldest first, newest last)
+      // Array [0] = terlama (tampil di bawah), [last] = terbaru (tampil di atas)
+      flow.sort((a, b) => {
+        const dateA = new Date(a.tanggal).getTime();
+        const dateB = new Date(b.tanggal).getTime();
+        return dateA - dateB; // ASC - chronological order
       });
 
-      // Get initial pengirim sirkulasi for konsep (for created_at)
-      const initialPengirim = await this.naskahSirkulasiRepository.findOne({
-        where: {
-          idNaskah: naskahKonsep.id,
-          sirkuler: 'pengirim',
-        },
-        order: { id: 'ASC' },
+      // Re-number urutan after sort and cleanup temporary fields
+      flow.forEach((item, index) => {
+        item.urutan = index + 1;
+        // Remove temporary fields used only for sorting
+        if (item.type === 'konsep') {
+          delete item.type;
+          delete item.tanggal;
+        }
       });
 
-      // Get current penerima (latest penerima sirkulasi for konsep)
-      const currentPenerima = await this.naskahSirkulasiRepository.findOne({
-        where: {
-          idNaskah: naskahKonsep.id,
-          sirkuler: 'penerima',
-          isKonsep: 0,
-        },
-        order: { id: 'DESC' },
-      });
-
-      // Get all penerima for naskah asli (final document)
-      // After finalize, isKonsep is set to 0 for the final document
+      // Get penerima and tembusan for naskah asli
       const penerimaList = naskahAsli
         ? await this.naskahSirkulasiRepository.find({
-            where: {
-              idNaskah: naskahAsli.id,
-              sirkuler: 'penerima',
-            },
+            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
           })
         : [];
 
-      // Get all tembusan for naskah asli (final document)
       const tembusanList = naskahAsli
         ? await this.naskahSirkulasiRepository.find({
-            where: {
-              idNaskah: naskahAsli.id,
-              sirkuler: 'tembusan',
-            },
+            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
           })
         : [];
+
+      // Get current state (flow[last] = latest because ASC sort)
+      const latestEvent = flow[flow.length - 1];
+      const currentState = {
+        current_step: latestEvent?.urutan || 0,
+        total_steps: flow.length,
+        status: naskahKonsep.status,
+        last_action: latestEvent?.aksi || null,
+        last_action_by: latestEvent?.from || null,
+        last_action_date: latestEvent?.tanggal || null,
+      };
 
       return {
         success: true,
         message: 'Detail konsep berhasil diambil',
         data: {
+          // Basic info
           konsep: {
             id: naskahKonsep.id,
             perihal: naskahKonsep.perihal,
             status: naskahKonsep.status,
-            created_at: initialPengirim?.createdAt || naskahKonsep.tanggal,
-            updated_at: currentPengirim?.updatedAt || null,
+            created_at: flow[0]?.tanggal || naskahKonsep.tanggal, // first/oldest event
           },
-          disposisi_referensi: disposisiReferensi, // Disposisi asal (jika konsep ini adalah tindak lanjut)
-          current_workflow: {
-            pengirim: currentPengirim ? {
-              position_id: parseInt(currentPengirim.position || '0'),
-              position_text: currentPengirim.positionText,
-              nama: currentPengirim.namaSirkuler,
-              sent_at: currentPengirim.createdAt,
-            } : null,
-            penerima: currentPenerima ? {
-              position_id: parseInt(currentPenerima.position || '0'),
-              position_text: currentPenerima.positionText,
-              nama: currentPenerima.namaSirkuler,
-              received_at: currentPenerima.createdAt,
-            } : null,
-          },
+          
+          // Naskah asli (final document)
           naskah: naskahAsli ? {
             id: naskahAsli.id,
             jenis: naskahAsli.jenis,
@@ -2134,6 +2223,15 @@ export class KonsepService {
             status: naskahAsli.status,
             content: naskahContent,
           } : null,
+          
+          // Pengirim naskah final
+          pengirim: pengirimAsli ? {
+            position_id: parseInt(pengirimAsli.position || '0'),
+            position_text: pengirimAsli.positionText,
+            nama: pengirimAsli.namaSirkuler,
+          } : null,
+          
+          // Penerima & Tembusan naskah final
           penerima: penerimaList.map((p) => ({
             position_id: parseInt(p.position || '0'),
             position_text: p.positionText,
@@ -2144,24 +2242,8 @@ export class KonsepService {
             position_text: t.positionText,
             nama: t.namaSirkuler,
           })),
-          riwayat: riwayatList.map((r) => ({
-            urutan: r.urutan,
-            from: {
-              position_id: r.fromPositionId,
-              position_text: r.fromPositionText,
-              nama: r.fromNama,
-            },
-            to: r.toPositionId ? {
-              position_id: r.toPositionId,
-              position_text: r.toPositionText,
-              nama: r.toNama,
-            } : null,
-            aksi: r.aksi,
-            catatan: r.catatan,
-            pdf_snapshot: r.pdfSnapshot,
-            created_at: r.createdAt,
-            created_by: r.createdBy,
-          })),
+          
+          // Lampiran
           lampiran: await Promise.all(lampiranList.map(async (l) => ({
             id: l.id,
             file_name: l.file_name,
@@ -2169,6 +2251,13 @@ export class KonsepService {
             file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
             jenis: l.jenis,
           }))),
+          
+          // Current state
+          current_state: currentState,
+          
+          // SIMPLIFIED: Flow kronologis disposisi + konsep
+          // Order: ASC by date (flow[0]=terlama/bawah, flow[last]=terbaru/atas)
+          flow: flow,
         },
       };
     } catch (error) {
