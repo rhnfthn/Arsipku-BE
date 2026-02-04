@@ -312,22 +312,9 @@ export class SearchV3Service {
             : '';
 
         // === SORTING ===
-        // Always use created_at as primary sort for consistent pagination
-        // Relevance score is secondary when keyword is provided
-        const sortField = this.getSortField(sortBy);
-        let orderBy: string;
-        
-        if (keyword) {
-            // With keyword: sort by date first (for consistency), then relevance as tie-breaker
-            // This ensures newer items always appear first, even if relevance differs slightly
-            orderBy = `ORDER BY n.created_at DESC, relevance_score DESC, n.id DESC`;
-        } else if (sortBy === 'tanggal' || sortBy === 'created') {
-            // Explicit date sort: use the requested sort with id as tie-breaker
-            orderBy = `ORDER BY ${sortField} ${sortOrder}, n.id DESC`;
-        } else {
-            // Other sorts: use requested field, then created_at and id for deterministic pagination
-            orderBy = `ORDER BY ${sortField} ${sortOrder}, n.created_at DESC, n.id DESC`;
-        }
+        // ALWAYS sort by created_at DESC as primary sort for consistent pagination
+        // This ensures newest items always appear first regardless of relevance score
+        const orderBy = `ORDER BY n.created_at DESC, n.id DESC`;
 
         // === COUNT QUERY ===
         const countQuery = `
