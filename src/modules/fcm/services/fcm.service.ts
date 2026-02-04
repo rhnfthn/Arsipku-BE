@@ -26,10 +26,12 @@ export class FcmService implements OnModuleInit {
 
   /**
    * Initialize Firebase Admin SDK
-   * Supports both JSON file path and individual env variables
+   * Supports: JSON string, JSON file path, or individual env variables
    */
   private async initializeFirebase() {
     try {
+      this.logger.log('Starting Firebase initialization...');
+
       // Check if already initialized
       if (admin.apps.length > 0) {
         this.firebaseApp = admin.apps[0];
@@ -37,33 +39,70 @@ export class FcmService implements OnModuleInit {
         return;
       }
 
-      // Option 1: Load from JSON file (recommended)
+      // Get configuration from environment
       const serviceAccountPath = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT_PATH');
-      
-      if (serviceAccountPath) {
-        const absolutePath = path.isAbsolute(serviceAccountPath) 
-          ? serviceAccountPath 
-          : path.join(process.cwd(), serviceAccountPath);
-        
-        if (fs.existsSync(absolutePath)) {
-          const serviceAccount = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
-          
-          this.firebaseApp = admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-          });
-          
-          this.logger.log(`Firebase Admin SDK initialized from: ${serviceAccountPath}`);
-          return;
-        } else {
-          this.logger.warn(`Firebase service account file not found: ${absolutePath}`);
-        }
-      }
-
-      // Option 2: Load from individual env variables
       const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
       const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
       const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
 
+      // Option 1: Load from FIREBASE_SERVICE_ACCOUNT_PATH (JSON string or file path)
+      if (serviceAccountPath && serviceAccountPath.trim()) {
+        try {
+          let serviceAccount: any;
+
+          // Check if it's a JSON string (starts with '{')
+          if (serviceAccountPath.trim().startsWith('{')) {
+            // It's a JSON string - parse it directly
+            this.logger.log('Detected JSON string in FIREBASE_SERVICE_ACCOUNT_PATH');
+
+            let jsonString = serviceAccountPath;
+
+            // Unescape quotes if needed (from .env file)
+            if (jsonString.includes('\\"')) {
+              jsonString = jsonString.replace(/\\"/g, '"');
+            }
+
+            // Parse JSON
+            serviceAccount = JSON.parse(jsonString);
+
+            // Fix newlines in private_key (they come as literal \n from env vars)
+            if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string') {
+              serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+            }
+
+            this.logger.log(`Firebase service account parsed from JSON: ${serviceAccount.client_email}`);
+          } else {
+            // It's a file path - read from file
+            const absolutePath = path.isAbsolute(serviceAccountPath)
+              ? serviceAccountPath
+              : path.join(process.cwd(), serviceAccountPath);
+
+            this.logger.log(`Resolved file path: ${absolutePath}`);
+
+            if (!fs.existsSync(absolutePath)) {
+              this.logger.warn(`Firebase service account file not found: ${absolutePath}`);
+              // Don't return, fall through to try other options
+            } else {
+              const serviceAccountJson = fs.readFileSync(absolutePath, 'utf8');
+              serviceAccount = JSON.parse(serviceAccountJson);
+              this.logger.log(`Firebase service account loaded from file: ${serviceAccount.client_email}`);
+            }
+          }
+
+          if (serviceAccount) {
+            this.firebaseApp = admin.initializeApp({
+              credential: admin.credential.cert(serviceAccount),
+            });
+            this.logger.log('Firebase Admin SDK initialized successfully');
+            return;
+          }
+        } catch (parseError) {
+          this.logger.error('Failed to parse service account:', parseError);
+          // Fall through to try other options
+        }
+      }
+
+      // Option 2: Load from individual env variables
       if (projectId && clientEmail && privateKey) {
         this.firebaseApp = admin.initializeApp({
           credential: admin.credential.cert({
@@ -74,6 +113,16 @@ export class FcmService implements OnModuleInit {
         });
 
         this.logger.log('Firebase Admin SDK initialized from env variables');
+        return;
+      }
+
+      // Option 3: Use application default credentials (for cloud deployment)
+      if (projectId) {
+        this.firebaseApp = admin.initializeApp({
+          credential: admin.credential.applicationDefault(),
+          projectId: projectId,
+        });
+        this.logger.log('Firebase Admin SDK initialized with application default credentials');
         return;
       }
 
