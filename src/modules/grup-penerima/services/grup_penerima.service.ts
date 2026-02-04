@@ -19,9 +19,23 @@ export class GrupPenerimaService {
   ) {}
 
   async create(createGrupPenerimaDto: CreateGrupPenerimaDto): Promise<GrupPenerimaEntity> {
+    // Jika urutan tidak dikirim, ambil urutan terakhir + 1
+    let urutan = createGrupPenerimaDto.urutan;
+    if (urutan === undefined || urutan === null) {
+      const lastGrup = await this.grupPenerimaRepository
+        .createQueryBuilder('grup_penerima')
+        .where('grup_penerima.company = :company', { company: createGrupPenerimaDto.company })
+        .andWhere('grup_penerima.area = :area', { area: createGrupPenerimaDto.area })
+        .orderBy('grup_penerima.urutan', 'DESC')
+        .getOne();
+
+      urutan = lastGrup?.urutan ? lastGrup.urutan + 1 : 1;
+    }
+
     const grupPenerima = this.grupPenerimaRepository.create({
       id: uuidv4(),
       ...createGrupPenerimaDto,
+      urutan,
     });
 
     return await this.grupPenerimaRepository.save(grupPenerima);
