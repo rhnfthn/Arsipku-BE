@@ -646,12 +646,43 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
+      // Expand penerima_grup to individual position IDs
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        for (const grupId of dto.penerima_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, dto.tgl);
+            const positionIds = grupPositions.map(p => String(p.position));
+            tertujuArray = [...tertujuArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        tertujuArray = [...new Set(tertujuArray)];
+      }
+
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
+
+      // Expand tembusan_grup to individual position IDs
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        for (const grupId of dto.tembusan_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, dto.tgl);
+            const positionIds = grupPositions.map(p => String(p.position));
+            tembusanArray = [...tembusanArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        tembusanArray = [...new Set(tembusanArray)];
+      }
+
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;

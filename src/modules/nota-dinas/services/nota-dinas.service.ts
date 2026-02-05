@@ -811,6 +811,10 @@ export class NotaDinasService {
       penerima: parseArray(body.penerima),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
+
       // Kop
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
@@ -908,6 +912,10 @@ export class NotaDinasService {
     if (body.pengirim !== undefined) dto.pengirim = Number(body.pengirim);
     if (body.penerima !== undefined) dto.penerima = parseArray(body.penerima);
     if (body.tembusan !== undefined) dto.tembusan = parseArray(body.tembusan);
+
+    // Grup Penerima
+    if (body.penerima_grup !== undefined) dto.penerima_grup = parseStringArray(body.penerima_grup);
+    if (body.tembusan_grup !== undefined) dto.tembusan_grup = parseStringArray(body.tembusan_grup);
 
     // Kop
     if (body.kop_logo !== undefined) dto.kop_logo = body.kop_logo;

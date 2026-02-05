@@ -753,6 +753,10 @@ export class SuratDinasInternalService {
       penerima: parseArray(penerimaData),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
+
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
       alamat_perusahaan: body.alamat_perusahaan,
@@ -843,6 +847,10 @@ export class SuratDinasInternalService {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
       penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
 
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
@@ -951,6 +959,10 @@ export class SuratDinasInternalService {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
       penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
 
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
