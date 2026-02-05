@@ -173,28 +173,39 @@ export class CompanySwitchController {
    * 
    * POST /company-switch/reset
    * 
-   * Resets user to their original/default company from org_data
+   * Resets user to their original/default company from om_relation_sp
    * This is a convenience endpoint - equivalent to POST /switch with { resetToDefault: true }
    */
   @Post('reset')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Reset to default company',
-    description: 'Reset user back to their original/default company and position from org_data',
+    description: 'Reset user back to their original/default company and position from om_relation_sp',
   })
   @ApiResponse({ status: 200, type: SwitchCompanyResponseDto })
   async resetToDefault(
     @CurrentUser() user: JwtPayload,
   ): Promise<SwitchCompanyResponseDto> {
-    // Pass null to switchCompany to reset to default
-    const result = await this.authService.switchCompany(user, null);
+    // Get default company data from service (first om_relation_sp record)
+    const defaultCompanyData = await this.companySwitchService.getDefaultCompany(user.persnum);
+    
+    // Generate new JWT with default company data
+    const result = await this.authService.switchCompany(user, defaultCompanyData);
 
     return {
       success: true,
-      message: result.message,
+      message: 'Berhasil kembali ke company default',
       data: {
         accessToken: result.accessToken,
         user: result.user,
+        ...(defaultCompanyData && {
+          activeCompany: {
+            company: parseInt(defaultCompanyData.company),
+            companyText: defaultCompanyData.companyText,
+            position: parseInt(defaultCompanyData.position),
+            positionText: defaultCompanyData.positionText,
+          },
+        }),
       },
     };
   }
