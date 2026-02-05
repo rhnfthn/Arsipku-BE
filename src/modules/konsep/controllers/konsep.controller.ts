@@ -116,6 +116,36 @@ export class KonsepController {
     }
   }
 
+  /**
+   * GET /KONSEP/:id/info
+   * Dapatkan detail konsep dan naskah TANPA flow disposisi/riwayat
+   * Endpoint simplified untuk view basic info saja
+   * 
+   * @param id Konsep ID (naskah jenis='K')
+   * @returns Detail konsep dan naskah asli (tanpa flow)
+   */
+  @Get(':id/info')
+  async getKonsepInfo(
+    @Param('id') id: string,
+  ): Promise<any> {
+    try {
+      return await this.konsepService.getKonsepInfo(id);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal mendapatkan info konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   // ============================================================
   // CREATE KONSEP
   // ============================================================
