@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Brackets } from 'typeorm';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
+import { LabelEntity, NaskahLabelEntity } from '../../label/entities';
 import {
     GlobalSearchDto,
     DateWithinEnum,
@@ -49,6 +50,10 @@ export class SearchV3Service {
         private readonly naskahRepository: Repository<NaskahEntity>,
         @InjectRepository(NaskahSirkulasi)
         private readonly sirkulasiRepository: Repository<NaskahSirkulasi>,
+        @InjectRepository(LabelEntity)
+        private readonly labelRepository: Repository<LabelEntity>,
+        @InjectRepository(NaskahLabelEntity)
+        private readonly naskahLabelRepository: Repository<NaskahLabelEntity>,
         private readonly dataSource: DataSource,
     ) { }
 
@@ -81,6 +86,8 @@ export class SearchV3Service {
             areaFrom,
             subAreaFrom,
             organizationFrom,
+            label,
+            isRead,
             page = 1,
             limit = 20,
             sortBy = 'tanggal',
@@ -306,6 +313,61 @@ export class SearchV3Service {
             appliedFilters.push(`organizationFrom: ${organizationFrom}`);
         }
 
+        // === HIERARCHICAL LABEL FILTER (Gmail-style) ===
+        if (label) {
+            // Get all label IDs that match the path or are children of the path
+            // This supports hierarchical filtering: "Work" matches "Work", "Work/Projects", "Work/Projects/Q1", etc.
+            whereClauses.push(`EXISTS (
+        SELECT 1 FROM naskah_label nl
+        INNER JOIN label l ON nl.label_id = l.id
+        WHERE nl.naskah_id = n.id
+        AND l.position_id = ?
+        AND (
+          -- Match exact label name
+          l.nama = ?
+          -- OR match as parent (child labels will have this label as ancestor)
+          OR l.id IN (
+            SELECT child.id FROM label child
+            WHERE child.position_id = ?
+            AND (
+              -- Direct match
+              child.nama = ?
+              -- Or find labels whose full path starts with the given label
+              OR EXISTS (
+                SELECT 1 FROM label parent
+                WHERE parent.id = child.id_parent
+                AND parent.position_id = ?
+                AND (parent.nama = ? OR parent.nama LIKE ?)
+              )
+            )
+          )
+        )
+      )`);
+            params.push(
+                userPosition,
+                label,
+                userPosition,
+                label,
+                userPosition,
+                label,
+                `${label}/%`,
+            );
+            appliedFilters.push(`label: ${label}`);
+        }
+
+        // === UNREAD STATUS FILTER ===
+        if (isRead !== undefined) {
+            if (isRead === true) {
+                // Filter for READ documents (read_time is NOT NULL)
+                whereClauses.push(`s.send_read_time IS NOT NULL`);
+                appliedFilters.push('isRead: true');
+            } else {
+                // Filter for UNREAD documents (read_time IS NULL)
+                whereClauses.push(`s.send_read_time IS NULL`);
+                appliedFilters.push('isRead: false');
+            }
+        }
+
         // Build WHERE string
         const whereString = whereClauses.length > 0
             ? `WHERE ${whereClauses.join(' AND ')}`
@@ -523,10 +585,56 @@ export class SearchV3Service {
             sifatFacets[row.sifat] = parseInt(row.count, 10);
         });
 
+        // Label facets (hierarchical paths)
+        // Build full path for each label and count naskah
+        const labelQuery = `
+      SELECT 
+        CASE 
+          WHEN parent.nama IS NOT NULL THEN CONCAT(parent.nama, '/', l.nama)
+          ELSE l.nama
+        END as label_path,
+        COUNT(DISTINCT nl.naskah_id) as count
+      FROM naskah_label nl
+      INNER JOIN label l ON nl.label_id = l.id
+      LEFT JOIN label parent ON l.id_parent = parent.id
+      INNER JOIN naskah n ON nl.naskah_id = n.id
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      AND l.position_id = ?
+      GROUP BY label_path
+      ORDER BY label_path
+    `;
+        const labelParams = [...baseParams, baseParams[0]]; // Add position_id for label filter
+        const labelRows = await this.dataSource.query(labelQuery, labelParams);
+        const labelFacets: Record<string, number> = {};
+        labelRows.forEach((row: any) => {
+            if (row.label_path) {
+                labelFacets[row.label_path] = parseInt(row.count, 10);
+            }
+        });
+
+        // isRead facets (read vs unread counts)
+        const isReadQuery = `
+      SELECT 
+        CASE WHEN s.send_read_time IS NOT NULL THEN 'true' ELSE 'false' END as is_read,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY is_read
+    `;
+        const isReadRows = await this.dataSource.query(isReadQuery, baseParams);
+        const isReadFacets: Record<string, number> = {};
+        isReadRows.forEach((row: any) => {
+            isReadFacets[row.is_read] = parseInt(row.count, 10);
+        });
+
         return {
             jenis: jenisFacets,
             status: statusFacets,
             sifat: sifatFacets,
+            label: labelFacets,
+            isRead: isReadFacets,
         };
     }
 
