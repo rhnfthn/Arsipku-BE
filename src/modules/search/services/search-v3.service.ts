@@ -315,39 +315,49 @@ export class SearchV3Service {
 
         // === HIERARCHICAL LABEL FILTER (Gmail-style) ===
         if (label) {
-            // Get all label IDs that match the path or are children of the path
+            // Use recursive CTE to build full label paths and match against the filter
             // This supports hierarchical filtering: "Work" matches "Work", "Work/Projects", "Work/Projects/Q1", etc.
             whereClauses.push(`EXISTS (
         SELECT 1 FROM naskah_label nl
-        INNER JOIN label l ON nl.label_id = l.id
         WHERE nl.naskah_id = n.id
-        AND l.position_id = ?
-        AND (
-          -- Match exact label name
-          l.nama = ?
-          -- OR match as parent (child labels will have this label as ancestor)
-          OR l.id IN (
-            SELECT child.id FROM label child
-            WHERE child.position_id = ?
-            AND (
-              -- Direct match
-              child.nama = ?
-              -- Or find labels whose full path starts with the given label
-              OR EXISTS (
-                SELECT 1 FROM label parent
-                WHERE parent.id = child.id_parent
-                AND parent.position_id = ?
-                AND (parent.nama = ? OR parent.nama LIKE ?)
-              )
-            )
+        AND nl.label_id IN (
+          WITH RECURSIVE label_path AS (
+            -- Base case: start with leaf labels
+            SELECT 
+              id,
+              nama,
+              id_parent,
+              position_id,
+              nama as full_path
+            FROM label
+            WHERE position_id = ?
+            
+            UNION ALL
+            
+            -- Recursive case: prepend parent name to path
+            SELECT 
+              lp.id,
+              lp.nama,
+              lp.id_parent,
+              lp.position_id,
+              CONCAT(p.nama, '/', lp.full_path) as full_path
+            FROM label_path lp
+            INNER JOIN label p ON lp.id_parent = p.id
+            WHERE p.position_id = ?
+          )
+          SELECT lp.id 
+          FROM label_path lp
+          WHERE lp.id_parent IS NULL
+          AND (
+            -- Exact match
+            lp.full_path = ?
+            -- Or the filter is a parent prefix (e.g., "Work" matches "Work/Projects")
+            OR lp.full_path LIKE ?
           )
         )
       )`);
             params.push(
                 userPosition,
-                label,
-                userPosition,
-                label,
                 userPosition,
                 label,
                 `${label}/%`,
@@ -585,26 +595,46 @@ export class SearchV3Service {
             sifatFacets[row.sifat] = parseInt(row.count, 10);
         });
 
-        // Label facets (hierarchical paths)
+        // Label facets (hierarchical paths using recursive CTE)
         // Build full path for each label and count naskah
         const labelQuery = `
+      WITH RECURSIVE label_path AS (
+        -- Base case: start with leaf labels
+        SELECT 
+          id,
+          nama,
+          id_parent,
+          position_id,
+          nama as full_path
+        FROM label
+        WHERE position_id = ?
+        
+        UNION ALL
+        
+        -- Recursive case: prepend parent name to path
+        SELECT 
+          lp.id,
+          lp.nama,
+          lp.id_parent,
+          lp.position_id,
+          CONCAT(p.nama, '/', lp.full_path) as full_path
+        FROM label_path lp
+        INNER JOIN label p ON lp.id_parent = p.id
+        WHERE p.position_id = ?
+      )
       SELECT 
-        CASE 
-          WHEN parent.nama IS NOT NULL THEN CONCAT(parent.nama, '/', l.nama)
-          ELSE l.nama
-        END as label_path,
+        lp.full_path as label_path,
         COUNT(DISTINCT nl.naskah_id) as count
       FROM naskah_label nl
-      INNER JOIN label l ON nl.label_id = l.id
-      LEFT JOIN label parent ON l.id_parent = parent.id
+      INNER JOIN label_path lp ON nl.label_id = lp.id AND lp.id_parent IS NULL
       INNER JOIN naskah n ON nl.naskah_id = n.id
       INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
       ${whereString}
-      AND l.position_id = ?
-      GROUP BY label_path
-      ORDER BY label_path
+      GROUP BY lp.full_path
+      ORDER BY lp.full_path
     `;
-        const labelParams = [...baseParams, baseParams[0]]; // Add position_id for label filter
+        // Position params for CTE + base WHERE params
+        const labelParams = [baseParams[0], baseParams[0], ...baseParams];
         const labelRows = await this.dataSource.query(labelQuery, labelParams);
         const labelFacets: Record<string, number> = {};
         labelRows.forEach((row: any) => {
