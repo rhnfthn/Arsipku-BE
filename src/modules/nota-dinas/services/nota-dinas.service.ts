@@ -50,6 +50,7 @@ import { formatSignatureData, generateSignatureId } from '../../../common/helper
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -86,6 +87,7 @@ export class NotaDinasService {
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) { }
 
   // ============================================================
@@ -155,6 +157,46 @@ export class NotaDinasService {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
+  // HELPER: EXPAND GRUP PENERIMA
+  // ============================================================
+
+  /**
+   * Helper: Expand grup penerima IDs to individual position IDs
+   * Combines individual penerima with expanded grup penerima (deduplicated)
+   * 
+   * @param individualPenerima - Array of individual positionId (number[])
+   * @param grupPenerimaIds - Array of grup penerima UUIDs (string[])
+   * @param tgl - Optional date for org_data lookup
+   * @returns Array of unique position IDs
+   */
+  private async expandGrupPenerima(
+    individualPenerima: number[] | undefined,
+    grupPenerimaIds: string[] | undefined,
+    tgl?: string,
+  ): Promise<number[]> {
+    const allPositionIds = new Set<number>();
+
+    // Add individual penerima
+    if (individualPenerima && individualPenerima.length > 0) {
+      individualPenerima.forEach((id) => allPositionIds.add(Number(id)));
+    }
+
+    // Expand and add grup penerima
+    if (grupPenerimaIds && grupPenerimaIds.length > 0) {
+      for (const grupId of grupPenerimaIds) {
+        try {
+          const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, tgl);
+          grupPositions.forEach((pos) => allPositionIds.add(Number(pos.position)));
+        } catch (error) {
+          console.warn(`[ND:expandGrupPenerima] Failed to expand grup ${grupId}:`, error.message);
+        }
+      }
+    }
+
+    return Array.from(allPositionIds);
   }
 
   // ============================================================
@@ -769,6 +811,10 @@ export class NotaDinasService {
       penerima: parseArray(body.penerima),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
+
       // Kop
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
@@ -866,6 +912,10 @@ export class NotaDinasService {
     if (body.pengirim !== undefined) dto.pengirim = Number(body.pengirim);
     if (body.penerima !== undefined) dto.penerima = parseArray(body.penerima);
     if (body.tembusan !== undefined) dto.tembusan = parseArray(body.tembusan);
+
+    // Grup Penerima
+    if (body.penerima_grup !== undefined) dto.penerima_grup = parseStringArray(body.penerima_grup);
+    if (body.tembusan_grup !== undefined) dto.tembusan_grup = parseStringArray(body.tembusan_grup);
 
     // Kop
     if (body.kop_logo !== undefined) dto.kop_logo = body.kop_logo;
@@ -1270,9 +1320,14 @@ export class NotaDinasService {
       );
     }
 
-    // PHASE 3: Validate all penerima
+    // PHASE 3: Expand and validate penerima (individual + grup)
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    if (expandedPenerimaIds.length === 0) {
+      throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
+    }
+
     const penerimaList: OrgDataPositionDto[] = [];
-    for (const posId of dto.penerima) {
+    for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find(
         (x) => Number(x.position) === Number(posId),
       );
@@ -1292,10 +1347,11 @@ export class NotaDinasService {
       penerimaList.push(penerima);
     }
 
-    // PHASE 4: Validate tembusan from org_data (if any)
+    // PHASE 4: Expand and validate tembusan (individual + grup)
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
     const tembusanList: OrgDataPositionDto[] = [];
-    if (dto.tembusan && dto.tembusan.length > 0) {
-      for (const posId of dto.tembusan) {
+    if (expandedTembusanIds.length > 0) {
+      for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find(
           (x) => Number(x.position) === Number(posId),
         );
@@ -1732,9 +1788,14 @@ export class NotaDinasService {
       throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim ND.`);
     }
 
-    // PHASE 3: Validate all penerima
+    // PHASE 3: Expand and validate penerima (individual + grup)
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    if (expandedPenerimaIds.length === 0) {
+      throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
+    }
+
     const penerimaList: OrgDataPositionDto[] = [];
-    for (const posId of dto.penerima) {
+    for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
       if (!penerima) {
         throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -1747,10 +1808,11 @@ export class NotaDinasService {
       penerimaList.push(penerima);
     }
 
-    // PHASE 4: Validate tembusan
+    // PHASE 4: Expand and validate tembusan (individual + grup)
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
     const tembusanList: OrgDataPositionDto[] = [];
-    if (dto.tembusan && dto.tembusan.length > 0) {
-      for (const posId of dto.tembusan) {
+    if (expandedTembusanIds.length > 0) {
+      for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
         if (!tembusan) {
           throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -2387,12 +2449,15 @@ export class NotaDinasService {
       if (
         dto.pengirim !== undefined ||
         dto.penerima !== undefined ||
-        dto.tembusan !== undefined
+        dto.tembusan !== undefined ||
+        dto.penerima_grup !== undefined ||
+        dto.tembusan_grup !== undefined
       ) {
-        // Validate penerima
+        // Expand and validate penerima (individual + grup)
         let penerimaList: OrgDataPositionDto[] = [];
-        if (dto.penerima !== undefined) {
-          for (const posId of dto.penerima) {
+        if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
+          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+          for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find(
               (x) => Number(x.position) === Number(posId),
             );
@@ -2424,10 +2489,11 @@ export class NotaDinasService {
           }
         }
 
-        // Validate tembusan
+        // Expand and validate tembusan (individual + grup)
         let tembusanList: OrgDataPositionDto[] = [];
-        if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
-          for (const posId of dto.tembusan) {
+        if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
+          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+          for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find(
               (x) => Number(x.position) === Number(posId),
             );

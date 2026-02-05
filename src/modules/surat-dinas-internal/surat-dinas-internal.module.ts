@@ -18,6 +18,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { SearchModule } from '../search/search.module';
     SubAreaAlamatModule,
     DigsigModule,
     SearchModule,
+    GrupPenerimaModule,
   ],
   controllers: [SuratDinasInternalController],
   providers: [SuratDinasInternalService, NomorSuratService],
