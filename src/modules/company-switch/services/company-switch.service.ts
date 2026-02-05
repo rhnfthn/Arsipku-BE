@@ -171,7 +171,7 @@ export class CompanySwitchService {
    * @param company - Company ID to switch to (optional)
    * @param position - Position ID to switch to (optional)
    * @param resetToDefault - Reset to default company
-   * @returns CompanySwitchData for JWT generation, or null if reset to default
+   * @returns CompanySwitchData for JWT generation
    */
   async getCompanySwitchData(
     persnum: number,
@@ -180,9 +180,9 @@ export class CompanySwitchService {
     position?: string,
     resetToDefault = false,
   ): Promise<CompanySwitchData | null> {
-    // If reset to default, return null (caller will use original org_data)
+    // If reset to default, get first om_relation_sp record
     if (resetToDefault) {
-      return null;
+      return this.getDefaultCompany(persnum);
     }
 
     // Validate input
