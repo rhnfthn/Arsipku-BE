@@ -2283,6 +2283,150 @@ export class KonsepService {
   }
 
   // ==========================================
+  // GET KONSEP INFO (TANPA FLOW)
+  // ==========================================
+
+  /**
+   * GET /KONSEP/:id/info
+   * Dapatkan detail konsep dan naskah TANPA flow
+   * Endpoint simplified untuk view basic info saja
+   * 
+   * @param id ID naskah konsep (jenis='K')
+   * @returns Detail konsep dan naskah (tanpa flow)
+   */
+  async getKonsepInfo(id: string): Promise<any> {
+    try {
+      // Get konsep (jenis='K')
+      const naskahKonsep = await this.naskahRepository.findOne({
+        where: { id, jenis: 'K' },
+      });
+
+      if (!naskahKonsep) {
+        throw new NotFoundException(`Konsep dengan ID ${id} tidak ditemukan`);
+      }
+
+      // Get naskah asli
+      let naskahAsli: NaskahEntity | null = null;
+      let naskahContent: any = null;
+      let pengirimAsli: NaskahSirkulasi | null = null;
+      let penerimaAsliList: NaskahSirkulasi[] = [];
+      let tembusanAsliList: NaskahSirkulasi[] = [];
+      
+      if (naskahKonsep.id_naskah_asli) {
+        naskahAsli = await this.naskahRepository.findOne({
+          where: { id: naskahKonsep.id_naskah_asli },
+        });
+
+        if (naskahAsli) {
+          // Get sirkulasi data
+          pengirimAsli = await this.naskahSirkulasiRepository.findOne({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
+          });
+          penerimaAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
+          });
+          tembusanAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
+          });
+          
+          // Build naskahContent
+          naskahContent = {
+            id: naskahAsli.id,
+            idNaskah: naskahAsli.id,
+            kopLogo: DEFAULT_KOP_LOGO,
+            kopNama: DEFAULT_KOP_NAMA,
+            alamatPerusahaan: DEFAULT_ALAMAT_PERUSAHAAN,
+            nomor: naskahAsli.nomor,
+            kepadaYth: penerimaAsliList.map(p => p.positionText).join('; '),
+            dari: pengirimAsli?.positionText || null,
+            perihal: naskahAsli.perihal,
+            konten: naskahAsli.konten,
+            namaTempat: naskahAsli.tempat,
+            tanggal: naskahAsli.tanggal,
+            namaJabatan: pengirimAsli?.positionText || null,
+            tandaTangan: naskahAsli.tandaTangan || null,
+            namaLengkap: pengirimAsli?.namaSirkuler || null,
+            tembusan: tembusanAsliList.map(t => t.positionText).join('; ') || null,
+            sifat: naskahAsli.sifat,
+            lampiran: naskahAsli.lampiran,
+          };
+        }
+      }
+
+      // Get lampiran
+      const lampiranList = naskahAsli
+        ? await this.naskahLampiranRepository.find({
+            where: { id_naskah: naskahAsli.id },
+          })
+        : [];
+
+      return {
+        success: true,
+        message: 'Info konsep berhasil diambil',
+        data: {
+          // Basic info
+          konsep: {
+            id: naskahKonsep.id,
+            perihal: naskahKonsep.perihal,
+            status: naskahKonsep.status,
+            created_at: naskahKonsep.tanggal,
+          },
+          
+          // Naskah asli (final document)
+          naskah: naskahAsli ? {
+            id: naskahAsli.id,
+            jenis: naskahAsli.jenis,
+            nomor: naskahAsli.nomor,
+            tanggal: naskahAsli.tanggal,
+            perihal: naskahAsli.perihal,
+            konten: naskahAsli.konten,
+            klasifikasi: naskahAsli.klasifikasi,
+            klasifikasi_text: naskahAsli.klasifikasi_text,
+            sifat: naskahAsli.sifat,
+            status: naskahAsli.status,
+            content: naskahContent,
+          } : null,
+          
+          // Pengirim naskah final
+          pengirim: pengirimAsli ? {
+            position_id: parseInt(pengirimAsli.position || '0'),
+            position_text: pengirimAsli.positionText,
+            nama: pengirimAsli.namaSirkuler,
+          } : null,
+          
+          // Penerima & Tembusan naskah final
+          penerima: penerimaAsliList.map((p) => ({
+            position_id: parseInt(p.position || '0'),
+            position_text: p.positionText,
+            nama: p.namaSirkuler,
+          })),
+          tembusan: tembusanAsliList.map((t) => ({
+            position_id: parseInt(t.position || '0'),
+            position_text: t.positionText,
+            nama: t.namaSirkuler,
+          })),
+          
+          // Lampiran
+          lampiran: await Promise.all(lampiranList.map(async (l) => ({
+            id: l.id,
+            file_name: l.file_name,
+            file_pdf: l.file_pdf,
+            file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+            jenis: l.jenis,
+          }))),
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Gagal mendapatkan info konsep',
+      );
+    }
+  }
+
+  // ==========================================
   // PDF GENERATION METHODS
   // ==========================================
 
