@@ -264,6 +264,35 @@ export class GlobalSearchDto {
   @IsString()
   positionId?: string;
 
+  // === LABEL FILTER (Gmail-style Hierarchical) ===
+
+  /**
+   * Filter by label path (hierarchical, slash-separated)
+   * Examples:
+   * - "Work" returns all documents labeled Work, Work/Projects, Work/Invoices, etc.
+   * - "Work/Projects/Q1" returns only that specific label
+   */
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  // === UNREAD STATUS FILTER ===
+
+  /**
+   * Filter by read status
+   * - true: Only read documents
+   * - false: Only unread documents
+   * - undefined: All documents (no filter)
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  isRead?: boolean;
+
   /**
    * Organization ID user yang sedang search
    */
