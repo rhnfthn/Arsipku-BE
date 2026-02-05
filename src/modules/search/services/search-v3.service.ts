@@ -328,7 +328,7 @@ export class SearchV3Service {
               nama,
               id_parent,
               position_id,
-              nama as full_path
+              CAST(nama AS CHAR(1000)) as full_path
             FROM label
             WHERE position_id = ?
             
@@ -340,7 +340,7 @@ export class SearchV3Service {
               lp.nama,
               lp.id_parent,
               lp.position_id,
-              CONCAT(p.nama, '/', lp.full_path) as full_path
+              CAST(CONCAT(p.nama, '/', lp.full_path) AS CHAR(1000)) as full_path
             FROM label_path lp
             INNER JOIN label p ON lp.id_parent = p.id
             WHERE p.position_id = ?
@@ -605,7 +605,7 @@ export class SearchV3Service {
           nama,
           id_parent,
           position_id,
-          nama as full_path
+          CAST(nama AS CHAR(1000)) as full_path
         FROM label
         WHERE position_id = ?
         
@@ -617,7 +617,7 @@ export class SearchV3Service {
           lp.nama,
           lp.id_parent,
           lp.position_id,
-          CONCAT(p.nama, '/', lp.full_path) as full_path
+          CAST(CONCAT(p.nama, '/', lp.full_path) AS CHAR(1000)) as full_path
         FROM label_path lp
         INNER JOIN label p ON lp.id_parent = p.id
         WHERE p.position_id = ?
