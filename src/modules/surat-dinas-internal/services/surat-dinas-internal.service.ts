@@ -34,6 +34,7 @@ import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -75,6 +76,7 @@ export class SuratDinasInternalService {
     private readonly pdfQrEmbedService: PdfQrEmbedService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) { }
 
   // ============================================================
@@ -99,6 +101,46 @@ export class SuratDinasInternalService {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  // ============================================================
+  // HELPER: EXPAND GRUP PENERIMA
+  // ============================================================
+
+  /**
+   * Helper: Expand grup penerima IDs to individual position IDs
+   * Combines individual penerima with expanded grup penerima (deduplicated)
+   * 
+   * @param individualPenerima - Array of individual positionId (number[])
+   * @param grupPenerimaIds - Array of grup penerima UUIDs (string[])
+   * @param tgl - Optional date for org_data lookup
+   * @returns Array of unique position IDs
+   */
+  private async expandGrupPenerima(
+    individualPenerima: number[] | undefined,
+    grupPenerimaIds: string[] | undefined,
+    tgl?: string,
+  ): Promise<number[]> {
+    const allPositionIds = new Set<number>();
+
+    // Add individual penerima
+    if (individualPenerima && individualPenerima.length > 0) {
+      individualPenerima.forEach((id) => allPositionIds.add(Number(id)));
+    }
+
+    // Expand and add grup penerima
+    if (grupPenerimaIds && grupPenerimaIds.length > 0) {
+      for (const grupId of grupPenerimaIds) {
+        try {
+          const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, tgl);
+          grupPositions.forEach((pos) => allPositionIds.add(Number(pos.position)));
+        } catch (error) {
+          console.warn(`[SDI:expandGrupPenerima] Failed to expand grup ${grupId}:`, error.message);
+        }
+      }
+    }
+
+    return Array.from(allPositionIds);
   }
 
   // ============================================================
@@ -711,6 +753,10 @@ export class SuratDinasInternalService {
       penerima: parseArray(penerimaData),
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
+
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
       alamat_perusahaan: body.alamat_perusahaan,
@@ -801,6 +847,10 @@ export class SuratDinasInternalService {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
       penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
 
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
@@ -909,6 +959,10 @@ export class SuratDinasInternalService {
       pengirim: body.pengirim ? Number(body.pengirim) : undefined,
       penerima: penerimaData ? parseArray(penerimaData) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
+
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
 
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
@@ -1333,13 +1387,14 @@ export class SuratDinasInternalService {
       throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim SDI.`);
     }
 
-    // PHASE 3: Get valid recipients using filterByPositionSdi
-    // SDI recipients hanya REKAN (beda sub_area/area, sama organization_parent)
-    // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
+    // PHASE 3: Expand and validate penerima (individual + grup)
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    if (expandedPenerimaIds.length === 0) {
+      throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
+    }
 
-    // PHASE 4: Validate all penerima - check exists and is managerial
     const penerimaList: SdiOrgDataPositionDto[] = [];
-    for (const posId of dto.penerima) {
+    for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
       if (!penerima) {
         throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -1356,10 +1411,11 @@ export class SuratDinasInternalService {
       penerimaList.push(penerima);
     }
 
-    // PHASE 5: Validate tembusan from org_data (if any)
+    // PHASE 4: Expand and validate tembusan (individual + grup)
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
     const tembusanList: SdiOrgDataPositionDto[] = [];
-    if (dto.tembusan && dto.tembusan.length > 0) {
-      for (const posId of dto.tembusan) {
+    if (expandedTembusanIds.length > 0) {
+      for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
         if (!tembusan) {
           throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -1725,9 +1781,14 @@ export class SuratDinasInternalService {
       throw new ForbiddenException(`Position ${dto.pengirim} bukan managerial (chief). Hanya managerial yang dapat mengirim SDI.`);
     }
 
-    // PHASE 3: Validate all penerima
+    // PHASE 3: Expand and validate penerima (individual + grup)
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    if (expandedPenerimaIds.length === 0) {
+      throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
+    }
+
     const penerimaList: SdiOrgDataPositionDto[] = [];
-    for (const posId of dto.penerima) {
+    for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find((x) => Number(x.position) === Number(posId));
       if (!penerima) {
         throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -1740,10 +1801,11 @@ export class SuratDinasInternalService {
       penerimaList.push(penerima);
     }
 
-    // PHASE 4: Validate tembusan
+    // PHASE 4: Expand and validate tembusan (individual + grup)
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
     const tembusanList: SdiOrgDataPositionDto[] = [];
-    if (dto.tembusan && dto.tembusan.length > 0) {
-      for (const posId of dto.tembusan) {
+    if (expandedTembusanIds.length > 0) {
+      for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
         if (!tembusan) {
           throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -2203,7 +2265,8 @@ export class SuratDinasInternalService {
 
     // PHASE 2: Get org_data if we need to update sirkulasi
     let barisData: SdiOrgDataPositionDto[] = [];
-    if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
+    if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined ||
+        dto.penerima_grup !== undefined || dto.tembusan_grup !== undefined) {
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(
@@ -2344,13 +2407,15 @@ export class SuratDinasInternalService {
       }
 
       // PHASE 8: Handle sirkulasi update if any sirkulasi field is provided
-      if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
+      if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined ||
+          dto.penerima_grup !== undefined || dto.tembusan_grup !== undefined) {
         // Note: Validation sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima - check exists and is managerial
+        // Expand and validate penerima (individual + grup)
         let penerimaList: SdiOrgDataPositionDto[] = [];
-        if (dto.penerima !== undefined) {
-          for (const posId of dto.penerima) {
+        if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
+          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+          for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find((x) => Number(x.position) === Number(posId));
             if (!penerima) {
               throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -2374,10 +2439,11 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan - check exists and is managerial
+        // Expand and validate tembusan (individual + grup)
         let tembusanList: SdiOrgDataPositionDto[] = [];
-        if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
-          for (const posId of dto.tembusan) {
+        if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
+          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+          for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
             if (!tembusan) {
               throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -2805,7 +2871,8 @@ export class SuratDinasInternalService {
 
     // PHASE 2: Get org_data if we need to update sirkulasi
     let barisData: SdiOrgDataPositionDto[] = [];
-    if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined) {
+    if (dto.pengirim !== undefined || dto.penerima !== undefined || dto.tembusan !== undefined ||
+        dto.penerima_grup !== undefined || dto.tembusan_grup !== undefined) {
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(

@@ -34,6 +34,27 @@ export class GeneratePdfDto {
   penerima?: string[];
 
   /**
+   * ID Grup Penerima (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup untuk ditampilkan di PDF.
+   * Bisa digunakan bersamaan dengan field penerima (akan digabung).
+   */
+  @IsArray()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  /**
    * Penerima Nota Dinas (Tertuju)
    * Array dari nama-nama penerima
    * Bisa dikirim sebagai JSON string atau langsung array
@@ -138,4 +159,25 @@ export class GeneratePdfDto {
     return value;
   })
   tembusan?: string[];
+
+  /**
+   * ID Grup Tembusan (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup untuk tembusan di PDF.
+   * Bisa digunakan bersamaan dengan field tembusan (akan digabung).
+   */
+  @IsArray()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 }
