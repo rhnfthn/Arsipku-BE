@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -660,7 +660,7 @@ export class AuthService {
   /**
    * Switch company - Generate new JWT with different company/position data
    * @param currentUser - Current JWT payload (from @CurrentUser decorator)
-   * @param companySwitchData - Company switch data, or null to reset to default
+   * @param companySwitchData - Company switch data from CompanySwitchService
    * @returns New JWT token with updated company/position data
    */
   async switchCompany(
@@ -684,60 +684,34 @@ export class AuthService {
     accessToken: string;
     user: JwtPayload;
   }> {
+    if (!companySwitchData) {
+      throw new BadRequestException('Company switch data is required');
+    }
+
     // Remove exp and iat from current user payload to avoid conflict with new token
     const { exp, iat, ...basePayload } = currentUser;
     
-    let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
+    // Build new payload with switched company data
+    const newPayload: Omit<JwtPayload, 'exp' | 'iat'> = {
+      ...basePayload,
+      // Update company and position data
+      company: companySwitchData.company,
+      companyText: companySwitchData.companyText,
+      position: companySwitchData.position,
+      positionText: companySwitchData.positionText,
+      organization: companySwitchData.organization,
+      organizationText: companySwitchData.organizationText,
+      area: companySwitchData.area,
+      areaText: companySwitchData.areaText,
+      subArea: companySwitchData.subArea,
+      subAreaText: companySwitchData.subAreaText,
+      bodTag: companySwitchData.bodTag || '',
+      abbreviation: companySwitchData.abbreviation || '',
+      // Keep original persnum, nama, and role
+    };
 
-    if (companySwitchData) {
-      // Switch to different company
-      newPayload = {
-        ...basePayload,
-        // Update company and position data
-        company: companySwitchData.company,
-        companyText: companySwitchData.companyText,
-        position: companySwitchData.position,
-        positionText: companySwitchData.positionText,
-        organization: companySwitchData.organization,
-        organizationText: companySwitchData.organizationText,
-        area: companySwitchData.area,
-        areaText: companySwitchData.areaText,
-        subArea: companySwitchData.subArea,
-        subAreaText: companySwitchData.subAreaText,
-        bodTag: companySwitchData.bodTag || '',
-        abbreviation: companySwitchData.abbreviation || '',
-        // Keep original persnum, nama, and role
-      };
-
-      console.log('[AuthService] Switching company to:', companySwitchData.companyText);
-      console.log('[AuthService] New position:', companySwitchData.positionText);
-    } else {
-      // Reset to default company - fetch from org_data
-      const orgData = await this.orgDataService.findByPersnum(basePayload.persnum);
-      
-      if (!orgData) {
-        throw new UnauthorizedException('User data not found in org_data');
-      }
-
-      newPayload = {
-        ...basePayload,
-        // Reset ke data asli dari org_data
-        company: orgData.company?.toString() || '',
-        companyText: orgData.companyText || '',
-        area: orgData.area || '',
-        areaText: orgData.areaText || '',
-        subArea: orgData.subArea?.toString() || '',
-        subAreaText: orgData.subAreaText || '',
-        organization: orgData.organization?.toString() || '',
-        organizationText: orgData.organizationText || '',
-        position: orgData.position?.toString() || '',
-        positionText: orgData.positionText || '',
-        bodTag: orgData.bodTag || '',
-        abbreviation: orgData.abbreviation || '',
-      };
-
-      console.log('[AuthService] Resetting to default company');
-    }
+    console.log('[AuthService] Switching company to:', companySwitchData.companyText);
+    console.log('[AuthService] New position:', companySwitchData.positionText);
 
     // Generate new JWT with same expiry as current token
     const expiresIn = exp 
@@ -749,9 +723,7 @@ export class AuthService {
     });
 
     return {
-      message: companySwitchData 
-        ? `Berhasil switch ke ${companySwitchData.companyText}` 
-        : 'Berhasil kembali ke company default',
+      message: `Berhasil switch ke ${companySwitchData.companyText}`,
       accessToken: newJwt,
       user: newPayload as JwtPayload,
     };
