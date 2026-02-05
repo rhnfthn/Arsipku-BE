@@ -4,6 +4,7 @@ import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@n
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
@@ -16,7 +17,10 @@ import { UserLevel } from '../../../common/enums';
 
 @Controller('ND')
 export class NotaDinasController {
-  constructor(private readonly notaDinasService: NotaDinasService) {}
+  constructor(
+    private readonly notaDinasService: NotaDinasService,
+    private readonly grupPenerimaService: GrupPenerimaService,
+  ) {}
 
   /**
    * GET /ND/get-recipient
@@ -847,12 +851,51 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
+      // Expand penerima_grup to individual positions
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        const grupPositionIds: string[] = [];
+        for (const grupId of dto.penerima_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || dto.tgl);
+            grupPositions.forEach((pos) => grupPositionIds.push(String(pos.position)));
+          } catch (error) {
+            console.warn(`Failed to expand penerima grup ${grupId}:`, error.message);
+          }
+        }
+        // Merge with individual penerima
+        if (grupPositionIds.length > 0) {
+          const existingIds = tertujuArray.map((id) => String(id));
+          const mergedIds = [...new Set([...existingIds, ...grupPositionIds])];
+          tertujuArray = mergedIds;
+        }
+      }
+
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
+
+      // Expand tembusan_grup to individual positions
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        const grupPositionIds: string[] = [];
+        for (const grupId of dto.tembusan_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || dto.tgl);
+            grupPositions.forEach((pos) => grupPositionIds.push(String(pos.position)));
+          } catch (error) {
+            console.warn(`Failed to expand tembusan grup ${grupId}:`, error.message);
+          }
+        }
+        // Merge with individual tembusan
+        if (grupPositionIds.length > 0) {
+          const existingIds = tembusanArray.map((id) => String(id));
+          const mergedIds = [...new Set([...existingIds, ...grupPositionIds])];
+          tembusanArray = mergedIds;
+        }
+      }
+
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
