@@ -8,6 +8,12 @@ import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
 import { CreateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/create_grup_penerima_detail.dto';
 import { UpdateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/update_grup_penerima_detail.dto';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import {
+  OrgDataPositionDto,
+  GrupPenerimaResponseDto,
+  GrupPenerimaDetailResponseDto,
+} from '../dto/grup_penerima/grup-penerima-response.dto';
 
 @Injectable()
 export class GrupPenerimaService {
@@ -16,6 +22,7 @@ export class GrupPenerimaService {
     private grupPenerimaRepository: Repository<GrupPenerimaEntity>,
     @InjectRepository(GrupPenerimaDetailEntity)
     private grupPenerimaDetailRepository: Repository<GrupPenerimaDetailEntity>,
+    private orgDataService: OrgDataService,
   ) {}
 
   async create(createGrupPenerimaDto: CreateGrupPenerimaDto): Promise<GrupPenerimaEntity> {
@@ -53,11 +60,206 @@ export class GrupPenerimaService {
     }
 
     return await query
-      .where('grup_penerima.aktif = :aktif', { aktif: true })
+      .andWhere('grup_penerima.aktif = :aktif', { aktif: true })
       .leftJoinAndSelect('grup_penerima.details', 'details')
       .orderBy('grup_penerima.urutan', 'ASC')
       .addOrderBy('grup_penerima.nama', 'ASC')
       .getMany();
+  }
+
+  /**
+   * Get all grup penerima with enriched position detail from org_data
+   * @param company - Filter by company
+   * @param area - Filter by area
+   * @param tgl - Optional date for org_data lookup (default: today)
+   */
+  async findAllWithPositionDetail(
+    company?: string,
+    area?: string,
+    tgl?: string,
+  ): Promise<GrupPenerimaResponseDto[]> {
+    // Get grup penerima list
+    const grupList = await this.findAll(company, area);
+
+    if (grupList.length === 0) {
+      return [];
+    }
+
+    // Get position_json from org_data
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+
+    try {
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (orgData && orgData.position_json) {
+        const positionJson: OrgDataPositionDto[] = orgData.position_json;
+        positionJson.forEach((pos) => {
+          positionJsonMap.set(Number(pos.position), pos);
+        });
+      }
+    } catch (error) {
+      // If org_data not found, continue without enrichment
+      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan. Returning without position detail.`);
+    }
+
+    // Enrich grup penerima with position detail
+    return grupList.map((grup) => ({
+      id: grup.id,
+      company: grup.company,
+      area: grup.area,
+      nama: grup.nama,
+      deskripsi: grup.deskripsi,
+      deskripsi_english: grup.deskripsi_english,
+      urutan: grup.urutan,
+      aktif: grup.aktif,
+      details: (grup.details || []).map((detail) => {
+        const positionId = Number(detail.position);
+        const positionDetail = positionJsonMap.get(positionId) || null;
+
+        return {
+          id: detail.id,
+          id_grup_penerima: detail.id_grup_penerima,
+          position: detail.position,
+          position_detail: positionDetail,
+        };
+      }),
+    }));
+  }
+
+  /**
+   * Get single grup penerima with enriched position detail
+   * @param id - Grup penerima ID
+   * @param tgl - Optional date for org_data lookup
+   */
+  async findOneWithPositionDetail(
+    id: string,
+    tgl?: string,
+  ): Promise<GrupPenerimaResponseDto> {
+    const grup = await this.findOne(id);
+
+    // Get position_json from org_data
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+
+    try {
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (orgData && orgData.position_json) {
+        const positionJson: OrgDataPositionDto[] = orgData.position_json;
+        positionJson.forEach((pos) => {
+          positionJsonMap.set(Number(pos.position), pos);
+        });
+      }
+    } catch (error) {
+      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`);
+    }
+
+    return {
+      id: grup.id,
+      company: grup.company,
+      area: grup.area,
+      nama: grup.nama,
+      deskripsi: grup.deskripsi,
+      deskripsi_english: grup.deskripsi_english,
+      urutan: grup.urutan,
+      aktif: grup.aktif,
+      details: (grup.details || []).map((detail) => {
+        const positionId = Number(detail.position);
+        const positionDetail = positionJsonMap.get(positionId) || null;
+
+        return {
+          id: detail.id,
+          id_grup_penerima: detail.id_grup_penerima,
+          position: detail.position,
+          position_detail: positionDetail,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Get members with enriched position detail
+   * @param grupId - Grup penerima ID
+   * @param tgl - Optional date for org_data lookup
+   */
+  async getMembersWithPositionDetail(
+    grupId: string,
+    tgl?: string,
+  ): Promise<GrupPenerimaDetailResponseDto[]> {
+    const members = await this.getMembers(grupId);
+
+    // Get position_json from org_data
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+
+    try {
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (orgData && orgData.position_json) {
+        const positionJson: OrgDataPositionDto[] = orgData.position_json;
+        positionJson.forEach((pos) => {
+          positionJsonMap.set(Number(pos.position), pos);
+        });
+      }
+    } catch (error) {
+      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`);
+    }
+
+    return members.map((detail) => {
+      const positionId = Number(detail.position);
+      const positionDetail = positionJsonMap.get(positionId) || null;
+
+      return {
+        id: detail.id,
+        id_grup_penerima: detail.id_grup_penerima,
+        position: detail.position,
+        position_detail: positionDetail,
+      };
+    });
+  }
+
+  /**
+   * Expand grup penerima to individual position recipients
+   * Used when sending naskah to a grup - expands to all positions in the grup
+   * @param grupId - Grup penerima ID
+   * @param tgl - Optional date for org_data lookup
+   * @returns Array of OrgDataPositionDto for all positions in the grup
+   */
+  async expandGrupToPositions(
+    grupId: string,
+    tgl?: string,
+  ): Promise<OrgDataPositionDto[]> {
+    const members = await this.getMembers(grupId);
+
+    if (members.length === 0) {
+      return [];
+    }
+
+    // Get position_json from org_data
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu.`,
+      );
+    }
+
+    const positionJson: OrgDataPositionDto[] = orgData.position_json;
+    const positionJsonMap = new Map<number, OrgDataPositionDto>();
+    positionJson.forEach((pos) => {
+      positionJsonMap.set(Number(pos.position), pos);
+    });
+
+    // Get position detail for each member
+    const positions: OrgDataPositionDto[] = [];
+    for (const member of members) {
+      const positionId = Number(member.position);
+      const positionDetail = positionJsonMap.get(positionId);
+      if (positionDetail) {
+        positions.push(positionDetail);
+      }
+    }
+
+    return positions;
   }
 
   async findOne(id: string): Promise<GrupPenerimaEntity> {
