@@ -32,6 +32,10 @@ export class FacetsDto {
     jenis: Record<string, number>;
     status: Record<string, number>;
     sifat: Record<string, number>;
+    /** Label facets with full paths (e.g., "Work/Projects": 10) */
+    label?: Record<string, number>;
+    /** Read status facets: { "true": count, "false": count } */
+    isRead?: Record<string, number>;
 }
 
 /**
