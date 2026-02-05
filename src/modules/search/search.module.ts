@@ -18,10 +18,11 @@ import { SearchV3Service } from './services/search-v3.service';
 // Entities
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
+import { LabelEntity, NaskahLabelEntity } from '../label/entities';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([NaskahEntity, NaskahSirkulasi]),
+    TypeOrmModule.forFeature([NaskahEntity, NaskahSirkulasi, LabelEntity, NaskahLabelEntity]),
   ],
   controllers: [
     GlobalSearchController,        // /search (SQL-based)
