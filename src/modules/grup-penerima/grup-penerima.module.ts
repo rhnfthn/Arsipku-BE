@@ -4,9 +4,13 @@ import { GrupPenerimaController } from './controllers/grup_penerima.controller';
 import { GrupPenerimaService } from './services/grup_penerima.service';
 import { GrupPenerimaEntity } from './entities/grup_penerima.entity';
 import { GrupPenerimaDetailEntity } from '../grup-penerima-detail/entities/grup_penerima_detail.entity';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([GrupPenerimaEntity, GrupPenerimaDetailEntity])],
+  imports: [
+    TypeOrmModule.forFeature([GrupPenerimaEntity, GrupPenerimaDetailEntity]),
+    OrgDataModule,
+  ],
   controllers: [GrupPenerimaController],
   providers: [GrupPenerimaService],
   exports: [GrupPenerimaService, TypeOrmModule],
