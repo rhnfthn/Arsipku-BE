@@ -21,6 +21,7 @@ import {
   AnyFilesInterceptor,
 } from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import {
   CreateSuratDinasInternalDto,
   UpdateDraftDto,
@@ -41,6 +42,7 @@ import { UserLevel } from '../../../common/enums';
 export class SuratDinasInternalController {
   constructor(
     private readonly suratDinasInternalService: SuratDinasInternalService,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) {}
 
   /**
@@ -578,6 +580,35 @@ export class SuratDinasInternalController {
         );
       };
 
+      // Parse and expand penerima_grup
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      // Expand penerima_grup to individual position IDs
+      if (penerimaGrupArray.length > 0) {
+        for (const grupId of penerimaGrupArray) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
+            const positionIds = grupPositions.map(p => String(p.position));
+            penerimaArray = [...penerimaArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        penerimaArray = [...new Set(penerimaArray)];
+      }
+
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
         penerimaArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
@@ -594,6 +625,35 @@ export class SuratDinasInternalController {
         } catch {
           tembusanArray = [tembusanArray];
         }
+      }
+
+      // Parse and expand tembusan_grup
+      let tembusanGrupArray: string[] = [];
+      if (body.tembusan_grup) {
+        if (typeof body.tembusan_grup === 'string') {
+          try {
+            tembusanGrupArray = JSON.parse(body.tembusan_grup);
+          } catch {
+            tembusanGrupArray = [body.tembusan_grup];
+          }
+        } else if (Array.isArray(body.tembusan_grup)) {
+          tembusanGrupArray = body.tembusan_grup;
+        }
+      }
+
+      // Expand tembusan_grup to individual position IDs
+      if (tembusanGrupArray.length > 0) {
+        for (const grupId of tembusanGrupArray) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
+            const positionIds = grupPositions.map(p => String(p.position));
+            tembusanArray = [...tembusanArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        tembusanArray = [...new Set(tembusanArray)];
       }
 
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
@@ -722,6 +782,35 @@ export class SuratDinasInternalController {
         );
       };
 
+      // Parse and expand penerima_grup
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      // Expand penerima_grup to individual position IDs
+      if (penerimaGrupArray.length > 0) {
+        for (const grupId of penerimaGrupArray) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
+            const positionIds = grupPositions.map(p => String(p.position));
+            penerimaArray = [...penerimaArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        penerimaArray = [...new Set(penerimaArray)];
+      }
+
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
         penerimaArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
@@ -738,6 +827,35 @@ export class SuratDinasInternalController {
         } catch {
           tembusanArray = [tembusanArray];
         }
+      }
+
+      // Parse and expand tembusan_grup
+      let tembusanGrupArray: string[] = [];
+      if (body.tembusan_grup) {
+        if (typeof body.tembusan_grup === 'string') {
+          try {
+            tembusanGrupArray = JSON.parse(body.tembusan_grup);
+          } catch {
+            tembusanGrupArray = [body.tembusan_grup];
+          }
+        } else if (Array.isArray(body.tembusan_grup)) {
+          tembusanGrupArray = body.tembusan_grup;
+        }
+      }
+
+      // Expand tembusan_grup to individual position IDs
+      if (tembusanGrupArray.length > 0) {
+        for (const grupId of tembusanGrupArray) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
+            const positionIds = grupPositions.map(p => String(p.position));
+            tembusanArray = [...tembusanArray, ...positionIds];
+          } catch (error) {
+            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
+          }
+        }
+        // Remove duplicates
+        tembusanArray = [...new Set(tembusanArray)];
       }
 
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
