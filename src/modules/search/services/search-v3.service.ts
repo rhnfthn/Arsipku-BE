@@ -322,25 +322,23 @@ export class SearchV3Service {
         WHERE nl.naskah_id = n.id
         AND nl.label_id IN (
           WITH RECURSIVE label_path AS (
-            -- Base case: start with leaf labels
+            -- Base case: start with each label
             SELECT 
               id,
-              nama,
               id_parent,
               position_id,
-              nama as full_path
+              CAST(nama AS CHAR(1000)) as full_path
             FROM label
             WHERE position_id = ?
             
             UNION ALL
             
-            -- Recursive case: prepend parent name to path
+            -- Recursive case: prepend parent name and move UP the tree
             SELECT 
               lp.id,
-              lp.nama,
-              lp.id_parent,
+              p.id_parent,
               lp.position_id,
-              CONCAT(p.nama, '/', lp.full_path) as full_path
+              CAST(CONCAT(p.nama, '/', lp.full_path) AS CHAR(1000)) as full_path
             FROM label_path lp
             INNER JOIN label p ON lp.id_parent = p.id
             WHERE p.position_id = ?
@@ -599,25 +597,23 @@ export class SearchV3Service {
         // Build full path for each label and count naskah
         const labelQuery = `
       WITH RECURSIVE label_path AS (
-        -- Base case: start with leaf labels
+        -- Base case: start with each label
         SELECT 
           id,
-          nama,
           id_parent,
           position_id,
-          nama as full_path
+          CAST(nama AS CHAR(1000)) as full_path
         FROM label
         WHERE position_id = ?
         
         UNION ALL
         
-        -- Recursive case: prepend parent name to path
+        -- Recursive case: prepend parent name and move UP the tree
         SELECT 
           lp.id,
-          lp.nama,
-          lp.id_parent,
+          p.id_parent,
           lp.position_id,
-          CONCAT(p.nama, '/', lp.full_path) as full_path
+          CAST(CONCAT(p.nama, '/', lp.full_path) AS CHAR(1000)) as full_path
         FROM label_path lp
         INNER JOIN label p ON lp.id_parent = p.id
         WHERE p.position_id = ?
