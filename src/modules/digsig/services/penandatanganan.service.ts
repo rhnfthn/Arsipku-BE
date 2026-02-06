@@ -244,7 +244,7 @@ export class PenandatangananService {
           userPersnum: persnum,
           userName: userName || signer.nama || undefined,
           idNaskah: documentId,
-          jenisNaskah: document.jenisNaskah as any,
+          jenisNaskah: document.jenisNaskah,
         },
       );
 
@@ -313,7 +313,7 @@ export class PenandatangananService {
         userName: userName || signer.nama || undefined,
         idNaskah: documentId,
         nomorNaskah: document.nomorDokumen,
-        jenisNaskah: document.jenisNaskah as any,
+        jenisNaskah: document.jenisNaskah,
         apiEndpoint: 'SIGN_BSRE',
         action: 'sign',
         status: 'gagal',
@@ -389,7 +389,7 @@ export class PenandatangananService {
       userName: userName || signer.nama || undefined,
       idNaskah: documentId,
       nomorNaskah: document.nomorDokumen,
-      jenisNaskah: document.jenisNaskah as any,
+      jenisNaskah: document.jenisNaskah,
       apiEndpoint: 'REJECT_DOCUMENT',
       action: 'sign',
       status: 'gagal',
