@@ -6,8 +6,8 @@ import { Type, Transform } from 'class-transformer';
  */
 export class InboxQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], { message: 'Jenis naskah tidak valid' })
-  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
@@ -36,6 +36,11 @@ export class InboxQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
 
   // Date Range Filter
   @IsOptional()
@@ -75,7 +80,7 @@ export class InboxItemDto {
   id_naskah: string;
 
   // Info Naskah (dari tabel naskah)
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
   jenis_label: string;
   nomor: string | null;
   tanggal: Date;
@@ -156,6 +161,7 @@ export class InboxResponseDto {
       SDE: number;
       DI: number;
       KA: number;
+      K: number;
     };
   };
 }
