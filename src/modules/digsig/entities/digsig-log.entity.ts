@@ -39,12 +39,12 @@ export class DigsigLogEntity {
   @Column('varchar', { name: 'nomor_naskah', length: 100, nullable: true })
   nomorNaskah: string | null;
 
-  @Column('enum', {
+  @Column('varchar', {
     name: 'jenis_naskah',
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
+    length: 100,
     nullable: true,
   })
-  jenisNaskah: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | null;
+  jenisNaskah: string | null;
 
   @Column('enum', {
     name: 'action',
