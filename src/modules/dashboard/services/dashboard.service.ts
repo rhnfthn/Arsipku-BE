@@ -107,7 +107,7 @@ export class DashboardService {
       .where('ns.position = :positionId', { positionId: positionIdStr })
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
@@ -120,7 +120,7 @@ export class DashboardService {
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.send_read_time IS NULL')
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
@@ -268,6 +268,7 @@ export class DashboardService {
     });
 
     // Perlu Tindak Lanjut: surat masuk yang belum ditandai tindak lanjut
+    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
     const perluTindakLanjut = await this.naskahSirkulasiRepo
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
@@ -275,10 +276,12 @@ export class DashboardService {
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
     // Surat Sudah Ditindaklanjuti: surat masuk yang sudah ditandai tindak lanjut
+    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
     const suratSudahDitinjut = await this.naskahSirkulasiRepo
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
@@ -286,6 +289,7 @@ export class DashboardService {
       .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
