@@ -6,8 +6,8 @@ import { Type, Transform } from 'class-transformer';
  */
 export class SentMessageQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], { message: 'Jenis naskah tidak valid' })
-  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
@@ -70,7 +70,7 @@ export class PenerimaWithStatusDto {
  */
 export class SentMessageItemDto {
   id_naskah: string;
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
   jenis_label: string;
   nomor: string | null;
   tanggal: Date;
@@ -117,6 +117,7 @@ export class SentMessageResponseDto {
       SDE: number;
       DI: number;
       KA: number;
+      K: number;
     };
   };
 }
