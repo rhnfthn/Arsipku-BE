@@ -38,6 +38,7 @@ const JENIS_LABELS: Record<string, string> = {
   SDE: 'Surat Dinas Eksternal',
   DI: 'Disposisi',
   KA: 'Kajian',
+  K: 'Konsep',
 };
 
 // Type untuk preset date range
@@ -323,6 +324,11 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.flag_arsip = 1`;
     }
 
+    // Filter by priority (khusus disposisi)
+    if (query.priority === true) {
+      whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+    }
+
     // Date Range Filter
     const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
     if (dateRange.startDate) {
@@ -508,7 +514,8 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
         SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
-        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka,
+        SUM(CASE WHEN n.jenis = 'KO' THEN 1 ELSE 0 END) as total_ko
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.position = ?
@@ -539,6 +546,7 @@ export class NaskahSirkulasiService {
           SDE: parseInt(summary.total_sde || '0', 10),
           DI: parseInt(summary.total_di || '0', 10),
           KA: parseInt(summary.total_ka || '0', 10),
+          K: parseInt(summary.total_k || '0', 10),
         },
       },
     };
@@ -645,7 +653,8 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
         SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
-        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka,
+        SUM(CASE WHEN n.jenis = 'K' THEN 1 ELSE 0 END) as total_k
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.position = ?
@@ -664,6 +673,7 @@ export class NaskahSirkulasiService {
         SDE: parseInt(summaryData.total_sde || '0', 10),
         DI: parseInt(summaryData.total_di || '0', 10),
         KA: parseInt(summaryData.total_ka || '0', 10),
+        K: parseInt(summaryData.total_k || '0', 10),
       },
     };
 
