@@ -475,7 +475,7 @@ export class DigsigDocumentService {
         userPersnum: persnum,
         userName: signer.nama || undefined,
         idNaskah: documentId,
-        jenisNaskah: document.jenisNaskah as any,
+        jenisNaskah: document.jenisNaskah,
       });
 
       // Update signer status
@@ -560,7 +560,7 @@ export class DigsigDocumentService {
       userName: signer.nama || undefined,
       idNaskah: documentId,
       nomorNaskah: document.nomorDokumen,
-      jenisNaskah: document.jenisNaskah as any,
+      jenisNaskah: document.jenisNaskah,
       apiEndpoint: 'REJECT',
       action: 'sign',
       status: 'gagal',

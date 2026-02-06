@@ -50,7 +50,7 @@ export class DigsigLogService {
     ipAddress?: string;
     idNaskah?: string;
     nomorNaskah?: string;
-    jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+    jenisNaskah?: string;
     apiEndpoint: string;
     status: 'sukses' | 'gagal' | 'pending';
     note?: string;
@@ -71,7 +71,7 @@ export class DigsigLogService {
     ipAddress?: string;
     idNaskah?: string;
     nomorNaskah?: string;
-    jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+    jenisNaskah?: string;
     apiEndpoint: string;
     status: 'sukses' | 'gagal' | 'pending';
     note?: string;
