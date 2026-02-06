@@ -18,6 +18,9 @@ export class SearchV3ResultItemDto extends SearchResultItemDto {
     /** Relevance score (0-100) */
     relevance_score: number;
 
+    /** Labels with full hierarchical paths (e.g., ["Pengadaan/Contoh", "Penting/testes3213/sfguu"]) */
+    label: string[];
+
     /** Highlighted fields with <em> tags */
     _formatted: {
         perihal: string | null;
