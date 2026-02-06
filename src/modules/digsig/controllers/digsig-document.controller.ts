@@ -224,14 +224,40 @@ export class DigsigDocumentController {
 
   /**
    * GET /digsig/document/:id
-   * Get document detail
+   * Get document detail with file URLs
    */
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<DigsigDocumentEntity> {
-    return this.documentService.findById(id);
+  ): Promise<DigsigDocumentEntity & { fileUrl?: string; signedFileUrl?: string }> {
+    const document = await this.documentService.findById(id);
+    
+    // Generate file URLs
+    let fileUrl: string | undefined;
+    let signedFileUrl: string | undefined;
+
+    if (document.filePath) {
+      try {
+        fileUrl = await this.storageService.getPreviewUrl(document.filePath, 3600);
+      } catch (e) {
+        console.warn('Failed to generate fileUrl:', e.message);
+      }
+    }
+
+    if (document.signedFilePath) {
+      try {
+        signedFileUrl = await this.storageService.getPreviewUrl(document.signedFilePath, 3600);
+      } catch (e) {
+        console.warn('Failed to generate signedFileUrl:', e.message);
+      }
+    }
+
+    return {
+      ...document,
+      fileUrl,
+      signedFileUrl,
+    };
   }
 
   /**
