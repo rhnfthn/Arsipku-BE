@@ -438,10 +438,14 @@ export class SearchV3Service {
         // Fetch penerima info
         const penerimaMap = await this.fetchPenerimaInfo(naskahIds);
 
+        // Fetch labels info
+        const labelsMap = await this.fetchLabelsInfo(naskahIds, userPosition);
+
         // Transform results
         const items: SearchV3ResultItemDto[] = rows.map((row: any) => {
             const pengirim = pengirimMap.get(row.id);
             const penerimaList = penerimaMap.get(row.id) || [];
+            const labelsList = labelsMap.get(row.id) || [];
 
             // Determine source
             let source: NaskahSourceEnum;
@@ -489,6 +493,7 @@ export class SearchV3Service {
                 isFavorite: row.flag_favorit === 1,
                 relevance_score: row.relevance_score || 0,
                 createdAt: row.created_at,
+                label: labelsList,
                 _formatted: {
                     perihal: this.highlight(row.perihal, keyword),
                     nomor: this.highlight(row.nomor, keyword),
@@ -725,6 +730,59 @@ export class SearchV3Service {
                 organization: row.organization,
             });
             map.set(row.id_naskah, list);
+        });
+
+        return map;
+    }
+
+    /**
+     * Fetch labels with full hierarchical paths for multiple naskah
+     */
+    private async fetchLabelsInfo(naskahIds: string[], userPosition: string): Promise<Map<string, string[]>> {
+        if (naskahIds.length === 0) return new Map();
+
+        const placeholders = naskahIds.map(() => '?').join(',');
+        const query = `
+      WITH RECURSIVE label_path AS (
+        -- Base case: start with each label
+        SELECT 
+          id,
+          id_parent,
+          position_id,
+          CAST(nama AS CHAR(1000)) as full_path
+        FROM label
+        WHERE position_id = ?
+        
+        UNION ALL
+        
+        -- Recursive case: prepend parent name and move UP the tree
+        SELECT 
+          lp.id,
+          p.id_parent,
+          lp.position_id,
+          CAST(CONCAT(p.nama, '/', lp.full_path) AS CHAR(1000)) as full_path
+        FROM label_path lp
+        INNER JOIN label p ON lp.id_parent = p.id
+        WHERE p.position_id = ?
+      )
+      SELECT 
+        nl.naskah_id,
+        lp.full_path as label_path
+      FROM naskah_label nl
+      INNER JOIN label_path lp ON nl.label_id = lp.id AND lp.id_parent IS NULL
+      WHERE nl.naskah_id IN (${placeholders})
+      ORDER BY nl.naskah_id, lp.full_path
+    `;
+        const params = [userPosition, userPosition, ...naskahIds];
+        const rows = await this.dataSource.query(query, params);
+
+        const map = new Map<string, string[]>();
+        rows.forEach((row: any) => {
+            const list = map.get(row.naskah_id) || [];
+            if (row.label_path) {
+                list.push(row.label_path);
+            }
+            map.set(row.naskah_id, list);
         });
 
         return map;
