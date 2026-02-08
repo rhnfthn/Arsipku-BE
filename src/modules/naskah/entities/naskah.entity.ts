@@ -54,7 +54,7 @@ export class NaskahEntity {
   })
   status: 'draf' | 'final' | 'final_tte';
 
-  @Column('varchar', { length: 255, nullable: true })
+  @Column('varchar', { length: 500, nullable: true })
   final_pdf: string;
 
   @Column('boolean', { default: false })

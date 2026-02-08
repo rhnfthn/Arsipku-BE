@@ -19,6 +19,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
+import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -86,6 +87,7 @@ export class KonsepService {
     private generatePdfNodinService: GeneratePdfNodinService,
     private generatePdfSudinService: GeneratePdfSudinService,
     private qrCodeService: QRCodeService,
+    private subAreaAlamatService: SubAreaAlamatService,
     private dataSource: DataSource,
   ) {}
 
@@ -1431,7 +1433,6 @@ export class KonsepService {
       if (dto.klasifikasi) naskahAsli.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text) naskahAsli.klasifikasi_text = dto.klasifikasi_text;
       if (dto.sifat) naskahAsli.sifat = dto.sifat;
-      await queryRunner.manager.save(naskahAsli);
 
       // 7. Update is_konsep=0 untuk sirkulasi naskah asli (sudah final)
       await queryRunner.manager.update(NaskahSirkulasi, 
@@ -1515,7 +1516,6 @@ export class KonsepService {
       // Update naskah dengan info lampiran
       if (totalLampiran > 0) {
         naskahAsli.lampiran = `${totalLampiran} file`;
-        await queryRunner.manager.save(naskahAsli);
       }
 
       // 11. Update ALL konsep workflow status to 'final_tte'
@@ -1540,6 +1540,14 @@ export class KonsepService {
         nextUrutan,
         queryRunner, // Pass queryRunner untuk akses data dalam transaksi
       );
+
+      // Update naskah asli dengan final_pdf
+      if (pdfSnapshotUrl) {
+        naskahAsli.final_pdf = pdfSnapshotUrl;
+      }
+
+      // *** SAVE NASKAH ASLI - Satu kali save untuk semua perubahan (nomor, status, tanggal, lampiran, final_pdf) ***
+      await queryRunner.manager.save(naskahAsli);
 
       // Save riwayat with LATEST naskah K id (where from_position was penerima)
       await this.saveRiwayat(
@@ -2888,6 +2896,45 @@ export class KonsepService {
   }
 
   // ==========================================
+  // HELPER: GET HEADER INFO BY USER
+  // ==========================================
+
+  /**
+   * Get dynamic header info dari sub_area_alamat berdasarkan user context
+   * @param company - Company ID
+   * @param area - Area code
+   * @param subArea - SubArea code
+   * @param tanggal - Optional date for lookup
+   * @returns Header info (kantor, gedung, alamat, kota) atau null jika tidak ditemukan
+   */
+  private async getHeaderInfoByArea(
+    company: string,
+    area: string | null,
+    subArea: string | null,
+    tanggal?: Date,
+  ): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+    try {
+      if (!area || !subArea) {
+        return null;
+      }
+
+      const queryDate = tanggal || new Date();
+
+      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
+        company,
+        area,
+        subArea,
+        queryDate,
+      );
+
+      return headerInfo;
+    } catch (error) {
+      console.error('[Konsep getHeaderInfoByArea] Error:', error);
+      return null;
+    }
+  }
+
+  // ==========================================
   // HELPER: GENERATE AND UPLOAD PDF SNAPSHOT
   // ==========================================
 
@@ -2924,23 +2971,23 @@ export class KonsepService {
 
       if (queryRunner) {
         sirkulasiPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
-          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
         });
         sirkulasiTembusan = await queryRunner.manager.find(NaskahSirkulasi, {
-          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
         });
         sirkulasiPengirim = await queryRunner.manager.findOne(NaskahSirkulasi, {
-          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
         });
       } else {
         sirkulasiPenerima = await this.naskahSirkulasiRepository.find({
-          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
         });
         sirkulasiTembusan = await this.naskahSirkulasiRepository.find({
-          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
         });
         sirkulasiPengirim = await this.naskahSirkulasiRepository.findOne({
-          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim', isKonsep: 1 },
+          where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
         });
       }
 
@@ -2951,7 +2998,19 @@ export class KonsepService {
       const namaJabatan = sirkulasiPengirim?.positionText || '';
       const namaLengkap = sirkulasiPengirim?.namaSirkuler || '';
 
-      // 3. Build PDF body based on jenis
+      // 3. Get header info dari sub_area_alamat berdasarkan pengirim
+      const company = String(COMPANY_ID);
+      const area = sirkulasiPengirim?.area || '';
+      const subArea = sirkulasiPengirim?.subArea || '';
+      const headerInfo = await this.getHeaderInfoByArea(company, area, subArea, tanggalDate instanceof Date ? tanggalDate : new Date());
+      
+      // Use kota from headerInfo if available
+      const namaTempat = headerInfo?.kota || naskahAsli.tempat || 'Tangerang';
+
+      // 4. Generate preview QR code (placeholder untuk konsep snapshot)
+      const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+
+      // 5. Build PDF body based on jenis
       let pdfBody: any;
       let pdfBuffer: Buffer;
 
@@ -2969,10 +3028,16 @@ export class KonsepService {
           positionText: namaJabatan,
           namaLengkap: namaLengkap,
           tembusan: tembusanArray,
-          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nama_tempat: namaTempat,
           nomor: naskahAsli.nomor || '',
           sifat: naskahAsli.sifat || 'biasa',
           lampiran: naskahAsli.lampiran || '-',
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
+          // QR Code HTML untuk tanda tangan
+          qrCodeHtml: previewQrHtml,
         };
         pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfBody);
       } else if (jenis === 'SDI') {
@@ -2990,11 +3055,17 @@ export class KonsepService {
           namaLengkap: namaLengkap,
           nama_jabatan: namaJabatan,
           tembusan: tembusanArray,
-          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nama_tempat: namaTempat,
           nomor: naskahAsli.nomor || '',
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
           english: false, // SDI menggunakan format Bahasa Indonesia
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
+          // QR Code HTML untuk tanda tangan
+          qrCodeHtml: previewQrHtml,
         };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       } else {
@@ -3012,16 +3083,22 @@ export class KonsepService {
           namaLengkap: namaLengkap,
           nama_jabatan: namaJabatan,
           tembusan: tembusanArray,
-          nama_tempat: naskahAsli.tempat || 'Tangerang',
+          nama_tempat: namaTempat,
           nomor: naskahAsli.nomor || '',
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
           english: true, // SDE menggunakan format Bahasa Inggris
+          // Dynamic header info dari sub_area_alamat
+          headerKantor: headerInfo?.kantor,
+          headerGedung: headerInfo?.gedung,
+          headerAlamat: headerInfo?.alamat,
+          // QR Code HTML untuk tanda tangan
+          qrCodeHtml: previewQrHtml,
         };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       }
 
-      // 4. Upload to storage
+      // 6. Upload to storage
       const timestamp = Date.now();
       const fileName = `snapshot_${aksi}_${urutan}_${timestamp}.pdf`;
       const fullKey = `konsep/${naskahAsli.id}/${fileName}`;
@@ -3044,7 +3121,9 @@ export class KonsepService {
         bucket: this.storageService['bucketName'],
       };
 
-      return uploadResult.url;
+      // Return key (path) to be stored in database, not URL
+      // URL will be generated dynamically when needed via getFileUrl()
+      return uploadResult.key;
     } catch (error) {
       console.error('Failed to generate PDF snapshot:', error);
       // Return null instead of throwing error to avoid breaking the workflow
