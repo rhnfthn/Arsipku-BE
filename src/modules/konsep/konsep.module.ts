@@ -19,6 +19,7 @@ import { OrgDataModule } from 'src/modules/master-data/org_data/org_data.module'
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { DigsigModule } from '../digsig/digsig.module';
     StorageModule,
     GeneratePdfModule,
     DigsigModule,
+    SubAreaAlamatModule,
   ],
   controllers: [KonsepController],
   providers: [KonsepService],
