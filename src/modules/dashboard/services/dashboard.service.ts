@@ -35,6 +35,7 @@ const JENIS_SURAT_LABELS: Record<string, string> = {
   SDE: 'Surat Dinas Eksternal',
   DI: 'Disposisi',
   KA: 'Kajian',
+  K: 'Konsep',
 };
 
 @Injectable()
@@ -423,7 +424,7 @@ export class DashboardService {
     // ==========================================
 
     const statistikJenisSurat: StatistikJenisSuratDto[] = [];
-    const jenisArr = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+    const jenisArr = ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'];
 
     for (const jenis of jenisArr) {
       // Jumlah masuk per jenis
