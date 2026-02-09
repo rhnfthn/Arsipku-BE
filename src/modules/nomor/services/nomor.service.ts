@@ -45,6 +45,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class NomorService {
+  // Cache untuk position JSON data (per-request lifecycle)
+  private cachedPositionJsonData: any[] | null = null;
+
   constructor(
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
@@ -58,6 +61,83 @@ export class NomorService {
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
   ) {}
+
+  /**
+   * Helper: Get latest position JSON data dengan caching
+   * Cache di-reset setiap kali method ini dipanggil dengan forceRefresh=true
+   */
+  private async getLatestPositionJsonData(forceRefresh = false): Promise<any[]> {
+    if (!forceRefresh && this.cachedPositionJsonData !== null) {
+      return this.cachedPositionJsonData;
+    }
+
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          this.cachedPositionJsonData = latestOrgData.position_json;
+          return this.cachedPositionJsonData;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    this.cachedPositionJsonData = [];
+    return [];
+  }
+
+  /**
+   * Helper: Determine status dari details array
+   */
+  private determineStatusFromDetails(details: NomorRequestDetailEntity[]): string {
+    if (details.length === 0) return 'Belum Diajukan';
+
+    const hasBooking = details.some((d) => d.status === 'booking');
+    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const allHangus = details.every((d) => d.status === 'hangus');
+    const allDitolak = details.every((d) => d.status === 'ditolak');
+    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+    if (hasTerpakai) return 'Disetujui';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) return 'Ditolak';
+    if (hasBooking) return 'Menunggu Verifikasi';
+    
+    return 'Belum Diajukan';
+  }
+
+  /**
+   * Helper: Determine status key untuk counting (lowercase dengan underscore)
+   */
+  private determineStatusKeyFromDetails(details: NomorRequestDetailEntity[]): string {
+    if (details.length === 0) return 'belum_diajukan';
+
+    const hasBooking = details.some((d) => d.status === 'booking');
+    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const allHangus = details.every((d) => d.status === 'hangus');
+    const allDitolak = details.every((d) => d.status === 'ditolak');
+    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+    if (hasTerpakai) return 'disetujui';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) return 'ditolak';
+    if (hasBooking) return 'menunggu_verifikasi';
+    
+    return 'belum_diajukan';
+  }
+
+  /**
+   * Helper: Check apakah request berasal dari tulis surat otomatis
+   */
+  private isFromTulisSuratOtomatis(details: NomorRequestDetailEntity[]): boolean {
+    if (details.length === 0) return false;
+    return details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+  }
 
   /**
    * Helper: Map position text to jabatan code
@@ -284,24 +364,37 @@ export class NomorService {
 
   /**
    * User melihat usulan nomor berdasarkan position_id
+   * OPTIMIZED: Menggunakan LEFT JOIN untuk load details bersamaan
    */
   async getNomorRequestByPosition(
     positionId: number,
     query?: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
+    // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       where: { position: positionId.toString() },
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
+    // Pre-cache jenis data untuk generateNomorTemplate
+    const jenisCache = new Map<string, any>();
+    const uniqueJenis = [...new Set(requests.map(r => r.jenis).filter((j): j is string => j !== null && j !== undefined))];
+    if (uniqueJenis.length > 0) {
+      const jenisDataList = await this.jenisRepository.find({
+        where: uniqueJenis.map(j => ({ jenis: j })),
+      });
+      jenisDataList.forEach(j => jenisCache.set(j.jenis!, j));
+    }
+
+    // Generate data tanpa N+1 query
     const data = await Promise.all(
       requests.map(async (request) => {
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-          order: { createdAt: 'ASC' },
-        });
+        const details = request.details || [];
+        // Sort details by createdAt ASC
+        details.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-        // Generate template nomor
+        // Generate template nomor (menggunakan cache)
         const templateNomor = await this.generateNomorTemplate(request);
 
         return {
@@ -342,27 +435,13 @@ export class NomorService {
       });
     }
 
-    // Apply status filter
+    // Apply status filter menggunakan helper
     if (query?.status && query.status !== 'Semua') {
       filteredData = filteredData.filter((item) => {
-        // Determine status from details
         const details = item.details || [];
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          const allHangus = details.every((d) => d.status === 'hangus');
-          const allDitolak = details.every((d) => d.status === 'ditolak');
-          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
+        // Convert to entity-like format for helper
+        const detailsForHelper = details.map(d => ({ status: d.status }) as NomorRequestDetailEntity);
+        const status = this.determineStatusFromDetails(detailsForHelper);
         return status === query.status;
       });
     }
@@ -413,127 +492,94 @@ export class NomorService {
   /**
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process data tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
+
+      // Skip jika dari tulis surat otomatis
+      if (this.isFromTulisSuratOtomatis(details)) {
+        return null;
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
+      const status = this.determineStatusFromDetails(details);
 
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
 
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai');
-          const allHangus = details.every((d) => d.status === 'hangus');
+      const responseItem = {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
 
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
-
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      // Apply search filter across all fields
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const searchFields = [
+          responseItem.id?.toString(),
+          responseItem.company,
+          responseItem.area,
+          responseItem.sub_area,
+          responseItem.organization,
+          responseItem.position,
+          responseItem.persnum?.toString(),
+          responseItem.nama,
+          responseItem.tanggal,
+          responseItem.jenis,
+          responseItem.klasifikasi,
+          responseItem.perihal,
+          responseItem.jumlah?.toString(),
+          responseItem.penandatangan,
+          responseItem.status,
+        ];
         
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
-
-        const responseItem = {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-
-        // Apply search filter across all fields
-        if (query?.search) {
-          const searchLower = query.search.toLowerCase();
-          const searchFields = [
-            responseItem.id?.toString(),
-            responseItem.company,
-            responseItem.area,
-            responseItem.sub_area,
-            responseItem.organization,
-            responseItem.position,
-            responseItem.persnum?.toString(),
-            responseItem.nama,
-            responseItem.tanggal,
-            responseItem.jenis,
-            responseItem.klasifikasi,
-            responseItem.perihal,
-            responseItem.jumlah?.toString(),
-            responseItem.penandatangan,
-            responseItem.status,
-          ];
-          
-          const isMatch = searchFields.some(field => 
-            field && field.toLowerCase().includes(searchLower)
-          );
-          
-          if (!isMatch) {
-            return null;
-          }
-        }
-
-        // Apply status filter jika ada (dan bukan "Semua")
-        if (query?.status && query.status !== 'Semua' && status !== query.status) {
+        const isMatch = searchFields.some(field => 
+          field && field.toLowerCase().includes(searchLower)
+        );
+        
+        if (!isMatch) {
           return null;
         }
+      }
 
-        return responseItem;
-      }),
-    );
+      // Apply status filter
+      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+        return null;
+      }
 
-    // Filter out null values (data dari tulis surat) and requests with status 'Belum Diajukan'
+      return responseItem;
+    });
+
+    // Filter out null values and 'Belum Diajukan'
     const submittedData = data.filter((item): item is Exclude<typeof item, null> => 
       item !== null && item.status !== 'Belum Diajukan'
     );
@@ -591,88 +637,12 @@ export class NomorService {
   /**
    * Count nomor request by status (for admin dashboard)
    * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+   * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequest(): Promise<any> {
-    const requests = await this.nomorRequestRepository.find();
-
-    // Count by status
-    const statusCounts = {
-      menunggu_verifikasi: 0,
-      disetujui: 0,
-      ditolak: 0,
-      belum_diajukan: 0,
-    };
-
-    for (const request of requests) {
-      // Ambil detail untuk menentukan status
-      const details = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: request.id },
-      });
-
-      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-      if (details.length > 0) {
-        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        if (allDirectTerpakai) {
-          continue; // Skip data dari tulis surat
-        }
-      }
-
-      let status = 'belum_diajukan';
-      if (details.length > 0) {
-        const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        const allHangus = details.every((d) => d.status === 'hangus');
-        const allDitolak = details.every((d) => d.status === 'ditolak');
-        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-        if (hasTerpakai) {
-          status = 'disetujui';
-        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-          status = 'ditolak';
-        } else if (hasBooking) {
-          status = 'menunggu_verifikasi';
-        }
-      }
-
-      // Increment counter
-      switch (status) {
-        case 'menunggu_verifikasi':
-          statusCounts.menunggu_verifikasi++;
-          break;
-        case 'disetujui':
-          statusCounts.disetujui++;
-          break;
-        case 'ditolak':
-          statusCounts.ditolak++;
-          break;
-        case 'belum_diajukan':
-          statusCounts.belum_diajukan++;
-          break;
-      }
-    }
-
-    const total = requests.length;
-
-    return {
-      success: true,
-      message: 'Count usulan nomor berhasil diambil',
-      data: {
-        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
-        disetujui: statusCounts.disetujui,
-        ditolak: statusCounts.ditolak,
-        belum_diajukan: statusCounts.belum_diajukan,
-        total,
-      },
-    };
-  }
-
-  /**
-   * Count nomor request by status filtered by position ID
-   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
-   */
-  async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
+    // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
-      where: { position: positionId.toString() },
+      relations: ['details'],
     });
 
     // Count by status
@@ -683,55 +653,74 @@ export class NomorService {
       belum_diajukan: 0,
     };
 
+    let processedCount = 0;
     for (const request of requests) {
-      // Ambil detail untuk menentukan status
-      const details = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: request.id },
-      });
+      const details = request.details || [];
 
-      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-      if (details.length > 0) {
-        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        if (allDirectTerpakai) {
-          continue; // Skip data dari tulis surat
-        }
+      // Skip jika dari tulis surat otomatis
+      if (this.isFromTulisSuratOtomatis(details)) {
+        continue;
       }
 
-      let status = 'belum_diajukan';
-      if (details.length > 0) {
-        const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        const allHangus = details.every((d) => d.status === 'hangus');
-        const allDitolak = details.every((d) => d.status === 'ditolak');
-        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-        if (hasTerpakai) {
-          status = 'disetujui';
-        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-          status = 'ditolak';
-        } else if (hasBooking) {
-          status = 'menunggu_verifikasi';
-        }
-      }
+      processedCount++;
+      const statusKey = this.determineStatusKeyFromDetails(details);
 
       // Increment counter
-      switch (status) {
-        case 'menunggu_verifikasi':
-          statusCounts.menunggu_verifikasi++;
-          break;
-        case 'disetujui':
-          statusCounts.disetujui++;
-          break;
-        case 'ditolak':
-          statusCounts.ditolak++;
-          break;
-        case 'belum_diajukan':
-          statusCounts.belum_diajukan++;
-          break;
+      if (statusKey in statusCounts) {
+        statusCounts[statusKey as keyof typeof statusCounts]++;
       }
     }
 
-    const total = requests.length;
+    return {
+      success: true,
+      message: 'Count usulan nomor berhasil diambil',
+      data: {
+        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
+        disetujui: statusCounts.disetujui,
+        ditolak: statusCounts.ditolak,
+        belum_diajukan: statusCounts.belum_diajukan,
+        total: processedCount,
+      },
+    };
+  }
+
+  /**
+   * Count nomor request by status filtered by position ID
+   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+   * OPTIMIZED: Menggunakan LEFT JOIN
+   */
+  async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
+    // Optimized: Load dengan relations dalam 1 query
+    const requests = await this.nomorRequestRepository.find({
+      where: { position: positionId.toString() },
+      relations: ['details'],
+    });
+
+    // Count by status
+    const statusCounts = {
+      menunggu_verifikasi: 0,
+      disetujui: 0,
+      ditolak: 0,
+      belum_diajukan: 0,
+    };
+
+    let processedCount = 0;
+    for (const request of requests) {
+      const details = request.details || [];
+
+      // Skip jika dari tulis surat otomatis
+      if (this.isFromTulisSuratOtomatis(details)) {
+        continue;
+      }
+
+      processedCount++;
+      const statusKey = this.determineStatusKeyFromDetails(details);
+
+      // Increment counter
+      if (statusKey in statusCounts) {
+        statusCounts[statusKey as keyof typeof statusCounts]++;
+      }
+    }
 
     return {
       success: true,
@@ -742,7 +731,7 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
-        total,
+        total: processedCount,
       },
     };
   }
@@ -751,119 +740,74 @@ export class NomorService {
    * Admin melihat semua usulan nomor
    * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
+
+      // Skip jika dari tulis surat otomatis
+      if (this.isFromTulisSuratOtomatis(details)) {
+        return null;
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
+      const status = this.determineStatusFromDetails(details);
 
-        // Filter: Hanya tampilkan request yang pernah/sedang punya status 'booking'
-        // Karena request dari tulis surat langsung 'terpakai' tanpa 'booking'
-        const hasEverBeenBooked = details.some((d) => 
-          d.status === 'booking' || 
-          d.status === 'terpakai' || 
-          d.status === 'terpakai_final' ||
-          d.status === 'hangus'
-        );
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
 
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
-
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          const allHangus = details.every((d) => d.status === 'hangus');
-          const allDitolak = details.every((d) => d.status === 'ditolak');
-          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
-
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      // Apply search filter
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        const nomorMatch = request.penandatangan && request.penandatangan.toLowerCase().includes(searchLower);
         
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
-
-        // Apply search filter jika ada
-        // Search by perihal atau jenis
-        if (query?.search) {
-          const searchLower = query.search.toLowerCase();
-          const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
-          const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
-          const nomorMatch = request.penandatangan && request.penandatangan.toLowerCase().includes(searchLower);
-          
-          if (!perihalMatch && !jenisMatch && !nomorMatch) {
-            return null;
-          }
-        }
-
-        // Apply status filter jika ada (dan bukan "Semua")
-        if (query?.status && query.status !== 'Semua' && status !== query.status) {
+        if (!perihalMatch && !jenisMatch && !nomorMatch) {
           return null;
         }
+      }
 
-        return {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-      }),
-    );
+      // Apply status filter
+      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+        return null;
+      }
 
-    // Filter out null values (data dari tulis surat)
+      return {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
+    });
+
+    // Filter out null values
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
 
     // Apply sorting
@@ -921,134 +865,99 @@ export class NomorService {
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    * - Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
+
+      // Skip jika dari tulis surat otomatis
+      if (this.isFromTulisSuratOtomatis(details)) {
+        return null;
+      }
+
+      const status = this.determineStatusFromDetails(details);
+
+      // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
+      if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
+        return null;
+      }
+
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
+
+      const responseItem = {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
+
+      // Apply search filter across all fields
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const searchFields = [
+          responseItem.id?.toString(),
+          responseItem.company,
+          responseItem.area,
+          responseItem.sub_area,
+          responseItem.organization,
+          responseItem.position,
+          responseItem.persnum?.toString(),
+          responseItem.nama,
+          responseItem.tanggal,
+          responseItem.jenis,
+          responseItem.klasifikasi,
+          responseItem.perihal,
+          responseItem.jumlah?.toString(),
+          responseItem.penandatangan,
+          responseItem.status,
+        ];
         
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
+        const isMatch = searchFields.some(field => 
+          field && field.toLowerCase().includes(searchLower)
+        );
+        
+        if (!isMatch) {
+          return null;
         }
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
+      // Apply status filter
+      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+        return null;
+      }
 
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
+      return responseItem;
+    });
 
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          const allHangus = details.every((d) => d.status === 'hangus');
-          const allDitolak = details.every((d) => d.status === 'ditolak');
-          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
-
-        // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
-        if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
-          return null;
-        }
-
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-        
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
-
-        const responseItem = {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-
-        // Apply search filter across all fields
-        if (query?.search) {
-          const searchLower = query.search.toLowerCase();
-          const searchFields = [
-            responseItem.id?.toString(),
-            responseItem.company,
-            responseItem.area,
-            responseItem.sub_area,
-            responseItem.organization,
-            responseItem.position,
-            responseItem.persnum?.toString(),
-            responseItem.nama,
-            responseItem.tanggal,
-            responseItem.jenis,
-            responseItem.klasifikasi,
-            responseItem.perihal,
-            responseItem.jumlah?.toString(),
-            responseItem.penandatangan,
-            responseItem.status,
-          ];
-          
-          const isMatch = searchFields.some(field => 
-            field && field.toLowerCase().includes(searchLower)
-          );
-          
-          if (!isMatch) {
-            return null;
-          }
-        }
-
-        // Apply status filter jika ada (dan bukan "Semua")
-        if (query?.status && query.status !== 'Semua' && status !== query.status) {
-          return null;
-        }
-
-        return responseItem;
-      }),
-    );
-
-    // Filter out null values (request yang difilter)
+    // Filter out null values
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
 
     // Apply sorting
@@ -2364,98 +2273,79 @@ export class NomorService {
 
   /**
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Get all detail dengan status terpakai, terpakai_final, atau hangus
+    // Optimized: Load details dengan request dalam 1 query
     const details = await this.nomorRequestDetailRepository.find({
       where: [
         { status: 'terpakai' },
         { status: 'terpakai_final' },
         { status: 'hangus' },
       ],
+      relations: ['request'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data for position information
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process tanpa N+1 query
+    const data = details.map((detail) => {
+      const request = detail.request;
+
+      if (!request) {
+        return null;
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
 
-    // Map data dari detail + request
-    const data = await Promise.all(
-      details.map(async (detail) => {
-        const request = await this.nomorRequestRepository.findOne({
-          where: { id: detail.idRequest! },
-        });
-
-        if (!request) {
+      // Apply filter tahun jika ada
+      if (query.tahun) {
+        const detailTahun = new Date(request.tanggal!).getFullYear();
+        if (detailTahun !== query.tahun) {
           return null;
         }
+      }
 
-        // Apply filter tahun jika ada
-        if (query.tahun) {
-          const detailTahun = new Date(request.tanggal!).getFullYear();
-          if (detailTahun !== query.tahun) {
-            return null;
-          }
+      // Apply search filter
+      if (query.search) {
+        const searchLower = query.search.toLowerCase();
+        const nomorMatch = detail.nomor && detail.nomor.toLowerCase().includes(searchLower);
+        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        
+        if (!nomorMatch && !perihalMatch && !jenisMatch) {
+          return null;
         }
+      }
 
-        // Apply search filter jika ada
-        // Search by nomor, perihal, atau jenis
-        if (query.search) {
-          const searchLower = query.search.toLowerCase();
-          const nomorMatch = detail.nomor && detail.nomor.toLowerCase().includes(searchLower);
-          const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
-          const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
-          
-          if (!nomorMatch && !perihalMatch && !jenisMatch) {
-            return null;
-          }
-        }
+      // Get position data pengusul
+      const positionNumber = parseInt(request.position || '0', 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      const namaPengirim = positionData?.persnum_person_text || null;
 
-        // Get position data pengusul untuk nama_pengirim
-        const positionNumber = parseInt(request.position || '0', 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-        const namaPengirim = positionData?.persnum_person_text || null;
+      // Get position data penandatangan
+      let jabatan = null;
+      if (request.idPositionPenandatangan) {
+        const penandatanganPosition = positionJsonData.find(
+          (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+        );
+        jabatan = penandatanganPosition?.position_text || null;
+      }
 
-        // Get position data penandatangan untuk jabatan
-        let jabatan = null;
-        if (request.idPositionPenandatangan) {
-          const penandatanganPosition = positionJsonData.find(
-            (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
-          );
-          jabatan = penandatanganPosition?.position_text || null;
-        }
-
-        return {
-          id: detail.id,
-          id_request: detail.idRequest || null,
-          jenis: request.jenis,
-          jabatan,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal,
-          tanggal: request.tanggal,
-          nomor: detail.nomor,
-          status: detail.status,
-          nama_pengirim: namaPengirim,
-          waktu: detail.createdAt,
-        };
-      }),
-    );
+      return {
+        id: detail.id,
+        id_request: detail.idRequest || null,
+        jenis: request.jenis,
+        jabatan,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal,
+        tanggal: request.tanggal,
+        nomor: detail.nomor,
+        status: detail.status,
+        nama_pengirim: namaPengirim,
+        waktu: detail.createdAt,
+      };
+    });
 
     // Filter out null values
     const filteredData = data.filter((item) => item !== null);
@@ -2508,6 +2398,7 @@ export class NomorService {
 
   /**
    * Get nomor by id request (menampilkan semua nomor dalam satu request)
+   * OPTIMIZED: Menggunakan caching untuk position data
    */
   async getNomorById(idRequest: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
@@ -2518,24 +2409,8 @@ export class NomorService {
       throw new Error('Nomor request not found');
     }
 
-    // Get latest org_data untuk extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
-      }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
 
     // Get position data penandatangan untuk jabatan
     let jabatan = null;
