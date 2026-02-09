@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, IsNull } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
@@ -2168,8 +2168,23 @@ export class KonsepService {
       let urutanCounter = 1;
 
       // PHASE 1: Get ALL disposisi referensi (disposisi chain)
+      // Query from FIRST naskah K (parent = null) since disposisi referensi only stored there
+      let firstNaskahKId = naskahKonsep.id;
+      if (naskahKonsep.id_naskah_asli) {
+        const firstNaskahK = await this.naskahRepository.findOne({
+          where: { 
+            id_naskah_asli: naskahKonsep.id_naskah_asli, 
+            jenis: 'K',
+            id_naskah_parent: IsNull(), // First in chain
+          },
+        });
+        if (firstNaskahK) {
+          firstNaskahKId = firstNaskahK.id;
+        }
+      }
+
       const allDisposisiReferensi = await this.naskahReferensiRepository.find({
-        where: { id_naskah: naskahKonsep.id, ref_jenis: 'DI' },
+        where: { id_naskah: firstNaskahKId, ref_jenis: 'DI' },
         order: { ref_tanggal: 'ASC' },
       });
 
@@ -2267,6 +2282,12 @@ export class KonsepService {
 
       // PHASE 2: Add konsep workflow events (create, forward, finalize, reject)
       for (const riwayat of riwayatList) {
+        // Convert pdf_snapshot path to URL if exists
+        let pdfSnapshotUrl: string | null = null;
+        if (riwayat.pdfSnapshot) {
+          pdfSnapshotUrl = await this.storageService.getFileUrl(riwayat.pdfSnapshot);
+        }
+
         flow.push({
           urutan: urutanCounter++,
           type: 'konsep',
@@ -2286,7 +2307,7 @@ export class KonsepService {
           
           aksi: riwayat.aksi, // 'create' | 'forward' | 'approve' | 'reject' | 'finalize'
           catatan: riwayat.catatan || null,
-          pdf_snapshot: riwayat.pdfSnapshot || null,
+          pdf_snapshot: pdfSnapshotUrl,
           created_at: riwayat.createdAt,
           created_by: riwayat.createdBy || null,
         });
@@ -2857,15 +2878,15 @@ export class KonsepService {
         order: { urutan: 'ASC' },
       });
 
-      return {
-        success: true,
-        message: 'Riwayat konsep berhasil diambil',
-        data: {
-          id_konsep: id,
-          perihal: naskahKonsep.perihal,
-          status: naskahKonsep.status,
-          total_langkah: riwayatList.length,
-          riwayat: riwayatList.map((r) => ({
+      // Convert pdf_snapshot paths to URLs
+      const riwayatWithUrls = await Promise.all(
+        riwayatList.map(async (r) => {
+          let pdfSnapshotUrl: string | null = null;
+          if (r.pdfSnapshot) {
+            pdfSnapshotUrl = await this.storageService.getFileUrl(r.pdfSnapshot);
+          }
+
+          return {
             urutan: r.urutan,
             from: {
               position_id: r.fromPositionId,
@@ -2879,10 +2900,22 @@ export class KonsepService {
             } : null,
             aksi: r.aksi,
             catatan: r.catatan,
-            pdf_snapshot: r.pdfSnapshot,
+            pdf_snapshot: pdfSnapshotUrl,
             created_at: r.createdAt,
             created_by: r.createdBy,
-          })),
+          };
+        }),
+      );
+
+      return {
+        success: true,
+        message: 'Riwayat konsep berhasil diambil',
+        data: {
+          id_konsep: id,
+          perihal: naskahKonsep.perihal,
+          status: naskahKonsep.status,
+          total_langkah: riwayatList.length,
+          riwayat: riwayatWithUrls,
         },
       };
     } catch (error) {
