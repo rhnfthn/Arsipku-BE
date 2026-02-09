@@ -133,7 +133,7 @@ export class KonsepService {
       // ==========================================
       const naskahKonsepId = uuidv4();
       // Perihal = catatan langsung (tanpa format)
-      const perihalKonsep = dto.catatan || 'Mohon review dan approval';
+      const perihalKonsep = dto.catatan || '';
       
       const naskahKonsep = this.naskahRepository.create({
         id: naskahKonsepId,
@@ -1146,7 +1146,7 @@ export class KonsepService {
       // 3. CREATE NEW NASKAH K (jenis='K')
       // ==========================================
       const newNaskahKonsepId = uuidv4();
-      const perihalKonsep = dto.catatan || 'Diteruskan untuk review';
+      const perihalKonsep = dto.catatan || '';
       
       // Generate sequential nomor
       const nomorKonsep = await this.generateKonsepNomorSequential(naskahAsliId, queryRunner);
@@ -1313,18 +1313,20 @@ export class KonsepService {
    * POST /KONSEP/finalize/:id
    * Finalisasi konsep - generate nomor surat dan kirim ke penerima final
    * 
-   * UPDATED: Menggunakan konsep_riwayat untuk validasi (konsisten dengan forward/reject)
-   * Naskah K TIDAK dihapus - tetap disimpan untuk history di inbox/sent
+   * REFACTORED: Setiap finalize membuat NASKAH K BARU (sama seperti forward/reject)
+   * - K baru akan muncul di kotak terkirim user yang finalize
+   * - K baru tidak punya penerima (finalize = endpoint)
+   * - Semua K dalam workflow di-update ke status 'final_tte'
    * 
    * Flow:
-   * 1. Validasi konsep dengan jenis='K' ada
+   * 1. Validasi konsep parent jenis='K' ada
    * 2. Validasi from_position_id adalah penerima konsep saat ini (via konsep_riwayat)
    * 3. Generate nomor surat resmi
-   * 4. Update naskah asli: status='final', nomor=generated, is_konsep=0 di sirkulasi
-   * 5. Update sirkulasi penerima/tembusan jika ada perubahan
+   * 4. CREATE NEW NASKAH K untuk finalize (pengirim=finalizer, penerima=null)
+   * 5. Update naskah asli: status='final', nomor=generated
    * 6. Update status ALL naskah K untuk workflow ini menjadi 'final_tte'
    * 
-   * @param id ID naskah konsep (jenis='K')
+   * @param id ID naskah konsep parent (jenis='K')
    * @param dto FinalizeKonsepDto
    * @returns FinalizeKonsepResponseDto
    */
@@ -1341,17 +1343,17 @@ export class KonsepService {
     await queryRunner.startTransaction();
 
     try {
-      // 1. Validate konsep exists and is jenis='K'
-      const naskahKonsep = await queryRunner.manager.findOne(NaskahEntity, {
+      // 1. Validate konsep parent exists and is jenis='K'
+      const naskahKonsepParent = await queryRunner.manager.findOne(NaskahEntity, {
         where: { id, jenis: 'K' },
       });
 
-      if (!naskahKonsep) {
+      if (!naskahKonsepParent) {
         throw new NotFoundException(`Konsep dengan ID ${id} tidak ditemukan`);
       }
 
       // 2. Get naskah asli
-      const naskahAsliId = naskahKonsep.id_naskah_asli;
+      const naskahAsliId = naskahKonsepParent.id_naskah_asli;
       if (!naskahAsliId) {
         throw new BadRequestException('Naskah asli tidak ditemukan untuk konsep ini');
       }
@@ -1423,7 +1425,30 @@ export class KonsepService {
         queryRunner,
       );
 
-      // 6. Update naskah asli
+      // 6. CREATE NEW NASKAH K untuk finalize
+      // Generate nomor sequential untuk K baru (KONSEP-XXX)
+      const nomorKonsep = await this.generateKonsepNomorSequential(naskahAsliId, queryRunner);
+      
+      const newNaskahKonsepId = uuidv4();
+      const newNaskahKonsep = new NaskahEntity();
+      newNaskahKonsep.id = newNaskahKonsepId;
+      newNaskahKonsep.jenis = 'K';
+      newNaskahKonsep.nomor = nomorKonsep;
+      newNaskahKonsep.perihal = dto.catatan || '';
+      newNaskahKonsep.status = dto.tanda_tangan ? 'final_tte' : 'final';
+      newNaskahKonsep.tanggal = tanggal;
+      newNaskahKonsep.id_naskah_asli = naskahAsliId;
+      newNaskahKonsep.id_naskah_parent = id; // Link ke konsep parent
+      await queryRunner.manager.save(newNaskahKonsep);
+
+      // 7. CREATE SIRKULASI untuk K baru
+      // Pengirim = finalizer (fromPos)
+      const sirkulasiKonsepPengirim = this.createSirkulasi(newNaskahKonsepId, 'pengirim', fromPos, false);
+      await queryRunner.manager.save(sirkulasiKonsepPengirim);
+      
+      // Penerima = null (finalize tidak ada penerima, ini endpoint workflow)
+
+      // 8. Update naskah asli
       const finalStatus = dto.tanda_tangan ? 'final_tte' : 'final';
       naskahAsli.nomor = nomorSurat;
       naskahAsli.status = finalStatus;
@@ -1434,13 +1459,13 @@ export class KonsepService {
       if (dto.klasifikasi_text) naskahAsli.klasifikasi_text = dto.klasifikasi_text;
       if (dto.sifat) naskahAsli.sifat = dto.sifat;
 
-      // 7. Update is_konsep=0 untuk sirkulasi naskah asli (sudah final)
+      // 9. Update is_konsep=0 untuk sirkulasi naskah asli (sudah final)
       await queryRunner.manager.update(NaskahSirkulasi, 
         { idNaskah: naskahAsliId },
         { isKonsep: 0 },
       );
 
-      // 8. Handle new penerima if provided (update sirkulasi)
+      // 10. Handle new penerima if provided (update sirkulasi naskah asli)
       const penerimaList: Array<{ position_id: number; position_text: string; nama: string | null }> = [];
       
       if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
@@ -1518,7 +1543,10 @@ export class KonsepService {
         naskahAsli.lampiran = `${totalLampiran} file`;
       }
 
-      // 11. Update ALL konsep workflow status to 'final_tte'
+      // 11. Update ALL konsep workflow status to 'final_tte' (including new K)
+      // Add new konsep K to list
+      konsepIds.push(newNaskahKonsepId);
+      
       // This marks all naskah K in this workflow as completed
       // They will still appear in inbox/sent for history, but status indicates completed
       for (const konsepId of konsepIds) {
@@ -1549,10 +1577,10 @@ export class KonsepService {
       // *** SAVE NASKAH ASLI - Satu kali save untuk semua perubahan (nomor, status, tanggal, lampiran, final_pdf) ***
       await queryRunner.manager.save(naskahAsli);
 
-      // Save riwayat with LATEST naskah K id (where from_position was penerima)
+      // Save riwayat with NEW naskah K id (finalize K)
       await this.saveRiwayat(
         queryRunner,
-        latestRiwayat.idNaskahKonsep, // Use the naskah K from latest riwayat
+        newNaskahKonsepId, // Use the NEW naskah K for finalize
         nextUrutan,
         dto.from_position_id,
         fromPos.position_text,
@@ -1572,7 +1600,7 @@ export class KonsepService {
         success: true,
         message: 'Konsep berhasil difinalisasi',
         data: {
-          id_konsep: id,
+          id_konsep: newNaskahKonsepId, // Return NEW naskah K id for finalize
           id_naskah: naskahAsliId,
           nomor_surat: nomorSurat,
           status: finalStatus as 'final' | 'final_tte',
@@ -1698,7 +1726,7 @@ export class KonsepService {
       // 4. CREATE NEW NASKAH K (jenis='K')
       // ==========================================
       const newNaskahKonsepId = uuidv4();
-      const perihalKonsep = dto.catatan || 'Ditolak, mohon diperbaiki';
+      const perihalKonsep = dto.catatan || '';
       
       // Generate sequential nomor
       const nomorKonsep = await this.generateKonsepNomorSequential(naskahAsliId, queryRunner);
@@ -2288,7 +2316,48 @@ export class KonsepService {
           pdfSnapshotUrl = await this.storageService.getFileUrl(riwayat.pdfSnapshot);
         }
 
-        flow.push({
+        // For finalize action, get actual penerima and tembusan from naskah asli
+        let toData: any = null;
+        let tembusanData: any[] | undefined;
+
+        if (riwayat.aksi === 'finalize' && naskahAsli) {
+          // Get penerima dari naskah asli (yang dikirim)
+          const penerimaFinal = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
+          });
+
+          if (penerimaFinal.length > 0) {
+            toData = penerimaFinal.map(p => ({
+              position_id: p.position || '',
+              position_text: p.positionText || '',
+              organization_text: p.organizationText || '',
+              nama: p.namaSirkuler || null,
+            }));
+          }
+
+          // Get tembusan dari naskah asli
+          const tembusanFinal = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
+          });
+
+          if (tembusanFinal.length > 0) {
+            tembusanData = tembusanFinal.map(t => ({
+              position_id: t.position || '',
+              position_text: t.positionText || '',
+              organization_text: t.organizationText || '',
+              nama: t.namaSirkuler || null,
+            }));
+          }
+        } else {
+          // For non-finalize actions, use toPositionId from riwayat
+          toData = riwayat.toPositionId ? {
+            position_id: riwayat.toPositionId,
+            position_text: riwayat.toPositionText || '',
+            nama: riwayat.toNama || null,
+          } : null;
+        }
+
+        const flowItem: any = {
           urutan: urutanCounter++,
           type: 'konsep',
           tanggal: riwayat.createdAt, // For sorting
@@ -2299,18 +2368,21 @@ export class KonsepService {
             nama: riwayat.fromNama || null,
           },
           
-          to: riwayat.toPositionId ? {
-            position_id: riwayat.toPositionId,
-            position_text: riwayat.toPositionText || '',
-            nama: riwayat.toNama || null,
-          } : null,
+          to: toData,
           
           aksi: riwayat.aksi, // 'create' | 'forward' | 'approve' | 'reject' | 'finalize'
-          catatan: riwayat.catatan || null,
+          catatan: riwayat.aksi === 'finalize' && naskahAsli ? (naskahAsli.perihal || null) : (riwayat.catatan || null),
           pdf_snapshot: pdfSnapshotUrl,
           created_at: riwayat.createdAt,
           created_by: riwayat.createdBy || null,
-        });
+        };
+
+        // Add tembusan only for finalize action
+        if (riwayat.aksi === 'finalize' && tembusanData && tembusanData.length > 0) {
+          flowItem.tembusan = tembusanData;
+        }
+
+        flow.push(flowItem);
       }
 
       // Sort flow by tanggal ASC (oldest first, newest last)
