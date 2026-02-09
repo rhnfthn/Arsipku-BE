@@ -490,24 +490,36 @@ export class DelegasiService {
   async getAvailableRoles(persnum: string): Promise<{
     delegations: Array<{
       id: string;
-      position_status: PositionStatus;
-      position_status_label: string;
-      position: string;
-      position_text: string;
-      organization: string;
-      organization_text: string;
-      area: string;
-      area_text: string;
-      sub_area: string;
-      sub_area_text: string;
-      company: string;
-      company_text: string;
-      start_date: Date;
-      end_date: Date;
-      delegator_name: string;
-      delegator_persnum: string;
-      delegator_position: string;
-      delegator_position_text: string;
+      // Role yang didelegasikan kepada user
+      delegated_role: {
+        position_status: PositionStatus;
+        position_status_label: string;
+        description: string; // Deskripsi singkat role
+        persnum: string; // Persnum penerima delegasi
+        name: string; // Nama penerima delegasi
+        position: string;
+        position_text: string;
+        organization: string;
+        organization_text: string;
+        area: string;
+        area_text: string;
+        sub_area: string;
+        sub_area_text: string;
+        company: string;
+        company_text: string;
+      };
+      // Info orang yang memberi delegasi (pemilik jabatan asli)
+      delegated_from: {
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+      };
+      // Periode delegasi
+      period: {
+        start_date: Date;
+        end_date: Date;
+      };
     }>;
   }> {
     // Use local date (Asia/Jakarta timezone) instead of UTC
@@ -529,29 +541,43 @@ export class DelegasiService {
 
     console.log('[getAvailableRoles] Active delegations found:', activeDelegations.length);
 
-    const delegations = activeDelegations.map(d => ({
-      id: d.id,
-      position_status: d.position_status,
-      position_status_label: POSITION_STATUS_LABELS[d.position_status] || d.position_status,
-      // Position yang didelegasikan (jabatan yang bisa digunakan)
-      position: d.as_position,
-      position_text: d.as_position_text,
-      organization: d.as_organization,
-      organization_text: d.as_organization_text,
-      area: d.as_area,
-      area_text: d.as_area_text,
-      sub_area: d.as_sub_area,
-      sub_area_text: d.as_sub_area_text,
-      company: d.company,
-      company_text: d.company_text,
-      start_date: d.start_date,
-      end_date: d.end_date,
-      // Info delegator (pemilik jabatan asli)
-      delegator_name: d.name,
-      delegator_persnum: d.persnum,
-      delegator_position: d.position,
-      delegator_position_text: d.position_text,
-    }));
+    const delegations = activeDelegations.map(d => {
+      const positionStatusLabel = POSITION_STATUS_LABELS[d.position_status] || d.position_status;
+      
+      return {
+        id: d.id,
+        // Role yang didelegasikan kepada user (yang bisa dipakai)
+        delegated_role: {
+          position_status: d.position_status,
+          position_status_label: positionStatusLabel,
+          description: `Anda bertindak sebagai ${positionStatusLabel} untuk jabatan ${d.as_position_text}`,
+          persnum: d.as_persnum,
+          name: d.as_name,
+          position: d.as_position,
+          position_text: d.as_position_text,
+          organization: d.as_organization,
+          organization_text: d.as_organization_text,
+          area: d.as_area,
+          area_text: d.as_area_text,
+          sub_area: d.as_sub_area,
+          sub_area_text: d.as_sub_area_text,
+          company: d.company,
+          company_text: d.company_text,
+        },
+        // Info orang yang memberi delegasi (pemilik jabatan asli)
+        delegated_from: {
+          persnum: d.persnum,
+          name: d.name,
+          position: d.position,
+          position_text: d.position_text,
+        },
+        // Periode delegasi
+        period: {
+          start_date: d.start_date,
+          end_date: d.end_date,
+        },
+      };
+    });
 
     return { delegations };
   }

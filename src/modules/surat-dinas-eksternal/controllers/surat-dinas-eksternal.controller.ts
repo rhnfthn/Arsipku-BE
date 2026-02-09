@@ -291,6 +291,11 @@ export class SuratDinasEksternalController {
         body.lampiran_temp_ids = lampiranTempIds;
       }
 
+      // Parse boolean fields from form-data (string 'true'/'false' to actual boolean)
+      if (body.english !== undefined) {
+        body.english = body.english === 'true' || body.english === true;
+      }
+
       const dto = body as UpdateSdeDraftDto;
       return await this.sdeService.updateDraft(id, dto);
     } catch (error) {
