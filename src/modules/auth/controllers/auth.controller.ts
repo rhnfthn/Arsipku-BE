@@ -319,14 +319,33 @@ export class AuthController {
     } | null;
     delegations?: Array<{
       id: string;
-      position_status: string;
-      position_status_label: string;
-      position: string;
-      position_text: string;
-      organization: string;
-      organization_text: string;
-      start_date: Date;
-      end_date: Date;
+      delegated_role: {
+        position_status: string;
+        position_status_label: string;
+        description: string;
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+        organization: string;
+        organization_text: string;
+        area: string;
+        area_text: string;
+        sub_area: string;
+        sub_area_text: string;
+        company: string;
+        company_text: string;
+      };
+      delegated_from: {
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+      };
+      period: {
+        start_date: Date;
+        end_date: Date;
+      };
     }>;
   }> {
     // Get alamat info from sub_area_alamat based on user context
@@ -358,29 +377,38 @@ export class AuthController {
     // Get active delegations for this user (where user is the recipient)
     let delegations: Array<{
       id: string;
-      position_status: string;
-      position_status_label: string;
-      position: string;
-      position_text: string;
-      organization: string;
-      organization_text: string;
-      start_date: Date;
-      end_date: Date;
+      delegated_role: {
+        position_status: string;
+        position_status_label: string;
+        description: string;
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+        organization: string;
+        organization_text: string;
+        area: string;
+        area_text: string;
+        sub_area: string;
+        sub_area_text: string;
+        company: string;
+        company_text: string;
+      };
+      delegated_from: {
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+      };
+      period: {
+        start_date: Date;
+        end_date: Date;
+      };
     }> = [];
     try {
       if (user.persnum) {
         const result = await this.delegasiService.getAvailableRoles(String(user.persnum));
-        delegations = result.delegations.map(d => ({
-          id: d.id,
-          position_status: d.position_status,
-          position_status_label: d.position_status_label,
-          position: d.position,
-          position_text: d.position_text,
-          organization: d.organization,
-          organization_text: d.organization_text,
-          start_date: d.start_date,
-          end_date: d.end_date,
-        }));
+        delegations = result.delegations;
       }
     } catch (error) {
       console.error('[getProfile] Error fetching delegations:', error);

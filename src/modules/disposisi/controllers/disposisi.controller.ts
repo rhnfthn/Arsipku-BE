@@ -254,6 +254,11 @@ export class DisposisiController {
         }
       }
 
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
       return await this.disposisiService.sendMessage(body as CreateDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -361,6 +366,11 @@ export class DisposisiController {
         } catch {
           body.lampiran_temp_ids = [body.lampiran_temp_ids];
         }
+      }
+
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
       return await this.disposisiService.saveDraft(body as CreateDisposisiDto);
@@ -570,6 +580,11 @@ export class DisposisiController {
         }
       }
 
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
       return await this.disposisiService.sendDraft(id, body as SendDraftDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -687,6 +702,11 @@ export class DisposisiController {
         } catch {
           body.lampiran_temp_ids = [body.lampiran_temp_ids];
         }
+      }
+
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
       return await this.disposisiService.updateDraft(id, body as UpdateDraftDisposisiDto);
@@ -816,6 +836,11 @@ export class DisposisiController {
         body.copy_lampiran_from_previous = !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
       } else if (typeof body.copy_lampiran_from_previous === 'string') {
         body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
+      }
+
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
       console.log('[forward] Parsed body:', JSON.stringify(body, null, 2));
