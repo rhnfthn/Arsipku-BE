@@ -75,6 +75,7 @@ export enum SearchScopeEnum {
   ARCHIVED = 'archived',     // Arsip saja
   FAVORITE = 'favorite',     // Favorit (bisa include archived)
   ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
+  PRIORITY = 'priority',     // Disposisi prioritas (jenis=DI dan is_priority=1)
 }
 
 /**
