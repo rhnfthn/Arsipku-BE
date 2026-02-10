@@ -55,13 +55,14 @@ export class GetNomorResponseDto {
     perihal: string | null;
     tanggal: Date | null;
     nomor: string | null;
+    status: string;
     nama_pengirim: string | null;
     waktu: Date;
   }[];
   pagination?: {
     page: number;
     limit: number;
-    total: number;
+    total: number;                 // Total usulan (bukan nomor)
     totalPages: number;
   };
 }
