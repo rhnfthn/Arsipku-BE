@@ -60,7 +60,7 @@ This is enforced via the `naskah_sirkulasi` table join which filters by user's p
 | `status` | enum | `draf`, `final`, `final_tte` | Document status |
 | `klasifikasi` | string | - | Classification code (partial match) |
 | `hasAttachment` | boolean | `true`, `false` | Filter by attachment presence |
-| `scope` | enum | `inbox`, `sent`, `draft`, `all`, `active`, `archived`, `favorite` | Filter by folder/source |
+| `scope` | enum | `inbox`, `sent`, `draft`, `all`, `active`, `archived`, `favorite`, `priority` | Filter by folder/source |
 
 #### Jenis (Document Type) Reference
 
@@ -84,6 +84,7 @@ This is enforced via the `naskah_sirkulasi` table join which filters by user's p
 | `draft` | Draft naskah only (excluding archived) |
 | `archived` | Archived naskah only |
 | `favorite` | Favorited naskah only |
+| `priority` | Priority disposisi only (jenis=DI with is_priority=1, excluding archived) |
 
 ### Date Filters
 
@@ -114,6 +115,58 @@ This is enforced via the `naskah_sirkulasi` table join which filters by user's p
 | `areaFrom` | string | Filter by sender's area |
 | `subAreaFrom` | string | Filter by sender's sub-area |
 | `organizationFrom` | string | Filter by sender's organization |
+
+### Hierarchical Label Filter (Gmail-style)
+
+Filter documents by labels that support hierarchy (e.g., `Parent/Child/Grandchild`). Filtering by a parent label includes all nested children.
+
+| Parameter | Type | Example | Description |
+|-----------|------|---------|-------------|
+| `label` | string | `Work/Projects/Q1` | Full label path, slash-separated |
+
+#### Label Filter Behavior
+
+- **Parent Filter:** `label=Work` returns all documents labeled `Work`, `Work/Projects`, `Work/Invoices`, etc.
+- **Exact Path:** The path must match the hierarchy structure exactly.
+
+#### Usage Examples
+
+```bash
+# Filter by top-level label (includes all sub-labels)
+GET /search/v3?label=Work
+
+# Filter by nested label
+GET /search/v3?label=Work/Projects/Q1
+
+# Combine with other filters
+GET /search/v3?label=Work&scope=inbox&jenis=ND
+```
+
+### Unread Status Filter
+
+Filter documents based on whether they have been read by the current user.
+
+| Parameter | Type | Example | Description |
+|-----------|------|---------|-------------|
+| `isRead` | boolean | `false` | `true` for read, `false` for unread items |
+
+#### isRead Filter Behavior
+
+- **Context:** Filters based on the **current user's** read status in the `naskah_sirkulasi` table.
+- **Combination:** Can be combined with other filters like `scope` or `label`.
+
+#### Usage Examples
+
+```bash
+# Filter for UNREAD documents in Inbox
+GET /search/v3?isRead=false&scope=inbox
+
+# Filter for READ documents regardless of location
+GET /search/v3?isRead=true
+
+# Combine with label filter
+GET /search/v3?isRead=false&label=Work/Urgent
+```
 
 ### Pagination & Sorting
 
@@ -216,6 +269,15 @@ This is enforced via the `naskah_sirkulasi` table join which filters by user's p
         "biasa": 30,
         "terbatas": 8,
         "rahasia": 4
+      },
+      "label": {
+        "Work": 50,
+        "Work/Projects": 25,
+        "Personal": 15
+      },
+      "isRead": {
+        "true": 37,
+        "false": 5
       }
     }
   }
@@ -380,10 +442,30 @@ The response includes `facets` object with counts for sidebar filter navigation:
       "biasa": 30,
       "terbatas": 8,
       "rahasia": 4
+    },
+    "label": {
+      "Work": 50,
+      "Work/Projects": 25,
+      "Work/Projects/Q1": 10,
+      "Personal": 30
+    },
+    "isRead": {
+      "true": 150,
+      "false": 5
     }
   }
 }
 ```
+
+### Facet Descriptions
+
+| Facet | Description |
+|-------|-------------|
+| `jenis` | Document type counts |
+| `status` | Document status counts |
+| `sifat` | Confidentiality level counts |
+| `label` | Hierarchical label path counts (full paths like "Work/Projects") |
+| `isRead` | Read/unread counts based on current user's read status |
 
 Facets are calculated based on the user's accessible documents only.
 
