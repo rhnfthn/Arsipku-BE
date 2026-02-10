@@ -42,25 +42,21 @@ export class GetNomorQueryDto {
 
 /**
  * Response DTO untuk get nomor
- * Data di-group berdasarkan usulan (request), bukan per nomor
- * Pagination berdasarkan jumlah usulan
  */
 export class GetNomorResponseDto {
   success: boolean;
   message: string;
   data: {
     id: string;
+    id_request: string | null;
     jenis: string | null;
-    penandatangan: string | null;
+    jabatan: string | null;
+    klasifikasi: string | null;
     perihal: string | null;
     tanggal: Date | null;
+    nomor: string | null;
     nama_pengirim: string | null;
     waktu: Date;
-    nomor_list: {
-      id: string;
-      nomor: string | null;
-      status: string;
-    }[];
   }[];
   pagination?: {
     page: number;
