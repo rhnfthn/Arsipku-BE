@@ -2273,43 +2273,44 @@ export class NomorService {
 
   /**
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
-   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
+   * OPTIMIZED: Pagination per usulan (request), output tetap flat per nomor
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Optimized: Load details dengan request dalam 1 query
-    const details = await this.nomorRequestDetailRepository.find({
-      where: [
-        { status: 'terpakai' },
-        { status: 'terpakai_final' },
-        { status: 'hangus' },
-      ],
-      relations: ['request'],
+    // Load requests yang memiliki nomor dengan status terpakai/hangus
+    const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
     // Optimized: Gunakan cached position data
     const positionJsonData = await this.getLatestPositionJsonData();
 
-    // Process tanpa N+1 query
-    const data = details.map((detail) => {
-      const request = detail.request;
+    // Process dan filter requests yang memiliki nomor jadi
+    const usulanData = requests.map((request) => {
+      // Filter details hanya yang sudah jadi (terpakai, terpakai_final, hangus)
+      const validDetails = (request.details || []).filter(
+        (d) => d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus'
+      );
 
-      if (!request) {
+      // Skip jika tidak ada nomor yang sudah jadi
+      if (validDetails.length === 0) {
         return null;
       }
 
       // Apply filter tahun jika ada
       if (query.tahun) {
-        const detailTahun = new Date(request.tanggal!).getFullYear();
-        if (detailTahun !== query.tahun) {
+        const requestTahun = new Date(request.tanggal!).getFullYear();
+        if (requestTahun !== query.tahun) {
           return null;
         }
       }
 
-      // Apply search filter
+      // Apply search filter (search di nomor, perihal, atau jenis)
       if (query.search) {
         const searchLower = query.search.toLowerCase();
-        const nomorMatch = detail.nomor && detail.nomor.toLowerCase().includes(searchLower);
+        const nomorMatch = validDetails.some(
+          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower)
+        );
         const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
         const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
         
@@ -2332,40 +2333,40 @@ export class NomorService {
         jabatan = penandatanganPosition?.position_text || null;
       }
 
+      // Sort details by createdAt DESC (terbaru di atas)
+      validDetails.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Waktu usulan = waktu nomor terakhir yang dibuat (untuk sorting)
+      const latestDetailTime = validDetails.length > 0 ? validDetails[0].createdAt : request.createdAt;
+
       return {
-        id: detail.id,
-        id_request: detail.idRequest || null,
-        jenis: request.jenis,
+        request,
         jabatan,
-        klasifikasi: request.klasifikasi,
-        perihal: request.perihal,
-        tanggal: request.tanggal,
-        nomor: detail.nomor,
-        status: detail.status,
-        nama_pengirim: namaPengirim,
-        waktu: detail.createdAt,
+        namaPengirim,
+        waktu: latestDetailTime,
+        details: validDetails,
       };
     });
 
     // Filter out null values
-    const filteredData = data.filter((item) => item !== null);
+    const filteredUsulan = usulanData.filter((item) => item !== null);
 
-    // Apply sorting
+    // Apply sorting (default by waktu DESC - terbaru di atas)
+    const sortOrder = query?.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
     if (query?.sort_by) {
-      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
-      filteredData.sort((a, b) => {
+      filteredUsulan.sort((a, b) => {
         let aValue: any;
         let bValue: any;
 
         if (query.sort_by === 'tanggal') {
-          aValue = a.tanggal ? new Date(a.tanggal).getTime() : 0;
-          bValue = b.tanggal ? new Date(b.tanggal).getTime() : 0;
+          aValue = a.request.tanggal ? new Date(a.request.tanggal).getTime() : 0;
+          bValue = b.request.tanggal ? new Date(b.request.tanggal).getTime() : 0;
         } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
           aValue = new Date(a.waktu).getTime();
           bValue = new Date(b.waktu).getTime();
         } else if (query.sort_by === 'jenis') {
-          aValue = (a.jenis || '').toLowerCase();
-          bValue = (b.jenis || '').toLowerCase();
+          aValue = (a.request.jenis || '').toLowerCase();
+          bValue = (b.request.jenis || '').toLowerCase();
           return aValue.localeCompare(bValue) * sortOrder;
         } else {
           return 0;
@@ -2373,24 +2374,44 @@ export class NomorService {
 
         return (aValue - bValue) * sortOrder;
       });
+    } else {
+      // Default sort by waktu DESC
+      filteredUsulan.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
     }
 
-    // Apply pagination
+    // Apply pagination (per usulan, bukan per nomor)
     const page = query?.page || 1;
     const limit = query?.limit || 10;
-    const total = filteredData.length;
+    const total = filteredUsulan.length;  // Total usulan
     const totalPages = Math.ceil(total / limit);
     const skip = (page - 1) * limit;
-    const paginatedData = filteredData.slice(skip, skip + limit);
+    const paginatedUsulan = filteredUsulan.slice(skip, skip + limit);
+
+    // Flatten ke format per-nomor untuk response
+    const flatData = paginatedUsulan.flatMap((item) => 
+      item.details.map((detail) => ({
+        id: detail.id,
+        id_request: item.request.id,
+        jenis: item.request.jenis,
+        jabatan: item.jabatan,
+        klasifikasi: item.request.klasifikasi,
+        perihal: item.request.perihal,
+        tanggal: item.request.tanggal,
+        nomor: detail.nomor,
+        status: detail.status,
+        nama_pengirim: item.namaPengirim,
+        waktu: detail.createdAt,
+      }))
+    );
 
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: paginatedData,
+      data: flatData,
       pagination: {
         page,
         limit,
-        total,
+        total,          // Total usulan (bukan nomor)
         totalPages,
       },
     };
