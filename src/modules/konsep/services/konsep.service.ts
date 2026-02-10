@@ -3273,4 +3273,911 @@ export class KonsepService {
 
     await queryRunner.manager.save(riwayat);
   }
+
+  // ==========================================
+  // DRAFT KONSEP METHODS
+  // ==========================================
+
+  /**
+   * CREATE DRAFT KONSEP
+   * 
+   * Membuat naskah draft (status='draf') yang belum dikirim ke pemeriksa.
+   * Draft konsep hanya membuat naskah asli (ND/SDI/SDE), belum ada workflow K.
+   * 
+   * @param dto CreateDraftKonsepDto
+   * @returns CreateDraftKonsepResponseDto
+   */
+  async createDraftKonsep(dto: any): Promise<any> {
+    const barisData = await this.getPositionData();
+    const fromPos = this.findByPosition(barisData, dto.from_position_id);
+
+    if (!fromPos) {
+      throw new NotFoundException(`Position ${dto.from_position_id} tidak ditemukan`);
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const tanggalHariIni = new Date();
+      const naskahDraftId = uuidv4();
+
+      // Create naskah draft (status='draf')
+      const naskahDraft = this.naskahRepository.create({
+        id: naskahDraftId,
+        jenis: dto.jenis,
+        klasifikasi: dto.klasifikasi || null,
+        klasifikasi_text: dto.klasifikasi_text || null,
+        sifat: dto.sifat || 'biasa',
+        nomor: '-', // Draft tidak punya nomor
+        tanggal: dto.tgl ? new Date(dto.tgl) : tanggalHariIni,
+        perihal: dto.perihal || null,
+        konten: dto.konten || null,
+        tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
+        status: 'draf', // Status draft
+        // Catatan disimpan di field terpisah atau di metadata
+      });
+
+      // Simpan catatan konsep jika ada (gunakan field yang tersedia atau di lampiran metadata)
+      if (dto.catatan) {
+        (naskahDraft as any).catatan_konsep = dto.catatan;
+      }
+
+      await queryRunner.manager.save(naskahDraft);
+
+      // Create sirkulasi pengirim (pembuat draft)
+      const sirkulasiPengirim = this.createSirkulasi(naskahDraftId, 'pengirim', fromPos, false);
+      await queryRunner.manager.save(sirkulasiPengirim);
+
+      // Handle penerima naskah final (jika sudah diisi)
+      if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+        for (const posId of dto.penerima_position_ids) {
+          const pos = this.findByPosition(barisData, posId);
+          if (!pos) continue;
+          const sirkulasi = this.createSirkulasi(naskahDraftId, 'penerima', pos, false);
+          await queryRunner.manager.save(sirkulasi);
+        }
+      } else if (dto.kepada_yth) {
+        // Penerima text untuk SDE
+        const sirkulasiPenerima = new NaskahSirkulasi();
+        sirkulasiPenerima.id = uuidv4();
+        sirkulasiPenerima.idNaskah = naskahDraftId;
+        sirkulasiPenerima.sirkuler = 'penerima';
+        sirkulasiPenerima.company = String(COMPANY_ID);
+        sirkulasiPenerima.positionText = dto.kepada_yth;
+        sirkulasiPenerima.namaSirkuler = dto.kepada_yth;
+        sirkulasiPenerima.isKonsep = 0;
+        if (dto.alamat) sirkulasiPenerima.alamat = dto.alamat;
+        await queryRunner.manager.save(sirkulasiPenerima);
+      }
+
+      // Handle tembusan (jika sudah diisi)
+      if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
+        for (const posId of dto.tembusan_position_ids) {
+          const pos = this.findByPosition(barisData, posId);
+          if (!pos) continue;
+          const sirkulasi = this.createSirkulasi(naskahDraftId, 'tembusan', pos, false);
+          await queryRunner.manager.save(sirkulasi);
+        }
+      } else if (dto.tembusan) {
+        const sirkulasiTembusan = new NaskahSirkulasi();
+        sirkulasiTembusan.id = uuidv4();
+        sirkulasiTembusan.idNaskah = naskahDraftId;
+        sirkulasiTembusan.sirkuler = 'tembusan';
+        sirkulasiTembusan.company = String(COMPANY_ID);
+        sirkulasiTembusan.positionText = dto.tembusan;
+        sirkulasiTembusan.namaSirkuler = dto.tembusan;
+        sirkulasiTembusan.isKonsep = 0;
+        await queryRunner.manager.save(sirkulasiTembusan);
+      }
+
+      // Handle tanda tangan
+      if (dto.tanda_tangan) {
+        naskahDraft.tandaTangan = dto.tanda_tangan;
+        await queryRunner.manager.save(naskahDraft);
+      }
+
+      // Handle lampiran
+      let jumlahLampiran = 0;
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.handleLampiranTempIds(naskahDraftId, dto.lampiran_temp_ids, dto.jenis);
+        jumlahLampiran = dto.lampiran_temp_ids.length;
+      } else if (dto.lampiran && dto.lampiran.length > 0) {
+        for (const lamp of dto.lampiran) {
+          const lampiran = this.naskahLampiranRepository.create({
+            id: uuidv4(),
+            id_naskah: naskahDraftId,
+            file_name: lamp.nama_file,
+            file_pdf: lamp.url,
+            jenis: dto.jenis,
+            is_temporary: 0,
+          });
+          await queryRunner.manager.save(lampiran);
+        }
+        jumlahLampiran = dto.lampiran.length;
+      }
+
+      if (jumlahLampiran > 0) {
+        naskahDraft.lampiran = `${jumlahLampiran} file`;
+        await queryRunner.manager.save(naskahDraft);
+      }
+
+      // Simpan referensi disposisi jika ada
+      if (dto.id_disposisi_referensi) {
+        const disposisiRef = await queryRunner.manager.findOne(NaskahEntity, {
+          where: { id: dto.id_disposisi_referensi, jenis: 'DI' },
+        });
+
+        if (disposisiRef) {
+          const naskahReferensi = new NaskahReferensiEntity();
+          naskahReferensi.id = uuidv4();
+          naskahReferensi.id_naskah = naskahDraftId;
+          naskahReferensi.ref_jenis = 'DI';
+          naskahReferensi.ref_nomor = disposisiRef.nomor;
+          naskahReferensi.ref_tanggal = disposisiRef.tanggal;
+          naskahReferensi.ref_perihal = disposisiRef.perihal;
+          await queryRunner.manager.save(naskahReferensi);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Draft konsep berhasil disimpan',
+        data: {
+          id_draft: naskahDraftId,
+          jenis: dto.jenis,
+          from: {
+            position_id: fromPos.position,
+            position_text: fromPos.position_text,
+            nama: fromPos.persnum_person_text,
+          },
+          status: 'draf',
+          created_at: tanggalHariIni,
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * GET DRAFT KONSEP LIST
+   * 
+   * Mendapatkan list draft konsep milik user (naskah dengan status='draf' dan jenis ND/SDI/SDE)
+   * 
+   * @param positionId Position ID pembuat
+   * @param jenis Filter by jenis (ND/SDI/SDE)
+   * @param search Search by perihal
+   * @param startDate Start date filter
+   * @param endDate End date filter
+   * @param preset Date preset
+   * @param page Page number
+   * @param limit Items per page
+   * @returns GetDraftKonsepListResponseDto
+   */
+  async getDraftKonsepList(
+    positionId: number,
+    jenis?: 'ND' | 'SDI' | 'SDE',
+    search?: string,
+    startDate?: string,
+    endDate?: string,
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<any> {
+    // Calculate date range
+    const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset);
+
+    // Get sirkulasi records for this position as pengirim with status draf
+    const sirkulasiRecords = await this.naskahSirkulasiRepository
+      .createQueryBuilder('sirkulasi')
+      .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+      .andWhere('sirkulasi.position = :position', { position: String(positionId) })
+      .andWhere('sirkulasi.is_konsep = :isKonsep', { isKonsep: 0 })
+      .getMany();
+
+    const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
+
+    if (naskahIdsFromSirkulasi.length === 0) {
+      return {
+        success: true,
+        data: [],
+        pagination: { total: 0, page, limit, totalPages: 0 },
+      };
+    }
+
+    // Build query for draft naskah (jenis ND/SDI/SDE with status draf)
+    const queryBuilder = this.naskahRepository
+      .createQueryBuilder('naskah')
+      .where('naskah.id IN (:...naskahIds)', { naskahIds: naskahIdsFromSirkulasi })
+      .andWhere('naskah.status = :status', { status: 'draf' })
+      .andWhere('naskah.jenis IN (:...jenisTypes)', { jenisTypes: ['ND', 'SDI', 'SDE'] });
+
+    // Apply date filter
+    if (dateRange.startDate) {
+      queryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
+    }
+    if (dateRange.endDate) {
+      queryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
+    }
+
+    // Filter by jenis if provided
+    if (jenis) {
+      queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
+    }
+
+    // Search by perihal
+    if (search) {
+      queryBuilder.andWhere('naskah.perihal LIKE :search', { search: `%${search}%` });
+    }
+
+    // Order by created_at desc
+    queryBuilder.orderBy('naskah.createdAt', 'DESC').addOrderBy('naskah.id', 'DESC');
+
+    // Get total count
+    const total = await queryBuilder.getCount();
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+
+    // Apply pagination
+    queryBuilder.skip(offset).take(limit);
+    const naskahs = await queryBuilder.getMany();
+
+    // Build response items
+    const jenisTextMap: Record<string, string> = {
+      ND: 'Nota Dinas',
+      SDI: 'Surat Dinas Internal',
+      SDE: 'Surat Dinas Eksternal',
+    };
+
+    const items = await Promise.all(
+      naskahs.map(async (naskah) => {
+        // Get penerima count
+        const penerimaCount = await this.naskahSirkulasiRepository.count({
+          where: { idNaskah: naskah.id, sirkuler: 'penerima' },
+        });
+
+        // Get lampiran count
+        const lampiranCount = await this.naskahLampiranRepository.count({
+          where: { id_naskah: naskah.id },
+        });
+
+        // Format waktu
+        const tanggal = new Date(naskah.tanggal);
+        const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
+
+        return {
+          id_draft: naskah.id,
+          jenis: naskah.jenis as 'ND' | 'SDI' | 'SDE',
+          jenis_text: jenisTextMap[naskah.jenis] || naskah.jenis,
+          perihal: naskah.perihal || '-',
+          sifat: naskah.sifat || 'biasa',
+          klasifikasi_text: naskah.klasifikasi_text || null,
+          tanggal: naskah.tanggal,
+          waktu: waktuUTC,
+          penerima_count: penerimaCount,
+          lampiran_count: lampiranCount,
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      data: items,
+      pagination: { total, page, limit, totalPages },
+    };
+  }
+
+  /**
+   * Helper: Calculate date range from query parameters
+   */
+  private getDateRangeFromQuery(
+    startDate?: string,
+    endDate?: string,
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+  ): { startDate: string | null; endDate: string | null } {
+    if (preset === 'semua') {
+      return { startDate: null, endDate: null };
+    }
+
+    if (startDate || endDate) {
+      return { startDate: startDate || null, endDate: endDate || null };
+    }
+
+    if (preset) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+
+      let daysBack: number;
+      switch (preset) {
+        case '7_hari': daysBack = 7; break;
+        case '30_hari': daysBack = 30; break;
+        case '60_hari': daysBack = 60; break;
+        case '1_tahun': daysBack = 365; break;
+        default: return { startDate: null, endDate: null };
+      }
+
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - daysBack);
+      return { startDate: startDateCalc.toISOString().split('T')[0], endDate: todayStr };
+    }
+
+    // Default: 30 hari
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const startDateCalc = new Date(today);
+    startDateCalc.setDate(startDateCalc.getDate() - 30);
+    return { startDate: startDateCalc.toISOString().split('T')[0], endDate: todayStr };
+  }
+
+  /**
+   * GET DRAFT KONSEP DETAIL
+   * 
+   * @param idDraft ID naskah draft
+   * @param positionId Position ID untuk validasi ownership
+   * @returns GetDraftKonsepDetailResponseDto
+   */
+  async getDraftKonsepDetail(idDraft: string, positionId: number): Promise<any> {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idDraft } });
+
+    if (!naskah) {
+      throw new NotFoundException(`Draft dengan ID ${idDraft} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'draf') {
+      throw new ForbiddenException(`Naskah ini bukan draft (status: ${naskah.status})`);
+    }
+
+    if (!['ND', 'SDI', 'SDE'].includes(naskah.jenis)) {
+      throw new ForbiddenException(`Naskah ini bukan draft konsep (jenis: ${naskah.jenis})`);
+    }
+
+    // Validate ownership
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: { idNaskah: idDraft, sirkuler: 'pengirim' },
+    });
+
+    if (!pengirimSirkulasi) {
+      throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
+    }
+
+    if (String(pengirimSirkulasi.position) !== String(positionId)) {
+      throw new ForbiddenException(`Anda tidak memiliki akses ke draft ini`);
+    }
+
+    // Get penerima
+    const penerimaList = await this.naskahSirkulasiRepository.find({
+      where: { idNaskah: idDraft, sirkuler: 'penerima' },
+    });
+
+    const penerima = penerimaList.map(p => ({
+      position_id: Number(p.position) || 0,
+      position_text: p.positionText || '',
+      nama: p.namaSirkuler || null,
+    }));
+
+    // Get tembusan
+    const tembusanList = await this.naskahSirkulasiRepository.find({
+      where: { idNaskah: idDraft, sirkuler: 'tembusan' },
+    });
+
+    const tembusan = tembusanList.map(t => ({
+      position_id: Number(t.position) || 0,
+      position_text: t.positionText || '',
+      nama: t.namaSirkuler || null,
+    }));
+
+    // Get lampiran
+    const lampiranList = await this.naskahLampiranRepository.find({
+      where: { id_naskah: idDraft },
+    });
+
+    const lampiran = lampiranList.map(l => ({
+      id: l.id,
+      nama_file: l.file_name || '',
+      url: l.file_pdf || '',
+    }));
+
+    // Get referensi disposisi
+    let disposisiReferensi: { id: string; nomor: string; perihal: string | null } | null = null;
+    const referensiData = await this.naskahReferensiRepository.findOne({
+      where: { id_naskah: idDraft, ref_jenis: 'DI' },
+    });
+    if (referensiData) {
+      disposisiReferensi = {
+        id: referensiData.id,
+        nomor: referensiData.ref_nomor || '',
+        perihal: referensiData.ref_perihal || null,
+      };
+    }
+
+    const jenisTextMap: Record<string, string> = {
+      ND: 'Nota Dinas',
+      SDI: 'Surat Dinas Internal',
+      SDE: 'Surat Dinas Eksternal',
+    };
+
+    // Check kepada_yth text for SDE
+    let penerimaText: string | null = null;
+    if (naskah.jenis === 'SDE' && penerimaList.length > 0 && !penerimaList[0].position) {
+      penerimaText = penerimaList[0].positionText || penerimaList[0].namaSirkuler || null;
+    }
+
+    let tembusanText: string | null = null;
+    if (tembusanList.length > 0 && !tembusanList[0].position) {
+      tembusanText = tembusanList[0].positionText || tembusanList[0].namaSirkuler || null;
+    }
+
+    return {
+      success: true,
+      data: {
+        id_draft: naskah.id,
+        jenis: naskah.jenis as 'ND' | 'SDI' | 'SDE',
+        jenis_text: jenisTextMap[naskah.jenis] || naskah.jenis,
+        from_position_id: Number(pengirimSirkulasi.position),
+        from_position_text: pengirimSirkulasi.positionText || '',
+        from_nama: pengirimSirkulasi.namaSirkuler || null,
+        from_organization_text: pengirimSirkulasi.organizationText || null,
+        perihal: naskah.perihal || null,
+        konten: naskah.konten || null,
+        sifat: naskah.sifat || 'biasa',
+        klasifikasi: naskah.klasifikasi || null,
+        klasifikasi_text: naskah.klasifikasi_text || null,
+        tanggal: naskah.tanggal,
+        penerima: penerima.length > 0 ? penerima : undefined,
+        penerima_text: penerimaText,
+        tembusan: tembusan.length > 0 ? tembusan : undefined,
+        tembusan_text: tembusanText,
+        lampiran: lampiran.length > 0 ? lampiran : undefined,
+        disposisi_referensi: disposisiReferensi,
+        catatan: (naskah as any).catatan_konsep || null,
+        status: 'draf',
+        created_at: naskah.tanggal,
+        updated_at: naskah.tanggal,
+      },
+    };
+  }
+
+  /**
+   * UPDATE DRAFT KONSEP
+   * 
+   * @param idDraft ID naskah draft
+   * @param dto UpdateDraftKonsepDto
+   * @returns UpdateDraftKonsepResponseDto
+   */
+  async updateDraftKonsep(idDraft: string, dto: any): Promise<any> {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idDraft } });
+
+    if (!naskah) {
+      throw new NotFoundException(`Draft dengan ID ${idDraft} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'draf') {
+      throw new ForbiddenException(`Naskah ini bukan draft (status: ${naskah.status})`);
+    }
+
+    // Validate ownership
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: { idNaskah: idDraft, sirkuler: 'pengirim' },
+    });
+
+    if (!pengirimSirkulasi) {
+      throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
+    }
+
+    if (String(pengirimSirkulasi.position) !== String(dto.from_position_id)) {
+      throw new ForbiddenException(`Anda tidak memiliki akses untuk mengupdate draft ini`);
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Jika action = 'kirim', convert draft ke konsep workflow
+      if (dto.action === 'kirim') {
+        if (!dto.to_position_id) {
+          throw new BadRequestException('Penerima konsep (to_position_id) harus diisi untuk mengirim');
+        }
+
+        const barisData = await this.getPositionData();
+        const fromPos = this.findByPosition(barisData, dto.from_position_id);
+        const toPos = this.findByPosition(barisData, dto.to_position_id);
+
+        if (!fromPos) {
+          throw new NotFoundException(`Position ${dto.from_position_id} tidak ditemukan`);
+        }
+        if (!toPos) {
+          throw new NotFoundException(`Position ${dto.to_position_id} tidak ditemukan`);
+        }
+
+        // Update fields on naskah asli
+        if (dto.jenis) naskah.jenis = dto.jenis;
+        if (dto.perihal) naskah.perihal = dto.perihal;
+        if (dto.konten) naskah.konten = dto.konten;
+        if (dto.klasifikasi) naskah.klasifikasi = dto.klasifikasi;
+        if (dto.klasifikasi_text) naskah.klasifikasi_text = dto.klasifikasi_text;
+        if (dto.sifat) naskah.sifat = dto.sifat;
+        if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
+        if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
+        naskah.status = 'final';
+
+        // ==========================================
+        // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
+        // ==========================================
+        const naskahKonsepId = uuidv4();
+        const perihalKonsep = dto.catatan || 'Mohon review dan approval';
+        
+        const naskahKonsep = this.naskahRepository.create({
+          id: naskahKonsepId,
+          jenis: 'K',
+          nomor: 'KONSEP-001',
+          tanggal: new Date(),
+          perihal: perihalKonsep,
+          sifat: 'biasa',
+          status: 'final',
+          id_naskah_asli: idDraft,
+          id_naskah_parent: null,
+        });
+        await queryRunner.manager.save(naskahKonsep);
+
+        // Update naskah asli dengan link ke konsep workflow
+        naskah.id_naskah_konsep = naskahKonsepId;
+        await queryRunner.manager.save(naskah);
+
+        // ==========================================
+        // 2. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
+        // ==========================================
+        const sirkulasiKonsepPengirim = this.createSirkulasi(naskahKonsepId, 'pengirim', fromPos, false);
+        await queryRunner.manager.save(sirkulasiKonsepPengirim);
+
+        const sirkulasiKonsepPenerima = this.createSirkulasi(naskahKonsepId, 'penerima', toPos, false);
+        await queryRunner.manager.save(sirkulasiKonsepPenerima);
+
+        // ==========================================
+        // 3. UPDATE SIRKULASI FOR NASKAH ASLI (is_konsep=1)
+        // ==========================================
+        // Update existing pengirim sirkulasi to is_konsep=1
+        await queryRunner.manager.update(NaskahSirkulasi, 
+          { idNaskah: idDraft, sirkuler: 'pengirim' },
+          { isKonsep: 1 }
+        );
+
+        // Update penerima & tembusan to is_konsep=1
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { idNaskah: idDraft, sirkuler: 'penerima' },
+          { isKonsep: 1 }
+        );
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { idNaskah: idDraft, sirkuler: 'tembusan' },
+          { isKonsep: 1 }
+        );
+
+        // ==========================================
+        // 4. SAVE RIWAYAT KONSEP
+        // ==========================================
+        await this.saveRiwayat(
+          queryRunner,
+          naskahKonsepId,
+          1,
+          dto.from_position_id,
+          fromPos.position_text,
+          fromPos.persnum_person_text,
+          dto.to_position_id,
+          toPos.position_text,
+          toPos.persnum_person_text,
+          'create',
+          dto.catatan || null,
+          fromPos.persnum_person,
+          null,
+        );
+
+        await queryRunner.commitTransaction();
+
+        return {
+          success: true,
+          message: 'Draft berhasil dikirim ke pemeriksa',
+          data: {
+            id_draft: idDraft,
+            id_konsep: naskahKonsepId,
+            status: 'final',
+            updated_at: new Date(),
+          },
+        };
+      }
+
+      // Action = 'draft' or undefined: just update the draft
+      // Save jenis sebelum update untuk handle lampiran
+      const jenisNaskah = naskah.jenis;
+      
+      if (dto.jenis) naskah.jenis = dto.jenis;
+      if (dto.perihal !== undefined) naskah.perihal = dto.perihal;
+      if (dto.konten !== undefined) naskah.konten = dto.konten;
+      if (dto.klasifikasi !== undefined) naskah.klasifikasi = dto.klasifikasi;
+      if (dto.klasifikasi_text !== undefined) naskah.klasifikasi_text = dto.klasifikasi_text;
+      if (dto.sifat) naskah.sifat = dto.sifat;
+      if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
+      if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
+      if (dto.catatan) (naskah as any).catatan_konsep = dto.catatan;
+
+      await queryRunner.manager.save(naskah);
+
+      // Update penerima if provided
+      const barisData = await this.getPositionData();
+
+      if (dto.penerima_position_ids || dto.kepada_yth) {
+        // Delete existing penerima
+        await queryRunner.manager.delete(NaskahSirkulasi, {
+          idNaskah: idDraft,
+          sirkuler: 'penerima',
+        });
+
+        // Add new penerima
+        if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+          for (const posId of dto.penerima_position_ids) {
+            const pos = this.findByPosition(barisData, posId);
+            if (!pos) continue;
+            const sirkulasi = this.createSirkulasi(idDraft, 'penerima', pos, false);
+            await queryRunner.manager.save(sirkulasi);
+          }
+        } else if (dto.kepada_yth) {
+          const sirkulasiPenerima = new NaskahSirkulasi();
+          sirkulasiPenerima.id = uuidv4();
+          sirkulasiPenerima.idNaskah = idDraft;
+          sirkulasiPenerima.sirkuler = 'penerima';
+          sirkulasiPenerima.company = String(COMPANY_ID);
+          sirkulasiPenerima.positionText = dto.kepada_yth;
+          sirkulasiPenerima.namaSirkuler = dto.kepada_yth;
+          sirkulasiPenerima.isKonsep = 0;
+          if (dto.alamat) sirkulasiPenerima.alamat = dto.alamat;
+          await queryRunner.manager.save(sirkulasiPenerima);
+        }
+      }
+
+      // Update tembusan if provided
+      if (dto.tembusan_position_ids || dto.tembusan) {
+        // Delete existing tembusan
+        await queryRunner.manager.delete(NaskahSirkulasi, {
+          idNaskah: idDraft,
+          sirkuler: 'tembusan',
+        });
+
+        // Add new tembusan
+        if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
+          for (const posId of dto.tembusan_position_ids) {
+            const pos = this.findByPosition(barisData, posId);
+            if (!pos) continue;
+            const sirkulasi = this.createSirkulasi(idDraft, 'tembusan', pos, false);
+            await queryRunner.manager.save(sirkulasi);
+          }
+        } else if (dto.tembusan) {
+          const sirkulasiTembusan = new NaskahSirkulasi();
+          sirkulasiTembusan.id = uuidv4();
+          sirkulasiTembusan.idNaskah = idDraft;
+          sirkulasiTembusan.sirkuler = 'tembusan';
+          sirkulasiTembusan.company = String(COMPANY_ID);
+          sirkulasiTembusan.positionText = dto.tembusan;
+          sirkulasiTembusan.namaSirkuler = dto.tembusan;
+          sirkulasiTembusan.isKonsep = 0;
+          await queryRunner.manager.save(sirkulasiTembusan);
+        }
+      }
+
+      // Handle new lampiran
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        // Use updated jenis or fallback to original
+        const currentJenis = (dto.jenis || jenisNaskah) as 'ND' | 'SDI' | 'SDE';
+        await this.handleLampiranTempIds(idDraft, dto.lampiran_temp_ids, currentJenis);
+        
+        // Update lampiran count
+        const lampiranCount = await queryRunner.manager.count(NaskahLampiranEntity, { where: { id_naskah: idDraft } });
+        if (lampiranCount > 0) {
+          // Reload naskah or update directly via queryRunner
+          await queryRunner.manager.update(NaskahEntity, 
+            { id: idDraft }, 
+            { lampiran: `${lampiranCount} file` }
+          );
+        }
+      }
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Draft konsep berhasil diupdate',
+        data: {
+          id_draft: idDraft,
+          status: 'draf',
+          updated_at: new Date(),
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * DELETE DRAFT KONSEP
+   * 
+   * @param idDraft ID naskah draft
+   * @param positionId Position ID untuk validasi ownership
+   * @returns DeleteDraftKonsepResponseDto
+   */
+  async deleteDraftKonsep(idDraft: string, positionId: number): Promise<any> {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idDraft } });
+
+    if (!naskah) {
+      throw new NotFoundException(`Draft dengan ID ${idDraft} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'draf') {
+      throw new ForbiddenException(`Hanya naskah dengan status 'draf' yang bisa dihapus. Status saat ini: '${naskah.status}'`);
+    }
+
+    // Validate ownership
+    const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: { idNaskah: idDraft, sirkuler: 'pengirim' },
+    });
+
+    if (!pengirimSirkulasi) {
+      throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
+    }
+
+    if (String(pengirimSirkulasi.position) !== String(positionId)) {
+      throw new ForbiddenException(`Anda tidak memiliki akses untuk menghapus draft ini`);
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Delete lampiran
+      await queryRunner.manager.delete(NaskahLampiranEntity, { id_naskah: idDraft });
+
+      // Delete referensi
+      await queryRunner.manager.delete(NaskahReferensiEntity, { id_naskah: idDraft });
+
+      // Delete sirkulasi
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: idDraft });
+
+      // Delete naskah
+      await queryRunner.manager.delete(NaskahEntity, { id: idDraft });
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Draft konsep berhasil dihapus',
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * BULK DELETE DRAFT KONSEP
+   * 
+   * @param draftIds Array of draft IDs to delete
+   * @param positionId Position ID untuk validasi ownership
+   * @returns BulkDeleteDraftKonsepResponseDto
+   */
+  async bulkDeleteDraftKonsep(draftIds: string[], positionId: number): Promise<any> {
+    const failedIds: string[] = [];
+    let totalDeleted = 0;
+
+    for (const draftId of draftIds) {
+      try {
+        await this.deleteDraftKonsep(draftId, positionId);
+        totalDeleted++;
+      } catch (error) {
+        failedIds.push(draftId);
+      }
+    }
+
+    return {
+      success: true,
+      message: totalDeleted > 0
+        ? `Berhasil menghapus ${totalDeleted} draft konsep`
+        : 'Tidak ada draft yang berhasil dihapus',
+      data: {
+        total_requested: draftIds.length,
+        total_deleted: totalDeleted,
+        failed_ids: failedIds,
+      },
+    };
+  }
+
+  /**
+   * PARSE FORM DATA TO CREATE DRAFT DTO
+   */
+  async parseFormDataToCreateDraftDto(body: any, files?: { lampiran_files?: Express.Multer.File[] }): Promise<any> {
+    const dto: any = {
+      jenis: body.jenis,
+      from_position_id: body.from_position_id ? parseInt(body.from_position_id, 10) : undefined,
+      to_position_id: body.to_position_id ? parseInt(body.to_position_id, 10) : undefined,
+      pengirim_position_id: body.pengirim_position_id ? parseInt(body.pengirim_position_id, 10) : undefined,
+      id_disposisi_referensi: body.id_disposisi_referensi,
+      perihal: body.perihal,
+      konten: body.konten,
+      klasifikasi: body.klasifikasi,
+      klasifikasi_text: body.klasifikasi_text,
+      sifat: body.sifat,
+      kop_logo: body.kop_logo,
+      kop_nama: body.kop_nama,
+      alamat_perusahaan: body.alamat_perusahaan,
+      nama_tempat: body.nama_tempat,
+      nama_jabatan: body.nama_jabatan,
+      nama_lengkap: body.nama_lengkap,
+      catatan: body.catatan,
+      kepada_yth: body.kepada_yth,
+      alamat: body.alamat,
+      dari: body.dari,
+      tembusan: body.tembusan,
+      tgl: body.tgl,
+      tanda_tangan: body.tanda_tangan,
+    };
+
+    // Parse lampiran_temp_ids (array or string)
+    if (body.lampiran_temp_ids) {
+      dto.lampiran_temp_ids = Array.isArray(body.lampiran_temp_ids)
+        ? body.lampiran_temp_ids
+        : typeof body.lampiran_temp_ids === 'string' && body.lampiran_temp_ids.startsWith('[')
+          ? JSON.parse(body.lampiran_temp_ids)
+          : [body.lampiran_temp_ids];
+    } else if (body['lampiran_temp_ids[]']) {
+      dto.lampiran_temp_ids = Array.isArray(body['lampiran_temp_ids[]'])
+        ? body['lampiran_temp_ids[]']
+        : [body['lampiran_temp_ids[]']];
+    }
+
+    // Parse penerima_position_ids
+    if (body.penerima_position_ids) {
+      dto.penerima_position_ids = Array.isArray(body.penerima_position_ids)
+        ? body.penerima_position_ids.map((id: string) => parseInt(id, 10))
+        : typeof body.penerima_position_ids === 'string' && body.penerima_position_ids.startsWith('[')
+          ? JSON.parse(body.penerima_position_ids).map((id: any) => parseInt(id, 10))
+          : [parseInt(body.penerima_position_ids, 10)];
+    } else if (body['penerima_position_ids[]']) {
+      dto.penerima_position_ids = Array.isArray(body['penerima_position_ids[]'])
+        ? body['penerima_position_ids[]'].map((id: string) => parseInt(id, 10))
+        : [parseInt(body['penerima_position_ids[]'], 10)];
+    }
+
+    // Parse tembusan_position_ids
+    if (body.tembusan_position_ids) {
+      dto.tembusan_position_ids = Array.isArray(body.tembusan_position_ids)
+        ? body.tembusan_position_ids.map((id: string) => parseInt(id, 10))
+        : typeof body.tembusan_position_ids === 'string' && body.tembusan_position_ids.startsWith('[')
+          ? JSON.parse(body.tembusan_position_ids).map((id: any) => parseInt(id, 10))
+          : [parseInt(body.tembusan_position_ids, 10)];
+    } else if (body['tembusan_position_ids[]']) {
+      dto.tembusan_position_ids = Array.isArray(body['tembusan_position_ids[]'])
+        ? body['tembusan_position_ids[]'].map((id: string) => parseInt(id, 10))
+        : [parseInt(body['tembusan_position_ids[]'], 10)];
+    }
+
+    return dto;
+  }
+
+  /**
+   * PARSE FORM DATA TO UPDATE DRAFT DTO
+   */
+  async parseFormDataToUpdateDraftDto(body: any, files?: { lampiran_files?: Express.Multer.File[] }): Promise<any> {
+    const dto = await this.parseFormDataToCreateDraftDto(body, files);
+    dto.action = body.action;
+    return dto;
+  }
 }
