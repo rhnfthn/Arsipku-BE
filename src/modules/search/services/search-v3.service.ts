@@ -424,6 +424,7 @@ export class SearchV3Service {
         s.flag_favorit,
         s.flag_arsip,
         s.flag_note,
+        (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
         ${relevanceSelect}
       FROM naskah n
       INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
@@ -498,6 +499,7 @@ export class SearchV3Service {
                 read_time: row.read_time,
                 isArchived: row.flag_arsip === 1,
                 isFavorite: row.flag_favorit === 1,
+                priority: row.jenis === 'DI' ? (row.is_priority === 1) : false,
                 relevance_score: row.relevance_score || 0,
                 createdAt: row.created_at,
                 label: labelsList,
