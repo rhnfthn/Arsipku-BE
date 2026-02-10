@@ -2273,35 +2273,35 @@ export class NomorService {
 
   /**
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
-   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
+   * OPTIMIZED: Group by request (usulan) untuk pagination yang benar
+   * Pagination berdasarkan jumlah usulan, bukan jumlah nomor
    */
   async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Optimized: Load details dengan request dalam 1 query
-    const details = await this.nomorRequestDetailRepository.find({
-      where: [
-        { status: 'terpakai' },
-        { status: 'terpakai_final' },
-        { status: 'hangus' },
-      ],
-      relations: ['request'],
+    // Load requests yang memiliki detail dengan status terpakai/terpakai_final/hangus
+    const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
     // Optimized: Gunakan cached position data
     const positionJsonData = await this.getLatestPositionJsonData();
 
-    // Process tanpa N+1 query
-    const data = details.map((detail) => {
-      const request = detail.request;
+    // Process dan group by request
+    const data = requests.map((request) => {
+      // Filter details yang sudah jadi (terpakai, terpakai_final, hangus)
+      const validDetails = (request.details || []).filter(
+        (d) => d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus'
+      );
 
-      if (!request) {
+      // Skip request yang tidak punya nomor valid
+      if (validDetails.length === 0) {
         return null;
       }
 
       // Apply filter tahun jika ada
       if (query.tahun) {
-        const detailTahun = new Date(request.tanggal!).getFullYear();
-        if (detailTahun !== query.tahun) {
+        const requestTahun = new Date(request.tanggal!).getFullYear();
+        if (requestTahun !== query.tahun) {
           return null;
         }
       }
@@ -2309,11 +2309,13 @@ export class NomorService {
       // Apply search filter
       if (query.search) {
         const searchLower = query.search.toLowerCase();
-        const nomorMatch = detail.nomor && detail.nomor.toLowerCase().includes(searchLower);
         const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
         const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        const nomorMatch = validDetails.some(
+          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower)
+        );
         
-        if (!nomorMatch && !perihalMatch && !jenisMatch) {
+        if (!perihalMatch && !jenisMatch && !nomorMatch) {
           return null;
         }
       }
@@ -2324,26 +2326,32 @@ export class NomorService {
       const namaPengirim = positionData?.persnum_person_text || null;
 
       // Get position data penandatangan
-      let jabatan = null;
+      let penandatangan = request.penandatangan;
       if (request.idPositionPenandatangan) {
         const penandatanganPosition = positionJsonData.find(
           (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
         );
-        jabatan = penandatanganPosition?.position_text || null;
+        if (penandatanganPosition?.position_text) {
+          penandatangan = penandatanganPosition.position_text;
+        }
       }
 
+      // Sort details by createdAt
+      validDetails.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
       return {
-        id: detail.id,
-        id_request: detail.idRequest || null,
+        id: request.id,
         jenis: request.jenis,
-        jabatan,
-        klasifikasi: request.klasifikasi,
+        penandatangan,
         perihal: request.perihal,
         tanggal: request.tanggal,
-        nomor: detail.nomor,
-        status: detail.status,
         nama_pengirim: namaPengirim,
-        waktu: detail.createdAt,
+        waktu: request.createdAt,
+        nomor_list: validDetails.map((d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+        })),
       };
     });
 
@@ -2375,7 +2383,7 @@ export class NomorService {
       });
     }
 
-    // Apply pagination
+    // Apply pagination - berdasarkan jumlah USULAN, bukan jumlah nomor
     const page = query?.page || 1;
     const limit = query?.limit || 10;
     const total = filteredData.length;
