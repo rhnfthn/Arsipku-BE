@@ -140,6 +140,13 @@ export class SearchV3Service {
                 case 'favorite':
                     whereClauses.push(`s.flag_favorit = 1`);
                     break;
+                case 'priority':
+                    // Disposisi prioritas: jenis=DI dan is_priority=1 dari tabel di
+                    whereClauses.push(`n.jenis = 'DI'`);
+                    whereClauses.push(`EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`);
+                    whereClauses.push(`n.status IN ('final', 'final_tte')`);
+                    whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
+                    break;
             }
             appliedFilters.push(`scope: ${scope}`);
         }
