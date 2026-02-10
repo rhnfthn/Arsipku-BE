@@ -237,6 +237,7 @@ GET /search/v3?isRead=false&label=Work/Urgent
         "read_time": "2025-01-15T10:30:00.000Z",
         "isArchived": false,
         "isFavorite": false,
+        "priority": false,
         "relevance_score": 100,
         "createdAt": "2025-01-15T08:30:00.000Z",
         "_formatted": {
@@ -313,6 +314,7 @@ GET /search/v3?isRead=false&label=Work/Urgent
 | `read_time` | Date | Actual read timestamp |
 | `isArchived` | boolean | Archive status |
 | `isFavorite` | boolean | Favorite status |
+| `priority` | boolean | Priority flag (only for jenis=DI, otherwise false) |
 | `relevance_score` | number | Relevance score (0-100) |
 | `createdAt` | Date | Creation timestamp |
 | `_formatted` | object | Highlighted fields with `<em>` tags |
