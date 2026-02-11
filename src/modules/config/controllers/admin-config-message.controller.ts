@@ -92,12 +92,22 @@ export class AdminConfigMessageController {
   /**
    * PATCH /admin/config/message/:id/banner
    * Toggle show_banner
+   * Body optional: jika tidak ada body, akan toggle current state
+   * Jika ada body { show_banner: true/false }, akan set ke nilai tersebut
    */
   @Patch(':id/banner')
   async toggleBanner(
     @Param('id') id: string,
-    @Body() dto: ToggleBannerDto,
+    @Body() dto?: ToggleBannerDto,
   ): Promise<ConfigMessage> {
+    // Jika tidak ada body, toggle current state
+    if (!dto || dto.show_banner === undefined) {
+      const message = await this.configMessageService.findOne(id);
+      return this.configMessageService.toggleBanner(id, { 
+        show_banner: !message.showBanner 
+      });
+    }
+    // Jika ada body, set ke nilai yang diberikan
     return this.configMessageService.toggleBanner(id, dto);
   }
 
