@@ -41,7 +41,16 @@ export class ConfigMessage {
   })
   type: MessageType;
 
-  @Column('tinyint', { name: 'show_banner', default: 0, comment: 'Tampilkan banner atau tidak' })
+  @Column({
+    type: 'tinyint',
+    name: 'show_banner',
+    default: 0,
+    comment: 'Tampilkan banner atau tidak',
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
   showBanner: boolean;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })

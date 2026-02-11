@@ -1,4 +1,5 @@
 import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { MessageType } from '../entities';
 
 export class CreateMessageDto {
@@ -16,6 +17,11 @@ export class CreateMessageDto {
   type?: MessageType;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsBoolean({ message: 'Show banner harus berupa boolean' })
   show_banner?: boolean;
 }
@@ -35,11 +41,22 @@ export class UpdateMessageDto {
   type?: MessageType;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsBoolean({ message: 'Show banner harus berupa boolean' })
   show_banner?: boolean;
 }
 
 export class ToggleBannerDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsBoolean({ message: 'Show banner harus berupa boolean' })
-  show_banner: boolean;
+  show_banner?: boolean;
 }
