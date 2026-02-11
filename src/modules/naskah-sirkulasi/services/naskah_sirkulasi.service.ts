@@ -492,15 +492,11 @@ export class NaskahSirkulasiService {
         is_tindak_lanjut: row.tindak_lanjut === 1,
         is_locked: row.is_locked === 1,
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : false,
         created_at: row.created_at,
         updated_at: row.updated_at,
         source: 'inbox',
       };
-
-      // Add is_priority field jika ini adalah disposisi (DI)
-      if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
-        item.is_priority = row.is_priority === 1;
-      }
 
       return item;
     });
