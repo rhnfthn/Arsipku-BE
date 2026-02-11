@@ -515,7 +515,7 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
         SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
         SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka,
-        SUM(CASE WHEN n.jenis = 'KO' THEN 1 ELSE 0 END) as total_ko
+        SUM(CASE WHEN n.jenis = 'K' THEN 1 ELSE 0 END) as total_k
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.position = ?
