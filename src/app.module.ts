@@ -54,6 +54,7 @@ import { SearchModule } from './modules/search/search.module';
 import { FcmModule } from './modules/fcm/fcm.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
+import { ConfigAdminModule } from './modules/config/config.module';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { CompanySwitchModule } from './modules/company-switch/company-switch.mod
     FcmModule,
     NotificationModule,
     CompanySwitchModule,
+    ConfigAdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
