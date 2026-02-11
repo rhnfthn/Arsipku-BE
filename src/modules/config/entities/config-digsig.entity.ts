@@ -36,7 +36,15 @@ export class ConfigDigsig {
   })
   jenisNaskah: JenisNaskah;
 
-  @Column('tinyint', { default: 1, comment: 'true = user dapat pilih TTE/tidak, false = auto skip TTE' })
+  @Column({
+    type: 'tinyint',
+    default: 1,
+    comment: 'true = user dapat pilih TTE/tidak, false = auto skip TTE',
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
   enabled: boolean;
 
   @Column('varchar', { length: 255, nullable: true, comment: 'Deskripsi pengaturan' })

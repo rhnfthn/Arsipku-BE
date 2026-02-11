@@ -7,7 +7,7 @@ import { CreateMessageDto, UpdateMessageDto, ToggleBannerDto } from '../dto';
 @Injectable()
 export class ConfigMessageService {
   // In-memory cache untuk performa
-  private cachedMessage: ConfigMessage | null = null;
+  private cachedMessages: ConfigMessage[] = [];
   private cacheExpiry: number = 0;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
@@ -41,27 +41,27 @@ export class ConfigMessageService {
   }
 
   /**
-   * Mengambil pesan aktif yang ditampilkan (untuk public API)
-   * Hanya return pesan yang show_banner = true
+   * Mengambil semua pesan aktif yang ditampilkan (untuk public API)
+   * Return semua pesan yang show_banner = true
    */
-  async getCurrentMessage(): Promise<ConfigMessage | null> {
+  async getCurrentMessage(): Promise<ConfigMessage[]> {
     const now = Date.now();
 
     // Jika cache masih valid
-    if (this.cacheExpiry > now && this.cachedMessage !== null) {
-      return this.cachedMessage.showBanner ? this.cachedMessage : null;
+    if (this.cacheExpiry > now && this.cachedMessages.length > 0) {
+      return this.cachedMessages;
     }
 
-    // Refresh cache - ambil pesan terbaru dengan show_banner = true
-    const message = await this.configMessageRepository.findOne({
+    // Refresh cache - ambil semua pesan dengan show_banner = true
+    const messages = await this.configMessageRepository.find({
       where: { showBanner: true },
       order: { updatedAt: 'DESC' },
     });
 
-    this.cachedMessage = message ?? null;
+    this.cachedMessages = messages;
     this.cacheExpiry = Date.now() + this.CACHE_TTL;
 
-    return message ?? null;
+    return messages;
   }
 
   /**
@@ -115,7 +115,13 @@ export class ConfigMessageService {
    */
   async toggleBanner(id: string, dto: ToggleBannerDto): Promise<ConfigMessage> {
     const message = await this.findOne(id);
-    message.showBanner = dto.show_banner;
+    
+    // Jika dto.show_banner undefined, toggle current state
+    if (dto.show_banner !== undefined) {
+      message.showBanner = dto.show_banner;
+    } else {
+      message.showBanner = !message.showBanner;
+    }
 
     const saved = await this.configMessageRepository.save(message);
 
@@ -163,7 +169,7 @@ export class ConfigMessageService {
    * Invalidate cache
    */
   private invalidateCache(): void {
-    this.cachedMessage = null;
+    this.cachedMessages = [];
     this.cacheExpiry = 0;
   }
 

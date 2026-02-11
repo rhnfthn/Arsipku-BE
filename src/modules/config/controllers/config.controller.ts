@@ -17,12 +17,12 @@ export class ConfigController {
 
   /**
    * GET /config/message
-   * Mengambil pesan banner aktif (public, no auth required)
-   * Returns null jika tidak ada banner aktif
+   * Mengambil semua pesan banner aktif (public, no auth required)
+   * Returns array kosong jika tidak ada banner aktif
    */
   @Get('message')
   @Public()
-  async getCurrentMessage(): Promise<ConfigMessage | null> {
+  async getCurrentMessage(): Promise<ConfigMessage[]> {
     return this.configMessageService.getCurrentMessage();
   }
 
