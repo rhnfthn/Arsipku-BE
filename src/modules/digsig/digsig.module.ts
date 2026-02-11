@@ -13,6 +13,7 @@ import { DigsigLogService } from './services/digsig-log.service';
 import { DigsigDocumentService } from './services/digsig-document.service';
 import { CekDokumenService } from './services/cek-dokumen.service';
 import { PenandatangananService } from './services/penandatanganan.service';
+import { BsreAlertService } from './services/bsre-alert.service';
 import { QRCodeService } from './services/qrcode.service';
 import { PdfQrEmbedService } from './services/pdf-qr-embed.service';
 import { StorageModule } from '../storage/storage.module';
@@ -28,6 +29,7 @@ import { Session } from '../auth/entities/session.entity';
 import { DigsigLogEntity } from './entities/digsig-log.entity';
 import { DigsigDocumentEntity } from './entities/digsig-document.entity';
 import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.entity';
+import { BsreAlertEntity } from './entities/bsre-alert.entity';
 
 @Module({
   imports: [
@@ -44,6 +46,7 @@ import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.en
       DigsigLogEntity,
       DigsigDocumentEntity,
       DigsigDocumentSignerEntity,
+      BsreAlertEntity,
     ]),
     StorageModule,
     GeneratePdfModule,
@@ -64,6 +67,7 @@ import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.en
     DigsigDocumentService, 
     CekDokumenService, 
     PenandatangananService,
+    BsreAlertService,
     QRCodeService, 
     PdfQrEmbedService,
   ],
@@ -73,6 +77,7 @@ import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.en
     DigsigDocumentService, 
     CekDokumenService, 
     PenandatangananService,
+    BsreAlertService,
     QRCodeService, 
     PdfQrEmbedService,
   ],
