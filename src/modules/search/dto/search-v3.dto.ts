@@ -21,8 +21,8 @@ export class SearchV3ResultItemDto extends SearchResultItemDto {
     /** Priority flag for disposisi (jenis=DI only) */
     priority: boolean;
 
-    /** Labels with full hierarchical paths (e.g., ["Pengadaan/Contoh", "Penting/testes3213/sfguu"]) */
-    label: string[];
+    /** Labels with full hierarchical paths and IDs */
+    label: { id: string; path: string }[];
 
     /** Highlighted fields with <em> tags */
     _formatted: {

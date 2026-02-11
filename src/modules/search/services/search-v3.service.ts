@@ -747,7 +747,7 @@ export class SearchV3Service {
     /**
      * Fetch labels with full hierarchical paths for multiple naskah
      */
-    private async fetchLabelsInfo(naskahIds: string[], userPosition: string): Promise<Map<string, string[]>> {
+    private async fetchLabelsInfo(naskahIds: string[], userPosition: string): Promise<Map<string, { id: string; path: string }[]>> {
         if (naskahIds.length === 0) return new Map();
 
         const placeholders = naskahIds.map(() => '?').join(',');
@@ -776,6 +776,7 @@ export class SearchV3Service {
       )
       SELECT 
         nl.naskah_id,
+        nl.label_id,
         lp.full_path as label_path
       FROM naskah_label nl
       INNER JOIN label_path lp ON nl.label_id = lp.id AND lp.id_parent IS NULL
@@ -785,11 +786,11 @@ export class SearchV3Service {
         const params = [userPosition, userPosition, ...naskahIds];
         const rows = await this.dataSource.query(query, params);
 
-        const map = new Map<string, string[]>();
+        const map = new Map<string, { id: string; path: string }[]>();
         rows.forEach((row: any) => {
             const list = map.get(row.naskah_id) || [];
             if (row.label_path) {
-                list.push(row.label_path);
+                list.push({ id: row.label_id, path: row.label_path });
             }
             map.set(row.naskah_id, list);
         });
