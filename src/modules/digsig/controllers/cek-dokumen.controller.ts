@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Param,
+  Req,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -11,6 +12,7 @@ import {
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CekDokumenService } from '../services/cek-dokumen.service';
 import {
@@ -43,12 +45,14 @@ export class CekDokumenController {
   async verifyByUpload(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
     if (!file) {
       throw new BadRequestException('File PDF wajib diupload');
     }
 
-    return this.cekDokumenService.verifyByFile(file, user.persnum);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    return this.cekDokumenService.verifyByFile(file, user.persnum, user.nama, ipAddress);
   }
 
   /**
@@ -62,8 +66,10 @@ export class CekDokumenController {
   async verifyBySignatureId(
     @Body() dto: CekDokumenBySignatureIdDto,
     @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    return this.cekDokumenService.verifyBySignatureId(dto.signatureId, user.persnum);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    return this.cekDokumenService.verifyBySignatureId(dto.signatureId, user.persnum, user.nama, ipAddress);
   }
 
   /**
@@ -75,8 +81,10 @@ export class CekDokumenController {
   async verifyBySignatureIdParam(
     @Param('signatureId') signatureId: string,
     @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    return this.cekDokumenService.verifyBySignatureId(signatureId, user.persnum);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    return this.cekDokumenService.verifyBySignatureId(signatureId, user.persnum, user.nama, ipAddress);
   }
 
   /**
@@ -90,7 +98,9 @@ export class CekDokumenController {
   async verifyByNameDoc(
     @Body() dto: CekDokumenByNameDocDto,
     @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    return this.cekDokumenService.verifyByNameDoc(dto.nameDoc, user.persnum);
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    return this.cekDokumenService.verifyByNameDoc(dto.nameDoc, user.persnum, user.nama, ipAddress);
   }
 }
