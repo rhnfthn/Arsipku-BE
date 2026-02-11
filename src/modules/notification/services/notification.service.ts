@@ -84,9 +84,9 @@ export class NotificationService {
     try {
       const jenisLabel = this.getJenisLabel(dto.jenis);
       const type = dto.isTembusan ? NotificationType.NASKAH_TEMBUSAN : NotificationType.NASKAH_MASUK;
-      const title = dto.isTembusan ? 'Tembusan Naskah Baru' : 'Naskah Masuk Baru';
+      const title = `${dto.pengirimPosition}`;
       
-      const body = `${jenisLabel} dari ${dto.pengirim} - Perihal: ${dto.perihal}`;
+      const body = `${dto.perihal}`;
 
       this.logger.log(`🔔 [createNaskahMasukNotification] jenisLabel: ${jenisLabel}`);
       this.logger.log(`🔔 [createNaskahMasukNotification] type: ${type}`);
