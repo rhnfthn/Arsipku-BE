@@ -658,13 +658,13 @@ export class NaskahService {
       };
     };
 
-    // Build nodes untuk semua naskah dalam chain
+    // Build nodes untuk semua naskah dalam chain (exclude jenis 'K' / konsep)
     for (const naskahIdInChain of allNaskahInChain) {
       const naskahData = await this.naskahRepository.findOne({
         where: { id: naskahIdInChain },
       });
       
-      if (naskahData) {
+      if (naskahData && naskahData.jenis !== 'K') {
         const level = naskahIdToLevel.get(naskahIdInChain) || 0;
         const node = await buildFlowNode(naskahData, level);
         flow.push(node);
