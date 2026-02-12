@@ -412,13 +412,16 @@ export class NomorService {
           penandatangan: request.penandatangan,
           template_nomor: templateNomor,
           created_at: request.createdAt,
-          details: details.map((detail) => ({
-            id: detail.id,
-            nomor: detail.nomor,
-            status: detail.status,
-            file_name: detail.fileName,
-            created_at: detail.createdAt,
-          })),
+          details: await Promise.all(
+            details.map(async (detail) => ({
+              id: detail.id,
+              nomor: detail.nomor,
+              status: detail.status,
+              file_name: detail.fileName,
+              file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+              created_at: detail.createdAt,
+            })),
+          ),
         };
       }),
     );
