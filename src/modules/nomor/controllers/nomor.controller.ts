@@ -189,13 +189,27 @@ export class NomorController {
   }
 
   /**
-   * GET /admin/nomor-request-count
+   * GET /admin/nomor-request-count/:positionId
    * Admin melihat count/statistik usulan nomor berdasarkan status
+   * - Semua data dengan status selain "Belum Diajukan" di-count
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    */
-  @Get('admin/nomor-request-count')
-  async getAdminCountNomorRequest(): Promise<AdminCountNomorRequestResponseDto> {
+  @Get('admin/nomor-request-count/:positionId')
+  async getAdminCountNomorRequest(
+    @Param('positionId') positionId: string,
+  ): Promise<AdminCountNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminCountNomorRequest();
+      const positionIdNum = parseInt(positionId, 10);
+      if (isNaN(positionIdNum)) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'Position ID must be a valid number',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getAdminCountNomorRequest(positionIdNum);
     } catch (error) {
       throw new HttpException(
         {
