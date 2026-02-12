@@ -575,6 +575,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler = 'pengirim'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const params: any[] = [positionId];
@@ -656,6 +657,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler = 'pengirim'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
@@ -1128,6 +1130,7 @@ export class NaskahSirkulasiService {
       s.position = ?
       AND s.sirkuler = 'pengirim'
       AND s.is_draft = 0
+      AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const sentParams = [positionId];
