@@ -639,10 +639,12 @@ export class NomorService {
 
   /**
    * Count nomor request by status (for admin dashboard)
+   * - Semua data dengan status selain "Belum Diajukan" di-count
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
-  async getAdminCountNomorRequest(): Promise<any> {
+  async getAdminCountNomorRequest(positionId: number): Promise<any> {
     // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       relations: ['details'],
@@ -665,8 +667,14 @@ export class NomorService {
         continue;
       }
 
-      processedCount++;
       const statusKey = this.determineStatusKeyFromDetails(details);
+
+      // Filter: jika status "belum_diajukan", hanya count yang dibuat oleh posisi ini
+      if (statusKey === 'belum_diajukan' && request.position !== positionId.toString()) {
+        continue;
+      }
+
+      processedCount++;
 
       // Increment counter
       if (statusKey in statusCounts) {
