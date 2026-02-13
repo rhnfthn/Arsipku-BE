@@ -922,8 +922,6 @@ export class DisposisiController {
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
-      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
-      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
 
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
@@ -943,12 +941,38 @@ export class DisposisiController {
         pengirimName = converted[0] || pengirimName;
       }
 
-      // Check if refPengirim is position_id and convert to name
-      let refPengirimName = refPengirim;
-      if (refPengirimName && isPositionId(refPengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
-        refPengirimName = converted[0] || refPengirimName;
+      // Data referensi untuk kotak tengah PDF:
+      // - Surat dari: pengirim saat ini (jabatan) - hanya jabatan tanpa organisasi
+      // - Tanggal: tanggal disposisi saat ini (formatted)
+      // - Nomor: dari input form (ref_nomor)
+      // - Perihal: dari input form (ref_perihal)
+      
+      // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
+      let refPengirimName = pengirimName;
+      if (refPengirimName.includes(' - ')) {
+        refPengirimName = refPengirimName.split(' - ')[0].trim();
       }
+
+      // Format tanggal disposisi untuk refTanggal (Indonesian long format)
+      const formatDateToIndonesian = (dateStr: string): string => {
+        if (!dateStr) return '';
+        try {
+          const monthNames = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          // Parse DD-MM-YYYY format
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+            const [day, month, year] = dateStr.split('-');
+            return `${parseInt(day)} ${monthNames[parseInt(month) - 1]} ${year}`;
+          }
+          return dateStr;
+        } catch (e) {
+          return dateStr;
+        }
+      };
+
+      const refTanggal = formatDateToIndonesian(formattedDate);
 
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
         htmlContent,
@@ -1076,8 +1100,6 @@ export class DisposisiController {
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
-      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
-      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
 
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
@@ -1097,12 +1119,38 @@ export class DisposisiController {
         pengirimName = converted[0] || pengirimName;
       }
 
-      // Check if refPengirim is position_id and convert to name
-      let refPengirimName = refPengirim;
-      if (refPengirimName && isPositionId(refPengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
-        refPengirimName = converted[0] || refPengirimName;
+      // Data referensi untuk kotak tengah PDF:
+      // - Surat dari: pengirim saat ini (jabatan) - hanya jabatan tanpa organisasi
+      // - Tanggal: tanggal disposisi saat ini (formatted)
+      // - Nomor: dari input form (ref_nomor)
+      // - Perihal: dari input form (ref_perihal)
+      
+      // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
+      let refPengirimName = pengirimName;
+      if (refPengirimName.includes(' - ')) {
+        refPengirimName = refPengirimName.split(' - ')[0].trim();
       }
+
+      // Format tanggal disposisi untuk refTanggal (Indonesian long format)
+      const formatDateToIndonesian = (dateStr: string): string => {
+        if (!dateStr) return '';
+        try {
+          const monthNames = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          // Parse DD-MM-YYYY format
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+            const [day, month, year] = dateStr.split('-');
+            return `${parseInt(day)} ${monthNames[parseInt(month) - 1]} ${year}`;
+          }
+          return dateStr;
+        } catch (e) {
+          return dateStr;
+        }
+      };
+
+      const refTanggal = formatDateToIndonesian(formattedDate);
 
       // Parse disposisi array (checkbox options)
       let disposisiArray = dto.disposisi || [];
