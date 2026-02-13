@@ -57,6 +57,12 @@ export class ForwardDisposisiDto {
   @IsString()
   perihal?: string;
 
+  // Ref. Nomor Surat (opsional)
+  // Digunakan untuk field "Nomor" di kotak tengah PDF
+  @IsOptional()
+  @IsString()
+  ref_nomor_surat?: string;
+
   // ============================================================
   // DISPOSISI - Petunjuk Disposisi (checkbox dari frontend)
   // ============================================================
