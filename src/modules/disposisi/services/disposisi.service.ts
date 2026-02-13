@@ -375,7 +375,7 @@ export class DisposisiService {
    * @param pengirim - Nama pengirim
    * @param tembusan - Array tembusan
    * @param lampiranTempIds - ID lampiran temporary untuk di-merge
-   * @param options - Additional options (refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
+   * @param options - Additional options (nomorAgenda, refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -386,6 +386,7 @@ export class DisposisiService {
     tembusan: string[] = [],
     lampiranTempIds?: string[],
     options?: {
+      nomorAgenda?: string;
       refNomor?: string;
       refPerihal?: string;
       refTanggal?: string;
@@ -420,6 +421,7 @@ export class DisposisiService {
         pengirim: pengirim,
         tembusan: tembusan,
         perihal: options?.refPerihal || '',
+        nomorAgenda: options?.nomorAgenda || '',
         refNomor: options?.refNomor || '',
         refPerihal: options?.refPerihal || '',
         refTanggal: options?.refTanggal || '',
@@ -1484,20 +1486,24 @@ export class DisposisiService {
         }
         console.log('[DI sendMessage] disposisiArray:', disposisiArray);
 
-        // Get reference data from naskah sebelumnya (if exists)
+        // Get reference data from naskah referensi (jika ada)
+        // Priority: id_referensi_naskah (disposisi pertama) > id_naskah_sebelumnya (disposisi lanjutan)
         let refNomor = '';
         let refPerihal = '';
         let refTanggal = '';
         let refPengirim = '';
 
-        if (dto.id_naskah_sebelumnya) {
-          const naskahRef = await this.naskahRepository.findOne({
-            where: { id: dto.id_naskah_sebelumnya },
+        const refNaskahId = dto.id_referensi_naskah || dto.id_naskah_sebelumnya;
+        if (refNaskahId) {
+          const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
+            where: { id: refNaskahId },
           });
+          
           if (naskahRef) {
             refNomor = naskahRef.nomor || '';
             refPerihal = naskahRef.perihal || '';
-            refPengirim = ''; // Can be filled from sirkulasi pengirim if needed
+            
+            // Format tanggal referensi
             if (naskahRef.tanggal) {
               const refDate = new Date(naskahRef.tanggal);
               refTanggal = refDate.toLocaleDateString('id-ID', {
@@ -1505,6 +1511,19 @@ export class DisposisiService {
                 month: 'long',
                 day: 'numeric',
               });
+            }
+
+            // Get pengirim from naskah_sirkulasi
+            const pengirimSirkulasi = await queryRunner.manager.findOne(NaskahSirkulasi, {
+              where: { 
+                idNaskah: refNaskahId,
+                sirkuler: 'pengirim' 
+              },
+            });
+
+            if (pengirimSirkulasi) {
+              // Hanya tampilkan jabatan saja
+              refPengirim = pengirimSirkulasi.positionText || pengirimSirkulasi.namaSirkuler || '';
             }
           }
         }
@@ -1518,6 +1537,7 @@ export class DisposisiService {
           pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
           tembusan: [],
           perihal: dto.perihal,
+          nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
           refNomor: refNomor,
           refPerihal: refPerihal,
           refTanggal: refTanggal,
@@ -3080,7 +3100,7 @@ export class DisposisiService {
           },
         });
         if (pengirimAsli) {
-          refPengirim = `${pengirimAsli.positionText} ${pengirimAsli.organizationText}`;
+          refPengirim = pengirimAsli.positionText || '';
         }
 
         // Generate PDF with all data
@@ -3092,6 +3112,7 @@ export class DisposisiService {
           pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
           tembusan: [],
           perihal: perihal,
+          nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
           refNomor: refNomor,
           refPerihal: refPerihal,
           refTanggal: refTanggal,
