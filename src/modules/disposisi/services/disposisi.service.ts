@@ -1486,47 +1486,19 @@ export class DisposisiService {
         }
         console.log('[DI sendMessage] disposisiArray:', disposisiArray);
 
-        // Get reference data from naskah referensi (jika ada)
-        // Priority: id_referensi_naskah (disposisi pertama) > id_naskah_sebelumnya (disposisi lanjutan)
-        let refNomor = '';
-        let refPerihal = '';
-        let refTanggal = '';
-        let refPengirim = '';
-
-        const refNaskahId = dto.id_referensi_naskah || dto.id_naskah_sebelumnya;
-        if (refNaskahId) {
-          const naskahRef = await queryRunner.manager.findOne(NaskahEntity, {
-            where: { id: refNaskahId },
-          });
-          
-          if (naskahRef) {
-            refNomor = naskahRef.nomor || '';
-            refPerihal = naskahRef.perihal || '';
-            
-            // Format tanggal referensi
-            if (naskahRef.tanggal) {
-              const refDate = new Date(naskahRef.tanggal);
-              refTanggal = refDate.toLocaleDateString('id-ID', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              });
-            }
-
-            // Get pengirim from naskah_sirkulasi
-            const pengirimSirkulasi = await queryRunner.manager.findOne(NaskahSirkulasi, {
-              where: { 
-                idNaskah: refNaskahId,
-                sirkuler: 'pengirim' 
-              },
-            });
-
-            if (pengirimSirkulasi) {
-              // Hanya tampilkan jabatan saja
-              refPengirim = pengirimSirkulasi.positionText || pengirimSirkulasi.namaSirkuler || '';
-            }
-          }
-        }
+        // Data referensi untuk kotak tengah PDF:
+        // - Surat dari: pengirim surat saat ini (jabatan)
+        // - Tanggal: tanggal disposisi saat ini
+        // - Nomor: dari input form (dto.ref_nomor_surat)
+        // - Perihal: dari input form (dto.perihal)
+        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }); // Tanggal disposisi saat ini
+        const refNomor = dto.ref_nomor_surat || ''; // Dari input form
+        const refPerihal = dto.perihal; // Dari input form
 
         // Generate PDF with all data
         let pdfBuffer = await this.generatePdfDispoService.generatePdf({
@@ -3077,31 +3049,19 @@ export class DisposisiService {
         }
         console.log('[DI forward] disposisiArray:', disposisiArray);
 
-        // Get reference data from naskah sebelumnya (naskah yang diterima)
-        let refNomor = naskahDiterima.nomor || '';
-        let refPerihal = naskahDiterima.perihal || '';
-        let refTanggal = '';
-        let refPengirim = '';
-
-        if (naskahDiterima.tanggal) {
-          const refDate = new Date(naskahDiterima.tanggal);
-          refTanggal = refDate.toLocaleDateString('id-ID', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-        }
-
-        // Get pengirim asli dari naskah sebelumnya
-        const pengirimAsli = await this.naskahSirkulasiRepository.findOne({
-          where: {
-            idNaskah: dto.id_naskah_diterima,
-            sirkuler: 'pengirim',
-          },
-        });
-        if (pengirimAsli) {
-          refPengirim = pengirimAsli.positionText || '';
-        }
+        // Data referensi untuk kotak tengah PDF:
+        // - Surat dari: pengirim surat saat ini (jabatan)
+        // - Tanggal: tanggal disposisi saat ini
+        // - Nomor: dari input form (dto.ref_nomor_surat)
+        // - Perihal: dari input form (perihal)
+        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }); // Tanggal disposisi saat ini
+        const refNomor = dto.ref_nomor_surat || ''; // Dari input form
+        const refPerihal = perihal; // Dari input form (sudah diset sebelumnya)
 
         // Generate PDF with all data
         let pdfBuffer = await this.generatePdfDispoService.generatePdf({
