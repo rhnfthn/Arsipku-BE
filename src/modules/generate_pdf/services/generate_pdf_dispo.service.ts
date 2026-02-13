@@ -16,6 +16,7 @@ interface GeneratePdfDispoBody {
   pengirim?: string;
   tembusan?: string[];
   perihal?: string;
+  nomorAgenda?: string; // Nomor agenda (diisi dengan nomor surat yang baru di-generate)
   refNomor?: string;
   refPerihal?: string;
   refTanggal?: string; // Tanggal surat referensi
@@ -268,7 +269,7 @@ export class GeneratePdfDispoService {
           <div style="width: 15%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
-              <div>No: ........</div>
+              <div>No: ${body.nomorAgenda || '........'}</div>
               <div>Tgl: ${tanggal}</div>
             </div>
           </div>
