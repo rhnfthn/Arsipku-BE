@@ -10,6 +10,12 @@ import {
   DateWithinEnum,
   NaskahSourceEnum,
 } from '../dto/global-search.dto';
+import {
+  SearchSuggestionDto,
+  SearchSuggestionResponseDto,
+  SuggestionItemDto,
+  SuggestionTypeEnum,
+} from '../dto/search-suggestion.dto';
 
 // Label untuk source
 const SOURCE_LABELS: Record<NaskahSourceEnum, string> = {
@@ -611,5 +617,86 @@ export class GlobalSearchService {
       K: 'Konsep',
     };
     return jenisMap[jenis] || jenis;
+  }
+
+  /**
+   * Suggestion pengirim/penerima
+   * Mencari berdasarkan nama (nama_sirkuler) atau jabatan (position_text)
+   * Minimal 3 karakter query
+   */
+  async getSuggestions(
+    dto: SearchSuggestionDto,
+  ): Promise<SearchSuggestionResponseDto> {
+    const { q, type = SuggestionTypeEnum.ALL, limit = 10 } = dto;
+
+    const queryBuilder = this.naskahSirkulasiRepository
+      .createQueryBuilder('sirkulasi')
+      .select([
+        'sirkulasi.nama_sirkuler AS nama',
+        'sirkulasi.position_text AS jabatan',
+        'sirkulasi.organization_text AS organization',
+        'sirkulasi.area_text AS area',
+        'sirkulasi.sub_area_text AS subArea',
+        'GROUP_CONCAT(DISTINCT sirkulasi.sirkuler) AS sirkuler',
+        'sirkulasi.position AS position',
+      ]);
+
+    // Filter by type
+    if (type === SuggestionTypeEnum.PENGIRIM) {
+      queryBuilder.andWhere('sirkulasi.sirkuler = :sirkuler', {
+        sirkuler: 'pengirim',
+      });
+    } else if (type === SuggestionTypeEnum.PENERIMA) {
+      queryBuilder.andWhere('sirkulasi.sirkuler IN (:...sirkuler)', {
+        sirkuler: ['penerima', 'tembusan'],
+      });
+    }
+
+    // Search by nama or jabatan (position_text)
+    queryBuilder.andWhere(
+      new Brackets((qb) => {
+        qb.where('sirkulasi.nama_sirkuler LIKE :q', { q: `%${q}%` })
+          .orWhere('sirkulasi.position_text LIKE :q', { q: `%${q}%` });
+      }),
+    );
+
+    // Exclude null/empty names
+    queryBuilder.andWhere('sirkulasi.nama_sirkuler IS NOT NULL');
+    queryBuilder.andWhere("sirkulasi.nama_sirkuler != ''");
+
+    // Group by person (nama + jabatan + org) — tanpa sirkuler agar tidak duplikat
+    queryBuilder.groupBy('sirkulasi.nama_sirkuler');
+    queryBuilder.addGroupBy('sirkulasi.position_text');
+    queryBuilder.addGroupBy('sirkulasi.organization_text');
+    queryBuilder.addGroupBy('sirkulasi.area_text');
+    queryBuilder.addGroupBy('sirkulasi.sub_area_text');
+    queryBuilder.addGroupBy('sirkulasi.position');
+
+    // Order: exact match first, then alphabetical
+    queryBuilder.orderBy('sirkulasi.nama_sirkuler', 'ASC');
+
+    queryBuilder.limit(limit);
+
+    const rawResults = await queryBuilder.getRawMany();
+
+    const items: SuggestionItemDto[] = rawResults.map((row) => ({
+      nama: row.nama,
+      jabatan: row.jabatan || null,
+      organization: row.organization || null,
+      area: row.area || null,
+      subArea: row.subArea || null,
+      roles: row.sirkuler ? row.sirkuler.split(',') : [],
+      position: row.position || null,
+    }));
+
+    return {
+      success: true,
+      message: `Ditemukan ${items.length} suggestion`,
+      data: {
+        items,
+        query: q,
+        total: items.length,
+      },
+    };
   }
 }
