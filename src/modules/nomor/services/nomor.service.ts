@@ -1889,16 +1889,6 @@ export class NomorService {
       );
     }
 
-    // Delete file dari storage jika ada
-    if (detail.fileText) {
-      try {
-        await this.storageService.deleteFile(detail.fileText);
-        console.log(`Deleted file from storage on reject: ${detail.fileText}`);
-      } catch (error) {
-        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-      }
-    }
-
     detail.status = 'hangus';
     await this.nomorRequestDetailRepository.save(detail);
 
@@ -2196,16 +2186,6 @@ export class NomorService {
           );
         }
 
-        // Delete file dari storage jika ada
-        if (detail.fileText) {
-          try {
-            await this.storageService.deleteFile(detail.fileText);
-            console.log(`Deleted file from storage on bulk reject: ${detail.fileText}`);
-          } catch (error) {
-            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-          }
-        }
-
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
 
@@ -2254,16 +2234,6 @@ export class NomorService {
 
     // Simpan status lama untuk log
     const oldStatus = detail.status;
-
-    // Delete file dari storage jika ada
-    if (detail.fileText) {
-      try {
-        await this.storageService.deleteFile(detail.fileText);
-        console.log(`Deleted file from storage on set hangus: ${detail.fileText}`);
-      } catch (error) {
-        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-      }
-    }
 
     // Update status menjadi hangus
     detail.status = 'hangus';
@@ -2568,16 +2538,6 @@ export class NomorService {
     for (const detail of details) {
       // Hanya set ditolak jika status masih booking
       if (detail.status === 'booking') {
-        // Delete file dari storage jika ada
-        if (detail.fileText) {
-          try {
-            await this.storageService.deleteFile(detail.fileText);
-            console.log(`Deleted file from storage on reject all: ${detail.fileText}`);
-          } catch (error) {
-            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-          }
-        }
-
         detail.status = 'ditolak';
         await this.nomorRequestDetailRepository.save(detail);
         rejectedDetails.push({
