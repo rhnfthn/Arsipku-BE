@@ -319,9 +319,12 @@ export class NaskahSirkulasiService {
       whereClause += ` AND s.flag_note = 1`;
     }
 
-    // Filter by arsip
+    // Filter by arsip (default: exclude archived items)
     if (query.arsip === true) {
       whereClause += ` AND s.flag_arsip = 1`;
+    } else {
+      // Default behavior: exclude archived items unless explicitly requested
+      whereClause += ` AND s.flag_arsip = 0`;
     }
 
     // Filter by priority (khusus disposisi)
