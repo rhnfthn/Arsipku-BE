@@ -2092,8 +2092,18 @@ export class KonsepService {
    * @returns Detail konsep dengan flow lengkap
    */
   async getKonsepDetail(id: string): Promise<any> {
+    // Jenis label map
+    const JENIS_LABELS: Record<string, string> = {
+      DI: 'Disposisi',
+      ND: 'Nota Dinas',
+      SDI: 'Surat Dinas Internal',
+      SDE: 'Surat Dinas Eksternal',
+      KA: 'Kajian',
+      K: 'Konsep',
+    };
+
     try {
-      // Get konsep (jenis='K')
+      // 1. Get konsep (jenis='K')
       const naskahKonsep = await this.naskahRepository.findOne({
         where: { id, jenis: 'K' },
       });
@@ -2102,108 +2112,34 @@ export class KonsepService {
         throw new NotFoundException(`Konsep dengan ID ${id} tidak ditemukan`);
       }
 
-      // Get naskah asli
-      let naskahAsli: NaskahEntity | null = null;
-      let naskahContent: any = null;
-      let pengirimAsli: NaskahSirkulasi | null = null;
-      let penerimaAsliList: NaskahSirkulasi[] = [];
-      let tembusanAsliList: NaskahSirkulasi[] = [];
-      
+      // 2. Get all naskah K with same id_naskah_asli (multi-forward chain)
+      let konsepIds: string[] = [naskahKonsep.id];
       if (naskahKonsep.id_naskah_asli) {
-        naskahAsli = await this.naskahRepository.findOne({
-          where: { id: naskahKonsep.id_naskah_asli },
-        });
-
-        if (naskahAsli) {
-          // REFACTOR: Get ND/SDI/SDE content dari naskah_sirkulasi, bukan dari nd/sdi_sde entity
-          pengirimAsli = await this.naskahSirkulasiRepository.findOne({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
-          });
-          penerimaAsliList = await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
-          });
-          tembusanAsliList = await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
-          });
-          
-          // Build naskahContent from naskah + sirkulasi data
-          naskahContent = {
-            id: naskahAsli.id,
-            idNaskah: naskahAsli.id,
-            kopLogo: DEFAULT_KOP_LOGO,
-            kopNama: DEFAULT_KOP_NAMA,
-            alamatPerusahaan: DEFAULT_ALAMAT_PERUSAHAAN,
-            nomor: naskahAsli.nomor,
-            kepadaYth: penerimaAsliList.map(p => p.positionText).join('; '),
-            dari: pengirimAsli?.positionText || null,
-            perihal: naskahAsli.perihal,
-            konten: naskahAsli.konten,
-            namaTempat: naskahAsli.tempat,
-            tanggal: naskahAsli.tanggal,
-            namaJabatan: pengirimAsli?.positionText || null,
-            tandaTangan: naskahAsli.tandaTangan || null,
-            namaLengkap: pengirimAsli?.namaSirkuler || null,
-            tembusan: tembusanAsliList.map(t => t.positionText).join('; ') || null,
-            sifat: naskahAsli.sifat,
-            lampiran: naskahAsli.lampiran,
-          };
-        }
-      }
-
-      // Get riwayat konsep - UPDATED: Query from ALL naskah K with same id_naskah_asli
-      // Since forward/reject now create new naskah K, we need to get riwayat from all K
-      let riwayatList: KonsepRiwayatEntity[] = [];
-      if (naskahKonsep.id_naskah_asli) {
-        // Find all naskah K for this workflow
         const allKonsepK = await this.naskahRepository.find({
           where: { id_naskah_asli: naskahKonsep.id_naskah_asli, jenis: 'K' },
           select: ['id'],
         });
-        const konsepIds = allKonsepK.map(k => k.id);
-
-        if (konsepIds.length > 0) {
-          // Query riwayat from all naskah K
-          riwayatList = await this.konsepRiwayatRepository
-            .createQueryBuilder('kr')
-            .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
-            .orderBy('kr.urutan', 'ASC')
-            .getMany();
-        }
-      } else {
-        // Fallback: If no id_naskah_asli, query by konsep id (old behavior)
-        riwayatList = await this.konsepRiwayatRepository.find({
-          where: { idNaskahKonsep: id },
-          order: { urutan: 'ASC' },
-        });
+        konsepIds = allKonsepK.map(k => k.id);
       }
 
-      // Get lampiran
-      const lampiranList = naskahAsli
-        ? await this.naskahLampiranRepository.find({
-            where: { id_naskah: naskahAsli.id },
-          })
-        : [];
+      // 3. Get all riwayat ordered by urutan ASC
+      let riwayatList: KonsepRiwayatEntity[] = [];
+      if (konsepIds.length > 0) {
+        riwayatList = await this.konsepRiwayatRepository
+          .createQueryBuilder('kr')
+          .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
+          .orderBy('kr.urutan', 'ASC')
+          .getMany();
+      }
 
-      // ==========================================
-      // BUILD FLOW - SIMPLIFIED RESPONSE
-      // ==========================================
-      // Flow menggabungkan disposisi chain + konsep workflow
-      // dalam 1 array dengan urutan ASC by date:
-      // - flow[0] = event pertama (terlama) - akan ditampilkan di BAWAH
-      // - flow[last] = event terbaru - akan ditampilkan di ATAS
-      
-      const flow: any[] = [];
-      let urutanCounter = 1;
-
-      // PHASE 1: Get ALL disposisi referensi (disposisi chain)
-      // Query from FIRST naskah K (parent = null) since disposisi referensi only stored there
+      // 4. Find the first K naskah (parent = null) for disposisi referensi
       let firstNaskahKId = naskahKonsep.id;
       if (naskahKonsep.id_naskah_asli) {
         const firstNaskahK = await this.naskahRepository.findOne({
-          where: { 
-            id_naskah_asli: naskahKonsep.id_naskah_asli, 
+          where: {
+            id_naskah_asli: naskahKonsep.id_naskah_asli,
             jenis: 'K',
-            id_naskah_parent: IsNull(), // First in chain
+            id_naskah_parent: IsNull(),
           },
         });
         if (firstNaskahK) {
@@ -2211,20 +2147,24 @@ export class KonsepService {
         }
       }
 
+      // 5. Get all disposisi referensi for this konsep chain
       const allDisposisiReferensi = await this.naskahReferensiRepository.find({
         where: { id_naskah: firstNaskahKId, ref_jenis: 'DI' },
         order: { ref_tanggal: 'ASC' },
       });
 
-      // Build disposisi chain dengan detail lengkap
-      const disposisiDetails: any[] = [];
-      for (const ref of allDisposisiReferensi) {
+      const flow: any[] = [];
+
+      // ============================================================
+      // PHASE 1: Build disposisi chain nodes (level = index in chain)
+      // ============================================================
+      for (let i = 0; i < allDisposisiReferensi.length; i++) {
+        const ref = allDisposisiReferensi[i];
         if (!ref.ref_nomor) continue;
 
         const disposisiNaskah = await this.naskahRepository.findOne({
           where: { nomor: ref.ref_nomor, jenis: 'DI' },
         });
-
         if (!disposisiNaskah) continue;
 
         // Get DI content
@@ -2232,263 +2172,221 @@ export class KonsepService {
           where: { idNaskah: disposisiNaskah.id },
         });
 
-        // Get pengirim disposisi
-        const pengirimDispo = await this.naskahSirkulasiRepository.findOne({
+        // Get sirkulasi
+        const pengirimDI = await this.naskahSirkulasiRepository.findOne({
           where: { idNaskah: disposisiNaskah.id, sirkuler: 'pengirim' },
         });
-
-        // Get penerima disposisi
-        const penerimaDispo = await this.naskahSirkulasiRepository.find({
+        const penerimaDI = await this.naskahSirkulasiRepository.find({
           where: { idNaskah: disposisiNaskah.id, sirkuler: 'penerima' },
           order: { createdAt: 'ASC' },
         });
-
-        disposisiDetails.push({
-          naskah: disposisiNaskah,
-          di: diContent,
-          pengirim: pengirimDispo,
-          penerima: penerimaDispo,
+        const tembusanDI = await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: disposisiNaskah.id, sirkuler: 'tembusan' },
+          order: { createdAt: 'ASC' },
         });
-      }
 
-      // Trace disposisi chain untuk mendapatkan urutan forward
-      // Jika ada 2 disposisi: [DI-001, DI-002], berarti DI-001 → forward → DI-002
-      for (let i = 0; i < disposisiDetails.length; i++) {
-        const dispo = disposisiDetails[i];
-        const isForward = i > 0; // Index > 0 = hasil forward
-        const previousDispo = i > 0 ? disposisiDetails[i - 1] : null;
+        // Get lampiran
+        const lampiranDI = await this.naskahLampiranRepository.find({
+          where: { id_naskah: disposisiNaskah.id },
+        });
 
-        // Generate final_pdf URL if exists
-        const finalPdf = dispo.naskah.final_pdf 
-          ? await this.storageService.getFileUrl(dispo.naskah.final_pdf)
+        // Get referensi
+        const referensiDI = await this.naskahReferensiRepository.findOne({
+          where: { id_naskah: disposisiNaskah.id },
+        });
+
+        const finalPdfUrl = disposisiNaskah.final_pdf
+          ? await this.storageService.getFileUrl(disposisiNaskah.final_pdf)
           : null;
 
+        const lampiranFiles = await Promise.all(
+          lampiranDI.map(async (l) => ({
+            id: l.id,
+            file_name: l.file_name || '',
+            file_path: l.file_pdf || '',
+            file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+          })),
+        );
+
         flow.push({
-          urutan: urutanCounter++,
-          type: 'disposisi',
-          aksi: isForward ? 'forward_disposisi' : 'kirim_disposisi',
-          tanggal: dispo.naskah.tanggal,
-          
-          from: dispo.pengirim ? {
-            position_id: dispo.pengirim.position || '',
-            position_text: dispo.pengirim.positionText || '',
-            organization_text: dispo.pengirim.organizationText || '',
-            nama: dispo.pengirim.namaSirkuler || null,
+          id: disposisiNaskah.id,
+          jenis: 'DI',
+          jenis_label: JENIS_LABELS['DI'],
+          nomor: disposisiNaskah.nomor,
+          tanggal: disposisiNaskah.tanggal,
+          perihal: disposisiNaskah.perihal,
+          konten: disposisiNaskah.konten,
+          sifat: disposisiNaskah.sifat,
+          klasifikasi: disposisiNaskah.klasifikasi,
+          klasifikasi_text: disposisiNaskah.klasifikasi_text,
+          status: disposisiNaskah.status,
+          lampiran: disposisiNaskah.lampiran,
+
+          pengirim: pengirimDI ? {
+            position_id: pengirimDI.position || '',
+            position_text: pengirimDI.positionText || '',
+            organization_text: pengirimDI.organizationText || '',
+            nama: pengirimDI.namaSirkuler || null,
           } : null,
-          
-          to: dispo.penerima.map((p: any) => ({
+
+          penerima: penerimaDI.map(p => ({
             position_id: p.position || '',
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
             nama: p.namaSirkuler || null,
+            status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+            read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
           })),
-          
-          naskah: {
-            id: dispo.naskah.id,
-            jenis: 'DI',
-            nomor: dispo.naskah.nomor,
-            perihal: dispo.naskah.perihal,
-            sifat: dispo.naskah.sifat,
-            status: dispo.naskah.status,
-            final_pdf: finalPdf,
-          },
-          
-          disposisi_content: {
-            disposisi: dispo.di?.disposisi || null,
-            catatan: dispo.di?.catatan || null,
-            klasifikasi: dispo.di?.klasifikasi || null,
-            nomor_agenda: dispo.di?.nomorAgenda || null,
-          },
-          
-          // Jika forward, tampilkan naskah sebelumnya
-          referensi: isForward && previousDispo ? {
-            nomor: previousDispo.naskah.nomor,
-            perihal: previousDispo.naskah.perihal,
+
+          tembusan: tembusanDI.map(t => ({
+            position_id: t.position || '',
+            position_text: t.positionText || '',
+            organization_text: t.organizationText || '',
+            nama: t.namaSirkuler || null,
+          })),
+
+          lampiran_files: lampiranFiles,
+          jumlah_lampiran: lampiranDI.length,
+
+          final_pdf: disposisiNaskah.final_pdf,
+          final_pdf_url: finalPdfUrl,
+
+          referensi: referensiDI ? {
+            ref_jenis: referensiDI.ref_jenis,
+            ref_pengirim: referensiDI.ref_pengirim,
+            ref_tanggal: referensiDI.ref_tanggal,
+            ref_nomor: referensiDI.ref_nomor,
+            ref_perihal: referensiDI.ref_perihal,
           } : null,
+
+          detail: {
+            aksi: 'disposisi',
+            catatan: diContent?.catatan || null,
+          },
+
+          level: i, // DI chain depth: root=0, forward=1, dst
+          created_at: pengirimDI?.createdAt || null,
+          updated_at: pengirimDI?.updatedAt || null,
         });
       }
 
-      // PHASE 2: Add konsep workflow events (create, forward, finalize, reject)
-      for (const riwayat of riwayatList) {
-        // Convert pdf_snapshot path to URL if exists
-        let pdfSnapshotUrl: string | null = null;
-        if (riwayat.pdfSnapshot) {
-          pdfSnapshotUrl = await this.storageService.getFileUrl(riwayat.pdfSnapshot);
-        }
+      // ============================================================
+      // PHASE 2: Build konsep riwayat nodes
+      // All konsep riwayat items are at level = disposisi chain length
+      // ============================================================
+      const konsepLevel = allDisposisiReferensi.length;
 
-        // For finalize action, get actual penerima and tembusan from naskah asli
-        let toData: any = null;
-        let tembusanData: any[] | undefined;
+      // Get naskah asli for finalize penerima/tembusan lookup
+      let naskahAsli: NaskahEntity | null = null;
+      if (naskahKonsep.id_naskah_asli) {
+        naskahAsli = await this.naskahRepository.findOne({
+          where: { id: naskahKonsep.id_naskah_asli },
+        });
+      }
+
+      for (const riwayat of riwayatList) {
+        // Get the K-naskah this riwayat belongs to (for perihal/sifat/klasifikasi)
+        const riwayatNaskahK = await this.naskahRepository.findOne({
+          where: { id: riwayat.idNaskahKonsep },
+        });
+        const naskahRef = riwayatNaskahK || naskahKonsep;
+
+        // pdf_snapshot URL (replaces naskah asli content per requirement)
+        const pdfSnapshotUrl = riwayat.pdfSnapshot
+          ? await this.storageService.getFileUrl(riwayat.pdfSnapshot)
+          : null;
+
+        // Build penerima / tembusan
+        let penerimaNode: any[] = [];
+        let tembusanNode: any[] = [];
 
         if (riwayat.aksi === 'finalize' && naskahAsli) {
-          // Get penerima dari naskah asli (yang dikirim)
+          // For finalize: use actual recipients from naskah asli
           const penerimaFinal = await this.naskahSirkulasiRepository.find({
             where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
           });
+          penerimaNode = penerimaFinal.map(p => ({
+            position_id: p.position || '',
+            position_text: p.positionText || '',
+            organization_text: p.organizationText || '',
+            nama: p.namaSirkuler || null,
+            status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+            read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+          }));
 
-          if (penerimaFinal.length > 0) {
-            toData = penerimaFinal.map(p => ({
-              position_id: p.position || '',
-              position_text: p.positionText || '',
-              organization_text: p.organizationText || '',
-              nama: p.namaSirkuler || null,
-            }));
-          }
-
-          // Get tembusan dari naskah asli
           const tembusanFinal = await this.naskahSirkulasiRepository.find({
             where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
           });
-
-          if (tembusanFinal.length > 0) {
-            tembusanData = tembusanFinal.map(t => ({
-              position_id: t.position || '',
-              position_text: t.positionText || '',
-              organization_text: t.organizationText || '',
-              nama: t.namaSirkuler || null,
-            }));
-          }
-        } else {
-          // For non-finalize actions, use toPositionId from riwayat
-          toData = riwayat.toPositionId ? {
-            position_id: riwayat.toPositionId,
+          tembusanNode = tembusanFinal.map(t => ({
+            position_id: t.position || '',
+            position_text: t.positionText || '',
+            organization_text: t.organizationText || '',
+            nama: t.namaSirkuler || null,
+          }));
+        } else if (riwayat.toPositionId) {
+          penerimaNode = [{
+            position_id: String(riwayat.toPositionId),
             position_text: riwayat.toPositionText || '',
+            organization_text: '',
             nama: riwayat.toNama || null,
-          } : null;
+          }];
         }
 
-        const flowItem: any = {
-          urutan: urutanCounter++,
-          type: 'konsep',
-          tanggal: riwayat.createdAt, // For sorting
-          
-          from: {
-            position_id: riwayat.fromPositionId,
+        flow.push({
+          id: naskahRef.id,
+          jenis: 'K',
+          jenis_label: JENIS_LABELS['K'],
+          nomor: naskahRef.nomor,
+          tanggal: riwayat.createdAt,
+          perihal: naskahRef.perihal,
+          konten: null, // Naskah asli tidak ditampilkan
+          sifat: naskahRef.sifat,
+          klasifikasi: naskahRef.klasifikasi,
+          klasifikasi_text: naskahRef.klasifikasi_text,
+          status: naskahRef.status,
+          lampiran: null, // Naskah asli tidak ditampilkan
+
+          pengirim: {
+            position_id: String(riwayat.fromPositionId),
             position_text: riwayat.fromPositionText || '',
+            organization_text: '',
             nama: riwayat.fromNama || null,
           },
-          
-          to: toData,
-          
-          aksi: riwayat.aksi, // 'create' | 'forward' | 'approve' | 'reject' | 'finalize'
-          catatan: riwayat.aksi === 'finalize' && naskahAsli ? (naskahAsli.perihal || null) : (riwayat.catatan || null),
-          pdf_snapshot: pdfSnapshotUrl,
+
+          penerima: penerimaNode,
+          tembusan: tembusanNode,
+
+          lampiran_files: [], // Naskah asli tidak ditampilkan
+          jumlah_lampiran: 0,
+
+          final_pdf: riwayat.pdfSnapshot,
+          final_pdf_url: pdfSnapshotUrl, // Hanya pdf_snapshot, bukan naskah asli
+
+          referensi: null,
+
+          detail: {
+            aksi: riwayat.aksi,
+            catatan: riwayat.catatan,
+          },
+
+          level: konsepLevel, // Selalu di atas disposisi chain
           created_at: riwayat.createdAt,
-          created_by: riwayat.createdBy || null,
-        };
-
-        // Add tembusan only for finalize action
-        if (riwayat.aksi === 'finalize' && tembusanData && tembusanData.length > 0) {
-          flowItem.tembusan = tembusanData;
-        }
-
-        flow.push(flowItem);
+          updated_at: null,
+        });
       }
 
-      // Sort flow by tanggal ASC (oldest first, newest last)
-      // Array [0] = terlama (tampil di bawah), [last] = terbaru (tampil di atas)
+      // 8. Sort by level DESC, then tanggal DESC (sama seperti getDetailWithChain)
       flow.sort((a, b) => {
-        const dateA = new Date(a.tanggal).getTime();
-        const dateB = new Date(b.tanggal).getTime();
-        return dateA - dateB; // ASC - chronological order
-      });
-
-      // Re-number urutan after sort and cleanup temporary fields
-      flow.forEach((item, index) => {
-        item.urutan = index + 1;
-        // Remove temporary fields used only for sorting
-        if (item.type === 'konsep') {
-          delete item.type;
-          delete item.tanggal;
+        if (a.level !== b.level) {
+          return b.level - a.level; // Higher level first
         }
+        return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
       });
-
-      // Get penerima and tembusan for naskah asli
-      const penerimaList = naskahAsli
-        ? await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
-          })
-        : [];
-
-      const tembusanList = naskahAsli
-        ? await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
-          })
-        : [];
-
-      // Get current state (flow[last] = latest because ASC sort)
-      const latestEvent = flow[flow.length - 1];
-      const currentState = {
-        current_step: latestEvent?.urutan || 0,
-        total_steps: flow.length,
-        status: naskahKonsep.status,
-        last_action: latestEvent?.aksi || null,
-        last_action_by: latestEvent?.from || null,
-        last_action_date: latestEvent?.tanggal || null,
-      };
 
       return {
         success: true,
         message: 'Detail konsep berhasil diambil',
-        data: {
-          // Basic info
-          konsep: {
-            id: naskahKonsep.id,
-            perihal: naskahKonsep.perihal,
-            status: naskahKonsep.status,
-            created_at: flow[0]?.tanggal || naskahKonsep.tanggal, // first/oldest event
-          },
-          
-          // Naskah asli (final document)
-          naskah: naskahAsli ? {
-            id: naskahAsli.id,
-            jenis: naskahAsli.jenis,
-            nomor: naskahAsli.nomor,
-            tanggal: naskahAsli.tanggal,
-            perihal: naskahAsli.perihal,
-            konten: naskahAsli.konten,
-            klasifikasi: naskahAsli.klasifikasi,
-            klasifikasi_text: naskahAsli.klasifikasi_text,
-            sifat: naskahAsli.sifat,
-            status: naskahAsli.status,
-            content: naskahContent,
-          } : null,
-          
-          // Pengirim naskah final
-          pengirim: pengirimAsli ? {
-            position_id: parseInt(pengirimAsli.position || '0'),
-            position_text: pengirimAsli.positionText,
-            nama: pengirimAsli.namaSirkuler,
-          } : null,
-          
-          // Penerima & Tembusan naskah final
-          penerima: penerimaList.map((p) => ({
-            position_id: parseInt(p.position || '0'),
-            position_text: p.positionText,
-            nama: p.namaSirkuler,
-          })),
-          tembusan: tembusanList.map((t) => ({
-            position_id: parseInt(t.position || '0'),
-            position_text: t.positionText,
-            nama: t.namaSirkuler,
-          })),
-          
-          // Lampiran
-          lampiran: await Promise.all(lampiranList.map(async (l) => ({
-            id: l.id,
-            file_name: l.file_name,
-            file_pdf: l.file_pdf,
-            file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
-            jenis: l.jenis,
-          }))),
-          
-          // Current state
-          current_state: currentState,
-          
-          // SIMPLIFIED: Flow kronologis disposisi + konsep
-          // Order: ASC by date (flow[0]=terlama/bawah, flow[last]=terbaru/atas)
-          flow: flow,
-        },
+        data: flow,
       };
     } catch (error) {
       if (error instanceof HttpException) {
