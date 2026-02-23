@@ -5,6 +5,7 @@ import { AdminService } from './services/admin.service';
 import { UserRoleEntity } from './entities/user-role.entity';
 import { UserRoleHistoryEntity } from './entities/user-role-history.entity';
 import { Person } from '../master-data/person/entities/person.entity';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { Person } from '../master-data/person/entities/person.entity';
       UserRoleHistoryEntity,
       Person,
     ]),
+    OrgDataModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],
