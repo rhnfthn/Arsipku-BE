@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository, Like, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { UserRoleEntity, UserRole } from '../entities/user-role.entity';
 import { UserRoleHistoryEntity, RoleAction } from '../entities/user-role-history.entity';
@@ -111,9 +111,9 @@ export class AdminService {
       };
     }
 
-    // No search term - get all admin users only (exclude superadmin and regular users)
+    // No search term - get all admin and superadmin users
     const allUserRoles = await this.userRoleRepo.find({
-      where: { role: UserRole.ADMIN }, // Only get admin users
+      where: { role: In([UserRole.ADMIN, UserRole.SUPERADMIN]) },
       order: { createdAt: 'DESC' },
     });
 
@@ -218,7 +218,6 @@ export class AdminService {
     persnum: number,
     dto: AssignRoleDto,
     assignedBy: number,
-    idPosition?: string,
   ): Promise<AssignRoleResponseDto> {
     // Validate user exists in pa_personal
     const person = await this.personRepo.findOne({
@@ -234,6 +233,15 @@ export class AdminService {
       throw new BadRequestException(`User dengan persnum ${persnum} tidak aktif`);
     }
 
+    // Fetch id_position from target user's org data
+    let targetIdPosition = '';
+    try {
+      const targetOrgData = await this.orgDataService.findByPersnum(persnum);
+      targetIdPosition = targetOrgData?.position?.toString() || '';
+    } catch {
+      targetIdPosition = '';
+    }
+
     // Check if user already has a role
     let userRole = await this.userRoleRepo.findOne({
       where: { persnum },
@@ -243,9 +251,7 @@ export class AdminService {
       // Update existing role
       const oldRole = userRole.role;
       userRole.role = dto.role;
-      if (idPosition) {
-        userRole.idPosition = idPosition;
-      }
+      userRole.idPosition = targetIdPosition;
       await this.userRoleRepo.save(userRole);
 
       // Log to history
@@ -274,7 +280,7 @@ export class AdminService {
       id: uuidv4(),
       persnum,
       role: dto.role,
-      idPosition: idPosition || '',
+      idPosition: targetIdPosition,
     });
 
     await this.userRoleRepo.save(userRole);
@@ -308,7 +314,6 @@ export class AdminService {
     persnum: number,
     dto: AssignRoleDto,
     updatedBy: number,
-    idPosition?: string,
   ): Promise<UpdateRoleResponseDto> {
     // Check if user has a role
     const userRole = await this.userRoleRepo.findOne({
@@ -321,11 +326,18 @@ export class AdminService {
 
     const previousRole = userRole.role;
 
+    // Fetch id_position from target user's org data
+    try {
+      const targetOrgData = await this.orgDataService.findByPersnum(persnum);
+      if (targetOrgData?.position) {
+        userRole.idPosition = targetOrgData.position.toString();
+      }
+    } catch {
+      // keep existing idPosition if org data fetch fails
+    }
+
     // Update role
     userRole.role = dto.role;
-    if (idPosition) {
-      userRole.idPosition = idPosition;
-    }
     await this.userRoleRepo.save(userRole);
 
     // Log to history
