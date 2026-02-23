@@ -60,7 +60,7 @@ export class AdminController {
     @Body() dto: AssignRoleDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<AssignRoleResponseDto> {
-    return this.adminService.assignRole(persnum, dto, user.persnum, user.position);
+    return this.adminService.assignRole(persnum, dto, user.persnum);
   }
 
   /**
@@ -78,7 +78,7 @@ export class AdminController {
     @Body() dto: AssignRoleDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<UpdateRoleResponseDto> {
-    return this.adminService.updateRole(persnum, dto, user.persnum, user.position);
+    return this.adminService.updateRole(persnum, dto, user.persnum);
   }
 
   /**
