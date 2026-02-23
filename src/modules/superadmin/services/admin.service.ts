@@ -6,8 +6,9 @@ import { UserRoleEntity, UserRole } from '../entities/user-role.entity';
 import { UserRoleHistoryEntity, RoleAction } from '../entities/user-role-history.entity';
 import { Person } from '../../master-data/person/entities/person.entity';
 import { SearchUsersDto, SearchUsersResponseDto, UserListItemDto } from '../dto/search-users.dto';
-import { AssignRoleDto, AssignRoleResponseDto } from '../dto/assign-role.dto';
+import { AssignRoleDto, AssignRoleResponseDto, UpdateRoleResponseDto } from '../dto/assign-role.dto';
 import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 @Injectable()
 export class AdminService {
@@ -18,6 +19,7 @@ export class AdminService {
     private readonly userRoleHistoryRepo: Repository<UserRoleHistoryEntity>,
     @InjectRepository(Person)
     private readonly personRepo: Repository<Person>,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   /**
@@ -73,9 +75,20 @@ export class AdminService {
           name: person.name || '',
           uname: person.uname || '',
           role: userRole?.role || null,
+          bod_tag: null, // will be populated below
           status: 'aktif',
           assigned_at: userRole?.createdAt || null,
         });
+      }
+
+      // Populate bod_tag from org data
+      for (const user of users) {
+        try {
+          const orgData = await this.orgDataService.findByPersnum(user.persnum);
+          user.bod_tag = orgData?.bodTag || null;
+        } catch {
+          user.bod_tag = null;
+        }
       }
 
       // Count summary
@@ -117,6 +130,7 @@ export class AdminService {
         name: person.name || '',
         uname: person.uname || '',
         role: userRole.role,
+        bod_tag: null, // will be populated below
         status: 'aktif',
         assigned_at: userRole.createdAt || null,
       });
@@ -126,6 +140,16 @@ export class AdminService {
     const totalAdmin = users.filter(u => u.role === UserRole.ADMIN).length;
     const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
     const totalRegular = users.filter(u => !u.role).length;
+
+    // Populate bod_tag from org data
+    for (const user of users) {
+      try {
+        const orgData = await this.orgDataService.findByPersnum(user.persnum);
+        user.bod_tag = orgData?.bodTag || null;
+      } catch {
+        user.bod_tag = null;
+      }
+    }
 
     return {
       success: true,
@@ -163,6 +187,15 @@ export class AdminService {
       where: { persnum },
     });
 
+    // Get bod_tag from org data
+    let bodTag: string | null = null;
+    try {
+      const orgData = await this.orgDataService.findByPersnum(persnum);
+      bodTag = orgData?.bodTag || null;
+    } catch {
+      bodTag = null;
+    }
+
     return {
       success: true,
       data: {
@@ -170,6 +203,7 @@ export class AdminService {
         name: person.name || '',
         uname: person.uname || '',
         role: userRole?.role || null,
+        bod_tag: bodTag,
         status: person.endDate === '9999-12-31' ? 'aktif' : 'tidak_aktif',
         assigned_at: userRole?.createdAt || null,
       },
@@ -184,6 +218,7 @@ export class AdminService {
     persnum: number,
     dto: AssignRoleDto,
     assignedBy: number,
+    idPosition?: string,
   ): Promise<AssignRoleResponseDto> {
     // Validate user exists in pa_personal
     const person = await this.personRepo.findOne({
@@ -208,6 +243,9 @@ export class AdminService {
       // Update existing role
       const oldRole = userRole.role;
       userRole.role = dto.role;
+      if (idPosition) {
+        userRole.idPosition = idPosition;
+      }
       await this.userRoleRepo.save(userRole);
 
       // Log to history
@@ -236,6 +274,7 @@ export class AdminService {
       id: uuidv4(),
       persnum,
       role: dto.role,
+      idPosition: idPosition || '',
     });
 
     await this.userRoleRepo.save(userRole);
@@ -257,6 +296,56 @@ export class AdminService {
         role: dto.role,
         assigned_by: assignedBy,
         assigned_at: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Update existing role for user
+   * Only superadmin can update roles
+   */
+  async updateRole(
+    persnum: number,
+    dto: AssignRoleDto,
+    updatedBy: number,
+    idPosition?: string,
+  ): Promise<UpdateRoleResponseDto> {
+    // Check if user has a role
+    const userRole = await this.userRoleRepo.findOne({
+      where: { persnum },
+    });
+
+    if (!userRole) {
+      throw new NotFoundException(`User dengan persnum ${persnum} tidak memiliki role untuk diubah`);
+    }
+
+    const previousRole = userRole.role;
+
+    // Update role
+    userRole.role = dto.role;
+    if (idPosition) {
+      userRole.idPosition = idPosition;
+    }
+    await this.userRoleRepo.save(userRole);
+
+    // Log to history
+    await this.userRoleHistoryRepo.save({
+      id: uuidv4(),
+      persnum,
+      role: dto.role,
+      action: RoleAction.ASSIGNED,
+      assignedBy: updatedBy,
+    });
+
+    return {
+      success: true,
+      message: `Role berhasil diubah dari ${previousRole} menjadi ${dto.role}`,
+      data: {
+        persnum,
+        previous_role: previousRole,
+        new_role: dto.role,
+        updated_by: updatedBy,
+        updated_at: new Date(),
       },
     };
   }
