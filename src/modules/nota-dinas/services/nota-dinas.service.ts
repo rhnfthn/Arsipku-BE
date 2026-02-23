@@ -200,6 +200,46 @@ export class NotaDinasService {
   }
 
   // ============================================================
+  // HELPER: BUILD PDF RECIPIENT NAMES (GRUP-AWARE)
+  // ============================================================
+
+  /**
+   * Build recipient names for PDF display, using grup display names when applicable.
+   * Instead of expanding grup to individual names, shows the grup display name
+   * (e.g., "Para Direktur" instead of listing each director individually).
+   *
+   * @param individualPositionIds - Array of individual position IDs (from dto.penerima or dto.tembusan)
+   * @param grupIds - Array of grup penerima UUIDs (from dto.penerima_grup or dto.tembusan_grup)
+   * @param barisData - org_data position array for looking up individual position names
+   * @returns Array of names for PDF display
+   */
+  private async buildPdfRecipientNames(
+    individualPositionIds: number[] | undefined,
+    grupIds: string[] | undefined,
+    barisData: OrgDataPositionDto[],
+  ): Promise<string[]> {
+    const names: string[] = [];
+
+    // Add individual position names
+    if (individualPositionIds && individualPositionIds.length > 0) {
+      for (const posId of individualPositionIds) {
+        const pos = barisData.find((p) => Number(p.position) === Number(posId));
+        if (pos) {
+          names.push(pos.position_text);
+        }
+      }
+    }
+
+    // Add grup display names (not expanded to individuals)
+    if (grupIds && grupIds.length > 0) {
+      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+      names.push(...grupDisplayNames);
+    }
+
+    return names;
+  }
+
+  // ============================================================
   // HELPER: GENERATE NOMOR WITH INTEGRATION
   // ============================================================
 
@@ -1585,14 +1625,11 @@ export class NotaDinasService {
       }
 
       // PHASE 12: Insert ke tabel nd (konten lengkap Nota Dinas)
-      const kepadaYthList = penerimaList.map(
-        (p) => p.position_text,
-      );
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
       const kepadaYth = kepadaYthList.join('; ');
 
-      const tembusanTextList = tembusanList.map(
-        (t) => t.position_text,
-      );
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
@@ -1962,9 +1999,10 @@ export class NotaDinasService {
       }
 
       // PHASE 9: Insert nd entity
-      const kepadaYthList = penerimaList.map((p) => p.position_text);
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
       const kepadaYth = kepadaYthList.join('; ');
-      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
       const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
       // Get dynamic header info
@@ -2299,7 +2337,9 @@ export class NotaDinasService {
     if (
       dto.pengirim !== undefined ||
       dto.penerima !== undefined ||
-      dto.tembusan !== undefined
+      dto.tembusan !== undefined ||
+      dto.penerima_grup !== undefined ||
+      dto.tembusan_grup !== undefined
     ) {
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
@@ -2620,14 +2660,36 @@ export class NotaDinasService {
           where: { idNaskah: naskahId, sirkuler: 'penerima' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const kepadaYthListForPdf = penerimaListForPdf.map(p => p.positionText || '');
+
+        // Use grup display names for PDF if dto has grup info, otherwise fallback to sirkulasi names
+        let kepadaYthListForPdf: string[];
+        if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+          kepadaYthListForPdf = await this.buildPdfRecipientNames(
+            dto.penerima || undefined,
+            dto.penerima_grup,
+            barisData,
+          );
+        } else {
+          kepadaYthListForPdf = penerimaListForPdf.map(p => p.positionText || '');
+        }
 
         // Get tembusan from sirkulasi (with proper urutan) for PDF
         const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
           where: { idNaskah: naskahId, sirkuler: 'tembusan' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const tembusanForPdfFinal = tembusanListForPdf.map(t => t.positionText || '');
+
+        // Use grup display names for tembusan if dto has grup info
+        let tembusanForPdfFinal: string[];
+        if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+          tembusanForPdfFinal = await this.buildPdfRecipientNames(
+            dto.tembusan || undefined,
+            dto.tembusan_grup,
+            barisData,
+          );
+        } else {
+          tembusanForPdfFinal = tembusanListForPdf.map(t => t.positionText || '');
+        }
 
         // Get lampiran files for merging
         const lampiranFilesForPdf = await queryRunner.manager.find(NaskahLampiranEntity, {

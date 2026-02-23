@@ -12,7 +12,7 @@ import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('ND')
@@ -181,7 +181,6 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (pengirim is not managerial)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
@@ -341,7 +340,6 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Patch('update-draft/:id')
@@ -646,46 +644,30 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
-      // Expand penerima_grup to individual position IDs
-      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
-        for (const grupId of dto.penerima_grup) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, dto.tgl);
-            const positionIds = grupPositions.map(p => String(p.position));
-            tertujuArray = [...tertujuArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        tertujuArray = [...new Set(tertujuArray)];
-      }
-
+      // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
-      let tembusanArray = dto.tembusan || [];
-
-      // Expand tembusan_grup to individual position IDs
-      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
-        for (const grupId of dto.tembusan_grup) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, dto.tgl);
-            const positionIds = grupPositions.map(p => String(p.position));
-            tembusanArray = [...tembusanArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        tembusanArray = [...new Set(tembusanArray)];
+      // Add grup penerima display names (e.g., "Para Direktur") instead of expanding to individuals
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        tertujuArray = [...tertujuArray, ...grupDisplayNames];
       }
 
+      let tembusanArray = dto.tembusan || [];
+
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
+      }
+
+      // Add grup tembusan display names instead of expanding to individuals
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        tembusanArray = [...tembusanArray, ...grupDisplayNames];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -882,54 +864,30 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
-      // Expand penerima_grup to individual positions
-      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
-        const grupPositionIds: string[] = [];
-        for (const grupId of dto.penerima_grup) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || dto.tgl);
-            grupPositions.forEach((pos) => grupPositionIds.push(String(pos.position)));
-          } catch (error) {
-            console.warn(`Failed to expand penerima grup ${grupId}:`, error.message);
-          }
-        }
-        // Merge with individual penerima
-        if (grupPositionIds.length > 0) {
-          const existingIds = tertujuArray.map((id) => String(id));
-          const mergedIds = [...new Set([...existingIds, ...grupPositionIds])];
-          tertujuArray = mergedIds;
-        }
-      }
-
+      // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
-      let tembusanArray = dto.tembusan || [];
-
-      // Expand tembusan_grup to individual positions
-      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
-        const grupPositionIds: string[] = [];
-        for (const grupId of dto.tembusan_grup) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || dto.tgl);
-            grupPositions.forEach((pos) => grupPositionIds.push(String(pos.position)));
-          } catch (error) {
-            console.warn(`Failed to expand tembusan grup ${grupId}:`, error.message);
-          }
-        }
-        // Merge with individual tembusan
-        if (grupPositionIds.length > 0) {
-          const existingIds = tembusanArray.map((id) => String(id));
-          const mergedIds = [...new Set([...existingIds, ...grupPositionIds])];
-          tembusanArray = mergedIds;
-        }
+      // Add grup penerima display names (e.g., "Para Direktur") instead of expanding to individuals
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        tertujuArray = [...tertujuArray, ...grupDisplayNames];
       }
 
+      let tembusanArray = dto.tembusan || [];
+
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
+      }
+
+      // Add grup tembusan display names instead of expanding to individuals
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        tembusanArray = [...tembusanArray, ...grupDisplayNames];
       }
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
