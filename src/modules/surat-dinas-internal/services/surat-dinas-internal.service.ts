@@ -144,6 +144,46 @@ export class SuratDinasInternalService {
   }
 
   // ============================================================
+  // HELPER: BUILD PDF RECIPIENT NAMES (GRUP-AWARE)
+  // ============================================================
+
+  /**
+   * Build recipient names for PDF display, using grup display names when applicable.
+   * Instead of expanding grup to individual names, shows the grup display name
+   * (e.g., "Para GM" instead of listing each GM individually).
+   *
+   * @param individualPositionIds - Array of individual position IDs (from dto.penerima or dto.tembusan)
+   * @param grupIds - Array of grup penerima UUIDs (from dto.penerima_grup or dto.tembusan_grup)
+   * @param barisData - org_data position array for looking up individual position names
+   * @returns Array of names for PDF display
+   */
+  private async buildPdfRecipientNames(
+    individualPositionIds: number[] | undefined,
+    grupIds: string[] | undefined,
+    barisData: SdiOrgDataPositionDto[],
+  ): Promise<string[]> {
+    const names: string[] = [];
+
+    // Add individual position names
+    if (individualPositionIds && individualPositionIds.length > 0) {
+      for (const posId of individualPositionIds) {
+        const pos = barisData.find((p) => Number(p.position) === Number(posId));
+        if (pos) {
+          names.push(pos.position_text);
+        }
+      }
+    }
+
+    // Add grup display names (not expanded to individuals)
+    if (grupIds && grupIds.length > 0) {
+      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+      names.push(...grupDisplayNames);
+    }
+
+    return names;
+  }
+
+  // ============================================================
   // HELPER: DYNAMIC HEADER INFO
   // ============================================================
 
@@ -1604,13 +1644,10 @@ export class SuratDinasInternalService {
       // - konten → di naskah.konten
 
       // Build kepadaYthList untuk PDF generation
-      const kepadaYthList = penerimaList.map(
-        (p) => p.position_text
-      );
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
 
-      const tembusanTextList = tembusanList.map(
-        (t) => t.position_text
-      );
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
 
       // PHASE 13: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
       let finalPdfPath: string | undefined = undefined;
@@ -1952,8 +1989,9 @@ export class SuratDinasInternalService {
 
       // PHASE 9: (REMOVED) - SdiSdeEntity tidak lagi digunakan
       // Fields tersedia dari naskah_sirkulasi dan naskah.tandaTangan
-      const kepadaYthList = penerimaList.map((p) => p.position_text);
-      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
 
       // PHASE 10: Generate PDF dengan QR code (jika signing)
       let finalPdfPath: string | undefined = undefined;
@@ -2527,18 +2565,40 @@ export class SuratDinasInternalService {
           where: { idNaskah: naskahId, sirkuler: 'penerima' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const kepadaYthList = penerimaListForPdf.map(
-          (p) => `${p.positionText} - ${p.organizationText}`,
-        );
+
+        // Use grup display names for PDF if dto has grup info, otherwise fallback to sirkulasi names
+        let kepadaYthList: string[];
+        if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+          kepadaYthList = await this.buildPdfRecipientNames(
+            dto.penerima || undefined,
+            dto.penerima_grup,
+            barisData,
+          );
+        } else {
+          kepadaYthList = penerimaListForPdf.map(
+            (p) => `${p.positionText} - ${p.organizationText}`,
+          );
+        }
 
         // Get tembusan list for PDF
         const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
           where: { idNaskah: naskahId, sirkuler: 'tembusan' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const tembusanTextList = tembusanListForPdf.map(
-          (t) => `${t.positionText} - ${t.organizationText}`,
-        );
+
+        // Use grup display names for tembusan if dto has grup info
+        let tembusanTextList: string[];
+        if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+          tembusanTextList = await this.buildPdfRecipientNames(
+            dto.tembusan || undefined,
+            dto.tembusan_grup,
+            barisData,
+          );
+        } else {
+          tembusanTextList = tembusanListForPdf.map(
+            (t) => `${t.positionText} - ${t.organizationText}`,
+          );
+        }
 
         // Get tanggal for PDF
         const tanggalHariIni = naskah.tanggal instanceof Date ? naskah.tanggal : new Date();

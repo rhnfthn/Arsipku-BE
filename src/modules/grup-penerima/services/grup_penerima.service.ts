@@ -262,6 +262,60 @@ export class GrupPenerimaService {
     return positions;
   }
 
+  /**
+   * Map grup penerima database name to PDF display name
+   * Rules:
+   * - "Directors" → "Para Direktur"
+   * - "(EVP) Executive Vice President" → "Para EVP"
+   * - "(GM) General Manager" → "Para GM"
+   * If no mapping found, return the original nama
+   */
+  static mapGrupNameToDisplayName(nama: string): string {
+    const mapping: Record<string, string> = {
+      'Directors': 'Para Direktur',
+      '(EVP) Executive Vice President': 'Para EVP',
+      '(GM) General Manager': 'Para GM',
+    };
+    return mapping[nama] || nama;
+  }
+
+  /**
+   * Get display name for a grup penerima (for PDF rendering)
+   * Instead of expanding to individual positions, returns a single display name
+   * e.g., "Directors" → "Para Direktur"
+   * @param grupId - UUID of grup penerima
+   * @returns Display name string
+   */
+  async getGrupDisplayName(grupId: string): Promise<string> {
+    const grup = await this.grupPenerimaRepository.findOne({
+      where: { id: grupId },
+    });
+
+    if (!grup) {
+      throw new NotFoundException(`Grup penerima ${grupId} tidak ditemukan`);
+    }
+
+    return GrupPenerimaService.mapGrupNameToDisplayName(grup.nama);
+  }
+
+  /**
+   * Get display names for multiple grup penerima IDs
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Array of display name strings
+   */
+  async getGrupDisplayNames(grupIds: string[]): Promise<string[]> {
+    const displayNames: string[] = [];
+    for (const grupId of grupIds) {
+      try {
+        const name = await this.getGrupDisplayName(grupId);
+        displayNames.push(name);
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get display name for grup ${grupId}:`, error.message);
+      }
+    }
+    return displayNames;
+  }
+
   async findOne(id: string): Promise<GrupPenerimaEntity> {
     const grupPenerima = await this.grupPenerimaRepository.findOne({
       where: { id },
