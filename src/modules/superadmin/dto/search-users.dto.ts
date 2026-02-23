@@ -16,6 +16,7 @@ export class UserListItemDto {
   name: string;
   uname: string;
   role: UserRole | null;
+  bod_tag: string | null;
   status: 'aktif' | 'tidak_aktif';
   assigned_at: Date | null;
 }
