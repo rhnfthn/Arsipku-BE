@@ -2278,10 +2278,25 @@ export class KonsepService {
 
       // Get naskah asli for finalize penerima/tembusan lookup
       let naskahAsli: NaskahEntity | null = null;
+      let pengirimAsli: NaskahSirkulasi | null = null;
+      let penerimaAsliList: NaskahSirkulasi[] = [];
+      let tembusanAsliList: NaskahSirkulasi[] = [];
+
       if (naskahKonsep.id_naskah_asli) {
         naskahAsli = await this.naskahRepository.findOne({
           where: { id: naskahKonsep.id_naskah_asli },
         });
+        if (naskahAsli) {
+          pengirimAsli = await this.naskahSirkulasiRepository.findOne({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'pengirim' },
+          });
+          penerimaAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
+          });
+          tembusanAsliList = await this.naskahSirkulasiRepository.find({
+            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
+          });
+        }
       }
 
       for (const riwayat of riwayatList) {
@@ -2301,11 +2316,8 @@ export class KonsepService {
         let tembusanNode: any[] = [];
 
         if (riwayat.aksi === 'finalize' && naskahAsli) {
-          // For finalize: use actual recipients from naskah asli
-          const penerimaFinal = await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'penerima' },
-          });
-          penerimaNode = penerimaFinal.map(p => ({
+          // For finalize: use actual recipients from naskah asli (already pre-fetched)
+          penerimaNode = penerimaAsliList.map(p => ({
             position_id: p.position || '',
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
@@ -2313,11 +2325,7 @@ export class KonsepService {
             status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
             read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
           }));
-
-          const tembusanFinal = await this.naskahSirkulasiRepository.find({
-            where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
-          });
-          tembusanNode = tembusanFinal.map(t => ({
+          tembusanNode = tembusanAsliList.map(t => ({
             position_id: t.position || '',
             position_text: t.positionText || '',
             organization_text: t.organizationText || '',
@@ -2331,6 +2339,30 @@ export class KonsepService {
             nama: riwayat.toNama || null,
           }];
         }
+
+        // naskah_asli sirkulasi (same for all K nodes in this workflow)
+        const naskahAsliSirkulasi = naskahAsli ? {
+          pengirim: pengirimAsli ? {
+            position_id: pengirimAsli.position || '',
+            position_text: pengirimAsli.positionText || '',
+            organization_text: pengirimAsli.organizationText || '',
+            nama: pengirimAsli.namaSirkuler || null,
+          } : null,
+          penerima: penerimaAsliList.map(p => ({
+            position_id: p.position || '',
+            position_text: p.positionText || '',
+            organization_text: p.organizationText || '',
+            nama: p.namaSirkuler || null,
+            status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+            read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+          })),
+          tembusan: tembusanAsliList.map(t => ({
+            position_id: t.position || '',
+            position_text: t.positionText || '',
+            organization_text: t.organizationText || '',
+            nama: t.namaSirkuler || null,
+          })),
+        } : null;
 
         flow.push({
           id: naskahRef.id,
@@ -2367,6 +2399,9 @@ export class KonsepService {
           detail: {
             aksi: riwayat.aksi,
             catatan: riwayat.catatan,
+            naskah_pengirim: naskahAsliSirkulasi?.pengirim || null,
+            naskah_penerima: naskahAsliSirkulasi?.penerima || [],
+            naskah_tembusan: naskahAsliSirkulasi?.tembusan || [],
           },
 
           level: konsepLevel, // Selalu di atas disposisi chain
