@@ -2370,13 +2370,13 @@ export class KonsepService {
           jenis_label: JENIS_LABELS['K'],
           nomor: naskahRef.nomor,
           tanggal: riwayat.createdAt,
-          perihal: naskahRef.perihal,
-          konten: null, // Naskah asli tidak ditampilkan
-          sifat: naskahRef.sifat,
-          klasifikasi: naskahRef.klasifikasi,
-          klasifikasi_text: naskahRef.klasifikasi_text,
+          perihal: naskahAsli?.perihal ?? naskahRef.perihal,
+          konten: naskahAsli?.konten ?? null,
+          sifat: naskahAsli?.sifat ?? naskahRef.sifat,
+          klasifikasi: naskahAsli?.klasifikasi ?? naskahRef.klasifikasi,
+          klasifikasi_text: naskahAsli?.klasifikasi_text ?? naskahRef.klasifikasi_text,
           status: naskahRef.status,
-          lampiran: null, // Naskah asli tidak ditampilkan
+          lampiran: naskahAsli?.lampiran ?? null,
 
           pengirim: {
             position_id: String(riwayat.fromPositionId),
@@ -2399,8 +2399,6 @@ export class KonsepService {
           detail: {
             aksi: riwayat.aksi,
             catatan: riwayat.catatan,
-            perihal_naskah: naskahAsli?.perihal || null,
-            konten_naskah: naskahAsli?.konten || null,
             naskah_pengirim: naskahAsliSirkulasi?.pengirim || null,
             naskah_penerima: naskahAsliSirkulasi?.penerima || [],
             naskah_tembusan: naskahAsliSirkulasi?.tembusan || [],
