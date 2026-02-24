@@ -176,6 +176,7 @@ export class NotaDinasService {
     individualPenerima: number[] | undefined,
     grupPenerimaIds: string[] | undefined,
     tgl?: string,
+    excludePositionId?: number,
   ): Promise<number[]> {
     const allPositionIds = new Set<number>();
 
@@ -194,6 +195,11 @@ export class NotaDinasService {
           console.warn(`[ND:expandGrupPenerima] Failed to expand grup ${grupId}:`, error.message);
         }
       }
+    }
+
+    // Exclude sender's own position from the result (avoid sending to self via grup)
+    if (excludePositionId !== undefined) {
+      allPositionIds.delete(Number(excludePositionId));
     }
 
     return Array.from(allPositionIds);
@@ -1363,7 +1369,7 @@ export class NotaDinasService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
@@ -1395,7 +1401,7 @@ export class NotaDinasService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
 
     // Build position → grup mapping for tembusan
     const tembusanGrupMap = dto.tembusan_grup?.length
@@ -1841,7 +1847,7 @@ export class NotaDinasService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
@@ -1866,7 +1872,7 @@ export class NotaDinasService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
 
     // Build position → grup mapping for tembusan
     const tembusanGrupMap = dto.tembusan_grup?.length
@@ -2524,7 +2530,7 @@ export class NotaDinasService {
         // Build position → grup mapping for penerima
         let penerimaGrupMap = new Map<number, string>();
         if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
-          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
           if (dto.penerima_grup?.length) {
             penerimaGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup);
           }
@@ -2565,7 +2571,7 @@ export class NotaDinasService {
         // Build position → grup mapping for tembusan
         let tembusanGrupMap = new Map<number, string>();
         if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
-          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
           if (dto.tembusan_grup?.length) {
             tembusanGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup);
           }
