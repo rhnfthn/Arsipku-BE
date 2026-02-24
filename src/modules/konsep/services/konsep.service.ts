@@ -2399,6 +2399,8 @@ export class KonsepService {
           detail: {
             aksi: riwayat.aksi,
             catatan: riwayat.catatan,
+            perihal_naskah: naskahAsli?.perihal || null,
+            konten_naskah: naskahAsli?.konten || null,
             naskah_pengirim: naskahAsliSirkulasi?.pengirim || null,
             naskah_penerima: naskahAsliSirkulasi?.penerima || [],
             naskah_tembusan: naskahAsliSirkulasi?.tembusan || [],
