@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { SearchV3Service } from '../services/search-v3.service';
 import { GlobalSearchDto, SearchV3ResponseDto } from '../dto/search-v3.dto';
+import { SearchSuggestionDto, SearchSuggestionResponseDto } from '../dto/search-suggestion.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -21,7 +22,9 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
  * - Highlighting
  * - Faceted search
  * 
- * Endpoint: GET /search/v3
+ * Endpoints:
+ * - GET /search/v3 - Main search
+ * - GET /search/v3/suggestions - Autocomplete suggestions
  */
 @Controller('search')
 @UseGuards(JwtAuthGuard)
@@ -46,5 +49,29 @@ export class SearchV3Controller {
     ): Promise<SearchV3ResponseDto> {
         const positionId = dto.position_id || user.position;
         return this.searchV3Service.search(dto, positionId, user.persnum);
+    }
+
+    /**
+     * GET /search/v3/suggestions
+     * 
+     * Autocomplete suggestions for pengirim/penerima.
+     * Search by nama or jabatan (position_text).
+     *
+     * Query params:
+     * - q: Search query (min 3 characters)
+     * - type: pengirim | penerima | all (default: all)
+     * - limit: Max results (default: 10, max: 30)
+     *
+     * Examples:
+     * - GET /search/v3/suggestions?q=ahmad&type=pengirim
+     * - GET /search/v3/suggestions?q=kepala&type=penerima
+     * - GET /search/v3/suggestions?q=manajer
+     */
+    @Get('v3/suggestions')
+    @HttpCode(HttpStatus.OK)
+    async getSuggestions(
+        @Query() dto: SearchSuggestionDto,
+    ): Promise<SearchSuggestionResponseDto> {
+        return this.searchV3Service.getSuggestions(dto);
     }
 }
