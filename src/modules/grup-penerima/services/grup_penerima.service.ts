@@ -68,18 +68,38 @@ export class GrupPenerimaService {
   }
 
   /**
+   * Grup names allowed per jenis naskah.
+   * ND  → Directors, (EVP) Executive Vice President
+   * SDI → (GM) General Manager
+   */
+  private static readonly JENIS_GRUP_FILTER: Record<string, string[]> = {
+    ND: ['Para Direksi', 'Para EVP'],
+    SDI: ['Para GM'],
+  };
+
+  /**
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
    * @param area - Filter by area
    * @param tgl - Optional date for org_data lookup (default: today)
+   * @param jenis - Optional naskah type filter: 'ND' or 'SDI'
    */
   async findAllWithPositionDetail(
     company?: string,
     area?: string,
     tgl?: string,
+    jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list
-    const grupList = await this.findAll(company, area);
+    let grupList = await this.findAll(company, area);
+
+    // Filter by jenis if provided
+    if (jenis) {
+      const allowedNames = GrupPenerimaService.JENIS_GRUP_FILTER[jenis.toUpperCase()];
+      if (allowedNames) {
+        grupList = grupList.filter((g) => allowedNames.includes(g.nama));
+      }
+    }
 
     if (grupList.length === 0) {
       return [];
