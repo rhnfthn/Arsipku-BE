@@ -336,6 +336,27 @@ export class GrupPenerimaService {
     return displayNames;
   }
 
+  /**
+   * Build a map from position ID to grup penerima UUID.
+   * Used when creating sirkulasi records to tag which position came from which grup.
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Map where key = position ID (number), value = grup UUID (string)
+   */
+  async buildPositionToGrupMap(grupIds: string[]): Promise<Map<number, string>> {
+    const map = new Map<number, string>();
+    for (const grupId of grupIds) {
+      try {
+        const members = await this.getMembers(grupId);
+        for (const member of members) {
+          map.set(Number(member.position), grupId);
+        }
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get members for grup ${grupId}:`, error.message);
+      }
+    }
+    return map;
+  }
+
   async findOne(id: string): Promise<GrupPenerimaEntity> {
     const grupPenerima = await this.grupPenerimaRepository.findOne({
       where: { id },
