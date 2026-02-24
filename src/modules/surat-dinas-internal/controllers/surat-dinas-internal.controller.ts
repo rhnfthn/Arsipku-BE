@@ -586,7 +586,7 @@ export class SuratDinasInternalController {
           );
       }
 
-      // Add grup penerima display names (e.g., "Para GM") instead of expanding to individuals
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       let penerimaGrupArray: string[] = [];
       if (body.penerima_grup) {
         if (typeof body.penerima_grup === 'string') {
@@ -601,7 +601,7 @@ export class SuratDinasInternalController {
       }
       if (penerimaGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
-        penerimaArray = [...penerimaArray, ...grupDisplayNames];
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -623,7 +623,7 @@ export class SuratDinasInternalController {
           );
       }
 
-      // Add grup tembusan display names instead of expanding to individuals
+      // Add grup tembusan display names — grup appears BEFORE individuals
       let tembusanGrupArray: string[] = [];
       if (body.tembusan_grup) {
         if (typeof body.tembusan_grup === 'string') {
@@ -638,7 +638,7 @@ export class SuratDinasInternalController {
       }
       if (tembusanGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
-        tembusanArray = [...tembusanArray, ...grupDisplayNames];
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -768,7 +768,7 @@ export class SuratDinasInternalController {
           );
       }
 
-      // Add grup penerima display names (e.g., "Para GM") instead of expanding to individuals
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       let penerimaGrupArray: string[] = [];
       if (body.penerima_grup) {
         if (typeof body.penerima_grup === 'string') {
@@ -783,7 +783,7 @@ export class SuratDinasInternalController {
       }
       if (penerimaGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
-        penerimaArray = [...penerimaArray, ...grupDisplayNames];
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -805,7 +805,7 @@ export class SuratDinasInternalController {
           );
       }
 
-      // Add grup tembusan display names instead of expanding to individuals
+      // Add grup tembusan display names — grup appears BEFORE individuals
       let tembusanGrupArray: string[] = [];
       if (body.tembusan_grup) {
         if (typeof body.tembusan_grup === 'string') {
@@ -820,7 +820,7 @@ export class SuratDinasInternalController {
       }
       if (tembusanGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
-        tembusanArray = [...tembusanArray, ...grupDisplayNames];
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided

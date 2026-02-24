@@ -164,7 +164,13 @@ export class SuratDinasInternalService {
   ): Promise<string[]> {
     const names: string[] = [];
 
-    // Add individual position names
+    // Add grup display names FIRST (e.g., "Para GM") — grup appears above individuals
+    if (grupIds && grupIds.length > 0) {
+      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+      names.push(...grupDisplayNames);
+    }
+
+    // Then add individual position names
     if (individualPositionIds && individualPositionIds.length > 0) {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
@@ -172,12 +178,6 @@ export class SuratDinasInternalService {
           names.push(pos.position_text);
         }
       }
-    }
-
-    // Add grup display names (not expanded to individuals)
-    if (grupIds && grupIds.length > 0) {
-      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
-      names.push(...grupDisplayNames);
     }
 
     return names;
