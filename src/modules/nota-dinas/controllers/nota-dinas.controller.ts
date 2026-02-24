@@ -650,10 +650,10 @@ export class NotaDinasController {
         tertujuArray = tertujuNames;
       }
 
-      // Add grup penerima display names (e.g., "Para Direktur") instead of expanding to individuals
+      // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
       if (dto.penerima_grup && dto.penerima_grup.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
-        tertujuArray = [...tertujuArray, ...grupDisplayNames];
+        tertujuArray = [...grupDisplayNames, ...tertujuArray];
       }
 
       let tembusanArray = dto.tembusan || [];
@@ -664,10 +664,10 @@ export class NotaDinasController {
         tembusanArray = tembusanNames;
       }
 
-      // Add grup tembusan display names instead of expanding to individuals
+      // Add grup tembusan display names — grup appears BEFORE individuals
       if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
-        tembusanArray = [...tembusanArray, ...grupDisplayNames];
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -870,10 +870,10 @@ export class NotaDinasController {
         tertujuArray = tertujuNames;
       }
 
-      // Add grup penerima display names (e.g., "Para Direktur") instead of expanding to individuals
+      // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
       if (dto.penerima_grup && dto.penerima_grup.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
-        tertujuArray = [...tertujuArray, ...grupDisplayNames];
+        tertujuArray = [...grupDisplayNames, ...tertujuArray];
       }
 
       let tembusanArray = dto.tembusan || [];
@@ -884,10 +884,10 @@ export class NotaDinasController {
         tembusanArray = tembusanNames;
       }
 
-      // Add grup tembusan display names instead of expanding to individuals
+      // Add grup tembusan display names — grup appears BEFORE individuals
       if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
-        tembusanArray = [...tembusanArray, ...grupDisplayNames];
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
