@@ -174,6 +174,14 @@ export class NaskahService {
     const penerima = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
     const tembusan = sirkulasiList.filter((s) => s.sirkuler === 'tembusan');
 
+    // Extract unique grup penerima IDs from sirkulasi records
+    const penerimaGrupIds = [...new Set(
+      penerima.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+    )];
+    const tembusanGrupIds = [...new Set(
+      tembusan.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+    )];
+
     // 3. Get lampiran files
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
@@ -236,6 +244,8 @@ export class NaskahService {
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
         penerima: penerima.map((p) => this.mapSirkulasi(p)),
         tembusan: tembusan.map((t) => this.mapSirkulasi(t)),
+        penerima_grup: penerimaGrupIds,
+        tembusan_grup: tembusanGrupIds,
 
         // Lampiran files
         lampiran_files: lampiranList.map((l) => this.mapLampiran(l)),
@@ -565,6 +575,14 @@ export class NaskahService {
         ? await this.storageService.getFileUrl(naskahData.final_pdf)
         : null;
 
+      // Extract unique grup penerima IDs
+      const penerimaGrupIds = [...new Set(
+        penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+      )];
+      const tembusanGrupIds = [...new Set(
+        tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+      )];
+
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
@@ -634,6 +652,8 @@ export class NaskahService {
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         tembusan: tembusanInfo,
+        penerima_grup: penerimaGrupIds,
+        tembusan_grup: tembusanGrupIds,
 
         // Lampiran files
         lampiran_files: lampiranInfo,
