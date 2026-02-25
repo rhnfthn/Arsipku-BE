@@ -4159,6 +4159,10 @@ export class NotaDinasService {
       tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
     )];
 
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // Build kepada_yth from penerima list (for backward compatibility)
     const kepadaYthText = penerimaList
       .map((p) => p.positionText || p.namaSirkuler || '')
@@ -4228,8 +4232,8 @@ export class NotaDinasService {
         },
         penerima: penerimaInfoList,
         tembusan: tembusanInfoList,
-        penerima_grup: penerimaGrupIds,
-        tembusan_grup: tembusanGrupIds,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Files
         lampiran_files: lampiranInfoList,

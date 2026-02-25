@@ -12,6 +12,7 @@ import { DiEntity } from '../disposisi/entities/di.entity';
 // import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageModule } from '../storage/storage.module';
 import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SearchModule } from '../search/search.module';
     ]),
     StorageModule,
     SearchModule,
+    GrupPenerimaModule,
   ],
   controllers: [NaskahController],
   providers: [NaskahService],
