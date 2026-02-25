@@ -337,6 +337,36 @@ export class GrupPenerimaService {
   }
 
   /**
+   * Get enriched grup info for response: id, nama (display name), and member position_ids
+   * Used in detail endpoints to enrich penerima_grup / tembusan_grup arrays
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Array of { id, nama, position_ids }
+   */
+  async getGrupInfoForResponse(
+    grupIds: string[],
+  ): Promise<{ id: string; nama: string; position_ids: number[] }[]> {
+    const result: { id: string; nama: string; position_ids: number[] }[] = [];
+    for (const grupId of grupIds) {
+      try {
+        const grup = await this.grupPenerimaRepository.findOne({
+          where: { id: grupId },
+          relations: ['details'],
+        });
+        if (grup) {
+          result.push({
+            id: grup.id,
+            nama: GrupPenerimaService.mapGrupNameToDisplayName(grup.nama),
+            position_ids: (grup.details || []).map((d) => Number(d.position)),
+          });
+        }
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get info for grup ${grupId}:`, error.message);
+      }
+    }
+    return result;
+  }
+
+  /**
    * Build a map from position ID to grup penerima UUID.
    * Used when creating sirkulasi records to tag which position came from which grup.
    * @param grupIds - Array of grup penerima UUIDs

@@ -3534,6 +3534,10 @@ export class SuratDinasInternalService {
       tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
     )];
 
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // Build response
     return {
       success: true,
@@ -3583,8 +3587,8 @@ export class SuratDinasInternalService {
         },
         penerima: penerimaInfoList,
         tembusan: tembusanInfoList,
-        penerima_grup: penerimaGrupIds,
-        tembusan_grup: tembusanGrupIds,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Files
         lampiran_files: lampiranInfoList,
