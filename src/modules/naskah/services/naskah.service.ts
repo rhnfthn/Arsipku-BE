@@ -12,6 +12,7 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -51,6 +52,7 @@ export class NaskahService {
     // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private storageService: StorageService,
     private meilisearchSyncService: MeilisearchSyncService,
+    private grupPenerimaService: GrupPenerimaService,
   ) { }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
@@ -182,6 +184,10 @@ export class NaskahService {
       tembusan.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
     )];
 
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // 3. Get lampiran files
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
@@ -244,8 +250,8 @@ export class NaskahService {
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
         penerima: penerima.map((p) => this.mapSirkulasi(p)),
         tembusan: tembusan.map((t) => this.mapSirkulasi(t)),
-        penerima_grup: penerimaGrupIds,
-        tembusan_grup: tembusanGrupIds,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Lampiran files
         lampiran_files: lampiranList.map((l) => this.mapLampiran(l)),
@@ -583,6 +589,10 @@ export class NaskahService {
         tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
       )];
 
+      // Enrich grup penerima with nama and position_ids
+      const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+      const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
@@ -652,8 +662,8 @@ export class NaskahService {
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         tembusan: tembusanInfo,
-        penerima_grup: penerimaGrupIds,
-        tembusan_grup: tembusanGrupIds,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Lampiran files
         lampiran_files: lampiranInfo,

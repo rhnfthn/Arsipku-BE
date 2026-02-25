@@ -95,8 +95,8 @@ export class NaskahDetailResponseDto {
     pengirim: SirkulasiDetailDto | null;
     penerima: SirkulasiDetailDto[];
     tembusan: SirkulasiDetailDto[];
-    penerima_grup: string[];
-    tembusan_grup: string[];
+    penerima_grup: { id: string; nama: string; position_ids: number[] }[];
+    tembusan_grup: { id: string; nama: string; position_ids: number[] }[];
 
     // Lampiran files
     lampiran_files: LampiranDetailDto[];
