@@ -323,13 +323,15 @@ export class GeneratePdfDispoService {
         </div>
 
         <!-- Catatan Section -->
-        <div style="border-bottom: 2px solid #000; min-height: 280px; position: relative;">
+        <div style="border-bottom: 2px solid #000; min-height: 280px; display: flex; flex-direction: column;">
           <div style="padding: 8px 12px; font-weight: bold; font-size: 11px; text-decoration: underline; background-color: #f3f3f3; border-bottom: 1px solid #ddd;">CATATAN :</div>
-          <div style="padding: 12px; font-size: 10px; min-height: 240px; position: relative;">
+          <div style="padding: 12px; font-size: 10px; flex: 1;">
             ${catatan || htmlCatatan || ''}
           </div>
-          <div style="position: absolute; bottom: 12px; right: 12px; border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; background-color: rgba(255,255,255,0.8);">
-            Paraf
+          <div style="display: flex; justify-content: flex-end; padding: 12px;">
+            <div style="border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px;">
+              Paraf
+            </div>
           </div>
         </div>
 
