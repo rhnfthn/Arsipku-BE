@@ -400,8 +400,8 @@ export class SearchV3Service {
         const sortField = this.getSortField(sortBy);
         const safeOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
         const orderBy = keyword
-            ? `ORDER BY relevance_score DESC, ${sortField} ${safeOrder}, n.id DESC`
-            : `ORDER BY ${sortField} ${safeOrder}, n.id DESC`;
+            ? `ORDER BY relevance_score DESC, ${sortField} ${safeOrder}, id DESC`
+            : `ORDER BY ${sortField} ${safeOrder}, id DESC`;
 
         // === COUNT QUERY ===
         const countQuery = `
@@ -414,31 +414,35 @@ export class SearchV3Service {
         const total = parseInt(countResult[0]?.total || '0', 10);
 
         // === MAIN QUERY ===
+        // Subquery pattern: DISTINCT first (dedup), then ORDER BY + LIMIT (sort, then paginate)
+        // This prevents MySQL from optimizing away the ORDER BY when using DISTINCT
         const offset = (page - 1) * limit;
         const mainQuery = `
-      SELECT DISTINCT
-        n.id,
-        n.jenis,
-        n.nomor,
-        n.tanggal,
-        n.perihal,
-        n.sifat,
-        n.status,
-        n.klasifikasi,
-        n.lampiran,
-        n.final_pdf,
-        n.created_at,
-        s.id as id_sirkulasi,
-        s.sirkuler,
-        s.send_read_time as read_time,
-        s.flag_favorit,
-        s.flag_arsip,
-        s.flag_note,
-        (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
-        ${relevanceSelect}
-      FROM naskah n
-      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
-      ${whereString}
+      SELECT * FROM (
+        SELECT DISTINCT
+          n.id,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.klasifikasi,
+          n.lampiran,
+          n.final_pdf,
+          n.created_at,
+          s.id as id_sirkulasi,
+          s.sirkuler,
+          s.send_read_time as read_time,
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
+          ${relevanceSelect}
+        FROM naskah n
+        INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+        ${whereString}
+      ) AS search_results
       ${orderBy}
       LIMIT ? OFFSET ?
     `;
@@ -813,15 +817,16 @@ export class SearchV3Service {
      * Only allows known column names to be used in ORDER BY
      */
     private getSortField(sortBy: string): string {
+        // Column names without table prefix — used in outer query over the subquery alias
         const sortFields: Record<string, string> = {
-            tanggal: 'n.tanggal',
-            nomor: 'n.nomor',
-            perihal: 'n.perihal',
-            jenis: 'n.jenis',
-            created: 'n.created_at',
+            tanggal: 'tanggal',
+            nomor: 'nomor',
+            perihal: 'perihal',
+            jenis: 'jenis',
+            created: 'created_at',
             relevance: 'relevance_score',
         };
-        return sortFields[sortBy] || 'n.created_at';
+        return sortFields[sortBy] || 'created_at';
     }
 
     /**
