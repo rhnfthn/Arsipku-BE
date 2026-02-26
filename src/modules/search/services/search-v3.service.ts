@@ -96,7 +96,7 @@ export class SearchV3Service {
             isRead,
             page = 1,
             limit = 20,
-            sortBy = 'tanggal',
+            sortBy = 'created',
             sortOrder = 'DESC',
         } = dto;
 
@@ -400,8 +400,8 @@ export class SearchV3Service {
         const sortField = this.getSortField(sortBy);
         const safeOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
         const orderBy = keyword
-            ? `ORDER BY relevance_score DESC, ${sortField} ${safeOrder}, id DESC`
-            : `ORDER BY ${sortField} ${safeOrder}, id DESC`;
+            ? `ORDER BY relevance_score DESC, ${sortField} ${safeOrder}, created_at DESC`
+            : `ORDER BY ${sortField} ${safeOrder}, created_at DESC`;
 
         // === COUNT QUERY ===
         const countQuery = `
