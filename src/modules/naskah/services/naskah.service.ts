@@ -613,12 +613,14 @@ export class NaskahService {
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
 
-      // Build tembusan list
+      // Build tembusan list with read status
       const tembusanInfo = tembusanList.map((t) => ({
         position_id: t.position || '',
         position_text: t.positionText || '',
         organization_text: t.organizationText || '',
         nama: t.namaSirkuler || null,
+        status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
+        read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
       }));
 
       // Build lampiran info with URLs
