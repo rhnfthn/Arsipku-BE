@@ -400,7 +400,7 @@ export class NaskahSirkulasiService {
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
-      ORDER BY s.created_at DESC, s.id DESC
+      ORDER BY COALESCE(pengirim.created_at, s.created_at) DESC, s.id DESC
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
@@ -1200,7 +1200,10 @@ export class NaskahSirkulasiService {
           s.flag_note,
           s.tindak_lanjut,
           s.is_locked,
-          s.created_at,
+          COALESCE(
+            (SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1),
+            s.created_at
+          ) as created_at,
           s.updated_at,
           'inbox' as source,
           
