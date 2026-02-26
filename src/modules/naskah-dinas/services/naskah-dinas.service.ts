@@ -439,7 +439,7 @@ export class NaskahDinasService {
     if (positionId) {
       query = query
         .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
-        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+        .andWhere('sirkulasi.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
         .andWhere('sirkulasi.position = :position', { position: String(positionId) });
     }
 
