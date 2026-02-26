@@ -128,6 +128,9 @@ export class InboxItemDto {
   // Labels - array nama label yang di-assign ke naskah
   labels: string[];
 
+  // Tembusan flag - true jika naskah diterima sebagai tembusan
+  is_tembusan: boolean;
+
   // Priority flag (hanya untuk jenis='DI')
   is_priority?: boolean;
 
