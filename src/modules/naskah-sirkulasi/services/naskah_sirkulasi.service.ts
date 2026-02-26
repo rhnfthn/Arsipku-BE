@@ -201,19 +201,13 @@ export class NaskahSirkulasiService {
     }
 
     // Find sirkulasi record for this naskah + position (penerima or tembusan)
+    // Menggunakan In() operator agar match baik penerima maupun tembusan
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
-      where: [
-        {
-          idNaskah: dto.id_naskah,
-          position: dto.position_id,
-          sirkuler: 'penerima',
-        },
-        {
-          idNaskah: dto.id_naskah,
-          position: dto.position_id,
-          sirkuler: 'tembusan',
-        },
-      ],
+      where: {
+        idNaskah: dto.id_naskah,
+        position: dto.position_id,
+        sirkuler: In(['penerima', 'tembusan']),
+      },
     });
 
     if (!sirkulasi) {
@@ -231,6 +225,7 @@ export class NaskahSirkulasiService {
           id_naskah: dto.id_naskah,
           position_id: dto.position_id,
           jenis_naskah: naskah.jenis,
+          is_tembusan: sirkulasi.sirkuler === 'tembusan',
           status_baca: 'terbaca',
           read_time: sirkulasi.sendReadTime,
           read_user: sirkulasi.sendReadUser,
@@ -238,12 +233,14 @@ export class NaskahSirkulasiService {
       };
     }
 
-    // Update status to read
+    // Update status to read menggunakan update() langsung (lebih reliable daripada save())
     const now = new Date();
-    sirkulasi.sendReadTime = now;
-    sirkulasi.sendReadUser = dto.user_id || dto.position_id;
+    const readUser = dto.user_id || dto.position_id;
 
-    await this.naskahSirkulasiRepo.save(sirkulasi);
+    await this.naskahSirkulasiRepo.update(sirkulasi.id, {
+      sendReadTime: now,
+      sendReadUser: readUser,
+    });
 
     return {
       success: true,
@@ -252,9 +249,10 @@ export class NaskahSirkulasiService {
         id_naskah: dto.id_naskah,
         position_id: dto.position_id,
         jenis_naskah: naskah.jenis,
+        is_tembusan: sirkulasi.sirkuler === 'tembusan',
         status_baca: 'terbaca',
         read_time: now,
-        read_user: sirkulasi.sendReadUser,
+        read_user: readUser,
       },
     };
   }
