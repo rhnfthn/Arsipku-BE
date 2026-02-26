@@ -511,7 +511,7 @@ export class NaskahSirkulasiService {
       return item;
     });
 
-    // Get summary counts
+    // Get summary counts (harus konsisten dengan filter default inbox: exclude archived)
     const summaryQuery = `
       SELECT 
         COUNT(*) as total_semua,
@@ -528,6 +528,7 @@ export class NaskahSirkulasiService {
       AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
       AND s.is_konsep = 0
+      AND s.flag_arsip = 0
       AND n.status IN ('final', 'final_tte')
     `;
     const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
