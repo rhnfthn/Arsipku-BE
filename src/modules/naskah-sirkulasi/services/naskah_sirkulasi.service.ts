@@ -200,12 +200,13 @@ export class NaskahSirkulasiService {
       throw new NotFoundException(`Naskah dengan ID ${dto.id_naskah} tidak ditemukan`);
     }
 
-    // Find sirkulasi record for this naskah + position (penerima)
+    // Find sirkulasi record for this naskah + position (penerima or tembusan)
+    // Menggunakan In() operator agar match baik penerima maupun tembusan
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
       where: {
         idNaskah: dto.id_naskah,
         position: dto.position_id,
-        sirkuler: 'penerima',
+        sirkuler: In(['penerima', 'tembusan']),
       },
     });
 
@@ -224,6 +225,7 @@ export class NaskahSirkulasiService {
           id_naskah: dto.id_naskah,
           position_id: dto.position_id,
           jenis_naskah: naskah.jenis,
+          is_tembusan: sirkulasi.sirkuler === 'tembusan',
           status_baca: 'terbaca',
           read_time: sirkulasi.sendReadTime,
           read_user: sirkulasi.sendReadUser,
@@ -231,12 +233,14 @@ export class NaskahSirkulasiService {
       };
     }
 
-    // Update status to read
+    // Update status to read menggunakan update() langsung (lebih reliable daripada save())
     const now = new Date();
-    sirkulasi.sendReadTime = now;
-    sirkulasi.sendReadUser = dto.user_id || dto.position_id;
+    const readUser = dto.user_id || dto.position_id;
 
-    await this.naskahSirkulasiRepo.save(sirkulasi);
+    await this.naskahSirkulasiRepo.update(sirkulasi.id, {
+      sendReadTime: now,
+      sendReadUser: readUser,
+    });
 
     return {
       success: true,
@@ -245,9 +249,10 @@ export class NaskahSirkulasiService {
         id_naskah: dto.id_naskah,
         position_id: dto.position_id,
         jenis_naskah: naskah.jenis,
+        is_tembusan: sirkulasi.sirkuler === 'tembusan',
         status_baca: 'terbaca',
         read_time: now,
-        read_user: sirkulasi.sendReadUser,
+        read_user: readUser,
       },
     };
   }
@@ -277,7 +282,7 @@ export class NaskahSirkulasiService {
     // Build query dengan raw SQL untuk performa dan fleksibilitas
     let whereClause = `
       WHERE s.position = ?
-      AND s.sirkuler = 'penerima'
+      AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
       AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
@@ -386,6 +391,7 @@ export class NaskahSirkulasiService {
         s.nama_sirkuler as penerima_nama,
         s.position_text as penerima_position_text,
         s.organization_text as penerima_organization_text,
+        s.sirkuler as sirkuler_type,
         pengirim.created_at,
         pengirim.updated_at,
         di.is_priority
@@ -495,6 +501,7 @@ export class NaskahSirkulasiService {
         is_tindak_lanjut: row.tindak_lanjut === 1,
         is_locked: row.is_locked === 1,
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
+        is_tembusan: row.sirkuler_type === 'tembusan',
         is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : false,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -518,7 +525,7 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.position = ?
-      AND s.sirkuler = 'penerima'
+      AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
       AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
@@ -1100,10 +1107,10 @@ export class NaskahSirkulasiService {
 
     // --- QUERY BUILDER HELPERS ---
 
-    // 1. INBOX PART
+    // 1. INBOX PART (includes tembusan)
     let inboxWhere = `
       s.position = ?
-      AND s.sirkuler = 'penerima'
+      AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
       AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
@@ -1208,6 +1215,7 @@ export class NaskahSirkulasiService {
           s.position_text as my_position_text,
           s.organization_text as my_organization_text,
           
+          s.sirkuler as sirkuler_type,
           (SELECT is_priority FROM di WHERE di.id_naskah = s.id_naskah LIMIT 1) as is_priority
 
         FROM naskah_sirkulasi s
@@ -1247,6 +1255,7 @@ export class NaskahSirkulasiService {
           NULL as my_position_text,
           NULL as my_organization_text,
           
+          NULL as sirkuler_type,
           NULL as is_priority
 
         FROM naskah_sirkulasi s
@@ -1397,6 +1406,7 @@ export class NaskahSirkulasiService {
           is_tindak_lanjut: row.tindak_lanjut === 1,
           is_locked: row.is_locked === 1,
           labels: labelsMap.get(row.id_naskah) || [],
+          is_tembusan: row.sirkuler_type === 'tembusan',
           created_at: row.created_at,
           updated_at: row.updated_at,
           source: 'inbox',
@@ -1520,7 +1530,7 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.position = ?
-      AND s.sirkuler = 'penerima'
+      AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
       AND s.is_konsep = 0
       AND s.send_read_time IS NULL
