@@ -32,6 +32,18 @@ export class PersonService {
     });
   }
 
+  async findAllNamePersnum(): Promise<{ persnum: number; name: string }[]> {
+    return this.cRepo
+      .createQueryBuilder('person')
+      .select(['person.persnum', 'person.name'])
+      .where('person.persnum IS NOT NULL')
+      .orderBy('person.name', 'ASC')
+      .getRawMany()
+      .then((rows) =>
+        rows.map((r) => ({ persnum: r.person_persnum, name: r.person_name })),
+      );
+  }
+
   /**
    * Get persons by company (via relation tables)
    * @param companyId - Company ID
@@ -157,6 +169,14 @@ export class PersonService {
     }
     
     return results[0];
+  }
+
+  async findByPersnum(persnum: number): Promise<Person> {
+    const person = await this.cRepo.findOne({ where: { persnum } });
+    if (!person) {
+      throw new NotFoundException(`Person with persnum ${persnum} not found`);
+    }
+    return person;
   }
 
   async findOne(id: string): Promise<Person> {
