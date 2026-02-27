@@ -32,6 +32,15 @@ export class PersonController {
   }
 
   /**
+   * Get all persons with only name and persnum
+   * @example GET /person/name-persnum
+   */
+  @Get('name-persnum')
+  findAllNamePersnum(): Promise<{ persnum: number; name: string }[]> {
+    return this.personService.findAllNamePersnum();
+  }
+
+  /**
    * Get all persons with position information
    * @example GET /person/with-position/all
    */
@@ -94,6 +103,17 @@ export class PersonController {
     @Param('persnum', ParseIntPipe) persnum: number,
   ) {
     return this.personService.findOneWithDetails(persnum);
+  }
+
+  /**
+   * Get person by persnum
+   * @example GET /person/persnum/12345
+   */
+  @Get('persnum/:persnum')
+  findByPersnum(
+    @Param('persnum', ParseIntPipe) persnum: number,
+  ): Promise<Person> {
+    return this.personService.findByPersnum(persnum);
   }
 
   @Get(':id')
