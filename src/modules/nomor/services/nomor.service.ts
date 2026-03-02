@@ -1520,6 +1520,137 @@ export class NomorService {
   }
 
   /**
+   * User/Admin memproses usulan dan membuat booking nomor
+   * Upload SATU file yang akan di-assign ke SEMUA request detail
+   * Semua detail akan memiliki file path yang sama
+   *
+   * Flow:
+   * 1. Validasi request ada
+   * 2. Jika action=replace, hapus detail lama dengan status booking (dan file di storage)
+   * 3. Upload satu file ke storage
+   * 4. Buat detail records sesuai jumlah, semua dengan file key yang sama
+   * 5. Return response dengan file information
+   */
+  async bookingNomorRequestSingleFile(
+    requestId: string,
+    dto: BookingNomorRequestDto,
+    file?: Express.Multer.File,
+    folder: string = 'nomor',
+    action: 'append' | 'replace' = 'append',
+  ): Promise<BookingNomorRequestResponseDto> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    if (action === 'replace') {
+      const oldDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: requestId, status: 'booking' },
+      });
+
+      // Collect unique file keys untuk dihapus (hindari double delete)
+      const uniqueFileKeys = new Set<string>();
+      for (const detail of oldDetails) {
+        if (detail.fileText) {
+          uniqueFileKeys.add(detail.fileText);
+        }
+      }
+
+      // Delete unique files dari storage
+      for (const fileKey of uniqueFileKeys) {
+        try {
+          await this.storageService.deleteFile(fileKey);
+          console.log(`Deleted old file from storage: ${fileKey}`);
+        } catch (error) {
+          console.log(`Failed to delete file ${fileKey}:`, error.message);
+        }
+      }
+
+      // Hapus detail dari database
+      await this.nomorRequestDetailRepository.delete({
+        idRequest: requestId,
+        status: 'booking',
+      });
+    }
+
+    // Upload satu file jika ada
+    let fileKey: string | null = null;
+    let fileName: string | null = null;
+
+    if (file) {
+      fileName = file.originalname;
+      try {
+        const uploadResult = await this.storageService.uploadFile(file, folder);
+        fileKey = uploadResult.key;
+        console.log(`✅ File uploaded successfully (single): ${fileKey}`);
+      } catch (error) {
+        console.error(`❌ File upload error for ${fileName}:`, error.message);
+        throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+      }
+    }
+
+    // Tentukan jumlah detail yang akan dibuat
+    const jumlahDiajukan = dto.jumlah || request.jumlah || 0;
+
+    if (jumlahDiajukan <= 0 && !file) {
+      throw new BadRequestException(
+        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan',
+      );
+    }
+
+    const totalDetails = jumlahDiajukan > 0 ? jumlahDiajukan : 1;
+
+    // Buat semua details dengan file path yang sama
+    const details: NomorRequestDetailEntity[] = [];
+    for (let i = 0; i < totalDetails; i++) {
+      const detailId = uuidv4();
+      const detail = this.nomorRequestDetailRepository.create({
+        id: detailId,
+        idRequest: requestId,
+        nomor: null,
+        fileName: fileName,
+        fileText: fileKey,
+        status: 'booking',
+      });
+      details.push(detail);
+    }
+
+    await this.nomorRequestDetailRepository.save(details);
+
+    // Generate signed URL sekali saja karena semua detail pakai file yang sama
+    let fileUrl: string | null = null;
+    if (fileKey) {
+      fileUrl = await this.storageService.getFileUrl(fileKey);
+    }
+
+    const detailsWithUrls = details.map((detail) => ({
+      id: detail.id,
+      status: detail.status,
+      file_name: detail.fileName,
+      file_text: detail.fileText,
+      file_url: fileUrl,
+      created_at: detail.createdAt,
+    }));
+
+    const resultMessage = file
+      ? `Berhasil booking ${totalDetails} nomor dengan 1 file yang sama`
+      : `Berhasil booking ${totalDetails} nomor (tanpa file)`;
+
+    return {
+      success: true,
+      message: resultMessage,
+      data: {
+        request_id: requestId,
+        details: detailsWithUrls,
+      },
+    };
+  }
+
+  /**
    * User/Admin update file di detail yang masih booking
    * Untuk replace lampiran sebelum approve
    */
