@@ -3846,25 +3846,37 @@ export class NotaDinasService {
     );
 
     // ATASAN: 1 level di atas, organization_id = current.organization_parent
-    const parentLevel = filtered.filter(
-      (x) =>
-        x.level === currentLevel - 1 &&
-        Number(x.organization_id) === Number(current.organization_parent),
-    );
+    // + Direktorat Utama selalu masuk ATASAN (bukan dirinya sendiri)
+    const parentLevel = filtered
+      .filter(
+        (x) =>
+          Number(x.position) !== Number(positionParam) &&
+          (
+            (x.level === currentLevel - 1 &&
+              Number(x.organization_id) === Number(current.organization_parent)) ||
+            x.organization_text === 'Direktorat Utama'
+          ),
+      )
+      .sort((a, b) => {
+        // Direktorat Utama selalu paling atas
+        const aIsUtama = a.organization_text === 'Direktorat Utama' ? 0 : 1;
+        const bIsUtama = b.organization_text === 'Direktorat Utama' ? 0 : 1;
+        return aIsUtama - bIsUtama;
+      });
 
     const menparent = [positionParam];
-    if (parentLevel.length > 0) {
-      menparent.push(parentLevel[0].position);
-    }
+    parentLevel.forEach((p) => menparent.push(p.position));
     const menparentSet = new Set(menparent.map(Number));
 
     // REKAN: same level, same organization_parent (satu induk), bukan dirinya
+    // Direktorat Utama dikeluarkan dari REKAN (sudah masuk ATASAN)
     const bodTag = current.bod_tag;
     const bods = ['BOD', 'BOD-1'];
     const isBod = bodTag && bods.includes(bodTag);
 
     const rekans: OrgDataPositionDto[] = filtered.filter((x) => {
       const pos = Number(x.position);
+      if (x.organization_text === 'Direktorat Utama') return false;
       if (isBod) {
         return bods.includes(x.bod_tag as string) && !menparentSet.has(pos);
       }
