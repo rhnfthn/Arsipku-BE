@@ -203,6 +203,7 @@ export class KajianService {
     findParents(currentOrgId);
 
     // Get all positions in parent organizations (same sub_area, same company)
+    // + Direktorat Utama selalu masuk ATASAN
     const recipients = barisData.filter((x) => {
       // Must be same company
       if (x.company !== currentCompany) return false;
@@ -210,11 +211,14 @@ export class KajianService {
       // Must be same sub_area
       if (x.sub_area !== currentSubArea) return false;
 
-      // Must be in parent organization (ATASAN)
-      if (!parentOrgIds.has(x.organization_id)) return false;
-
       // Exclude sender's own position
       if (x.position === positionParam) return false;
+
+      // Direktorat Utama selalu masuk ATASAN
+      if (x.organization_text === 'Direktorat Utama') return true;
+
+      // Must be in parent organization (ATASAN)
+      if (!parentOrgIds.has(x.organization_id)) return false;
 
       return true;
     });
@@ -715,8 +719,11 @@ export class KajianService {
       company_name: r.company_name,
     }));
 
-    // Sort by organization name, then by position name
+    // Sort: Direktorat Utama selalu paling atas, lalu by organization name, position name
     atasanList.sort((a, b) => {
+      const aIsUtama = a.organization_text === 'Direktorat Utama' ? 0 : 1;
+      const bIsUtama = b.organization_text === 'Direktorat Utama' ? 0 : 1;
+      if (aIsUtama !== bIsUtama) return aIsUtama - bIsUtama;
       if (a.organization_text !== b.organization_text) {
         return a.organization_text.localeCompare(b.organization_text);
       }
