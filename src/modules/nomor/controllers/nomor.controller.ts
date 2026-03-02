@@ -358,6 +358,55 @@ export class NomorController {
   }
 
   /**
+   * POST /nomor-request/:id/booking-single-file
+   * User/Admin memproses usulan dan create booking dengan SATU file yang sama untuk semua detail
+   * File yang diupload akan di-assign ke semua request detail
+   *
+   * FormData fields:
+   * - file: binary file (optional, single file)
+   * - jumlah: number (optional, gunakan jika tidak ada file)
+   *
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
+   * - action: 'append' (default) untuk tambah, 'replace' untuk replace semua booking
+   */
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('nomor-request/:id/booking-single-file')
+  async bookingNomorRequestSingleFile(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('folder') folder?: string,
+    @Query('action') action?: 'append' | 'replace',
+    @Body() body?: any,
+  ): Promise<BookingNomorRequestResponseDto> {
+    try {
+      const dto: BookingNomorRequestDto = {
+        jumlah: body?.jumlah ? parseInt(body.jumlah) : undefined,
+      };
+
+      return await this.nomorService.bookingNomorRequestSingleFile(
+        id,
+        dto,
+        file,
+        folder || 'nomor',
+        action || 'append',
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to booking nomor request with single file',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * PATCH /admin/nomor-request-detail/:id/file
    * Admin update file lampiran di detail tertentu (hanya status booking)
    * 
