@@ -1,7 +1,9 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
 import { AreaModule } from './modules/master-data/area/area.module';
@@ -55,6 +57,7 @@ import { FcmModule } from './modules/fcm/fcm.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 import { ConfigAdminModule } from './modules/config/config.module';
+import { ShortUrlModule } from './modules/short-url/short-url.module';
 
 @Module({
   imports: [
@@ -128,9 +131,16 @@ import { ConfigAdminModule } from './modules/config/config.module';
     NotificationModule,
     CompanySwitchModule,
     ConfigAdminModule,
+    ShortUrlModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly dataSource: DataSource) {}
