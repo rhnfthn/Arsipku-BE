@@ -5,9 +5,9 @@ export class ShortUrlUpdateDto {
   @IsNumber()
   id: number;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsNumber()
-  persnum: number;
+  persnum?: number;
 
   @IsNotEmpty()
   @IsString()

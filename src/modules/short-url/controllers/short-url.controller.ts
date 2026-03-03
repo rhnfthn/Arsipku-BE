@@ -15,6 +15,7 @@ import {
   ShortUrlDeleteDto,
   ShortUrlGetOneDto,
 } from '../dto';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 
 @Controller('short-url')
 export class ShortUrlController {
@@ -23,11 +24,15 @@ export class ShortUrlController {
   /**
    * POST /short-url/data
    * List / search short urls (paginated)
+   * persnum otomatis dari token auth arsipku
    */
   @Post('data')
-  async getData(@Body() dto: ShortUrlDataDto) {
+  async getData(@CurrentUser() user: any, @Body() dto: ShortUrlDataDto) {
     try {
-      const result = await this.shortUrlService.getData(dto);
+      const result = await this.shortUrlService.getData({
+        ...dto,
+        persnum: user.persnum,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;
@@ -41,11 +46,15 @@ export class ShortUrlController {
   /**
    * POST /short-url/submit
    * Create a new short url
+   * persnum otomatis dari token auth arsipku
    */
   @Post('submit')
-  async submitUrl(@Body() dto: ShortUrlSubmitDto) {
+  async submitUrl(@CurrentUser() user: any, @Body() dto: ShortUrlSubmitDto) {
     try {
-      const result = await this.shortUrlService.submitUrl(dto);
+      const result = await this.shortUrlService.submitUrl({
+        ...dto,
+        persnum: user.persnum,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;
@@ -77,11 +86,15 @@ export class ShortUrlController {
   /**
    * PUT /short-url
    * Update a short url
+   * persnum otomatis dari token auth arsipku
    */
   @Put()
-  async updateUrl(@Body() dto: ShortUrlUpdateDto) {
+  async updateUrl(@CurrentUser() user: any, @Body() dto: ShortUrlUpdateDto) {
     try {
-      const result = await this.shortUrlService.updateUrl(dto);
+      const result = await this.shortUrlService.updateUrl({
+        ...dto,
+        persnum: user.persnum,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;

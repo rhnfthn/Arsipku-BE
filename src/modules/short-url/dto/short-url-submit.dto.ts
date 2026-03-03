@@ -1,9 +1,9 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class ShortUrlSubmitDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsNumber()
-  persnum: number;
+  persnum?: number;
 
   @IsNotEmpty()
   @IsString()
