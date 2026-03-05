@@ -35,7 +35,7 @@ import {
   SdiRecipientResponseDto,
 } from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 
 @Controller('SDI')
@@ -163,7 +163,6 @@ export class SuratDinasInternalController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Get(':id')
   async getSdiDetail(@Param('id') id: string): Promise<any> {
     try {
@@ -325,7 +324,6 @@ export class SuratDinasInternalController {
    *
    * @returns SendMessageResponseDto with status='draf'
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
@@ -377,7 +375,6 @@ export class SuratDinasInternalController {
    * @param id - Naskah ID (UUID)
    * @returns SendMessageResponseDto with updated data
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
@@ -580,7 +577,16 @@ export class SuratDinasInternalController {
         );
       };
 
-      // Parse and expand penerima_grup
+      // Convert individual penerima position IDs to names
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            penerimaArray,
+            body.tanggal || body.tgl,
+          );
+      }
+
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       let penerimaGrupArray: string[] = [];
       if (body.penerima_grup) {
         if (typeof body.penerima_grup === 'string') {
@@ -593,28 +599,9 @@ export class SuratDinasInternalController {
           penerimaGrupArray = body.penerima_grup;
         }
       }
-
-      // Expand penerima_grup to individual position IDs
       if (penerimaGrupArray.length > 0) {
-        for (const grupId of penerimaGrupArray) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
-            const positionIds = grupPositions.map(p => String(p.position));
-            penerimaArray = [...penerimaArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        penerimaArray = [...new Set(penerimaArray)];
-      }
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray =
-          await this.suratDinasInternalService.convertPositionIdsToNames(
-            penerimaArray,
-            body.tanggal || body.tgl,
-          );
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -627,7 +614,16 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Parse and expand tembusan_grup
+      // Convert individual tembusan position IDs to names
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            tembusanArray,
+            body.tanggal || body.tgl,
+          );
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
       let tembusanGrupArray: string[] = [];
       if (body.tembusan_grup) {
         if (typeof body.tembusan_grup === 'string') {
@@ -640,28 +636,9 @@ export class SuratDinasInternalController {
           tembusanGrupArray = body.tembusan_grup;
         }
       }
-
-      // Expand tembusan_grup to individual position IDs
       if (tembusanGrupArray.length > 0) {
-        for (const grupId of tembusanGrupArray) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
-            const positionIds = grupPositions.map(p => String(p.position));
-            tembusanArray = [...tembusanArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        tembusanArray = [...new Set(tembusanArray)];
-      }
-
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray =
-          await this.suratDinasInternalService.convertPositionIdsToNames(
-            tembusanArray,
-            body.tanggal || body.tgl,
-          );
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -782,7 +759,16 @@ export class SuratDinasInternalController {
         );
       };
 
-      // Parse and expand penerima_grup
+      // Convert individual penerima position IDs to names
+      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
+        penerimaArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            penerimaArray,
+            body.tanggal || body.tgl,
+          );
+      }
+
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       let penerimaGrupArray: string[] = [];
       if (body.penerima_grup) {
         if (typeof body.penerima_grup === 'string') {
@@ -795,28 +781,9 @@ export class SuratDinasInternalController {
           penerimaGrupArray = body.penerima_grup;
         }
       }
-
-      // Expand penerima_grup to individual position IDs
       if (penerimaGrupArray.length > 0) {
-        for (const grupId of penerimaGrupArray) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
-            const positionIds = grupPositions.map(p => String(p.position));
-            penerimaArray = [...penerimaArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand penerima_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        penerimaArray = [...new Set(penerimaArray)];
-      }
-
-      if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
-        penerimaArray =
-          await this.suratDinasInternalService.convertPositionIdsToNames(
-            penerimaArray,
-            body.tanggal || body.tgl,
-          );
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -829,7 +796,16 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Parse and expand tembusan_grup
+      // Convert individual tembusan position IDs to names
+      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
+        tembusanArray =
+          await this.suratDinasInternalService.convertPositionIdsToNames(
+            tembusanArray,
+            body.tanggal || body.tgl,
+          );
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
       let tembusanGrupArray: string[] = [];
       if (body.tembusan_grup) {
         if (typeof body.tembusan_grup === 'string') {
@@ -842,28 +818,9 @@ export class SuratDinasInternalController {
           tembusanGrupArray = body.tembusan_grup;
         }
       }
-
-      // Expand tembusan_grup to individual position IDs
       if (tembusanGrupArray.length > 0) {
-        for (const grupId of tembusanGrupArray) {
-          try {
-            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, body.tgl || body.tanggal);
-            const positionIds = grupPositions.map(p => String(p.position));
-            tembusanArray = [...tembusanArray, ...positionIds];
-          } catch (error) {
-            console.warn(`Failed to expand tembusan_grup ${grupId}:`, error.message);
-          }
-        }
-        // Remove duplicates
-        tembusanArray = [...new Set(tembusanArray)];
-      }
-
-      if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        tembusanArray =
-          await this.suratDinasInternalService.convertPositionIdsToNames(
-            tembusanArray,
-            body.tanggal || body.tgl,
-          );
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided

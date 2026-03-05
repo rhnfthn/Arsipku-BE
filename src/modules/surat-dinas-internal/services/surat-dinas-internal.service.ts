@@ -120,6 +120,7 @@ export class SuratDinasInternalService {
     individualPenerima: number[] | undefined,
     grupPenerimaIds: string[] | undefined,
     tgl?: string,
+    excludePositionId?: number,
   ): Promise<number[]> {
     const allPositionIds = new Set<number>();
 
@@ -140,7 +141,52 @@ export class SuratDinasInternalService {
       }
     }
 
+    // Exclude sender's own position from the result (avoid sending to self via grup)
+    if (excludePositionId !== undefined) {
+      allPositionIds.delete(Number(excludePositionId));
+    }
+
     return Array.from(allPositionIds);
+  }
+
+  // ============================================================
+  // HELPER: BUILD PDF RECIPIENT NAMES (GRUP-AWARE)
+  // ============================================================
+
+  /**
+   * Build recipient names for PDF display, using grup display names when applicable.
+   * Instead of expanding grup to individual names, shows the grup display name
+   * (e.g., "Para GM" instead of listing each GM individually).
+   *
+   * @param individualPositionIds - Array of individual position IDs (from dto.penerima or dto.tembusan)
+   * @param grupIds - Array of grup penerima UUIDs (from dto.penerima_grup or dto.tembusan_grup)
+   * @param barisData - org_data position array for looking up individual position names
+   * @returns Array of names for PDF display
+   */
+  private async buildPdfRecipientNames(
+    individualPositionIds: number[] | undefined,
+    grupIds: string[] | undefined,
+    barisData: SdiOrgDataPositionDto[],
+  ): Promise<string[]> {
+    const names: string[] = [];
+
+    // Add grup display names FIRST (e.g., "Para GM") — grup appears above individuals
+    if (grupIds && grupIds.length > 0) {
+      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+      names.push(...grupDisplayNames);
+    }
+
+    // Then add individual position names
+    if (individualPositionIds && individualPositionIds.length > 0) {
+      for (const posId of individualPositionIds) {
+        const pos = barisData.find((p) => Number(p.position) === Number(posId));
+        if (pos) {
+          names.push(pos.position_text);
+        }
+      }
+    }
+
+    return names;
   }
 
   // ============================================================
@@ -1025,6 +1071,7 @@ export class SuratDinasInternalService {
     pos: SdiOrgDataPositionDto,
     isDraft: boolean = false,
     urutan: number = 0,
+    grupPenerimaId?: string,
   ): NaskahSirkulasi {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
@@ -1048,6 +1095,7 @@ export class SuratDinasInternalService {
       namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: isDraft,
       urutan: urutan,
+      idGrupPenerima: grupPenerimaId || null,
     });
 
     return sirkulasi;
@@ -1388,10 +1436,15 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
+
+    // Build position → grup mapping for penerima
+    const penerimaGrupMap = dto.penerima_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+      : new Map<number, string>();
 
     const penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
@@ -1412,7 +1465,13 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
+
+    // Build position → grup mapping for tembusan
+    const tembusanGrupMap = dto.tembusan_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+      : new Map<number, string>();
+
     const tembusanList: SdiOrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
@@ -1517,7 +1576,7 @@ export class SuratDinasInternalService {
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft, i);
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isDraft, i, penerimaGrupMap.get(Number(penerima.position)));
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
@@ -1542,7 +1601,7 @@ export class SuratDinasInternalService {
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i, tembusanGrupMap.get(Number(tembusan.position)));
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
@@ -1604,13 +1663,10 @@ export class SuratDinasInternalService {
       // - konten → di naskah.konten
 
       // Build kepadaYthList untuk PDF generation
-      const kepadaYthList = penerimaList.map(
-        (p) => p.position_text
-      );
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
 
-      const tembusanTextList = tembusanList.map(
-        (t) => t.position_text
-      );
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
 
       // PHASE 13: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
       let finalPdfPath: string | undefined = undefined;
@@ -1782,10 +1838,15 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
+
+    // Build position → grup mapping for penerima
+    const penerimaGrupMap = dto.penerima_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+      : new Map<number, string>();
 
     const penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
@@ -1802,7 +1863,13 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
+
+    // Build position → grup mapping for tembusan
+    const tembusanGrupMap = dto.tembusan_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+      : new Map<number, string>();
+
     const tembusanList: SdiOrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
@@ -1887,7 +1954,7 @@ export class SuratDinasInternalService {
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
@@ -1914,7 +1981,7 @@ export class SuratDinasInternalService {
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
@@ -1952,8 +2019,9 @@ export class SuratDinasInternalService {
 
       // PHASE 9: (REMOVED) - SdiSdeEntity tidak lagi digunakan
       // Fields tersedia dari naskah_sirkulasi dan naskah.tandaTangan
-      const kepadaYthList = penerimaList.map((p) => p.position_text);
-      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
 
       // PHASE 10: Generate PDF dengan QR code (jika signing)
       let finalPdfPath: string | undefined = undefined;
@@ -2413,8 +2481,13 @@ export class SuratDinasInternalService {
 
         // Expand and validate penerima (individual + grup)
         let penerimaList: SdiOrgDataPositionDto[] = [];
+        // Build position → grup mapping for penerima
+        let penerimaGrupMap = new Map<number, string>();
         if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
-          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
+          if (dto.penerima_grup?.length) {
+            penerimaGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup);
+          }
           for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find((x) => Number(x.position) === Number(posId));
             if (!penerima) {
@@ -2441,8 +2514,13 @@ export class SuratDinasInternalService {
 
         // Expand and validate tembusan (individual + grup)
         let tembusanList: SdiOrgDataPositionDto[] = [];
+        // Build position → grup mapping for tembusan
+        let tembusanGrupMap = new Map<number, string>();
         if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
-          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
+          if (dto.tembusan_grup?.length) {
+            tembusanGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup);
+          }
           for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
             if (!tembusan) {
@@ -2476,7 +2554,7 @@ export class SuratDinasInternalService {
         // Re-insert penerima with is_draft = FALSE and urutan
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
+          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
@@ -2485,7 +2563,7 @@ export class SuratDinasInternalService {
         // Re-insert tembusan with is_draft = FALSE and urutan
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
@@ -2527,18 +2605,40 @@ export class SuratDinasInternalService {
           where: { idNaskah: naskahId, sirkuler: 'penerima' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const kepadaYthList = penerimaListForPdf.map(
-          (p) => `${p.positionText} - ${p.organizationText}`,
-        );
+
+        // Use grup display names for PDF if dto has grup info, otherwise fallback to sirkulasi names
+        let kepadaYthList: string[];
+        if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+          kepadaYthList = await this.buildPdfRecipientNames(
+            dto.penerima || undefined,
+            dto.penerima_grup,
+            barisData,
+          );
+        } else {
+          kepadaYthList = penerimaListForPdf.map(
+            (p) => `${p.positionText} - ${p.organizationText}`,
+          );
+        }
 
         // Get tembusan list for PDF
         const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
           where: { idNaskah: naskahId, sirkuler: 'tembusan' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const tembusanTextList = tembusanListForPdf.map(
-          (t) => `${t.positionText} - ${t.organizationText}`,
-        );
+
+        // Use grup display names for tembusan if dto has grup info
+        let tembusanTextList: string[];
+        if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+          tembusanTextList = await this.buildPdfRecipientNames(
+            dto.tembusan || undefined,
+            dto.tembusan_grup,
+            barisData,
+          );
+        } else {
+          tembusanTextList = tembusanListForPdf.map(
+            (t) => `${t.positionText} - ${t.organizationText}`,
+          );
+        }
 
         // Get tanggal for PDF
         const tanggalHariIni = naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
@@ -3426,6 +3526,18 @@ export class SuratDinasInternalService {
       ? await this.storageService.getFileUrl(naskah.final_pdf)
       : null;
 
+    // Extract unique grup penerima IDs from sirkulasi records
+    const penerimaGrupIds = [...new Set(
+      penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+    )];
+    const tembusanGrupIds = [...new Set(
+      tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+    )];
+
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // Build response
     return {
       success: true,
@@ -3475,6 +3587,8 @@ export class SuratDinasInternalService {
         },
         penerima: penerimaInfoList,
         tembusan: tembusanInfoList,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Files
         lampiran_files: lampiranInfoList,

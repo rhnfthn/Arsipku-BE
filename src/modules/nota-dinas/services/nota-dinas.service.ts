@@ -176,6 +176,7 @@ export class NotaDinasService {
     individualPenerima: number[] | undefined,
     grupPenerimaIds: string[] | undefined,
     tgl?: string,
+    excludePositionId?: number,
   ): Promise<number[]> {
     const allPositionIds = new Set<number>();
 
@@ -196,7 +197,52 @@ export class NotaDinasService {
       }
     }
 
+    // Exclude sender's own position from the result (avoid sending to self via grup)
+    if (excludePositionId !== undefined) {
+      allPositionIds.delete(Number(excludePositionId));
+    }
+
     return Array.from(allPositionIds);
+  }
+
+  // ============================================================
+  // HELPER: BUILD PDF RECIPIENT NAMES (GRUP-AWARE)
+  // ============================================================
+
+  /**
+   * Build recipient names for PDF display, using grup display names when applicable.
+   * Instead of expanding grup to individual names, shows the grup display name
+   * (e.g., "Para Direktur" instead of listing each director individually).
+   *
+   * @param individualPositionIds - Array of individual position IDs (from dto.penerima or dto.tembusan)
+   * @param grupIds - Array of grup penerima UUIDs (from dto.penerima_grup or dto.tembusan_grup)
+   * @param barisData - org_data position array for looking up individual position names
+   * @returns Array of names for PDF display
+   */
+  private async buildPdfRecipientNames(
+    individualPositionIds: number[] | undefined,
+    grupIds: string[] | undefined,
+    barisData: OrgDataPositionDto[],
+  ): Promise<string[]> {
+    const names: string[] = [];
+
+    // Add grup display names FIRST (e.g., "Para Direktur") — grup appears above individuals
+    if (grupIds && grupIds.length > 0) {
+      const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+      names.push(...grupDisplayNames);
+    }
+
+    // Then add individual position names
+    if (individualPositionIds && individualPositionIds.length > 0) {
+      for (const posId of individualPositionIds) {
+        const pos = barisData.find((p) => Number(p.position) === Number(posId));
+        if (pos) {
+          names.push(pos.position_text);
+        }
+      }
+    }
+
+    return names;
   }
 
   // ============================================================
@@ -1256,6 +1302,7 @@ export class NotaDinasService {
     pos: OrgDataPositionDto,
     isDraft: boolean = false,
     urutan: number = 0,
+    grupPenerimaId?: string,
   ): NaskahSirkulasi {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
@@ -1278,6 +1325,7 @@ export class NotaDinasService {
       namaSirkuler: pos.persnum_person_text ?? pos.position_text ?? '',
       isDraft: isDraft,
       urutan: urutan,
+      idGrupPenerima: grupPenerimaId || null,
     });
 
     return sirkulasi;
@@ -1321,10 +1369,15 @@ export class NotaDinasService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
+
+    // Build position → grup mapping for penerima
+    const penerimaGrupMap = dto.penerima_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+      : new Map<number, string>();
 
     const penerimaList: OrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
@@ -1348,7 +1401,13 @@ export class NotaDinasService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
+
+    // Build position → grup mapping for tembusan
+    const tembusanGrupMap = dto.tembusan_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+      : new Map<number, string>();
+
     const tembusanList: OrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
@@ -1447,6 +1506,7 @@ export class NotaDinasService {
           penerima,
           isDraft,
           i,
+          penerimaGrupMap.get(Number(penerima.position)),
         );
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -1495,6 +1555,7 @@ export class NotaDinasService {
           tembusan,
           isDraft,
           i,
+          tembusanGrupMap.get(Number(tembusan.position)),
         );
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
@@ -1585,14 +1646,11 @@ export class NotaDinasService {
       }
 
       // PHASE 12: Insert ke tabel nd (konten lengkap Nota Dinas)
-      const kepadaYthList = penerimaList.map(
-        (p) => p.position_text,
-      );
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
       const kepadaYth = kepadaYthList.join('; ');
 
-      const tembusanTextList = tembusanList.map(
-        (t) => t.position_text,
-      );
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
@@ -1789,10 +1847,15 @@ export class NotaDinasService {
     }
 
     // PHASE 3: Expand and validate penerima (individual + grup)
-    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+    const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim));
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (individual atau grup)');
     }
+
+    // Build position → grup mapping for penerima
+    const penerimaGrupMap = dto.penerima_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+      : new Map<number, string>();
 
     const penerimaList: OrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
@@ -1809,7 +1872,13 @@ export class NotaDinasService {
     }
 
     // PHASE 4: Expand and validate tembusan (individual + grup)
-    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+    const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim));
+
+    // Build position → grup mapping for tembusan
+    const tembusanGrupMap = dto.tembusan_grup?.length
+      ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+      : new Map<number, string>();
+
     const tembusanList: OrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
@@ -1873,7 +1942,7 @@ export class NotaDinasService {
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i);
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
@@ -1900,7 +1969,7 @@ export class NotaDinasService {
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
@@ -1962,9 +2031,10 @@ export class NotaDinasService {
       }
 
       // PHASE 9: Insert nd entity
-      const kepadaYthList = penerimaList.map((p) => p.position_text);
+      // Use grup display names for PDF instead of individual position names
+      const kepadaYthList = await this.buildPdfRecipientNames(dto.penerima, dto.penerima_grup, barisData);
       const kepadaYth = kepadaYthList.join('; ');
-      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      const tembusanTextList = await this.buildPdfRecipientNames(dto.tembusan, dto.tembusan_grup, barisData);
       const tembusanText = tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
       // Get dynamic header info
@@ -2299,7 +2369,9 @@ export class NotaDinasService {
     if (
       dto.pengirim !== undefined ||
       dto.penerima !== undefined ||
-      dto.tembusan !== undefined
+      dto.tembusan !== undefined ||
+      dto.penerima_grup !== undefined ||
+      dto.tembusan_grup !== undefined
     ) {
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
@@ -2455,8 +2527,13 @@ export class NotaDinasService {
       ) {
         // Expand and validate penerima (individual + grup)
         let penerimaList: OrgDataPositionDto[] = [];
+        // Build position → grup mapping for penerima
+        let penerimaGrupMap = new Map<number, string>();
         if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
-          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal);
+          const expandedPenerimaIds = await this.expandGrupPenerima(dto.penerima, dto.penerima_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
+          if (dto.penerima_grup?.length) {
+            penerimaGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup);
+          }
           for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find(
               (x) => Number(x.position) === Number(posId),
@@ -2491,8 +2568,13 @@ export class NotaDinasService {
 
         // Expand and validate tembusan (individual + grup)
         let tembusanList: OrgDataPositionDto[] = [];
+        // Build position → grup mapping for tembusan
+        let tembusanGrupMap = new Map<number, string>();
         if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
-          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal);
+          const expandedTembusanIds = await this.expandGrupPenerima(dto.tembusan, dto.tembusan_grup, tanggal, Number(pengirimPosition?.position ?? dto.pengirim));
+          if (dto.tembusan_grup?.length) {
+            tembusanGrupMap = await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup);
+          }
           for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find(
               (x) => Number(x.position) === Number(posId),
@@ -2547,6 +2629,7 @@ export class NotaDinasService {
             penerima,
             false,
             i,
+            penerimaGrupMap.get(Number(penerima.position)),
           );
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -2561,6 +2644,7 @@ export class NotaDinasService {
             tembusan,
             false,
             i,
+            tembusanGrupMap.get(Number(tembusan.position)),
           );
           await queryRunner.manager.save(tembusanSirkulasi);
         }
@@ -2620,14 +2704,36 @@ export class NotaDinasService {
           where: { idNaskah: naskahId, sirkuler: 'penerima' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const kepadaYthListForPdf = penerimaListForPdf.map(p => p.positionText || '');
+
+        // Use grup display names for PDF if dto has grup info, otherwise fallback to sirkulasi names
+        let kepadaYthListForPdf: string[];
+        if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+          kepadaYthListForPdf = await this.buildPdfRecipientNames(
+            dto.penerima || undefined,
+            dto.penerima_grup,
+            barisData,
+          );
+        } else {
+          kepadaYthListForPdf = penerimaListForPdf.map(p => p.positionText || '');
+        }
 
         // Get tembusan from sirkulasi (with proper urutan) for PDF
         const tembusanListForPdf = await queryRunner.manager.find(NaskahSirkulasi, {
           where: { idNaskah: naskahId, sirkuler: 'tembusan' },
           order: { urutan: 'ASC', createdAt: 'ASC' },
         });
-        const tembusanForPdfFinal = tembusanListForPdf.map(t => t.positionText || '');
+
+        // Use grup display names for tembusan if dto has grup info
+        let tembusanForPdfFinal: string[];
+        if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+          tembusanForPdfFinal = await this.buildPdfRecipientNames(
+            dto.tembusan || undefined,
+            dto.tembusan_grup,
+            barisData,
+          );
+        } else {
+          tembusanForPdfFinal = tembusanListForPdf.map(t => t.positionText || '');
+        }
 
         // Get lampiran files for merging
         const lampiranFilesForPdf = await queryRunner.manager.find(NaskahLampiranEntity, {
@@ -3740,25 +3846,37 @@ export class NotaDinasService {
     );
 
     // ATASAN: 1 level di atas, organization_id = current.organization_parent
-    const parentLevel = filtered.filter(
-      (x) =>
-        x.level === currentLevel - 1 &&
-        Number(x.organization_id) === Number(current.organization_parent),
-    );
+    // + Direktorat Utama selalu masuk ATASAN (bukan dirinya sendiri)
+    const parentLevel = filtered
+      .filter(
+        (x) =>
+          Number(x.position) !== Number(positionParam) &&
+          (
+            (x.level === currentLevel - 1 &&
+              Number(x.organization_id) === Number(current.organization_parent)) ||
+            x.organization_text === 'Direktorat Utama'
+          ),
+      )
+      .sort((a, b) => {
+        // Direktorat Utama selalu paling atas
+        const aIsUtama = a.organization_text === 'Direktorat Utama' ? 0 : 1;
+        const bIsUtama = b.organization_text === 'Direktorat Utama' ? 0 : 1;
+        return aIsUtama - bIsUtama;
+      });
 
     const menparent = [positionParam];
-    if (parentLevel.length > 0) {
-      menparent.push(parentLevel[0].position);
-    }
+    parentLevel.forEach((p) => menparent.push(p.position));
     const menparentSet = new Set(menparent.map(Number));
 
     // REKAN: same level, same organization_parent (satu induk), bukan dirinya
+    // Direktorat Utama dikeluarkan dari REKAN (sudah masuk ATASAN)
     const bodTag = current.bod_tag;
     const bods = ['BOD', 'BOD-1'];
     const isBod = bodTag && bods.includes(bodTag);
 
     const rekans: OrgDataPositionDto[] = filtered.filter((x) => {
       const pos = Number(x.position);
+      if (x.organization_text === 'Direktorat Utama') return false;
       if (isBod) {
         return bods.includes(x.bod_tag as string) && !menparentSet.has(pos);
       }
@@ -4045,6 +4163,18 @@ export class NotaDinasService {
       ? await this.storageService.getFileUrl(naskah.final_pdf)
       : null;
 
+    // Extract unique grup penerima IDs from sirkulasi records
+    const penerimaGrupIds = [...new Set(
+      penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+    )];
+    const tembusanGrupIds = [...new Set(
+      tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+    )];
+
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // Build kepada_yth from penerima list (for backward compatibility)
     const kepadaYthText = penerimaList
       .map((p) => p.positionText || p.namaSirkuler || '')
@@ -4114,6 +4244,8 @@ export class NotaDinasService {
         },
         penerima: penerimaInfoList,
         tembusan: tembusanInfoList,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Files
         lampiran_files: lampiranInfoList,

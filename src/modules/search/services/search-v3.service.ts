@@ -14,6 +14,12 @@ import {
     SearchV3ResultItemDto,
     FacetsDto,
 } from '../dto/search-v3.dto';
+import {
+    SearchSuggestionDto,
+    SearchSuggestionResponseDto,
+    SuggestionItemDto,
+    SuggestionTypeEnum,
+} from '../dto/search-suggestion.dto';
 
 // Label mappings
 const SOURCE_LABELS: Record<NaskahSourceEnum, string> = {
@@ -90,7 +96,7 @@ export class SearchV3Service {
             isRead,
             page = 1,
             limit = 20,
-            sortBy = 'tanggal',
+            sortBy = 'created',
             sortOrder = 'DESC',
         } = dto;
 
@@ -389,9 +395,13 @@ export class SearchV3Service {
             : '';
 
         // === SORTING ===
-        // ALWAYS sort by created_at DESC as primary sort for consistent pagination
-        // This ensures newest items always appear first regardless of relevance score
-        const orderBy = `ORDER BY n.created_at DESC, n.id DESC`;
+        // Use user-provided sortBy/sortOrder with whitelist validation (SQL injection safe)
+        // When keyword search is active, relevance_score is used as secondary sort
+        const sortField = this.getSortField(sortBy);
+        const safeOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+        const orderBy = keyword
+            ? `ORDER BY relevance_score DESC, ${sortField} ${safeOrder}, created_at DESC`
+            : `ORDER BY ${sortField} ${safeOrder}, created_at DESC`;
 
         // === COUNT QUERY ===
         const countQuery = `
@@ -404,31 +414,35 @@ export class SearchV3Service {
         const total = parseInt(countResult[0]?.total || '0', 10);
 
         // === MAIN QUERY ===
+        // Subquery pattern: DISTINCT first (dedup), then ORDER BY + LIMIT (sort, then paginate)
+        // This prevents MySQL from optimizing away the ORDER BY when using DISTINCT
         const offset = (page - 1) * limit;
         const mainQuery = `
-      SELECT DISTINCT
-        n.id,
-        n.jenis,
-        n.nomor,
-        n.tanggal,
-        n.perihal,
-        n.sifat,
-        n.status,
-        n.klasifikasi,
-        n.lampiran,
-        n.final_pdf,
-        n.created_at,
-        s.id as id_sirkulasi,
-        s.sirkuler,
-        s.send_read_time as read_time,
-        s.flag_favorit,
-        s.flag_arsip,
-        s.flag_note,
-        (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
-        ${relevanceSelect}
-      FROM naskah n
-      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
-      ${whereString}
+      SELECT * FROM (
+        SELECT DISTINCT
+          n.id,
+          n.jenis,
+          n.nomor,
+          n.tanggal,
+          n.perihal,
+          n.sifat,
+          n.status,
+          n.klasifikasi,
+          n.lampiran,
+          n.final_pdf,
+          n.created_at,
+          s.id as id_sirkulasi,
+          s.sirkuler,
+          s.send_read_time as read_time,
+          s.flag_favorit,
+          s.flag_arsip,
+          s.flag_note,
+          (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
+          ${relevanceSelect}
+        FROM naskah n
+        INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+        ${whereString}
+      ) AS search_results
       ${orderBy}
       LIMIT ? OFFSET ?
     `;
@@ -799,17 +813,92 @@ export class SearchV3Service {
     }
 
     /**
-     * Get sort field mapping
+     * Get sort field mapping (whitelist-based, SQL injection safe)
+     * Only allows known column names to be used in ORDER BY
      */
     private getSortField(sortBy: string): string {
+        // Column names without table prefix — used in outer query over the subquery alias
         const sortFields: Record<string, string> = {
-            tanggal: 'n.tanggal',
-            nomor: 'n.nomor',
-            perihal: 'n.perihal',
-            jenis: 'n.jenis',
-            created: 'n.created_at',
+            tanggal: 'tanggal',
+            nomor: 'nomor',
+            perihal: 'perihal',
+            jenis: 'jenis',
+            created: 'created_at',
+            relevance: 'relevance_score',
         };
-        return sortFields[sortBy] || 'n.tanggal';
+        return sortFields[sortBy] || 'created_at';
+    }
+
+    /**
+     * Suggestions for pengirim/penerima (raw SQL, consistent with V3 approach)
+     * Searches by nama_sirkuler or position_text with parameterized queries
+     */
+    async getSuggestions(
+        dto: SearchSuggestionDto,
+    ): Promise<SearchSuggestionResponseDto> {
+        const { q, type = SuggestionTypeEnum.ALL, limit = 10 } = dto;
+
+        const whereClauses: string[] = [];
+        const params: any[] = [];
+
+        // Filter by type (whitelist safe — enum validated by DTO)
+        if (type === SuggestionTypeEnum.PENGIRIM) {
+            whereClauses.push(`sirkuler = ?`);
+            params.push('pengirim');
+        } else if (type === SuggestionTypeEnum.PENERIMA) {
+            whereClauses.push(`sirkuler IN ('penerima', 'tembusan')`);
+        }
+
+        // Search by nama or jabatan (parameterized)
+        whereClauses.push(`(nama_sirkuler LIKE ? OR position_text LIKE ?)`);
+        params.push(`%${q}%`, `%${q}%`);
+
+        // Exclude null/empty names
+        whereClauses.push(`nama_sirkuler IS NOT NULL`);
+        whereClauses.push(`nama_sirkuler != ''`);
+
+        const whereString = whereClauses.length > 0
+            ? `WHERE ${whereClauses.join(' AND ')}`
+            : '';
+
+        const query = `
+            SELECT 
+                nama_sirkuler AS nama,
+                position_text AS jabatan,
+                organization_text AS organization,
+                area_text AS area,
+                sub_area_text AS subArea,
+                GROUP_CONCAT(DISTINCT sirkuler) AS sirkuler,
+                position
+            FROM naskah_sirkulasi
+            ${whereString}
+            GROUP BY nama_sirkuler, position_text, organization_text, area_text, sub_area_text, position
+            ORDER BY nama_sirkuler ASC
+            LIMIT ?
+        `;
+        params.push(limit);
+
+        const rawResults = await this.dataSource.query(query, params);
+
+        const items: SuggestionItemDto[] = rawResults.map((row: any) => ({
+            nama: row.nama,
+            jabatan: row.jabatan || null,
+            organization: row.organization || null,
+            area: row.area || null,
+            subArea: row.subArea || null,
+            roles: row.sirkuler ? row.sirkuler.split(',') : [],
+            position: row.position || null,
+        }));
+
+        return {
+            success: true,
+            message: `Ditemukan ${items.length} suggestion`,
+            data: {
+                items,
+                query: q,
+                total: items.length,
+            },
+        };
     }
 
     /**

@@ -12,6 +12,7 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -51,6 +52,7 @@ export class NaskahService {
     // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private storageService: StorageService,
     private meilisearchSyncService: MeilisearchSyncService,
+    private grupPenerimaService: GrupPenerimaService,
   ) { }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
@@ -174,6 +176,18 @@ export class NaskahService {
     const penerima = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
     const tembusan = sirkulasiList.filter((s) => s.sirkuler === 'tembusan');
 
+    // Extract unique grup penerima IDs from sirkulasi records
+    const penerimaGrupIds = [...new Set(
+      penerima.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+    )];
+    const tembusanGrupIds = [...new Set(
+      tembusan.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+    )];
+
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
     // 3. Get lampiran files
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
@@ -236,6 +250,8 @@ export class NaskahService {
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
         penerima: penerima.map((p) => this.mapSirkulasi(p)),
         tembusan: tembusan.map((t) => this.mapSirkulasi(t)),
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Lampiran files
         lampiran_files: lampiranList.map((l) => this.mapLampiran(l)),
@@ -565,6 +581,18 @@ export class NaskahService {
         ? await this.storageService.getFileUrl(naskahData.final_pdf)
         : null;
 
+      // Extract unique grup penerima IDs
+      const penerimaGrupIds = [...new Set(
+        penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+      )];
+      const tembusanGrupIds = [...new Set(
+        tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+      )];
+
+      // Enrich grup penerima with nama and position_ids
+      const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+      const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
@@ -585,12 +613,14 @@ export class NaskahService {
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
 
-      // Build tembusan list
+      // Build tembusan list with read status
       const tembusanInfo = tembusanList.map((t) => ({
         position_id: t.position || '',
         position_text: t.positionText || '',
         organization_text: t.organizationText || '',
         nama: t.namaSirkuler || null,
+        status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
+        read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
       }));
 
       // Build lampiran info with URLs
@@ -634,6 +664,8 @@ export class NaskahService {
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         tembusan: tembusanInfo,
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Lampiran files
         lampiran_files: lampiranInfo,
