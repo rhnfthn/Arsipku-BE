@@ -55,6 +55,7 @@ import { FcmModule } from './modules/fcm/fcm.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 import { ConfigAdminModule } from './modules/config/config.module';
+import { FaqModule } from './modules/faq/faq.module';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { ConfigAdminModule } from './modules/config/config.module';
     NotificationModule,
     CompanySwitchModule,
     ConfigAdminModule,
+    FaqModule,
   ],
   controllers: [AppController],
   providers: [AppService],
