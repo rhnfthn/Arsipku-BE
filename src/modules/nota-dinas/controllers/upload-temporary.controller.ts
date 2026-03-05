@@ -33,7 +33,6 @@ export class UploadTemporaryController {
    * @throws 400 - Bad Request (no files uploaded)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('upload-temporary')
@@ -84,7 +83,6 @@ export class UploadTemporaryController {
    * @throws 400 - Bad Request (lampiran dari naskah final tidak bisa dihapus)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Delete('file-temporary/:id')

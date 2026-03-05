@@ -125,7 +125,6 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Get(':id')
   async getSdeDetail(@Param('id') id: string): Promise<any> {
     try {
@@ -338,7 +337,6 @@ export class SuratDinasEksternalController {
    * @throws 400 - Bad Request (no files uploaded)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Post('upload-temporary')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
