@@ -1,4 +1,5 @@
 import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
+import { Public } from '../../../common/decorators/public.decorator';
 import { RelationOoService } from '../relation_oo/relation_oo.service';
 import { RelationOaService } from '../relation_oa/relation_oa.service';
 import { RelationOsService } from '../relation_os/relation_os.service';
@@ -70,6 +71,7 @@ type Departs = {
   tipe: string;
 };
 
+@Public()
 @Controller('org-data')
 export class OrgDataController {
   constructor(
