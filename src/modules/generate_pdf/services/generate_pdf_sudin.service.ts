@@ -347,17 +347,17 @@ export class GeneratePdfSudinService {
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section (English)
+    // TTD section (English) - rata kiri, text center
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;"></td>
-            <td style="text-align:center;">
+            <td style="width:50%;text-align:center;">
               ${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
+            <td style="width:50%;"></td>
           </tr>
         </tbody>
       </table>
@@ -742,17 +742,17 @@ export class GeneratePdfSudinService {
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section - dinamis dengan QR code di tengah
+    // TTD section - rata kiri, text center
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;"></td>
-            <td style="text-align:center;">
+            <td style="width:50%;text-align:center;">
               ${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
+            <td style="width:50%;"></td>
           </tr>
         </tbody>
       </table>
