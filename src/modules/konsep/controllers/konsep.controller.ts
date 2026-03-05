@@ -192,7 +192,6 @@ export class KonsepController {
    * 
    * @returns CreateKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('create')
@@ -319,7 +318,6 @@ export class KonsepController {
    * @param id Konsep ID yang akan di-forward
    * @returns ForwardKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('forward/:id')
@@ -477,7 +475,6 @@ export class KonsepController {
    * @param body Form-data body
    * @returns RejectKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('reject/:id')
@@ -840,7 +837,6 @@ export class KonsepController {
    * 
    * @returns CreateDraftKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   @Post('draft/create')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -985,7 +981,6 @@ export class KonsepController {
    * 
    * @returns UpdateDraftKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   @Put('draft/update/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
