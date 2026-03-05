@@ -75,7 +75,6 @@ export class UploadTemporaryController {
    * @throws 400 - Bad Request (no files uploaded)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Post('upload-temporary')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
@@ -181,7 +180,6 @@ export class UploadTemporaryController {
    * @throws 400 - Bad Request (lampiran dari naskah final tidak bisa dihapus)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Delete('file-temporary/:id')
   async deleteLampiran(
     @Param('id') id: string,
@@ -271,7 +269,6 @@ export class UploadTemporaryController {
    * @throws 404 - Not Found (lampiran tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Get('preview-file/:id')
   async previewFile(
     @Param('id') id: string,
