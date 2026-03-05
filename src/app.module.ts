@@ -57,6 +57,7 @@ import { FcmModule } from './modules/fcm/fcm.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 import { ConfigAdminModule } from './modules/config/config.module';
+import { FaqModule } from './modules/faq/faq.module';
 import { ShortUrlModule } from './modules/short-url/short-url.module';
 
 @Module({
@@ -131,6 +132,7 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
     NotificationModule,
     CompanySwitchModule,
     ConfigAdminModule,
+    FaqModule,
     ShortUrlModule,
   ],
   controllers: [AppController],
