@@ -28,6 +28,7 @@ export class UpdateReadStatusResponseDto {
     id_naskah: string;
     position_id: string;
     jenis_naskah: string;
+    is_tembusan?: boolean;
     status_baca: 'terbaca' | 'belum_terbaca';
     read_time: Date | null;
     read_user: string | null;

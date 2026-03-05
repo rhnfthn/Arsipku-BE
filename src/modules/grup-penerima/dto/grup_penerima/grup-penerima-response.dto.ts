@@ -67,4 +67,5 @@ export class GetGrupPenerimaQueryDto {
   company?: string;
   area?: string;
   tgl?: string; // Format: YYYY-MM-DD, untuk lookup org_data
+  jenis?: string; // ND = Directors + EVP, SDI = GM
 }

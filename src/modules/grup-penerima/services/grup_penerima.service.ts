@@ -68,18 +68,38 @@ export class GrupPenerimaService {
   }
 
   /**
+   * Grup names allowed per jenis naskah.
+   * ND  → Directors, (EVP) Executive Vice President
+   * SDI → (GM) General Manager
+   */
+  private static readonly JENIS_GRUP_FILTER: Record<string, string[]> = {
+    ND: ['Para Direksi', 'Para EVP'],
+    SDI: ['Para GM'],
+  };
+
+  /**
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
    * @param area - Filter by area
    * @param tgl - Optional date for org_data lookup (default: today)
+   * @param jenis - Optional naskah type filter: 'ND' or 'SDI'
    */
   async findAllWithPositionDetail(
     company?: string,
     area?: string,
     tgl?: string,
+    jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list
-    const grupList = await this.findAll(company, area);
+    let grupList = await this.findAll(company, area);
+
+    // Filter by jenis if provided
+    if (jenis) {
+      const allowedNames = GrupPenerimaService.JENIS_GRUP_FILTER[jenis.toUpperCase()];
+      if (allowedNames) {
+        grupList = grupList.filter((g) => allowedNames.includes(g.nama));
+      }
+    }
 
     if (grupList.length === 0) {
       return [];
@@ -260,6 +280,111 @@ export class GrupPenerimaService {
     }
 
     return positions;
+  }
+
+  /**
+   * Map grup penerima database name to PDF display name
+   * Rules:
+   * - "Directors" → "Para Direktur"
+   * - "(EVP) Executive Vice President" → "Para EVP"
+   * - "(GM) General Manager" → "Para GM"
+   * If no mapping found, return the original nama
+   */
+  static mapGrupNameToDisplayName(nama: string): string {
+    const mapping: Record<string, string> = {
+      'Directors': 'Para Direktur',
+      '(EVP) Executive Vice President': 'Para EVP',
+      '(GM) General Manager': 'Para GM',
+    };
+    return mapping[nama] || nama;
+  }
+
+  /**
+   * Get display name for a grup penerima (for PDF rendering)
+   * Instead of expanding to individual positions, returns a single display name
+   * e.g., "Directors" → "Para Direktur"
+   * @param grupId - UUID of grup penerima
+   * @returns Display name string
+   */
+  async getGrupDisplayName(grupId: string): Promise<string> {
+    const grup = await this.grupPenerimaRepository.findOne({
+      where: { id: grupId },
+    });
+
+    if (!grup) {
+      throw new NotFoundException(`Grup penerima ${grupId} tidak ditemukan`);
+    }
+
+    return GrupPenerimaService.mapGrupNameToDisplayName(grup.nama);
+  }
+
+  /**
+   * Get display names for multiple grup penerima IDs
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Array of display name strings
+   */
+  async getGrupDisplayNames(grupIds: string[]): Promise<string[]> {
+    const displayNames: string[] = [];
+    for (const grupId of grupIds) {
+      try {
+        const name = await this.getGrupDisplayName(grupId);
+        displayNames.push(name);
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get display name for grup ${grupId}:`, error.message);
+      }
+    }
+    return displayNames;
+  }
+
+  /**
+   * Get enriched grup info for response: id, nama (display name), and member position_ids
+   * Used in detail endpoints to enrich penerima_grup / tembusan_grup arrays
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Array of { id, nama, position_ids }
+   */
+  async getGrupInfoForResponse(
+    grupIds: string[],
+  ): Promise<{ id: string; nama: string; position_ids: number[] }[]> {
+    const result: { id: string; nama: string; position_ids: number[] }[] = [];
+    for (const grupId of grupIds) {
+      try {
+        const grup = await this.grupPenerimaRepository.findOne({
+          where: { id: grupId },
+          relations: ['details'],
+        });
+        if (grup) {
+          result.push({
+            id: grup.id,
+            nama: GrupPenerimaService.mapGrupNameToDisplayName(grup.nama),
+            position_ids: (grup.details || []).map((d) => Number(d.position)),
+          });
+        }
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get info for grup ${grupId}:`, error.message);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Build a map from position ID to grup penerima UUID.
+   * Used when creating sirkulasi records to tag which position came from which grup.
+   * @param grupIds - Array of grup penerima UUIDs
+   * @returns Map where key = position ID (number), value = grup UUID (string)
+   */
+  async buildPositionToGrupMap(grupIds: string[]): Promise<Map<number, string>> {
+    const map = new Map<number, string>();
+    for (const grupId of grupIds) {
+      try {
+        const members = await this.getMembers(grupId);
+        for (const member of members) {
+          map.set(Number(member.position), grupId);
+        }
+      } catch (error) {
+        console.warn(`[GrupPenerimaService] Failed to get members for grup ${grupId}:`, error.message);
+      }
+    }
+    return map;
   }
 
   async findOne(id: string): Promise<GrupPenerimaEntity> {
