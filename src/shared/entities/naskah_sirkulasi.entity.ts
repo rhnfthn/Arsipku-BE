@@ -89,6 +89,9 @@ export class NaskahSirkulasi {
   @Column('tinyint', { name: 'flag_arsip', nullable: true, default: 0 })
   flagArsip: number | null;
 
+  @Column('tinyint', { name: 'tindak_lanjut', nullable: true, default: 0, comment: 'Flag tindak lanjut: 0=belum, 1=sudah' })
+  tindakLanjut: number | null;
+
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
 
