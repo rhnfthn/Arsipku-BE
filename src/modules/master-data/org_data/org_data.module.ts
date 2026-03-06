@@ -7,6 +7,7 @@ import { RelationOscModule } from '../relation_osc/relation_osc.module';
 import { RelationSpModule } from '../relation_sp/relation_sp.module';
 import { RelationOdModule } from '../relation_od/relation_od.module';
 import { OrgDataService } from './org_data.service';
+import { OrgDataScheduler } from './org_data.scheduler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrgDatum } from './entities/org_datum.entity';
 
@@ -21,7 +22,7 @@ import { OrgDatum } from './entities/org_datum.entity';
     RelationOdModule,
   ],
   controllers: [OrgDataController],
-  providers: [OrgDataService],
+  providers: [OrgDataService, OrgDataScheduler],
   exports: [OrgDataService],
 })
 export class OrgDataModule {}
