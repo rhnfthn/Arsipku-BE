@@ -3821,6 +3821,21 @@ export class SuratDinasEksternalService {
         console.error('[SDE Forward] Failed to generate PDF:', error);
       }
 
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
+      const sirkulasiPenerima = await queryRunner.manager.findOne(NaskahSirkulasi, {
+        where: {
+          idNaskah: dto.id_naskah_referensi,
+          position: String(dto.pengirim),
+          sirkuler: 'penerima',
+        },
+      });
+      if (sirkulasiPenerima) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerima.id },
+          { tindakLanjut: 1 },
+        );
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 

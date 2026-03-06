@@ -4120,6 +4120,14 @@ export class SuratDinasInternalService {
         // Don't fail the whole transaction if PDF generation fails
       }
 
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
+      if (sirkulasiPenerima) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerima.id },
+          { tindakLanjut: 1 },
+        );
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
 

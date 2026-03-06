@@ -1594,6 +1594,21 @@ export class KonsepService {
         pdfSnapshotUrl,
       );
 
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima konsep yang melakukan approve/finalize
+      const sirkulasiPenerimaKonsep = await queryRunner.manager.findOne(NaskahSirkulasi, {
+        where: {
+          idNaskah: latestRiwayat.idNaskahKonsep,
+          position: String(dto.from_position_id),
+          sirkuler: 'penerima',
+        },
+      });
+      if (sirkulasiPenerimaKonsep) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerimaKonsep.id },
+          { tindakLanjut: 1 },
+        );
+      }
+
       await queryRunner.commitTransaction();
 
       return {
@@ -1775,6 +1790,21 @@ export class KonsepService {
         fromPos.persnum_person,
         null, // No PDF snapshot for reject
       );
+
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima konsep yang melakukan reject
+      const sirkulasiPenerimaKonsep = await queryRunner.manager.findOne(NaskahSirkulasi, {
+        where: {
+          idNaskah: latestRiwayat.idNaskahKonsep,
+          position: String(dto.from_position_id),
+          sirkuler: 'penerima',
+        },
+      });
+      if (sirkulasiPenerimaKonsep) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerimaKonsep.id },
+          { tindakLanjut: 1 },
+        );
+      }
 
       await queryRunner.commitTransaction();
 
