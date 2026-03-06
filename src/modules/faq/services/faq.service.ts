@@ -28,19 +28,27 @@ export class FaqService {
   }
 
   /**
-   * Get semua FAQ, dengan optional filter kategori
+   * Get semua FAQ, dengan optional filter kategori dan search
    * @param kategori - nilai string kategori (opsional)
+   * @param search - kata kunci pencarian pada pertanyaan dan deskripsi (opsional)
    */
-  async findAll(kategori?: string): Promise<FaqResponseDto> {
-    const where: Partial<FaqEntity> = {};
+  async findAll(kategori?: string, search?: string): Promise<FaqResponseDto> {
+    const qb = this.faqRepository.createQueryBuilder('faq');
+
     if (kategori) {
-      where.kategori = kategori as FaqKategori;
+      qb.andWhere('faq.kategori = :kategori', { kategori });
     }
 
-    const faqs = await this.faqRepository.find({
-      where,
-      order: { createdAt: 'DESC' },
-    });
+    if (search) {
+      qb.andWhere(
+        '(faq.pertanyaan LIKE :search OR faq.deskripsi LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy('faq.created_at', 'DESC');
+
+    const faqs = await qb.getMany();
 
     return {
       success: true,
