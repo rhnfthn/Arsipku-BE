@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigDigsig, JenisNaskah } from '../entities';
+import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
 import { UpdateDigsigConfigDto } from '../dto';
 
 @Injectable()
 export class ConfigDigsigService {
   // In-memory cache untuk performa
-  private cache: Map<JenisNaskah, boolean> = new Map();
+  private cache: Map<JenisNaskah, TtdMode[]> = new Map(); // computed dari 3 kolom boolean
   private cacheExpiry: number = 0;
   private readonly CACHE_TTL = 60 * 60 * 1000; // 1 jam
 
@@ -41,10 +41,10 @@ export class ConfigDigsigService {
   }
 
   /**
-   * Cek apakah digsig enabled untuk jenis naskah tertentu
+   * Ambil daftar mode TTE yang aktif untuk jenis naskah tertentu
    * Menggunakan cache untuk performa
    */
-  async isDigsigEnabled(jenisNaskah: JenisNaskah): Promise<boolean> {
+  async getModes(jenisNaskah: JenisNaskah): Promise<TtdMode[]> {
     const now = Date.now();
 
     // Jika cache masih valid, gunakan cache
@@ -55,8 +55,8 @@ export class ConfigDigsigService {
     // Refresh cache
     await this.refreshCache();
 
-    // Return dari cache, default true jika tidak ada config
-    return this.cache.get(jenisNaskah) ?? true;
+    // Return dari cache, default [digsig] jika tidak ada config
+    return this.cache.get(jenisNaskah) ?? [TtdMode.DIGSIG];
   }
 
   /**
@@ -67,7 +67,11 @@ export class ConfigDigsigService {
     
     this.cache.clear();
     configs.forEach(config => {
-      this.cache.set(config.jenisNaskah, config.enabled);
+      const modes: TtdMode[] = [];
+      if (config.digsig) modes.push(TtdMode.DIGSIG);
+      if (config.ttdQr) modes.push(TtdMode.TTD_QR);
+      if (config.ttdBasah) modes.push(TtdMode.TTD_BASAH);
+      this.cache.set(config.jenisNaskah, modes.length > 0 ? modes : [TtdMode.DIGSIG]);
     });
     
     this.cacheExpiry = Date.now() + this.CACHE_TTL;
@@ -85,15 +89,17 @@ export class ConfigDigsigService {
       // Create jika belum ada
       config = this.configDigsigRepository.create({
         jenisNaskah: dto.jenis_naskah,
-        enabled: dto.enabled,
+        digsig: dto.digsig ?? true,
+        ttdQr: dto.ttd_qr ?? false,
+        ttdBasah: dto.ttd_basah ?? false,
         description: dto.description,
       });
     } else {
-      // Update jika sudah ada
-      config.enabled = dto.enabled;
-      if (dto.description !== undefined) {
-        config.description = dto.description;
-      }
+      // Update hanya field yang dikirim
+      if (dto.digsig !== undefined) config.digsig = dto.digsig;
+      if (dto.ttd_qr !== undefined) config.ttdQr = dto.ttd_qr;
+      if (dto.ttd_basah !== undefined) config.ttdBasah = dto.ttd_basah;
+      if (dto.description !== undefined) config.description = dto.description;
     }
 
     const saved = await this.configDigsigRepository.save(config);
@@ -119,11 +125,19 @@ export class ConfigDigsigService {
   }
 
   /**
-   * Toggle enabled status
+   * Toggle satu mode on/off. Minimal harus ada 1 mode aktif.
    */
-  async toggle(jenisNaskah: JenisNaskah): Promise<ConfigDigsig> {
+  async toggle(jenisNaskah: JenisNaskah, mode: TtdMode): Promise<ConfigDigsig> {
     const config = await this.findByJenis(jenisNaskah);
-    config.enabled = !config.enabled;
+
+    if (mode === TtdMode.DIGSIG) config.digsig = !config.digsig;
+    else if (mode === TtdMode.TTD_QR) config.ttdQr = !config.ttdQr;
+    else if (mode === TtdMode.TTD_BASAH) config.ttdBasah = !config.ttdBasah;
+
+    // Pastikan minimal 1 mode aktif
+    if (!config.digsig && !config.ttdQr && !config.ttdBasah) {
+      config.digsig = true;
+    }
 
     const saved = await this.configDigsigRepository.save(config);
 
@@ -146,11 +160,11 @@ export class ConfigDigsigService {
     ];
 
     const descriptions: Record<JenisNaskah, string> = {
-      [JenisNaskah.ND]: 'Nota Dinas - TTE tersedia',
-      [JenisNaskah.SDI]: 'Surat Dinas Internal - TTE tersedia',
-      [JenisNaskah.SDE]: 'Surat Dinas Eksternal - TTE tersedia',
-      [JenisNaskah.DI]: 'Disposisi Internal - TTE tersedia',
-      [JenisNaskah.KA]: 'Kajian - TTE tersedia',
+      [JenisNaskah.ND]: 'Nota Dinas - default mode TTE elektronik',
+      [JenisNaskah.SDI]: 'Surat Dinas Internal - default mode TTE elektronik',
+      [JenisNaskah.SDE]: 'Surat Dinas Eksternal - default mode TTE elektronik',
+      [JenisNaskah.DI]: 'Disposisi Internal - default mode TTE elektronik',
+      [JenisNaskah.KA]: 'Kajian - default mode TTE elektronik',
     };
 
     for (const jenis of jenisNaskahList) {
@@ -161,7 +175,9 @@ export class ConfigDigsigService {
       if (!existing) {
         await this.configDigsigRepository.save({
           jenisNaskah: jenis,
-          enabled: true,
+          digsig: true,
+          ttdQr: false,
+          ttdBasah: false,
           description: descriptions[jenis],
         });
       }
