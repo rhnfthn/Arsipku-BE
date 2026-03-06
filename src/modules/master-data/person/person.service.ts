@@ -26,10 +26,49 @@ export class PersonService {
     private readonly orgDataService: OrgDataService,
   ) {}
 
-  async findAll(): Promise<Person[]> {
-    return this.cRepo.find({
-      order: { createAt: 'DESC' },
-    });
+  async findAll(search?: string, page = 1, limit = 10) {
+    const qb = this.cRepo.createQueryBuilder('person');
+
+    if (search) {
+      qb.andWhere(
+        '(person.name LIKE :search OR person.persnum = :persnum)',
+        { search: `%${search}%`, persnum: Number(search) || 0 },
+      );
+    }
+
+    const total = await qb.getCount();
+
+    qb.orderBy('person.createAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const data = await qb.getMany();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async suggestion(search?: string): Promise<{ persnum: number; name: string }[]> {
+    if (!search || search.length < 3) {
+      return [];
+    }
+
+    const qb = this.cRepo.createQueryBuilder('person')
+      .select(['person.persnum', 'person.name'])
+      .where(
+        '(person.name LIKE :search OR CAST(person.persnum AS CHAR) LIKE :search)',
+        { search: `%${search}%` },
+      )
+      .orderBy('person.name', 'ASC')
+      .limit(10);
+
+    const rows = await qb.getRawMany();
+    return rows.map((r) => ({ persnum: r.person_persnum, name: r.person_name }));
   }
 
   async findAllNamePersnum(): Promise<{ persnum: number; name: string }[]> {
