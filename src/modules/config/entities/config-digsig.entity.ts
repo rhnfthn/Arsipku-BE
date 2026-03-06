@@ -16,6 +16,12 @@ export enum JenisNaskah {
   KA = 'KA',
 }
 
+export enum TtdMode {
+  DIGSIG = 'digsig',
+  TTD_QR = 'ttd_qr',
+  TTD_BASAH = 'ttd_basah',
+}
+
 @Entity('config_digsig')
 export class ConfigDigsig {
   @PrimaryColumn('char', { length: 36 })
@@ -39,13 +45,37 @@ export class ConfigDigsig {
   @Column({
     type: 'tinyint',
     default: 1,
-    comment: 'true = user dapat pilih TTE/tidak, false = auto skip TTE',
+    comment: 'TTE elektronik (digsig) aktif',
     transformer: {
       to: (value: boolean) => (value ? 1 : 0),
       from: (value: number) => Boolean(value),
     },
   })
-  enabled: boolean;
+  digsig: boolean;
+
+  @Column({
+    name: 'ttd_qr',
+    type: 'tinyint',
+    default: 0,
+    comment: 'QR code aktif',
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
+  ttdQr: boolean;
+
+  @Column({
+    name: 'ttd_basah',
+    type: 'tinyint',
+    default: 0,
+    comment: 'Tanda tangan basah aktif',
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
+  ttdBasah: boolean;
 
   @Column('varchar', { length: 255, nullable: true, comment: 'Deskripsi pengaturan' })
   description: string;
