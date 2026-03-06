@@ -5,8 +5,17 @@ export class UpdateDigsigConfigDto {
   @IsEnum(JenisNaskah, { message: 'Jenis naskah harus berupa ND, SDI, SDE, DI, atau KA' })
   jenis_naskah: JenisNaskah;
 
-  @IsBoolean({ message: 'Enabled harus berupa boolean' })
-  enabled: boolean;
+  @IsOptional()
+  @IsBoolean()
+  digsig?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  ttd_qr?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  ttd_basah?: boolean;
 
   @IsOptional()
   @IsString()
