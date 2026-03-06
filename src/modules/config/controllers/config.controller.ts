@@ -1,6 +1,6 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ConfigDigsigService, ConfigMessageService } from '../services';
-import { ConfigDigsig, ConfigMessage, JenisNaskah, TtdMode } from '../entities';
+import { ConfigDigsig, ConfigMessage, JenisNaskah } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
 import { Public } from '../../../common/decorators';
 
@@ -38,12 +38,11 @@ export class ConfigController {
 
   /**
    * GET /config/digsig/:jenis
-   * Ambil daftar mode TTE aktif untuk jenis tertentu (dengan auth)
+   * Ambil konfigurasi mode TTE untuk jenis tertentu (dengan auth)
    */
   @Get('digsig/:jenis')
   @UseGuards(JwtAuthGuard)
-  async getDigsigModes(@Param('jenis') jenis: JenisNaskah): Promise<{ modes: TtdMode[] }> {
-    const modes = await this.configDigsigService.getModes(jenis);
-    return { modes };
+  async getDigsigConfig(@Param('jenis') jenis: JenisNaskah): Promise<ConfigDigsig> {
+    return this.configDigsigService.findByJenis(jenis);
   }
 }
