@@ -30,16 +30,17 @@ export class FaqController {
 
   /**
    * GET /faq
-   * Mendapatkan semua FAQ, opsional filter berdasarkan kategori
+   * Mendapatkan semua FAQ, opsional filter berdasarkan kategori dan search
    * Query: ?kategori=Arsipku
-   * Query: ?kategori=Dokumen%20%26%20Template
+   * Query: ?search=kata+kunci
    */
   @Get()
   async findAll(
     @Query('kategori') kategori?: string,
+    @Query('search') search?: string,
   ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.findAll(kategori);
+      return await this.faqService.findAll(kategori, search);
     } catch (error) {
       throw new HttpException(
         {
