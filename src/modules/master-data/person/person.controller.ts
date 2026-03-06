@@ -27,8 +27,23 @@ export class PersonController {
   constructor(private readonly personService: PersonService) {}
 
   @Get()
-  findAll(): Promise<Person[]> {
-    return this.personService.findAll();
+  findAll(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.personService.findAll(
+      search,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 10,
+    );
+  }
+
+  @Get('suggestion')
+  suggestion(
+    @Query('search') search?: string,
+  ): Promise<{ persnum: number; name: string }[]> {
+    return this.personService.suggestion(search);
   }
 
   /**
