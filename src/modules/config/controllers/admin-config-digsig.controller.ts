@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ConfigDigsigService } from '../services';
 import { UpdateDigsigConfigDto, BulkUpdateDigsigConfigDto } from '../dto';
-import { ConfigDigsig, JenisNaskah } from '../entities';
+import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { Roles } from '../../../common/decorators';
 
@@ -64,11 +64,14 @@ export class AdminConfigDigsigController {
   }
 
   /**
-   * PATCH /admin/config/digsig/:jenis/toggle
-   * Toggle enabled status
+   * PATCH /admin/config/digsig/:jenis/toggle/:mode
+   * Toggle satu mode on/off untuk jenis naskah tertentu
    */
-  @Patch(':jenis/toggle')
-  async toggle(@Param('jenis') jenis: JenisNaskah): Promise<ConfigDigsig> {
-    return this.configDigsigService.toggle(jenis);
+  @Patch(':jenis/toggle/:mode')
+  async toggle(
+    @Param('jenis') jenis: JenisNaskah,
+    @Param('mode') mode: TtdMode,
+  ): Promise<ConfigDigsig> {
+    return this.configDigsigService.toggle(jenis, mode);
   }
 }
