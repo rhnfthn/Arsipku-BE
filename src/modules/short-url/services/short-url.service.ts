@@ -162,17 +162,42 @@ export class ShortUrlService {
   // Error handling
   // ──────────────────────────────────────────────
 
+  private toUserFriendlyMessage(raw: string): string {
+    const lower = raw.toLowerCase();
+
+    if (lower.includes('uniqalias') || (lower.includes('unique') && lower.includes('alias'))) {
+      return 'Alamat sudah digunakan, silakan gunakan alamat lain';
+    }
+    if (lower.includes('unique constraint')) {
+      return 'Data sudah ada, tidak boleh duplikat';
+    }
+    if (lower.includes('record to update not found') || lower.includes('record to delete not found')) {
+      return 'Data tidak ditemukan';
+    }
+    if (lower.includes('failed create')) {
+      return 'Gagal membuat short URL, silakan coba lagi';
+    }
+    if (lower.includes('failed update')) {
+      return 'Gagal mengupdate data, silakan coba lagi';
+    }
+    if (lower.includes('failed delete')) {
+      return 'Gagal menghapus data, silakan coba lagi';
+    }
+
+    return raw;
+  }
+
   private handleAxiosError(error: any, method: string): never {
     if (axios.isAxiosError(error)) {
       const axiosErr = error as AxiosError;
       const status = axiosErr.response?.status || HttpStatus.BAD_GATEWAY;
-      const message =
+      const rawMessage =
         (axiosErr.response?.data as any)?.message ||
         axiosErr.message ||
         'Short-URL service error';
 
       this.logger.error(
-        `[${method}] Axios error ${status}: ${message}`,
+        `[${method}] Axios error ${status}: ${rawMessage}`,
         axiosErr.response?.data ? JSON.stringify(axiosErr.response.data) : '',
       );
 
@@ -182,15 +207,17 @@ export class ShortUrlService {
         this.tokenExpiresAt = 0;
       }
 
+      const friendlyMessage = this.toUserFriendlyMessage(rawMessage);
+
       throw new HttpException(
-        { success: false, message: `Short-URL service error: ${message}` },
+        { success: false, message: friendlyMessage },
         status >= 500 ? HttpStatus.BAD_GATEWAY : status,
       );
     }
 
     this.logger.error(`[${method}] Unexpected error:`, error);
     throw new HttpException(
-      { success: false, message: error?.message || 'Unexpected error calling Short-URL service' },
+      { success: false, message: 'Terjadi kesalahan, silakan coba lagi' },
       HttpStatus.INTERNAL_SERVER_ERROR,
     );
   }
