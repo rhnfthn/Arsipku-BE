@@ -8,6 +8,7 @@ import {
     GlobalSearchDto,
     DateWithinEnum,
     NaskahSourceEnum,
+    KategoriEnum,
 } from '../dto/global-search.dto';
 import {
     SearchV3ResponseDto,
@@ -94,6 +95,7 @@ export class SearchV3Service {
             organizationFrom,
             label,
             isRead,
+            kategori,
             page = 1,
             limit = 20,
             sortBy = 'created',
@@ -387,6 +389,25 @@ export class SearchV3Service {
                 whereClauses.push(`s.send_read_time IS NULL`);
                 appliedFilters.push('isRead: false');
             }
+        }
+
+        // === KATEGORI FILTER ===
+        if (kategori) {
+            switch (kategori) {
+                case KategoriEnum.SUDAH_TINDAK_LANJUT:
+                    whereClauses.push(`s.tindak_lanjut = 1`);
+                    break;
+                case KategoriEnum.BELUM_TINDAK_LANJUT:
+                    whereClauses.push(`(s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`);
+                    break;
+                case KategoriEnum.SUDAH_DIBACA:
+                    whereClauses.push(`s.send_read_time IS NOT NULL`);
+                    break;
+                case KategoriEnum.BELUM_DIBACA:
+                    whereClauses.push(`s.send_read_time IS NULL`);
+                    break;
+            }
+            appliedFilters.push(`kategori: ${kategori}`);
         }
 
         // Build WHERE string
@@ -683,12 +704,39 @@ export class SearchV3Service {
             isReadFacets[row.is_read] = parseInt(row.count, 10);
         });
 
+        // Kategori facets (tindak lanjut + read status combined)
+        const kategoriQuery = `
+      SELECT 
+        CASE WHEN s.tindak_lanjut = 1 THEN 'sudah_tindak_lanjut' ELSE 'belum_tindak_lanjut' END as kategori,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY kategori
+      
+      UNION ALL
+      
+      SELECT 
+        CASE WHEN s.send_read_time IS NOT NULL THEN 'sudah_dibaca' ELSE 'belum_dibaca' END as kategori,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY kategori
+    `;
+        const kategoriRows = await this.dataSource.query(kategoriQuery, [...baseParams, ...baseParams]);
+        const kategoriFacets: Record<string, number> = {};
+        kategoriRows.forEach((row: any) => {
+            kategoriFacets[row.kategori] = parseInt(row.count, 10);
+        });
+
         return {
             jenis: jenisFacets,
             status: statusFacets,
             sifat: sifatFacets,
             label: labelFacets,
             isRead: isReadFacets,
+            kategori: kategoriFacets,
         };
     }
 
