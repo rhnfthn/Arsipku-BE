@@ -42,6 +42,8 @@ export class FacetsDto {
     label?: Record<string, number>;
     /** Read status facets: { "true": count, "false": count } */
     isRead?: Record<string, number>;
+    /** Kategori facets: tindak lanjut & read status counts */
+    kategori?: Record<string, number>;
 }
 
 /**
