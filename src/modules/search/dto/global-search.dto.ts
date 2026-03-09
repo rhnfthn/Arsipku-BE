@@ -65,6 +65,16 @@ export enum SizeUnitEnum {
 }
 
 /**
+ * Kategori filter
+ */
+export enum KategoriEnum {
+  SUDAH_TINDAK_LANJUT = 'sudah_tindak_lanjut',
+  BELUM_TINDAK_LANJUT = 'belum_tindak_lanjut',
+  SUDAH_DIBACA = 'sudah_dibaca',
+  BELUM_DIBACA = 'belum_dibaca',
+}
+
+/**
  * Scope pencarian (All Mail di Gmail)
  */
 export enum SearchScopeEnum {
@@ -264,6 +274,19 @@ export class GlobalSearchDto {
   @IsOptional()
   @IsString()
   positionId?: string;
+
+  // === KATEGORI FILTER ===
+
+  /**
+   * Filter berdasarkan kategori:
+   * - sudah_tindak_lanjut: Naskah yang sudah ditindaklanjuti
+   * - belum_tindak_lanjut: Naskah yang belum ditindaklanjuti
+   * - sudah_dibaca: Naskah yang sudah dibaca
+   * - belum_dibaca: Naskah yang belum dibaca
+   */
+  @IsOptional()
+  @IsEnum(KategoriEnum)
+  kategori?: KategoriEnum;
 
   // === LABEL FILTER (Gmail-style Hierarchical) ===
 
