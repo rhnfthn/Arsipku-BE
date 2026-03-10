@@ -9,6 +9,7 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -17,6 +18,8 @@ import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import { NaskahDetailResponseDto } from '../dto/naskah/naskah-detail.dto';
 import { CountDraftNaskahResponseDto } from '../dto/count-draft.dto';
+import { JwtAuthGuard } from '../../../common/guards';
+import { CurrentUser } from '../../../common/decorators';
 
 @Controller('persuratan/naskah')
 export class NaskahController {
@@ -67,6 +70,7 @@ export class NaskahController {
    * Body: form-data with key 'file' (optional, signed scan PDF/image)
    */
   @Post(':id/finalize-pending')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 50 * 1024 * 1024 },
@@ -75,11 +79,12 @@ export class NaskahController {
   finalizePending(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
   ) {
     if (!file) {
       throw new BadRequestException('File scan TTD basah wajib diupload');
     }
-    return this.naskahService.finalizePending(id, file);
+    return this.naskahService.finalizePending(id, file, user);
   }
 
   /**
