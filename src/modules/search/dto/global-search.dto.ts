@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, IsArray, IsInt, Min, Max } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 /**
@@ -146,6 +146,26 @@ export class GlobalSearchDto {
   @IsOptional()
   @IsString()
   cc?: string;
+
+  /**
+   * Filter pengirim berdasarkan list persnum
+   * Contoh: [123, 321, 1231]
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  pengirimPersnum?: number[];
+
+  /**
+   * Filter penerima berdasarkan list persnum
+   * Contoh: [333, 444]
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  penerimaPersnum?: number[];
 
   // === SEARCH BY DOCUMENT TYPE ===
 
