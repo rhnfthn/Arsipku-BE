@@ -76,18 +76,21 @@ export class AdminService {
           uname: person.uname || '',
           role: userRole?.role || null,
           bod_tag: null, // will be populated below
+          position_text: null, // will be populated below
           status: 'aktif',
           assigned_at: userRole?.createdAt || null,
         });
       }
 
-      // Populate bod_tag from org data
+      // Populate bod_tag and position_text from org data
       for (const user of users) {
         try {
           const orgData = await this.orgDataService.findByPersnum(user.persnum);
           user.bod_tag = orgData?.bodTag || null;
+          user.position_text = orgData?.positionText || null;
         } catch {
           user.bod_tag = null;
+          user.position_text = null;
         }
       }
 
@@ -131,6 +134,7 @@ export class AdminService {
         uname: person.uname || '',
         role: userRole.role,
         bod_tag: null, // will be populated below
+        position_text: null, // will be populated below
         status: 'aktif',
         assigned_at: userRole.createdAt || null,
       });
@@ -141,13 +145,15 @@ export class AdminService {
     const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
     const totalRegular = users.filter(u => !u.role).length;
 
-    // Populate bod_tag from org data
+    // Populate bod_tag and position_text from org data
     for (const user of users) {
       try {
         const orgData = await this.orgDataService.findByPersnum(user.persnum);
         user.bod_tag = orgData?.bodTag || null;
+        user.position_text = orgData?.positionText || null;
       } catch {
         user.bod_tag = null;
+        user.position_text = null;
       }
     }
 
@@ -187,13 +193,16 @@ export class AdminService {
       where: { persnum },
     });
 
-    // Get bod_tag from org data
+    // Get bod_tag and position_text from org data
     let bodTag: string | null = null;
+    let positionText: string | null = null;
     try {
       const orgData = await this.orgDataService.findByPersnum(persnum);
       bodTag = orgData?.bodTag || null;
+      positionText = orgData?.positionText || null;
     } catch {
       bodTag = null;
+      positionText = null;
     }
 
     return {
@@ -204,6 +213,7 @@ export class AdminService {
         uname: person.uname || '',
         role: userRole?.role || null,
         bod_tag: bodTag,
+        position_text: positionText,
         status: person.endDate === '9999-12-31' ? 'aktif' : 'tidak_aktif',
         assigned_at: userRole?.createdAt || null,
       },
