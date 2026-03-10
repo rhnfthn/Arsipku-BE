@@ -9,6 +9,7 @@ export class AdminCountNomorRequestResponseDto {
     disetujui: number;
     ditolak: number;
     belum_diajukan: number;
+    menunggu_persetujuan?: number;
     total: number;
   };
 }
