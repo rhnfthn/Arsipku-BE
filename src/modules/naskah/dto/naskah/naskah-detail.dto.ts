@@ -105,6 +105,13 @@ export class NaskahDetailResponseDto {
     // Referensi surat
     referensi: ReferensiDetailDto[];
 
+    // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+    dikirim_oleh: {
+      persnum: string;
+      nama: string | null;
+      position_text: string | null;
+    } | null;
+
     // Data spesifik per jenis naskah
     detail_disposisi: DisposisiDetailDto | null; // Khusus jenis DI
     detail_nota_dinas: NotaDinasDetailDto | null; // Khusus jenis ND (jika ada)

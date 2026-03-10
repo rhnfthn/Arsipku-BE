@@ -72,6 +72,17 @@ export class NaskahEntity {
   })
   signOption: 'digsig' | 'qr_only' | 'ttd_basah' | null;
 
+  @Column('text', {
+    name: 'dikirim_oleh',
+    nullable: true,
+    comment: 'JSON snapshot: {persnum, nama, position_text} orang yang mengirim/finalize naskah pending (bisa delegasi)',
+    transformer: {
+      to: (value: any) => (value ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  dikirimOleh: { persnum: string; nama: string; position_text: string } | null;
+
   @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
   createdByPosition: string | null;
 
