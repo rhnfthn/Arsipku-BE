@@ -163,6 +163,7 @@ export class NaskahService {
   async finalizePending(
     naskahId: string,
     file: Express.Multer.File,
+    user?: { persnum: number; nama: string; positionText: string },
   ): Promise<{ success: boolean; message: string; naskah_id: string; signed_file: string }> {
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -187,10 +188,17 @@ export class NaskahService {
     await queryRunner.startTransaction();
 
     try {
-      // Update naskah status to final + save signed file
+      // Update naskah status to final + save signed file + track who finalized
       const updateData: Partial<NaskahEntity> = {
         status: 'final',
         final_pdf: signedFileKey,
+        ...(user && {
+          dikirimOleh: {
+            persnum: String(user.persnum),
+            nama: user.nama,
+            position_text: user.positionText,
+          },
+        }),
       };
 
       await queryRunner.manager.update(NaskahEntity, { id: naskahId }, updateData);
@@ -380,6 +388,9 @@ export class NaskahService {
 
         // Referensi surat
         referensi: referensiList.map((r) => this.mapReferensi(r)),
+
+        // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+        dikirim_oleh: naskah.dikirimOleh || null,
 
         // Data spesifik per jenis
         detail_disposisi: detailDisposisi,
@@ -811,6 +822,9 @@ export class NaskahService {
         // Final PDF
         final_pdf: naskahData.final_pdf,
         final_pdf_url: finalPdfUrl,
+
+        // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+        dikirim_oleh: naskahData.dikirimOleh || null,
 
         // Referensi
         referensi: referensiInfo,
