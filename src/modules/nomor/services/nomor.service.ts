@@ -99,6 +99,7 @@ export class NomorService {
   private determineStatusFromDetails(details: NomorRequestDetailEntity[]): string {
     if (details.length === 0) return 'Belum Diajukan';
 
+    const hasDraft = details.some((d) => d.status === 'draft');
     const hasBooking = details.some((d) => d.status === 'booking');
     const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
     const allHangus = details.every((d) => d.status === 'hangus');
@@ -106,8 +107,9 @@ export class NomorService {
     const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
     if (hasTerpakai) return 'Disetujui';
-    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) return 'Ditolak';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'Ditolak';
     if (hasBooking) return 'Menunggu Verifikasi';
+    if (hasDraft) return 'Menunggu Persetujuan';
     
     return 'Belum Diajukan';
   }
@@ -118,6 +120,7 @@ export class NomorService {
   private determineStatusKeyFromDetails(details: NomorRequestDetailEntity[]): string {
     if (details.length === 0) return 'belum_diajukan';
 
+    const hasDraft = details.some((d) => d.status === 'draft');
     const hasBooking = details.some((d) => d.status === 'booking');
     const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
     const allHangus = details.every((d) => d.status === 'hangus');
@@ -125,8 +128,9 @@ export class NomorService {
     const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
 
     if (hasTerpakai) return 'disetujui';
-    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) return 'ditolak';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'ditolak';
     if (hasBooking) return 'menunggu_verifikasi';
+    if (hasDraft) return 'menunggu_persetujuan';
     
     return 'belum_diajukan';
   }
@@ -410,18 +414,28 @@ export class NomorService {
           perihal: request.perihal!,
           jumlah: request.jumlah!,
           penandatangan: request.penandatangan,
+          is_single_file: request.isSingleFile,
           template_nomor: templateNomor,
           created_at: request.createdAt,
-          details: await Promise.all(
-            details.map(async (detail) => ({
-              id: detail.id,
-              nomor: detail.nomor,
-              status: detail.status,
-              file_name: detail.fileName,
-              file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
-              created_at: detail.createdAt,
-            })),
-          ),
+          details: request.isSingleFile === 1 && details.length > 0
+            ? [{
+                id: details[0].id,
+                nomor: details[0].nomor,
+                status: details[0].status,
+                file_name: details[0].fileName,
+                file_url: await this.getDetailFileUrlAndHeal(details[0], 'nomor'),
+                created_at: details[0].createdAt,
+              }]
+            : await Promise.all(
+                details.map(async (detail) => ({
+                  id: detail.id,
+                  nomor: detail.nomor,
+                  status: detail.status,
+                  file_name: detail.fileName,
+                  file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+                  created_at: detail.createdAt,
+                })),
+              ),
         };
       }),
     );
@@ -645,10 +659,16 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequest(positionId: number): Promise<any> {
-    // Optimized: Load dengan relations dalam 1 query
-    const requests = await this.nomorRequestRepository.find({
-      relations: ['details'],
-    });
+    // Load all requests and penandatangan requests in parallel
+    const [requests, penandatanganRequests] = await Promise.all([
+      this.nomorRequestRepository.find({
+        relations: ['details'],
+      }),
+      this.nomorRequestRepository.find({
+        where: { idPositionPenandatangan: positionId },
+        relations: ['details'],
+      }),
+    ]);
 
     // Count by status
     const statusCounts = {
@@ -674,11 +694,31 @@ export class NomorService {
         continue;
       }
 
+      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
+      if (statusKey === 'menunggu_persetujuan') {
+        continue;
+      }
+
       processedCount++;
 
       // Increment counter
       if (statusKey in statusCounts) {
         statusCounts[statusKey as keyof typeof statusCounts]++;
+      }
+    }
+
+    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
+    let menungguPersetujuanCount = 0;
+    for (const request of penandatanganRequests) {
+      const details = request.details || [];
+
+      if (this.isFromTulisSuratOtomatis(details)) {
+        continue;
+      }
+
+      const statusKey = this.determineStatusKeyFromDetails(details);
+      if (statusKey === 'menunggu_persetujuan') {
+        menungguPersetujuanCount++;
       }
     }
 
@@ -690,6 +730,7 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
+        menunggu_persetujuan: menungguPersetujuanCount,
         total: processedCount,
       },
     };
@@ -701,11 +742,17 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
-    // Optimized: Load dengan relations dalam 1 query
-    const requests = await this.nomorRequestRepository.find({
-      where: { position: positionId.toString() },
-      relations: ['details'],
-    });
+    // Load requests by requester position and by penandatangan position in parallel
+    const [requests, penandatanganRequests] = await Promise.all([
+      this.nomorRequestRepository.find({
+        where: { position: positionId.toString() },
+        relations: ['details'],
+      }),
+      this.nomorRequestRepository.find({
+        where: { idPositionPenandatangan: positionId },
+        relations: ['details'],
+      }),
+    ]);
 
     // Count by status
     const statusCounts = {
@@ -724,12 +771,33 @@ export class NomorService {
         continue;
       }
 
-      processedCount++;
       const statusKey = this.determineStatusKeyFromDetails(details);
+
+      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
+      if (statusKey === 'menunggu_persetujuan') {
+        continue;
+      }
+
+      processedCount++;
 
       // Increment counter
       if (statusKey in statusCounts) {
         statusCounts[statusKey as keyof typeof statusCounts]++;
+      }
+    }
+
+    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
+    let menungguPersetujuanCount = 0;
+    for (const request of penandatanganRequests) {
+      const details = request.details || [];
+
+      if (this.isFromTulisSuratOtomatis(details)) {
+        continue;
+      }
+
+      const statusKey = this.determineStatusKeyFromDetails(details);
+      if (statusKey === 'menunggu_persetujuan') {
+        menungguPersetujuanCount++;
       }
     }
 
@@ -742,6 +810,7 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
+        menunggu_persetujuan: menungguPersetujuanCount,
         total: processedCount,
       },
     };
@@ -1442,10 +1511,10 @@ export class NomorService {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
     }
 
-    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
     if (action === 'replace') {
       const oldDetails = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: requestId, status: 'booking' },
+        where: { idRequest: requestId, status: 'draft' },
       });
 
       // Delete files dari storage untuk setiap detail
@@ -1464,7 +1533,7 @@ export class NomorService {
       // Hapus detail dari database
       await this.nomorRequestDetailRepository.delete({
         idRequest: requestId,
-        status: 'booking',
+        status: 'draft',
       });
     }
 
@@ -1500,7 +1569,7 @@ export class NomorService {
           nomor: null,
           fileName: fileName,
           fileText: fileKey, // Simpan file key dari storage
-          status: 'booking',
+          status: 'draft',
         });
         details.push(detail);
       }
@@ -1520,7 +1589,7 @@ export class NomorService {
           nomor: null,
           fileName: null,
           fileText: null,
-          status: 'booking',
+          status: 'draft',
         });
         details.push(detail);
       }
@@ -1597,10 +1666,10 @@ export class NomorService {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
     }
 
-    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
     if (action === 'replace') {
       const oldDetails = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: requestId, status: 'booking' },
+        where: { idRequest: requestId, status: 'draft' },
       });
 
       // Collect unique file keys untuk dihapus (hindari double delete)
@@ -1624,7 +1693,7 @@ export class NomorService {
       // Hapus detail dari database
       await this.nomorRequestDetailRepository.delete({
         idRequest: requestId,
-        status: 'booking',
+        status: 'draft',
       });
     }
 
@@ -1665,7 +1734,7 @@ export class NomorService {
         nomor: null,
         fileName: fileName,
         fileText: fileKey,
-        status: 'booking',
+        status: 'draft',
       });
       details.push(detail);
     }
@@ -2767,6 +2836,183 @@ export class NomorService {
         request_id: requestId,
         total_rejected: rejectedDetails.length,
         rejected_details: rejectedDetails,
+      },
+    };
+  }
+
+  /**
+   * Penandatangan melihat daftar usulan yang menunggu persetujuannya (status detail = draft)
+   * position_id diambil dari bearer token
+   */
+  async getPendingApproval(positionId: number, query?: GetNomorQueryDto): Promise<any> {
+    // Ambil semua request yang penandatangannya adalah posisi ini
+    const requests = await this.nomorRequestRepository.find({
+      where: { idPositionPenandatangan: positionId },
+      relations: ['details'],
+      order: { createdAt: 'DESC' },
+    });
+
+    // Filter hanya yang punya detail dengan status draft
+    const pendingRequests = requests.filter((r) =>
+      (r.details || []).some((d) => d.status === 'draft'),
+    );
+
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    const data = await Promise.all(
+      pendingRequests.map(async (request) => {
+        const details = (request.details || []).filter((d) => d.status === 'draft');
+        const positionNumber = parseInt(request.position!, 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+
+        return {
+          id: request.id,
+          company: request.company,
+          area: request.area,
+          sub_area: request.subArea,
+          organization: request.organization,
+          position: request.position,
+          nama: positionData?.persnum_person_text || null,
+          tanggal: request.tanggal,
+          jenis: request.jenis,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal,
+          jumlah: request.jumlah,
+          penandatangan: request.penandatangan,
+          is_single_file: request.isSingleFile,
+          created_at: request.createdAt,
+          details: request.isSingleFile === 1 && details.length > 0
+            ? [{
+                id: details[0].id,
+                status: details[0].status,
+                file_name: details[0].fileName,
+                file_url: await this.getDetailFileUrlAndHeal(details[0], 'nomor'),
+                created_at: details[0].createdAt,
+              }]
+            : await Promise.all(
+                details.map(async (d) => ({
+                  id: d.id,
+                  status: d.status,
+                  file_name: d.fileName,
+                  file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+                  created_at: d.createdAt,
+                })),
+              ),
+        };
+      }),
+    );
+
+    // Apply search
+    let filteredData = data;
+    if (query?.search) {
+      const searchLower = query.search.toLowerCase();
+      filteredData = data.filter(
+        (item) =>
+          item.perihal?.toLowerCase().includes(searchLower) ||
+          item.jenis?.toLowerCase().includes(searchLower) ||
+          item.klasifikasi?.toLowerCase().includes(searchLower) ||
+          item.nama?.toLowerCase().includes(searchLower),
+      );
+    }
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
+    return {
+      success: true,
+      message: 'Daftar usulan menunggu persetujuan berhasil diambil',
+      data: paginatedData,
+      pagination: { page, limit, total, totalPages },
+    };
+  }
+
+  /**
+   * Penandatangan menyetujui usulan (ubah semua detail draft → booking)
+   * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
+   */
+  async approvePenandatangan(requestId: string, positionId: number): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    if (Number(request.idPositionPenandatangan) !== positionId) {
+      throw new BadRequestException(
+        'Anda tidak berwenang menyetujui usulan ini. Hanya penandatangan yang ditunjuk yang dapat menyetujui.',
+      );
+    }
+
+    const draftDetails = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId, status: 'draft' },
+    });
+
+    if (draftDetails.length === 0) {
+      throw new BadRequestException('Tidak ada detail dengan status draft untuk disetujui');
+    }
+
+    for (const detail of draftDetails) {
+      detail.status = 'booking';
+    }
+    await this.nomorRequestDetailRepository.save(draftDetails);
+
+    return {
+      success: true,
+      message: `${draftDetails.length} usulan berhasil disetujui dan siap diverifikasi admin`,
+      data: {
+        request_id: requestId,
+        approved_count: draftDetails.length,
+        details: draftDetails.map((d) => ({ id: d.id, status: d.status })),
+      },
+    };
+  }
+
+  /**
+   * Penandatangan menolak usulan (ubah semua detail draft → ditolak)
+   * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
+   */
+  async rejectPenandatangan(requestId: string, positionId: number): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    if (Number(request.idPositionPenandatangan) !== positionId) {
+      throw new BadRequestException(
+        'Anda tidak berwenang menolak usulan ini. Hanya penandatangan yang ditunjuk yang dapat menolak.',
+      );
+    }
+
+    const draftDetails = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId, status: 'draft' },
+    });
+
+    if (draftDetails.length === 0) {
+      throw new BadRequestException('Tidak ada detail dengan status draft untuk ditolak');
+    }
+
+    for (const detail of draftDetails) {
+      detail.status = 'ditolak';
+    }
+    await this.nomorRequestDetailRepository.save(draftDetails);
+
+    return {
+      success: true,
+      message: `${draftDetails.length} usulan berhasil ditolak`,
+      data: {
+        request_id: requestId,
+        rejected_count: draftDetails.length,
+        details: draftDetails.map((d) => ({ id: d.id, status: d.status })),
       },
     };
   }
