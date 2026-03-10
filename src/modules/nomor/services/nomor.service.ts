@@ -1146,18 +1146,44 @@ export class NomorService {
 
     // Tambahkan details jika sudah diajukan (ada file)
     if (details.length > 0) {
-      const detailsWithUrls = await Promise.all(
-        details.map(async (d) => ({
-          id: d.id,
-          nomor: d.nomor,
-          status: d.status,
-          file_name: d.fileName,
-          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
-          created_at: d.createdAt,
-        }))
-      );
+      let detailsWithUrls: any[];
+
+      if (request.isSingleFile === 1) {
+        // Single file mode: tampilkan hanya 1 detail dengan nomor range
+        const firstDetail = details[0];
+        const nomorList = details.map((d) => d.nomor).filter((n): n is string => !!n);
+        let nomorRange: string | null = null;
+        if (nomorList.length > 1) {
+          nomorRange = `${nomorList[0]} - ${nomorList[nomorList.length - 1]}`;
+        } else if (nomorList.length === 1) {
+          nomorRange = nomorList[0];
+        }
+
+        detailsWithUrls = [{
+          id: firstDetail.id,
+          nomor: nomorRange,
+          status: firstDetail.status,
+          file_name: firstDetail.fileName,
+          file_url: await this.getDetailFileUrlAndHeal(firstDetail, 'nomor'),
+          created_at: firstDetail.createdAt,
+        }];
+      } else {
+        detailsWithUrls = await Promise.all(
+          details.map(async (d) => ({
+            id: d.id,
+            nomor: d.nomor,
+            status: d.status,
+            file_name: d.fileName,
+            file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+            created_at: d.createdAt,
+          }))
+        );
+      }
+
       responseData.details = detailsWithUrls;
     }
+
+    responseData.is_single_file = request.isSingleFile;
 
     return {
       success: true,
