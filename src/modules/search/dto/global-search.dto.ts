@@ -148,24 +148,32 @@ export class GlobalSearchDto {
   cc?: string;
 
   /**
-   * Filter pengirim berdasarkan list persnum
+   * Filter pengirim berdasarkan list position
    * Contoh: [123, 321, 1231]
    */
   @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    if (typeof value === 'string') return value.split(',').map(Number);
+    return [Number(value)];
+  })
   @IsArray()
   @IsInt({ each: true })
-  @Type(() => Number)
-  pengirimPersnum?: number[];
+  pengirimPosition?: number[];
 
   /**
-   * Filter penerima berdasarkan list persnum
+   * Filter penerima berdasarkan list position
    * Contoh: [333, 444]
    */
   @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    if (typeof value === 'string') return value.split(',').map(Number);
+    return [Number(value)];
+  })
   @IsArray()
   @IsInt({ each: true })
-  @Type(() => Number)
-  penerimaPersnum?: number[];
+  penerimaPosition?: number[];
 
   // === SEARCH BY DOCUMENT TYPE ===
 
