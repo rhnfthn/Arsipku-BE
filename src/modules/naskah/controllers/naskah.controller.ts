@@ -7,7 +7,11 @@ import {
   Delete,
   Param,
   Query,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { NaskahService } from '../services/naskah.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
@@ -55,6 +59,27 @@ export class NaskahController {
     @Param('positionId') positionId: string,
   ): Promise<CountDraftNaskahResponseDto> {
     return this.naskahService.countDraftByPosition(parseInt(positionId, 10));
+  }
+
+  /**
+   * POST /persuratan/naskah/:id/finalize-pending
+   * Kirim surat tertunda (TTD basah) - ubah status pending → final
+   * Body: form-data with key 'file' (optional, signed scan PDF/image)
+   */
+  @Post(':id/finalize-pending')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  finalizePending(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File scan TTD basah wajib diupload');
+    }
+    return this.naskahService.finalizePending(id, file);
   }
 
   /**

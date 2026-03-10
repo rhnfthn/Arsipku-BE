@@ -1413,7 +1413,7 @@ export class SuratDinasInternalService {
    */
   private async createSdi(
     dto: CreateSuratDinasInternalDto,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1547,8 +1547,8 @@ export class SuratDinasInternalService {
       });
       await queryRunner.manager.save(naskah);
 
-      // Determine if this is a draft
-      const isDraft = status === 'draf';
+      // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
+      const isDraft = status === 'draf' || status === 'pending';
 
       // PHASE 7a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
       // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
@@ -1952,61 +1952,67 @@ export class SuratDinasInternalService {
       }
 
       // PHASE 7: Insert sirkulasi
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
+      // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
+      const isPending = status === 'pending';
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isPending, i, penerimaGrupMap.get(Number(penerima.position)));
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
-        // Send notification to penerima
-        console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(penerima.position),
-          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: penerimaSirkulasi.id,
-          jenis: 'SDI',
-          nomor: nomorSurat,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: false,
-        }).then(notif => {
-          console.log(`[SDI:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[SDI:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
-        });
+        // Send notification to penerima (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            jenis: 'SDI',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: false,
+          }).then(notif => {
+            console.log(`[SDI:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[SDI:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+          });
+        }
       }
 
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isPending, i, tembusanGrupMap.get(Number(tembusan.position)));
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan
-        console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(tembusan.position),
-          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: tembusanSirkulasi.id,
-          jenis: 'SDI',
-          nomor: nomorSurat,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: true,
-        }).then(notif => {
-          console.log(`[SDI:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[SDI:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
-        });
+        // Send notification to tembusan (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[SDI:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'SDI',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(notif => {
+            console.log(`[SDI:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[SDI:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+          });
+        }
       }
 
       // PHASE 8: Handle lampiran
@@ -2559,36 +2565,41 @@ export class SuratDinasInternalService {
           fullPengirimPosition = barisData.find((x) => Number(x.position) === Number(pengirimPosition?.position));
         }
 
-        // Re-insert pengirim with is_draft = FALSE (finalized!)
+        // Re-insert pengirim (isDraft stays true for pending/TTD basah)
+        const isPending = newStatus === 'pending';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, false, 0);
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, isPending, 0);
           await queryRunner.manager.save(pengirimSirkulasi);
         }
 
-        // Re-insert penerima with is_draft = FALSE and urutan
+        // Re-insert penerima (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
+          const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isPending, i, penerimaGrupMap.get(Number(penerima.position)));
           await queryRunner.manager.save(penerimaSirkulasi);
         }
 
         // Note: SdiSdeEntity.kepadaYth tidak lagi digunakan - data dari naskah_sirkulasi
 
-        // Re-insert tembusan with is_draft = FALSE and urutan
+        // Re-insert tembusan (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
+          const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isPending, i, tembusanGrupMap.get(Number(tembusan.position)));
           await queryRunner.manager.save(tembusanSirkulasi);
         }
 
         // Note: SdiSdeEntity.tembusan tidak lagi digunakan - data dari naskah_sirkulasi
       } else {
-        // No sirkulasi changes - just update isDraft = false
-        await queryRunner.manager.update(
-          NaskahSirkulasi,
-          { idNaskah: naskahId },
-          { isDraft: false },
-        );
+        // No sirkulasi changes - update isDraft based on status
+        // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
+        const isPending = newStatus === 'pending';
+        if (!isPending) {
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            { idNaskah: naskahId },
+            { isDraft: false },
+          );
+        }
       }
 
       // PHASE 9: Update lampiran if provided

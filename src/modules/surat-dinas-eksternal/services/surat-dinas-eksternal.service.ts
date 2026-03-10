@@ -1028,7 +1028,7 @@ export class SuratDinasEksternalService {
    */
   private async createSde(
     dto: CreateSuratDinasEksternalDto,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SdeSendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1146,8 +1146,8 @@ export class SuratDinasEksternalService {
       });
       await queryRunner.manager.save(naskah);
 
-      // Determine if this is a draft
-      const isDraft = status === 'draf';
+      // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
+      const isDraft = status === 'draf' || status === 'pending';
 
       // PHASE 5a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
       // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
@@ -1573,14 +1573,16 @@ export class SuratDinasEksternalService {
       }
 
       // PHASE 7: Insert sirkulasi
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
+      // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
+      const isPending = status === 'pending';
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       // Insert penerima eksternal ke sirkulasi (using createSirkulasiFromEksternal)
       const penerimaResponses: any[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, false, i);
+        const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, isPending, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push({
           nama: penerima.nama,
@@ -1591,28 +1593,30 @@ export class SuratDinasEksternalService {
       const tembusanResponses: SdeSirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isPending, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan (internal only, penerima is external)
-        console.log(`[SDE:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(tembusan.position),
-          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: tembusanSirkulasi.id,
-          jenis: 'SDE',
-          nomor: nomorSurat,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: true,
-        }).then(notif => {
-          console.log(`[SDE:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[SDE:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
-        });
+        // Send notification to tembusan (skip for pending/TTD basah; penerima is external, no notification)
+        if (!isPending) {
+          console.log(`[SDE:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'SDE',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(notif => {
+            console.log(`[SDE:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[SDE:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+          });
+        }
       }
 
       // PHASE 8: Handle lampiran - Move dari temporary ke final folder
@@ -2576,16 +2580,21 @@ export class SuratDinasEksternalService {
         // Delete existing pengirim sirkulasi
         await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'pengirim' });
 
-        // Re-insert pengirim with is_draft = FALSE (finalized!)
-        const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, false);
+        // Re-insert pengirim (isDraft stays true for pending/TTD basah)
+        const isPending = newStatus === 'pending';
+        const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, isPending);
         await queryRunner.manager.save(pengirimSirkulasi);
       } else {
-        // Just update isDraft = false on existing sirkulasi
-        await queryRunner.manager.update(
-          NaskahSirkulasi,
-          { idNaskah: naskahId },
-          { isDraft: false },
-        );
+        // Update isDraft based on status
+        // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
+        const isPending = newStatus === 'pending';
+        if (!isPending) {
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            { idNaskah: naskahId },
+            { isDraft: false },
+          );
+        }
       }
 
       // PHASE 8.1: Handle sirkulasi tembusan - ALWAYS ensure consistency  
