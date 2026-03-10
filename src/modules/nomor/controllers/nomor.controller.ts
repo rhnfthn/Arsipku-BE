@@ -12,8 +12,11 @@ import {
   UseInterceptors,
   UploadedFiles,
   UploadedFile,
+  UseGuards,
 } from '@nestjs/common';
 import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { NomorService } from '../services/nomor.service';
 import {
   CreateNomorRequestDto,
@@ -69,6 +72,35 @@ export class NomorController {
           message: 'Failed to create nomor request',
           error: error.message,
         },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /nomor-request/pending-approval
+   * Penandatangan melihat usulan yang menunggu persetujuannya
+   * position_id diambil dari bearer token
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('nomor-request/pending-approval')
+  async getPendingApproval(
+    @CurrentUser() user: any,
+    @Query() query: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getPendingApproval(positionId, query);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to get pending approval', error: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -759,6 +791,62 @@ export class NomorController {
           message: 'Failed to get nomor',
           error: error.message,
         },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/:id/approve-penandatangan
+   * Penandatangan menyetujui usulan (draft → booking)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/:id/approve-penandatangan')
+  async approvePenandatangan(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.approvePenandatangan(id, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to approve', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/:id/reject-penandatangan
+   * Penandatangan menolak usulan (draft → ditolak)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/:id/reject-penandatangan')
+  async rejectPenandatangan(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.rejectPenandatangan(id, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to reject', error: error.message },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
