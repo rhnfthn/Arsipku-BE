@@ -29,6 +29,10 @@ import {
   SentMessageResponseDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
 import {
+  TertundaQueryDto,
+  TertundaResponseDto,
+} from '../dto/naskah_sirkulasi/tertunda.dto';
+import {
   ToggleFlagDto,
   ToggleFlagResponseDto,
   BulkArchiveSentDto,
@@ -133,6 +137,40 @@ export class NaskahSirkulasiController {
   ): Promise<InboxSentResponseDto> {
     const positionId = user.position;
     return this.naskahSirkulasiService.getInboxAndSent(positionId, query);
+  }
+
+  // ============================================================
+  // TERTUNDA - Surat Tertunda / Pending TTD Basah
+  // ============================================================
+
+  /**
+   * GET /naskah_sirkulasi/tertunda
+   *
+   * Mengambil daftar surat tertunda (pending TTD basah) untuk position pengirim (dari JWT token)
+   * Naskah dengan status 'pending' yang belum dikirim ke penerima
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('tertunda')
+  async getTertunda(
+    @CurrentUser() user: any,
+    @Query() query: TertundaQueryDto,
+  ): Promise<TertundaResponseDto> {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getTertunda(positionId, query);
+  }
+
+  /**
+   * GET /naskah_sirkulasi/tertunda-count
+   *
+   * Menampilkan jumlah surat tertunda (dari JWT token)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('tertunda-count')
+  async countTertunda(
+    @CurrentUser() user: any,
+  ): Promise<{ total: number }> {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.countTertunda(positionId);
   }
 
   // ============================================================

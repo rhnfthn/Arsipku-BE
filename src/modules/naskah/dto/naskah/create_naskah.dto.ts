@@ -9,7 +9,7 @@ export class CreateNaskahDto {
   perihal?: string;
   konten?: string;
   tempat?: string;
-  status?: 'draf' | 'final' | 'final_tte';
+  status?: 'draf' | 'pending' | 'final' | 'final_tte';
   final_pdf?: string;
   english?: boolean;
 }

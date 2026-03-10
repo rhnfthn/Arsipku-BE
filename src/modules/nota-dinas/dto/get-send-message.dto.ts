@@ -27,7 +27,7 @@ export class SendMessageItemDto {
   jenis: string;                       // Jenis naskah (ND)
   nomor: string;                       // Nomor surat
   tanggal: string;                     // Tanggal surat
-  status: 'draf' | 'final' | 'final_tte';  // Status naskah
+  status: 'draf' | 'pending' | 'final' | 'final_tte';  // Status naskah
   
   // Kop Naskah
   kop_logo: string | null;

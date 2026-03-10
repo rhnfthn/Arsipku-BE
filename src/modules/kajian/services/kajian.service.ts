@@ -800,10 +800,13 @@ export class KajianService {
       }
     }
 
-    // Determine status: final_tte (digsig/qr_only) atau final (none/default)
-    const status = (dto.sign_option === SignOption.DIGSIG || dto.sign_option === SignOption.QR_ONLY)
-      ? 'final_tte'
-      : 'final';
+    // Determine status: final_tte (digsig), final (qr_only), pending (ttd_basah), or final (default)
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
+    }
 
     console.log(`[KA] Determined status: ${status}`);
 
@@ -881,6 +884,7 @@ export class KajianService {
       naskah.perihal = dto.perihal;
       naskah.konten = dto.konten || '';
       naskah.status = 'final';
+      naskah.signOption = dto.sign_option || null;
       naskah.lampiran = dto.lampiran || '';
       if (dto.final_pdf) naskah.final_pdf = dto.final_pdf;
       naskah.english = dto.english || false;
@@ -1121,7 +1125,7 @@ export class KajianService {
    */
   private async createKaWithSigning(
     dto: CreateKajianDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
@@ -1191,12 +1195,15 @@ export class KajianService {
       naskah.perihal = dto.perihal;
       naskah.konten = dto.konten || '';
       naskah.status = status;
+      naskah.signOption = dto.sign_option || null;
       naskah.lampiran = dto.lampiran || '';
       naskah.english = dto.english || false;
 
       await queryRunner.manager.save(naskah);
 
       // PHASE 6: Insert sirkulasi - pengirim
+      // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
+      const isPending = status === 'pending';
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1214,7 +1221,7 @@ export class KajianService {
         positionStatus: 'ybs',
         idSirkuler: pengirim.persnum_person ? String(pengirim.persnum_person) : '',
         namaSirkuler: pengirim.persnum_person_text || '',
-        isDraft: false,
+        isDraft: isPending,
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1238,29 +1245,31 @@ export class KajianService {
           positionStatus: 'ybs',
           idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
           namaSirkuler: penerima.persnum_person_text || '',
-          isDraft: false,
+          isDraft: isPending,
         });
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
-        // Send notification to penerima
-        console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(penerima.position),
-          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: penerimaSirkulasi.id,
-          jenis: 'KA',
-          nomor: generatedNomor.nomor,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: false,
-        }).then(notif => {
-          console.log(`[KA:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[KA:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
-        });
+        // Send notification to penerima (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            jenis: 'KA',
+            nomor: generatedNomor.nomor,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: false,
+          }).then(notif => {
+            console.log(`[KA:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[KA:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+          });
+        }
       }
 
       // Insert sirkulasi - tembusan
@@ -1283,29 +1292,31 @@ export class KajianService {
           positionStatus: 'ybs',
           idSirkuler: tembusan.persnum_person ? String(tembusan.persnum_person) : '',
           namaSirkuler: tembusan.persnum_person_text || '',
-          isDraft: false,
+          isDraft: isPending,
         });
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan
-        console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(tembusan.position),
-          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: tembusanSirkulasi.id,
-          jenis: 'KA',
-          nomor: generatedNomor.nomor,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: true,
-        }).then(notif => {
-          console.log(`[KA:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[KA:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
-        });
+        // Send notification to tembusan (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'KA',
+            nomor: generatedNomor.nomor,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(notif => {
+            console.log(`[KA:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[KA:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+          });
+        }
       }
 
       // PHASE 7: Handle lampiran
@@ -1505,7 +1516,7 @@ export class KajianService {
           console.log(`[KA] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 10: Upload final PDF
         const finalTimestamp = Date.now();
@@ -3026,9 +3037,14 @@ export class KajianService {
     );
 
     // Determine status based on sign_option
-    const status = (dto.sign_option === SignOption.DIGSIG || dto.sign_option === SignOption.QR_ONLY)
-      ? 'final_tte'
-      : 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      status = 'final_tte';
+    } else if (dto.sign_option === SignOption.QR_ONLY) {
+      status = 'final';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
+    }
 
     let bsreNameDoc: string | null = null;
 
@@ -3063,15 +3079,19 @@ export class KajianService {
 
       // Set status
       naskah.status = status;
+      naskah.signOption = dto.sign_option || null;
 
       await queryRunner.manager.save(naskah);
 
-      // Update all sirkulasi to not draft
-      await queryRunner.manager.update(
-        NaskahSirkulasi,
-        { idNaskah: naskahId },
-        { isDraft: false },
-      );
+      // Update all sirkulasi - keep isDraft=true for pending/TTD basah
+      const isPending = status === 'pending';
+      if (!isPending) {
+        await queryRunner.manager.update(
+          NaskahSirkulasi,
+          { idNaskah: naskahId },
+          { isDraft: false },
+        );
+      }
 
       // Move lampiran from temp to final location
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {

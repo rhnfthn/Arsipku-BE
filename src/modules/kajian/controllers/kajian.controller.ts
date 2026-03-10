@@ -155,7 +155,7 @@ export class KajianController {
    * Status: 'final' (tanpa tanda_tangan) atau 'final_tte' (dengan tanda_tangan)
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
    */
   @UseGuards(JwtAuthGuard)
@@ -244,7 +244,7 @@ export class KajianController {
    * Finalize draft Kajian (update status dari draf ke final/final_tte)
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
    */
   @UseGuards(JwtAuthGuard)

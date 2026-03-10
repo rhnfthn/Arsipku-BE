@@ -1337,7 +1337,7 @@ export class NotaDinasService {
    */
   private async createNotaDinas(
     dto: CreateNotaDinasDto,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1483,8 +1483,8 @@ export class NotaDinasService {
       });
       await queryRunner.manager.save(naskah);
 
-      // Determine if this is a draft
-      const isDraft = status === 'draf';
+      // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
+      const isDraft = status === 'draf' || status === 'pending';
 
       // PHASE 8: Insert sirkulasi - pengirim
       const pengirimSirkulasi = this.createSirkulasiFromOrgData(
@@ -1772,7 +1772,7 @@ export class NotaDinasService {
    * Status: 'final' (tanpa tanda tangan) atau 'final_tte' (dengan tanda tangan)
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
    * 
    * @param dto - CreateNotaDinasDto dengan sign_option dan passphrase
@@ -1793,9 +1793,11 @@ export class NotaDinasService {
     }
 
     // Determine status based on sign_option
-    let status: 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
       status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
     }
 
     // Call createNdWithSigning with signing options
@@ -1807,7 +1809,7 @@ export class NotaDinasService {
    * Menggabungkan create naskah + generate PDF + signing (QR/BSrE) dalam satu transaction
    * 
    * Flow Signing:
-   * 1. NONE: Generate PDF biasa tanpa QR, tanda_tangan = null
+   * 1. TTD_BASAH: Generate PDF biasa tanpa QR, space untuk TTD manual, tanda_tangan = null
    * 2. QR_ONLY: Generate QR sederhana, embed di template, tanda_tangan = null
    * 3. DIGSIG:
    *    - Generate QR dengan signature_id dan verification_url
@@ -1821,7 +1823,7 @@ export class NotaDinasService {
    */
   private async createNdWithSigning(
     dto: CreateNotaDinasDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     // Use provided date or today
@@ -1930,67 +1932,74 @@ export class NotaDinasService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         final_pdf: undefined, // Will be updated after PDF generation
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
 
       // PHASE 7: Insert sirkulasi
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
+      // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
+      const isPending = status === 'pending';
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, false, i, penerimaGrupMap.get(Number(penerima.position)));
+        const penerimaSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'penerima', penerima, isPending, i, penerimaGrupMap.get(Number(penerima.position)));
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
-        // Send notification to penerima
-        console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(penerima.position),
-          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: penerimaSirkulasi.id,
-          jenis: 'ND',
-          nomor: nomorSurat,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: false,
-        }).then(notif => {
-          console.log(`[ND:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[ND:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
-        });
+        // Send notification to penerima (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            jenis: 'ND',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: false,
+          }).then(notif => {
+            console.log(`[ND:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[ND:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
+          });
+        }
       }
 
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i, tembusanGrupMap.get(Number(tembusan.position)));
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isPending, i, tembusanGrupMap.get(Number(tembusan.position)));
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan
-        console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
-        this.notificationService.createNaskahMasukNotification({
-          positionId: String(tembusan.position),
-          userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: tembusanSirkulasi.id,
-          jenis: 'ND',
-          nomor: nomorSurat,
-          perihal: dto.perihal,
-          pengirim: pengirim.persnum_person_text || pengirim.position_text,
-          pengirimPosition: pengirim.position_text,
-          isTembusan: true,
-        }).then(notif => {
-          console.log(`[ND:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
-        }).catch(err => {
-          console.error(`[ND:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
-        });
+        // Send notification to tembusan (skip for pending/TTD basah)
+        if (!isPending) {
+          console.log(`[ND:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'ND',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(notif => {
+            console.log(`[ND:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[ND:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+          });
+        }
       }
 
       // PHASE 8: Handle lampiran
@@ -2221,7 +2230,7 @@ export class NotaDinasService {
           console.log(`[ND] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
         const finalTimestamp = Date.now();
@@ -2311,7 +2320,7 @@ export class NotaDinasService {
    * - Update isDraft = false pada semua sirkulasi
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
    * 
    * @param naskahId - UUID of naskah
@@ -2449,19 +2458,22 @@ export class NotaDinasService {
     let nomorSurat = '';
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'final' | 'final_tte' | 'draf';
+    let newStatus: 'pending' | 'final' | 'final_tte' | 'draf';
     if (dto.sign_option === SignOption.DIGSIG) {
       newStatus = 'final_tte'; // Digital signature dengan BSrE
       console.log('[ND finalizeDraft] Status = final_tte (DIGSIG)');
     } else if (dto.sign_option === SignOption.QR_ONLY) {
-      newStatus = 'final_tte'; // QR code tanpa BSrE
-      console.log('[ND finalizeDraft] Status = final_tte (QR_ONLY)');
+      newStatus = 'final'; // QR code tanpa BSrE
+      console.log('[ND finalizeDraft] Status = final (QR_ONLY)');
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      newStatus = 'pending'; // TTD Basah - menunggu upload dokumen bertanda tangan
+      console.log('[ND finalizeDraft] Status = pending (TTD_BASAH)');
     } else if (dto.tanda_tangan) {
       newStatus = 'final_tte'; // Legacy: tanda_tangan field provided
       console.log('[ND finalizeDraft] Status = final_tte (tanda_tangan)');
     } else {
-      newStatus = 'final'; // No signature
-      console.log('[ND finalizeDraft] Status = final (no signature)');
+      newStatus = 'final'; // Default
+      console.log('[ND finalizeDraft] Status = final (default)');
     }
 
     // Variables for signing result (need to be accessible in response)
@@ -2494,6 +2506,7 @@ export class NotaDinasService {
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
         status: newStatus,
+        signOption: dto.sign_option || null,
       };
       if (dto.klasifikasi !== undefined)
         naskahUpdateData.klasifikasi = dto.klasifikasi;
@@ -2607,27 +2620,28 @@ export class NotaDinasService {
           );
         }
 
-        // Re-insert pengirim with is_draft = FALSE (finalized!)
+        // Re-insert pengirim (isDraft stays true for pending/TTD basah)
+        const isPending = newStatus === 'pending';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
           const pengirimSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'pengirim',
             fullPengirimPosition,
-            false,
+            isPending,
             0,
           );
           await queryRunner.manager.save(pengirimSirkulasi);
           // Note: NdEntity.dari tidak lagi digunakan - data dari naskah_sirkulasi
         }
 
-        // Re-insert penerima with is_draft = FALSE and urutan
+        // Re-insert penerima (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
           const penerimaSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'penerima',
             penerima,
-            false,
+            isPending,
             i,
             penerimaGrupMap.get(Number(penerima.position)),
           );
@@ -2635,14 +2649,14 @@ export class NotaDinasService {
         }
         // Note: NdEntity.kepadaYth tidak lagi digunakan - data dari naskah_sirkulasi
 
-        // Re-insert tembusan with is_draft = FALSE and urutan
+        // Re-insert tembusan (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
-            false,
+            isPending,
             i,
             tembusanGrupMap.get(Number(tembusan.position)),
           );
@@ -2650,12 +2664,16 @@ export class NotaDinasService {
         }
         // Note: NdEntity.tembusan tidak lagi digunakan - data dari naskah_sirkulasi
       } else {
-        // No sirkulasi changes - just update isDraft = false
-        await queryRunner.manager.update(
-          NaskahSirkulasi,
-          { idNaskah: naskahId },
-          { isDraft: false },
-        );
+        // No sirkulasi changes - update isDraft based on status
+        // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
+        const isPending = newStatus === 'pending';
+        if (!isPending) {
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            { idNaskah: naskahId },
+            { isDraft: false },
+          );
+        }
       }
 
       // PHASE 9: Update lampiran if provided
@@ -2931,7 +2949,7 @@ export class NotaDinasService {
           console.log(`[ND finalizeDraft] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
         const timestamp = Date.now();
