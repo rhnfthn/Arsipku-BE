@@ -1326,17 +1326,41 @@ export class NomorService {
     const nama = positionData?.persnum_person_text || null;
 
     // Generate signed URLs untuk details
-    const detailsWithUrls = await Promise.all(
-      details.map(async (d) => ({
-        id: d.id,
-        nomor: d.nomor,
-        status: d.status,
-        file_name: d.fileName,
-        file_text: d.fileText,
-        file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
-        created_at: d.createdAt,
-      }))
-    );
+    let detailsWithUrls: any[];
+
+    if (request.isSingleFile === 1 && details.length > 0) {
+      // Single file mode: tampilkan hanya 1 detail dengan nomor range
+      const firstDetail = details[0];
+      const nomorList = details.map((d) => d.nomor).filter((n): n is string => !!n);
+      let nomorRange: string | null = null;
+      if (nomorList.length > 1) {
+        nomorRange = `${nomorList[0]} - ${nomorList[nomorList.length - 1]}`;
+      } else if (nomorList.length === 1) {
+        nomorRange = nomorList[0];
+      }
+
+      detailsWithUrls = [{
+        id: firstDetail.id,
+        nomor: nomorRange,
+        status: firstDetail.status,
+        file_name: firstDetail.fileName,
+        file_text: firstDetail.fileText,
+        file_url: await this.getDetailFileUrlAndHeal(firstDetail, 'nomor'),
+        created_at: firstDetail.createdAt,
+      }];
+    } else {
+      detailsWithUrls = await Promise.all(
+        details.map(async (d) => ({
+          id: d.id,
+          nomor: d.nomor,
+          status: d.status,
+          file_name: d.fileName,
+          file_text: d.fileText,
+          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+          created_at: d.createdAt,
+        }))
+      );
+    }
 
     return {
       success: true,
@@ -1358,6 +1382,7 @@ export class NomorService {
         penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
+        is_single_file: request.isSingleFile,
         details: detailsWithUrls,
       },
     };
@@ -1620,6 +1645,10 @@ export class NomorService {
     }
 
     await this.nomorRequestDetailRepository.save(details);
+
+    // Tandai request sebagai single file
+    request.isSingleFile = 1;
+    await this.nomorRequestRepository.save(request);
 
     // Generate signed URL sekali saja karena semua detail pakai file yang sama
     let fileUrl: string | null = null;
@@ -2560,11 +2589,36 @@ export class NomorService {
       order: { createdAt: 'ASC' },
     });
 
+    const validDetails = details.filter(
+      (d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor,
+    );
+
     // Generate signed URLs untuk nomor_list
-    const nomorListWithUrls = await Promise.all(
-      details
-        .filter((d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor)
-        .map(async (d) => ({
+    let nomorListWithUrls: any[];
+
+    if (request.isSingleFile === 1 && validDetails.length > 0) {
+      // Single file mode: tampilkan hanya 1 entry dengan nomor range
+      const firstDetail = validDetails[0];
+      const nomorList = validDetails.map((d) => d.nomor).filter((n): n is string => !!n);
+      let nomorRange: string | null = null;
+      if (nomorList.length > 1) {
+        nomorRange = `${nomorList[0]} - ${nomorList[nomorList.length - 1]}`;
+      } else if (nomorList.length === 1) {
+        nomorRange = nomorList[0];
+      }
+
+      nomorListWithUrls = [{
+        id: firstDetail.id,
+        nomor: nomorRange,
+        status: firstDetail.status,
+        file_name: firstDetail.fileName || null,
+        file_text: firstDetail.fileText || null,
+        file_url: await this.getDetailFileUrlAndHeal(firstDetail, 'nomor'),
+        created_at: firstDetail.createdAt,
+      }];
+    } else {
+      nomorListWithUrls = await Promise.all(
+        validDetails.map(async (d) => ({
           id: d.id,
           nomor: d.nomor,
           status: d.status,
@@ -2573,7 +2627,8 @@ export class NomorService {
           file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
           created_at: d.createdAt,
         }))
-    );
+      );
+    }
 
     return {
       success: true,
@@ -2586,6 +2641,7 @@ export class NomorService {
         perihal: request.perihal,
         tanggal: request.tanggal,
         jumlah: request.jumlah,
+        is_single_file: request.isSingleFile,
         nomor_list: nomorListWithUrls,
       },
     };
