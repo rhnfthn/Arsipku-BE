@@ -457,7 +457,7 @@ export class SuratDinasInternalController {
    * Form-data fields:
    * - Semua field optional (dapat update sebelum finalize)
    * - final_pdf: file (optional)
-   * - sign_option: 'digsig' | 'qr_only' | 'none' (optional)
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah' (optional)
    * - passphrase: string (required jika sign_option=digsig)
    *
    * Generate official nomor surat, update status to 'final' atau 'final_tte'
