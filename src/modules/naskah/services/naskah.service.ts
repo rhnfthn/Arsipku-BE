@@ -245,6 +245,7 @@ export class NaskahService {
         konten: naskah.konten,
         lampiran: naskah.lampiran,
         status: naskah.status,
+        label_ttd: this.getLabelTtd(naskah.status),
 
         // Sirkulasi
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
@@ -264,6 +265,18 @@ export class NaskahService {
         detail_nota_dinas: null, // TODO: implement jika ada tabel nd
       },
     };
+  }
+
+  /**
+   * Get label TTE berdasarkan status naskah
+   * - final_tte → TTE BSrE (Digital Signature)
+   * - final → QR Code
+   * - draf → null
+   */
+  private getLabelTtd(status: string): string | null {
+    if (status === 'final_tte') return 'TTE BSrE';
+    if (status === 'final') return 'QR Code';
+    return null;
   }
 
   /**
@@ -659,6 +672,7 @@ export class NaskahService {
         klasifikasi_text: naskahData.klasifikasi_text,
         status: naskahData.status,
         lampiran: naskahData.lampiran,
+        label_ttd: this.getLabelTtd(naskahData.status),
 
         // Sirkulasi
         pengirim: pengirimInfo,
