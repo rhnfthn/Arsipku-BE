@@ -82,7 +82,7 @@ export class NaskahController {
   @Put(':id/status/:status')
   updateStatus(
     @Param('id') id: string,
-    @Param('status') status: 'draf' | 'final' | 'final_tte',
+    @Param('status') status: 'draf' | 'pending' | 'final' | 'final_tte',
   ) {
     return this.naskahService.updateStatus(id, status);
   }

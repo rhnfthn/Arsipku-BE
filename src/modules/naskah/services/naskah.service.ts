@@ -135,7 +135,7 @@ export class NaskahService {
 
   async updateStatus(
     id: string,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     naskah.status = status;
@@ -245,7 +245,7 @@ export class NaskahService {
         konten: naskah.konten,
         lampiran: naskah.lampiran,
         status: naskah.status,
-        label_ttd: this.getLabelTtd(naskah.status),
+        label_ttd: this.getLabelTtd(naskah.signOption),
 
         // Sirkulasi
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
@@ -268,14 +268,16 @@ export class NaskahService {
   }
 
   /**
-   * Get label TTE berdasarkan status naskah
-   * - final_tte → TTE BSrE (Digital Signature)
-   * - final → QR Code
-   * - draf → null
+   * Get label TTD berdasarkan sign_option yang tersimpan di naskah
+   * - digsig → TTE BSrE
+   * - qr_only → QR Code
+   * - ttd_basah → TTD Basah
+   * - null → null (draf / legacy)
    */
-  private getLabelTtd(status: string): string | null {
-    if (status === 'final_tte') return 'TTE BSrE';
-    if (status === 'final') return 'QR Code';
+  private getLabelTtd(signOption: string | null): string | null {
+    if (signOption === 'digsig') return 'TTE BSrE';
+    if (signOption === 'qr_only') return 'QR Code';
+    if (signOption === 'ttd_basah') return 'TTD Basah';
     return null;
   }
 
@@ -672,7 +674,7 @@ export class NaskahService {
         klasifikasi_text: naskahData.klasifikasi_text,
         status: naskahData.status,
         lampiran: naskahData.lampiran,
-        label_ttd: this.getLabelTtd(naskahData.status),
+        label_ttd: this.getLabelTtd(naskahData.signOption),
 
         // Sirkulasi
         pengirim: pengirimInfo,
