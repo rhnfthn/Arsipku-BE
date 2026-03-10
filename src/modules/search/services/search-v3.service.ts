@@ -300,30 +300,34 @@ export class SearchV3Service {
             appliedFilters.push(`to: ${to}`);
         }
 
-        // === PENGIRIM PERSNUM FILTER (list) ===
-        if (dto.pengirimPersnum && dto.pengirimPersnum.length > 0) {
-            const placeholders = dto.pengirimPersnum.map(() => '?').join(',');
+        // === PENGIRIM POSITION FILTER (list) ===
+        if (dto.pengirimPosition && dto.pengirimPosition.length > 0) {
+            const placeholdersSirkuler = dto.pengirimPosition.map(() => '?').join(',');
+            const placeholdersPosition = dto.pengirimPosition.map(() => '?').join(',');
             whereClauses.push(`EXISTS (
         SELECT 1 FROM naskah_sirkulasi pp
         WHERE pp.id_naskah = n.id
         AND pp.sirkuler = 'pengirim'
-        AND pp.id_sirkuler IN (${placeholders})
+        AND (pp.id_sirkuler IN (${placeholdersSirkuler}) OR pp.position IN (${placeholdersPosition}))
       )`);
-            dto.pengirimPersnum.forEach((p) => params.push(String(p)));
-            appliedFilters.push(`pengirimPersnum: ${dto.pengirimPersnum.join(',')}`);
+            dto.pengirimPosition.forEach((p) => params.push(String(p)));
+            dto.pengirimPosition.forEach((p) => params.push(String(p)));
+            appliedFilters.push(`pengirimPosition: ${dto.pengirimPosition.join(',')}`);
         }
 
-        // === PENERIMA PERSNUM FILTER (list) ===
-        if (dto.penerimaPersnum && dto.penerimaPersnum.length > 0) {
-            const placeholders = dto.penerimaPersnum.map(() => '?').join(',');
+        // === PENERIMA POSITION FILTER (list) ===
+        if (dto.penerimaPosition && dto.penerimaPosition.length > 0) {
+            const placeholdersSirkuler = dto.penerimaPosition.map(() => '?').join(',');
+            const placeholdersPosition = dto.penerimaPosition.map(() => '?').join(',');
             whereClauses.push(`EXISTS (
         SELECT 1 FROM naskah_sirkulasi pr
         WHERE pr.id_naskah = n.id
         AND pr.sirkuler IN ('penerima', 'tembusan')
-        AND pr.id_sirkuler IN (${placeholders})
+        AND (pr.id_sirkuler IN (${placeholdersSirkuler}) OR pr.position IN (${placeholdersPosition}))
       )`);
-            dto.penerimaPersnum.forEach((p) => params.push(String(p)));
-            appliedFilters.push(`penerimaPersnum: ${dto.penerimaPersnum.join(',')}`);
+            dto.penerimaPosition.forEach((p) => params.push(String(p)));
+            dto.penerimaPosition.forEach((p) => params.push(String(p)));
+            appliedFilters.push(`penerimaPosition: ${dto.penerimaPosition.join(',')}`);
         }
 
         // === ORGANIZATION FILTERS ===
@@ -548,7 +552,7 @@ export class SearchV3Service {
                 status: row.status,
                 klasifikasi: row.klasifikasi,
                 klasifikasiText: row.klasifikasi,
-                pengirim: pengirim || { nama: null, jabatan: null, organization: null, area: null },
+                pengirim: pengirim || { persnum: null, position_id: null, nama: null, jabatan: null, organization: null, area: null },
                 penerima: penerimaList,
                 lampiranCount: hasLampiran ? 1 : 0,
                 hasAttachment: hasLampiran,
@@ -776,6 +780,8 @@ export class SearchV3Service {
         const query = `
       SELECT 
         id_naskah,
+        TRIM(id_sirkuler) as persnum,
+        position as position_id,
         nama_sirkuler as nama,
         position_text as jabatan,
         organization_text as organization,
@@ -789,6 +795,8 @@ export class SearchV3Service {
         const map = new Map<string, any>();
         rows.forEach((row: any) => {
             map.set(row.id_naskah, {
+                persnum: row.persnum || null,
+                position_id: row.position_id || null,
                 nama: row.nama,
                 jabatan: row.jabatan,
                 organization: row.organization,
@@ -809,6 +817,8 @@ export class SearchV3Service {
         const query = `
       SELECT 
         id_naskah,
+        TRIM(id_sirkuler) as persnum,
+        position as position_id,
         nama_sirkuler as nama,
         position_text as jabatan,
         organization_text as organization
@@ -822,6 +832,8 @@ export class SearchV3Service {
         rows.forEach((row: any) => {
             const list = map.get(row.id_naskah) || [];
             list.push({
+                persnum: row.persnum || null,
+                position_id: row.position_id || null,
                 nama: row.nama,
                 jabatan: row.jabatan,
                 organization: row.organization,
