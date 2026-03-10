@@ -800,10 +800,13 @@ export class KajianService {
       }
     }
 
-    // Determine status: final_tte (digsig/qr_only) atau final (none/default)
-    const status = (dto.sign_option === SignOption.DIGSIG || dto.sign_option === SignOption.QR_ONLY)
-      ? 'final_tte'
-      : 'final';
+    // Determine status: final_tte (digsig), final (qr_only), pending (ttd_basah), or final (default)
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
+    }
 
     console.log(`[KA] Determined status: ${status}`);
 
@@ -881,6 +884,7 @@ export class KajianService {
       naskah.perihal = dto.perihal;
       naskah.konten = dto.konten || '';
       naskah.status = 'final';
+      naskah.signOption = dto.sign_option || null;
       naskah.lampiran = dto.lampiran || '';
       if (dto.final_pdf) naskah.final_pdf = dto.final_pdf;
       naskah.english = dto.english || false;
@@ -1121,7 +1125,7 @@ export class KajianService {
    */
   private async createKaWithSigning(
     dto: CreateKajianDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
@@ -1191,6 +1195,7 @@ export class KajianService {
       naskah.perihal = dto.perihal;
       naskah.konten = dto.konten || '';
       naskah.status = status;
+      naskah.signOption = dto.sign_option || null;
       naskah.lampiran = dto.lampiran || '';
       naskah.english = dto.english || false;
 
@@ -1505,7 +1510,7 @@ export class KajianService {
           console.log(`[KA] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 10: Upload final PDF
         const finalTimestamp = Date.now();
@@ -3026,9 +3031,14 @@ export class KajianService {
     );
 
     // Determine status based on sign_option
-    const status = (dto.sign_option === SignOption.DIGSIG || dto.sign_option === SignOption.QR_ONLY)
-      ? 'final_tte'
-      : 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    if (dto.sign_option === SignOption.DIGSIG) {
+      status = 'final_tte';
+    } else if (dto.sign_option === SignOption.QR_ONLY) {
+      status = 'final';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
+    }
 
     let bsreNameDoc: string | null = null;
 
@@ -3063,6 +3073,7 @@ export class KajianService {
 
       // Set status
       naskah.status = status;
+      naskah.signOption = dto.sign_option || null;
 
       await queryRunner.manager.save(naskah);
 

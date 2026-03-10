@@ -31,7 +31,7 @@ export class SendMessageItemDto {
   jenis: string;
   nomor: string;
   tanggal: string;
-  status: 'draf' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'final' | 'final_tte';
 
   // Kop Naskah
   kop_logo: string | null;
