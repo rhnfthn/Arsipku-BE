@@ -23,6 +23,9 @@ export class KlasifikasiEntity {
   @Column({ type: 'tinyint', width: 1, default: 1 })
   active: number;
 
+  @Column({ type: 'tinyint', width: 1, default: 0 })
+  is_select: number;
+
   // Relasi ke parent
   @ManyToOne(() => KlasifikasiEntity, (klasifikasi) => klasifikasi.children, {
     nullable: true,

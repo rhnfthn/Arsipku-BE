@@ -46,10 +46,11 @@ export class KlasifikasiService {
   }
 
   async findAll(company?: string): Promise<KlasifikasiEntity[]> {
-    const query = this.klasifikasiRepository.createQueryBuilder('klasifikasi');
+    const query = this.klasifikasiRepository.createQueryBuilder('klasifikasi')
+      .where('klasifikasi.is_select = :is_select', { is_select: 1 });
 
     if (company) {
-      query.where('klasifikasi.company = :company', { company });
+      query.andWhere('klasifikasi.company = :company', { company });
     }
 
     return await query
