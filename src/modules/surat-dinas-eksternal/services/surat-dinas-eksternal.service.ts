@@ -1141,6 +1141,7 @@ export class SuratDinasEksternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
@@ -1425,7 +1426,7 @@ export class SuratDinasEksternalService {
    */
   private async createSdeWithSigning(
     dto: CreateSuratDinasEksternalDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SdeSendMessageResponseDto> {
     // Use provided date or today
@@ -1544,6 +1545,7 @@ export class SuratDinasEksternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         final_pdf: undefined, // Will be updated after PDF generation
         english: dto.english || false,
       });
@@ -2088,9 +2090,11 @@ export class SuratDinasEksternalService {
     }
 
     // Determine status based on sign_option
-    let status: 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
       status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
     }
 
     // Call createSdeWithSigning with signing options
@@ -2505,13 +2509,16 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'final' | 'final_tte' | 'draf';
+    let newStatus: 'pending' | 'final' | 'final_tte' | 'draf';
     if (dto.sign_option === SignOption.DIGSIG) {
       newStatus = 'final_tte'; // Digital signature dengan BSrE
       console.log('[SDE finalizeDraft] Status = final_tte (DIGSIG)');
     } else if (dto.sign_option === SignOption.QR_ONLY) {
-      newStatus = 'final_tte'; // QR code tanpa BSrE
-      console.log('[SDE finalizeDraft] Status = final_tte (QR_ONLY)');
+      newStatus = 'final'; // QR code tanpa BSrE
+      console.log('[SDE finalizeDraft] Status = final (QR_ONLY)');
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      newStatus = 'pending'; // TTD Basah - menunggu upload dokumen bertanda tangan
+      console.log('[SDE finalizeDraft] Status = pending (TTD_BASAH)');
     } else if (dto.tanda_tangan) {
       newStatus = 'final_tte'; // Legacy: tanda_tangan field provided
       console.log('[SDE finalizeDraft] Status = final_tte (tanda_tangan)');
@@ -2547,6 +2554,7 @@ export class SuratDinasEksternalService {
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
         status: newStatus,
+        signOption: dto.sign_option || null,
       };
       if (dto.klasifikasi !== undefined) naskahUpdateData.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text !== undefined) naskahUpdateData.klasifikasi_text = dto.klasifikasi_text;
@@ -2892,7 +2900,7 @@ export class SuratDinasEksternalService {
           console.log(`[SDE finalizeDraft] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
         const timestamp = Date.now();

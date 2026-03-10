@@ -790,7 +790,7 @@ export class SuratDinasInternalService {
       } else if (signOptionStr === 'qr_only') {
         signOption = SignOption.QR_ONLY;
       } else if (signOptionStr === 'none') {
-        signOption = SignOption.NONE;
+        signOption = SignOption.TTD_BASAH;
       }
     }
 
@@ -996,7 +996,7 @@ export class SuratDinasInternalService {
       } else if (signOptionStr === 'qr_only') {
         signOption = SignOption.QR_ONLY;
       } else if (signOptionStr === 'none') {
-        signOption = SignOption.NONE;
+        signOption = SignOption.TTD_BASAH;
       }
     }
 
@@ -1164,9 +1164,11 @@ export class SuratDinasInternalService {
     }
 
     // Determine status based on sign_option
-    let status: 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
       status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
     }
 
     // Call createSdi with signing options
@@ -1539,6 +1541,7 @@ export class SuratDinasInternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         final_pdf: dto.final_pdf || undefined,
         english: dto.english || false,
       });
@@ -1812,7 +1815,7 @@ export class SuratDinasInternalService {
    */
   private async createSdiWithSigning(
     dto: CreateSuratDinasInternalDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     // Use provided date or today
@@ -1921,6 +1924,7 @@ export class SuratDinasInternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         final_pdf: undefined, // Will be updated after PDF generation
         english: dto.english || false,
       });
@@ -2205,7 +2209,7 @@ export class SuratDinasInternalService {
           console.log(`[SDI] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
         const finalTimestamp = Date.now();
@@ -2395,13 +2399,22 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 4: Determine new status based on sign_option or tanda_tangan
-    let newStatus: 'final' | 'final_tte';
+    let newStatus: 'pending' | 'final' | 'final_tte';
     if (dto.sign_option === SignOption.DIGSIG) {
       newStatus = 'final_tte';
+      console.log('[SDI finalizeDraft] Status = final_tte (DIGSIG)');
+    } else if (dto.sign_option === SignOption.QR_ONLY) {
+      newStatus = 'final';
+      console.log('[SDI finalizeDraft] Status = final (QR_ONLY)');
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      newStatus = 'pending';
+      console.log('[SDI finalizeDraft] Status = pending (TTD_BASAH)');
     } else if (dto.tanda_tangan) {
       newStatus = 'final_tte';
+      console.log('[SDI finalizeDraft] Status = final_tte (tanda_tangan)');
     } else {
       newStatus = 'final';
+      console.log('[SDI finalizeDraft] Status = final (default)');
     }
 
     // Start transaction
@@ -2434,6 +2447,7 @@ export class SuratDinasInternalService {
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
         status: newStatus,
+        signOption: dto.sign_option || null,
       };
       if (dto.klasifikasi !== undefined) naskahUpdateData.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text !== undefined) naskahUpdateData.klasifikasi_text = dto.klasifikasi_text;
