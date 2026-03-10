@@ -90,6 +90,7 @@ export class NaskahDetailResponseDto {
     konten: string | null;
     lampiran: string | null;
     status: string; // draf, final, final_tte
+    label_ttd: string | null; // TTE BSrE, QR Code, Tanpa TTE
 
     // Sirkulasi
     pengirim: SirkulasiDetailDto | null;
