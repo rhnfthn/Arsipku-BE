@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahEntity } from '../entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
@@ -13,6 +13,7 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { NotificationService } from '../../notification/services/notification.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -53,6 +54,8 @@ export class NaskahService {
     private storageService: StorageService,
     private meilisearchSyncService: MeilisearchSyncService,
     private grupPenerimaService: GrupPenerimaService,
+    private notificationService: NotificationService,
+    private dataSource: DataSource,
   ) { }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
@@ -135,7 +138,7 @@ export class NaskahService {
 
   async updateStatus(
     id: string,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     naskah.status = status;
@@ -145,6 +148,124 @@ export class NaskahService {
     this.meilisearchSyncService.syncNaskah(id).catch(() => { });
 
     return saved;
+  }
+
+  /**
+   * Finalize Pending - Mengirim surat yang tertunda (TTD basah)
+   * 
+   * Flow:
+   * 1. Validasi naskah status = 'pending'
+   * 2. Simpan file signed scan (jika ada)
+   * 3. Update status naskah: pending → final
+   * 4. Update sirkulasi: isDraft = false (surat terlihat oleh penerima)
+   * 5. Kirim notifikasi ke penerima dan tembusan
+   */
+  async finalizePending(
+    naskahId: string,
+    file: Express.Multer.File,
+  ): Promise<{ success: boolean; message: string; naskah_id: string; signed_file: string }> {
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'pending') {
+      throw new NotFoundException(
+        `Naskah bukan berstatus pending. Status saat ini: ${naskah.status}`,
+      );
+    }
+
+    // Upload signed file to storage
+    const uploadResult = await this.storageService.uploadFile(file, 'signed-documents');
+    const signedFileKey = uploadResult.key;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Update naskah status to final + save signed file
+      const updateData: Partial<NaskahEntity> = {
+        status: 'final',
+        final_pdf: signedFileKey,
+      };
+
+      await queryRunner.manager.update(NaskahEntity, { id: naskahId }, updateData);
+
+      // Update all sirkulasi: isDraft = false (now visible to penerima)
+      await queryRunner.manager.update(
+        NaskahSirkulasi,
+        { idNaskah: naskahId },
+        { isDraft: false },
+      );
+
+      await queryRunner.commitTransaction();
+
+      // Get sirkulasi for notifications (after commit)
+      const allSirkulasi = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: naskahId },
+      });
+
+      const pengirim = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
+      const penerimaList = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
+      const tembusanList = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+
+      // Send notifications to penerima (non-blocking)
+      for (const penerima of penerimaList) {
+        this.notificationService.createNaskahMasukNotification({
+          positionId: penerima.position || '',
+          userPersnum: penerima.idSirkuler ? Number(penerima.idSirkuler) || undefined : undefined,
+          naskahId,
+          sirkulasiId: penerima.id,
+          jenis: naskah.jenis || 'ND',
+          nomor: naskah.nomor || '',
+          perihal: naskah.perihal || '',
+          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+          pengirimPosition: pengirim?.positionText || '',
+          isTembusan: false,
+        }).catch((err) => {
+          console.error(`[Naskah:FinalizePending] ❌ Failed notification penerima ${penerima.position}:`, err.message);
+        });
+      }
+
+      // Send notifications to tembusan (non-blocking)
+      for (const tembusan of tembusanList) {
+        this.notificationService.createNaskahMasukNotification({
+          positionId: tembusan.position || '',
+          userPersnum: tembusan.idSirkuler ? Number(tembusan.idSirkuler) || undefined : undefined,
+          naskahId,
+          sirkulasiId: tembusan.id,
+          jenis: naskah.jenis || 'ND',
+          nomor: naskah.nomor || '',
+          perihal: naskah.perihal || '',
+          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+          pengirimPosition: pengirim?.positionText || '',
+          isTembusan: true,
+        }).catch((err) => {
+          console.error(`[Naskah:FinalizePending] ❌ Failed notification tembusan ${tembusan.position}:`, err.message);
+        });
+      }
+
+      // Sync to Meilisearch (non-blocking)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
+      return {
+        success: true,
+        message: 'Surat tertunda berhasil dikirim',
+        naskah_id: naskahId,
+        signed_file: signedFileKey,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      // Cleanup uploaded file if transaction failed
+      this.storageService.deleteFile(signedFileKey).catch(() => { });
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -245,7 +366,7 @@ export class NaskahService {
         konten: naskah.konten,
         lampiran: naskah.lampiran,
         status: naskah.status,
-        label_ttd: this.getLabelTtd(naskah.status),
+        label_ttd: this.getLabelTtd(naskah.signOption),
 
         // Sirkulasi
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
@@ -268,14 +389,16 @@ export class NaskahService {
   }
 
   /**
-   * Get label TTE berdasarkan status naskah
-   * - final_tte → TTE BSrE (Digital Signature)
-   * - final → QR Code
-   * - draf → null
+   * Get label TTD berdasarkan sign_option yang tersimpan di naskah
+   * - digsig → TTE BSrE
+   * - qr_only → QR Code
+   * - ttd_basah → TTD Basah
+   * - null → null (draf / legacy)
    */
-  private getLabelTtd(status: string): string | null {
-    if (status === 'final_tte') return 'TTE BSrE';
-    if (status === 'final') return 'QR Code';
+  private getLabelTtd(signOption: string | null): string | null {
+    if (signOption === 'digsig') return 'TTE BSrE';
+    if (signOption === 'qr_only') return 'QR Code';
+    if (signOption === 'ttd_basah') return 'TTD Basah';
     return null;
   }
 
@@ -672,7 +795,7 @@ export class NaskahService {
         klasifikasi_text: naskahData.klasifikasi_text,
         status: naskahData.status,
         lampiran: naskahData.lampiran,
-        label_ttd: this.getLabelTtd(naskahData.status),
+        label_ttd: this.getLabelTtd(naskahData.signOption),
 
         // Sirkulasi
         pengirim: pengirimInfo,

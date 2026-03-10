@@ -19,6 +19,7 @@ import {
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
 import { InboxSentResponseDto, SentItemForCombinedDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
+import { TertundaQueryDto, TertundaResponseDto, TertundaItemDto } from '../dto/naskah_sirkulasi/tertunda.dto';
 import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -557,6 +558,221 @@ export class NaskahSirkulasiService {
         },
       },
     };
+  }
+
+  // ============================================================
+  // TERTUNDA - Surat Tertunda / Pending TTD Basah
+  // ============================================================
+
+  /**
+   * Get surat tertunda (pending TTD basah) untuk position tertentu
+   *
+   * Logic:
+   * - Ambil sirkulasi dimana position = position_id dan sirkuler = 'pengirim'
+   * - Join naskah dengan status = 'pending' (TTD basah, belum dikirim)
+   * - Sirkulasi masih isDraft = true (belum terkirim ke penerima)
+   *
+   * @param positionId - Position ID pengirim
+   * @param query - Filter options
+   * @returns TertundaResponseDto
+   */
+  async getTertunda(
+    positionId: string,
+    query: TertundaQueryDto,
+  ): Promise<TertundaResponseDto> {
+    let whereClause = `
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 1
+      AND n.status = 'pending'
+    `;
+    const params: any[] = [positionId];
+
+    // Filter by jenis naskah
+    if (query.jenis) {
+      whereClause += ` AND n.jenis = ?`;
+      params.push(query.jenis);
+    }
+
+    // Date Range Filter
+    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    if (dateRange.startDate) {
+      whereClause += ` AND DATE(s.created_at) >= ?`;
+      params.push(dateRange.startDate);
+    }
+    if (dateRange.endDate) {
+      whereClause += ` AND DATE(s.created_at) <= ?`;
+      params.push(dateRange.endDate);
+    }
+
+    // Pagination
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+    `;
+    const countResult = await this.dataSource.query(countQuery, params);
+    const total = parseInt(countResult[0]?.total || '0', 10);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get tertunda items
+    const selectQuery = `
+      SELECT 
+        s.id as id_sirkulasi,
+        s.id_naskah,
+        n.jenis,
+        n.nomor,
+        n.tanggal,
+        n.perihal,
+        n.sifat,
+        n.status,
+        n.lampiran,
+        s.position as pengirim_position_id,
+        s.position_text as pengirim_position_text,
+        s.organization_text as pengirim_organization_text,
+        s.nama_sirkuler as pengirim_nama,
+        s.created_at,
+        s.updated_at
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      ${whereClause}
+      ORDER BY s.created_at DESC, s.id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
+
+    // Get summary counts
+    const summaryQuery = `
+      SELECT 
+        COUNT(*) as total_semua,
+        SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
+        SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
+        SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+      AND s.sirkuler = 'pengirim'
+      AND s.is_draft = 1
+      AND n.status = 'pending'
+    `;
+    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryData = summaryResult[0] || {};
+
+    if (rows.length === 0) {
+      return {
+        success: true,
+        message: 'Tidak ada surat tertunda',
+        data: [],
+        pagination: { total, page, limit, totalPages },
+        summary: {
+          total_semua: parseInt(summaryData.total_semua || '0', 10),
+          total_per_jenis: {
+            ND: parseInt(summaryData.total_nd || '0', 10),
+            SDI: parseInt(summaryData.total_sdi || '0', 10),
+            SDE: parseInt(summaryData.total_sde || '0', 10),
+            KA: parseInt(summaryData.total_ka || '0', 10),
+          },
+        },
+      };
+    }
+
+    // Get penerima for each naskah
+    const naskahIds = rows.map((r: any) => r.id_naskah);
+    const penerimaQuery = `
+      SELECT id_naskah, position as position_id, position_text, nama_sirkuler as nama
+      FROM naskah_sirkulasi
+      WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+      AND sirkuler = 'penerima'
+      ORDER BY urutan ASC
+    `;
+    const penerimaRows = await this.dataSource.query(penerimaQuery, naskahIds);
+
+    // Group penerima by naskah
+    const penerimaMap = new Map<string, any[]>();
+    for (const p of penerimaRows) {
+      const list = penerimaMap.get(p.id_naskah) || [];
+      list.push({
+        position_id: p.position_id || '',
+        position_text: p.position_text || '',
+        nama: p.nama || null,
+      });
+      penerimaMap.set(p.id_naskah, list);
+    }
+
+    // Get lampiran count for each naskah
+    const lampiranQuery = `
+      SELECT id_naskah, COUNT(*) as total
+      FROM naskah_lampiran
+      WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+      GROUP BY id_naskah
+    `;
+    const lampiranRows = await this.dataSource.query(lampiranQuery, naskahIds);
+    const lampiranMap = new Map<string, number>();
+    for (const l of lampiranRows) {
+      lampiranMap.set(l.id_naskah, parseInt(l.total || '0', 10));
+    }
+
+    // Build response items
+    const items: TertundaItemDto[] = rows.map((row: any) => ({
+      id_naskah: row.id_naskah,
+      jenis: row.jenis,
+      jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+      nomor: row.nomor || null,
+      tanggal: row.tanggal,
+      perihal: row.perihal || null,
+      sifat: row.sifat || 'biasa',
+      status: 'pending' as const,
+      lampiran: lampiranMap.get(row.id_naskah) || 0,
+      pengirim: {
+        position_id: row.pengirim_position_id || '',
+        position_text: row.pengirim_position_text || '',
+        organization_text: row.pengirim_organization_text || '',
+        nama: row.pengirim_nama || null,
+      },
+      penerima: penerimaMap.get(row.id_naskah) || [],
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+
+    return {
+      success: true,
+      message: `Ditemukan ${total} surat tertunda`,
+      data: items,
+      pagination: { total, page, limit, totalPages },
+      summary: {
+        total_semua: parseInt(summaryData.total_semua || '0', 10),
+        total_per_jenis: {
+          ND: parseInt(summaryData.total_nd || '0', 10),
+          SDI: parseInt(summaryData.total_sdi || '0', 10),
+          SDE: parseInt(summaryData.total_sde || '0', 10),
+          KA: parseInt(summaryData.total_ka || '0', 10),
+        },
+      },
+    };
+  }
+
+  /**
+   * Get count surat tertunda untuk position tertentu
+   */
+  async countTertunda(positionId: string): Promise<{ total: number }> {
+    const result = await this.dataSource.query(
+      `SELECT COUNT(*) as total
+       FROM naskah_sirkulasi s
+       INNER JOIN naskah n ON s.id_naskah = n.id
+       WHERE s.position = ?
+       AND s.sirkuler = 'pengirim'
+       AND s.is_draft = 1
+       AND n.status = 'pending'`,
+      [positionId],
+    );
+    return { total: parseInt(result[0]?.total || '0', 10) };
   }
 
   // ============================================================
