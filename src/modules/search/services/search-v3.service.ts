@@ -300,6 +300,32 @@ export class SearchV3Service {
             appliedFilters.push(`to: ${to}`);
         }
 
+        // === PENGIRIM PERSNUM FILTER (list) ===
+        if (dto.pengirimPersnum && dto.pengirimPersnum.length > 0) {
+            const placeholders = dto.pengirimPersnum.map(() => '?').join(',');
+            whereClauses.push(`EXISTS (
+        SELECT 1 FROM naskah_sirkulasi pp
+        WHERE pp.id_naskah = n.id
+        AND pp.sirkuler = 'pengirim'
+        AND pp.id_sirkuler IN (${placeholders})
+      )`);
+            dto.pengirimPersnum.forEach((p) => params.push(String(p)));
+            appliedFilters.push(`pengirimPersnum: ${dto.pengirimPersnum.join(',')}`);
+        }
+
+        // === PENERIMA PERSNUM FILTER (list) ===
+        if (dto.penerimaPersnum && dto.penerimaPersnum.length > 0) {
+            const placeholders = dto.penerimaPersnum.map(() => '?').join(',');
+            whereClauses.push(`EXISTS (
+        SELECT 1 FROM naskah_sirkulasi pr
+        WHERE pr.id_naskah = n.id
+        AND pr.sirkuler IN ('penerima', 'tembusan')
+        AND pr.id_sirkuler IN (${placeholders})
+      )`);
+            dto.penerimaPersnum.forEach((p) => params.push(String(p)));
+            appliedFilters.push(`penerimaPersnum: ${dto.penerimaPersnum.join(',')}`);
+        }
+
         // === ORGANIZATION FILTERS ===
         if (areaFrom) {
             whereClauses.push(`EXISTS (
