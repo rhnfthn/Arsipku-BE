@@ -1621,6 +1621,10 @@ export class NomorService {
 
     await this.nomorRequestDetailRepository.save(details);
 
+    // Tandai request sebagai single file
+    request.isSingleFile = 1;
+    await this.nomorRequestRepository.save(request);
+
     // Generate signed URL sekali saja karena semua detail pakai file yang sama
     let fileUrl: string | null = null;
     if (fileKey) {
