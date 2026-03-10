@@ -27,7 +27,13 @@ export class PersonService {
   ) {}
 
   async findAll(search?: string, page = 1, limit = 10) {
-    const qb = this.cRepo.createQueryBuilder('person');
+    const qb = this.cRepo.createQueryBuilder('person')
+      .leftJoin(
+        'om_relation_sp',
+        'rsp',
+        'rsp.relation_persnum = person.persnum',
+      )
+      .addSelect('rsp.position_text', 'position_text');
 
     if (search) {
       qb.andWhere(
@@ -42,7 +48,12 @@ export class PersonService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    const data = await qb.getMany();
+    const raw = await qb.getRawAndEntities();
+
+    const data = raw.entities.map((entity, i) => ({
+      ...entity,
+      position_text: raw.raw[i]?.position_text ?? null,
+    }));
 
     return {
       data,
