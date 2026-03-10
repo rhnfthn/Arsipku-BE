@@ -47,12 +47,12 @@ export class NaskahEntity {
   tempat: string;
 
   @Column('enum', {
-    enum: ['draf', 'final', 'final_tte'],
+    enum: ['draf', 'pending', 'final', 'final_tte'],
     default: 'draf',
     comment:
-      'Status dokumen: draf=sedang dibuat, final=final tanpa tandatangan, final_tte=final dengan tandatangan elektronik',
+      'Status dokumen: draf=sedang dibuat, pending=menunggu TTD basah, final=final TTD basah, final_tte=final dengan TTD elektronik',
   })
-  status: 'draf' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'final' | 'final_tte';
 
   @Column('varchar', { length: 500, nullable: true })
   final_pdf: string;
@@ -71,4 +71,12 @@ export class NaskahEntity {
 
   @Column('text', { name: 'tanda_tangan', nullable: true, comment: 'Tanda tangan elektronik (base64 image atau path)' })
   tandaTangan: string | null;
+
+  @Column('enum', {
+    name: 'sign_option',
+    enum: ['digsig', 'qr_only', 'ttd_basah'],
+    nullable: true,
+    comment: 'Opsi TTD saat kirim: digsig=BSrE, qr_only=QR Code, ttd_basah=TTD manual',
+  })
+  signOption: 'digsig' | 'qr_only' | 'ttd_basah' | null;
 }

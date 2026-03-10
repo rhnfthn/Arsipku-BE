@@ -135,7 +135,7 @@ export class DraftDetailDataDto {
   sifat: string;
   perihal?: string;
   konten?: string;
-  status: 'draf' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'final' | 'final_tte';
   
   // Pengirim
   pengirim: {

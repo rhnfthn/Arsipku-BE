@@ -53,7 +53,7 @@ export class SendMessageItemDto {
   nomor: string;                       // Nomor surat
   tanggal: string;                     // Tanggal surat
   perihal: string;                     // Perihal surat
-  status: 'draf' | 'final' | 'final_tte';  // Status naskah
+  status: 'draf' | 'pending' | 'final' | 'final_tte';  // Status naskah
   sifat: string;                       // Sifat surat (rahasia, biasa, dll)
   klasifikasi: string;                 // Klasifikasi surat
   klasifikasi_text?: string | null;    // Klasifikasi text

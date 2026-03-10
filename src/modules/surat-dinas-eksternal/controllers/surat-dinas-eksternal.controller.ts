@@ -404,7 +404,7 @@ export class SuratDinasEksternalController {
    * - Set isDraft = false in sirkulasi
    *
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
    *
    * @param id - Naskah ID (UUID)

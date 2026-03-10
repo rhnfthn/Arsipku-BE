@@ -22,7 +22,7 @@ export enum SifatSurat {
 export enum SignOption {
   DIGSIG = 'digsig', // BSrE + QR Code
   QR_ONLY = 'qr_only', // QR Code only (tanpa BSrE)
-  NONE = 'none', // Tanpa tanda tangan digital
+  TTD_BASAH = 'ttd_basah', // TTD Basah (tanpa QR, space untuk tanda tangan manual)
 }
 
 /**
@@ -140,7 +140,7 @@ export class CreateKajianDto {
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau none' })
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -236,7 +236,7 @@ export class FinalizeDraftDto {
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau none' })
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
   sign_option?: SignOption;
 
   @IsOptional()
