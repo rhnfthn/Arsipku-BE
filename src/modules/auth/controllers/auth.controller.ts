@@ -335,6 +335,7 @@ export class AuthController {
         sub_area_text: string;
         company: string;
         company_text: string;
+        bod_tag: string | null;
       };
       delegated_from: {
         persnum: string;
@@ -393,6 +394,7 @@ export class AuthController {
         sub_area_text: string;
         company: string;
         company_text: string;
+        bod_tag: string | null;
       };
       delegated_from: {
         persnum: string;
