@@ -1,5 +1,4 @@
-import { IsString, IsNotEmpty, IsEnum, MaxLength } from 'class-validator';
-import { FaqKategori } from '../entities/faq.entity';
+import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
 
 export class CreateFaqDto {
   @IsString()
@@ -11,7 +10,8 @@ export class CreateFaqDto {
   @IsNotEmpty()
   deskripsi: string;
 
-  @IsEnum(FaqKategori)
+  @IsString()
   @IsNotEmpty()
-  kategori: FaqKategori;
+  @MaxLength(100)
+  kategori: string;
 }
