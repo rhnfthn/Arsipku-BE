@@ -148,10 +148,10 @@ export class FaqController {
   @Post(':id/puas')
   async incrementPuas(
     @Param('id') id: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser('persnum') userId: number,
   ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.incrementPuas(id, userId);
+      return await this.faqService.incrementPuas(id, String(userId));
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
@@ -172,10 +172,10 @@ export class FaqController {
   @Post(':id/tidak-puas')
   async incrementTidakPuas(
     @Param('id') id: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser('persnum') userId: number,
   ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.incrementTidakPuas(id, userId);
+      return await this.faqService.incrementTidakPuas(id, String(userId));
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
