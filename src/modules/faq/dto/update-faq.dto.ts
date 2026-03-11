@@ -1,5 +1,4 @@
-import { IsString, IsEnum, IsOptional, MaxLength } from 'class-validator';
-import { FaqKategori } from '../entities/faq.entity';
+import { IsString, IsOptional, MaxLength } from 'class-validator';
 
 export class UpdateFaqDto {
   @IsOptional()
@@ -12,6 +11,7 @@ export class UpdateFaqDto {
   deskripsi?: string;
 
   @IsOptional()
-  @IsEnum(FaqKategori)
-  kategori?: FaqKategori;
+  @IsString()
+  @MaxLength(100)
+  kategori?: string;
 }

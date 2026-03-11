@@ -28,11 +28,8 @@ export class FaqEntity {
   @Column({ type: 'text' })
   deskripsi: string;
 
-  @Column({
-    type: 'enum',
-    enum: FaqKategori,
-  })
-  kategori: FaqKategori;
+  @Column({ type: 'varchar', length: 100 })
+  kategori: string;
 
   @Column({ type: 'int', default: 0 })
   puas: number;
