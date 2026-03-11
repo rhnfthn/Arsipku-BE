@@ -35,6 +35,7 @@ interface PositionData {
   direktorat_name: string | null;
   company: number | null;
   company_name: string | null;
+  bod_tag: string | null;
 }
 
 export interface DelegasiStatus {
@@ -507,6 +508,7 @@ export class DelegasiService {
         sub_area_text: string;
         company: string;
         company_text: string;
+        bod_tag: string | null;
       };
       // Info orang yang memberi delegasi (pemilik jabatan asli)
       delegated_from: {
@@ -541,8 +543,24 @@ export class DelegasiService {
 
     console.log('[getAvailableRoles] Active delegations found:', activeDelegations.length);
 
+    // Lookup bod_tag from org_data position_json
+    let positionJsonData: PositionData[] = [];
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const orgData = await this.orgDataService.findOrg(today);
+      if (orgData && orgData.position_json) {
+        positionJsonData = orgData.position_json as PositionData[];
+      }
+    } catch (error) {
+      console.warn('[getAvailableRoles] Failed to fetch org_data for bod_tag:', error.message);
+    }
+
     const delegations = activeDelegations.map(d => {
       const positionStatusLabel = POSITION_STATUS_LABELS[d.position_status] || d.position_status;
+
+      // Find bod_tag for as_position from position_json
+      const posMatch = positionJsonData.find(p => String(p.position) === String(d.as_position));
+      const bodTag = posMatch?.bod_tag ?? null;
       
       return {
         id: d.id,
@@ -563,6 +581,7 @@ export class DelegasiService {
           sub_area_text: d.as_sub_area_text,
           company: d.company,
           company_text: d.company_text,
+          bod_tag: bodTag,
         },
         // Info orang yang memberi delegasi (pemilik jabatan asli)
         delegated_from: {
