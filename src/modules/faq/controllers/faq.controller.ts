@@ -14,6 +14,7 @@ import { FaqService } from '../services/faq.service';
 import { CreateFaqDto } from '../dto/create-faq.dto';
 import { UpdateFaqDto } from '../dto/update-faq.dto';
 import { FaqResponseDto } from '../dto/faq.dto';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 
 @Controller('faq')
 export class FaqController {
@@ -142,12 +143,15 @@ export class FaqController {
 
   /**
    * POST /faq/:id/puas
-   * Menambah counter "puas" pada FAQ
+   * Menambah counter "puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/puas')
-  async incrementPuas(@Param('id') id: string): Promise<FaqResponseDto> {
+  async incrementPuas(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.incrementPuas(id);
+      return await this.faqService.incrementPuas(id, userId);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
@@ -163,12 +167,15 @@ export class FaqController {
 
   /**
    * POST /faq/:id/tidak-puas
-   * Menambah counter "tidak puas" pada FAQ
+   * Menambah counter "tidak puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/tidak-puas')
-  async incrementTidakPuas(@Param('id') id: string): Promise<FaqResponseDto> {
+  async incrementTidakPuas(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.incrementTidakPuas(id);
+      return await this.faqService.incrementTidakPuas(id, userId);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
