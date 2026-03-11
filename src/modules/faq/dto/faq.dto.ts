@@ -1,9 +1,8 @@
-import { FaqKategori } from '../entities/faq.entity';
 export interface FaqData {
   id: string;
   pertanyaan: string;
   deskripsi: string;
-  kategori: FaqKategori;
+  kategori: string;
   puas: number;
   tidak_puas: number;
   created_at: Date;
