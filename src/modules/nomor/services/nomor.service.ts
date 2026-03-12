@@ -1877,11 +1877,37 @@ export class NomorService {
       throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
     }
 
-    // Update detail dengan file baru dan ubah status ke terpakai_final
-    detail.fileName = file.originalname;
-    detail.fileText = fileKey;
-    detail.status = 'terpakai_final';
-    await this.nomorRequestDetailRepository.save(detail);
+    // Cek apakah request ini single file mode
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: detail.idRequest! },
+    });
+
+    if (request?.isSingleFile === 1) {
+      // Single file mode: update semua detail yang berstatus 'terpakai' dalam request ini
+      const allTerpakaiDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: detail.idRequest!, status: 'terpakai' },
+      });
+
+      await Promise.all(
+        allTerpakaiDetails.map((d) => {
+          d.fileName = file.originalname;
+          d.fileText = fileKey;
+          d.status = 'terpakai_final';
+          return this.nomorRequestDetailRepository.save(d);
+        }),
+      );
+
+      // Reload detail setelah update
+      detail.fileName = file.originalname;
+      detail.fileText = fileKey;
+      detail.status = 'terpakai_final';
+    } else {
+      // Multi file mode: hanya update detail yang dipilih
+      detail.fileName = file.originalname;
+      detail.fileText = fileKey;
+      detail.status = 'terpakai_final';
+      await this.nomorRequestDetailRepository.save(detail);
+    }
 
     return {
       success: true,
