@@ -2624,8 +2624,32 @@ export class NomorService {
     const paginatedUsulan = filteredUsulan.slice(skip, skip + limit);
 
     // Flatten ke format per-nomor untuk response
-    const flatData = paginatedUsulan.flatMap((item) => 
-      item.details.map((detail) => ({
+    const flatData = paginatedUsulan.flatMap((item) => {
+      if (item.request.isSingleFile === 1 && item.details.length > 0) {
+        // Single file mode: tampilkan 1 row dengan nomor range
+        const firstDetail = item.details[0];
+        const nomorList = item.details.map((d) => d.nomor).filter((n): n is string => !!n);
+        let nomorRange: string | null = null;
+        if (nomorList.length > 1) {
+          nomorRange = `${nomorList[0]} - ${nomorList[nomorList.length - 1]}`;
+        } else if (nomorList.length === 1) {
+          nomorRange = nomorList[0];
+        }
+        return [{
+          id: firstDetail.id,
+          id_request: item.request.id,
+          jenis: item.request.jenis,
+          jabatan: item.jabatan,
+          klasifikasi: item.request.klasifikasi,
+          perihal: item.request.perihal,
+          tanggal: item.request.tanggal,
+          nomor: nomorRange,
+          status: firstDetail.status,
+          nama_pengirim: item.namaPengirim,
+          waktu: firstDetail.createdAt,
+        }];
+      }
+      return item.details.map((detail) => ({
         id: detail.id,
         id_request: item.request.id,
         jenis: item.request.jenis,
@@ -2637,8 +2661,8 @@ export class NomorService {
         status: detail.status,
         nama_pengirim: item.namaPengirim,
         waktu: detail.createdAt,
-      }))
-    );
+      }));
+    });
 
     return {
       success: true,
