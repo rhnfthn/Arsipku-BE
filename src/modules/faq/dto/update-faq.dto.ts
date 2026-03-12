@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsUUID, MaxLength } from 'class-validator';
 
 export class UpdateFaqDto {
   @IsOptional()
@@ -11,7 +11,6 @@ export class UpdateFaqDto {
   deskripsi?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  kategori?: string;
+  @IsUUID()
+  kategoriId?: string;
 }
