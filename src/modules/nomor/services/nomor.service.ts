@@ -2811,6 +2811,8 @@ export class NomorService {
         const positionNumber = parseInt(request.position!, 10);
         const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
 
+        const templateNomor = await this.generateNomorTemplate(request);
+
         return {
           id: request.id,
           company: request.company,
@@ -2826,16 +2828,18 @@ export class NomorService {
           jumlah: request.jumlah,
           penandatangan: request.penandatangan,
           is_single_file: request.isSingleFile,
+          template_nomor: templateNomor,
           created_at: request.createdAt,
           details: await Promise.all(
-                details.map(async (d) => ({
-                  id: d.id,
-                  status: d.status,
-                  file_name: d.fileName,
-                  file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
-                  created_at: d.createdAt,
-                })),
-              ),
+            details.map(async (d) => ({
+              id: d.id,
+              status: d.status,
+              file_name: d.fileName,
+              file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+              template_nomor: templateNomor,
+              created_at: d.createdAt,
+            })),
+          ),
         };
       }),
     );
