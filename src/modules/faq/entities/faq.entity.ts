@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { FaqKategoriEntity } from './faq-kategori.entity';
 
 export enum FaqKategori {
   ARSIPKU = 'Arsipku',
@@ -28,8 +31,12 @@ export class FaqEntity {
   @Column({ type: 'text' })
   deskripsi: string;
 
-  @Column({ type: 'varchar', length: 100 })
-  kategori: string;
+  @Column({ type: 'char', length: 36, name: 'kategori_id' })
+  kategoriId: string;
+
+  @ManyToOne(() => FaqKategoriEntity, (kategori) => kategori.faqs)
+  @JoinColumn({ name: 'kategori_id' })
+  kategoriEntity: FaqKategoriEntity;
 
   @Column({ type: 'int', default: 0 })
   puas: number;

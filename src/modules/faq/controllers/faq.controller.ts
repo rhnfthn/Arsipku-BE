@@ -21,27 +21,18 @@ export class FaqController {
   constructor(private readonly faqService: FaqService) {}
 
   /**
-   * GET /faq/kategori
-   * Mendapatkan daftar kategori FAQ yang tersedia
-   */
-  @Get('kategori')
-  getKategori() {
-    return this.faqService.getKategoriList();
-  }
-
-  /**
    * GET /faq
    * Mendapatkan semua FAQ, opsional filter berdasarkan kategori dan search
-   * Query: ?kategori=Arsipku
+   * Query: ?kategoriId=<uuid>
    * Query: ?search=kata+kunci
    */
   @Get()
   async findAll(
-    @Query('kategori') kategori?: string,
+    @Query('kategoriId') kategoriId?: string,
     @Query('search') search?: string,
   ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.findAll(kategori, search);
+      return await this.faqService.findAll(kategoriId, search);
     } catch (error) {
       throw new HttpException(
         {
