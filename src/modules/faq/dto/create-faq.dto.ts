@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateFaqDto {
   @IsString()
@@ -10,8 +10,7 @@ export class CreateFaqDto {
   @IsNotEmpty()
   deskripsi: string;
 
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
-  @MaxLength(100)
-  kategori: string;
+  kategoriId: string;
 }

@@ -2,7 +2,8 @@ export interface FaqData {
   id: string;
   pertanyaan: string;
   deskripsi: string;
-  kategori: string;
+  kategoriId: string;
+  kategoriNama: string;
   puas: number;
   tidak_puas: number;
   created_at: Date;
