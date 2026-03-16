@@ -20,6 +20,7 @@ import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pd
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -88,6 +89,7 @@ export class KonsepService {
     private generatePdfSudinService: GeneratePdfSudinService,
     private qrCodeService: QRCodeService,
     private subAreaAlamatService: SubAreaAlamatService,
+    private grupPenerimaService: GrupPenerimaService,
     private dataSource: DataSource,
   ) {}
 
@@ -253,17 +255,27 @@ export class KonsepService {
         await queryRunner.manager.save(sirkulasiNaskahPengirim);
       }
 
-      // Penerima naskah final (dari penerima_position_ids, atau fallback ke data dari DTO)
-      if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
-        for (const posId of dto.penerima_position_ids) {
+      // Penerima naskah final (expand individual + grup, only for ND/SDI)
+      const tanggalStr = dto.tgl || new Date().toISOString().split('T')[0];
+      const expandedPenerimaIds = await this.expandGrupPenerima(
+        dto.penerima_position_ids,
+        (dto.jenis === 'ND' || dto.jenis === 'SDI') ? dto.penerima_grup : undefined,
+        tanggalStr,
+        dto.from_position_id,
+      );
+      const penerimaGrupMap = (dto.jenis === 'ND' || dto.jenis === 'SDI') && dto.penerima_grup?.length
+        ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+        : new Map<number, string>();
+
+      if (expandedPenerimaIds.length > 0) {
+        for (const posId of expandedPenerimaIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true);
+          const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true, penerimaGrupMap.get(Number(pos.position)));
           await queryRunner.manager.save(sirkulasi);
         }
       } else if (dto.kepada_yth) {
-        // Fallback: Jika penerima_position_ids tidak ada tapi kepada_yth ada (text input)
-        // Buat sirkulasi penerima manual dengan text saja
+        // Fallback: Jika tidak ada penerima_position_ids/grup tapi kepada_yth ada (text input)
         const sirkulasiPenerima = new NaskahSirkulasi();
         sirkulasiPenerima.id = uuidv4();
         sirkulasiPenerima.idNaskah = naskahAsliId;
@@ -275,16 +287,26 @@ export class KonsepService {
         await queryRunner.manager.save(sirkulasiPenerima);
       }
 
-      // Tembusan naskah final (dari tembusan_position_ids)
-      if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
-        for (const posId of dto.tembusan_position_ids) {
+      // Tembusan naskah final (expand individual + grup, only for ND/SDI)
+      const expandedTembusanIds = await this.expandGrupPenerima(
+        dto.tembusan_position_ids,
+        (dto.jenis === 'ND' || dto.jenis === 'SDI') ? dto.tembusan_grup : undefined,
+        tanggalStr,
+        dto.from_position_id,
+      );
+      const tembusanGrupMap = (dto.jenis === 'ND' || dto.jenis === 'SDI') && dto.tembusan_grup?.length
+        ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+        : new Map<number, string>();
+
+      if (expandedTembusanIds.length > 0) {
+        for (const posId of expandedTembusanIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true);
+          const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true, tembusanGrupMap.get(Number(pos.position)));
           await queryRunner.manager.save(sirkulasi);
         }
       } else if (dto.tembusan) {
-        // Fallback: Jika tembusan_position_ids tidak ada tapi tembusan text ada
+        // Fallback: Jika tidak ada tembusan_position_ids/grup tapi tembusan text ada
         const sirkulasiTembusan = new NaskahSirkulasi();
         sirkulasiTembusan.id = uuidv4();
         sirkulasiTembusan.idNaskah = naskahAsliId;
@@ -419,6 +441,7 @@ export class KonsepService {
     type: 'pengirim' | 'penerima' | 'tembusan',
     posData: PositionData,
     isKonsep: boolean,
+    grupPenerimaId?: string,
   ): NaskahSirkulasi {
     const sirkulasi = new NaskahSirkulasi();
     sirkulasi.id = uuidv4();
@@ -437,6 +460,7 @@ export class KonsepService {
     sirkulasi.idSirkuler = String(posData.persnum_person || posData.position);
     sirkulasi.namaSirkuler = posData.persnum_person_text || posData.position_text;
     sirkulasi.isKonsep = isKonsep ? 1 : 0;
+    sirkulasi.idGrupPenerima = grupPenerimaId || null;
     return sirkulasi;
   }
 
@@ -458,7 +482,7 @@ export class KonsepService {
   private validateHierarchy(data: PositionData[], fromPosId: number, toPosId: number): boolean {
     const fromPos = this.findByPosition(data, fromPosId);
     if (!fromPos || !fromPos.direct_manager) return false;
-    
+
     let currentManager: number | null = fromPos.direct_manager;
     while (currentManager) {
       if (currentManager === toPosId) return true;
@@ -467,6 +491,40 @@ export class KonsepService {
       currentManager = managerPos.direct_manager;
     }
     return false;
+  }
+
+  /**
+   * Expand individual penerima + grup penerima into a flat, deduplicated position ID list.
+   * Excludes the sender's own position to avoid self-send.
+   */
+  private async expandGrupPenerima(
+    individualPenerima: number[] | undefined,
+    grupPenerimaIds: string[] | undefined,
+    tgl?: string,
+    excludePositionId?: number,
+  ): Promise<number[]> {
+    const allPositionIds = new Set<number>();
+
+    if (individualPenerima && individualPenerima.length > 0) {
+      individualPenerima.forEach((id) => allPositionIds.add(Number(id)));
+    }
+
+    if (grupPenerimaIds && grupPenerimaIds.length > 0) {
+      for (const grupId of grupPenerimaIds) {
+        try {
+          const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId, tgl);
+          grupPositions.forEach((pos) => allPositionIds.add(Number(pos.position)));
+        } catch (error) {
+          console.warn(`[Konsep:expandGrupPenerima] Failed to expand grup ${grupId}:`, error.message);
+        }
+      }
+    }
+
+    if (excludePositionId !== undefined) {
+      allPositionIds.delete(Number(excludePositionId));
+    }
+
+    return Array.from(allPositionIds);
   }
 
   /**
@@ -872,6 +930,8 @@ export class KonsepService {
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
       alamat: body.alamat,
@@ -928,6 +988,8 @@ export class KonsepService {
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
       alamat: body.alamat,
@@ -970,6 +1032,8 @@ export class KonsepService {
       from_position_id: Number(body.from_position_id),
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       perihal: body.perihal,
       konten: body.konten,
       klasifikasi: body.klasifikasi,
@@ -1196,31 +1260,56 @@ export class KonsepService {
           await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, naskahAsli.jenis as 'ND' | 'SDI' | 'SDE');
         }
 
-        // Handle penerima update if provided
-        if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
-          await queryRunner.manager.delete(NaskahSirkulasi, {
-            idNaskah: naskahAsliId,
-            sirkuler: 'penerima',
-          });
-          for (const posId of dto.penerima_position_ids) {
-            const pos = this.findByPosition(barisData, posId);
-            if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true);
-            await queryRunner.manager.save(sirkulasi);
+        // Handle penerima update if provided (expand individual + grup, only for ND/SDI)
+        const jenisNaskah = naskahAsli.jenis as string;
+        if (dto.penerima_position_ids || dto.penerima_grup) {
+          const expandedPenerimaIds = await this.expandGrupPenerima(
+            dto.penerima_position_ids,
+            (jenisNaskah === 'ND' || jenisNaskah === 'SDI') ? dto.penerima_grup : undefined,
+            undefined,
+            dto.from_position_id,
+          );
+          const penerimaGrupMap = (jenisNaskah === 'ND' || jenisNaskah === 'SDI') && dto.penerima_grup?.length
+            ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+            : new Map<number, string>();
+
+          if (expandedPenerimaIds.length > 0) {
+            await queryRunner.manager.delete(NaskahSirkulasi, {
+              idNaskah: naskahAsliId,
+              sirkuler: 'penerima',
+            });
+            for (const posId of expandedPenerimaIds) {
+              const pos = this.findByPosition(barisData, posId);
+              if (!pos) continue;
+              const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true, penerimaGrupMap.get(Number(pos.position)));
+              await queryRunner.manager.save(sirkulasi);
+            }
           }
         }
 
-        // Handle tembusan update if provided
-        if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
-          await queryRunner.manager.delete(NaskahSirkulasi, {
-            idNaskah: naskahAsliId,
-            sirkuler: 'tembusan',
-          });
-          for (const posId of dto.tembusan_position_ids) {
-            const pos = this.findByPosition(barisData, posId);
-            if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true);
-            await queryRunner.manager.save(sirkulasi);
+        // Handle tembusan update if provided (expand individual + grup, only for ND/SDI)
+        if (dto.tembusan_position_ids || dto.tembusan_grup) {
+          const expandedTembusanIds = await this.expandGrupPenerima(
+            dto.tembusan_position_ids,
+            (jenisNaskah === 'ND' || jenisNaskah === 'SDI') ? dto.tembusan_grup : undefined,
+            undefined,
+            dto.from_position_id,
+          );
+          const tembusanGrupMap = (jenisNaskah === 'ND' || jenisNaskah === 'SDI') && dto.tembusan_grup?.length
+            ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+            : new Map<number, string>();
+
+          if (expandedTembusanIds.length > 0) {
+            await queryRunner.manager.delete(NaskahSirkulasi, {
+              idNaskah: naskahAsliId,
+              sirkuler: 'tembusan',
+            });
+            for (const posId of expandedTembusanIds) {
+              const pos = this.findByPosition(barisData, posId);
+              if (!pos) continue;
+              const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true, tembusanGrupMap.get(Number(pos.position)));
+              await queryRunner.manager.save(sirkulasi);
+            }
           }
         }
       }
@@ -1465,27 +1554,52 @@ export class KonsepService {
         { isKonsep: 0 },
       );
 
-      // 10. Handle new penerima if provided (update sirkulasi naskah asli)
+      // 10. Handle new penerima if provided (expand individual + grup, only for ND/SDI)
       const penerimaList: Array<{ position_id: number; position_text: string; nama: string | null }> = [];
-      
-      if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
-        // Remove old penerima sirkulasi
-        await queryRunner.manager.delete(NaskahSirkulasi, {
-          idNaskah: naskahAsliId,
-          sirkuler: 'penerima',
-        });
+      const jenisNaskahFinalize = naskahAsli.jenis as string;
 
-        // Add new penerima sirkulasi
-        for (const posId of dto.penerima_position_ids) {
-          const pos = this.findByPosition(barisData, posId);
-          if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, false);
-          await queryRunner.manager.save(sirkulasi);
-          penerimaList.push({
-            position_id: pos.position,
-            position_text: pos.position_text,
-            nama: pos.persnum_person_text,
+      if (dto.penerima_position_ids || dto.penerima_grup) {
+        const expandedPenerimaIds = await this.expandGrupPenerima(
+          dto.penerima_position_ids,
+          (jenisNaskahFinalize === 'ND' || jenisNaskahFinalize === 'SDI') ? dto.penerima_grup : undefined,
+          dto.tanggal,
+          dto.from_position_id,
+        );
+        const penerimaGrupMap = (jenisNaskahFinalize === 'ND' || jenisNaskahFinalize === 'SDI') && dto.penerima_grup?.length
+          ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+          : new Map<number, string>();
+
+        if (expandedPenerimaIds.length > 0) {
+          // Remove old penerima sirkulasi
+          await queryRunner.manager.delete(NaskahSirkulasi, {
+            idNaskah: naskahAsliId,
+            sirkuler: 'penerima',
           });
+
+          // Add new penerima sirkulasi
+          for (const posId of expandedPenerimaIds) {
+            const pos = this.findByPosition(barisData, posId);
+            if (!pos) continue;
+            const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, false, penerimaGrupMap.get(Number(pos.position)));
+            await queryRunner.manager.save(sirkulasi);
+            penerimaList.push({
+              position_id: pos.position,
+              position_text: pos.position_text,
+              nama: pos.persnum_person_text,
+            });
+          }
+        } else {
+          // Fallback to existing
+          const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+            where: { idNaskah: naskahAsliId, sirkuler: 'penerima' },
+          });
+          for (const p of existingPenerima) {
+            penerimaList.push({
+              position_id: Number(p.position),
+              position_text: p.positionText || '',
+              nama: p.namaSirkuler,
+            });
+          }
         }
       } else {
         // Get existing penerima
@@ -1501,27 +1615,39 @@ export class KonsepService {
         }
       }
 
-      // 9. Handle tembusan if provided
+      // 9. Handle tembusan if provided (expand individual + grup, only for ND/SDI)
       const tembusanList: Array<{ position_id: number; position_text: string; nama: string | null }> = [];
-      
-      if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
-        // Remove old tembusan sirkulasi
-        await queryRunner.manager.delete(NaskahSirkulasi, {
-          idNaskah: naskahAsliId,
-          sirkuler: 'tembusan',
-        });
 
-        // Add new tembusan sirkulasi
-        for (const posId of dto.tembusan_position_ids) {
-          const pos = this.findByPosition(barisData, posId);
-          if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, false);
-          await queryRunner.manager.save(sirkulasi);
-          tembusanList.push({
-            position_id: pos.position,
-            position_text: pos.position_text,
-            nama: pos.persnum_person_text,
+      if (dto.tembusan_position_ids || dto.tembusan_grup) {
+        const expandedTembusanIds = await this.expandGrupPenerima(
+          dto.tembusan_position_ids,
+          (jenisNaskahFinalize === 'ND' || jenisNaskahFinalize === 'SDI') ? dto.tembusan_grup : undefined,
+          dto.tanggal,
+          dto.from_position_id,
+        );
+        const tembusanGrupMap = (jenisNaskahFinalize === 'ND' || jenisNaskahFinalize === 'SDI') && dto.tembusan_grup?.length
+          ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+          : new Map<number, string>();
+
+        if (expandedTembusanIds.length > 0) {
+          // Remove old tembusan sirkulasi
+          await queryRunner.manager.delete(NaskahSirkulasi, {
+            idNaskah: naskahAsliId,
+            sirkuler: 'tembusan',
           });
+
+          // Add new tembusan sirkulasi
+          for (const posId of expandedTembusanIds) {
+            const pos = this.findByPosition(barisData, posId);
+            if (!pos) continue;
+            const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, false, tembusanGrupMap.get(Number(pos.position)));
+            await queryRunner.manager.save(sirkulasi);
+            tembusanList.push({
+              position_id: pos.position,
+              position_text: pos.position_text,
+              nama: pos.persnum_person_text,
+            });
+          }
         }
       }
 
@@ -2329,6 +2455,12 @@ export class KonsepService {
         }
       }
 
+      // Pre-compute grup info (same for all riwayat nodes)
+      const penerimaGrupIds = [...new Set(penerimaAsliList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!))];
+      const tembusanGrupIds = [...new Set(tembusanAsliList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!))];
+      const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+      const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
       for (const riwayat of riwayatList) {
         // Get the K-naskah this riwayat belongs to (for perihal/sifat/klasifikasi)
         const riwayatNaskahK = await this.naskahRepository.findOne({
@@ -2392,6 +2524,8 @@ export class KonsepService {
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
           })),
+          penerima_grup: penerimaGrupInfo,
+          tembusan_grup: tembusanGrupInfo,
         } : null;
 
         flow.push({
@@ -2432,6 +2566,8 @@ export class KonsepService {
             naskah_pengirim: naskahAsliSirkulasi?.pengirim || null,
             naskah_penerima: naskahAsliSirkulasi?.penerima || [],
             naskah_tembusan: naskahAsliSirkulasi?.tembusan || [],
+            penerima_grup: naskahAsliSirkulasi?.penerima_grup || [],
+            tembusan_grup: naskahAsliSirkulasi?.tembusan_grup || [],
           },
 
           level: konsepLevel, // Selalu di atas disposisi chain
@@ -2598,6 +2734,14 @@ export class KonsepService {
             position_text: t.positionText,
             nama: t.namaSirkuler,
           })),
+
+          // Grup penerima & tembusan
+          penerima_grup: await this.grupPenerimaService.getGrupInfoForResponse(
+            [...new Set(penerimaAsliList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!))],
+          ),
+          tembusan_grup: await this.grupPenerimaService.getGrupInfoForResponse(
+            [...new Set(tembusanAsliList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!))],
+          ),
           
           // Lampiran
           lampiran: await Promise.all(lampiranList.map(async (l) => ({
@@ -3697,6 +3841,12 @@ export class KonsepService {
         penerima_text: penerimaText,
         tembusan: tembusan.length > 0 ? tembusan : undefined,
         tembusan_text: tembusanText,
+        penerima_grup: await this.grupPenerimaService.getGrupInfoForResponse(
+          [...new Set(penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!))],
+        ),
+        tembusan_grup: await this.grupPenerimaService.getGrupInfoForResponse(
+          [...new Set(tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!))],
+        ),
         lampiran: lampiran.length > 0 ? lampiran : undefined,
         disposisi_referensi: disposisiReferensi,
         catatan: (naskah as any).catatan_konsep || null,
