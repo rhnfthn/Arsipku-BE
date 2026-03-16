@@ -285,7 +285,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
-      AND s.is_konsep = 0
+      AND (s.is_konsep = 0 OR n.jenis = 'K')
       AND n.status IN ('final', 'final_tte')
     `;
     const params: any[] = [positionId];
@@ -339,13 +339,16 @@ export class NaskahSirkulasiService {
     }
 
     // Date Range Filter
+    // Gunakan created_at pengirim agar konsisten dengan data tanggal yang ditampilkan di response inbox.
+    const inboxDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1), s.created_at)`;
+    const inboxLocalDateExpr = `DATE(DATE_ADD(${inboxDisplayCreatedAtExpr}, INTERVAL 7 HOUR))`;
     const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
     if (dateRange.startDate) {
-      whereClause += ` AND DATE(s.created_at) >= ?`;
+      whereClause += ` AND ${inboxLocalDateExpr} >= ?`;
       params.push(dateRange.startDate);
     }
     if (dateRange.endDate) {
-      whereClause += ` AND DATE(s.created_at) <= ?`;
+      whereClause += ` AND ${inboxLocalDateExpr} <= ?`;
       params.push(dateRange.endDate);
     }
 
@@ -528,7 +531,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
-      AND s.is_konsep = 0
+      AND (s.is_konsep = 0 OR n.jenis = 'K')
       AND s.flag_arsip = 0
       AND n.status IN ('final', 'final_tte')
     `;
@@ -1752,7 +1755,7 @@ export class NaskahSirkulasiService {
       WHERE s.position = ?
       AND s.sirkuler IN ('penerima', 'tembusan')
       AND s.is_draft = 0
-      AND s.is_konsep = 0
+      AND (s.is_konsep = 0 OR n.jenis = 'K')
       AND s.send_read_time IS NULL
       AND n.status IN ('final', 'final_tte')
     `;
