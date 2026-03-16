@@ -43,10 +43,14 @@ import {
   DeleteDraftKonsepResponseDto,
   BulkDeleteDraftKonsepResponseDto,
 } from '../dto/konsep';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 
 @Controller('KONSEP')
 export class KonsepController {
-  constructor(private readonly konsepService: KonsepService) {}
+  constructor(
+    private readonly konsepService: KonsepService,
+    private readonly grupPenerimaService: GrupPenerimaService,
+  ) {}
 
   // ============================================================
   // GET RECIPIENTS (ATASAN)
@@ -593,11 +597,29 @@ export class KonsepController {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
+      // Prepend grup penerima display names (e.g., "Para Direktur") before individual names
+      if (body.penerima_grup) {
+        const grupIds = this.parseArray(body.penerima_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          penerimaArray = [...grupDisplayNames, ...penerimaArray];
+        }
+      }
+
       // Parse and convert tembusan to names if needed
       // Also check tembusan_position_ids (from konsep form)
       let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
+      }
+
+      // Prepend grup tembusan display names before individual names
+      if (body.tembusan_grup) {
+        const grupIds = this.parseArray(body.tembusan_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          tembusanArray = [...grupDisplayNames, ...tembusanArray];
+        }
       }
 
       // Parse and convert pengirim (dari) to name if needed
@@ -614,7 +636,7 @@ export class KonsepController {
       // Build body with converted arrays
       // Set kepada_yth dari penerimaArray jika belum ada
       const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
-      
+
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
@@ -703,11 +725,29 @@ export class KonsepController {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
+      // Prepend grup penerima display names (e.g., "Para Direktur") before individual names
+      if (body.penerima_grup) {
+        const grupIds = this.parseArray(body.penerima_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          penerimaArray = [...grupDisplayNames, ...penerimaArray];
+        }
+      }
+
       // Parse and convert tembusan to names if needed
       // Also check tembusan_position_ids (from konsep form)
       let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
+      }
+
+      // Prepend grup tembusan display names before individual names
+      if (body.tembusan_grup) {
+        const grupIds = this.parseArray(body.tembusan_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          tembusanArray = [...grupDisplayNames, ...tembusanArray];
+        }
       }
 
       // Parse and convert pengirim (dari) to name if needed
@@ -730,7 +770,7 @@ export class KonsepController {
       // Build body with converted arrays
       // Set kepada_yth dari penerimaArray jika belum ada
       const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
-      
+
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
