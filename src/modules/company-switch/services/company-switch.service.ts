@@ -58,7 +58,13 @@ export class CompanySwitchService {
   ): Promise<{
     success: boolean;
     companies: AvailableCompanyDto[];
-    currentCompany: { company: string; companyText: string; position: string; positionText: string };
+    currentCompany: {
+      company: string;
+      companyText: string;
+      position: string;
+      positionText: string;
+      bodTag: string;
+    };
     total: number;
   }> {
     // Get today's date in local timezone (Asia/Jakarta = UTC+7)
@@ -91,6 +97,7 @@ export class CompanySwitchService {
           companyText: '',
           position: '',
           positionText: '',
+          bodTag: '',
         },
         total: 0,
       };
@@ -139,6 +146,7 @@ export class CompanySwitchService {
         areaText: positionInfo?.area_text || '',
         subArea: positionInfo?.sub_area?.toString() || '',
         subAreaText: positionInfo?.sub_area_text || '',
+        bodTag: positionInfo?.bod_tag || '',
         startDate: sp.startDate || '',
         endDate: sp.endDate || '',
         isCurrentCompany: String(sp.company) === String(currentCompany),
@@ -157,6 +165,7 @@ export class CompanySwitchService {
         companyText: currentCompanyInfo?.companyText || '',
         position: String(currentCompanyInfo?.position || ''),
         positionText: currentCompanyInfo?.positionText || '',
+        bodTag: currentCompanyInfo?.bodTag || '',
       },
       total: availableCompanies.length,
     };
