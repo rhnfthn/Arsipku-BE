@@ -31,6 +31,8 @@ import {
   RejectBulkNomorRequestDetailResponseDto,
   DeleteNomorRequestResponseDto,
   RejectAllNomorRequestResponseDto,
+  ApproveBulkPenandatanganDto,
+  ApproveBulkPenandatanganResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -2955,6 +2957,91 @@ export class NomorService {
         request_id: requestId,
         rejected_count: draftDetails.length,
         details: draftDetails.map((d) => ({ id: d.id, status: d.status })),
+      },
+    };
+  }
+
+  /**
+   * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
+   */
+  async approveBulkPenandatangan(
+    dto: ApproveBulkPenandatanganDto,
+    positionId: number,
+  ): Promise<ApproveBulkPenandatanganResponseDto> {
+    const results: {
+      detail_id: string;
+      request_id: string;
+      status: string;
+      success: boolean;
+      error?: string;
+    }[] = [];
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const detailId of dto.detail_ids) {
+      try {
+        const detail = await this.nomorRequestDetailRepository.findOne({
+          where: { id: detailId },
+        });
+
+        if (!detail) {
+          throw new NotFoundException(
+            `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+          );
+        }
+
+        if (detail.status !== 'draft') {
+          throw new BadRequestException(
+            `Detail nomor sudah diproses dengan status: ${detail.status}`,
+          );
+        }
+
+        const request = await this.nomorRequestRepository.findOne({
+          where: { id: detail.idRequest! },
+        });
+
+        if (!request) {
+          throw new NotFoundException(
+            `Usulan nomor dengan ID ${detail.idRequest} tidak ditemukan`,
+          );
+        }
+
+        if (Number(request.idPositionPenandatangan) !== positionId) {
+          throw new BadRequestException(
+            'Anda tidak berwenang menyetujui usulan ini. Hanya penandatangan yang ditunjuk yang dapat menyetujui.',
+          );
+        }
+
+        detail.status = 'booking';
+        await this.nomorRequestDetailRepository.save(detail);
+
+        results.push({
+          detail_id: detailId,
+          request_id: request.id,
+          status: detail.status,
+          success: true,
+        });
+        successCount++;
+      } catch (error) {
+        results.push({
+          detail_id: detailId,
+          request_id: '',
+          status: 'draft',
+          success: false,
+          error: error.message,
+        });
+        failedCount++;
+      }
+    }
+
+    return {
+      success: true,
+      message: `Selesai memproses ${dto.detail_ids.length} detail: ${successCount} berhasil, ${failedCount} gagal`,
+      data: {
+        success_count: successCount,
+        failed_count: failedCount,
+        results,
       },
     };
   }
