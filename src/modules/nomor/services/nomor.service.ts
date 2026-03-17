@@ -669,6 +669,7 @@ export class NomorService {
       disetujui: 0,
       ditolak: 0,
       belum_diajukan: 0,
+      draft: 0,
     };
 
     let processedCount = 0;
@@ -689,6 +690,7 @@ export class NomorService {
 
       // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
       if (statusKey === 'menunggu_persetujuan') {
+        statusCounts.draft++;
         continue;
       }
 
@@ -723,6 +725,7 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
+        draft: statusCounts.draft,
         menunggu_persetujuan: menungguPersetujuanCount,
         total: processedCount,
       },
@@ -753,6 +756,7 @@ export class NomorService {
       disetujui: 0,
       ditolak: 0,
       belum_diajukan: 0,
+      draft: 0,
     };
 
     let processedCount = 0;
@@ -768,6 +772,7 @@ export class NomorService {
 
       // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
       if (statusKey === 'menunggu_persetujuan') {
+        statusCounts.draft++;
         continue;
       }
 
@@ -803,6 +808,7 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
+        draft: statusCounts.draft,
         menunggu_persetujuan: menungguPersetujuanCount,
         total: processedCount,
       },
