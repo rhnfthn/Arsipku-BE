@@ -96,6 +96,7 @@ export class CompanySwitchController {
         positionText: { type: 'string' },
         organization: { type: 'string' },
         organizationText: { type: 'string' },
+        bodTag: { type: 'string' },
       },
     },
   })
@@ -111,6 +112,7 @@ export class CompanySwitchController {
       areaText: user.areaText,
       subArea: user.subArea,
       subAreaText: user.subAreaText,
+      bodTag: user.bodTag,
     };
   }
 

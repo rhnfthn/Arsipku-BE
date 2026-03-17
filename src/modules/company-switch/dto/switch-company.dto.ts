@@ -76,6 +76,9 @@ export class AvailableCompanyDto {
   @ApiProperty({ example: 'Kantor Pusat' })
   subAreaText: string;
 
+  @ApiProperty({ example: 'BOD-2' })
+  bodTag: string;
+
   @ApiProperty({ example: '2025-01-01' })
   startDate: string;
 
@@ -105,6 +108,7 @@ export class AvailableCompaniesResponseDto {
       companyText: 'AirNav Indonesia',
       position: '50001234',
       positionText: 'Direktur Operasional',
+      bodTag: 'BOD-1',
     },
   })
   currentCompany: {
@@ -112,6 +116,7 @@ export class AvailableCompaniesResponseDto {
     companyText: string;
     position: string;
     positionText: string;
+    bodTag: string;
   };
 
   @ApiProperty({ example: 2 })
