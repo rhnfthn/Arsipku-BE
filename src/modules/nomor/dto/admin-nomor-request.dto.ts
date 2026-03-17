@@ -189,3 +189,33 @@ export class RejectAllNomorRequestResponseDto {
     }[];
   };
 }
+
+/**
+ * DTO untuk approve bulk detail usulan oleh penandatangan
+ */
+export class ApproveBulkPenandatanganDto {
+  @IsNotEmpty({ message: 'Detail IDs harus diisi' })
+  @IsArray({ message: 'Detail IDs harus berupa array' })
+  @ArrayMinSize(1, { message: 'Minimal 1 detail ID' })
+  @IsString({ each: true })
+  detail_ids: string[];
+}
+
+/**
+ * Response DTO untuk approve bulk penandatangan
+ */
+export class ApproveBulkPenandatanganResponseDto {
+  success: boolean;
+  message: string;
+  data: {
+    success_count: number;
+    failed_count: number;
+    results: {
+      detail_id: string;
+      request_id: string;
+      status: string;
+      success: boolean;
+      error?: string;
+    }[];
+  };
+}
