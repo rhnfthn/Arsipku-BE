@@ -39,6 +39,8 @@ import {
   RejectBulkNomorRequestDetailResponseDto,
   DeleteNomorRequestResponseDto,
   RejectAllNomorRequestResponseDto,
+  ApproveBulkPenandatanganDto,
+  ApproveBulkPenandatanganResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -847,6 +849,39 @@ export class NomorController {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         { success: false, message: 'Failed to reject', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/approve-penandatangan-bulk
+    * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/approve-penandatangan-bulk')
+  async approveBulkPenandatangan(
+    @Body() dto: ApproveBulkPenandatanganDto,
+    @CurrentUser() user: any,
+  ): Promise<ApproveBulkPenandatanganResponseDto> {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      return await this.nomorService.approveBulkPenandatangan(dto, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to approve bulk penandatangan',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
