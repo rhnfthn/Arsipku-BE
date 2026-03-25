@@ -332,9 +332,10 @@ export class CekDokumenService {
       const isWarning = summary === 'WARNING';
       
       // Map summary to status
-      let status: 'VALID' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
+      let status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
       if (summary === 'VALID') status = 'VALID';
-      else if (summary === 'WARNING' || summary === 'INVALID') status = 'INVALID';
+      else if (summary === 'WARNING') status = 'WARNING';
+      else if (summary === 'INVALID') status = 'INVALID';
 
       // Transform details array to signers
       const signers = (bsreResponse.details || []).map(detail => ({
