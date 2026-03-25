@@ -114,7 +114,7 @@ export class NomorService {
     if (hasTerpakai) return 'Disetujui';
     if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'Ditolak';
     if (hasBooking) return 'Menunggu Verifikasi';
-    if (hasDraft) return 'Menunggu Persetujuan';
+    if (hasDraft) return 'Draft';
     
     return 'Belum Diajukan';
   }
@@ -138,6 +138,20 @@ export class NomorService {
     if (hasDraft) return 'menunggu_persetujuan';
     
     return 'belum_diajukan';
+  }
+
+  /**
+   * Helper: Normalisasi status filter query agar kompatibel dengan label lama/typo
+   */
+  private normalizeStatusFilter(status?: string): string | undefined {
+    if (!status) return status;
+
+    const normalized = status.trim().toLowerCase();
+    if (normalized === 'menunggu persetujuan' || normalized === 'menunggu_persetujuan' || normalized === 'draft' ) {
+      return 'Draft';
+    }
+
+    return status;
   }
 
   /**
@@ -379,6 +393,8 @@ export class NomorService {
     positionId: number,
     query?: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
     // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       where: { position: positionId.toString() },
@@ -449,13 +465,13 @@ export class NomorService {
     }
 
     // Apply status filter menggunakan helper
-    if (query?.status && query.status !== 'Semua') {
+    if (normalizedStatus && normalizedStatus !== 'Semua') {
       filteredData = filteredData.filter((item) => {
         const details = item.details || [];
         // Convert to entity-like format for helper
         const detailsForHelper = details.map(d => ({ status: d.status }) as NomorRequestDetailEntity);
         const status = this.determineStatusFromDetails(detailsForHelper);
-        return status === query.status;
+        return status === normalizedStatus;
       });
     }
 
@@ -508,6 +524,8 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
     // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       relations: ['details'],
@@ -585,7 +603,7 @@ export class NomorService {
       }
 
       // Apply status filter
-      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
         return null;
       }
 
@@ -825,6 +843,8 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
     // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       relations: ['details'],
@@ -865,7 +885,7 @@ export class NomorService {
       }
 
       // Apply status filter
-      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
         return null;
       }
 
@@ -950,6 +970,8 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
     // Optimized: Load dengan relations dalam 1 query
     const [requests, adminRoles] = await Promise.all([
       this.nomorRequestRepository.find({
@@ -1045,7 +1067,7 @@ export class NomorService {
       }
 
       // Apply status filter
-      if (query?.status && query.status !== 'Semua' && status !== query.status) {
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
         return null;
       }
 
