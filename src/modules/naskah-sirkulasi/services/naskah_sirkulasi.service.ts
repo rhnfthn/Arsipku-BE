@@ -515,7 +515,7 @@ export class NaskahSirkulasiService {
       return item;
     });
 
-    // Get summary counts (harus konsisten dengan filter default inbox: exclude archived)
+    // Get summary counts dengan filter yang sama seperti list/pagination
     const summaryQuery = `
       SELECT 
         COUNT(*) as total_semua,
@@ -528,14 +528,9 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'K' THEN 1 ELSE 0 END) as total_k
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
-      WHERE s.position = ?
-      AND s.sirkuler IN ('penerima', 'tembusan')
-      AND s.is_draft = 0
-      AND (s.is_konsep = 0 OR n.jenis = 'K')
-      AND s.flag_arsip = 0
-      AND n.status IN ('final', 'final_tte')
+      ${whereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryResult = await this.dataSource.query(summaryQuery, params);
     const summary = summaryResult[0] || {};
 
     return {
@@ -816,6 +811,36 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
+    // Filter by read status.
+    // Untuk SDE, pertahankan perilaku existing: tetap tampil walaupun filter status_baca aktif.
+    if (query.status_baca === 'terbaca') {
+      whereClause += `
+        AND (
+          n.jenis = 'SDE'
+          OR EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi sr
+            WHERE sr.id_naskah = s.id_naskah
+            AND sr.sirkuler = 'penerima'
+            AND sr.send_read_time IS NOT NULL
+          )
+        )
+      `;
+    } else if (query.status_baca === 'belum_terbaca') {
+      whereClause += `
+        AND (
+          n.jenis = 'SDE'
+          OR EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi sr
+            WHERE sr.id_naskah = s.id_naskah
+            AND sr.sirkuler = 'penerima'
+            AND sr.send_read_time IS NULL
+          )
+        )
+      `;
+    }
+
     // Date Range Filter
     const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
     if (dateRange.startDate) {
@@ -872,10 +897,10 @@ export class NaskahSirkulasiService {
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
 
-    // Get summary counts FIRST (untuk semua, tanpa filter jenis dan status_baca)
+    // Get summary counts dengan filter yang sama seperti list/pagination
     const summaryQuery = `
       SELECT 
-        COUNT(DISTINCT s.id_naskah) as total_semua,
+        COUNT(*) as total_semua,
         SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
@@ -884,13 +909,9 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'K' THEN 1 ELSE 0 END) as total_k
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
-      WHERE s.position = ?
-      AND s.sirkuler = 'pengirim'
-      AND s.is_draft = 0
-      AND s.is_konsep = 0
-      AND n.status IN ('final', 'final_tte')
+      ${whereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryResult = await this.dataSource.query(summaryQuery, params);
     const summaryData = summaryResult[0] || {};
     
     const summary = {
