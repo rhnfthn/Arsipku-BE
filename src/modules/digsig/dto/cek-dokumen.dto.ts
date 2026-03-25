@@ -76,7 +76,7 @@ export class CekDokumenResponseDto {
     jumlahSignature: number; // Total signature dalam dokumen (dari BSrE)
     
     // Status (dari BSrE verification result)
-    status: 'VALID' | 'INVALID' | 'UNKNOWN'; // Status keseluruhan dokumen
+    status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN'; // Status keseluruhan dokumen
     keterangan?: string; // Deskripsi status - contoh: "Dokumen valid, Sertifikat yang digunakan terpercaya"
     isValid: boolean; // Boolean status valid/tidak
     
