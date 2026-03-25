@@ -43,6 +43,7 @@ import {
   AdminCreateNomorResponseDto,
 } from '../dto/admin-create-nomor.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -59,6 +60,8 @@ export class NomorService {
     private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
     @InjectRepository(JenisEntity)
     private readonly jenisRepository: Repository<JenisEntity>,
+    @InjectRepository(UserRoleEntity)
+    private readonly userRoleRepository: Repository<UserRoleEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
@@ -948,10 +951,18 @@ export class NomorService {
    */
   async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     // Optimized: Load dengan relations dalam 1 query
-    const requests = await this.nomorRequestRepository.find({
-      relations: ['details'],
-      order: { createdAt: 'DESC' },
-    });
+    const [requests, adminRoles] = await Promise.all([
+      this.nomorRequestRepository.find({
+        relations: ['details'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.userRoleRepository.find({
+        where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+        select: ['persnum'],
+      }),
+    ]);
+
+    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
 
     // Optimized: Gunakan cached position data
     const positionJsonData = await this.getLatestPositionJsonData();
@@ -978,6 +989,11 @@ export class NomorService {
       
       const persnum = positionData?.persnum_person || null;
       const nama = positionData?.persnum_person_text || null;
+
+      // Tampilkan hanya usulan dari user ber-role admin/superadmin
+      if (!persnum || !adminPersnumSet.has(Number(persnum))) {
+        return null;
+      }
 
       const responseItem = {
         id: request.id,
