@@ -673,8 +673,8 @@ export class NomorService {
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequest(positionId: number): Promise<any> {
-    // Load all requests and penandatangan requests in parallel
-    const [requests, penandatanganRequests] = await Promise.all([
+    // Load requests, role admin data, dan position mapping in parallel
+    const [requests, penandatanganRequests, adminRoles, positionJsonData] = await Promise.all([
       this.nomorRequestRepository.find({
         relations: ['details'],
       }),
@@ -682,7 +682,25 @@ export class NomorService {
         where: { idPositionPenandatangan: positionId },
         relations: ['details'],
       }),
+      this.userRoleRepository.find({
+        where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+        select: ['persnum'],
+      }),
+      this.getLatestPositionJsonData(),
     ]);
+
+    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
+
+    const isProposedByAdmin = (request: NomorRequestEntity): boolean => {
+      const positionNumber = parseInt(request.position || '0', 10);
+      if (!positionNumber) return false;
+
+      const positionData = positionJsonData.find((p: any) => Number(p.position) === positionNumber);
+      const persnum = positionData?.persnum_person;
+      if (!persnum) return false;
+
+      return adminPersnumSet.has(Number(persnum));
+    };
 
     // Count by status
     const statusCounts = {
@@ -711,7 +729,10 @@ export class NomorService {
 
       // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
       if (statusKey === 'menunggu_persetujuan') {
-        statusCounts.draft++;
+        // Draft hanya dihitung jika pengusul ber-role admin/superadmin
+        if (isProposedByAdmin(request)) {
+          statusCounts.draft++;
+        }
         continue;
       }
 
@@ -734,7 +755,10 @@ export class NomorService {
 
       const statusKey = this.determineStatusKeyFromDetails(details);
       if (statusKey === 'menunggu_persetujuan') {
-        menungguPersetujuanCount++;
+        // Sinkron dengan draft: hanya usulan dari admin/superadmin
+        if (isProposedByAdmin(request)) {
+          menungguPersetujuanCount++;
+        }
       }
     }
 
