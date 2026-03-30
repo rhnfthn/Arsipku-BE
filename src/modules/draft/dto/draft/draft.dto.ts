@@ -14,13 +14,9 @@ import { Type, Transform } from 'class-transformer';
 // GET /draft/list - Query Parameters
 // ============================================================
 export class GetDraftListQueryDto {
-  @IsNotEmpty({ message: 'Position ID harus diisi' })
-  @IsString()
-  position_id: string;
-
   @IsOptional()
-  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA'], { message: 'Jenis harus ND, DI, SDI, SDE, atau KA' })
-  jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
+  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA', 'K'], { message: 'Jenis harus ND, DI, SDI, SDE, KA, atau K' })
+  jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
 
   @IsOptional()
   @IsString()
