@@ -179,6 +179,11 @@ export class DraftService {
   async getDraftList(
     positionId: number,
     jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K',
+    favorite?: boolean,
+    lock?: boolean,
+    note?: boolean,
+    arsip?: boolean,
+    priority?: boolean,
     search?: string,
     days?: number, // DEPRECATED: use startDate/endDate/preset instead
     startDate?: string, // Format: YYYY-MM-DD
@@ -195,6 +200,25 @@ export class DraftService {
       .createQueryBuilder('sirkulasi')
       .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
       .andWhere('sirkulasi.position = :position', { position: String(positionId) });
+
+    if (favorite === true) {
+      sirkulasiQuery.andWhere('sirkulasi.flag_favorit = 1');
+    }
+
+    if (lock === true) {
+      sirkulasiQuery.andWhere('sirkulasi.is_locked = 1');
+    }
+
+    if (note === true) {
+      sirkulasiQuery.andWhere('sirkulasi.flag_note = 1');
+    }
+
+    if (arsip === true) {
+      sirkulasiQuery.andWhere('sirkulasi.flag_arsip = 1');
+    } else {
+      // Default behavior: exclude archived drafts unless explicitly requested
+      sirkulasiQuery.andWhere('sirkulasi.flag_arsip = 0');
+    }
 
     const sirkulasiRecords = await sirkulasiQuery.getMany();
     const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
@@ -230,6 +254,13 @@ export class DraftService {
     // Filter by jenis if provided
     if (jenis) {
       queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
+    }
+
+    if (priority === true) {
+      queryBuilder.andWhere(`naskah.jenis = 'DI'`);
+      queryBuilder.andWhere(
+        `EXISTS (SELECT 1 FROM di WHERE di.id_naskah = naskah.id AND di.is_priority = 1)`,
+      );
     }
 
     // Search by perihal or nomor
