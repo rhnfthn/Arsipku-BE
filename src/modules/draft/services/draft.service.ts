@@ -36,7 +36,8 @@ const JENIS_TEXT_MAP: Record<string, string> = {
   DI: 'Disposisi',
   SDI: 'Surat Dinas Internal',
   SDE: 'Surat Dinas Eksternal',
-  KA: 'Korespondensi Aktif',
+  KA: 'Kajian',
+  K: 'Konsep',
 };
 
 // Mapping petunjuk disposisi kode ke label
@@ -177,7 +178,7 @@ export class DraftService {
    */
   async getDraftList(
     positionId: number,
-    jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
+    jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K',
     search?: string,
     days?: number, // DEPRECATED: use startDate/endDate/preset instead
     startDate?: string, // Format: YYYY-MM-DD
