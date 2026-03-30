@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsArray,
   IsDateString,
+  IsBoolean,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
@@ -17,6 +18,31 @@ export class GetDraftListQueryDto {
   @IsOptional()
   @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA', 'K'], { message: 'Jenis harus ND, DI, SDI, SDE, KA, atau K' })
   jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
 
   @IsOptional()
   @IsString()
