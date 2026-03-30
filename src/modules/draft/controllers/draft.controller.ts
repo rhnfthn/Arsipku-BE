@@ -36,6 +36,11 @@ export class DraftController {
    *
    * @param user - User dari JWT token (contains position)
    * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA, K (optional)
+   * @query favorite - Filter favorit (optional)
+   * @query lock - Filter yang dikunci (optional)
+   * @query note - Filter yang punya catatan (optional)
+   * @query arsip - Filter arsip. Default false = exclude archived (optional)
+   * @query priority - Filter disposisi prioritas, khusus jenis DI (optional)
    * @query search - Search by perihal/nomor (optional)
    * @query days - Filter by days, default 30 (optional) - DEPRECATED, use preset instead
    * @query start_date - Start date filter YYYY-MM-DD (optional)
@@ -74,6 +79,11 @@ export class DraftController {
       return await this.draftService.getDraftList(
         position, 
         query.jenis, 
+        query.favorite,
+        query.lock,
+        query.note,
+        query.arsip,
+        query.priority,
         query.search, 
         daysNum, 
         query.start_date, 
