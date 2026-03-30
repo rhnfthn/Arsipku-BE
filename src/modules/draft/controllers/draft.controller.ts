@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { DraftService } from '../services/draft.service';
 import {
+  GetDraftListQueryDto,
   GetDraftListResponseDto,
   GetDraftDetailResponseDto,
   DeleteDraftResponseDto,
@@ -34,7 +35,7 @@ export class DraftController {
    * Get list of draft naskah for a position (from JWT token)
    *
    * @param user - User dari JWT token (contains position)
-   * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA (optional)
+   * @query jenis - Filter by jenis: ND, DI, SDI, SDE, KA, K (optional)
    * @query search - Search by perihal/nomor (optional)
    * @query days - Filter by days, default 30 (optional) - DEPRECATED, use preset instead
    * @query start_date - Start date filter YYYY-MM-DD (optional)
@@ -49,14 +50,7 @@ export class DraftController {
   @Get('list')
   async getDraftList(
     @CurrentUser() user: any,
-    @Query('jenis') jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
-    @Query('search') search?: string,
-    @Query('days') days?: string,
-    @Query('start_date') startDate?: string,
-    @Query('end_date') endDate?: string,
-    @Query('preset') preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() query: GetDraftListQueryDto,
   ): Promise<GetDraftListResponseDto> {
     try {
       // Get position_id from JWT token
@@ -66,24 +60,24 @@ export class DraftController {
       }
 
       // Parse days (deprecated, for backward compatibility)
-      const daysNum = days ? parseInt(days, 10) : undefined;
+      const daysNum = query.days ? parseInt(query.days, 10) : undefined;
 
       // Parse pagination
-      const pageNum = page ? parseInt(page, 10) : 1;
-      const limitNum = limit ? parseInt(limit, 10) : 10;
+      const pageNum = query.page ?? 1;
+      const limitNum = query.limit ?? 10;
 
       // Normalize preset
-      const normalizedPreset = preset 
-        ? String(preset).toLowerCase().trim().replace(/\s+/g, '_') as '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua'
+      const normalizedPreset = query.preset 
+        ? String(query.preset).toLowerCase().trim().replace(/\s+/g, '_') as '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua'
         : undefined;
 
       return await this.draftService.getDraftList(
         position, 
-        jenis, 
-        search, 
+        query.jenis, 
+        query.search, 
         daysNum, 
-        startDate, 
-        endDate, 
+        query.start_date, 
+        query.end_date, 
         normalizedPreset, 
         pageNum, 
         limitNum
