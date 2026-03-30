@@ -9,6 +9,7 @@ import {
     DateWithinEnum,
     NaskahSourceEnum,
     KategoriEnum,
+    SearchScopeEnum,
 } from '../dto/global-search.dto';
 import {
     SearchV3ResponseDto,
@@ -105,6 +106,7 @@ export class SearchV3Service {
         const appliedFilters: string[] = [];
         const params: any[] = [];
         let paramIndex = 0;
+        const isDraftSearch = status === 'draf' || scope === SearchScopeEnum.DRAFT;
 
         // Build WHERE clauses
         const whereClauses: string[] = [];
@@ -114,14 +116,23 @@ export class SearchV3Service {
         params.push(userPosition);
         paramIndex++;
 
-        // Exclude drafts and konsep by default
-        whereClauses.push(`(s.is_draft = 0 OR s.is_draft IS NULL)`);
-        whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL)`);
+        // Exclude drafts and konsep by default, but allow them when explicitly searching drafts.
+        if (!isDraftSearch) {
+            whereClauses.push(`(s.is_draft = 0 OR s.is_draft IS NULL)`);
+            whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL)`);
+        }
 
         // === SCOPE FILTER ===
         if (!scope || scope === 'all' || scope === 'active') {
-            // All final naskah user has access to
-            whereClauses.push(`n.status IN ('final', 'final_tte')`);
+            // Default scope shows final documents, unless user explicitly requests draft status.
+            if (!isDraftSearch) {
+                whereClauses.push(`n.status IN ('final', 'final_tte')`);
+            } else {
+                // Align draft search behavior with /draft/list:
+                // only drafts owned by the user as pengirim and exclude archived by default.
+                whereClauses.push(`s.sirkuler = 'pengirim'`);
+                whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
+            }
             if (scope === 'active') {
                 whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
             }
@@ -139,6 +150,7 @@ export class SearchV3Service {
                     whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
                     break;
                 case 'draft':
+                    whereClauses.push(`s.sirkuler = 'pengirim'`);
                     whereClauses.push(`n.status = 'draf'`);
                     whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
                     break;
@@ -158,6 +170,10 @@ export class SearchV3Service {
             }
             appliedFilters.push(`scope: ${scope}`);
         }
+
+        // Save the base access/scope filter set for facets before adding extra user filters.
+        const facetBaseWhereClauses = [...whereClauses];
+        const facetBaseParams = [...params];
 
         // === KEYWORD SEARCH (N-gram FULLTEXT or LIKE fallback) ===
         let relevanceSelect = '0 AS relevance_score';
@@ -266,6 +282,16 @@ export class SearchV3Service {
             whereClauses.push(`n.tanggal BETWEEN ? AND ?`);
             params.push(startDate, endDate);
             appliedFilters.push(`dateWithin: ${dateWithin} of ${dateReference}`);
+        }
+
+        // Align draft search with /draft/list behavior:
+        // if no explicit date filter is provided, default to the last 30 days.
+        if (isDraftSearch && !dateFrom && !dateTo && !dateWithin) {
+            const { startDate, endDate } = this.getDraftDefaultDateRange();
+            whereClauses.push(`DATE(n.tanggal) >= ?`);
+            whereClauses.push(`DATE(n.tanggal) <= ?`);
+            params.push(startDate, endDate);
+            appliedFilters.push('defaultDraftRange: 30_hari');
         }
 
         // === HAS ATTACHMENT ===
@@ -576,7 +602,7 @@ export class SearchV3Service {
         });
 
         // === FACETS QUERY ===
-        const facets = await this.getFacets(whereClauses.slice(0, 3), [userPosition]);
+        const facets = await this.getFacets(facetBaseWhereClauses, facetBaseParams);
 
         return {
             success: true,
@@ -1017,6 +1043,21 @@ export class SearchV3Service {
         return {
             startDate: startDate.toISOString().split('T')[0],
             endDate: endDate.toISOString().split('T')[0],
+        };
+    }
+
+    /**
+     * Match /draft/list default date behavior: last 30 days when no date filter is provided.
+     */
+    private getDraftDefaultDateRange(): { startDate: string; endDate: string } {
+        const today = new Date();
+        const endDate = today.toISOString().split('T')[0];
+        const startDateCalc = new Date(today);
+        startDateCalc.setDate(startDateCalc.getDate() - 30);
+
+        return {
+            startDate: startDateCalc.toISOString().split('T')[0],
+            endDate,
         };
     }
 }
