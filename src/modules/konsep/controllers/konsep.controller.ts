@@ -108,9 +108,10 @@ export class KonsepController {
   @Get(':id')
   async getKonsepDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.konsepService.getKonsepDetail(id);
+      return await this.konsepService.getKonsepDetail(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -138,9 +139,10 @@ export class KonsepController {
   @Get(':id/info')
   async getKonsepInfo(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.konsepService.getKonsepInfo(id);
+      return await this.konsepService.getKonsepInfo(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -211,10 +213,12 @@ export class KonsepController {
   )
   async createKonsep(
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<CreateKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToCreateDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.createKonsep(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -338,10 +342,12 @@ export class KonsepController {
   async forwardKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<ForwardKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToForwardDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.forwardKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -383,10 +389,15 @@ export class KonsepController {
   async reviewKonsep(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Body() dto: ReviewKonsepDto,
   ): Promise<ReviewKonsepResponseDto> {
     try {
-      return await this.konsepService.reviewKonsep(id, positionId, dto);
+      const currentPositionId = Number(user.position);
+      if (positionId !== currentPositionId) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
+      }
+      return await this.konsepService.reviewKonsep(id, currentPositionId, dto);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -428,7 +439,6 @@ export class KonsepController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
-  @Public()
   @Post('finalize/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -439,10 +449,12 @@ export class KonsepController {
   async finalizeKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<FinalizeKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToFinalizeDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.finalizeKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -485,9 +497,11 @@ export class KonsepController {
   async rejectKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<RejectKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToRejectDto(body);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.rejectKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -521,9 +535,14 @@ export class KonsepController {
   async markAsRead(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<{ success: boolean; message: string }> {
     try {
-      return await this.konsepService.markAsRead(id, positionId);
+      const currentPositionId = Number(user.position);
+      if (positionId !== currentPositionId) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
+      }
+      return await this.konsepService.markAsRead(id, currentPositionId);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -886,10 +905,12 @@ export class KonsepController {
   )
   async createDraftKonsep(
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<CreateDraftKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToCreateDraftDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.createDraftKonsep(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -1031,10 +1052,12 @@ export class KonsepController {
   async updateDraftKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<UpdateDraftKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToUpdateDraftDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.updateDraftKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
