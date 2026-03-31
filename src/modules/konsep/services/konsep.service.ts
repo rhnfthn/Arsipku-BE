@@ -2247,7 +2247,7 @@ export class KonsepService {
    * @param id ID naskah konsep (jenis='K')
    * @returns Detail konsep dengan flow lengkap
    */
-  async getKonsepDetail(id: string): Promise<any> {
+  async getKonsepDetail(id: string, userPosition: string): Promise<any> {
     // Jenis label map
     const JENIS_LABELS: Record<string, string> = {
       DI: 'Disposisi',
@@ -2267,6 +2267,8 @@ export class KonsepService {
       if (!naskahKonsep) {
         throw new NotFoundException(`Konsep dengan ID ${id} tidak ditemukan`);
       }
+
+      await this.assertUserHasAccessToKonsepWorkflow(naskahKonsep, userPosition);
 
       // 2. Get all naskah K with same id_naskah_asli (multi-forward chain)
       let konsepIds: string[] = [naskahKonsep.id];
@@ -2623,7 +2625,7 @@ export class KonsepService {
    * @param id ID naskah konsep (jenis='K')
    * @returns Detail konsep dan naskah (tanpa flow)
    */
-  async getKonsepInfo(id: string): Promise<any> {
+  async getKonsepInfo(id: string, userPosition: string): Promise<any> {
     try {
       // Get konsep (jenis='K')
       const naskahKonsep = await this.naskahRepository.findOne({
@@ -2633,6 +2635,8 @@ export class KonsepService {
       if (!naskahKonsep) {
         throw new NotFoundException(`Konsep dengan ID ${id} tidak ditemukan`);
       }
+
+      await this.assertUserHasAccessToKonsepWorkflow(naskahKonsep, userPosition);
 
       // Get naskah asli
       let naskahAsli: NaskahEntity | null = null;
@@ -2760,6 +2764,38 @@ export class KonsepService {
       throw new BadRequestException(
         error instanceof Error ? error.message : 'Gagal mendapatkan info konsep',
       );
+    }
+  }
+
+  private async assertUserHasAccessToKonsepWorkflow(
+    naskahKonsep: NaskahEntity,
+    userPosition: string,
+  ): Promise<void> {
+    const relatedNaskahIds = new Set<string>([naskahKonsep.id]);
+
+    if (naskahKonsep.id_naskah_asli) {
+      relatedNaskahIds.add(naskahKonsep.id_naskah_asli);
+
+      const workflowKonsep = await this.naskahRepository.find({
+        where: { id_naskah_asli: naskahKonsep.id_naskah_asli, jenis: 'K' },
+        select: ['id'],
+      });
+
+      for (const konsep of workflowKonsep) {
+        relatedNaskahIds.add(konsep.id);
+      }
+    }
+
+    const access = await this.naskahSirkulasiRepository
+      .createQueryBuilder('s')
+      .select('s.id', 'id')
+      .where('s.position = :position', { position: String(userPosition) })
+      .andWhere('s.idNaskah IN (:...ids)', { ids: Array.from(relatedNaskahIds) })
+      .limit(1)
+      .getRawOne();
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
     }
   }
 
