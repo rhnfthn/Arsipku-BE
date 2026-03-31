@@ -123,6 +123,7 @@ export class FinalizeKonsepResponseDto {
     id_naskah: string;
     nomor_surat: string;
     status: 'final' | 'final_tte';
+    sign_option?: 'digsig' | 'qr_only' | 'ttd_basah' | null;
     penerima: Array<{
       position_id: number;
       position_text: string;
