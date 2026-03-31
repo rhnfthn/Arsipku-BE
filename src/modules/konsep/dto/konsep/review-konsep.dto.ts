@@ -179,7 +179,15 @@ export class FinalizeKonsepDto {
 
   @IsOptional()
   @IsString()
-  tanda_tangan?: string; // URL tanda tangan digital, jika ada status jadi final_tte
+  tanda_tangan?: string; // URL tanda tangan digital (legacy), jika ada status jadi final_tte
+
+  @IsOptional()
+  @IsEnum(['digsig', 'qr_only', 'ttd_basah'])
+  sign_option?: 'digsig' | 'qr_only' | 'ttd_basah'; // Opsi TTD: digsig=BSrE, qr_only=QR Code, ttd_basah=TTD manual
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string; // Passphrase untuk digsig (required if sign_option='digsig')
 
   // ============ LAMPIRAN ============
 

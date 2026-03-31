@@ -1046,6 +1046,8 @@ export class KonsepService {
       nama_jabatan: body.nama_jabatan,
       nama_lengkap: body.nama_lengkap,
       tanda_tangan: body.tanda_tangan,
+      sign_option: body.sign_option,
+      passphrase: body.passphrase,
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
@@ -1405,18 +1407,26 @@ export class KonsepService {
    * REFACTORED: Setiap finalize membuat NASKAH K BARU (sama seperti forward/reject)
    * - K baru akan muncul di kotak terkirim user yang finalize
    * - K baru tidak punya penerima (finalize = endpoint)
-   * - Semua K dalam workflow di-update ke status 'final_tte'
+   * - Default status konsep adalah 'final' dari awal sampai akhir
+   * 
+   * Digital Signature Support (menggunakan sign_option):
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
+   * - DIGSIG (BSrE) → status = 'final_tte'
+   * - QR_ONLY → status = 'final'
+   * - TTD_BASAH → status = 'final' (konsep tidak support pending)
+   * - Legacy: jika ada tanda_tangan → status = 'final_tte'
    * 
    * Flow:
    * 1. Validasi konsep parent jenis='K' ada
    * 2. Validasi from_position_id adalah penerima konsep saat ini (via konsep_riwayat)
-   * 3. Generate nomor surat resmi
-   * 4. CREATE NEW NASKAH K untuk finalize (pengirim=finalizer, penerima=null)
-   * 5. Update naskah asli: status='final', nomor=generated
-   * 6. Update status ALL naskah K untuk workflow ini menjadi 'final_tte'
+   * 3. Determine status based on sign_option or tanda_tangan
+   * 4. Generate nomor surat resmi
+   * 5. CREATE NEW NASKAH K untuk finalize dengan status yang tepat
+   * 6. Update naskah asli: nomor=generated, status sesuai sign_option
+   * 7. Update status semua K workflow lainnya ke 'final'
    * 
    * @param id ID naskah konsep parent (jenis='K')
-   * @param dto FinalizeKonsepDto
+   * @param dto FinalizeKonsepDto dengan optional sign_option dan passphrase
    * @returns FinalizeKonsepResponseDto
    */
   async finalizeKonsep(id: string, dto: FinalizeKonsepDto): Promise<FinalizeKonsepResponseDto> {
@@ -1514,6 +1524,26 @@ export class KonsepService {
         queryRunner,
       );
 
+      // 5a. Determine status based on sign_option
+      let newStatus: 'final' | 'final_tte' = 'final';
+      if (dto.sign_option === 'digsig') {
+        newStatus = 'final_tte'; // Digital signature dengan BSrE
+        console.log('[Konsep finalize] Status = final_tte (DIGSIG)');
+      } else if (dto.sign_option === 'qr_only') {
+        newStatus = 'final'; // QR code tanpa BSrE
+        console.log('[Konsep finalize] Status = final (QR_ONLY)');
+      } else if (dto.sign_option === 'ttd_basah') {
+        // Konsep tidak support pending state, ttd_basah tetap final
+        newStatus = 'final';
+        console.log('[Konsep finalize] Status = final (TTD_BASAH)');
+      } else if (dto.tanda_tangan) {
+        newStatus = 'final_tte'; // Legacy: tanda_tangan field provided
+        console.log('[Konsep finalize] Status = final_tte (tanda_tangan legacy)');
+      } else {
+        newStatus = 'final';
+        console.log('[Konsep finalize] Status = final (default)');
+      }
+
       // 6. CREATE NEW NASKAH K untuk finalize
       // Generate nomor sequential untuk K baru (KONSEP-XXX)
       const nomorKonsep = await this.generateKonsepNomorSequential(naskahAsliId, queryRunner);
@@ -1524,10 +1554,12 @@ export class KonsepService {
       newNaskahKonsep.jenis = 'K';
       newNaskahKonsep.nomor = nomorKonsep;
       newNaskahKonsep.perihal = dto.catatan || '';
-      newNaskahKonsep.status = dto.tanda_tangan ? 'final_tte' : 'final';
+      newNaskahKonsep.status = newStatus;
       newNaskahKonsep.tanggal = tanggal;
       newNaskahKonsep.id_naskah_asli = naskahAsliId;
       newNaskahKonsep.id_naskah_parent = id; // Link ke konsep parent
+      newNaskahKonsep.signOption = dto.sign_option || null; // Store sign_option
+      newNaskahKonsep.tandaTangan = dto.tanda_tangan || null; // Store tanda_tangan metadata
       await queryRunner.manager.save(newNaskahKonsep);
 
       // 7. CREATE SIRKULASI untuk K baru
@@ -1537,10 +1569,11 @@ export class KonsepService {
       
       // Penerima = null (finalize tidak ada penerima, ini endpoint workflow)
 
-      // 8. Update naskah asli
-      const finalStatus = dto.tanda_tangan ? 'final_tte' : 'final';
+      // 8. Update naskah asli dengan status sesuai sign_option
       naskahAsli.nomor = nomorSurat;
-      naskahAsli.status = finalStatus;
+      naskahAsli.status = newStatus;
+      naskahAsli.signOption = dto.sign_option || null; // Store sign_option
+      naskahAsli.tandaTangan = dto.tanda_tangan || null; // Store tanda_tangan metadata
       naskahAsli.tanggal = tanggal;
       if (dto.perihal) naskahAsli.perihal = dto.perihal;
       if (dto.konten) naskahAsli.konten = dto.konten;
@@ -1669,16 +1702,20 @@ export class KonsepService {
         naskahAsli.lampiran = `${totalLampiran} file`;
       }
 
-      // 11. Update ALL konsep workflow status to 'final_tte' (including new K)
-      // Add new konsep K to list
+      // 11. Update ALL konsep workflow status to final (including new K)
+      // For konsep K in workflow (not finalize K), use 'final' status
+      // The finalize K (newNaskahKonsepId) already has correct status from earlier
       konsepIds.push(newNaskahKonsepId);
       
       // This marks all naskah K in this workflow as completed
       // They will still appear in inbox/sent for history, but status indicates completed
       for (const konsepId of konsepIds) {
+        // Skip the finalize K (it already has correct status)
+        if (konsepId === newNaskahKonsepId) continue;
+        
         await queryRunner.manager.update(NaskahEntity, 
           { id: konsepId },
-          { status: 'final_tte' },
+          { status: 'final' },
         );
       }
 
@@ -1744,7 +1781,8 @@ export class KonsepService {
           id_konsep: newNaskahKonsepId, // Return NEW naskah K id for finalize
           id_naskah: naskahAsliId,
           nomor_surat: nomorSurat,
-          status: finalStatus as 'final' | 'final_tte',
+          status: newStatus,
+          sign_option: dto.sign_option || null,
           penerima: penerimaList,
           tembusan: tembusanList.length > 0 ? tembusanList : undefined,
         },
