@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -163,8 +163,12 @@ export class NaskahService {
   async finalizePending(
     naskahId: string,
     file: Express.Multer.File,
-    user?: { persnum: number; nama: string; positionText: string },
+    user?: { persnum: number; nama: string; positionText: string; position?: string },
   ): Promise<{ success: boolean; message: string; naskah_id: string; signed_file: string }> {
+    if (user?.position) {
+      await this.assertUserHasAccessToNaskah(naskahId, user.position);
+    }
+
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
     });
@@ -286,7 +290,12 @@ export class NaskahService {
    * - Referensi surat
    * - Data spesifik per jenis (DI, ND, dll)
    */
-  async getDetail(naskahId: string): Promise<NaskahDetailResponseDto> {
+  async getDetail(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<NaskahDetailResponseDto> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // 1. Get data naskah utama
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -506,7 +515,9 @@ export class NaskahService {
    * @param naskahId - ID naskah (bisa dari level mana saja)
    * @returns Full chain dengan detail setiap naskah
    */
-  async getDetailWithChain(naskahId: string): Promise<any> {
+  async getDetailWithChain(naskahId: string, userPosition: string): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -868,6 +879,23 @@ export class NaskahService {
       message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
       data: flow,
     };
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: { id: true },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
   }
 }
 
