@@ -93,9 +93,12 @@ export class KajianController {
    * @returns Detail kajian lengkap
    */
   @Get(':id')
-  async getKajianDetail(@Param('id') id: string): Promise<any> {
+  async getKajianDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
     try {
-      return await this.kajianService.getKajianDetail(id);
+      return await this.kajianService.getKajianDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

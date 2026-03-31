@@ -4071,7 +4071,9 @@ export class NotaDinasService {
    * Get detail Nota Dinas by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
    */
-  async getNotaDinasDetail(naskahId: string): Promise<any> {
+  async getNotaDinasDetail(naskahId: string, userPosition: string): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -4275,6 +4277,23 @@ export class NotaDinasService {
         updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: { id: true },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
   }
 
   /**

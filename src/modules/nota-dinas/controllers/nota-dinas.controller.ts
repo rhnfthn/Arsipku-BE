@@ -135,9 +135,10 @@ export class NotaDinasController {
   @Get(':id')
   async getNotaDinasDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.notaDinasService.getNotaDinasDetail(id);
+      return await this.notaDinasService.getNotaDinasDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
