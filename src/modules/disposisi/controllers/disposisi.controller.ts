@@ -137,9 +137,10 @@ export class DisposisiController {
   @Get(':id')
   async getDisposisiDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.getDisposisiDetail(id);
+      return await this.disposisiService.getDisposisiDetail(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -175,6 +176,7 @@ export class DisposisiController {
   @Post('send-message')
   async sendMessage(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
       console.log('[send-message] Raw body:', JSON.stringify(body, null, 2));
@@ -189,6 +191,8 @@ export class DisposisiController {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
       console.log('[send-message] Final pengirim_position_id:', body.pengirim_position_id);
 
       // Parse tertuju/penerima from form-data
@@ -296,6 +300,7 @@ export class DisposisiController {
   @Post('save-draft')
   async saveDraft(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -373,6 +378,9 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
+
       return await this.disposisiService.saveDraft(body as CreateDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -413,11 +421,15 @@ export class DisposisiController {
   @Get('get-send-message/:position_id')
   async getSendMessage(
     @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
   ): Promise<GetSendMessageResponseDto> {
     try {
       const position = parseInt(positionId, 10);
       if (isNaN(position)) {
         throw new BadRequestException('position_id must be a valid number');
+      }
+      if (String(position) !== String(user.position)) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
       }
 
       return await this.disposisiService.getSendMessage(position);
@@ -459,8 +471,10 @@ export class DisposisiController {
   @Put('update-message-status')
   async updateMessageStatus(
     @Body() dto: UpdateMessageStatusDto,
+    @CurrentUser() user: any,
   ): Promise<UpdateMessageStatusResponseDto> {
     try {
+      dto.position_id = String(user.position);
       return await this.disposisiService.updateMessageStatus(dto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -508,6 +522,7 @@ export class DisposisiController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDraftDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -516,6 +531,9 @@ export class DisposisiController {
       } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
+
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -632,6 +650,7 @@ export class DisposisiController {
   async updateDraft(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -640,6 +659,9 @@ export class DisposisiController {
       } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
+
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -762,6 +784,7 @@ export class DisposisiController {
   @Post('forward')
   async forwardDisposisi(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<ForwardDisposisiResponseDto> {
     try {
       console.log('[forward] Raw body:', JSON.stringify(body, null, 2));
@@ -773,6 +796,8 @@ export class DisposisiController {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
       console.log('[forward] Parsed pengirim_position_id:', body.pengirim_position_id);
 
       // Parse tertuju/penerima from form-data
@@ -1227,9 +1252,10 @@ export class DisposisiController {
   @Patch(':id/unset-priority')
   async unsetPriority(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.unsetPriority(id);
+      return await this.disposisiService.unsetPriority(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

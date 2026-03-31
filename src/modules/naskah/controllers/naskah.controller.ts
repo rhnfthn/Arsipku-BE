@@ -49,8 +49,11 @@ export class NaskahController {
    * Mengambil data lengkap: naskah, sirkulasi, lampiran, referensi, dan detail per jenis
    */
   @Get('detail/:id')
-  getDetail(@Param('id') id: string): Promise<NaskahDetailResponseDto> {
-    return this.naskahService.getDetail(id);
+  getDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<NaskahDetailResponseDto> {
+    return this.naskahService.getDetail(id, user.position);
   }
 
   /**
@@ -100,8 +103,11 @@ export class NaskahController {
    * @returns Chain lengkap urutan terbaru → awal
    */
   @Get(':id')
-  getDetailWithChain(@Param('id') id: string): Promise<any> {
-    return this.naskahService.getDetailWithChain(id);
+  getDetailWithChain(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
+    return this.naskahService.getDetailWithChain(id, user.position);
   }
 
   @Put(':id')

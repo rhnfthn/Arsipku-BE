@@ -126,9 +126,12 @@ export class SuratDinasEksternalController {
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
-  async getSdeDetail(@Param('id') id: string): Promise<any> {
+  async getSdeDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
     try {
-      return await this.sdeService.getSdeDetail(id);
+      return await this.sdeService.getSdeDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

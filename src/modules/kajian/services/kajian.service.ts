@@ -2719,7 +2719,9 @@ export class KajianService {
   /**
    * Get Kajian detail by ID (matching ND structure)
    */
-  async getKajianDetail(naskahId: string): Promise<any> {
+  async getKajianDetail(naskahId: string, userPosition: string): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
     });
@@ -2850,6 +2852,23 @@ export class KajianService {
         updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: { id: true },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
   }
 
   /**
@@ -3314,7 +3333,10 @@ export class KajianService {
       await queryRunner.commitTransaction();
 
       // Get updated data for response
-      const detail = await this.getKajianDetail(naskahId);
+      const detail = await this.getKajianDetail(
+        naskahId,
+        String(dto.pengirim || ''),
+      );
 
       return {
         success: true,

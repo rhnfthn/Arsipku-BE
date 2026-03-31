@@ -3186,7 +3186,7 @@ export class DisposisiService {
    * Mengembalikan flow lengkap disposisi dari awal sampai akhir
    * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
    */
-  async getDisposisiDetail(naskahId: string): Promise<any> {
+  async getDisposisiDetail(naskahId: string, userPosition: string): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -3201,6 +3201,8 @@ export class DisposisiService {
     if (naskah.jenis !== 'DI') {
       throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
     }
+
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
 
     // ============================================================
     // BUILD FULL CHAIN / RANGKAIAN
@@ -3438,7 +3440,7 @@ export class DisposisiService {
    * @param naskahId - ID Naskah Disposisi
    * @returns Respons dengan status update
    */
-  async unsetPriority(naskahId: string): Promise<any> {
+  async unsetPriority(naskahId: string, userPosition: string): Promise<any> {
     try {
       // Check if naskah exists dan merupakan DI
       const naskah = await this.naskahRepository.findOne({
@@ -3448,6 +3450,8 @@ export class DisposisiService {
       if (!naskah) {
         throw new NotFoundException('Disposisi tidak ditemukan');
       }
+
+      await this.assertUserHasAccessToNaskah(naskahId, userPosition);
 
       // Find DI record
       const di = await this.diRepository.findOne({
@@ -3475,6 +3479,25 @@ export class DisposisiService {
         throw error;
       }
       throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
     }
   }
 }
