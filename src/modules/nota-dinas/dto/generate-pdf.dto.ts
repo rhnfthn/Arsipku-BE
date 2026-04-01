@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNotEmpty } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 /**
@@ -11,6 +11,7 @@ export class GeneratePdfDto {
    * Bisa dalam bentuk plain text HTML atau base64 encoded
    */
   @IsString()
+  @IsNotEmpty({ message: 'htmlContent harus diisi' })
   htmlContent: string;
 
   /**
@@ -99,8 +100,20 @@ export class GeneratePdfDto {
    * Perihal/Subjek Nota Dinas
    */
   @IsString()
+  @IsNotEmpty({ message: 'Perihal harus diisi' })
+  perihal: string;
+
+  /**
+   * Klasifikasi arsip nota dinas.
+   * Dibuat mandatory agar preview/generate konsisten dengan send-message.
+   */
+  @IsString()
+  @IsNotEmpty({ message: 'Klasifikasi harus diisi' })
+  klasifikasi: string;
+
+  @IsString()
   @IsOptional()
-  perihal?: string;
+  klasifikasi_text?: string;
 
   /**
    * Tanggal Surat (format: DD/MM/YYYY atau full date string)
