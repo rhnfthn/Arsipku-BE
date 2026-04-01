@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsNumber, IsDateString } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber, IsDateString, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -12,6 +12,35 @@ export class SentMessageQueryDto {
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
   status_baca?: 'terbaca' | 'belum_terbaca';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  tinjut?: 'sudah_tinjut' | 'belum_tinjut';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
 
   // Date Range Filter
   @IsOptional()
@@ -96,6 +125,9 @@ export class SentMessageItemDto {
   favorit: boolean;
   note: boolean;
   arsip: boolean;
+  is_tindak_lanjut?: boolean;
+  is_locked?: boolean;
+  is_priority?: boolean;
   labels: string[]; // Array nama label yang di-assign ke naskah
 
   // Source identifier (inbox/sent)
