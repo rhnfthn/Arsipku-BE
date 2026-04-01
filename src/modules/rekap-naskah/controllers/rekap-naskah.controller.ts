@@ -22,6 +22,8 @@ import {
   DetailNaskahMasukQueryDto,
   DetailNaskahMasukResponseDto,
 } from '../dto/detail-naskah-masuk.dto';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('rekap-naskah')
 export class RekapNaskahController {
@@ -40,9 +42,10 @@ export class RekapNaskahController {
   @Get()
   async getRekapNaskah(
     @Query() query: RekapNaskahQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<RekapNaskahResponseDto> {
     try {
-      return await this.rekapNaskahService.getRekapNaskah(query);
+      return await this.rekapNaskahService.getRekapNaskah(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -72,9 +75,10 @@ export class RekapNaskahController {
   @Get('detail')
   async getDetailNaskah(
     @Query() query: DetailNaskahQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<DetailNaskahResponseDto> {
     try {
-      return await this.rekapNaskahService.getDetailNaskah(query);
+      return await this.rekapNaskahService.getDetailNaskah(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -102,9 +106,10 @@ export class RekapNaskahController {
   @Get('naskah-masuk')
   async getNaskahMasuk(
     @Query() query: NaskahMasukQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<NaskahMasukResponseDto> {
     try {
-      return await this.rekapNaskahService.getNaskahMasuk(query);
+      return await this.rekapNaskahService.getNaskahMasuk(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -133,9 +138,10 @@ export class RekapNaskahController {
   @Get('naskah-masuk/detail')
   async getDetailNaskahMasuk(
     @Query() query: DetailNaskahMasukQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<DetailNaskahMasukResponseDto> {
     try {
-      return await this.rekapNaskahService.getDetailNaskahMasuk(query);
+      return await this.rekapNaskahService.getDetailNaskahMasuk(query, user);
     } catch (error) {
       throw new HttpException(
         {
