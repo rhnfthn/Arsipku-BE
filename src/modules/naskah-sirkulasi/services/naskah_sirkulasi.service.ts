@@ -596,13 +596,15 @@ export class NaskahSirkulasiService {
     query: TertundaQueryDto,
   ): Promise<TertundaResponseDto> {
     const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
-    let whereClause = `
+    let summaryWhereClause = `
       WHERE s.position = ?
       AND s.sirkuler = 'pengirim'
       AND s.is_draft = 1
       AND n.status = 'pending'
     `;
-    const params: any[] = [positionId];
+    const summaryParams: any[] = [positionId];
+    let whereClause = summaryWhereClause;
+    const params: any[] = [...summaryParams];
 
     // Filter by jenis naskah
     if (query.jenis) {
@@ -610,15 +612,67 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
+    // Pending belum benar-benar terkirim, jadi tidak punya status baca "terbaca".
+    if (query.status_baca === 'terbaca') {
+      whereClause += ` AND 1 = 0`;
+      summaryWhereClause += ` AND 1 = 0`;
+    }
+
+    // Filter by favorite
+    if (query.favorite === true) {
+      whereClause += ` AND s.flag_favorit = 1`;
+      summaryWhereClause += ` AND s.flag_favorit = 1`;
+    }
+
+    // Filter by tindak lanjut
+    if (query.tinjut === 'sudah_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 1`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
+    }
+
+    // Filter by lock
+    if (query.lock === true) {
+      whereClause += ` AND s.is_locked = 1`;
+      summaryWhereClause += ` AND s.is_locked = 1`;
+    }
+
+    // Filter by note
+    if (query.note === true) {
+      whereClause += ` AND s.flag_note = 1`;
+      summaryWhereClause += ` AND s.flag_note = 1`;
+    }
+
+    // Filter by arsip (default: exclude archived items)
+    if (query.arsip === true) {
+      whereClause += ` AND s.flag_arsip = 1`;
+      summaryWhereClause += ` AND s.flag_arsip = 1`;
+    } else {
+      whereClause += ` AND s.flag_arsip = 0`;
+      summaryWhereClause += ` AND s.flag_arsip = 0`;
+    }
+
+    // Filter by priority (khusus disposisi)
+    if (query.priority === true) {
+      whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+    }
+
     // Date Range Filter
     const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
     if (dateRange.startDate) {
       whereClause += ` AND DATE(s.created_at) >= ?`;
       params.push(dateRange.startDate);
+      summaryWhereClause += ` AND DATE(s.created_at) >= ?`;
+      summaryParams.push(dateRange.startDate);
     }
     if (dateRange.endDate) {
       whereClause += ` AND DATE(s.created_at) <= ?`;
       params.push(dateRange.endDate);
+      summaryWhereClause += ` AND DATE(s.created_at) <= ?`;
+      summaryParams.push(dateRange.endDate);
     }
 
     // Pagination
@@ -653,10 +707,17 @@ export class NaskahSirkulasiService {
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
         s.nama_sirkuler as pengirim_nama,
+        s.flag_favorit,
+        s.flag_note,
+        s.flag_arsip,
+        s.tindak_lanjut,
+        s.is_locked,
         s.created_at,
-        s.updated_at
+        s.updated_at,
+        di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
@@ -670,15 +731,13 @@ export class NaskahSirkulasiService {
         SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
+        SUM(CASE WHEN n.jenis = 'DI' THEN 1 ELSE 0 END) as total_di,
         SUM(CASE WHEN n.jenis = 'KA' THEN 1 ELSE 0 END) as total_ka
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
-      WHERE s.position = ?
-      AND s.sirkuler = 'pengirim'
-      AND s.is_draft = 1
-      AND n.status = 'pending'
+      ${summaryWhereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, [positionId]);
+    const summaryResult = await this.dataSource.query(summaryQuery, summaryParams);
     const summaryData = summaryResult[0] || {};
 
     if (rows.length === 0) {
@@ -693,6 +752,7 @@ export class NaskahSirkulasiService {
             ND: parseInt(summaryData.total_nd || '0', 10),
             SDI: parseInt(summaryData.total_sdi || '0', 10),
             SDE: parseInt(summaryData.total_sde || '0', 10),
+            DI: parseInt(summaryData.total_di || '0', 10),
             KA: parseInt(summaryData.total_ka || '0', 10),
           },
         },
@@ -768,6 +828,7 @@ export class NaskahSirkulasiService {
           ND: parseInt(summaryData.total_nd || '0', 10),
           SDI: parseInt(summaryData.total_sdi || '0', 10),
           SDE: parseInt(summaryData.total_sde || '0', 10),
+          DI: parseInt(summaryData.total_di || '0', 10),
           KA: parseInt(summaryData.total_ka || '0', 10),
         },
       },

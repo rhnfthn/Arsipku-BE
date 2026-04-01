@@ -122,6 +122,17 @@ export class GetDraftListResponseDto {
     limit: number;
     totalPages: number;
   };
+  summary: {
+    total_semua: number;
+    total_per_jenis: {
+      ND: number;
+      SDI: number;
+      SDE: number;
+      DI: number;
+      KA: number;
+      K: number;
+    };
+  };
 }
 
 // ============================================================
