@@ -886,6 +886,48 @@ export class NaskahSirkulasiService {
       `;
     }
 
+    // Filter by favorite
+    if (query.favorite === true) {
+      whereClause += ` AND s.flag_favorit = 1`;
+      summaryWhereClause += ` AND s.flag_favorit = 1`;
+    }
+
+    // Filter by tindak lanjut
+    if (query.tinjut === 'sudah_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 1`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
+    }
+
+    // Filter by lock
+    if (query.lock === true) {
+      whereClause += ` AND s.is_locked = 1`;
+      summaryWhereClause += ` AND s.is_locked = 1`;
+    }
+
+    // Filter by note
+    if (query.note === true) {
+      whereClause += ` AND s.flag_note = 1`;
+      summaryWhereClause += ` AND s.flag_note = 1`;
+    }
+
+    // Filter by arsip (default: exclude archived items)
+    if (query.arsip === true) {
+      whereClause += ` AND s.flag_arsip = 1`;
+      summaryWhereClause += ` AND s.flag_arsip = 1`;
+    } else {
+      whereClause += ` AND s.flag_arsip = 0`;
+      summaryWhereClause += ` AND s.flag_arsip = 0`;
+    }
+
+    // Filter by priority (khusus disposisi)
+    if (query.priority === true) {
+      whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+    }
+
     // Date Range Filter
     const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
     if (dateRange.startDate) {
@@ -936,10 +978,14 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_note,
         s.flag_arsip,
+        s.tindak_lanjut,
+        s.is_locked,
         s.created_at,
-        s.updated_at
+        s.updated_at,
+        di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
@@ -1165,6 +1211,9 @@ export class NaskahSirkulasiService {
         favorit: !!row.flag_favorit,
         note: !!row.flag_note,
         arsip: !!row.flag_arsip,
+        is_tindak_lanjut: !!row.tindak_lanjut,
+        is_locked: !!row.is_locked,
+        is_priority: row.jenis === 'DI' ? !!row.is_priority : undefined,
         labels: labelsMap.get(row.id_naskah) || [],
         created_at: row.created_at,
         updated_at: row.updated_at,
