@@ -530,9 +530,30 @@ export class SuratDinasEksternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -545,6 +566,15 @@ export class SuratDinasEksternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      if (penerimaArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
       }
 
       // Convert to names (supports eksternal UUIDs, position IDs, or names)
@@ -661,9 +691,30 @@ export class SuratDinasEksternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -676,6 +727,15 @@ export class SuratDinasEksternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      if (penerimaArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
       }
 
       // Convert to names (supports eksternal UUIDs, position IDs, or names)
