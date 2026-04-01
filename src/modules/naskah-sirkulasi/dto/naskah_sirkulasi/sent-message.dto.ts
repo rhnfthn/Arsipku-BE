@@ -106,6 +106,7 @@ export class PenerimaWithStatusDto {
  * Item dalam daftar sent messages
  */
 export class SentMessageItemDto {
+  id_sirkulasi: string;
   id_naskah: string;
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
   jenis_label: string;
