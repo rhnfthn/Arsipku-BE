@@ -373,15 +373,30 @@ export class KajianController {
       const errors = await validate(dto);
       if (errors.length > 0) {
         return res.status(HttpStatus.BAD_REQUEST).json({
-          error: 'Validation failed',
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
           message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
         });
       }
 
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
       }
 
       // Format tanggal dengan nama tempat
@@ -557,15 +572,30 @@ export class KajianController {
       const errors = await validate(dto);
       if (errors.length > 0) {
         return res.status(HttpStatus.BAD_REQUEST).json({
-          error: 'Validation failed',
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
           message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
         });
       }
 
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
       }
 
       const namaTempat = body.nama_tempat || dto.nama_tempat || 'Tangerang';

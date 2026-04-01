@@ -555,9 +555,30 @@ export class SuratDinasInternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -570,6 +591,28 @@ export class SuratDinasInternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      if (penerimaArray.length === 0 && penerimaGrupArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
       }
 
       // Check if penerima are position_ids and convert to names
@@ -590,18 +633,6 @@ export class SuratDinasInternalController {
       }
 
       // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
-      let penerimaGrupArray: string[] = [];
-      if (body.penerima_grup) {
-        if (typeof body.penerima_grup === 'string') {
-          try {
-            penerimaGrupArray = JSON.parse(body.penerima_grup);
-          } catch {
-            penerimaGrupArray = [body.penerima_grup];
-          }
-        } else if (Array.isArray(body.penerima_grup)) {
-          penerimaGrupArray = body.penerima_grup;
-        }
-      }
       if (penerimaGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
         penerimaArray = [...grupDisplayNames, ...penerimaArray];
@@ -737,9 +768,30 @@ export class SuratDinasInternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -752,6 +804,28 @@ export class SuratDinasInternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      if (penerimaArray.length === 0 && penerimaGrupArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
       }
 
       // Check if penerima are position_ids and convert to names
@@ -772,18 +846,6 @@ export class SuratDinasInternalController {
       }
 
       // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
-      let penerimaGrupArray: string[] = [];
-      if (body.penerima_grup) {
-        if (typeof body.penerima_grup === 'string') {
-          try {
-            penerimaGrupArray = JSON.parse(body.penerima_grup);
-          } catch {
-            penerimaGrupArray = [body.penerima_grup];
-          }
-        } else if (Array.isArray(body.penerima_grup)) {
-          penerimaGrupArray = body.penerima_grup;
-        }
-      }
       if (penerimaGrupArray.length > 0) {
         const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
         penerimaArray = [...grupDisplayNames, ...penerimaArray];
