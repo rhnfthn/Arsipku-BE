@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsNumber, IsDateString } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber, IsDateString, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -6,8 +6,41 @@ import { Type, Transform } from 'class-transformer';
  */
 export class TertundaQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'KA'], { message: 'Jenis naskah tidak valid' })
-  jenis?: 'ND' | 'SDI' | 'SDE' | 'KA';
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], { message: 'Jenis naskah tidak valid' })
+  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+
+  @IsOptional()
+  @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
+  status_baca?: 'terbaca' | 'belum_terbaca';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  tinjut?: 'sudah_tinjut' | 'belum_tinjut';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
 
   @IsOptional()
   @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
@@ -50,7 +83,7 @@ export class TertundaQueryDto {
  */
 export class TertundaItemDto {
   id_naskah: string;
-  jenis: 'ND' | 'SDI' | 'SDE' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
   jenis_label: string;
   nomor: string | null;
   tanggal: Date;
@@ -92,6 +125,7 @@ export class TertundaResponseDto {
       ND: number;
       SDI: number;
       SDE: number;
+      DI: number;
       KA: number;
     };
   };
