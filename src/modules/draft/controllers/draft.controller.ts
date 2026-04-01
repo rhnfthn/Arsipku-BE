@@ -89,6 +89,7 @@ export class DraftController {
         query.start_date, 
         query.end_date, 
         normalizedPreset, 
+        query.sort,
         pageNum, 
         limitNum
       );
