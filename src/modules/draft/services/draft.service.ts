@@ -189,6 +189,7 @@ export class DraftService {
     startDate?: string, // Format: YYYY-MM-DD
     endDate?: string, // Format: YYYY-MM-DD
     preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    sort: 'terbaru' | 'terlama' = 'terbaru',
     page: number = 1,
     limit: number = 10,
   ): Promise<GetDraftListResponseDto> {
@@ -271,10 +272,10 @@ export class DraftService {
       );
     }
 
-    // Order by tanggal terbaru
+    const sortDirection = sort === 'terlama' ? 'ASC' : 'DESC';
     queryBuilder
-      .orderBy('naskah.tanggal', 'DESC')
-      .addOrderBy('naskah.id', 'DESC');
+      .orderBy('naskah.tanggal', sortDirection)
+      .addOrderBy('naskah.id', sortDirection);
 
     // Get total count for pagination
     const total = await queryBuilder.getCount();
