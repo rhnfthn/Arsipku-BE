@@ -280,6 +280,7 @@ export class NaskahSirkulasiService {
     positionId: string,
     query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
+    const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
     // Build query dengan raw SQL untuk performa dan fleksibilitas
     let summaryWhereClause = `
       WHERE s.position = ?
@@ -420,7 +421,7 @@ export class NaskahSirkulasiService {
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
-      ORDER BY COALESCE(pengirim.created_at, s.created_at) DESC, s.id DESC
+      ORDER BY COALESCE(pengirim.created_at, s.created_at) ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
@@ -594,6 +595,7 @@ export class NaskahSirkulasiService {
     positionId: string,
     query: TertundaQueryDto,
   ): Promise<TertundaResponseDto> {
+    const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
     let whereClause = `
       WHERE s.position = ?
       AND s.sirkuler = 'pengirim'
@@ -656,7 +658,7 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
-      ORDER BY s.created_at DESC, s.id DESC
+      ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
@@ -811,6 +813,7 @@ export class NaskahSirkulasiService {
     positionId: string,
     query: SentMessageQueryDto,
   ): Promise<SentMessageResponseDto> {
+    const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
     // Build base query untuk mendapat naskah yang dikirim oleh position ini
     let summaryWhereClause = `
       WHERE s.position = ?
@@ -938,7 +941,7 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${whereClause}
-      ORDER BY s.created_at DESC, s.id DESC
+      ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
     const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
