@@ -22,7 +22,7 @@ import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import { DisposisiRecipientResponseDto } from '../dto/disposisi-recipient-response.dto';
-import { CreateDisposisiDto } from '../dto/create-disposisi.dto';
+import { CreateDisposisiDto, SignOption } from '../dto/create-disposisi.dto';
 import {
   SendDisposisiResponseDto,
   DisposisiSirkulasiInfoDto,
@@ -1172,6 +1172,8 @@ export class DisposisiService {
     await queryRunner.startTransaction();
 
     try {
+      const isPending = dto.sign_option === SignOption.TTD_BASAH;
+
       // Get cached position data
       const barisData = await this.getPositionData();
 
@@ -1247,7 +1249,7 @@ export class DisposisiService {
         tanggal: tanggalDisposisi,
         perihal: dto.perihal, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
-        status: 'final',
+        status: isPending ? 'pending' : 'final',
         lampiran: dto.lampiran?.length
           ? `${dto.lampiran.length} file`
           : undefined,
@@ -1322,7 +1324,7 @@ export class DisposisiService {
           ? String(pengirimData.persnum_person)
           : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
-        isDraft: false, // sendMessage = bukan draft
+        isDraft: isPending, // ttd_basah stays pending/tertunda
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1349,10 +1351,15 @@ export class DisposisiService {
             ? String(penerima.persnum_person)
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
-          isDraft: false, // sendMessage = bukan draft
+          isDraft: isPending, // ttd_basah stays pending/tertunda
           urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
+
+        if (isPending) {
+          penerimaResponses.push(this.toSirkulasiInfo(penerima));
+          continue;
+        }
 
         // Send notification to penerima (for final disposisi, not draft)
         console.log('='.repeat(60));
@@ -1577,13 +1584,15 @@ export class DisposisiService {
       // Build response
       return {
         success: true,
-        message: 'Disposisi berhasil dikirim',
+        message: isPending
+          ? 'Disposisi berhasil dikirim ke tertunda'
+          : 'Disposisi berhasil dikirim',
         data: {
           id: naskahId,
           jenis: 'DI',
           nomor: generatedNomor, // Nomor dari integrasi
           tanggal: dto.tanggal_disposisi,
-          status: 'final',
+          status: isPending ? 'pending' : 'final',
           sifat: dto.sifat,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirimData),
@@ -2175,8 +2184,9 @@ export class DisposisiService {
       (item) => String(item.position) === String(dto.pengirim_position_id),
     );
 
-    // Determine if this is a draft or final
-    const isDraft = dto.action !== 'kirim';
+    // Determine final state: draft, pending (ttd_basah), or final
+    const isPending = dto.action === 'kirim' && dto.sign_option === SignOption.TTD_BASAH;
+    const isDraft = dto.action !== 'kirim' || isPending;
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2219,7 +2229,7 @@ export class DisposisiService {
         // Untuk draft, gunakan nomor yang diberikan (jika ada)
         naskah.nomor = dto.ref_nomor_surat;
       }
-      naskah.status = isDraft ? 'draf' : 'final';
+      naskah.status = dto.action !== 'kirim' ? 'draf' : isPending ? 'pending' : 'final';
 
       await queryRunner.manager.save(naskah);
 
@@ -2587,15 +2597,21 @@ export class DisposisiService {
 
     return {
       success: true,
-      message: isDraft
+      message: dto.action !== 'kirim'
         ? 'Draft disposisi berhasil diupdate'
-        : 'Disposisi berhasil diupdate dan dikirim',
+        : isPending
+          ? 'Disposisi berhasil diupdate dan masuk tertunda'
+          : 'Disposisi berhasil diupdate dan dikirim',
       data: {
         id: naskahId,
         jenis: 'DI',
         nomor: updatedNaskah?.nomor || null,
         tanggal: tanggalStr,
-        status: isDraft ? ('draf' as const) : ('final' as const),
+        status: dto.action !== 'kirim'
+          ? ('draf' as const)
+          : isPending
+            ? ('pending' as const)
+            : ('final' as const),
         sifat: updatedNaskah?.sifat || '',
         perihal: updatedNaskah?.perihal || '',
         pengirim: sirkulasiToResponse(pengirimDataResult),
@@ -2651,6 +2667,7 @@ export class DisposisiService {
       surat_dari: dto.surat_dari,
       klasifikasi: dto.klasifikasi,
       paraf: dto.paraf,
+      sign_option: dto.sign_option,
     };
 
     // Panggil updateDraft dengan naskahId dan action = 'kirim'
@@ -2659,14 +2676,17 @@ export class DisposisiService {
     // Return dengan format SendDraftDisposisiResponseDto (same as updateDraft but with final status)
     return {
       success: result.success,
-      message: 'Draft disposisi berhasil dikirim',
+      message:
+        result.data?.status === 'pending'
+          ? 'Draft disposisi berhasil dikirim ke tertunda'
+          : 'Draft disposisi berhasil dikirim',
       data: result.data
         ? {
           id: result.data.id,
           jenis: result.data.jenis,
           nomor: result.data.nomor || '',
           tanggal: result.data.tanggal,
-          status: 'final' as const,
+          status: result.data.status === 'pending' ? ('pending' as const) : ('final' as const),
           sifat: result.data.sifat,
           perihal: result.data.perihal,
           pengirim: result.data.pengirim,
