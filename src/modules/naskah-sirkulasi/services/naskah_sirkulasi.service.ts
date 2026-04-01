@@ -1187,6 +1187,7 @@ export class NaskahSirkulasiService {
       const lampiranCount = parseInt(lampiranCountResult[0]?.total || '0', 10);
 
       items.push({
+        id_sirkulasi: row.id_sirkulasi,
         id_naskah: row.id_naskah,
         jenis: row.jenis,
         jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
@@ -1761,6 +1762,7 @@ export class NaskahSirkulasiService {
         const belumTerbaca = recipients.filter((p) => p.status_baca === 'belum_terbaca').length;
 
         results.push({
+          id_sirkulasi: row.id_sirkulasi,
           id_naskah: row.id_naskah,
           jenis: row.jenis,
           jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
