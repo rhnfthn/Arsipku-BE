@@ -235,41 +235,77 @@ export class DraftService {
           limit,
           totalPages: 0,
         },
+        summary: {
+          total_semua: 0,
+          total_per_jenis: {
+            ND: 0,
+            SDI: 0,
+            SDE: 0,
+            DI: 0,
+            KA: 0,
+            K: 0,
+          },
+        },
       };
     }
 
-    // Step 2: Build query for naskah
-    const queryBuilder = this.naskahRepository
+    // Step 2: Build base query for naskah
+    const baseQueryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
       .where('naskah.id IN (:...naskahIds)', { naskahIds: naskahIdsFromSirkulasi })
       .andWhere('naskah.status = :status', { status: 'draf' });
 
     // Apply date range filter
     if (dateRange.startDate) {
-      queryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
     }
     if (dateRange.endDate) {
-      queryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
-    }
-
-    // Filter by jenis if provided
-    if (jenis) {
-      queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
     }
 
     if (priority === true) {
-      queryBuilder.andWhere(`naskah.jenis = 'DI'`);
-      queryBuilder.andWhere(
+      baseQueryBuilder.andWhere(`naskah.jenis = 'DI'`);
+      baseQueryBuilder.andWhere(
         `EXISTS (SELECT 1 FROM di WHERE di.id_naskah = naskah.id AND di.is_priority = 1)`,
       );
     }
 
     // Search by perihal or nomor
     if (search) {
-      queryBuilder.andWhere(
+      baseQueryBuilder.andWhere(
         '(naskah.perihal LIKE :search OR naskah.nomor LIKE :search)',
         { search: `%${search}%` },
       );
+    }
+
+    // Summary follows all non-jenis filters so total_per_jenis stays informative
+    const summaryRaw = await baseQueryBuilder
+      .clone()
+      .select('COUNT(*)', 'total_semua')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'ND' THEN 1 ELSE 0 END)`, 'total_nd')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDI' THEN 1 ELSE 0 END)`, 'total_sdi')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDE' THEN 1 ELSE 0 END)`, 'total_sde')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'DI' THEN 1 ELSE 0 END)`, 'total_di')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'KA' THEN 1 ELSE 0 END)`, 'total_ka')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'K' THEN 1 ELSE 0 END)`, 'total_k')
+      .getRawOne();
+
+    const summary = {
+      total_semua: parseInt(summaryRaw?.total_semua || '0', 10),
+      total_per_jenis: {
+        ND: parseInt(summaryRaw?.total_nd || '0', 10),
+        SDI: parseInt(summaryRaw?.total_sdi || '0', 10),
+        SDE: parseInt(summaryRaw?.total_sde || '0', 10),
+        DI: parseInt(summaryRaw?.total_di || '0', 10),
+        KA: parseInt(summaryRaw?.total_ka || '0', 10),
+        K: parseInt(summaryRaw?.total_k || '0', 10),
+      },
+    };
+
+    // List/pagination can still be narrowed by jenis
+    const queryBuilder = baseQueryBuilder.clone();
+    if (jenis) {
+      queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
     }
 
     const sortDirection = sort === 'terlama' ? 'ASC' : 'DESC';
@@ -450,6 +486,7 @@ export class DraftService {
         limit,
         totalPages,
       },
+      summary,
     };
   }
 
