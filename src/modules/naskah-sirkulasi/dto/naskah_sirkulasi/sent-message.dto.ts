@@ -33,6 +33,14 @@ export class SentMessageQueryDto {
   preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    return String(value).toLowerCase().trim();
+  })
+  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  sort?: 'terbaru' | 'terlama';
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   page?: number = 1;
