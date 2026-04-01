@@ -20,6 +20,12 @@ export enum SifatNaskah {
   TERBUKA = 'terbuka',
 }
 
+export enum SignOption {
+  DIGSIG = 'digsig',
+  QR_ONLY = 'qr_only',
+  TTD_BASAH = 'ttd_basah',
+}
+
 // DTO untuk lampiran (jika ada file)
 export class LampiranDto {
   @IsNotEmpty({ message: 'Nama file harus diisi' })
@@ -166,5 +172,9 @@ export class CreateDisposisiDto {
   // ============================================================
   @IsOptional()
   is_priority?: boolean;
+
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  sign_option?: SignOption;
 }
 
