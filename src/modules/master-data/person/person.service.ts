@@ -394,7 +394,7 @@ export class PersonService {
     };
   }
 
-  async findAllWithPosition(): Promise<PersonWithPositionDto[]> {
+  async findAllWithPosition(search?: string, page?: number, limit?: number) {
     const persons = await this.cRepo.find({
       order: { createAt: 'DESC' },
     });
@@ -404,7 +404,16 @@ export class PersonService {
     const latestOrgData = orgData.length > 0 ? orgData[0] : null;
 
     if (!latestOrgData || !latestOrgData.position_json) {
-      // Return empty array if org data is not available
+      // Return empty array or paginated response if org data is not available
+      if (page && limit) {
+        return {
+          data: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        };
+      }
       return [];
     }
 
@@ -438,7 +447,7 @@ export class PersonService {
     }
 
     // Map persons to DTOs with position data
-    return persons
+    let filtered = persons
       .filter((person) => person.persnum && positionMap.has(person.persnum))
       .map((person) => {
         const posData = positionMap.get(person.persnum!);
@@ -451,6 +460,33 @@ export class PersonService {
           sub_area_text: posData.sub_area_text,
         };
       });
+
+    // Apply search filter if provided
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(
+        (item) =>
+          item.nama.toLowerCase().includes(searchLower) ||
+          item.persnum.toString().includes(search),
+      );
+    }
+
+    // Return all results without pagination if page/limit not provided
+    if (!page || !limit) {
+      return filtered;
+    }
+
+    // Return paginated results if page/limit provided
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   /**
