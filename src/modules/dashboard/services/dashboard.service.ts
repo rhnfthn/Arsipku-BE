@@ -330,7 +330,7 @@ export class DashboardService {
         'ns.id_naskah as id',
         'n.jenis as jenis',
         'n.perihal as perihal',
-        'n.tanggal as tanggal',
+        'COALESCE(pengirim.created_at, ns.created_at) as tanggal',
         'ns.send_read_time as send_read_time',
         'ns.flag_favorit as flag_favorit',
         'ns.flag_note as flag_note',
@@ -349,7 +349,10 @@ export class DashboardService {
       .where('ns.position = :positionId', { positionId: positionIdStr })
       .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .orderBy('n.tanggal', 'DESC')
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .orderBy('COALESCE(pengirim.created_at, ns.created_at)', 'DESC')
+      .addOrderBy('ns.id', 'DESC')
       .limit(10)
       .getRawMany();
 
