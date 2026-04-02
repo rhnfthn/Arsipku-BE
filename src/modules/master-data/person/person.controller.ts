@@ -58,10 +58,20 @@ export class PersonController {
   /**
    * Get all persons with position information
    * @example GET /person/with-position/all
+   * @example GET /person/with-position/all?search=ahmad
+   * @example GET /person/with-position/all?search=ahmad&page=1&limit=10
    */
   @Get('with-position/all')
-  findAllWithPosition(): Promise<PersonWithPositionDto[]> {
-    return this.personService.findAllWithPosition();
+  findAllWithPosition(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.personService.findAllWithPosition(
+      search,
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    );
   }
 
   /**
