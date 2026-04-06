@@ -435,28 +435,21 @@ export class NaskahDinasService {
     // Build query - SDE dengan tempat not null (menandakan pengirim eksternal)
     let query = this.naskahRepository
       .createQueryBuilder('naskah')
+      .distinct(true)
       .where('naskah.jenis = :jenis', { jenis: 'SDE' })
       .andWhere('naskah.tempat IS NOT NULL')
+      .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
+      .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .orderBy('naskah.tanggal', 'DESC');
 
-    // If positionId or area filter provided, add join
-    const needsJoin = positionId || (userArea && userArea !== 'A000');
-    if (needsJoin) {
-      query = query.innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id');
-    }
-
-    // If positionId provided, filter by penerima
+    // If positionId provided, filter by specific position
     if (positionId) {
-      query = query
-        .andWhere('sirkulasi.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-        .andWhere('sirkulasi.position = :position', { position: String(positionId) });
+      query = query.andWhere('sirkulasi.position = :position', { position: String(positionId) });
     }
 
     // If user is not from kantor pusat (A000), filter by user's area
     if (userArea && userArea !== 'A000') {
-      query = query
-        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
-        .andWhere('sirkulasi.area = :area', { area: userArea });
+      query = query.andWhere('sirkulasi.area = :area', { area: userArea });
     }
 
     const naskahList = await query.getMany();
@@ -481,7 +474,7 @@ export class NaskahDinasService {
 
       let penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
       
-      // If user is not from kantor pusat, filter penerima by user's area
+      // If user is not from kantor pusat, re-filter penerima by user's area for extra safety
       if (userArea && userArea !== 'A000') {
         penerimaSirkulasiList = penerimaSirkulasiList.filter((s) => s.area === userArea);
       }
