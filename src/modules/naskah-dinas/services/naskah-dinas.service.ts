@@ -424,9 +424,13 @@ export class NaskahDinasService {
   /**
    * Get all Naskah Dinas (tanpa pagination)
    * Naskah Dinas = SDE dengan pengirim eksternal (field tempat berisi eksternal.id)
+   * 
+   * @param positionId - Optional filter by penerima position
+   * @param userArea - User's area from JWT token. If not A000 (kantor pusat), filter data by user's area
    */
   async getAll(
     positionId?: number,
+    userArea?: string,
   ): Promise<NdGetAllResponseDto> {
     // Build query - SDE dengan tempat not null (menandakan pengirim eksternal)
     let query = this.naskahRepository
@@ -435,12 +439,24 @@ export class NaskahDinasService {
       .andWhere('naskah.tempat IS NOT NULL')
       .orderBy('naskah.tanggal', 'DESC');
 
+    // If positionId or area filter provided, add join
+    const needsJoin = positionId || (userArea && userArea !== 'A000');
+    if (needsJoin) {
+      query = query.innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id');
+    }
+
     // If positionId provided, filter by penerima
     if (positionId) {
       query = query
-        .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
         .andWhere('sirkulasi.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
         .andWhere('sirkulasi.position = :position', { position: String(positionId) });
+    }
+
+    // If user is not from kantor pusat (A000), filter by user's area
+    if (userArea && userArea !== 'A000') {
+      query = query
+        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+        .andWhere('sirkulasi.area = :area', { area: userArea });
     }
 
     const naskahList = await query.getMany();
@@ -463,7 +479,12 @@ export class NaskahDinasService {
         where: { idNaskah: naskah.id },
       });
 
-      const penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
+      let penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
+      
+      // If user is not from kantor pusat, filter penerima by user's area
+      if (userArea && userArea !== 'A000') {
+        penerimaSirkulasiList = penerimaSirkulasiList.filter((s) => s.area === userArea);
+      }
 
       // Ambil data pengirim dari tabel eksternal berdasarkan naskah.tempat (eksternal.id)
       let pengirimInfo: NdPengirimInfoDto = {
