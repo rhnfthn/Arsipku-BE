@@ -930,7 +930,11 @@ export class KonsepService {
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
-      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      penerima_grup: body.penerima_grup
+        ? parseStringArray(body.penerima_grup)
+        : body.tertuju_grup
+          ? parseStringArray(body.tertuju_grup)
+          : undefined,
       tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
@@ -988,7 +992,11 @@ export class KonsepService {
       lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
-      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      penerima_grup: body.penerima_grup
+        ? parseStringArray(body.penerima_grup)
+        : body.tertuju_grup
+          ? parseStringArray(body.tertuju_grup)
+          : undefined,
       tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
@@ -1032,7 +1040,11 @@ export class KonsepService {
       from_position_id: Number(body.from_position_id),
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
-      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      penerima_grup: body.penerima_grup
+        ? parseStringArray(body.penerima_grup)
+        : body.tertuju_grup
+          ? parseStringArray(body.tertuju_grup)
+          : undefined,
       tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
       perihal: body.perihal,
       konten: body.konten,
@@ -2380,6 +2392,12 @@ export class KonsepService {
           where: { idNaskah: disposisiNaskah.id, sirkuler: 'tembusan' },
           order: { createdAt: 'ASC' },
         });
+        const penerimaGrupInfoDI = await this.grupPenerimaService.getGrupInfoForResponse(
+          [...new Set(penerimaDI.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!))],
+        );
+        const tembusanGrupInfoDI = await this.grupPenerimaService.getGrupInfoForResponse(
+          [...new Set(tembusanDI.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!))],
+        );
 
         // Get lampiran
         const lampiranDI = await this.naskahLampiranRepository.find({
@@ -2440,6 +2458,8 @@ export class KonsepService {
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
           })),
+          penerima_grup: penerimaGrupInfoDI,
+          tembusan_grup: tembusanGrupInfoDI,
 
           lampiran_files: lampiranFiles,
           jumlah_lampiran: lampiranDI.length,
@@ -2591,6 +2611,8 @@ export class KonsepService {
 
           penerima: penerimaNode,
           tembusan: tembusanNode,
+          penerima_grup: penerimaGrupInfo,
+          tembusan_grup: tembusanGrupInfo,
 
           lampiran_files: [], // Naskah asli tidak ditampilkan
           jumlah_lampiran: 0,
