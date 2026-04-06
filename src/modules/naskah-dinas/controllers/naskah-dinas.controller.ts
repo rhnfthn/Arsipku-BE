@@ -13,7 +13,7 @@
 import { FileInterceptor } from '@nestjs/platform-express';
 import { NaskahDinasService } from '../services/naskah-dinas.service';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import {
   CreateNaskahDinasDto,
   GetNaskahDinasRecipientQueryDto,
