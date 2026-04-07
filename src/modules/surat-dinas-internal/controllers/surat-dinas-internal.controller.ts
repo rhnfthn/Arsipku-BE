@@ -37,6 +37,7 @@ import {
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
@@ -615,6 +616,17 @@ export class SuratDinasInternalController {
         });
       }
 
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Check if penerima are position_ids and convert to names
       const isPositionId = (value: any): boolean => {
         return (
@@ -824,6 +836,17 @@ export class SuratDinasInternalController {
           success: false,
           statusCode: HttpStatus.BAD_REQUEST,
           message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
           error: 'Bad Request',
         });
       }

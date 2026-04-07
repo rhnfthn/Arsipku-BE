@@ -35,6 +35,7 @@ import axios from 'axios';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -1415,6 +1416,8 @@ export class SuratDinasInternalService {
     dto: CreateSuratDinasInternalDto,
     status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SendMessageResponseDto> {
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2338,6 +2341,8 @@ export class SuratDinasInternalService {
       throw new BadRequestException(`Naskah bukan Surat Dinas Internal (SDI)`);
     }
 
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2990,6 +2995,8 @@ export class SuratDinasInternalService {
     if (naskah.jenis !== 'SDI') {
       throw new BadRequestException(`Naskah bukan Surat Dinas Internal (SDI)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];

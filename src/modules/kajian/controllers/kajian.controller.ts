@@ -32,6 +32,7 @@ import { GetSendMessageResponseDto } from '../dto/get-send-message-response.dto'
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('KA')
 export class KajianController {
@@ -399,6 +400,17 @@ export class KajianController {
         });
       }
 
+      try {
+        assertDateNotInFuture(dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Format tanggal dengan nama tempat
       const namaTempat = dto.nama_tempat || 'Tangerang';
       const tanggalInput = dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
@@ -594,6 +606,17 @@ export class KajianController {
           success: false,
           statusCode: HttpStatus.BAD_REQUEST,
           message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tgl || dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
           error: 'Bad Request',
         });
       }

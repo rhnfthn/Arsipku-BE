@@ -56,6 +56,7 @@ import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -1167,6 +1168,8 @@ export class DisposisiService {
   async sendMessage(
     dto: CreateDisposisiDto,
   ): Promise<SendDisposisiResponseDto> {
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1626,6 +1629,8 @@ export class DisposisiService {
    * @returns Promise<SendDisposisiResponseDto>
    */
   async saveDraft(dto: CreateDisposisiDto): Promise<SendDisposisiResponseDto> {
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -2153,6 +2158,8 @@ export class DisposisiService {
         `Naskah ini bukan disposisi (jenis: ${naskah.jenis}). API ini hanya untuk update disposisi.`,
       );
     }
+
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
 
     // PHASE 2: Validasi pengirim adalah owner naskah
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
