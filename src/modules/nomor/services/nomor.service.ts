@@ -1013,6 +1013,7 @@ export class NomorService {
     // Optimized: Load dengan relations dalam 1 query
     const [requests, adminRoles] = await Promise.all([
       this.nomorRequestRepository.find({
+        where: { isNaskahGenerated: false },
         relations: ['details'],
         order: { createdAt: 'DESC' },
       }),
@@ -1030,11 +1031,6 @@ export class NomorService {
     // Process tanpa N+1 query
     const data = requests.map((request) => {
       const details = request.details || [];
-
-      // Skip jika request di-generate dari modul naskah
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        return null;
-      }
 
       const status = this.determineStatusFromDetails(details);
 
