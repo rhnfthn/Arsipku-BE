@@ -772,6 +772,7 @@ export class KonsepService {
       jumlah: 1,
       penandatangan: pengirim.persnum_person_text || null,
       idPositionPenandatangan: pengirim.position || null,
+      isNaskahGenerated: true,
     });
 
     await queryRunner.manager.save(nomorRequest);
