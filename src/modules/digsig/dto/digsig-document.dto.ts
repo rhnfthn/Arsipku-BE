@@ -105,6 +105,10 @@ export class CreateDigsigDocumentDto {
 
 // ======== Update Document DTO ========
 export class UpdateDigsigDocumentDto {
+  @IsString()
+  @IsOptional()
+  id_document?: string;
+
   @IsDateString()
   @IsOptional()
   tanggalDokumen?: string;
