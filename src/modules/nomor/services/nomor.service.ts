@@ -155,11 +155,24 @@ export class NomorService {
   }
 
   /**
-   * Helper: Check apakah request berasal dari tulis surat otomatis
+   * Helper legacy: Check berdasarkan status detail (dipakai sebagai fallback data lama)
    */
   private isFromTulisSuratOtomatis(details: NomorRequestDetailEntity[]): boolean {
     if (details.length === 0) return false;
     return details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+  }
+
+  /**
+   * Helper: Pembeda usulan yang di-generate dari modul naskah.
+   * Fallback ke heuristik lama hanya untuk data legacy yang belum punya flag.
+   */
+  private isNaskahGeneratedRequest(
+    request: NomorRequestEntity,
+    details: NomorRequestDetailEntity[],
+  ): boolean {
+    if (request.isNaskahGenerated === true) return true;
+    if (request.isNaskahGenerated === false) return false;
+    return this.isFromTulisSuratOtomatis(details);
   }
 
   /**
@@ -349,6 +362,7 @@ export class NomorService {
       jumlah: dto.jumlah,
       penandatangan: dto.penandatangan || null,
       idPositionPenandatangan: dto.id_position_penandatangan || null,
+      isNaskahGenerated: false,
     });
 
     await this.nomorRequestRepository.save(nomorRequest);
@@ -520,7 +534,7 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
-   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
@@ -539,8 +553,8 @@ export class NomorService {
     const data = requests.map((request) => {
       const details = request.details || [];
 
-      // Skip jika dari tulis surat otomatis
-      if (this.isFromTulisSuratOtomatis(details)) {
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
         return null;
       }
 
@@ -669,7 +683,7 @@ export class NomorService {
    * Count nomor request by status (for admin dashboard)
    * - Semua data dengan status selain "Belum Diajukan" di-count
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
-   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya count data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequest(positionId: number): Promise<any> {
@@ -715,8 +729,8 @@ export class NomorService {
     for (const request of requests) {
       const details = request.details || [];
 
-      // Skip jika dari tulis surat otomatis
-      if (this.isFromTulisSuratOtomatis(details)) {
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
       }
 
@@ -749,7 +763,7 @@ export class NomorService {
     for (const request of penandatanganRequests) {
       const details = request.details || [];
 
-      if (this.isFromTulisSuratOtomatis(details)) {
+      if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
       }
 
@@ -779,7 +793,7 @@ export class NomorService {
 
   /**
    * Count nomor request by status filtered by position ID
-   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya count data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
@@ -808,8 +822,8 @@ export class NomorService {
     for (const request of requests) {
       const details = request.details || [];
 
-      // Skip jika dari tulis surat otomatis
-      if (this.isFromTulisSuratOtomatis(details)) {
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
       }
 
@@ -834,7 +848,7 @@ export class NomorService {
     for (const request of penandatanganRequests) {
       const details = request.details || [];
 
-      if (this.isFromTulisSuratOtomatis(details)) {
+      if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
       }
 
@@ -862,7 +876,7 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor
-   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
@@ -882,8 +896,8 @@ export class NomorService {
     const data = requests.map((request) => {
       const details = request.details || [];
 
-      // Skip jika dari tulis surat otomatis
-      if (this.isFromTulisSuratOtomatis(details)) {
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
         return null;
       }
 
@@ -990,7 +1004,7 @@ export class NomorService {
    * Admin melihat semua usulan nomor dengan filter posisi
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
-   * - Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
@@ -1017,8 +1031,8 @@ export class NomorService {
     const data = requests.map((request) => {
       const details = request.details || [];
 
-      // Skip jika dari tulis surat otomatis
-      if (this.isFromTulisSuratOtomatis(details)) {
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
         return null;
       }
 
@@ -3200,6 +3214,7 @@ export class NomorService {
         jumlah: dto.jumlah,
         penandatangan: dto.penandatangan || null,
         idPositionPenandatangan: dto.id_position_penandatangan || null,
+        isNaskahGenerated: false,
       });
 
       await queryRunner.manager.save(nomorRequest);
