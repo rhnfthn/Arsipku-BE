@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
@@ -2875,7 +2875,10 @@ export class NomorService {
   async getPendingApproval(positionId: number, query?: GetNomorQueryDto): Promise<any> {
     // Ambil semua request yang penandatangannya adalah posisi ini
     const requests = await this.nomorRequestRepository.find({
-      where: { idPositionPenandatangan: positionId },
+      where: [
+        { idPositionPenandatangan: positionId, isNaskahGenerated: false },
+        { idPositionPenandatangan: positionId, isNaskahGenerated: IsNull() },
+      ],
       relations: ['details'],
       order: { createdAt: 'DESC' },
     });
@@ -2887,7 +2890,7 @@ export class NomorService {
         const details = request.details || [];
         const requestStatus = details.some((d) => d.status !== 'draft')
           ? 'approved'
-          : 'pending';
+          : 'draft';
         const positionNumber = parseInt(request.position!, 10);
         const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
 
