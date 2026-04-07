@@ -2867,7 +2867,9 @@ export class NomorService {
   }
 
   /**
-   * Penandatangan melihat daftar usulan yang menunggu persetujuannya (status detail = draft)
+    * Penandatangan melihat daftar usulan berdasarkan posisi penandatangan.
+    * Semua detail ditampilkan apa adanya (tanpa mapping status):
+    * draft, booking, terpakai, terpakai_final, ditolak, hangus, dll.
    * position_id diambil dari bearer token
    */
   async getPendingApproval(positionId: number, query?: GetNomorQueryDto): Promise<any> {
@@ -2878,16 +2880,14 @@ export class NomorService {
       order: { createdAt: 'DESC' },
     });
 
-    // Filter hanya yang punya detail dengan status draft
-    const pendingRequests = requests.filter((r) =>
-      (r.details || []).some((d) => d.status === 'draft'),
-    );
-
     const positionJsonData = await this.getLatestPositionJsonData();
 
     const data = await Promise.all(
-      pendingRequests.map(async (request) => {
-        const details = (request.details || []).filter((d) => d.status === 'draft');
+      requests.map(async (request) => {
+        const details = request.details || [];
+        const requestStatus = details.some((d) => d.status !== 'draft')
+          ? 'approved'
+          : 'pending';
         const positionNumber = parseInt(request.position!, 10);
         const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
 
@@ -2908,6 +2908,7 @@ export class NomorService {
           jumlah: request.jumlah,
           penandatangan: request.penandatangan,
           is_single_file: request.isSingleFile,
+          status: requestStatus,
           template_nomor: templateNomor,
           created_at: request.createdAt,
           details: await Promise.all(
@@ -2933,7 +2934,8 @@ export class NomorService {
           item.perihal?.toLowerCase().includes(searchLower) ||
           item.jenis?.toLowerCase().includes(searchLower) ||
           item.klasifikasi?.toLowerCase().includes(searchLower) ||
-          item.nama?.toLowerCase().includes(searchLower),
+          item.nama?.toLowerCase().includes(searchLower) ||
+          item.status?.toLowerCase().includes(searchLower),
       );
     }
 
