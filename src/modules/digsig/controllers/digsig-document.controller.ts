@@ -109,6 +109,10 @@ export class DigsigDocumentController {
     @Body() dto: UpdateDigsigDocumentDto,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<DigsigDocumentEntity> {
+    if (dto.id_document && dto.id_document !== id) {
+      throw new BadRequestException('id_document pada body harus sama dengan parameter :id');
+    }
+
     let fileInfo: { path: string; name: string; size: number; mimeType: string } | null = null;
 
     if (file) {
