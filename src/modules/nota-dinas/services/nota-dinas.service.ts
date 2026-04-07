@@ -51,6 +51,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -1826,6 +1827,8 @@ export class NotaDinasService {
     status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2369,6 +2372,8 @@ export class NotaDinasService {
     if (naskah.jenis !== 'ND') {
       throw new BadRequestException(`Naskah bukan Nota Dinas (ND)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -3114,6 +3119,8 @@ export class NotaDinasService {
     if (naskah.jenis !== 'ND') {
       throw new BadRequestException(`Naskah bukan Nota Dinas (ND)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
