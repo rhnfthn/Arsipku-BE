@@ -33,6 +33,7 @@ import { formatSignatureData, generateSignatureId } from '../../../common/helper
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -1030,6 +1031,8 @@ export class SuratDinasEksternalService {
     dto: CreateSuratDinasEksternalDto,
     status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SdeSendMessageResponseDto> {
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2142,6 +2145,8 @@ export class SuratDinasEksternalService {
       throw new BadRequestException(`Naskah bukan Surat Dinas Eksternal (SDE)`);
     }
 
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2453,6 +2458,8 @@ export class SuratDinasEksternalService {
     if (naskah.jenis !== 'SDE') {
       throw new BadRequestException(`Naskah bukan Surat Dinas Eksternal (SDE)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];

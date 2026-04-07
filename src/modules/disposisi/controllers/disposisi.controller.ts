@@ -46,6 +46,7 @@ import {
   ForwardDisposisiDto,
   ForwardDisposisiResponseDto,
 } from '../dto/forward-disposisi.dto';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('DI')
 export class DisposisiController {
@@ -924,6 +925,17 @@ export class DisposisiController {
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
 
+      try {
+        assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
         if (!dateInput) return '';
@@ -1101,6 +1113,17 @@ export class DisposisiController {
 
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
+
+      try {
+        assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
 
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
