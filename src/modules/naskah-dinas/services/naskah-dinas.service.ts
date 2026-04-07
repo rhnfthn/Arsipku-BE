@@ -432,15 +432,24 @@ export class NaskahDinasService {
     positionId?: number,
     userArea?: string,
   ): Promise<NdGetAllResponseDto> {
-    // Build query - SDE dengan tempat not null (menandakan pengirim eksternal)
+    // Build base query - SDE dengan tempat not null (menandakan pengirim eksternal)
     let query = this.naskahRepository
       .createQueryBuilder('naskah')
-      .distinct(true)
       .where('naskah.jenis = :jenis', { jenis: 'SDE' })
       .andWhere('naskah.tempat IS NOT NULL')
-      .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
-      .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
       .orderBy('naskah.tanggal', 'DESC');
+
+    const shouldFilterByArea = !!userArea && userArea !== 'A000';
+    const shouldJoinSirkulasi = !!positionId || shouldFilterByArea;
+
+    // Join sirkulasi hanya jika perlu filter berdasarkan position/area.
+    // Untuk user kantor pusat (A000) tanpa positionId, query tidak difilter area.
+    if (shouldJoinSirkulasi) {
+      query = query
+        .distinct(true)
+        .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
+        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' });
+    }
 
     // If positionId provided, filter by specific position
     if (positionId) {
@@ -448,7 +457,7 @@ export class NaskahDinasService {
     }
 
     // If user is not from kantor pusat (A000), filter by user's area
-    if (userArea && userArea !== 'A000') {
+    if (shouldFilterByArea) {
       query = query.andWhere('sirkulasi.area = :area', { area: userArea });
     }
 
