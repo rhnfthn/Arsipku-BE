@@ -26,6 +26,7 @@ import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import {
   KajianRecipientResponseDto,
   OrgDataPositionDto,
@@ -1129,6 +1130,7 @@ export class KajianService {
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
     console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1589,6 +1591,8 @@ export class KajianService {
    * Save Draft Kajian
    */
   async saveDraft(dto: CreateKajianDto): Promise<SendMessageResponseDto> {
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Declare variables outside try block for access after transaction
     let naskahId: string = '';
     let tanggalStr: string = '';
@@ -1964,6 +1968,8 @@ export class KajianService {
         `Naskah ini bukan kajian (jenis: ${naskah.jenis}). API ini hanya untuk update kajian.`,
       );
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Validate ownership
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
@@ -3024,6 +3030,8 @@ export class KajianService {
     if (naskah.jenis !== 'KA') {
       throw new BadRequestException(`Naskah bukan Kajian (KA)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Validate signing options
     if (dto.sign_option === SignOption.DIGSIG) {

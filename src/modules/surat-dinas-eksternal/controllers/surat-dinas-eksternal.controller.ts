@@ -9,6 +9,7 @@ import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('SDE')
 export class SuratDinasEksternalController {
@@ -577,6 +578,17 @@ export class SuratDinasEksternalController {
         });
       }
 
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Convert to names (supports eksternal UUIDs, position IDs, or names)
       penerimaArray = await this.convertRecipientsToNames(penerimaArray, body.tanggal || body.tgl);
 
@@ -734,6 +746,17 @@ export class SuratDinasEksternalController {
           success: false,
           statusCode: HttpStatus.BAD_REQUEST,
           message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
           error: 'Bad Request',
         });
       }
