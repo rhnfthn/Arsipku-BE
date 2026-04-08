@@ -43,6 +43,7 @@ import {
   AdminCreateNomorResponseDto,
 } from '../dto/admin-create-nomor.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -1007,8 +1008,20 @@ export class NomorService {
   * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequestByPosition(positionId: number, query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestByPosition(
+    positionId: number,
+    query?: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetAdminNomorRequestResponseDto> {
     const normalizedStatus = this.normalizeStatusFilter(query?.status);
+    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!requesterAreaCode) {
+      throw new BadRequestException('Area code tidak ditemukan pada token user');
+    }
+
+    // Scope rule: A000 (kantor pusat) melihat semua area, selain itu hanya area miliknya.
+    const scopedAreaCode = requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
 
     // Optimized: Load dengan relations dalam 1 query
     const [requests, adminRoles] = await Promise.all([
@@ -1031,6 +1044,13 @@ export class NomorService {
     // Process tanpa N+1 query
     const data = requests.map((request) => {
       const details = request.details || [];
+
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          return null;
+        }
+      }
 
       const status = this.determineStatusFromDetails(details);
 
