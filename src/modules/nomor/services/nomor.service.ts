@@ -156,6 +156,21 @@ export class NomorService {
   }
 
   /**
+   * Scope area berdasarkan kode area user.
+   * - A000 (kantor pusat): tanpa pembatasan area
+   * - Selain A000: dibatasi ke area user login
+   */
+  private getScopedAreaCode(user: JwtPayload): string | undefined {
+    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!requesterAreaCode) {
+      throw new BadRequestException('Area code tidak ditemukan pada token user');
+    }
+
+    return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+  }
+
+  /**
    * Helper legacy: Check berdasarkan status detail (dipakai sebagai fallback data lama)
    */
   private isFromTulisSuratOtomatis(details: NomorRequestDetailEntity[]): boolean {
@@ -538,7 +553,11 @@ export class NomorService {
   * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequestSubmitted(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(
+    query?: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
     const normalizedStatus = this.normalizeStatusFilter(query?.status);
 
     // Optimized: Load requests dengan details dalam 1 query
@@ -553,6 +572,13 @@ export class NomorService {
     // Process data tanpa N+1 query
     const data = requests.map((request) => {
       const details = request.details || [];
+
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          return null;
+        }
+      }
 
       // Skip jika request di-generate dari modul naskah
       if (this.isNaskahGeneratedRequest(request, details)) {
@@ -687,7 +713,9 @@ export class NomorService {
   * Hanya count data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
-  async getAdminCountNomorRequest(positionId: number): Promise<any> {
+  async getAdminCountNomorRequest(positionId: number, user?: JwtPayload): Promise<any> {
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
+
     // Load requests, role admin data, dan position mapping in parallel
     const [requests, penandatanganRequests, adminRoles, positionJsonData] = await Promise.all([
       this.nomorRequestRepository.find({
@@ -730,6 +758,13 @@ export class NomorService {
     for (const request of requests) {
       const details = request.details || [];
 
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          continue;
+        }
+      }
+
       // Skip jika request di-generate dari modul naskah
       if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
@@ -763,6 +798,13 @@ export class NomorService {
     let menungguPersetujuanCount = 0;
     for (const request of penandatanganRequests) {
       const details = request.details || [];
+
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          continue;
+        }
+      }
 
       if (this.isNaskahGeneratedRequest(request, details)) {
         continue;
@@ -1014,14 +1056,7 @@ export class NomorService {
     user?: JwtPayload,
   ): Promise<GetAdminNomorRequestResponseDto> {
     const normalizedStatus = this.normalizeStatusFilter(query?.status);
-    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
-
-    if (!requesterAreaCode) {
-      throw new BadRequestException('Area code tidak ditemukan pada token user');
-    }
-
-    // Scope rule: A000 (kantor pusat) melihat semua area, selain itu hanya area miliknya.
-    const scopedAreaCode = requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
 
     // Optimized: Load dengan relations dalam 1 query
     const [requests, adminRoles] = await Promise.all([
@@ -2581,7 +2616,9 @@ export class NomorService {
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
    * OPTIMIZED: Pagination per usulan (request), output tetap flat per nomor
    */
-  async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+  async getNomor(query: GetNomorQueryDto, user?: JwtPayload): Promise<GetNomorResponseDto> {
+    const scopedAreaCode = user ? this.getScopedAreaCode(user) : undefined;
+
     // Load requests yang memiliki nomor dengan status terpakai/hangus
     const requests = await this.nomorRequestRepository.find({
       relations: ['details'],
@@ -2593,6 +2630,13 @@ export class NomorService {
 
     // Process dan filter requests yang memiliki nomor jadi
     const usulanData = requests.map((request) => {
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          return null;
+        }
+      }
+
       // Filter details hanya yang sudah jadi (terpakai, terpakai_final, hangus)
       const validDetails = (request.details || []).filter(
         (d) => d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus'
