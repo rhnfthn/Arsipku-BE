@@ -36,9 +36,10 @@ export class NaskahDinasController {
   @Get('get-recipient')
   async getRecipients(
     @Query() query: GetNaskahDinasRecipientQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<NaskahDinasRecipientResponseDto> {
     try {
-      return await this.naskahDinasService.getRecipients(query.tgl);
+      return await this.naskahDinasService.getRecipients(query.tgl, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

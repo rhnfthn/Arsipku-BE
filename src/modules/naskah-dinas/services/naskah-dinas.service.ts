@@ -18,6 +18,7 @@ import {
 } from '../dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -35,6 +36,16 @@ export class NaskahDinasService {
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
   ) {}
+
+  private getScopedAreaCode(user: JwtPayload): string | undefined {
+    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!requesterAreaCode) {
+      throw new BadRequestException('Area code tidak ditemukan pada token user');
+    }
+
+    return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+  }
 
   // ============================================================
   // HELPER METHODS
@@ -220,8 +231,12 @@ export class NaskahDinasService {
    * - Pengirim: dari tabel eksternal (pihak luar perusahaan)
    * - Penerima: dari org_data (internal users dengan chief=1)
    */
-  async getRecipients(tgl?: string): Promise<NaskahDinasRecipientResponseDto> {
+  async getRecipients(
+    tgl?: string,
+    user?: JwtPayload,
+  ): Promise<NaskahDinasRecipientResponseDto> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
 
     // Get cached org data
     const orgData = await this.orgDataService.findOrg(tanggal);
@@ -235,7 +250,19 @@ export class NaskahDinasService {
     const barisData: NdOrgDataPositionDto[] = orgData.position_json;
 
     // Filter only managerial positions (chief=1) as valid recipients
-    const recipients = barisData.filter((pos) => pos.chief === 1);
+    // Scope area: A000 (pusat) melihat semua, selain itu hanya area user login
+    const recipients = barisData.filter((pos) => {
+      if (pos.chief !== 1) {
+        return false;
+      }
+
+      if (!scopedAreaCode) {
+        return true;
+      }
+
+      const recipientAreaCode = String(pos.area || '').trim().toUpperCase();
+      return recipientAreaCode === scopedAreaCode;
+    });
 
     return {
       recipients,
