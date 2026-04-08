@@ -57,6 +57,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { QRCodeService } from '../../digsig/services/qrcode.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -146,6 +147,7 @@ export class DisposisiService {
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly qrCodeService: QRCodeService,
   ) { }
 
   // ============================================================
@@ -396,6 +398,7 @@ export class DisposisiService {
       tanggalDisposisi?: string;
       isFinal?: boolean;
       catatan?: string;
+      qrCodeHtml?: string;
     },
   ): Promise<Buffer> {
     try {
@@ -415,6 +418,12 @@ export class DisposisiService {
         finalDisposisi.push('Lainnya');
       }
 
+      // Generate preview QR code jika qrCodeHtml tidak disediakan dan bukan final
+      let qrCodeHtml = options?.qrCodeHtml || '';
+      if (!qrCodeHtml && !options?.isFinal) {
+        qrCodeHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+      }
+
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
@@ -430,6 +439,7 @@ export class DisposisiService {
         refPengirim: options?.refPengirim || '',
         tanggal: tanggal,
         catatan: options?.catatan || '',
+        qrCodeHtml: qrCodeHtml,
       });
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
