@@ -107,6 +107,7 @@ export class SearchV3Service {
         const params: any[] = [];
         let paramIndex = 0;
         const isDraftSearch = status === 'draf' || scope === SearchScopeEnum.DRAFT;
+        const isPendingSearch = scope === SearchScopeEnum.PENDING;
 
         // Build WHERE clauses
         const whereClauses: string[] = [];
@@ -116,8 +117,8 @@ export class SearchV3Service {
         params.push(userPosition);
         paramIndex++;
 
-        // Exclude drafts and konsep by default, but allow them when explicitly searching drafts.
-        if (!isDraftSearch) {
+        // Exclude drafts and konsep by default, but allow them when explicitly searching drafts or pending.
+        if (!isDraftSearch && !isPendingSearch) {
             whereClauses.push(`(s.is_draft = 0 OR s.is_draft IS NULL)`);
             whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL)`);
         }
@@ -166,6 +167,13 @@ export class SearchV3Service {
                     whereClauses.push(`EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`);
                     whereClauses.push(`n.status IN ('final', 'final_tte')`);
                     whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
+                    break;
+                case 'pending':
+                    // Naskah tertunda: menunggu TTD basah (status=pending)
+                    // Konsisten dengan endpoint naskah_sirkulasi/tertunda
+                    whereClauses.push(`s.sirkuler = 'pengirim'`);
+                    whereClauses.push(`s.is_draft = 1`);
+                    whereClauses.push(`n.status = 'pending'`);
                     break;
             }
             appliedFilters.push(`scope: ${scope}`);
