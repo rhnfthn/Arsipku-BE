@@ -11,6 +11,7 @@ import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_si
 import { OrgDataService } from '../org_data/org_data.service';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
 import { OmPosition } from '../position/entities/om-position.entity';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class PersonService {
@@ -25,6 +26,16 @@ export class PersonService {
     private readonly positionRepo: Repository<OmPosition>,
     private readonly orgDataService: OrgDataService,
   ) {}
+
+  private getScopedAreaCode(user?: JwtPayload): string | undefined {
+    const areaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!areaCode) {
+      return undefined;
+    }
+
+    return areaCode === 'A000' ? undefined : areaCode;
+  }
 
   async findAll(search?: string, page = 1, limit = 10) {
     const qb = this.cRepo.createQueryBuilder('person')
@@ -394,7 +405,13 @@ export class PersonService {
     };
   }
 
-  async findAllWithPosition(search?: string, page?: number, limit?: number) {
+  async findAllWithPosition(
+    search?: string,
+    page?: number,
+    limit?: number,
+    user?: JwtPayload,
+  ) {
+    const scopedAreaCode = this.getScopedAreaCode(user);
     const persons = await this.cRepo.find({
       order: { createAt: 'DESC' },
     });
@@ -430,6 +447,13 @@ export class PersonService {
       // Filter only managerial positions (chief=1)
       if (position.chief !== 1) {
         continue;
+      }
+
+      if (scopedAreaCode) {
+        const positionAreaCode = String(position.area || '').trim().toUpperCase();
+        if (positionAreaCode !== scopedAreaCode) {
+          continue;
+        }
       }
 
       // Match by persnum or persnum_person
