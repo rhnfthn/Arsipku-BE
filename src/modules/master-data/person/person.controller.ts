@@ -20,6 +20,8 @@ import { UpdateAssignPositionDto } from './dto/update-assign-position.dto';
 import { Person } from './entities/person.entity';
 import { GetMessageDto } from './dto/get-message.dto';
 import { PersonWithPositionDto } from './dto/person-with-position.dto';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('Person Management')
 @Controller('person')
@@ -66,11 +68,13 @@ export class PersonController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @CurrentUser() user?: JwtPayload,
   ) {
     return this.personService.findAllWithPosition(
       search,
       page ? Number(page) : undefined,
       limit ? Number(limit) : undefined,
+      user,
     );
   }
 
