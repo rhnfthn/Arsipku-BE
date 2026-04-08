@@ -86,6 +86,7 @@ export enum SearchScopeEnum {
   FAVORITE = 'favorite',     // Favorit (bisa include archived)
   ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
   PRIORITY = 'priority',     // Disposisi prioritas (jenis=DI dan is_priority=1)
+  PENDING = 'pending',       // Naskah tertunda/menunggu TTD basah (status=pending)
 }
 
 /**
