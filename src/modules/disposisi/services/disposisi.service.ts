@@ -1521,6 +1521,22 @@ export class DisposisiService {
         const refNomor = dto.ref_nomor_surat || ''; // Dari input form
         const refPerihal = dto.perihal; // Dari input form
 
+        // Generate QR Code untuk sign_option qr_only atau digsig
+        let qrCodeHtml = '';
+        if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+          const signedAt = tanggalDisposisi.toISOString();
+          const qrData = {
+            signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+            document_number: generatedNomor,
+            signed_at: signedAt,
+            signer_name: pengirimData.persnum_person_text || '',
+            signer_jabatan: pengirimData.position_text,
+            document_type: 'Disposisi Internal',
+          };
+          const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+          qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
+        }
+
         // Generate PDF with all data
         let pdfBuffer = await this.generatePdfDispoService.generatePdf({
           html: '',
@@ -1541,6 +1557,7 @@ export class DisposisiService {
             day: 'numeric',
           }),
           catatan: dto.catatan || '',
+          qrCodeHtml: qrCodeHtml,
         });
 
         // Merge with lampiran if any
