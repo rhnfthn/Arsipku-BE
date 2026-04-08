@@ -24,6 +24,8 @@ interface GeneratePdfDispoBody {
   tanggal?: string; // Tanggal disposisi terkirim (untuk agenda)
   penandatangan?: string;
   catatan?: string;
+  // QR Code HTML (optional - passed from digsig signing or preview)
+  qrCodeHtml?: string;
 }
 
 @Injectable()
@@ -160,6 +162,9 @@ export class GeneratePdfDispoService {
     
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
+
+    // QR Code section (optional - passed from digsig signing or preview)
+    const qrCodeHtml = body.qrCodeHtml || '';
     
     // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
     // Jika format "Position - Organization", ambil hanya Position
@@ -329,9 +334,7 @@ export class GeneratePdfDispoService {
             ${catatan || htmlCatatan || ''}
           </div>
           <div style="display: flex; justify-content: flex-end; padding: 12px;">
-            <div style="border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px;">
-              Paraf
-            </div>
+            ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<div style="border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px;">Paraf</div>'}
           </div>
         </div>
 
