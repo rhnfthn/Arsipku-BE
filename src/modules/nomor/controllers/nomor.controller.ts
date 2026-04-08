@@ -174,6 +174,7 @@ export class NomorController {
   async getAdminNomorRequestByPosition(
     @Param('id_posisi') idPosisi: string,
     @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
   ): Promise<GetAdminNomorRequestResponseDto> {
     try {
       const positionId = parseInt(idPosisi, 10);
@@ -186,7 +187,7 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminNomorRequestByPosition(positionId, query);
+      return await this.nomorService.getAdminNomorRequestByPosition(positionId, query, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
