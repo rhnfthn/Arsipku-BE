@@ -33,6 +33,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SearchModule } from '../search/search.module';
+import { DigsigModule } from '../digsig/digsig.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { SearchModule } from '../search/search.module';
     StorageModule,
     GeneratePdfModule,
     SearchModule,
+    DigsigModule,
   ],
   controllers: [DisposisiController],
   providers: [DisposisiService, NomorSuratService],
