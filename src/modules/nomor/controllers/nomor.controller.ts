@@ -208,9 +208,12 @@ export class NomorController {
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    */
   @Get('admin/nomor-request-submitted')
-  async getAdminNomorRequestSubmitted(@Query() query: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(
+    @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<GetAdminNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminNomorRequestSubmitted(query);
+      return await this.nomorService.getAdminNomorRequestSubmitted(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -232,6 +235,7 @@ export class NomorController {
   @Get('admin/nomor-request-count/:positionId')
   async getAdminCountNomorRequest(
     @Param('positionId') positionId: string,
+    @CurrentUser() user: any,
   ): Promise<AdminCountNomorRequestResponseDto> {
     try {
       const positionIdNum = parseInt(positionId, 10);
@@ -244,7 +248,7 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminCountNomorRequest(positionIdNum);
+      return await this.nomorService.getAdminCountNomorRequest(positionIdNum, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -719,9 +723,12 @@ export class NomorController {
    * Get semua nomor (user view)
    */
   @Get('nomor')
-  async getNomor(@Query() query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+  async getNomor(
+    @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<GetNomorResponseDto> {
     try {
-      return await this.nomorService.getNomor(query);
+      return await this.nomorService.getNomor(query, user);
     } catch (error) {
       throw new HttpException(
         {
