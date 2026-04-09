@@ -2522,6 +2522,10 @@ export class KonsepService {
       const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
       const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
 
+      // Keep latest available konsep snapshot so reject can reuse previous PDF.
+      let latestKonsepPdfSnapshot: string | null = null;
+      let latestKonsepPdfSnapshotUrl: string | null = null;
+
       for (const riwayat of riwayatList) {
         // Get the K-naskah this riwayat belongs to (for perihal/sifat/klasifikasi)
         const riwayatNaskahK = await this.naskahRepository.findOne({
@@ -2529,10 +2533,22 @@ export class KonsepService {
         });
         const naskahRef = riwayatNaskahK || naskahKonsep;
 
-        // pdf_snapshot URL (replaces naskah asli content per requirement)
-        const pdfSnapshotUrl = riwayat.pdfSnapshot
+        // Default: use current riwayat snapshot if available.
+        let finalPdfSnapshot = riwayat.pdfSnapshot;
+        let finalPdfSnapshotUrl = riwayat.pdfSnapshot
           ? await this.storageService.getFileUrl(riwayat.pdfSnapshot)
           : null;
+
+        // For reject with no snapshot, fallback to latest previous konsep snapshot.
+        if (riwayat.aksi === 'reject' && !finalPdfSnapshot && latestKonsepPdfSnapshot) {
+          finalPdfSnapshot = latestKonsepPdfSnapshot;
+          finalPdfSnapshotUrl = latestKonsepPdfSnapshotUrl;
+        }
+
+        if (riwayat.pdfSnapshot) {
+          latestKonsepPdfSnapshot = riwayat.pdfSnapshot;
+          latestKonsepPdfSnapshotUrl = finalPdfSnapshotUrl;
+        }
 
         // Build penerima / tembusan
         let penerimaNode: any[] = [];
@@ -2618,8 +2634,8 @@ export class KonsepService {
           lampiran_files: [], // Naskah asli tidak ditampilkan
           jumlah_lampiran: 0,
 
-          final_pdf: riwayat.pdfSnapshot,
-          final_pdf_url: pdfSnapshotUrl, // Hanya pdf_snapshot, bukan naskah asli
+          final_pdf: finalPdfSnapshot,
+          final_pdf_url: finalPdfSnapshotUrl, // Hanya pdf_snapshot, bukan naskah asli
 
           referensi: null,
 
