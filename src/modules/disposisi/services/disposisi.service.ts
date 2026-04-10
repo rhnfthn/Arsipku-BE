@@ -58,6 +58,7 @@ import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.s
 import { NotificationService } from '../../notification/services';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -148,7 +149,73 @@ export class DisposisiService {
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
     private readonly qrCodeService: QRCodeService,
+    private readonly digsigService: DigsigService,
   ) { }
+
+  private async validateDigsigPassphrase(params: {
+    persnum: number;
+    passphrase: string;
+    naskahId: string;
+    nomorDokumen: string;
+    tanggalDokumen: string;
+    klasifikasi: string;
+    perihal: string;
+    userName?: string;
+  }): Promise<void> {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.addPage([300, 200]);
+    const pdfBytes = await pdfDoc.save();
+    const dummyBuffer = Buffer.from(pdfBytes);
+
+    const tempFileName = `validate-digsig-${params.naskahId}-${Date.now()}.pdf`;
+    const tempUpload = await this.storageService.uploadBuffer(
+      dummyBuffer,
+      tempFileName,
+      'application/pdf',
+      'disposisi/temp',
+    );
+
+    try {
+      const userData = await this.digsigService.getUserDataForBsre(String(params.persnum));
+
+      await this.digsigService.hitDigsigEndpoint(
+        {
+          key: tempUpload.key,
+          filename: tempFileName,
+          nomorDokumen: params.nomorDokumen,
+          tanggalDokumen: params.tanggalDokumen,
+          klasifikasi: params.klasifikasi,
+          jenisNaskah: 'Disposisi Internal',
+          perihal: params.perihal,
+          nik: userData.nik,
+          passphrase: params.passphrase,
+          path_dokumen: 'disposisi/digsig/',
+          no_wa: userData.no_wa,
+        },
+        {
+          userPersnum: params.persnum,
+          userName: params.userName,
+          idNaskah: params.naskahId,
+          jenisNaskah: 'DI',
+        },
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error instanceof Error
+          ? `Validasi passphrase digital signature gagal: ${error.message}`
+          : 'Validasi passphrase digital signature gagal',
+      );
+    } finally {
+      try {
+        await this.storageService.deleteFile(tempUpload.key);
+      } catch {
+        // Ignore cleanup error for temporary validation file.
+      }
+    }
+  }
 
   // ============================================================
   // HELPER METHODS FOR POSITION CONVERSION
@@ -1178,6 +1245,7 @@ export class DisposisiService {
    */
   async sendMessage(
     dto: CreateDisposisiDto,
+    persnum?: number,
   ): Promise<SendDisposisiResponseDto> {
     assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
 
@@ -1251,6 +1319,26 @@ export class DisposisiService {
         tanggalDisposisi,
         queryRunner
       );
+
+      if (dto.sign_option === SignOption.DIGSIG) {
+        if (!persnum) {
+          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        }
+        if (!dto.passphrase || !dto.passphrase.trim()) {
+          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        }
+
+        await this.validateDigsigPassphrase({
+          persnum,
+          passphrase: dto.passphrase,
+          naskahId,
+          nomorDokumen: generatedNomor,
+          tanggalDokumen: dto.tanggal_disposisi,
+          klasifikasi: dto.sifat || 'Biasa',
+          perihal: dto.perihal || '',
+          userName: pengirimData.persnum_person_text || undefined,
+        });
+      }
 
       // Insert ke tabel NASKAH
       // nomor: auto-generated dengan integrasi
@@ -2163,6 +2251,7 @@ export class DisposisiService {
   async updateDraft(
     naskahId: string,
     dto: UpdateDraftDisposisiDto,
+    persnum?: number,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     // PHASE 1: Validasi naskah exists dan status draft
     const naskah = await this.naskahRepository.findOne({
@@ -2265,6 +2354,33 @@ export class DisposisiService {
         naskah.nomor = dto.ref_nomor_surat;
       }
       naskah.status = dto.action !== 'kirim' ? 'draf' : isPending ? 'pending' : 'final';
+
+      if (dto.action === 'kirim' && dto.sign_option === SignOption.DIGSIG) {
+        if (!persnum) {
+          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        }
+        if (!dto.passphrase || !dto.passphrase.trim()) {
+          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        }
+
+        const nomorToValidate = naskah.nomor || dto.ref_nomor_surat || `DI-${Date.now()}`;
+        const tanggalToValidate = naskah.tanggal
+          ? (naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal).split('T')[0])
+          : new Date().toISOString().split('T')[0];
+
+        await this.validateDigsigPassphrase({
+          persnum,
+          passphrase: dto.passphrase,
+          naskahId,
+          nomorDokumen: nomorToValidate,
+          tanggalDokumen: tanggalToValidate,
+          klasifikasi: naskah.sifat || dto.sifat || 'Biasa',
+          perihal: naskah.perihal || dto.perihal || '',
+          userName: pengirimData?.persnum_person_text || undefined,
+        });
+      }
 
       await queryRunner.manager.save(naskah);
 
@@ -2680,6 +2796,7 @@ export class DisposisiService {
   async sendDraft(
     naskahId: string,
     dto: SendDraftDisposisiDto,
+    persnum?: number,
   ): Promise<SendDraftDisposisiResponseDto> {
     // Konversi ke UpdateDraftDisposisiDto dengan action = 'kirim'
     const updateDto: UpdateDraftDisposisiDto = {
@@ -2703,10 +2820,11 @@ export class DisposisiService {
       klasifikasi: dto.klasifikasi,
       paraf: dto.paraf,
       sign_option: dto.sign_option,
+      passphrase: dto.passphrase,
     };
 
     // Panggil updateDraft dengan naskahId dan action = 'kirim'
-    const result = await this.updateDraft(naskahId, updateDto);
+    const result = await this.updateDraft(naskahId, updateDto, persnum);
 
     // Return dengan format SendDraftDisposisiResponseDto (same as updateDraft but with final status)
     return {

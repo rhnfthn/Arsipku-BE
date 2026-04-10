@@ -132,6 +132,10 @@ export class SendDraftDisposisiDto {
   @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
   sign_option?: SignOption;
 
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
+
   // Lampiran Temp IDs
   @IsOptional()
   @IsArray()
