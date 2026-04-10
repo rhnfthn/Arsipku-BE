@@ -101,6 +101,9 @@ export class NaskahSirkulasi {
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
 
+  @Column('int', { name: 'urutan', nullable: true, default: 0 })
+  urutan: number | null;
+
   @Column('timestamp', { 
     name: 'created_at', 
     nullable: false,
