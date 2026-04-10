@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, DataSource, In } from 'typeorm';
@@ -200,13 +201,27 @@ export class DisposisiService {
         },
       );
     } catch (error) {
-      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
-        throw error;
+      let message = 'Unknown error';
+
+      if (error instanceof HttpException) {
+        const response = error.getResponse() as any;
+        if (typeof response === 'string') {
+          message = response;
+        } else if (Array.isArray(response?.message)) {
+          message = response.message.join(', ');
+        } else if (response?.message) {
+          message = String(response.message);
+        } else {
+          message = error.message;
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      } else if (typeof error === 'string') {
+        message = error;
       }
+
       throw new BadRequestException(
-        error instanceof Error
-          ? `Validasi passphrase digital signature gagal: ${error.message}`
-          : 'Validasi passphrase digital signature gagal',
+        `Gagal proses PDF/signing: ${message || 'Unknown error'}`,
       );
     } finally {
       try {
