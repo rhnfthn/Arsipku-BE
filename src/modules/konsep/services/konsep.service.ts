@@ -335,7 +335,7 @@ export class KonsepService {
       // ==========================================
       let jumlahLampiran = 0;
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, dto.jenis);
+        await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, dto.jenis, queryRunner.manager);
         jumlahLampiran = dto.lampiran_temp_ids.length;
       } else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
@@ -589,11 +589,12 @@ export class KonsepService {
     naskahId: string,
     lampiranTempIds: string[],
     jenis: 'ND' | 'SDI' | 'SDE',
+    manager?: any,
   ): Promise<void> {
     for (const tempId of lampiranTempIds) {
-      const lampiran = await this.naskahLampiranRepository.findOne({
-        where: { id: tempId },
-      });
+      const lampiran = manager
+        ? await manager.findOne(NaskahLampiranEntity, { where: { id: tempId } })
+        : await this.naskahLampiranRepository.findOne({ where: { id: tempId } });
 
       if (lampiran && lampiran.is_temporary === 1) {
         // Move file from temporary to final location
@@ -625,14 +626,22 @@ export class KonsepService {
           lampiran.is_temporary = 0;
           lampiran.jenis = jenis;
           lampiran.file_pdf = newKey;
-          await this.naskahLampiranRepository.save(lampiran);
+          if (manager) {
+            await manager.save(NaskahLampiranEntity, lampiran);
+          } else {
+            await this.naskahLampiranRepository.save(lampiran);
+          }
         } catch (error) {
           console.error(`Failed to move lampiran ${tempId}:`, error);
           // Still update the record even if move fails
           lampiran.id_naskah = naskahId;
           lampiran.is_temporary = 0;
           lampiran.jenis = jenis;
-          await this.naskahLampiranRepository.save(lampiran);
+          if (manager) {
+            await manager.save(NaskahLampiranEntity, lampiran);
+          } else {
+            await this.naskahLampiranRepository.save(lampiran);
+          }
         }
       }
     }
@@ -1350,7 +1359,12 @@ export class KonsepService {
 
         // Handle new lampiran if provided
         if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-          await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, naskahAsli.jenis as 'ND' | 'SDI' | 'SDE');
+          await this.handleLampiranTempIds(
+            naskahAsliId,
+            dto.lampiran_temp_ids,
+            naskahAsli.jenis as 'ND' | 'SDI' | 'SDE',
+            queryRunner.manager,
+          );
         }
 
         // Handle penerima update if provided (expand individual + grup)
@@ -1776,7 +1790,12 @@ export class KonsepService {
       // 10. Handle new lampiran if provided
       let totalLampiran = 0;
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, jenis as 'ND' | 'SDI' | 'SDE');
+        await this.handleLampiranTempIds(
+          naskahAsliId,
+          dto.lampiran_temp_ids,
+          jenis as 'ND' | 'SDI' | 'SDE',
+          queryRunner.manager,
+        );
         totalLampiran = dto.lampiran_temp_ids.length;
       } else {
         // Count existing lampiran
@@ -3714,7 +3733,7 @@ export class KonsepService {
       // Handle lampiran
       let jumlahLampiran = 0;
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        await this.handleLampiranTempIds(naskahDraftId, dto.lampiran_temp_ids, dto.jenis);
+        await this.handleLampiranTempIds(naskahDraftId, dto.lampiran_temp_ids, dto.jenis, queryRunner.manager);
         jumlahLampiran = dto.lampiran_temp_ids.length;
       } else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
@@ -4312,7 +4331,7 @@ export class KonsepService {
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
         // Use updated jenis or fallback to original
         const currentJenis = (dto.jenis || jenisNaskah) as 'ND' | 'SDI' | 'SDE';
-        await this.handleLampiranTempIds(idDraft, dto.lampiran_temp_ids, currentJenis);
+        await this.handleLampiranTempIds(idDraft, dto.lampiran_temp_ids, currentJenis, queryRunner.manager);
         
         // Update lampiran count
         const lampiranCount = await queryRunner.manager.count(NaskahLampiranEntity, { where: { id_naskah: idDraft } });
