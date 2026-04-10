@@ -264,7 +264,10 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
-      return await this.disposisiService.sendMessage(body as CreateDisposisiDto);
+      return await this.disposisiService.sendMessage(
+        body as CreateDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -604,7 +607,11 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
-      return await this.disposisiService.sendDraft(id, body as SendDraftDisposisiDto);
+      return await this.disposisiService.sendDraft(
+        id,
+        body as SendDraftDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -732,7 +739,11 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
-      return await this.disposisiService.updateDraft(id, body as UpdateDraftDisposisiDto);
+      return await this.disposisiService.updateDraft(
+        id,
+        body as UpdateDraftDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
