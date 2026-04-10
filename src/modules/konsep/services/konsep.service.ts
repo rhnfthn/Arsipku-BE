@@ -638,6 +638,38 @@ export class KonsepService {
     }
   }
 
+  private async uploadDeprecatedLampiranFilesAsTemporary(
+    files?: { lampiran_files?: Express.Multer.File[] },
+  ): Promise<string[]> {
+    if (!files?.lampiran_files || files.lampiran_files.length === 0) {
+      return [];
+    }
+
+    const tempFolderId = uuidv4();
+    const uploadedTempIds: string[] = [];
+
+    for (const file of files.lampiran_files) {
+      const uploadResult = await this.storageService.uploadFile(
+        file,
+        `temporary/${tempFolderId}`,
+      );
+
+      const lampiranEntity = this.naskahLampiranRepository.create({
+        id: uuidv4(),
+        id_naskah: undefined,
+        file_name: file.originalname,
+        file_pdf: uploadResult.key,
+        is_temporary: 1,
+        temp_folder_id: tempFolderId,
+      });
+
+      await this.naskahLampiranRepository.save(lampiranEntity);
+      uploadedTempIds.push(lampiranEntity.id);
+    }
+
+    return uploadedTempIds;
+  }
+
   // ==========================================
   // NOMOR GENERATION HELPERS
   // ==========================================
@@ -942,6 +974,10 @@ export class KonsepService {
       return [Number(value)];
     };
 
+    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
+    const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
+
     return {
       jenis: body.jenis,
       from_position_id: Number(body.from_position_id),
@@ -959,7 +995,7 @@ export class KonsepService {
       nama_tempat: body.nama_tempat,
       nama_jabatan: body.nama_jabatan,
       nama_lengkap: body.nama_lengkap,
-      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
+      lampiran_temp_ids: lampiranTempIds.length > 0 ? lampiranTempIds : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
       penerima_grup: body.penerima_grup
@@ -1007,6 +1043,10 @@ export class KonsepService {
       return [Number(value)];
     };
 
+    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
+    const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
+
     return {
       from_position_id: Number(body.from_position_id),
       to_position_id: Number(body.to_position_id),
@@ -1021,7 +1061,7 @@ export class KonsepService {
       nama_tempat: body.nama_tempat,
       nama_jabatan: body.nama_jabatan,
       nama_lengkap: body.nama_lengkap,
-      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
+      lampiran_temp_ids: lampiranTempIds.length > 0 ? lampiranTempIds : undefined,
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
       tembusan_position_ids: body.tembusan_position_ids ? parseNumberArray(body.tembusan_position_ids) : undefined,
       penerima_grup: body.penerima_grup
@@ -1068,6 +1108,10 @@ export class KonsepService {
       return [Number(value)];
     };
 
+    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
+    const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
+
     return {
       from_position_id: Number(body.from_position_id),
       penerima_position_ids: body.penerima_position_ids ? parseNumberArray(body.penerima_position_ids) : undefined,
@@ -1092,7 +1136,7 @@ export class KonsepService {
       tanda_tangan: body.tanda_tangan,
       sign_option: body.sign_option,
       passphrase: body.passphrase,
-      lampiran_temp_ids: body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : undefined,
+      lampiran_temp_ids: lampiranTempIds.length > 0 ? lampiranTempIds : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
       alamat: body.alamat,
