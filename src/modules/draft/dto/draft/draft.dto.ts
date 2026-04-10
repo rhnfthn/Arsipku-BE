@@ -104,6 +104,10 @@ export class DraftListItemDto {
   id_naskah: string;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
   jenis_text: string;
+  // Penanda asal draft untuk menentukan form edit yang benar di frontend.
+  asal_draft: 'konsep' | 'naskah';
+  // Helper boolean agar FE lebih mudah melakukan redirect.
+  is_draft_konsep: boolean;
   penerima: DraftListPenerimaDto[]; // Array of all penerima
   penerima_count: number; // Jumlah penerima
   isi_pesan: string; // Perihal
