@@ -2574,6 +2574,13 @@ export class KonsepService {
       let pengirimAsli: NaskahSirkulasi | null = null;
       let penerimaAsliList: NaskahSirkulasi[] = [];
       let tembusanAsliList: NaskahSirkulasi[] = [];
+      let lampiranAsliList: NaskahLampiranEntity[] = [];
+      let lampiranAsliFiles: Array<{
+        id: string;
+        file_name: string;
+        file_path: string;
+        file_url: string | null;
+      }> = [];
 
       if (naskahKonsep.id_naskah_asli) {
         naskahAsli = await this.naskahRepository.findOne({
@@ -2589,6 +2596,17 @@ export class KonsepService {
           tembusanAsliList = await this.naskahSirkulasiRepository.find({
             where: { idNaskah: naskahAsli.id, sirkuler: 'tembusan' },
           });
+          lampiranAsliList = await this.naskahLampiranRepository.find({
+            where: { id_naskah: naskahAsli.id },
+          });
+          lampiranAsliFiles = await Promise.all(
+            lampiranAsliList.map(async (l) => ({
+              id: l.id,
+              file_name: l.file_name || '',
+              file_path: l.file_pdf || '',
+              file_url: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+            })),
+          );
         }
       }
 
@@ -2707,8 +2725,8 @@ export class KonsepService {
           penerima_grup: penerimaGrupInfo,
           tembusan_grup: tembusanGrupInfo,
 
-          lampiran_files: [], // Naskah asli tidak ditampilkan
-          jumlah_lampiran: 0,
+          lampiran_files: lampiranAsliFiles,
+          jumlah_lampiran: lampiranAsliList.length,
 
           final_pdf: finalPdfSnapshot,
           final_pdf_url: finalPdfSnapshotUrl, // Hanya pdf_snapshot, bukan naskah asli
@@ -3501,6 +3519,21 @@ export class KonsepService {
           qrCodeHtml: previewQrHtml,
         };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
+      }
+
+      // Merge naskah lampiran into snapshot PDF if available.
+      const lampiranList = queryRunner
+        ? await queryRunner.manager.find(NaskahLampiranEntity, { where: { id_naskah: naskahAsli.id } })
+        : await this.naskahLampiranRepository.find({ where: { id_naskah: naskahAsli.id } });
+
+      if (lampiranList.length > 0) {
+        const lampiranFiles = lampiranList.map((lampiran) => ({
+          id: lampiran.id,
+          fileName: lampiran.file_name,
+          filePath: lampiran.file_pdf,
+          tempFolderId: lampiran.temp_folder_id,
+        }));
+        pdfBuffer = await this.mergePdfWithLampiran(pdfBuffer, lampiranFiles);
       }
 
       // 6. Upload to storage
