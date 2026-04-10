@@ -464,10 +464,15 @@ export class DraftService {
       // Format waktu in UTC (HH:mm)
       const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
 
+      // Draft konsep (ND/SDI/SDE) saat masih draf disimpan dengan nomor '-' oleh modul Konsep.
+      const isDraftKonsep = ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
+
       items.push({
         id_naskah: naskah.id,
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
+        asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
+        is_draft_konsep: isDraftKonsep,
         penerima: penerima,
         penerima_count: penerima.length,
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
