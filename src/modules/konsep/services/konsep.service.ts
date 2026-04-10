@@ -974,7 +974,8 @@ export class KonsepService {
       return [Number(value)];
     };
 
-    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const rawLampiranTempIds = body.lampiran_temp_ids ?? body['lampiran_temp_ids[]'];
+    const bodyLampiranTempIds = rawLampiranTempIds ? parseStringArray(rawLampiranTempIds) : [];
     const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
     const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
 
@@ -1043,7 +1044,8 @@ export class KonsepService {
       return [Number(value)];
     };
 
-    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const rawLampiranTempIds = body.lampiran_temp_ids ?? body['lampiran_temp_ids[]'];
+    const bodyLampiranTempIds = rawLampiranTempIds ? parseStringArray(rawLampiranTempIds) : [];
     const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
     const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
 
@@ -1108,7 +1110,8 @@ export class KonsepService {
       return [Number(value)];
     };
 
-    const bodyLampiranTempIds = body.lampiran_temp_ids ? parseStringArray(body.lampiran_temp_ids) : [];
+    const rawLampiranTempIds = body.lampiran_temp_ids ?? body['lampiran_temp_ids[]'];
+    const bodyLampiranTempIds = rawLampiranTempIds ? parseStringArray(rawLampiranTempIds) : [];
     const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
     const lampiranTempIds = [...new Set([...bodyLampiranTempIds, ...uploadedLampiranTempIds])];
 
@@ -4444,6 +4447,12 @@ export class KonsepService {
       dto.lampiran_temp_ids = Array.isArray(body['lampiran_temp_ids[]'])
         ? body['lampiran_temp_ids[]']
         : [body['lampiran_temp_ids[]']];
+    }
+
+    // Backward compatibility: direct file upload is converted to temporary lampiran IDs
+    const uploadedLampiranTempIds = await this.uploadDeprecatedLampiranFilesAsTemporary(files);
+    if (uploadedLampiranTempIds.length > 0) {
+      dto.lampiran_temp_ids = [...new Set([...(dto.lampiran_temp_ids || []), ...uploadedLampiranTempIds])];
     }
 
     // Parse penerima_position_ids
