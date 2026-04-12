@@ -150,6 +150,12 @@ export class DraftDetailPenerimaDto {
   organization_text: string;
 }
 
+export class DraftDetailGrupPenerimaDto {
+  id: string;
+  nama: string;
+  position_ids: number[];
+}
+
 export class DraftDetailLampiranDto {
   id: string;
   nama_file: string;
@@ -194,8 +200,14 @@ export class DraftDetailDataDto {
   // Penerima
   penerima: DraftDetailPenerimaDto[];
 
+  // Grup penerima (for ND/SDI/SDE/DI/KA jika menggunakan grup)
+  penerima_grup?: DraftDetailGrupPenerimaDto[];
+
   // Tembusan (for ND)
   tembusan?: DraftDetailPenerimaDto[];
+
+  // Grup tembusan (for ND)
+  tembusan_grup?: DraftDetailGrupPenerimaDto[];
 
   // Referensi (for ND, DI)
   referensi?: DraftDetailReferensiDto;
