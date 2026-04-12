@@ -911,7 +911,10 @@ export class NotaDinasService {
    */
   async parseFormDataToFinalizeDraftDto(
     body: any,
-    files?: { lampiran_files?: Express.Multer.File[] },
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
   ): Promise<FinalizeDraftDto> {
     // Helper: Parse array field (bisa JSON string atau comma-separated)
     const parseArray = (value: any): number[] => {
@@ -945,12 +948,22 @@ export class NotaDinasService {
 
     // Upload lampiran files if provided
     let lampiranFilePaths: string[] = [];
+    let finalPdfPath: string | undefined;
     if (files?.lampiran_files && files.lampiran_files.length > 0) {
       const uploadPromises = files.lampiran_files.map((file) =>
         this.storageService.uploadFile(file, 'nota-dinas/lampiran'),
       );
       const uploadResults = await Promise.all(uploadPromises);
       lampiranFilePaths = uploadResults.map((result) => result.key);
+    }
+
+    // Upload final_pdf file if provided
+    if (files?.final_pdf && files.final_pdf.length > 0) {
+      const uploadResult = await this.storageService.uploadFile(
+        files.final_pdf[0],
+        'nota-dinas/final',
+      );
+      finalPdfPath = uploadResult.key;
     }
 
     // Build DTO (all fields optional)
@@ -994,7 +1007,8 @@ export class NotaDinasService {
     }
 
     // PDF & Tanggal
-    if (body.final_pdf !== undefined) dto.final_pdf = body.final_pdf;
+    if (finalPdfPath !== undefined) dto.final_pdf = finalPdfPath;
+    else if (body.final_pdf !== undefined) dto.final_pdf = body.final_pdf;
     if (body.tgl !== undefined) dto.tgl = body.tgl;
 
     // Digital Signature Options
