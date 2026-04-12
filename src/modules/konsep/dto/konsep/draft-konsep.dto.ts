@@ -120,6 +120,42 @@ export class CreateDraftKonsepDto {
   @IsNumber({}, { each: true })
   tembusan_position_ids?: number[]; // Tembusan surat
 
+  // ============ GRUP PENERIMA ============
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
+
   // ============ CATATAN ============
 
   @IsOptional()
@@ -257,6 +293,40 @@ export class UpdateDraftKonsepDto {
   @IsArray()
   @IsNumber({}, { each: true })
   tembusan_position_ids?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 
   @IsOptional()
   @IsString()
@@ -433,6 +503,11 @@ export class DraftKonsepDetailDataDto {
     position_text: string;
     nama: string | null;
   }>;
+  penerima_grup?: Array<{
+    id: string;
+    nama: string;
+    position_ids: number[];
+  }>;
   penerima_text?: string; // kepada_yth for SDE
 
   // Tembusan
@@ -440,6 +515,11 @@ export class DraftKonsepDetailDataDto {
     position_id: number;
     position_text: string;
     nama: string | null;
+  }>;
+  tembusan_grup?: Array<{
+    id: string;
+    nama: string;
+    position_ids: number[];
   }>;
   tembusan_text?: string;
 
@@ -455,6 +535,8 @@ export class DraftKonsepDetailDataDto {
     id: string;
     nomor: string;
     perihal: string | null;
+    pengirim?: string | null;
+    tanggal?: Date | null;
   };
 
   // Catatan

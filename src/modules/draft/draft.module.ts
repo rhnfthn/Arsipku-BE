@@ -11,6 +11,7 @@ import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_refer
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { LabelModule } from '../label/label.module';
 import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SearchModule } from '../search/search.module';
     ]),
     LabelModule,
     SearchModule,
+    GrupPenerimaModule,
   ],
   controllers: [DraftController],
   providers: [DraftService],
