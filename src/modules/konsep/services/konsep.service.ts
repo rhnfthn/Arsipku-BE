@@ -4658,6 +4658,30 @@ export class KonsepService {
         : [parseInt(body['tembusan_position_ids[]'], 10)];
     }
 
+    // Parse penerima_grup (supports alias tertuju_grup)
+    const rawPenerimaGrup =
+      body.penerima_grup ??
+      body['penerima_grup[]'] ??
+      body.tertuju_grup ??
+      body['tertuju_grup[]'];
+    if (rawPenerimaGrup) {
+      dto.penerima_grup = Array.isArray(rawPenerimaGrup)
+        ? rawPenerimaGrup
+        : typeof rawPenerimaGrup === 'string' && rawPenerimaGrup.startsWith('[')
+          ? JSON.parse(rawPenerimaGrup)
+          : [rawPenerimaGrup];
+    }
+
+    // Parse tembusan_grup
+    const rawTembusanGrup = body.tembusan_grup ?? body['tembusan_grup[]'];
+    if (rawTembusanGrup) {
+      dto.tembusan_grup = Array.isArray(rawTembusanGrup)
+        ? rawTembusanGrup
+        : typeof rawTembusanGrup === 'string' && rawTembusanGrup.startsWith('[')
+          ? JSON.parse(rawTembusanGrup)
+          : [rawTembusanGrup];
+    }
+
     return dto;
   }
 
