@@ -472,6 +472,7 @@ export class DraftService {
 
       items.push({
         id_naskah: naskah.id,
+        id_sirkulasi: pengirimSirkulasi?.id || null,
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
         asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
