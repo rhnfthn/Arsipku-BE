@@ -3682,12 +3682,23 @@ export class KonsepService {
       const sirkulasiPengirim = this.createSirkulasi(naskahDraftId, 'pengirim', fromPos, false);
       await queryRunner.manager.save(sirkulasiPengirim);
 
-      // Handle penerima naskah final (jika sudah diisi)
-      if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
-        for (const posId of dto.penerima_position_ids) {
+      // Handle penerima naskah final (individual + grup)
+      const expandedPenerimaIds = await this.expandGrupPenerima(
+        dto.penerima_position_ids,
+        dto.penerima_grup,
+        dto.tgl,
+        Number(dto.from_position_id),
+      );
+      const penerimaGrupMap = dto.penerima_grup?.length
+        ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+        : new Map<number, string>();
+
+      if (expandedPenerimaIds.length > 0) {
+        for (const posId of expandedPenerimaIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
           const sirkulasi = this.createSirkulasi(naskahDraftId, 'penerima', pos, false);
+          sirkulasi.idGrupPenerima = penerimaGrupMap.get(Number(posId)) || null;
           await queryRunner.manager.save(sirkulasi);
         }
       } else if (dto.kepada_yth) {
@@ -3704,12 +3715,23 @@ export class KonsepService {
         await queryRunner.manager.save(sirkulasiPenerima);
       }
 
-      // Handle tembusan (jika sudah diisi)
-      if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
-        for (const posId of dto.tembusan_position_ids) {
+      // Handle tembusan (individual + grup)
+      const expandedTembusanIds = await this.expandGrupPenerima(
+        dto.tembusan_position_ids,
+        dto.tembusan_grup,
+        dto.tgl,
+        Number(dto.from_position_id),
+      );
+      const tembusanGrupMap = dto.tembusan_grup?.length
+        ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+        : new Map<number, string>();
+
+      if (expandedTembusanIds.length > 0) {
+        for (const posId of expandedTembusanIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
           const sirkulasi = this.createSirkulasi(naskahDraftId, 'tembusan', pos, false);
+          sirkulasi.idGrupPenerima = tembusanGrupMap.get(Number(posId)) || null;
           await queryRunner.manager.save(sirkulasi);
         }
       } else if (dto.tembusan) {
@@ -4018,22 +4040,26 @@ export class KonsepService {
       where: { idNaskah: idDraft, sirkuler: 'penerima' },
     });
 
-    const penerima = penerimaList.map(p => ({
-      position_id: Number(p.position) || 0,
-      position_text: p.positionText || '',
-      nama: p.namaSirkuler || null,
-    }));
+    const penerima = penerimaList
+      .filter((p) => p.position)
+      .map((p) => ({
+        position_id: Number(p.position),
+        position_text: p.positionText || '',
+        nama: p.namaSirkuler || null,
+      }));
 
     // Get tembusan
     const tembusanList = await this.naskahSirkulasiRepository.find({
       where: { idNaskah: idDraft, sirkuler: 'tembusan' },
     });
 
-    const tembusan = tembusanList.map(t => ({
-      position_id: Number(t.position) || 0,
-      position_text: t.positionText || '',
-      nama: t.namaSirkuler || null,
-    }));
+    const tembusan = tembusanList
+      .filter((t) => t.position)
+      .map((t) => ({
+        position_id: Number(t.position),
+        position_text: t.positionText || '',
+        nama: t.namaSirkuler || null,
+      }));
 
     // Get lampiran
     const lampiranList = await this.naskahLampiranRepository.find({
@@ -4047,7 +4073,13 @@ export class KonsepService {
     }));
 
     // Get referensi disposisi
-    let disposisiReferensi: { id: string; nomor: string; perihal: string | null } | null = null;
+    let disposisiReferensi: {
+      id: string;
+      nomor: string;
+      perihal: string | null;
+      pengirim?: string | null;
+      tanggal?: Date | null;
+    } | null = null;
     const referensiData = await this.naskahReferensiRepository.findOne({
       where: { id_naskah: idDraft, ref_jenis: 'DI' },
     });
@@ -4056,6 +4088,8 @@ export class KonsepService {
         id: referensiData.id,
         nomor: referensiData.ref_nomor || '',
         perihal: referensiData.ref_perihal || null,
+        pengirim: referensiData.ref_pengirim || null,
+        tanggal: referensiData.ref_tanggal || null,
       };
     }
 
@@ -4065,16 +4099,64 @@ export class KonsepService {
       SDE: 'Surat Dinas Eksternal',
     };
 
-    // Check kepada_yth text for SDE
-    let penerimaText: string | null = null;
-    if (naskah.jenis === 'SDE' && penerimaList.length > 0 && !penerimaList[0].position) {
-      penerimaText = penerimaList[0].positionText || penerimaList[0].namaSirkuler || null;
+    // Resolve text-based recipients (e.g., SDE kepada_yth / tembusan text)
+    const penerimaTextCandidates = Array.from(
+      new Set(
+        penerimaList
+          .filter((p) => !p.position)
+          .map((p) => (p.positionText || p.namaSirkuler || '').trim())
+          .filter((v) => !!v),
+      ),
+    );
+    const tembusanTextCandidates = Array.from(
+      new Set(
+        tembusanList
+          .filter((t) => !t.position)
+          .map((t) => (t.positionText || t.namaSirkuler || '').trim())
+          .filter((v) => !!v),
+      ),
+    );
+
+    const penerimaText = penerimaTextCandidates.length
+      ? penerimaTextCandidates.join(', ')
+      : null;
+    const tembusanText = tembusanTextCandidates.length
+      ? tembusanTextCandidates.join(', ')
+      : null;
+
+    // Resolve potential reviewer target from linked konsep workflow (if exists)
+    let toPositionId: number | undefined;
+    let toPositionText: string | undefined;
+    let toNama: string | null | undefined;
+    if (naskah.id_naskah_konsep) {
+      const konsepReceiver = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: naskah.id_naskah_konsep,
+          sirkuler: 'penerima',
+        },
+      });
+
+      if (konsepReceiver?.position) {
+        toPositionId = Number(konsepReceiver.position);
+        toPositionText = konsepReceiver.positionText || undefined;
+        toNama = konsepReceiver.namaSirkuler || null;
+      }
     }
 
-    let tembusanText: string | null = null;
-    if (tembusanList.length > 0 && !tembusanList[0].position) {
-      tembusanText = tembusanList[0].positionText || tembusanList[0].namaSirkuler || null;
-    }
+    const penerimaGrupIds = [
+      ...new Set(
+        penerimaList
+          .filter((p) => p.idGrupPenerima)
+          .map((p) => p.idGrupPenerima as string),
+      ),
+    ];
+    const tembusanGrupIds = [
+      ...new Set(
+        tembusanList
+          .filter((t) => t.idGrupPenerima)
+          .map((t) => t.idGrupPenerima as string),
+      ),
+    ];
 
     return {
       success: true,
@@ -4086,6 +4168,9 @@ export class KonsepService {
         from_position_text: pengirimSirkulasi.positionText || '',
         from_nama: pengirimSirkulasi.namaSirkuler || null,
         from_organization_text: pengirimSirkulasi.organizationText || null,
+        to_position_id: toPositionId,
+        to_position_text: toPositionText,
+        to_nama: toNama,
         perihal: naskah.perihal || null,
         konten: naskah.konten || null,
         sifat: naskah.sifat || 'biasa',
@@ -4097,17 +4182,17 @@ export class KonsepService {
         tembusan: tembusan.length > 0 ? tembusan : undefined,
         tembusan_text: tembusanText,
         penerima_grup: await this.grupPenerimaService.getGrupInfoForResponse(
-          [...new Set(penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!))],
+          penerimaGrupIds,
         ),
         tembusan_grup: await this.grupPenerimaService.getGrupInfoForResponse(
-          [...new Set(tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!))],
+          tembusanGrupIds,
         ),
         lampiran: lampiran.length > 0 ? lampiran : undefined,
         disposisi_referensi: disposisiReferensi,
         catatan: (naskah as any).catatan_konsep || null,
         status: 'draf',
-        created_at: naskah.tanggal,
-        updated_at: naskah.tanggal,
+        created_at: pengirimSirkulasi.createdAt || naskah.tanggal,
+        updated_at: pengirimSirkulasi.updatedAt || pengirimSirkulasi.createdAt || naskah.tanggal,
       },
     };
   }
@@ -4279,19 +4364,34 @@ export class KonsepService {
       // Update penerima if provided
       const barisData = await this.getPositionData();
 
-      if (dto.penerima_position_ids || dto.kepada_yth) {
+      if (
+        dto.penerima_position_ids !== undefined ||
+        dto.penerima_grup !== undefined ||
+        dto.kepada_yth !== undefined
+      ) {
         // Delete existing penerima
         await queryRunner.manager.delete(NaskahSirkulasi, {
           idNaskah: idDraft,
           sirkuler: 'penerima',
         });
 
-        // Add new penerima
-        if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
-          for (const posId of dto.penerima_position_ids) {
+        // Add new penerima (individual + grup)
+        const expandedPenerimaIds = await this.expandGrupPenerima(
+          dto.penerima_position_ids,
+          dto.penerima_grup,
+          dto.tgl,
+          Number(dto.from_position_id),
+        );
+        const penerimaGrupMap = dto.penerima_grup?.length
+          ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
+          : new Map<number, string>();
+
+        if (expandedPenerimaIds.length > 0) {
+          for (const posId of expandedPenerimaIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
             const sirkulasi = this.createSirkulasi(idDraft, 'penerima', pos, false);
+            sirkulasi.idGrupPenerima = penerimaGrupMap.get(Number(posId)) || null;
             await queryRunner.manager.save(sirkulasi);
           }
         } else if (dto.kepada_yth) {
@@ -4309,19 +4409,34 @@ export class KonsepService {
       }
 
       // Update tembusan if provided
-      if (dto.tembusan_position_ids || dto.tembusan) {
+      if (
+        dto.tembusan_position_ids !== undefined ||
+        dto.tembusan_grup !== undefined ||
+        dto.tembusan !== undefined
+      ) {
         // Delete existing tembusan
         await queryRunner.manager.delete(NaskahSirkulasi, {
           idNaskah: idDraft,
           sirkuler: 'tembusan',
         });
 
-        // Add new tembusan
-        if (dto.tembusan_position_ids && dto.tembusan_position_ids.length > 0) {
-          for (const posId of dto.tembusan_position_ids) {
+        // Add new tembusan (individual + grup)
+        const expandedTembusanIds = await this.expandGrupPenerima(
+          dto.tembusan_position_ids,
+          dto.tembusan_grup,
+          dto.tgl,
+          Number(dto.from_position_id),
+        );
+        const tembusanGrupMap = dto.tembusan_grup?.length
+          ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
+          : new Map<number, string>();
+
+        if (expandedTembusanIds.length > 0) {
+          for (const posId of expandedTembusanIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
             const sirkulasi = this.createSirkulasi(idDraft, 'tembusan', pos, false);
+            sirkulasi.idGrupPenerima = tembusanGrupMap.get(Number(posId)) || null;
             await queryRunner.manager.save(sirkulasi);
           }
         } else if (dto.tembusan) {
