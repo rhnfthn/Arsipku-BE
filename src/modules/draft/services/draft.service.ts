@@ -15,12 +15,14 @@ import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
   GetDraftDetailResponseDto,
   DraftDetailDataDto,
   DraftDetailPenerimaDto,
+  DraftDetailGrupPenerimaDto,
   DraftDetailLampiranDto,
   DraftDetailReferensiDto,
   DraftDetailPetunjukDto,
@@ -80,6 +82,7 @@ export class DraftService {
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) {}
 
   /**
@@ -559,8 +562,20 @@ export class DraftService {
       organization_text: p.organizationText || '',
     }));
 
+    // Get grouped recipient metadata (for prefill tulis surat seperti ND)
+    const penerimaGrupIds = Array.from(
+      new Set(
+        penerimaList
+          .filter((p) => p.idGrupPenerima)
+          .map((p) => p.idGrupPenerima as string),
+      ),
+    );
+    const penerima_grup: DraftDetailGrupPenerimaDto[] =
+      await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+
     // Get tembusan (for ND)
     let tembusan: DraftDetailPenerimaDto[] | undefined;
+    let tembusan_grup: DraftDetailGrupPenerimaDto[] | undefined;
     if (naskah.jenis === 'ND') {
       const tembusanList = await this.naskahSirkulasiRepository.find({
         where: {
@@ -576,6 +591,17 @@ export class DraftService {
           nama: t.namaSirkuler || '',
           organization_text: t.organizationText || '',
         }));
+
+        const tembusanGrupIds = Array.from(
+          new Set(
+            tembusanList
+              .filter((t) => t.idGrupPenerima)
+              .map((t) => t.idGrupPenerima as string),
+          ),
+        );
+        tembusan_grup = await this.grupPenerimaService.getGrupInfoForResponse(
+          tembusanGrupIds,
+        );
       }
     }
 
@@ -643,7 +669,9 @@ export class DraftService {
         organization_text: pengirimSirkulasi.organizationText || '',
       },
       penerima,
+      penerima_grup,
       tembusan,
+      tembusan_grup,
       referensi,
       petunjuk_disposisi,
       lampiran,
