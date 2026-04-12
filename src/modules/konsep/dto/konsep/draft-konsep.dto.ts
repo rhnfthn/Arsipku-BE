@@ -373,6 +373,7 @@ export class UpdateDraftKonsepResponseDto {
  */
 export class DraftKonsepListItemDto {
   id_draft: string;
+  id_sirkulasi: string | null;
   jenis: 'ND' | 'SDI' | 'SDE';
   jenis_text: string;
   perihal: string;
