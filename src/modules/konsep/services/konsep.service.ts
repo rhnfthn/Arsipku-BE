@@ -3832,9 +3832,18 @@ export class KonsepService {
       .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
       .andWhere('sirkulasi.position = :position', { position: String(positionId) })
       .andWhere('sirkulasi.is_konsep = :isKonsep', { isKonsep: 0 })
+      .orderBy('sirkulasi.createdAt', 'DESC')
+      .addOrderBy('sirkulasi.id', 'DESC')
       .getMany();
 
     const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
+    const sirkulasiByNaskahId = new Map<string, NaskahSirkulasi>();
+    for (const s of sirkulasiRecords) {
+      if (!s.idNaskah) continue;
+      if (!sirkulasiByNaskahId.has(s.idNaskah)) {
+        sirkulasiByNaskahId.set(s.idNaskah, s);
+      }
+    }
 
     if (naskahIdsFromSirkulasi.length === 0) {
       return {
@@ -3906,6 +3915,7 @@ export class KonsepService {
 
         return {
           id_draft: naskah.id,
+          id_sirkulasi: sirkulasiByNaskahId.get(naskah.id)?.id || null,
           jenis: naskah.jenis as 'ND' | 'SDI' | 'SDE',
           jenis_text: jenisTextMap[naskah.jenis] || naskah.jenis,
           perihal: naskah.perihal || '-',
