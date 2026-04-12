@@ -413,6 +413,7 @@ export class NotaDinasController {
     FileFieldsInterceptor(
       [
         { name: 'lampiran_files', maxCount: 10 },
+        { name: 'final_pdf', maxCount: 1 },
       ],
       {
         limits: {
@@ -424,7 +425,7 @@ export class NotaDinasController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
     @CurrentUser() user?: any,
   ): Promise<SendMessageResponseDto> {
     try {
