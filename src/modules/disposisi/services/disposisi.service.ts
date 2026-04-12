@@ -2677,6 +2677,132 @@ export class DisposisiService {
         }
       }
 
+      // PHASE 8: Auto-generate PDF when draft is sent (action='kirim')
+      if (dto.action === 'kirim') {
+        try {
+          const currentPengirim = await queryRunner.manager.findOne(NaskahSirkulasi, {
+            where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+          });
+
+          const currentPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+            where: { idNaskah: naskahId, sirkuler: 'penerima' },
+            order: { urutan: 'ASC', createdAt: 'ASC' },
+          });
+
+          const currentDi = await queryRunner.manager.findOne(DiEntity, {
+            where: { idNaskah: naskahId },
+          });
+
+          const currentLampiran = await queryRunner.manager.find(NaskahLampiranEntity, {
+            where: { id_naskah: naskahId },
+          });
+
+          const kepadaYthList = currentPenerima.map((p) => `${p.positionText} ${p.organizationText}`.trim());
+
+          // Parse disposisi text ke array checklist PDF
+          let disposisiArray: string[] = [];
+          const disposisiRaw = currentDi?.disposisi ?? naskah.konten ?? '';
+          if (Array.isArray(disposisiRaw)) {
+            disposisiArray = disposisiRaw;
+          } else if (typeof disposisiRaw === 'string') {
+            disposisiArray = disposisiRaw.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+          }
+
+          const catatanText = currentDi?.catatan || '';
+          if (catatanText.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+            disposisiArray.push('Lainnya');
+          }
+
+          const tanggalNaskah = naskah.tanggal instanceof Date
+            ? naskah.tanggal
+            : naskah.tanggal
+              ? new Date(naskah.tanggal)
+              : new Date();
+
+          const nomorDokumen = naskah.nomor || dto.ref_nomor_surat || `DI-${naskahId}`;
+          const refPengirim = currentPengirim?.positionText || pengirimData?.position_text || '';
+          const refPerihal = naskah.perihal || dto.perihal || '';
+          const refTanggal = tanggalNaskah.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          let qrCodeHtml = '';
+          if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+            const qrData = {
+              signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+              document_number: nomorDokumen,
+              signed_at: tanggalNaskah.toISOString(),
+              signer_name: currentPengirim?.namaSirkuler || pengirimData?.persnum_person_text || '',
+              signer_jabatan: currentPengirim?.positionText || pengirimData?.position_text || '',
+              document_type: 'Disposisi Internal',
+            };
+            const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+            qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
+          }
+
+          let pdfBuffer = await this.generatePdfDispoService.generatePdf({
+            html: '',
+            penerima: kepadaYthList,
+            disposisi: disposisiArray,
+            sifat: naskah.sifat || dto.sifat || 'Biasa',
+            pengirim: refPengirim,
+            tembusan: [],
+            perihal: refPerihal,
+            nomorAgenda: nomorDokumen,
+            refNomor: nomorDokumen,
+            refPerihal: refPerihal,
+            refTanggal: refTanggal,
+            refPengirim: refPengirim,
+            tanggal: refTanggal,
+            catatan: catatanText,
+            qrCodeHtml,
+          });
+
+          // Merge dengan lampiran yang sudah tersimpan di draft
+          const lampiranIds = currentLampiran.map((l) => l.id);
+          if (lampiranIds.length > 0) {
+            const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranIds);
+            if (lampiranFiles.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            }
+          }
+
+          const timestamp = Date.now();
+          const safeNomor = nomorDokumen.replace(/\//g, '-');
+          const pdfFileName = `DI-${safeNomor}-${timestamp}.pdf`;
+
+          const uploadResult = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            pdfFileName,
+            'application/pdf',
+            'disposisi/final',
+          );
+
+          await queryRunner.manager.update(
+            NaskahEntity,
+            { id: naskahId },
+            { final_pdf: uploadResult.key },
+          );
+
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update('nomor_request_detail')
+            .set({
+              fileName: pdfFileName,
+              fileText: uploadResult.key,
+            })
+            .where('nomor = :nomor', { nomor: nomorDokumen })
+            .andWhere('status = :status', { status: 'terpakai_final' })
+            .execute();
+
+          console.log('[DI updateDraft] PDF auto-generated:', uploadResult.key);
+        } catch (error) {
+          console.error('[DI updateDraft] Failed to auto-generate PDF:', error);
+        }
+      }
+
       // Commit transaction
       await queryRunner.commitTransaction();
     } catch (error) {
