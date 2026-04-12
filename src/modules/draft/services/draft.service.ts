@@ -309,9 +309,12 @@ export class DraftService {
     }
 
     const sortDirection = sort === 'terlama' ? 'ASC' : 'DESC';
+    // Samakan logic sort dengan inbox: gunakan timestamp pengirim naskah_sirkulasi.
+    const draftDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = naskah.id AND p.sirkuler = 'pengirim' AND p.position = :sortPosition LIMIT 1), naskah.tanggal)`;
     queryBuilder
-      .orderBy('naskah.tanggal', sortDirection)
-      .addOrderBy('naskah.id', sortDirection);
+      .setParameter('sortPosition', String(positionId))
+      .orderBy(draftDisplayCreatedAtExpr, sortDirection as 'ASC' | 'DESC')
+      .addOrderBy('naskah.id', sortDirection as 'ASC' | 'DESC');
 
     // Get total count for pagination
     const total = await queryBuilder.getCount();
