@@ -105,6 +105,9 @@ export class DraftListItemDto {
   id_sirkulasi: string | null;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
   jenis_text: string;
+  penanda_konsep: boolean;
+  konseptor_position_id: number | null;
+  nama_konseptor: string | null;
   // Penanda asal draft untuk menentukan form edit yang benar di frontend.
   asal_draft: 'konsep' | 'naskah';
   // Helper boolean agar FE lebih mudah melakukan redirect.
