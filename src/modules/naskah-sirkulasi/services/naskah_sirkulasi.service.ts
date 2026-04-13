@@ -1134,6 +1134,7 @@ export class NaskahSirkulasiService {
 
     for (const row of rows) {
       let penerima: any[] = [];
+      let tembusan: any[] = [];
 
       // Untuk SDE, ambil data penerima dari naskah_sirkulasi (penerima eksternal)
       if (row.jenis === 'SDE') {
@@ -1219,25 +1220,48 @@ export class NaskahSirkulasiService {
           status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
           read_time: p.send_read_time || null,
         }));
+
+        const tembusanQuery = `
+          SELECT 
+            position as position_id,
+            position_text,
+            organization_text,
+            nama_sirkuler as nama,
+            send_read_time
+          FROM naskah_sirkulasi
+          WHERE id_naskah = ?
+          AND sirkuler = 'tembusan'
+        `;
+        const tembusanRows = await this.dataSource.query(tembusanQuery, [row.id_naskah]);
+
+        tembusan = tembusanRows.map((t: any) => ({
+          position_id: t.position_id || '',
+          position_text: t.position_text || '',
+          organization_text: t.organization_text || '',
+          nama: t.nama || null,
+          status_baca: t.send_read_time ? 'terbaca' : 'belum_terbaca',
+          read_time: t.send_read_time || null,
+        }));
       }
 
       // Filter by status_baca jika diperlukan (hanya untuk non-SDE)
       if (query.status_baca && row.jenis !== 'SDE') {
-        const hasMatchingPenerima = penerima.some(
-          (p) => p.status_baca === query.status_baca,
+        const hasMatchingSirkulasi = [...penerima, ...tembusan].some(
+          (p: any) => p.status_baca === query.status_baca,
         );
-        if (!hasMatchingPenerima) {
-          continue; // Skip naskah ini jika tidak ada penerima yang match
+        if (!hasMatchingSirkulasi) {
+          continue; // Skip naskah ini jika tidak ada penerima/tembusan yang match
         }
       }
 
       // Hitung summary baca (hanya untuk non-SDE)
       let terbaca = 0;
       let belumTerbaca = 0;
+      const allSirkulasi = [...penerima, ...tembusan];
 
       if (row.jenis !== 'SDE') {
-        terbaca = penerima.filter((p) => p.status_baca === 'terbaca').length;
-        belumTerbaca = penerima.filter((p) => p.status_baca === 'belum_terbaca').length;
+        terbaca = allSirkulasi.filter((p: any) => p.status_baca === 'terbaca').length;
+        belumTerbaca = allSirkulasi.filter((p: any) => p.status_baca === 'belum_terbaca').length;
       }
 
       // Get lampiran count
@@ -1265,8 +1289,9 @@ export class NaskahSirkulasiService {
           nama: row.pengirim_nama || null,
         },
         penerima,
+        tembusan,
         summary_baca: {
-          total: penerima.length,
+          total: allSirkulasi.length,
           terbaca,
           belum_terbaca: belumTerbaca,
         },
@@ -1840,6 +1865,7 @@ export class NaskahSirkulasiService {
             nama: row.pengirim_nama || null,
           },
           penerima: recipients, // Use Hydrated recipients
+          tembusan: [],
           summary_baca: {
             total: recipients.length,
             terbaca,
