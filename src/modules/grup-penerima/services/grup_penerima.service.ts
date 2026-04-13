@@ -324,16 +324,39 @@ export class GrupPenerimaService {
    * @returns Array of display name strings
    */
   async getGrupDisplayNames(grupIds: string[]): Promise<string[]> {
-    const displayNames: string[] = [];
-    for (const grupId of grupIds) {
+    const displayNameItems: { name: string; inputIndex: number }[] = [];
+
+    const getDisplayPriority = (name: string): number => {
+      const normalized = String(name || '').toLowerCase().trim();
+
+      // Wajib: Direksi selalu di atas, lalu EVP.
+      if (normalized === 'para direksi' || normalized === 'para direktur') return 1;
+      if (normalized === 'para evp') return 2;
+
+      // Kelompok lain tetap setelah prioritas utama.
+      if (normalized === 'para gm') return 3;
+      return 99;
+    };
+
+    for (let i = 0; i < grupIds.length; i++) {
+      const grupId = grupIds[i];
       try {
         const name = await this.getGrupDisplayName(grupId);
-        displayNames.push(name);
+        displayNameItems.push({ name, inputIndex: i });
       } catch (error) {
         console.warn(`[GrupPenerimaService] Failed to get display name for grup ${grupId}:`, error.message);
       }
     }
-    return displayNames;
+
+    displayNameItems.sort((a, b) => {
+      const priorityDiff = getDisplayPriority(a.name) - getDisplayPriority(b.name);
+      if (priorityDiff !== 0) return priorityDiff;
+
+      // Stabil untuk prioritas yang sama: ikuti urutan input (urutan klik/user).
+      return a.inputIndex - b.inputIndex;
+    });
+
+    return displayNameItems.map((item) => item.name);
   }
 
   /**
