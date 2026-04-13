@@ -820,7 +820,7 @@ export class SuratDinasEksternalService {
    * Get SDE recipients using org_data
    * 
    * SDE (Surat Dinas Eksternal):
-   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+    * - Pengirim: dari org_data (positionId)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
    * @param positionId - Position ID of the sender
@@ -850,13 +850,6 @@ export class SuratDinasEksternalService {
     if (!sender) {
       throw new NotFoundException(
         `Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`,
-      );
-    }
-
-    // Verify sender is chief (managerial)
-    if (sender.chief !== 1) {
-      throw new ForbiddenException(
-        `Position ${positionId} bukan managerial (chief). Hanya managerial yang dapat mengirim Surat Dinas Eksternal.`,
       );
     }
 
