@@ -552,6 +552,11 @@ export class LabelService {
 
       // Get lampiran count (use existing value or 0)
       const lampiranCount = typeof row.lampiran === 'number' ? row.lampiran : 0;
+      const isDraftKonsep =
+        source === 'draft' &&
+        ['ND', 'SDI', 'SDE'].includes(row.jenis) &&
+        row.nomor === '-';
+      const asalDraft = isDraftKonsep ? 'konsep' : 'naskah';
 
       return {
         jenis: row.jenis,
@@ -582,6 +587,8 @@ export class LabelService {
         id_naskah: row.id_naskah,
         jenis: row.jenis,
         jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+        asal_draft: asalDraft,
+        is_draft_konsep: isDraftKonsep,
         nomor: row.nomor,
         tanggal: row.tanggal,
         perihal: row.perihal,
