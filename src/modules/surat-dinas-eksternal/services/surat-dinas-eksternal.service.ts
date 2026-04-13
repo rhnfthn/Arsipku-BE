@@ -870,6 +870,70 @@ export class SuratDinasEksternalService {
     };
   }
 
+  async getSenderKonsep(
+    positionId: number,
+    tgl?: string,
+  ): Promise<SdeOrgDataPositionDto[]> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const data: SdeOrgDataPositionDto[] = orgData.position_json;
+
+    const result: SdeOrgDataPositionDto[] = [];
+    const added = new Set<number>();
+
+    const pushUnique = (item?: SdeOrgDataPositionDto) => {
+      if (!item) return;
+      const key = Number(item.position);
+      if (added.has(key)) return;
+      added.add(key);
+      result.push(item);
+    };
+
+    let current = data.find((x) => Number(x.position) === Number(positionId));
+    if (!current) return result;
+
+    const bods = ['BOD', 'BOD-1'];
+
+    if (current.chief === 0) {
+      const chiefs = data.filter(
+        (x) =>
+          Number(x.divisi_id) === Number(current!.divisi_id) &&
+          x.chief === 1 &&
+          bods.includes(x.bod_tag as string),
+      );
+
+      chiefs.forEach(pushUnique);
+      current = chiefs.find((x) => x.bod_tag === 'BOD-1');
+    }
+
+    while (current) {
+      if (bods.includes(current.bod_tag as string)) {
+        pushUnique(current);
+      }
+
+      const parent = data.find(
+        (x) =>
+          Number(x.organization_id) === Number(current!.organization_parent) &&
+          x.chief === 1 &&
+          x.sub_area === current?.sub_area,
+      );
+
+      if (!parent) break;
+      current = parent;
+    }
+
+    result.sort((a, b) => Number(a.level) - Number(b.level));
+    return result;
+  }
+
   /**
    * Get tembusan (CC) recipients for SDE using org_data
    * Tembusan are internal positions with same logic as SDI
