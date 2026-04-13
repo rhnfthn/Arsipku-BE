@@ -6,13 +6,19 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   HttpCode,
   HttpStatus,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { LabelService } from '../services';
-import { CreateLabelDto, UpdateLabelDto, AddNaskahToLabelDto } from '../dto';
+import {
+  CreateLabelDto,
+  UpdateLabelDto,
+  AddNaskahToLabelDto,
+  QueryLabelNaskahDto,
+} from '../dto';
 import { LabelEntity, NaskahLabelEntity } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
@@ -168,8 +174,13 @@ export class LabelController {
   @Get(':labelId/naskah')
   async getNaskahByLabel(
     @Param('labelId') labelId: string,
+    @Query() query: QueryLabelNaskahDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<any> {
-    return this.labelService.getNaskahByLabel(labelId, this.getPositionId(user));
+    return this.labelService.getNaskahByLabel(
+      labelId,
+      this.getPositionId(user),
+      query,
+    );
   }
 }
