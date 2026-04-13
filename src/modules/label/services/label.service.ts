@@ -617,6 +617,10 @@ export class LabelService {
 
     const baseFilteredItems = detailedItems
       .filter((item: any) => {
+        if (query.source && item.source !== query.source) {
+          return false;
+        }
+
         if (query.priority === true && !item.isPriority) {
           return false;
         }
