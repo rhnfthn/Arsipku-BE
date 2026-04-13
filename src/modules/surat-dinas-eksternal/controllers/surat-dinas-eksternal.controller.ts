@@ -59,7 +59,7 @@ export class SuratDinasEksternalController {
    * Get Surat Dinas Eksternal (SDE) recipients for a sender
    *
    * SDE Rules:
-   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+  * - Pengirim: dari org_data (positionId)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
    * @param user - User dari JWT token (contains position)
