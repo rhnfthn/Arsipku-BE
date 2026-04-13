@@ -3,6 +3,16 @@ import { Type, Transform } from 'class-transformer';
 
 export class QueryLabelNaskahDto {
   @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    return String(value).toLowerCase().trim();
+  })
+  @IsEnum(['inbox', 'sent', 'draft'], {
+    message: 'Source tidak valid. Gunakan: inbox, sent, atau draft',
+  })
+  source?: 'inbox' | 'sent' | 'draft';
+
+  @IsOptional()
   @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
   jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
