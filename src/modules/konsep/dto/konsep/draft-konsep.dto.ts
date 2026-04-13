@@ -496,6 +496,14 @@ export class DraftKonsepDetailDataDto {
   klasifikasi: string | null;
   klasifikasi_text: string | null;
   tanggal: Date;
+
+  // Pengirim naskah final
+  pengirim?: {
+    position_id: number;
+    position_text: string;
+    nama: string | null;
+    organization_text: string | null;
+  };
   
   // Penerima naskah final
   penerima?: Array<{
@@ -537,6 +545,7 @@ export class DraftKonsepDetailDataDto {
     perihal: string | null;
     pengirim?: string | null;
     tanggal?: Date | null;
+    final_pdf_url?: string | null;
   };
 
   // Catatan
