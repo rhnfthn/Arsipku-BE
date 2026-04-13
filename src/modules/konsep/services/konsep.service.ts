@@ -479,6 +479,34 @@ export class KonsepService {
     return data.find(p => p.position === positionId) || null;
   }
 
+  private async setDraftOwnerPosition(
+    queryRunner: any,
+    naskahId: string,
+    positionId: number,
+  ): Promise<void> {
+    try {
+      await queryRunner.manager.query(
+        'UPDATE naskah SET created_by_position = ? WHERE id = ?',
+        [String(positionId), naskahId],
+      );
+    } catch {
+      // Ignore if created_by_position column is unavailable in target DB.
+    }
+  }
+
+  private async getDraftOwnerPosition(naskahId: string): Promise<string | null> {
+    try {
+      const rows = await this.dataSource.query(
+        'SELECT created_by_position FROM naskah WHERE id = ? LIMIT 1',
+        [naskahId],
+      );
+      if (!rows || rows.length === 0) return null;
+      return rows[0]?.created_by_position ? String(rows[0].created_by_position) : null;
+    } catch {
+      return null;
+    }
+  }
+
   private validateHierarchy(data: PositionData[], fromPosId: number, toPosId: number): boolean {
     const fromPos = this.findByPosition(data, fromPosId);
     if (!fromPos || !fromPos.direct_manager) return false;
@@ -3643,9 +3671,15 @@ export class KonsepService {
   async createDraftKonsep(dto: any): Promise<any> {
     const barisData = await this.getPositionData();
     const fromPos = this.findByPosition(barisData, dto.from_position_id);
+    const pengirimPos = dto.pengirim_position_id
+      ? this.findByPosition(barisData, dto.pengirim_position_id)
+      : fromPos;
 
     if (!fromPos) {
       throw new NotFoundException(`Position ${dto.from_position_id} tidak ditemukan`);
+    }
+    if (dto.pengirim_position_id && !pengirimPos) {
+      throw new NotFoundException(`Position ${dto.pengirim_position_id} tidak ditemukan`);
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -3678,9 +3712,19 @@ export class KonsepService {
       }
 
       await queryRunner.manager.save(naskahDraft);
+      await this.setDraftOwnerPosition(
+        queryRunner,
+        naskahDraftId,
+        Number(dto.from_position_id),
+      );
 
-      // Create sirkulasi pengirim (pembuat draft)
-      const sirkulasiPengirim = this.createSirkulasi(naskahDraftId, 'pengirim', fromPos, false);
+      // Create sirkulasi pengirim naskah draft
+      const sirkulasiPengirim = this.createSirkulasi(
+        naskahDraftId,
+        'pengirim',
+        pengirimPos!,
+        false,
+      );
       await queryRunner.manager.save(sirkulasiPengirim);
 
       // Handle penerima naskah final (individual + grup)
@@ -4032,7 +4076,13 @@ export class KonsepService {
       throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
     }
 
-    if (String(pengirimSirkulasi.position) !== String(positionId)) {
+    const ownerPosition = await this.getDraftOwnerPosition(idDraft);
+    const hasPengirimAccess =
+      String(pengirimSirkulasi.position) === String(positionId);
+    const hasOwnerAccess =
+      !!ownerPosition && String(ownerPosition) === String(positionId);
+
+    if (!hasPengirimAccess && !hasOwnerAccess) {
       throw new ForbiddenException(`Anda tidak memiliki akses ke draft ini`);
     }
 
@@ -4080,17 +4130,36 @@ export class KonsepService {
       perihal: string | null;
       pengirim?: string | null;
       tanggal?: Date | null;
+      final_pdf_url?: string | null;
     } | null = null;
     const referensiData = await this.naskahReferensiRepository.findOne({
       where: { id_naskah: idDraft, ref_jenis: 'DI' },
     });
     if (referensiData) {
+      let referensiFinalPdfUrl: string | null = null;
+
+      if (referensiData.ref_nomor) {
+        const referensiNaskah = await this.naskahRepository.findOne({
+          where: {
+            nomor: referensiData.ref_nomor,
+            jenis: 'DI',
+          },
+        });
+
+        if (referensiNaskah?.final_pdf) {
+          referensiFinalPdfUrl = await this.storageService.getFileUrl(
+            referensiNaskah.final_pdf,
+          );
+        }
+      }
+
       disposisiReferensi = {
         id: referensiData.id,
         nomor: referensiData.ref_nomor || '',
         perihal: referensiData.ref_perihal || null,
         pengirim: referensiData.ref_pengirim || null,
         tanggal: referensiData.ref_tanggal || null,
+        final_pdf_url: referensiFinalPdfUrl,
       };
     }
 
@@ -4178,6 +4247,12 @@ export class KonsepService {
         klasifikasi: naskah.klasifikasi || null,
         klasifikasi_text: naskah.klasifikasi_text || null,
         tanggal: naskah.tanggal,
+        pengirim: {
+          position_id: Number(pengirimSirkulasi.position),
+          position_text: pengirimSirkulasi.positionText || '',
+          nama: pengirimSirkulasi.namaSirkuler || null,
+          organization_text: pengirimSirkulasi.organizationText || null,
+        },
         penerima: penerima.length > 0 ? penerima : undefined,
         penerima_text: penerimaText,
         tembusan: tembusan.length > 0 ? tembusan : undefined,
@@ -4225,7 +4300,13 @@ export class KonsepService {
       throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
     }
 
-    if (String(pengirimSirkulasi.position) !== String(dto.from_position_id)) {
+    const ownerPosition = await this.getDraftOwnerPosition(idDraft);
+    const hasPengirimAccess =
+      String(pengirimSirkulasi.position) === String(dto.from_position_id);
+    const hasOwnerAccess =
+      !!ownerPosition && String(ownerPosition) === String(dto.from_position_id);
+
+    if (!hasPengirimAccess && !hasOwnerAccess) {
       throw new ForbiddenException(`Anda tidak memiliki akses untuk mengupdate draft ini`);
     }
 
@@ -4361,9 +4442,30 @@ export class KonsepService {
       if (dto.catatan) (naskah as any).catatan_konsep = dto.catatan;
 
       await queryRunner.manager.save(naskah);
+      await this.setDraftOwnerPosition(
+        queryRunner,
+        idDraft,
+        Number(dto.from_position_id),
+      );
 
       // Update penerima if provided
       const barisData = await this.getPositionData();
+
+      // Update pengirim naskah final jika disediakan
+      if (dto.pengirim_position_id !== undefined) {
+        const pengirimPos = this.findByPosition(barisData, dto.pengirim_position_id);
+        if (!pengirimPos) {
+          throw new NotFoundException(`Position ${dto.pengirim_position_id} tidak ditemukan`);
+        }
+
+        await queryRunner.manager.delete(NaskahSirkulasi, {
+          idNaskah: idDraft,
+          sirkuler: 'pengirim',
+        });
+
+        const sirkulasiPengirim = this.createSirkulasi(idDraft, 'pengirim', pengirimPos, false);
+        await queryRunner.manager.save(sirkulasiPengirim);
+      }
 
       if (
         dto.penerima_position_ids !== undefined ||
@@ -4516,7 +4618,13 @@ export class KonsepService {
       throw new NotFoundException(`Data pengirim tidak ditemukan untuk draft ${idDraft}`);
     }
 
-    if (String(pengirimSirkulasi.position) !== String(positionId)) {
+    const ownerPosition = await this.getDraftOwnerPosition(idDraft);
+    const hasPengirimAccess =
+      String(pengirimSirkulasi.position) === String(positionId);
+    const hasOwnerAccess =
+      !!ownerPosition && String(ownerPosition) === String(positionId);
+
+    if (!hasPengirimAccess && !hasOwnerAccess) {
       throw new ForbiddenException(`Anda tidak memiliki akses untuk menghapus draft ini`);
     }
 
@@ -4588,11 +4696,13 @@ export class KonsepService {
    * PARSE FORM DATA TO CREATE DRAFT DTO
    */
   async parseFormDataToCreateDraftDto(body: any, files?: { lampiran_files?: Express.Multer.File[] }): Promise<any> {
+    const rawPengirimPositionId = body.pengirim_position_id ?? body.pengrim_position_id;
+
     const dto: any = {
       jenis: body.jenis,
       from_position_id: body.from_position_id ? parseInt(body.from_position_id, 10) : undefined,
       to_position_id: body.to_position_id ? parseInt(body.to_position_id, 10) : undefined,
-      pengirim_position_id: body.pengirim_position_id ? parseInt(body.pengirim_position_id, 10) : undefined,
+      pengirim_position_id: rawPengirimPositionId ? parseInt(rawPengirimPositionId, 10) : undefined,
       id_disposisi_referensi: body.id_disposisi_referensi,
       perihal: body.perihal,
       konten: body.konten,
