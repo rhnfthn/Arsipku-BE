@@ -460,6 +460,7 @@ export class KonsepService {
     sirkulasi.idSirkuler = String(posData.persnum_person || posData.position);
     sirkulasi.namaSirkuler = posData.persnum_person_text || posData.position_text;
     sirkulasi.isKonsep = isKonsep ? 1 : 0;
+    sirkulasi.isDraft = false;
     sirkulasi.idGrupPenerima = grupPenerimaId || null;
     return sirkulasi;
   }
@@ -485,10 +486,12 @@ export class KonsepService {
     positionId: number,
   ): Promise<void> {
     try {
-      await queryRunner.manager.query(
-        'UPDATE naskah SET created_by_position = ? WHERE id = ?',
-        [String(positionId), naskahId],
-      );
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update('naskah')
+        .set({ created_by_position: String(positionId) })
+        .where('id = :id', { id: naskahId })
+        .execute();
     } catch {
       // Ignore if created_by_position column is unavailable in target DB.
     }
@@ -496,12 +499,16 @@ export class KonsepService {
 
   private async getDraftOwnerPosition(naskahId: string): Promise<string | null> {
     try {
-      const rows = await this.dataSource.query(
-        'SELECT created_by_position FROM naskah WHERE id = ? LIMIT 1',
-        [naskahId],
-      );
-      if (!rows || rows.length === 0) return null;
-      return rows[0]?.created_by_position ? String(rows[0].created_by_position) : null;
+      const row = await this.dataSource
+        .createQueryBuilder()
+        .select('n.created_by_position', 'created_by_position')
+        .from('naskah', 'n')
+        .where('n.id = :id', { id: naskahId })
+        .limit(1)
+        .getRawOne();
+
+      if (!row) return null;
+      return row.created_by_position ? String(row.created_by_position) : null;
     } catch {
       return null;
     }
@@ -3703,7 +3710,7 @@ export class KonsepService {
         konten: dto.konten || null,
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
         status: 'draf', // Status draft
-        // Catatan disimpan di field terpisah atau di metadata
+        createdByPosition: String(dto.from_position_id),
       });
 
       // Simpan catatan konsep jika ada (gunakan field yang tersedia atau di lampiran metadata)
@@ -3893,39 +3900,32 @@ export class KonsepService {
     // Calculate date range
     const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset);
 
-    // Get sirkulasi records for this position as pengirim with status draf
-    const sirkulasiRecords = await this.naskahSirkulasiRepository
-      .createQueryBuilder('sirkulasi')
-      .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-      .andWhere('sirkulasi.position = :position', { position: String(positionId) })
-      .andWhere('sirkulasi.is_konsep = :isKonsep', { isKonsep: 0 })
-      .orderBy('sirkulasi.createdAt', 'DESC')
-      .addOrderBy('sirkulasi.id', 'DESC')
-      .getMany();
-
-    const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
-    const sirkulasiByNaskahId = new Map<string, NaskahSirkulasi>();
-    for (const s of sirkulasiRecords) {
-      if (!s.idNaskah) continue;
-      if (!sirkulasiByNaskahId.has(s.idNaskah)) {
-        sirkulasiByNaskahId.set(s.idNaskah, s);
-      }
-    }
-
-    if (naskahIdsFromSirkulasi.length === 0) {
-      return {
-        success: true,
-        data: [],
-        pagination: { total: 0, page, limit, totalPages: 0 },
-      };
-    }
-
     // Build query for draft naskah (jenis ND/SDI/SDE with status draf)
     const queryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
-      .where('naskah.id IN (:...naskahIds)', { naskahIds: naskahIdsFromSirkulasi })
       .andWhere('naskah.status = :status', { status: 'draf' })
       .andWhere('naskah.jenis IN (:...jenisTypes)', { jenisTypes: ['ND', 'SDI', 'SDE'] });
+
+    // Ownership rule:
+    // - Primary: creator ownership via naskah.created_by_position
+    // - Fallback legacy: if created_by_position is NULL, use pengirim sirkulasi position
+    queryBuilder.andWhere(
+      `(
+        naskah.created_by_position = :position
+        OR (
+          naskah.created_by_position IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns
+            WHERE ns.id_naskah = naskah.id
+              AND ns.sirkuler = 'pengirim'
+              AND ns.position = :position
+              AND ns.is_konsep = 0
+          )
+        )
+      )`,
+      { position: String(positionId) },
+    );
 
     // Apply date filter
     if (dateRange.startDate) {
@@ -3956,6 +3956,25 @@ export class KonsepService {
     // Apply pagination
     queryBuilder.skip(offset).take(limit);
     const naskahs = await queryBuilder.getMany();
+
+    const draftIds = naskahs.map((n) => n.id);
+    const sirkulasiByNaskahId = new Map<string, NaskahSirkulasi>();
+    if (draftIds.length > 0) {
+      const senderSirkulasi = await this.naskahSirkulasiRepository
+        .createQueryBuilder('sirkulasi')
+        .where('sirkulasi.idNaskah IN (:...draftIds)', { draftIds })
+        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+        .orderBy('sirkulasi.createdAt', 'DESC')
+        .addOrderBy('sirkulasi.id', 'DESC')
+        .getMany();
+
+      for (const s of senderSirkulasi) {
+        if (!s.idNaskah) continue;
+        if (!sirkulasiByNaskahId.has(s.idNaskah)) {
+          sirkulasiByNaskahId.set(s.idNaskah, s);
+        }
+      }
+    }
 
     // Build response items
     const jenisTextMap: Record<string, string> = {
@@ -4315,6 +4334,13 @@ export class KonsepService {
     await queryRunner.startTransaction();
 
     try {
+      // Endpoint /KONSEP/draft/update/:id harus menandai is_draft=false
+      await queryRunner.manager.update(
+        NaskahSirkulasi,
+        { idNaskah: idDraft },
+        { isDraft: false },
+      );
+
       // Jika action = 'kirim', convert draft ke konsep workflow
       if (dto.action === 'kirim') {
         if (!dto.to_position_id) {
@@ -4439,6 +4465,7 @@ export class KonsepService {
       if (dto.sifat) naskah.sifat = dto.sifat;
       if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
       if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
+      naskah.createdByPosition = String(dto.from_position_id);
       if (dto.catatan) (naskah as any).catatan_konsep = dto.catatan;
 
       await queryRunner.manager.save(naskah);
