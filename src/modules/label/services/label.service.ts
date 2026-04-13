@@ -12,6 +12,7 @@ const JENIS_LABELS: Record<string, string> = {
   SDE: 'Surat Dinas Eksternal',
   DI: 'Disposisi',
   KA: 'Kajian',
+  K: 'Konsep',
 };
 
 @Injectable()
@@ -298,6 +299,18 @@ export class LabelService {
         message: `Berhasil mengambil naskah dengan label ${label.nama}`,
         data: {
           namaLabel: label.nama,
+          summary: {
+            total_semua: 0,
+            total_belum_dibaca: 0,
+            total_per_jenis: {
+              ND: 0,
+              SDI: 0,
+              SDE: 0,
+              DI: 0,
+              KA: 0,
+              K: 0,
+            },
+          },
           items: [],
         },
       };
@@ -411,6 +424,23 @@ export class LabelService {
       });
     });
 
+    // Get unread count from perspective of current position (inbox/tembusan only)
+    const unreadNaskahSet = new Set<string>();
+    const unreadQuery = `
+      SELECT DISTINCT id_naskah
+      FROM naskah_sirkulasi
+      WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
+      AND position = ?
+      AND sirkuler IN ('penerima', 'tembusan')
+      AND send_read_time IS NULL
+    `;
+    const unreadRows = await this.dataSource.query(unreadQuery, [...naskahIds, positionId]);
+    unreadRows.forEach((row: any) => {
+      if (row.id_naskah) {
+        unreadNaskahSet.add(row.id_naskah);
+      }
+    });
+
     // Map to response items
     const items = rows.map((row: any) => {
       const penerima = penerimaMap.get(row.id_naskah) || [];
@@ -455,11 +485,31 @@ export class LabelService {
       };
     });
 
+    const summary = {
+      total_semua: items.length,
+      total_belum_dibaca: items.filter((item: any) => unreadNaskahSet.has(item.id_naskah)).length,
+      total_per_jenis: {
+        ND: 0,
+        SDI: 0,
+        SDE: 0,
+        DI: 0,
+        KA: 0,
+        K: 0,
+      } as Record<string, number>,
+    };
+
+    items.forEach((item: any) => {
+      if (summary.total_per_jenis[item.jenis] !== undefined) {
+        summary.total_per_jenis[item.jenis] += 1;
+      }
+    });
+
     return {
       success: true,
       message: `Berhasil mengambil naskah dengan label ${label.nama}`,
       data: {
         namaLabel: label.nama,
+        summary,
         items,
       },
     };
