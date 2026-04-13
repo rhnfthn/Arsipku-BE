@@ -98,6 +98,33 @@ export class DelegasiService {
   }
 
   /**
+   * Resolve person name from latest org_data position_json by persnum.
+   * Used to keep as_persnum and as_name consistent when updating delegasi.
+   */
+  private async resolvePersonNameByPersnum(persnum?: string): Promise<string | undefined> {
+    if (!persnum) {
+      return undefined;
+    }
+
+    try {
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+        return undefined;
+      }
+
+      const positionData = (latestOrgData.position_json as PositionData[]).find(
+        (p) => p.persnum_person !== null && String(p.persnum_person) === String(persnum),
+      );
+
+      return positionData?.persnum_person_text || undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[DelegasiService] Failed to resolve person name by persnum:', message);
+      return undefined;
+    }
+  }
+
+  /**
    * Create new delegasi
    */
   async create(createDelegasiDto: CreateDelegasiDto, user?: any): Promise<DelegasiWithStatus> {
@@ -204,7 +231,8 @@ export class DelegasiService {
         }
       } catch (error) {
         // Jika gagal query org_data, tetap lanjutkan tanpa auto-fill
-        console.warn('Failed to auto-fill delegate position data from org_data:', error.message);
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('Failed to auto-fill delegate position data from org_data:', message);
       }
     }
 
@@ -391,10 +419,33 @@ export class DelegasiService {
       throw new BadRequestException('Tanggal selesai harus setelah tanggal mulai');
     }
 
+    const updateData: Record<string, any> = { ...updateDelegasiDto };
+
+    // Keep as_name synchronized when as_persnum changes.
+    if (updateData.as_persnum !== undefined) {
+      const currentAsPersnum = delegasi.as_persnum ? String(delegasi.as_persnum) : '';
+      const nextAsPersnum = updateData.as_persnum ? String(updateData.as_persnum) : '';
+      const isAsPersnumChanged = currentAsPersnum !== nextAsPersnum;
+
+      if (isAsPersnumChanged) {
+        if (nextAsPersnum) {
+          const resolvedAsName = await this.resolvePersonNameByPersnum(nextAsPersnum);
+          if (resolvedAsName) {
+            updateData.as_name = resolvedAsName;
+          } else if (updateData.as_name === undefined) {
+            // Avoid returning stale name when persnum changes but lookup fails.
+            updateData.as_name = null;
+          }
+        } else if (updateData.as_name === undefined) {
+          updateData.as_name = null;
+        }
+      }
+    }
+
     // Manually update fields
-    Object.keys(updateDelegasiDto).forEach(key => {
-      if (updateDelegasiDto[key] !== undefined) {
-        delegasi[key] = updateDelegasiDto[key];
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        delegasi[key] = updateData[key];
       }
     });
 
@@ -552,7 +603,8 @@ export class DelegasiService {
         positionJsonData = orgData.position_json as PositionData[];
       }
     } catch (error) {
-      console.warn('[getAvailableRoles] Failed to fetch org_data for bod_tag:', error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[getAvailableRoles] Failed to fetch org_data for bod_tag:', message);
     }
 
     const delegations = activeDelegations.map(d => {
