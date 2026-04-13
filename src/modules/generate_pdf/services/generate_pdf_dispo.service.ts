@@ -84,7 +84,22 @@ export class GeneratePdfDispoService {
     const htmlCatatan = decodedContent || '';
     const penerima = body.penerima || [];
     const pengirim = body.pengirim || '';
-    const sifat = body.sifat || 'Biasa';
+
+    const normalizeSifat = (value?: string): string => {
+      if (!value) return 'biasa';
+      return String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    };
+
+    // Support variasi payload: biasa, terbatas, rahasia, sangat rahasia, sangat_rahasia.
+    const sifatLabelMap: Record<string, string> = {
+      biasa: 'Biasa',
+      terbatas: 'Terbatas',
+      rahasia: 'Rahasia',
+      sangat_rahasia: 'Sangat Rahasia',
+    };
+
+    const normalizedSifat = normalizeSifat(body.sifat);
+    const selectedSifatLabel = sifatLabelMap[normalizedSifat] || 'Biasa';
     const penandatangan = body.penandatangan || '';
     
     // Indonesian month names
@@ -248,7 +263,7 @@ export class GeneratePdfDispoService {
     let sifatsHtml = array_sifat.map(item => `
       <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
         <div style="width: 16px; height: 16px; border: 1px solid #000; display: flex; align-items: center; justify-content: center; font-size: 10px;">
-          ${item === sifat ? '✓' : ''}
+          ${item === selectedSifatLabel ? '✓' : ''}
         </div>
         <span style="font-size: 11px;">${item}</span>
       </div>
