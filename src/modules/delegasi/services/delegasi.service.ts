@@ -125,6 +125,30 @@ export class DelegasiService {
   }
 
   /**
+   * Resolve position data from latest org_data.position_json by position id.
+   */
+  private async resolvePositionDataByPosition(position?: string): Promise<PositionData | undefined> {
+    if (!position) {
+      return undefined;
+    }
+
+    try {
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+        return undefined;
+      }
+
+      return (latestOrgData.position_json as PositionData[]).find(
+        (p) => String(p.position) === String(position),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[DelegasiService] Failed to resolve position data by position:', message);
+      return undefined;
+    }
+  }
+
+  /**
    * Create new delegasi
    */
   async create(createDelegasiDto: CreateDelegasiDto, user?: any): Promise<DelegasiWithStatus> {
@@ -420,6 +444,52 @@ export class DelegasiService {
     }
 
     const updateData: Record<string, any> = { ...updateDelegasiDto };
+
+    // Keep as_position and all derived as_* fields synchronized.
+    if (updateData.as_position !== undefined) {
+      const currentAsPosition = delegasi.as_position ? String(delegasi.as_position) : '';
+      const nextAsPosition = updateData.as_position ? String(updateData.as_position) : '';
+      const isAsPositionChanged = currentAsPosition !== nextAsPosition;
+
+      if (isAsPositionChanged) {
+        if (nextAsPosition) {
+          const resolvedAsPositionData = await this.resolvePositionDataByPosition(nextAsPosition);
+
+          if (resolvedAsPositionData) {
+            // Always trust org_data as source of truth for position metadata.
+            updateData.as_position_text = resolvedAsPositionData.position_text || null;
+            updateData.as_organization = resolvedAsPositionData.organization_id
+              ? String(resolvedAsPositionData.organization_id)
+              : null;
+            updateData.as_organization_text = resolvedAsPositionData.organization_text || null;
+            updateData.as_area = resolvedAsPositionData.area || null;
+            updateData.as_area_text = resolvedAsPositionData.area_text || null;
+            updateData.as_sub_area = resolvedAsPositionData.sub_area
+              ? String(resolvedAsPositionData.sub_area)
+              : null;
+            updateData.as_sub_area_text = resolvedAsPositionData.sub_area_text || null;
+          } else {
+            // Avoid returning stale derived values when as_position changes but lookup fails.
+            if (updateData.as_position_text === undefined) updateData.as_position_text = null;
+            if (updateData.as_organization === undefined) updateData.as_organization = null;
+            if (updateData.as_organization_text === undefined) updateData.as_organization_text = null;
+            if (updateData.as_area === undefined) updateData.as_area = null;
+            if (updateData.as_area_text === undefined) updateData.as_area_text = null;
+            if (updateData.as_sub_area === undefined) updateData.as_sub_area = null;
+            if (updateData.as_sub_area_text === undefined) updateData.as_sub_area_text = null;
+          }
+        } else {
+          // If as_position is cleared, clear all dependent as_* fields too.
+          if (updateData.as_position_text === undefined) updateData.as_position_text = null;
+          if (updateData.as_organization === undefined) updateData.as_organization = null;
+          if (updateData.as_organization_text === undefined) updateData.as_organization_text = null;
+          if (updateData.as_area === undefined) updateData.as_area = null;
+          if (updateData.as_area_text === undefined) updateData.as_area_text = null;
+          if (updateData.as_sub_area === undefined) updateData.as_sub_area = null;
+          if (updateData.as_sub_area_text === undefined) updateData.as_sub_area_text = null;
+        }
+      }
+    }
 
     // Keep as_name synchronized when as_persnum changes.
     if (updateData.as_persnum !== undefined) {
