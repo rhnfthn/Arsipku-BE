@@ -2722,6 +2722,7 @@ export class KonsepService {
           id: naskahRef.id,
           jenis: 'K',
           jenis_label: JENIS_LABELS['K'],
+          jenis_naskah_konsep: naskahAsli?.jenis || null,
           nomor: naskahRef.nomor,
           tanggal: riwayat.createdAt,
           perihal: naskahAsli?.perihal ?? naskahRef.perihal,
