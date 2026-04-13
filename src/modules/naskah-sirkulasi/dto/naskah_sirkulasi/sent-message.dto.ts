@@ -118,6 +118,7 @@ export class SentMessageItemDto {
   lampiran: number;
   pengirim: SirkulasiInfoDto;
   penerima: PenerimaWithStatusDto[];
+  tembusan: PenerimaWithStatusDto[];
   summary_baca: {
     total: number;
     terbaca: number;
