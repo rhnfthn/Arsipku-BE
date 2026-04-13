@@ -16,6 +16,7 @@ import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
@@ -61,6 +62,11 @@ const PETUNJUK_LABEL_MAP: Record<string, string> = {
   lainnya: 'Lainnya',
 };
 
+interface OrgPositionLite {
+  position: number;
+  persnum_person_text?: string | null;
+}
+
 @Injectable()
 export class DraftService {
   constructor(
@@ -83,6 +89,7 @@ export class DraftService {
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly grupPenerimaService: GrupPenerimaService,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   /**
@@ -199,64 +206,105 @@ export class DraftService {
     // Calculate date range
     const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
 
-    // Step 1: Get sirkulasi records for this position as pengirim
-    const sirkulasiQuery = this.naskahSirkulasiRepository
-      .createQueryBuilder('sirkulasi')
-      .where('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-      .andWhere('sirkulasi.position = :position', { position: String(positionId) });
-
-    if (favorite === true) {
-      sirkulasiQuery.andWhere('sirkulasi.flag_favorit = 1');
-    }
-
-    if (lock === true) {
-      sirkulasiQuery.andWhere('sirkulasi.is_locked = 1');
-    }
-
-    if (note === true) {
-      sirkulasiQuery.andWhere('sirkulasi.flag_note = 1');
-    }
-
-    if (arsip === true) {
-      sirkulasiQuery.andWhere('sirkulasi.flag_arsip = 1');
-    } else {
-      // Default behavior: exclude archived drafts unless explicitly requested
-      sirkulasiQuery.andWhere('sirkulasi.flag_arsip = 0');
-    }
-
-    const sirkulasiRecords = await sirkulasiQuery.getMany();
-    const naskahIdsFromSirkulasi = sirkulasiRecords.map(s => s.idNaskah);
-
-    // If no sirkulasi found, return empty result
-    if (naskahIdsFromSirkulasi.length === 0) {
-      return {
-        success: true,
-        data: [],
-        pagination: {
-          total: 0,
-          page,
-          limit,
-          totalPages: 0,
-        },
-        summary: {
-          total_semua: 0,
-          total_per_jenis: {
-            ND: 0,
-            SDI: 0,
-            SDE: 0,
-            DI: 0,
-            KA: 0,
-            K: 0,
-          },
-        },
-      };
-    }
-
     // Step 2: Build base query for naskah
     const baseQueryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
-      .where('naskah.id IN (:...naskahIds)', { naskahIds: naskahIdsFromSirkulasi })
+      .where('1 = 1')
       .andWhere('naskah.status = :status', { status: 'draf' });
+
+    // Ownership rule:
+    // - Primary: creator ownership via naskah.created_by_position
+    // - Fallback legacy: if created_by_position is NULL, use pengirim sirkulasi position
+    baseQueryBuilder.andWhere(
+      `(
+        naskah.created_by_position = :position
+        OR (
+          naskah.created_by_position IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_owner
+            WHERE ns_owner.id_naskah = naskah.id
+              AND ns_owner.sirkuler = 'pengirim'
+              AND ns_owner.position = :position
+          )
+        )
+      )`,
+      { position: String(positionId) },
+    );
+
+    if (favorite === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_fav
+          WHERE ns_fav.id_naskah = naskah.id
+            AND ns_fav.sirkuler = 'pengirim'
+            AND ns_fav.position = :position
+            AND ns_fav.flag_favorit = 1
+        )`,
+      );
+    }
+
+    if (lock === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_lock
+          WHERE ns_lock.id_naskah = naskah.id
+            AND ns_lock.sirkuler = 'pengirim'
+            AND ns_lock.position = :position
+            AND ns_lock.is_locked = 1
+        )`,
+      );
+    }
+
+    if (note === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_note
+          WHERE ns_note.id_naskah = naskah.id
+            AND ns_note.sirkuler = 'pengirim'
+            AND ns_note.position = :position
+            AND ns_note.flag_note = 1
+        )`,
+      );
+    }
+
+    if (arsip === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_arsip_true
+          WHERE ns_arsip_true.id_naskah = naskah.id
+            AND ns_arsip_true.sirkuler = 'pengirim'
+            AND ns_arsip_true.position = :position
+            AND ns_arsip_true.flag_arsip = 1
+        )`,
+      );
+    } else {
+      // Default: show non-archived items for the user.
+      // If user has no sender-row (owner-based flow), keep it visible.
+      baseQueryBuilder.andWhere(
+        `(
+          NOT EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_arsip_any
+            WHERE ns_arsip_any.id_naskah = naskah.id
+              AND ns_arsip_any.sirkuler = 'pengirim'
+              AND ns_arsip_any.position = :position
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_arsip_false
+            WHERE ns_arsip_false.id_naskah = naskah.id
+              AND ns_arsip_false.sirkuler = 'pengirim'
+              AND ns_arsip_false.position = :position
+              AND ns_arsip_false.flag_arsip = 0
+          )
+        )`,
+      );
+    }
 
     // Apply date range filter
     if (dateRange.startDate) {
@@ -367,6 +415,15 @@ export class DraftService {
     // Build response items
     const items: DraftListItemDto[] = [];
 
+    const orgDate = dateRange.endDate || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(orgDate);
+    const orgPositionMap = new Map<number, string | null>();
+    if (orgData?.position_json) {
+      for (const pos of orgData.position_json as OrgPositionLite[]) {
+        orgPositionMap.set(Number(pos.position), pos.persnum_person_text || null);
+      }
+    }
+
     for (const naskah of naskahs) {
       // Get pengirim for timestamp (created_at)
       const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
@@ -472,12 +529,22 @@ export class DraftService {
 
       // Draft konsep (ND/SDI/SDE) saat masih draf disimpan dengan nomor '-' oleh modul Konsep.
       const isDraftKonsep = ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
+      const konseptorPositionId = naskah.createdByPosition
+        ? Number(naskah.createdByPosition)
+        : null;
+      const namaKonseptor =
+        konseptorPositionId !== null
+          ? orgPositionMap.get(konseptorPositionId) || null
+          : null;
 
       items.push({
         id_naskah: naskah.id,
         id_sirkulasi: pengirimSirkulasi?.id || null,
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
+        penanda_konsep: isDraftKonsep,
+        konseptor_position_id: konseptorPositionId,
+        nama_konseptor: namaKonseptor,
         asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
         is_draft_konsep: isDraftKonsep,
         penerima: penerima,

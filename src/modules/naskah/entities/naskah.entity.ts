@@ -90,4 +90,7 @@ export class NaskahEntity {
     },
   })
   dikirimOleh: { persnum: string; nama: string; position_text: string } | null;
+
+  @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
+  createdByPosition: string | null;
 }
