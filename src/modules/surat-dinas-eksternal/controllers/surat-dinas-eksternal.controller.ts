@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { AnyFilesInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
-import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
+import { SdeRecipientResponseDto, GetSdeRecipientQueryDto, SdeOrgDataPositionDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
@@ -109,6 +109,51 @@ export class SuratDinasEksternalController {
     // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
     const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
     return this.sdeService.getSdeTembusan(positionId, query.tgl);
+  }
+
+  /**
+   * GET /SDE/get-senders
+   * Get eligible senders for Konsep Surat Dinas Eksternal
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns SdeOrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /SDE/get-senders (gunakan position dari JWT)
+   * GET /SDE/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getSdeSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetSdeRecipientQueryDto,
+  ): Promise<SdeOrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.sdeService.getSenderKonsep(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDE senders',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /**
