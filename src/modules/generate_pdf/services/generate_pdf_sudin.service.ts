@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { getBrowser } from '../puppeteer.provider';
+import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
@@ -33,9 +33,36 @@ interface SdiPdfOptions {
 @Injectable()
 export class GeneratePdfSudinService {
   async generatePdf(body: SdiPdfOptions): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfWithRetry(body), {
+      timeout: 90000,
     });
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
+  }
+
+  private isRecoverableBrowserError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return (
+      message.includes('connection closed') ||
+      message.includes('target closed') ||
+      message.includes('session closed') ||
+      message.includes('browser has disconnected') ||
+      message.includes('protocol error')
+    );
+  }
+
+  private async _generatePdfWithRetry(body: SdiPdfOptions): Promise<Buffer> {
+    try {
+      return await this._generatePdfInternal(body);
+    } catch (error) {
+      if (!this.isRecoverableBrowserError(error)) {
+        throw error;
+      }
+      await resetBrowser();
+      return this._generatePdfInternal(body);
+    }
   }
 
   private async _generatePdfInternal(body: SdiPdfOptions): Promise<Buffer> {
@@ -442,11 +469,26 @@ export class GeneratePdfSudinService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '15mm',
           bottom: '20mm',
@@ -457,7 +499,13 @@ export class GeneratePdfSudinService {
 
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      try {
+        if (!page.isClosed()) {
+          await page.close();
+        }
+      } catch {
+        // noop
+      }
     }
   }
 
@@ -836,11 +884,26 @@ export class GeneratePdfSudinService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '15mm',
           bottom: '20mm',
@@ -851,7 +914,13 @@ export class GeneratePdfSudinService {
 
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      try {
+        if (!page.isClosed()) {
+          await page.close();
+        }
+      } catch {
+        // noop
+      }
     }
   }
 }

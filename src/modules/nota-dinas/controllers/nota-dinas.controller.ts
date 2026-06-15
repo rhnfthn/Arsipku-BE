@@ -116,6 +116,50 @@ export class NotaDinasController {
   }
 
   /**
+   * GET /ND/get-direct-superior
+   * Get one direct superior (atasan langsung, 1 level di atas) by position.
+   *
+   * @param user - User dari JWT token
+   * @param query - Query parameters:
+   *   - position: required/optional position_id (fallback ke JWT position jika tidak dikirim)
+   *   - tgl: optional date in format YYYY-MM-DD
+   * @returns OrgDataPositionDto | null
+   *
+   * @example
+   * GET /ND/get-direct-superior?position=70017278
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-direct-superior')
+  async getDirectSuperior(
+    @CurrentUser() user: any,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto | null> {
+    try {
+      const positionId = query.position
+        ? parseInt(query.position, 10)
+        : parseInt(user.position, 10);
+
+      return await this.notaDinasService.getDirectSuperiorByPosition(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get direct superior',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /ND/:id
    * Get detail Nota Dinas by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final

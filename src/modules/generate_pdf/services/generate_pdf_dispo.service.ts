@@ -31,9 +31,15 @@ interface GeneratePdfDispoBody {
 @Injectable()
 export class GeneratePdfDispoService {
   async generatePdf(body: GeneratePdfDispoBody): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfInternal(body), {
+      timeout: 90000,
     });
+
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
   private async _generatePdfInternal(body: GeneratePdfDispoBody): Promise<Buffer> {
@@ -361,11 +367,33 @@ export class GeneratePdfDispoService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(konten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      // Konten PDF statis, JS tidak dibutuhkan dan menurunkan stabilitas/performa render.
+      await page.setJavaScriptEnabled(false);
+
+      // Cegah request eksternal (http/https) yang bisa bikin render lambat/timeout.
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        ) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(konten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '30mm',
           bottom: '20mm',

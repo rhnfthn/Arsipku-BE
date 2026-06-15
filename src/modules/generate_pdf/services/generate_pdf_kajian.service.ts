@@ -32,9 +32,13 @@ interface KajianPdfOptions {
 @Injectable()
 export class GeneratePdfKajianService {
   async generatePdf(body: KajianPdfOptions): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfInternal(body), {
+      timeout: 90000,
     });
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
   private async _generatePdfInternal(body: KajianPdfOptions): Promise<Buffer> {
@@ -346,11 +350,26 @@ export class GeneratePdfKajianService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '15mm',
           bottom: '20mm',

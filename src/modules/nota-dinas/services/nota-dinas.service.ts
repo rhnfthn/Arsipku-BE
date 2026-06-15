@@ -4003,6 +4003,43 @@ export class NotaDinasService {
     };
   }
 
+  /**
+   * Get direct superior (atasan langsung, 1 level di atas) by position ID.
+   * Returns only one nearest superior record.
+   *
+   * @param positionId - Position ID
+   * @param tgl - Optional date (default: today)
+   */
+  async getDirectSuperiorByPosition(
+    positionId: number,
+    tgl?: string,
+  ): Promise<OrgDataPositionDto | null> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: OrgDataPositionDto[] = orgData.position_json;
+
+    const sender = barisData.find(
+      (x) => Number(x.position) === Number(positionId),
+    );
+
+    if (!sender) {
+      throw new NotFoundException(
+        `Position dengan ID ${positionId} tidak ditemukan dalam data organisasi tanggal ${tanggal}`,
+      );
+    }
+
+    const recipients = this.filterByPositionNodin(barisData, positionId);
+    return recipients.ATASAN?.[0] ?? null;
+  }
+
   // ============================================================
   // GET NOTA DINAS DETAIL
   // ============================================================

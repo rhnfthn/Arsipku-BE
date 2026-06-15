@@ -484,8 +484,6 @@ export class DisposisiService {
     },
   ): Promise<Buffer> {
     try {
-      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-
       // Format tanggal default jika tidak disediakan
       const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', {
         weekday: 'long',
@@ -507,7 +505,8 @@ export class DisposisiService {
       }
 
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
-        html: htmlBase64,
+        // Kirim plain HTML langsung agar tidak ada overhead encode/decode base64
+        htmlContent,
         penerima: penerima,
         disposisi: finalDisposisi,
         sifat: sifat || 'Biasa',
@@ -537,7 +536,13 @@ export class DisposisiService {
 
       return pdfBuffer;
     } catch (error) {
-      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+      const detail =
+        error instanceof Error
+          ? `${error.name}: ${error.message || 'Unknown error'}`
+          : typeof error === 'string'
+          ? error
+          : JSON.stringify(error);
+      throw new BadRequestException(`Gagal generate PDF: ${detail}`);
     }
   }
 
@@ -3815,4 +3820,3 @@ export class DisposisiService {
     }
   }
 }
-
