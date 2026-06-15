@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { getBrowser } from '../puppeteer.provider';
+import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
@@ -33,9 +33,36 @@ interface SdiPdfOptions {
 @Injectable()
 export class GeneratePdfSudinService {
   async generatePdf(body: SdiPdfOptions): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfWithRetry(body), {
+      timeout: 90000,
     });
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
+  }
+
+  private isRecoverableBrowserError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return (
+      message.includes('connection closed') ||
+      message.includes('target closed') ||
+      message.includes('session closed') ||
+      message.includes('browser has disconnected') ||
+      message.includes('protocol error')
+    );
+  }
+
+  private async _generatePdfWithRetry(body: SdiPdfOptions): Promise<Buffer> {
+    try {
+      return await this._generatePdfInternal(body);
+    } catch (error) {
+      if (!this.isRecoverableBrowserError(error)) {
+        throw error;
+      }
+      await resetBrowser();
+      return this._generatePdfInternal(body);
+    }
   }
 
   private async _generatePdfInternal(body: SdiPdfOptions): Promise<Buffer> {
@@ -216,11 +243,18 @@ export class GeneratePdfSudinService {
       }
     }
 
+    // Helper function untuk mengambil hanya position_text (sebelum " - ")
+    const extractPositionText = (text: string): string => {
+      if (!text) return '';
+      const dashIndex = text.indexOf(' - ');
+      return dashIndex !== -1 ? text.substring(0, dashIndex).trim() : text.trim();
+    };
+
     const penerimaExceedsLimit = penerimaArr.length > 5;
     const tembusanExceedsLimit = tembusanArr.length > 5;
     const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
     
-    // Process penerima (English)
+    // Process penerima (English) - hanya tampilkan position_text (sebelum " - ")
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
       penerimaHtml = 'Please See Attached Address List<br>';
@@ -228,15 +262,15 @@ export class GeneratePdfSudinService {
       if (penerimaArr.length > 1) {
         penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
-          penerimaHtml += `<li>${item}</li>`;
+          penerimaHtml += `<li>${extractPositionText(item)}</li>`;
         });
         penerimaHtml += '</ol>';
       } else if (penerimaArr.length === 1) {
-        penerimaHtml = penerimaArr[0] || '';
+        penerimaHtml = extractPositionText(penerimaArr[0]) || '';
       }
     }
     
-    // Process tembusan (English)
+    // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       tembusanHtml = 'Please See Attached Address List';
@@ -244,11 +278,11 @@ export class GeneratePdfSudinService {
       if (tembusanArr.length > 1) {
         tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
         tembusanArr.forEach((item) => {
-          tembusanHtml += `<li>${item}</li>`;
+          tembusanHtml += `<li>${extractPositionText(item)}</li>`;
         });
         tembusanHtml += '</ol>';
       } else if (tembusanArr.length === 1) {
-        tembusanHtml = tembusanArr[0] || '';
+        tembusanHtml = extractPositionText(tembusanArr[0]) || '';
       }
     }
 
@@ -332,7 +366,7 @@ export class GeneratePdfSudinService {
 
     // Body konten
     const bodyKonten = `
-      <div style="margin-top:15px;text-align:justify;">
+      <div style="margin-top:20px;margin-bottom:20px;text-align:justify;">
         ${html}
       </div>
     `;
@@ -340,17 +374,17 @@ export class GeneratePdfSudinService {
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section (English)
+    // TTD section (English) - rata kiri, text center
     const ttd = `
-      <table style="width:100%;margin-top:30px;">
+      <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;"></td>
-            <td style="text-align:center;">
+            <td style="width:50%;text-align:center;">
               ${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
+            <td style="width:50%;"></td>
           </tr>
         </tbody>
       </table>
@@ -382,7 +416,8 @@ export class GeneratePdfSudinService {
       if (penerimaExceedsLimit) {
         penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
         penerimaArr.forEach((item) => {
-          penerimaListHtml += `<li>${item}</li>`;
+          // Hanya tampilkan position_text (sebelum " - ")
+          penerimaListHtml += `<li>${extractPositionText(item)}</li>`;
         });
         penerimaListHtml += '</ol>';
       }
@@ -391,7 +426,8 @@ export class GeneratePdfSudinService {
       if (tembusanExceedsLimit) {
         tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
         tembusanArr.forEach((item) => {
-          tembusanListHtml += `<li>${item}</li>`;
+          // Hanya tampilkan position_text (sebelum " - ")
+          tembusanListHtml += `<li>${extractPositionText(item)}</li>`;
         });
         tembusanListHtml += '</ol>';
       }
@@ -433,11 +469,26 @@ export class GeneratePdfSudinService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '15mm',
           bottom: '20mm',
@@ -448,7 +499,13 @@ export class GeneratePdfSudinService {
 
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      try {
+        if (!page.isClosed()) {
+          await page.close();
+        }
+      } catch {
+        // noop
+      }
     }
   }
 
@@ -733,17 +790,17 @@ export class GeneratePdfSudinService {
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section - dinamis dengan QR code di tengah
+    // TTD section - rata kiri, text center
     const ttd = `
-      <table style="width:100%;margin-top:30px;">
+      <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;"></td>
-            <td style="text-align:center;">
+            <td style="width:50%;text-align:center;">
               ${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
+            <td style="width:50%;"></td>
           </tr>
         </tbody>
       </table>
@@ -827,11 +884,26 @@ export class GeneratePdfSudinService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '15mm',
           bottom: '20mm',
@@ -842,7 +914,13 @@ export class GeneratePdfSudinService {
 
       return Buffer.from(pdf);
     } finally {
-      await page.close();
+      try {
+        if (!page.isClosed()) {
+          await page.close();
+        }
+      } catch {
+        // noop
+      }
     }
   }
 }

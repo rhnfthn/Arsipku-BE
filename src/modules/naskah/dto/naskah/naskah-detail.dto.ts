@@ -25,6 +25,8 @@ export class SirkulasiDetailDto {
   is_draft: boolean;
   flag_favorit: boolean;
   flag_arsip: boolean;
+  created_at: Date;
+  updated_at: Date | null;
 }
 
 // Info lampiran
@@ -88,17 +90,27 @@ export class NaskahDetailResponseDto {
     konten: string | null;
     lampiran: string | null;
     status: string; // draf, final, final_tte
+    label_ttd: string | null; // TTE BSrE, QR Code, Tanpa TTE
 
     // Sirkulasi
     pengirim: SirkulasiDetailDto | null;
     penerima: SirkulasiDetailDto[];
     tembusan: SirkulasiDetailDto[];
+    penerima_grup: { id: string; nama: string; position_ids: number[] }[];
+    tembusan_grup: { id: string; nama: string; position_ids: number[] }[];
 
     // Lampiran files
     lampiran_files: LampiranDetailDto[];
 
     // Referensi surat
     referensi: ReferensiDetailDto[];
+
+    // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+    dikirim_oleh: {
+      persnum: string;
+      nama: string | null;
+      position_text: string | null;
+    } | null;
 
     // Data spesifik per jenis naskah
     detail_disposisi: DisposisiDetailDto | null; // Khusus jenis DI

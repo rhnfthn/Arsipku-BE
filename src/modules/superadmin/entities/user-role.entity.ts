@@ -12,6 +12,9 @@ export class UserRoleEntity {
   @PrimaryColumn('char', { length: 36 })
   id: string;
 
+  @Column('char', { name: 'id_position', length: 36 })
+  idPosition: string;
+
   @Column({ type: 'int', nullable: false, unique: true })
   persnum: number;
 

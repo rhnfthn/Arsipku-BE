@@ -50,7 +50,7 @@ export interface DigsigLogContext {
   userPersnum: number;
   userName?: string;
   idNaskah?: string;
-  jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenisNaskah?: string;
   ipAddress?: string;
 }
 

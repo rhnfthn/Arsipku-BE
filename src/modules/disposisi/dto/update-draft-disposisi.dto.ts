@@ -13,6 +13,7 @@ import { Type } from 'class-transformer';
 import {
   SifatNaskah,
   LampiranDto,
+  SignOption,
 } from './create-disposisi.dto';
 import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
 
@@ -141,6 +142,14 @@ export class UpdateDraftDisposisiDto {
   // Priority Flag
   @IsOptional()
   is_priority?: boolean;
+
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
 }
 
 /**
@@ -154,7 +163,7 @@ export class UpdateDraftDisposisiResponseDto {
     jenis: string;
     nomor: string | null;
     tanggal: string;
-    status: 'draf' | 'final';
+    status: 'draf' | 'pending' | 'final';
     sifat: string;
     perihal: string;
     pengirim: DisposisiSirkulasiInfoDto;

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -108,6 +108,7 @@ export class AuthService {
     user: JwtPayload;
   }> {
     const loginUrl = this.configService.get('AIRNAV_LOGIN_URL');
+    console.log(loginUrl);
 
     // ================================================================
     // 1. Login ke AirNav API dengan username & password
@@ -119,6 +120,7 @@ export class AuthService {
         {
           username,
           password,
+          redirect_uri: "http://localhost:3000/autharsipku",
         },
         {
           headers: {
@@ -129,6 +131,7 @@ export class AuthService {
       );
 
       const res = await firstValueFrom(req);
+      console.log(res.data);
       airnavResponse = res.data;
     } catch (err) {
       throw new UnauthorizedException({
@@ -142,21 +145,24 @@ export class AuthService {
     }
 
     // Check response structure
-    if (!airnavResponse || airnavResponse.responseStatus !== 200) {
+    console.log(airnavResponse.responStatus);
+    if (!airnavResponse || airnavResponse.responStatus !== 200) {
       throw new UnauthorizedException({
-        error: 'Invalid credentials',
-        message: airnavResponse?.message || 'Login failed',
+        error: 'Invalid credentialss',
+        message: airnavResponse?.message || 'Login faileds',
       });
     }
 
     // Extract data dari response AirNav
-    const { id, access_token, refresh_token, expired_token } = airnavResponse;
+    const { id, accessToken: access_token, refreshToken: refresh_token, expireToken: expired_token } = airnavResponse;
+    console.log(access_token);
     const persnum = Number(id);
 
     // ================================================================
     // 2. Check user di org_data
     // ================================================================
     const orgData = await this.orgDataService.findByPersnum(persnum);
+    console.log(orgData);
 
     if (!orgData) {
       throw new UnauthorizedException(
@@ -203,6 +209,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -361,6 +368,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -533,6 +541,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -636,6 +645,7 @@ export class AuthService {
         positionText: orgData.positionText || '',
         bodTag: orgData.bodTag || '',
         abbreviation: orgData.abbreviation || '',
+        atasan_langsung: orgData.atasan_langsung || null,
       };
     }
 
@@ -652,6 +662,78 @@ export class AuthService {
       message: delegasi 
         ? `Berhasil switch ke role ${delegasi.as_position_text}` 
         : 'Berhasil kembali ke role asli',
+      accessToken: newJwt,
+      user: newPayload as JwtPayload,
+    };
+  }
+
+  /**
+   * Switch company - Generate new JWT with different company/position data
+   * @param currentUser - Current JWT payload (from @CurrentUser decorator)
+   * @param companySwitchData - Company switch data from CompanySwitchService
+   * @returns New JWT token with updated company/position data
+   */
+  async switchCompany(
+    currentUser: JwtPayload,
+    companySwitchData: {
+      company: string;
+      companyText: string;
+      position: string;
+      positionText: string;
+      organization: string;
+      organizationText: string;
+      area: string;
+      areaText: string;
+      subArea: string;
+      subAreaText: string;
+      bodTag?: string;
+      abbreviation?: string;
+    } | null,
+  ): Promise<{
+    message: string;
+    accessToken: string;
+    user: JwtPayload;
+  }> {
+    if (!companySwitchData) {
+      throw new BadRequestException('Company switch data is required');
+    }
+
+    // Remove exp and iat from current user payload to avoid conflict with new token
+    const { exp, iat, ...basePayload } = currentUser;
+    
+    // Build new payload with switched company data
+    const newPayload: Omit<JwtPayload, 'exp' | 'iat'> = {
+      ...basePayload,
+      // Update company and position data
+      company: companySwitchData.company,
+      companyText: companySwitchData.companyText,
+      position: companySwitchData.position,
+      positionText: companySwitchData.positionText,
+      organization: companySwitchData.organization,
+      organizationText: companySwitchData.organizationText,
+      area: companySwitchData.area,
+      areaText: companySwitchData.areaText,
+      subArea: companySwitchData.subArea,
+      subAreaText: companySwitchData.subAreaText,
+      bodTag: companySwitchData.bodTag || '',
+      abbreviation: companySwitchData.abbreviation || '',
+      // Keep original persnum, nama, and role
+    };
+
+    console.log('[AuthService] Switching company to:', companySwitchData.companyText);
+    console.log('[AuthService] New position:', companySwitchData.positionText);
+
+    // Generate new JWT with same expiry as current token
+    const expiresIn = exp 
+      ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
+      : 86400; // default 24 hours
+
+    const newJwt = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
+
+    return {
+      message: `Berhasil switch ke ${companySwitchData.companyText}`,
       accessToken: newJwt,
       user: newPayload as JwtPayload,
     };

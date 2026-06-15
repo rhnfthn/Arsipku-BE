@@ -3,12 +3,13 @@ import type { Response } from 'express';
 import { AnyFilesInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
-import { SdeRecipientResponseDto, GetSdeRecipientQueryDto } from '../dto/sde-recipient-response.dto';
+import { SdeRecipientResponseDto, GetSdeRecipientQueryDto, SdeOrgDataPositionDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('SDE')
 export class SuratDinasEksternalController {
@@ -54,46 +55,105 @@ export class SuratDinasEksternalController {
   }
 
   /**
-   * GET /SDE/get-recipient/:positionId
+   * GET /SDE/get-recipient
    * Get Surat Dinas Eksternal (SDE) recipients for a sender
    *
    * SDE Rules:
-   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+  * - Pengirim: dari org_data (positionId)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
-   * @param positionId - Position ID of the sender
-   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
+   *
+   * @example
+   * GET /SDE/get-recipient (gunakan position dari JWT)
+   * GET /SDE/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getSdeRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<SdeRecipientResponseDto> {
+    // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+    const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
     return this.sdeService.getSdeRecipients(positionId, query.tgl);
   }
 
   /**
-   * GET /SDE/get-tembusan/:positionId
+   * GET /SDE/get-tembusan
    * Get tembusan (CC) recipients for SDE using org_data
    *
    * Tembusan Rules (same as SDI):
    * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
    * - Tembusan: internal positions dengan chief=1, bod_tag='BOD', sama company
    * 
-   * @param positionId - Position ID of the sender
-   * @param query - Optional query params (tgl in format YYYY-MM-DD)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
    * @returns Tembusan recipients list
    *
    * @example
-   * GET /SDE/get-tembusan/123
-   * GET /SDE/get-tembusan/123?tgl=2024-01-15
+   * GET /SDE/get-tembusan (gunakan position dari JWT)
+   * GET /SDE/get-tembusan?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
-  @Get('get-tembusan/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-tembusan')
   async getSdeTembusan(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
   ): Promise<any> {
+    // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+    const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
     return this.sdeService.getSdeTembusan(positionId, query.tgl);
+  }
+
+  /**
+   * GET /SDE/get-senders
+   * Get eligible senders for Konsep Surat Dinas Eksternal
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns SdeOrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /SDE/get-senders (gunakan position dari JWT)
+   * GET /SDE/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getSdeSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetSdeRecipientQueryDto,
+  ): Promise<SdeOrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.sdeService.getSenderKonsep(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDE senders',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /**
@@ -111,11 +171,13 @@ export class SuratDinasEksternalController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Get(':id')
-  async getSdeDetail(@Param('id') id: string): Promise<any> {
+  async getSdeDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
     try {
-      return await this.sdeService.getSdeDetail(id);
+      return await this.sdeService.getSdeDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -277,6 +339,11 @@ export class SuratDinasEksternalController {
         body.lampiran_temp_ids = lampiranTempIds;
       }
 
+      // Parse boolean fields from form-data (string 'true'/'false' to actual boolean)
+      if (body.english !== undefined) {
+        body.english = body.english === 'true' || body.english === true;
+      }
+
       const dto = body as UpdateSdeDraftDto;
       return await this.sdeService.updateDraft(id, dto);
     } catch (error) {
@@ -319,7 +386,6 @@ export class SuratDinasEksternalController {
    * @throws 400 - Bad Request (no files uploaded)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Post('upload-temporary')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
@@ -387,7 +453,7 @@ export class SuratDinasEksternalController {
    * - Set isDraft = false in sirkulasi
    *
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
    *
    * @param id - Naskah ID (UUID)
@@ -510,9 +576,30 @@ export class SuratDinasEksternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -525,6 +612,26 @@ export class SuratDinasEksternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      if (penerimaArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       // Convert to names (supports eksternal UUIDs, position IDs, or names)
@@ -641,9 +748,30 @@ export class SuratDinasEksternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -656,6 +784,26 @@ export class SuratDinasEksternalController {
         } catch {
           penerimaArray = [penerimaArray];
         }
+      }
+
+      if (penerimaArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       // Convert to names (supports eksternal UUIDs, position IDs, or names)

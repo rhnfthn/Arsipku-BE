@@ -16,6 +16,25 @@ export interface JwtPayload {
   positionText: string;
   bodTag: string;
   abbreviation: string;
+  atasan_langsung?: {
+    persnum: number | null;
+    nama: string | null;
+    company: number | null;
+    companyText: string | null;
+    area: string | null;
+    areaText: string | null;
+    subArea: number | null;
+    subAreaText: string | null;
+    organization: number | null;
+    organizationText: string | null;
+    organizationAbbreviation: string | null;
+    position: number | null;
+    positionText: string | null;
+    positionAbbreviation: string | null;
+    abbreviation: string;
+    isChief: boolean;
+    bodTag: string | null;
+  } | null;
   
   // Personal data from HR API (fetched during login)
   nik?: string;  // NIK/KTP 16 digit untuk BSrE

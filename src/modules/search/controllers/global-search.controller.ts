@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { GlobalSearchService } from '../services/global-search.service';
 import { GlobalSearchDto, GlobalSearchResponseDto } from '../dto/global-search.dto';
+import { SearchSuggestionDto, SearchSuggestionResponseDto } from '../dto/search-suggestion.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -63,5 +64,29 @@ export class GlobalSearchController {
     // otherwise use position from JWT
     const positionId = dto.position_id || user.position;
     return this.globalSearchService.search(dto, positionId, user.persnum);
+  }
+
+  /**
+   * GET /search/suggestions
+   *
+   * Autocomplete suggestion untuk pengirim/penerima
+   * Bisa search berdasarkan nama atau jabatan
+   *
+   * Query params:
+   * - q: Query pencarian (minimal 3 karakter)
+   * - type: pengirim | penerima | all (default: all)
+   * - limit: Jumlah hasil (default: 10, max: 30)
+   *
+   * Contoh:
+   * - GET /search/suggestions?q=ahmad&type=pengirim
+   * - GET /search/suggestions?q=kepala&type=penerima
+   * - GET /search/suggestions?q=manajer
+   */
+  @Get('suggestions')
+  @HttpCode(HttpStatus.OK)
+  async getSuggestions(
+    @Query() dto: SearchSuggestionDto,
+  ): Promise<SearchSuggestionResponseDto> {
+    return this.globalSearchService.getSuggestions(dto);
   }
 }

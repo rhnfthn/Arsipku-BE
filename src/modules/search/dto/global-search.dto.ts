@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, IsArray, IsInt, Min, Max } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 /**
@@ -65,6 +65,16 @@ export enum SizeUnitEnum {
 }
 
 /**
+ * Kategori filter
+ */
+export enum KategoriEnum {
+  SUDAH_TINDAK_LANJUT = 'sudah_tindak_lanjut',
+  BELUM_TINDAK_LANJUT = 'belum_tindak_lanjut',
+  SUDAH_DIBACA = 'sudah_dibaca',
+  BELUM_DIBACA = 'belum_dibaca',
+}
+
+/**
  * Scope pencarian (All Mail di Gmail)
  */
 export enum SearchScopeEnum {
@@ -75,6 +85,8 @@ export enum SearchScopeEnum {
   ARCHIVED = 'archived',     // Arsip saja
   FAVORITE = 'favorite',     // Favorit (bisa include archived)
   ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
+  PRIORITY = 'priority',     // Disposisi prioritas (jenis=DI dan is_priority=1)
+  PENDING = 'pending',       // Naskah tertunda/menunggu TTD basah (status=pending)
 }
 
 /**
@@ -135,6 +147,34 @@ export class GlobalSearchDto {
   @IsOptional()
   @IsString()
   cc?: string;
+
+  /**
+   * Filter pengirim berdasarkan list position
+   * Contoh: [123, 321, 1231]
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    if (typeof value === 'string') return value.split(',').map(Number);
+    return [Number(value)];
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  pengirimPosition?: number[];
+
+  /**
+   * Filter penerima berdasarkan list position
+   * Contoh: [333, 444]
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    if (typeof value === 'string') return value.split(',').map(Number);
+    return [Number(value)];
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  penerimaPosition?: number[];
 
   // === SEARCH BY DOCUMENT TYPE ===
 
@@ -263,6 +303,48 @@ export class GlobalSearchDto {
   @IsOptional()
   @IsString()
   positionId?: string;
+
+  // === KATEGORI FILTER ===
+
+  /**
+   * Filter berdasarkan kategori:
+   * - sudah_tindak_lanjut: Naskah yang sudah ditindaklanjuti
+   * - belum_tindak_lanjut: Naskah yang belum ditindaklanjuti
+   * - sudah_dibaca: Naskah yang sudah dibaca
+   * - belum_dibaca: Naskah yang belum dibaca
+   */
+  @IsOptional()
+  @IsEnum(KategoriEnum)
+  kategori?: KategoriEnum;
+
+  // === LABEL FILTER (Gmail-style Hierarchical) ===
+
+  /**
+   * Filter by label path (hierarchical, slash-separated)
+   * Examples:
+   * - "Work" returns all documents labeled Work, Work/Projects, Work/Invoices, etc.
+   * - "Work/Projects/Q1" returns only that specific label
+   */
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  // === UNREAD STATUS FILTER ===
+
+  /**
+   * Filter by read status
+   * - true: Only read documents
+   * - false: Only unread documents
+   * - undefined: All documents (no filter)
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  isRead?: boolean;
 
   /**
    * Organization ID user yang sedang search

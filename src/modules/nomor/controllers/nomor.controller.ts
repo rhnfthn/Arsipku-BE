@@ -12,8 +12,11 @@ import {
   UseInterceptors,
   UploadedFiles,
   UploadedFile,
+  UseGuards,
 } from '@nestjs/common';
 import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { NomorService } from '../services/nomor.service';
 import {
   CreateNomorRequestDto,
@@ -36,6 +39,8 @@ import {
   RejectBulkNomorRequestDetailResponseDto,
   DeleteNomorRequestResponseDto,
   RejectAllNomorRequestResponseDto,
+  ApproveBulkPenandatanganDto,
+  ApproveBulkPenandatanganResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -75,12 +80,42 @@ export class NomorController {
   }
 
   /**
+   * GET /nomor-request/pending-approval
+   * Penandatangan melihat usulan yang menunggu persetujuannya
+   * position_id diambil dari bearer token
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('nomor-request/pending-approval')
+  async getPendingApproval(
+    @CurrentUser() user: any,
+    @Query() query: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getPendingApproval(positionId, query);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to get pending approval', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * GET /nomor-request/:positionId
    * User melihat usulan nomor berdasarkan position ID
    */
   @Get('nomor-request/:positionId')
   async getNomorRequestByPosition(
     @Param('positionId') positionId: string,
+    @Query() query: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
     try {
       const positionIdNum = parseInt(positionId, 10);
@@ -93,7 +128,7 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getNomorRequestByPosition(positionIdNum);
+      return await this.nomorService.getNomorRequestByPosition(positionIdNum, query);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -114,9 +149,9 @@ export class NomorController {
    * Admin melihat semua usulan nomor
    */
   @Get('admin/nomor-request')
-  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(@Query() query: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminNomorRequest();
+      return await this.nomorService.getAdminNomorRequest(query);
     } catch (error) {
       throw new HttpException(
         {
@@ -138,6 +173,8 @@ export class NomorController {
   @Get('admin/nomor-request-by-position/:id_posisi')
   async getAdminNomorRequestByPosition(
     @Param('id_posisi') idPosisi: string,
+    @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
   ): Promise<GetAdminNomorRequestResponseDto> {
     try {
       const positionId = parseInt(idPosisi, 10);
@@ -150,7 +187,7 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminNomorRequestByPosition(positionId);
+      return await this.nomorService.getAdminNomorRequestByPosition(positionId, query, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -171,9 +208,12 @@ export class NomorController {
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
    */
   @Get('admin/nomor-request-submitted')
-  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(
+    @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<GetAdminNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminNomorRequestSubmitted();
+      return await this.nomorService.getAdminNomorRequestSubmitted(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -187,13 +227,28 @@ export class NomorController {
   }
 
   /**
-   * GET /admin/nomor-request-count
+   * GET /admin/nomor-request-count/:positionId
    * Admin melihat count/statistik usulan nomor berdasarkan status
+   * - Semua data dengan status selain "Belum Diajukan" di-count
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    */
-  @Get('admin/nomor-request-count')
-  async getAdminCountNomorRequest(): Promise<AdminCountNomorRequestResponseDto> {
+  @Get('admin/nomor-request-count/:positionId')
+  async getAdminCountNomorRequest(
+    @Param('positionId') positionId: string,
+    @CurrentUser() user: any,
+  ): Promise<AdminCountNomorRequestResponseDto> {
     try {
-      return await this.nomorService.getAdminCountNomorRequest();
+      const positionIdNum = parseInt(positionId, 10);
+      if (isNaN(positionIdNum)) {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'Position ID must be a valid number',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.getAdminCountNomorRequest(positionIdNum, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -334,6 +389,55 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to booking nomor request',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/:id/booking-single-file
+   * User/Admin memproses usulan dan create booking dengan SATU file yang sama untuk semua detail
+   * File yang diupload akan di-assign ke semua request detail
+   *
+   * FormData fields:
+   * - file: binary file (optional, single file)
+   * - jumlah: number (optional, gunakan jika tidak ada file)
+   *
+   * Query parameters:
+   * - folder: path folder untuk menyimpan file (default: 'nomor')
+   * - action: 'append' (default) untuk tambah, 'replace' untuk replace semua booking
+   */
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('nomor-request/:id/booking-single-file')
+  async bookingNomorRequestSingleFile(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('folder') folder?: string,
+    @Query('action') action?: 'append' | 'replace',
+    @Body() body?: any,
+  ): Promise<BookingNomorRequestResponseDto> {
+    try {
+      const dto: BookingNomorRequestDto = {
+        jumlah: body?.jumlah ? parseInt(body.jumlah) : undefined,
+      };
+
+      return await this.nomorService.bookingNomorRequestSingleFile(
+        id,
+        dto,
+        file,
+        folder || 'nomor',
+        action || 'append',
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to booking nomor request with single file',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -619,9 +723,12 @@ export class NomorController {
    * Get semua nomor (user view)
    */
   @Get('nomor')
-  async getNomor(@Query() query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+  async getNomor(
+    @Query() query: GetNomorQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<GetNomorResponseDto> {
     try {
-      return await this.nomorService.getNomor(query);
+      return await this.nomorService.getNomor(query, user);
     } catch (error) {
       throw new HttpException(
         {
@@ -692,6 +799,95 @@ export class NomorController {
         {
           success: false,
           message: 'Failed to get nomor',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/:id/approve-penandatangan
+   * Penandatangan menyetujui usulan (draft → booking)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/:id/approve-penandatangan')
+  async approvePenandatangan(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.approvePenandatangan(id, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to approve', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/:id/reject-penandatangan
+   * Penandatangan menolak usulan (draft → ditolak)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/:id/reject-penandatangan')
+  async rejectPenandatangan(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return await this.nomorService.rejectPenandatangan(id, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: 'Failed to reject', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /nomor-request/approve-penandatangan-bulk
+    * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('nomor-request/approve-penandatangan-bulk')
+  async approveBulkPenandatangan(
+    @Body() dto: ApproveBulkPenandatanganDto,
+    @CurrentUser() user: any,
+  ): Promise<ApproveBulkPenandatanganResponseDto> {
+    try {
+      const positionId = parseInt(user?.position, 10);
+      if (isNaN(positionId)) {
+        throw new HttpException(
+          { success: false, message: 'Position ID tidak ditemukan di token' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      return await this.nomorService.approveBulkPenandatangan(dto, positionId);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to approve bulk penandatangan',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

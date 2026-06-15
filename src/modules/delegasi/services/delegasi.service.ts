@@ -35,6 +35,7 @@ interface PositionData {
   direktorat_name: string | null;
   company: number | null;
   company_name: string | null;
+  bod_tag: string | null;
 }
 
 export interface DelegasiStatus {
@@ -94,6 +95,57 @@ export class DelegasiService {
       ...delegasi,
       status: this.calculateStatus(delegasi),
     };
+  }
+
+  /**
+   * Resolve person name from latest org_data position_json by persnum.
+   * Used to keep as_persnum and as_name consistent when updating delegasi.
+   */
+  private async resolvePersonNameByPersnum(persnum?: string): Promise<string | undefined> {
+    if (!persnum) {
+      return undefined;
+    }
+
+    try {
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+        return undefined;
+      }
+
+      const positionData = (latestOrgData.position_json as PositionData[]).find(
+        (p) => p.persnum_person !== null && String(p.persnum_person) === String(persnum),
+      );
+
+      return positionData?.persnum_person_text || undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[DelegasiService] Failed to resolve person name by persnum:', message);
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve position data from latest org_data.position_json by position id.
+   */
+  private async resolvePositionDataByPosition(position?: string): Promise<PositionData | undefined> {
+    if (!position) {
+      return undefined;
+    }
+
+    try {
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+        return undefined;
+      }
+
+      return (latestOrgData.position_json as PositionData[]).find(
+        (p) => String(p.position) === String(position),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[DelegasiService] Failed to resolve position data by position:', message);
+      return undefined;
+    }
   }
 
   /**
@@ -203,7 +255,8 @@ export class DelegasiService {
         }
       } catch (error) {
         // Jika gagal query org_data, tetap lanjutkan tanpa auto-fill
-        console.warn('Failed to auto-fill delegate position data from org_data:', error.message);
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('Failed to auto-fill delegate position data from org_data:', message);
       }
     }
 
@@ -390,10 +443,79 @@ export class DelegasiService {
       throw new BadRequestException('Tanggal selesai harus setelah tanggal mulai');
     }
 
+    const updateData: Record<string, any> = { ...updateDelegasiDto };
+
+    // Keep as_position and all derived as_* fields synchronized.
+    if (updateData.as_position !== undefined) {
+      const currentAsPosition = delegasi.as_position ? String(delegasi.as_position) : '';
+      const nextAsPosition = updateData.as_position ? String(updateData.as_position) : '';
+      const isAsPositionChanged = currentAsPosition !== nextAsPosition;
+
+      if (isAsPositionChanged) {
+        if (nextAsPosition) {
+          const resolvedAsPositionData = await this.resolvePositionDataByPosition(nextAsPosition);
+
+          if (resolvedAsPositionData) {
+            // Always trust org_data as source of truth for position metadata.
+            updateData.as_position_text = resolvedAsPositionData.position_text || null;
+            updateData.as_organization = resolvedAsPositionData.organization_id
+              ? String(resolvedAsPositionData.organization_id)
+              : null;
+            updateData.as_organization_text = resolvedAsPositionData.organization_text || null;
+            updateData.as_area = resolvedAsPositionData.area || null;
+            updateData.as_area_text = resolvedAsPositionData.area_text || null;
+            updateData.as_sub_area = resolvedAsPositionData.sub_area
+              ? String(resolvedAsPositionData.sub_area)
+              : null;
+            updateData.as_sub_area_text = resolvedAsPositionData.sub_area_text || null;
+          } else {
+            // Avoid returning stale derived values when as_position changes but lookup fails.
+            if (updateData.as_position_text === undefined) updateData.as_position_text = null;
+            if (updateData.as_organization === undefined) updateData.as_organization = null;
+            if (updateData.as_organization_text === undefined) updateData.as_organization_text = null;
+            if (updateData.as_area === undefined) updateData.as_area = null;
+            if (updateData.as_area_text === undefined) updateData.as_area_text = null;
+            if (updateData.as_sub_area === undefined) updateData.as_sub_area = null;
+            if (updateData.as_sub_area_text === undefined) updateData.as_sub_area_text = null;
+          }
+        } else {
+          // If as_position is cleared, clear all dependent as_* fields too.
+          if (updateData.as_position_text === undefined) updateData.as_position_text = null;
+          if (updateData.as_organization === undefined) updateData.as_organization = null;
+          if (updateData.as_organization_text === undefined) updateData.as_organization_text = null;
+          if (updateData.as_area === undefined) updateData.as_area = null;
+          if (updateData.as_area_text === undefined) updateData.as_area_text = null;
+          if (updateData.as_sub_area === undefined) updateData.as_sub_area = null;
+          if (updateData.as_sub_area_text === undefined) updateData.as_sub_area_text = null;
+        }
+      }
+    }
+
+    // Keep as_name synchronized when as_persnum changes.
+    if (updateData.as_persnum !== undefined) {
+      const currentAsPersnum = delegasi.as_persnum ? String(delegasi.as_persnum) : '';
+      const nextAsPersnum = updateData.as_persnum ? String(updateData.as_persnum) : '';
+      const isAsPersnumChanged = currentAsPersnum !== nextAsPersnum;
+
+      if (isAsPersnumChanged) {
+        if (nextAsPersnum) {
+          const resolvedAsName = await this.resolvePersonNameByPersnum(nextAsPersnum);
+          if (resolvedAsName) {
+            updateData.as_name = resolvedAsName;
+          } else if (updateData.as_name === undefined) {
+            // Avoid returning stale name when persnum changes but lookup fails.
+            updateData.as_name = null;
+          }
+        } else if (updateData.as_name === undefined) {
+          updateData.as_name = null;
+        }
+      }
+    }
+
     // Manually update fields
-    Object.keys(updateDelegasiDto).forEach(key => {
-      if (updateDelegasiDto[key] !== undefined) {
-        delegasi[key] = updateDelegasiDto[key];
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        delegasi[key] = updateData[key];
       }
     });
 
@@ -490,24 +612,37 @@ export class DelegasiService {
   async getAvailableRoles(persnum: string): Promise<{
     delegations: Array<{
       id: string;
-      position_status: PositionStatus;
-      position_status_label: string;
-      position: string;
-      position_text: string;
-      organization: string;
-      organization_text: string;
-      area: string;
-      area_text: string;
-      sub_area: string;
-      sub_area_text: string;
-      company: string;
-      company_text: string;
-      start_date: Date;
-      end_date: Date;
-      delegator_name: string;
-      delegator_persnum: string;
-      delegator_position: string;
-      delegator_position_text: string;
+      // Role yang didelegasikan kepada user
+      delegated_role: {
+        position_status: PositionStatus;
+        position_status_label: string;
+        description: string; // Deskripsi singkat role
+        persnum: string; // Persnum penerima delegasi
+        name: string; // Nama penerima delegasi
+        position: string;
+        position_text: string;
+        organization: string;
+        organization_text: string;
+        area: string;
+        area_text: string;
+        sub_area: string;
+        sub_area_text: string;
+        company: string;
+        company_text: string;
+        bod_tag: string | null;
+      };
+      // Info orang yang memberi delegasi (pemilik jabatan asli)
+      delegated_from: {
+        persnum: string;
+        name: string;
+        position: string;
+        position_text: string;
+      };
+      // Periode delegasi
+      period: {
+        start_date: Date;
+        end_date: Date;
+      };
     }>;
   }> {
     // Use local date (Asia/Jakarta timezone) instead of UTC
@@ -529,29 +664,61 @@ export class DelegasiService {
 
     console.log('[getAvailableRoles] Active delegations found:', activeDelegations.length);
 
-    const delegations = activeDelegations.map(d => ({
-      id: d.id,
-      position_status: d.position_status,
-      position_status_label: POSITION_STATUS_LABELS[d.position_status] || d.position_status,
-      // Position yang didelegasikan (jabatan yang bisa digunakan)
-      position: d.as_position,
-      position_text: d.as_position_text,
-      organization: d.as_organization,
-      organization_text: d.as_organization_text,
-      area: d.as_area,
-      area_text: d.as_area_text,
-      sub_area: d.as_sub_area,
-      sub_area_text: d.as_sub_area_text,
-      company: d.company,
-      company_text: d.company_text,
-      start_date: d.start_date,
-      end_date: d.end_date,
-      // Info delegator (pemilik jabatan asli)
-      delegator_name: d.name,
-      delegator_persnum: d.persnum,
-      delegator_position: d.position,
-      delegator_position_text: d.position_text,
-    }));
+    // Lookup bod_tag from org_data position_json
+    let positionJsonData: PositionData[] = [];
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const orgData = await this.orgDataService.findOrg(today);
+      if (orgData && orgData.position_json) {
+        positionJsonData = orgData.position_json as PositionData[];
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[getAvailableRoles] Failed to fetch org_data for bod_tag:', message);
+    }
+
+    const delegations = activeDelegations.map(d => {
+      const positionStatusLabel = POSITION_STATUS_LABELS[d.position_status] || d.position_status;
+
+      // Find bod_tag for as_position from position_json
+      const posMatch = positionJsonData.find(p => String(p.position) === String(d.as_position));
+      const bodTag = posMatch?.bod_tag ?? null;
+      
+      return {
+        id: d.id,
+        // Role yang didelegasikan kepada user (yang bisa dipakai)
+        delegated_role: {
+          position_status: d.position_status,
+          position_status_label: positionStatusLabel,
+          description: `Anda bertindak sebagai ${positionStatusLabel} untuk jabatan ${d.as_position_text}`,
+          persnum: d.as_persnum,
+          name: d.as_name,
+          position: d.as_position,
+          position_text: d.as_position_text,
+          organization: d.as_organization,
+          organization_text: d.as_organization_text,
+          area: d.as_area,
+          area_text: d.as_area_text,
+          sub_area: d.as_sub_area,
+          sub_area_text: d.as_sub_area_text,
+          company: d.company,
+          company_text: d.company_text,
+          bod_tag: bodTag,
+        },
+        // Info orang yang memberi delegasi (pemilik jabatan asli)
+        delegated_from: {
+          persnum: d.persnum,
+          name: d.name,
+          position: d.position,
+          position_text: d.position_text,
+        },
+        // Periode delegasi
+        period: {
+          start_date: d.start_date,
+          end_date: d.end_date,
+        },
+      };
+    });
 
     return { delegations };
   }

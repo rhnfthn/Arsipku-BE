@@ -10,7 +10,7 @@ import {
   IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SifatNaskah, LampiranDto } from './create-disposisi.dto';
+import { SifatNaskah, LampiranDto, SignOption } from './create-disposisi.dto';
 import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
 
 /**
@@ -128,6 +128,14 @@ export class SendDraftDisposisiDto {
   @IsOptional()
   is_priority?: boolean;
 
+  @IsOptional()
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  sign_option?: SignOption;
+
+  @IsOptional()
+  @IsString()
+  passphrase?: string;
+
   // Lampiran Temp IDs
   @IsOptional()
   @IsArray()
@@ -146,7 +154,7 @@ export class SendDraftDisposisiResponseDto {
     jenis: string;
     nomor: string;
     tanggal: string;
-    status: 'final';
+    status: 'pending' | 'final';
     sifat: string;
     perihal: string;
     pengirim: DisposisiSirkulasiInfoDto;

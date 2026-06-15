@@ -21,7 +21,7 @@ export class DisposisiDataDto {
   jenis: string;
   nomor: string | null; // Samakan dengan Nota Dinas (bukan ref_nomor_surat)
   tanggal: string;
-  status: string; // 'draf' atau 'final'
+  status: string; // 'draf' | 'pending' | 'final'
   sifat: string;
   perihal: string; // Perihal masuk ke tabel naskah
   pengirim: DisposisiSirkulasiInfoDto;

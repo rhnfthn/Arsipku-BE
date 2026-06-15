@@ -37,6 +37,20 @@ export class CreatePersonDto {
   @IsEnum(Gender)
   gender: Gender;
 
+  // Relation to position (om_relation_sp)
+  @IsInt()
+  @IsOptional()
+  company?: number;
+
+  @IsInt()
+  @IsOptional()
+  position?: number;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  positionText?: string;
+
   @IsString()
   @IsOptional()
   @MaxLength(11)

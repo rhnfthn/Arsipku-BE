@@ -6,19 +6,43 @@ import {
   IsNumber,
   IsUUID,
   IsArray,
+  IsDateString,
+  IsBoolean,
 } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 // ============================================================
 // GET /draft/list - Query Parameters
 // ============================================================
 export class GetDraftListQueryDto {
-  @IsNotEmpty({ message: 'Position ID harus diisi' })
-  @IsString()
-  position_id: string;
+  @IsOptional()
+  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA', 'K'], { message: 'Jenis harus ND, DI, SDI, SDE, KA, atau K' })
+  jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
 
   @IsOptional()
-  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA'], { message: 'Jenis harus ND, DI, SDI, SDE, atau KA' })
-  jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA';
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
 
   @IsOptional()
   @IsString()
@@ -26,13 +50,42 @@ export class GetDraftListQueryDto {
 
   @IsOptional()
   @IsString()
-  days?: string; // Filter by days (default 30)
+  days?: string; // Filter by days (default 30) - DEPRECATED, use preset instead
+
+  // Date Range Filter
+  @IsOptional()
+  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  start_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
+  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  end_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Normalize preset value: "7 hari" -> "7_hari", etc.
+    const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    return normalized;
+  })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    return String(value).toLowerCase().trim();
+  })
+  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  sort?: 'terbaru' | 'terlama';
+
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   page?: number = 1;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   limit?: number = 10;
 }
@@ -49,8 +102,16 @@ export class DraftListPenerimaDto {
 
 export class DraftListItemDto {
   id_naskah: string;
+  id_sirkulasi: string | null;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
   jenis_text: string;
+  penanda_konsep: boolean;
+  konseptor_position_id: number | null;
+  nama_konseptor: string | null;
+  // Penanda asal draft untuk menentukan form edit yang benar di frontend.
+  asal_draft: 'konsep' | 'naskah';
+  // Helper boolean agar FE lebih mudah melakukan redirect.
+  is_draft_konsep: boolean;
   penerima: DraftListPenerimaDto[]; // Array of all penerima
   penerima_count: number; // Jumlah penerima
   isi_pesan: string; // Perihal
@@ -69,6 +130,17 @@ export class GetDraftListResponseDto {
     limit: number;
     totalPages: number;
   };
+  summary: {
+    total_semua: number;
+    total_per_jenis: {
+      ND: number;
+      SDI: number;
+      SDE: number;
+      DI: number;
+      KA: number;
+      K: number;
+    };
+  };
 }
 
 // ============================================================
@@ -79,6 +151,12 @@ export class DraftDetailPenerimaDto {
   position_text: string;
   nama: string;
   organization_text: string;
+}
+
+export class DraftDetailGrupPenerimaDto {
+  id: string;
+  nama: string;
+  position_ids: number[];
 }
 
 export class DraftDetailLampiranDto {
@@ -112,7 +190,7 @@ export class DraftDetailDataDto {
   sifat: string;
   perihal?: string;
   konten?: string;
-  status: 'draf' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'final' | 'final_tte';
   
   // Pengirim
   pengirim: {
@@ -125,8 +203,14 @@ export class DraftDetailDataDto {
   // Penerima
   penerima: DraftDetailPenerimaDto[];
 
+  // Grup penerima (for ND/SDI/SDE/DI/KA jika menggunakan grup)
+  penerima_grup?: DraftDetailGrupPenerimaDto[];
+
   // Tembusan (for ND)
   tembusan?: DraftDetailPenerimaDto[];
+
+  // Grup tembusan (for ND)
+  tembusan_grup?: DraftDetailGrupPenerimaDto[];
 
   // Referensi (for ND, DI)
   referensi?: DraftDetailReferensiDto;

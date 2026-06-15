@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahEntity } from '../entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
@@ -11,6 +11,9 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 // import { NdEntity } from '../../nota-dinas/entities/nd.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { NotificationService } from '../../notification/services/notification.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import {
@@ -49,14 +52,23 @@ export class NaskahService {
     // @InjectRepository(SdiSdeEntity)
     // private sdiSdeRepository: Repository<SdiSdeEntity>,
     private storageService: StorageService,
-  ) {}
+    private meilisearchSyncService: MeilisearchSyncService,
+    private grupPenerimaService: GrupPenerimaService,
+    private notificationService: NotificationService,
+    private dataSource: DataSource,
+  ) { }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
     const naskah = new NaskahEntity();
     naskah.id = uuidv4();
     Object.assign(naskah, createNaskahDto);
 
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(saved.id).catch(() => { });
+
+    return saved;
   }
 
   async findAll(
@@ -108,21 +120,164 @@ export class NaskahService {
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     Object.assign(naskah, updateNaskahDto);
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
     const naskah = await this.findOne(id);
     await this.naskahRepository.remove(naskah);
+
+    // Remove from Meilisearch (non-blocking)
+    this.meilisearchSyncService.deleteNaskah(id).catch(() => { });
   }
 
   async updateStatus(
     id: string,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<NaskahEntity> {
     const naskah = await this.findOne(id);
     naskah.status = status;
-    return await this.naskahRepository.save(naskah);
+    const saved = await this.naskahRepository.save(naskah);
+
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+
+    return saved;
+  }
+
+  /**
+   * Finalize Pending - Mengirim surat yang tertunda (TTD basah)
+   * 
+   * Flow:
+   * 1. Validasi naskah status = 'pending'
+   * 2. Simpan file signed scan (jika ada)
+   * 3. Update status naskah: pending → final
+   * 4. Update sirkulasi: isDraft = false (surat terlihat oleh penerima)
+   * 5. Kirim notifikasi ke penerima dan tembusan
+   */
+  async finalizePending(
+    naskahId: string,
+    file: Express.Multer.File,
+    user?: { persnum: number; nama: string; positionText: string; position?: string },
+  ): Promise<{ success: boolean; message: string; naskah_id: string; signed_file: string }> {
+    if (user?.position) {
+      await this.assertUserHasAccessToNaskah(naskahId, user.position);
+    }
+
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+
+    if (naskah.status !== 'pending') {
+      throw new NotFoundException(
+        `Naskah bukan berstatus pending. Status saat ini: ${naskah.status}`,
+      );
+    }
+
+    // Upload signed file to storage
+    const uploadResult = await this.storageService.uploadFile(file, 'signed-documents');
+    const signedFileKey = uploadResult.key;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Update naskah status to final + save signed file + track who finalized
+      const updateData: Partial<NaskahEntity> = {
+        status: 'final',
+        final_pdf: signedFileKey,
+        ...(user && {
+          dikirimOleh: {
+            persnum: String(user.persnum),
+            nama: user.nama,
+            position_text: user.positionText,
+          },
+        }),
+      };
+
+      await queryRunner.manager.update(NaskahEntity, { id: naskahId }, updateData);
+
+      // Update all sirkulasi: isDraft = false (now visible to penerima)
+      await queryRunner.manager.update(
+        NaskahSirkulasi,
+        { idNaskah: naskahId },
+        { isDraft: false },
+      );
+
+      await queryRunner.commitTransaction();
+
+      // Get sirkulasi for notifications (after commit)
+      const allSirkulasi = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: naskahId },
+      });
+
+      const pengirim = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
+      const penerimaList = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
+      const tembusanList = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+
+      // Send notifications to penerima (non-blocking)
+      for (const penerima of penerimaList) {
+        this.notificationService.createNaskahMasukNotification({
+          positionId: penerima.position || '',
+          userPersnum: penerima.idSirkuler ? Number(penerima.idSirkuler) || undefined : undefined,
+          naskahId,
+          sirkulasiId: penerima.id,
+          jenis: naskah.jenis || 'ND',
+          nomor: naskah.nomor || '',
+          perihal: naskah.perihal || '',
+          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+          pengirimPosition: pengirim?.positionText || '',
+          isTembusan: false,
+        }).catch((err) => {
+          console.error(`[Naskah:FinalizePending] ❌ Failed notification penerima ${penerima.position}:`, err.message);
+        });
+      }
+
+      // Send notifications to tembusan (non-blocking)
+      for (const tembusan of tembusanList) {
+        this.notificationService.createNaskahMasukNotification({
+          positionId: tembusan.position || '',
+          userPersnum: tembusan.idSirkuler ? Number(tembusan.idSirkuler) || undefined : undefined,
+          naskahId,
+          sirkulasiId: tembusan.id,
+          jenis: naskah.jenis || 'ND',
+          nomor: naskah.nomor || '',
+          perihal: naskah.perihal || '',
+          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+          pengirimPosition: pengirim?.positionText || '',
+          isTembusan: true,
+        }).catch((err) => {
+          console.error(`[Naskah:FinalizePending] ❌ Failed notification tembusan ${tembusan.position}:`, err.message);
+        });
+      }
+
+      // Sync to Meilisearch (non-blocking)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
+      return {
+        success: true,
+        message: 'Surat tertunda berhasil dikirim',
+        naskah_id: naskahId,
+        signed_file: signedFileKey,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      // Cleanup uploaded file if transaction failed
+      this.storageService.deleteFile(signedFileKey).catch(() => { });
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -135,7 +290,12 @@ export class NaskahService {
    * - Referensi surat
    * - Data spesifik per jenis (DI, ND, dll)
    */
-  async getDetail(naskahId: string): Promise<NaskahDetailResponseDto> {
+  async getDetail(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<NaskahDetailResponseDto> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // 1. Get data naskah utama
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -153,6 +313,18 @@ export class NaskahService {
     const pengirim = sirkulasiList.find((s) => s.sirkuler === 'pengirim');
     const penerima = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
     const tembusan = sirkulasiList.filter((s) => s.sirkuler === 'tembusan');
+
+    // Extract unique grup penerima IDs from sirkulasi records
+    const penerimaGrupIds = [...new Set(
+      penerima.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+    )];
+    const tembusanGrupIds = [...new Set(
+      tembusan.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+    )];
+
+    // Enrich grup penerima with nama and position_ids
+    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
 
     // 3. Get lampiran files
     const lampiranList = await this.naskahLampiranRepository.find({
@@ -211,11 +383,14 @@ export class NaskahService {
         konten: naskah.konten,
         lampiran: naskah.lampiran,
         status: naskah.status,
+        label_ttd: this.getLabelTtd(naskah.signOption),
 
         // Sirkulasi
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
         penerima: penerima.map((p) => this.mapSirkulasi(p)),
         tembusan: tembusan.map((t) => this.mapSirkulasi(t)),
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
 
         // Lampiran files
         lampiran_files: lampiranList.map((l) => this.mapLampiran(l)),
@@ -223,11 +398,28 @@ export class NaskahService {
         // Referensi surat
         referensi: referensiList.map((r) => this.mapReferensi(r)),
 
+        // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+        dikirim_oleh: naskah.dikirimOleh || null,
+
         // Data spesifik per jenis
         detail_disposisi: detailDisposisi,
         detail_nota_dinas: null, // TODO: implement jika ada tabel nd
       },
     };
+  }
+
+  /**
+   * Get label TTD berdasarkan sign_option yang tersimpan di naskah
+   * - digsig → TTE BSrE
+   * - qr_only → QR Code
+   * - ttd_basah → TTD Basah
+   * - null → null (draf / legacy)
+   */
+  private getLabelTtd(signOption: string | null): string | null {
+    if (signOption === 'digsig') return 'TTE BSrE';
+    if (signOption === 'qr_only') return 'QR Code';
+    if (signOption === 'ttd_basah') return 'TTD Basah';
+    return null;
   }
 
   /**
@@ -255,6 +447,8 @@ export class NaskahService {
       is_draft: s.isDraft ?? false,
       flag_favorit: !!s.flagFavorit,
       flag_arsip: !!s.flagArsip,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
     };
   }
 
@@ -321,7 +515,9 @@ export class NaskahService {
    * @param naskahId - ID naskah (bisa dari level mana saja)
    * @returns Full chain dengan detail setiap naskah
    */
-  async getDetailWithChain(naskahId: string): Promise<any> {
+  async getDetailWithChain(naskahId: string, userPosition: string): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -519,10 +715,10 @@ export class NaskahService {
           const kepadaYth = naskahData.jenis === 'SDI'
             ? penerimaList.map(p => `${p.positionText} - ${p.organizationText}`).join('; ')
             : penerimaList.map(p => p.namaSirkuler || '').join('; ');
-          
+
           // For SDE, get tujuan and alamat from first penerima (if external)
           const firstPenerima = penerimaList.length > 0 ? penerimaList[0] : null;
-          
+
           jenisSpecificData = {
             kepada_yth: kepadaYth,
             tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.namaSirkuler || null) : null,
@@ -543,14 +739,26 @@ export class NaskahService {
         ? await this.storageService.getFileUrl(naskahData.final_pdf)
         : null;
 
+      // Extract unique grup penerima IDs
+      const penerimaGrupIds = [...new Set(
+        penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
+      )];
+      const tembusanGrupIds = [...new Set(
+        tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
+      )];
+
+      // Enrich grup penerima with nama and position_ids
+      const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+      const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-            position_id: pengirimSirkulasi.position || '',
-            position_text: pengirimSirkulasi.positionText || '',
-            organization_text: pengirimSirkulasi.organizationText || '',
-            nama: pengirimSirkulasi.namaSirkuler || null,
-          }
+          position_id: pengirimSirkulasi.position || '',
+          position_text: pengirimSirkulasi.positionText || '',
+          organization_text: pengirimSirkulasi.organizationText || '',
+          nama: pengirimSirkulasi.namaSirkuler || null,
+        }
         : null;
 
       // Build penerima list with read status
@@ -563,12 +771,14 @@ export class NaskahService {
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
 
-      // Build tembusan list
+      // Build tembusan list with read status
       const tembusanInfo = tembusanList.map((t) => ({
         position_id: t.position || '',
         position_text: t.positionText || '',
         organization_text: t.organizationText || '',
         nama: t.namaSirkuler || null,
+        status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
+        read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
       }));
 
       // Build lampiran info with URLs
@@ -586,12 +796,12 @@ export class NaskahService {
       // Build referensi info
       const referensiInfo = referensiData
         ? {
-            ref_jenis: referensiData.ref_jenis,
-            ref_pengirim: referensiData.ref_pengirim,
-            ref_tanggal: referensiData.ref_tanggal,
-            ref_nomor: referensiData.ref_nomor,
-            ref_perihal: referensiData.ref_perihal,
-          }
+          ref_jenis: referensiData.ref_jenis,
+          ref_pengirim: referensiData.ref_pengirim,
+          ref_tanggal: referensiData.ref_tanggal,
+          ref_nomor: referensiData.ref_nomor,
+          ref_perihal: referensiData.ref_perihal,
+        }
         : null;
 
       return {
@@ -607,38 +817,48 @@ export class NaskahService {
         klasifikasi_text: naskahData.klasifikasi_text,
         status: naskahData.status,
         lampiran: naskahData.lampiran,
-        
+        label_ttd: this.getLabelTtd(naskahData.signOption),
+
         // Sirkulasi
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         tembusan: tembusanInfo,
-        
+        penerima_grup: penerimaGrupInfo,
+        tembusan_grup: tembusanGrupInfo,
+
         // Lampiran files
         lampiran_files: lampiranInfo,
         jumlah_lampiran: lampiranFiles.length,
-        
+
         // Final PDF
         final_pdf: naskahData.final_pdf,
         final_pdf_url: finalPdfUrl,
-        
+
+        // Dikirim oleh (siapa yang mengirim/finalize naskah pending, bisa delegasi)
+        dikirim_oleh: naskahData.dikirimOleh || null,
+
         // Referensi
         referensi: referensiInfo,
-        
+
         // Jenis-specific data
         detail: jenisSpecificData,
-        
+
         // Level
         level,
+        
+        // Timestamps - menggunakan created_at dari pengirim sirkulasi (UTC dari database)
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       };
     };
 
-    // Build nodes untuk semua naskah dalam chain
+    // Build nodes untuk semua naskah dalam chain (exclude jenis 'K' / konsep)
     for (const naskahIdInChain of allNaskahInChain) {
       const naskahData = await this.naskahRepository.findOne({
         where: { id: naskahIdInChain },
       });
       
-      if (naskahData) {
+      if (naskahData && naskahData.jenis !== 'K') {
         const level = naskahIdToLevel.get(naskahIdInChain) || 0;
         const node = await buildFlowNode(naskahData, level);
         flow.push(node);
@@ -659,6 +879,23 @@ export class NaskahService {
       message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
       data: flow,
     };
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: { id: true },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
   }
 }
 

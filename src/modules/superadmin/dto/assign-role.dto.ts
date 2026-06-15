@@ -17,3 +17,15 @@ export class AssignRoleResponseDto {
     assigned_at: Date;
   };
 }
+
+export class UpdateRoleResponseDto {
+  success: boolean;
+  message: string;
+  data: {
+    persnum: number;
+    previous_role: string;
+    new_role: UserRole;
+    updated_by: number;
+    updated_at: Date;
+  };
+}

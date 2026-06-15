@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { AdminService } from '../services/admin.service';
 import { SearchUsersDto, SearchUsersResponseDto } from '../dto/search-users.dto';
-import { AssignRoleDto, AssignRoleResponseDto } from '../dto/assign-role.dto';
+import { AssignRoleDto, AssignRoleResponseDto, UpdateRoleResponseDto } from '../dto/assign-role.dto';
 import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
 import { Roles } from '../../../common/decorators';
 import { RolesGuard, JwtAuthGuard } from '../../../common/guards';
@@ -61,6 +61,24 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
   ): Promise<AssignRoleResponseDto> {
     return this.adminService.assignRole(persnum, dto, user.persnum);
+  }
+
+  /**
+   * PUT /superadmin/users/:persnum/role
+   * Update role for user (change existing role)
+   * 
+   * Body: { role: 'admin' | 'superadmin' }
+   * 
+   * Access: Superadmin only
+   */
+  @Roles('superadmin')
+  @Put('users/:persnum/role')
+  async updateRole(
+    @Param('persnum', ParseIntPipe) persnum: number,
+    @Body() dto: AssignRoleDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<UpdateRoleResponseDto> {
+    return this.adminService.updateRole(persnum, dto, user.persnum);
   }
 
   /**

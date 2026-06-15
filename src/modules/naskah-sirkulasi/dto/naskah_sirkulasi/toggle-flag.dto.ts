@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsEnum, IsArray, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsString, IsEnum, IsArray, IsNumber, IsOptional } from 'class-validator';
 
 /**
  * DTO untuk Toggle Flag
@@ -13,6 +13,12 @@ export class ToggleFlagDto {
     message: 'flag_type harus salah satu dari: favorit, note, arsip, tindak_lanjut, lock',
   })
   flag_type: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock';
+
+  @IsOptional()
+  @IsEnum(['toggle', 'delete'], {
+    message: 'action harus salah satu dari: toggle, delete',
+  })
+  action?: 'toggle' | 'delete';
 }
 
 /**
@@ -24,7 +30,8 @@ export class ToggleFlagResponseDto {
   data: {
     id_sirkulasi: string;
     flag_type: string;
-    new_value: boolean;
+    new_value: boolean | null;
+    action: 'toggle' | 'delete';
   } | null;
 }
 

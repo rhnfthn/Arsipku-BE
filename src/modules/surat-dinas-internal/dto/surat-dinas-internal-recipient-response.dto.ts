@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, IsNumberString } from 'class-validator';
 
 /**
  * Query DTO for SDI get-recipient endpoint
@@ -10,6 +10,10 @@ export class GetSdiRecipientQueryDto {
     message: 'tgl must be in format YYYY-MM-DD',
   })
   tgl?: string;
+
+  @IsOptional()
+  @IsNumberString({}, { message: 'pengirim must be a valid number' })
+  pengirim?: string;
 }
 
 /**

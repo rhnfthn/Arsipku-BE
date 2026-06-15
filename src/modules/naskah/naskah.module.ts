@@ -11,6 +11,8 @@ import { DiEntity } from '../disposisi/entities/di.entity';
 // import { NdEntity } from '../nota-dinas/entities/nd.entity';
 // import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageModule } from '../storage/storage.module';
+import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -23,9 +25,11 @@ import { StorageModule } from '../storage/storage.module';
       // REMOVED: NdEntity and SdiSdeEntity
     ]),
     StorageModule,
+    SearchModule,
+    GrupPenerimaModule,
   ],
   controllers: [NaskahController],
   providers: [NaskahService],
   exports: [NaskahService, TypeOrmModule],
 })
-export class NaskahModule {}
+export class NaskahModule { }

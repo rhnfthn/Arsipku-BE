@@ -25,24 +25,26 @@ export class OrganizationController {
 
   /**
    * Get all organizations by company
-   * @example GET /organization/company/1
+   * @example GET /organization/company/1?search=finance
    */
   @Get('company/:companyId')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
-  ): Promise<OmOrganization[]> {
-    return this.organizationService.findByCompany(companyId);
+    @Query('search') search?: string,
+  ) {
+    return this.organizationService.findByCompany(companyId, search);
   }
 
   /**
    * Get organization tree structure by company
-   * @example GET /organization/company/1/tree
+   * @example GET /organization/company/1/tree?search=finance
    */
   @Get('company/:companyId/tree')
   findTreeByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
+    @Query('search') search?: string,
   ) {
-    return this.organizationService.findTreeByCompany(companyId);
+    return this.organizationService.findTreeByCompany(companyId, search);
   }
 
   /**
@@ -65,34 +67,55 @@ export class OrganizationController {
     return this.organizationService.findOneWithDetails(id);
   }
 
+  /**
+   * Get organization with parent information
+   * @example GET /organization/company/10000/1/with-parent
+   */
+  @Get('company/:companyId/:id/with-parent')
+  findOneWithParent(
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('id') id: string,
+  ) {
+    return this.organizationService.findOneWithParent(id, companyId);
+  }
+
+  /**
+   * Get all child organizations by parent organization ID
+   * @example GET /organization/10001072/children
+   */
+  @Get(':parentOrgId/children')
+  findChildOrganizations(
+    @Param('parentOrgId', ParseIntPipe) parentOrgId: number,
+  ) {
+    return this.organizationService.findChildOrganizations(parentOrgId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string): Promise<OmOrganization> {
     return this.organizationService.findOne(id);
   }
 
   /**
-   * Create organization for a company
-   * @example POST /organization/company/1
+   * Create organization
+   * @example POST /organization
    */
-  @Post('company/:companyId')
+  @Post()
   create(
-    @Param('companyId', ParseIntPipe) companyId: number,
     @Body() data: CreateOrganizationDto,
   ) {
-    return this.organizationService.create(companyId, data);
+    return this.organizationService.create(data);
   }
 
   /**
    * Update organization
-   * @example PUT /organization/company/1/:id
+   * @example PUT /organization/:id
    */
-  @Put('company/:companyId/:id')
+  @Put(':id')
   update(
-    @Param('companyId', ParseIntPipe) companyId: number,
     @Param('id') id: string,
     @Body() data: UpdateOrganizationDto,
   ) {
-    return this.organizationService.update(id, companyId, data);
+    return this.organizationService.update(id, data);
   }
 
   @Delete(':id')

@@ -6,6 +6,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   HttpException,
   HttpStatus,
   BadRequestException,
@@ -45,10 +46,69 @@ import {
   ForwardDisposisiDto,
   ForwardDisposisiResponseDto,
 } from '../dto/forward-disposisi.dto';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('DI')
 export class DisposisiController {
   constructor(private readonly disposisiService: DisposisiService) {}
+
+  /**
+   * GET /DI/get-recipient
+   * Get eligible recipients for Disposisi based on position_id
+   *
+   * Rules: Managerial ke managerial/fungsional/staf di bawahnya
+   * (langsung/tidak langsung) dalam Company yang sama
+   * 
+   * Barrier depth otomatis berdasarkan level pengirim:
+   * - EVP (Level 0) → depth 3 (dapat kirim ke Level 1, 2, 3)
+   * - VP (Level 1) → depth 2 (dapat kirim ke Level 2, 3)
+   * - Manager (Level 2) → depth 1 (dapat kirim ke Level 3)
+   * - Staff (Level 3) → tidak bisa kirim Disposisi
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param pengirim - Optional position_id pengirim (untuk kasus konsep/draft)
+   * @returns DisposisiRecipientResponseDto
+   *
+   * @example
+   * GET /DI/get-recipient (gunakan position dari JWT)
+   * GET /DI/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
+   *
+   * @throws 400 - Bad Request (invalid position_id)
+   * @throws 404 - Not Found (position not found)
+   * @throws 403 - Forbidden (non-managerial role or level 3)
+   * @throws 500 - Internal Server Error
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
+  async getDisposisiRecipients(
+    @CurrentUser() user: any,
+    @Query('pengirim') pengirim?: string,
+  ): Promise<DisposisiRecipientResponseDto> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const position = pengirim ? parseInt(pengirim, 10) : parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position');
+      }
+
+      return await this.disposisiService.getDisposisiRecipients(position);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Disposisi recipients',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 
   /**
    * GET /DI/:id
@@ -78,9 +138,10 @@ export class DisposisiController {
   @Get(':id')
   async getDisposisiDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.getDisposisiDetail(id);
+      return await this.disposisiService.getDisposisiDetail(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -91,56 +152,6 @@ export class DisposisiController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get Disposisi detail',
-          error: error instanceof Error ? error.message : String(error),
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * GET /DI/get-recipient/:position_id
-   * Get eligible recipients for Disposisi based on position_id
-   *
-   * Rules: Managerial ke managerial/fungsional/staf di bawahnya
-   * (langsung/tidak langsung) dalam Company yang sama
-   * 
-   * Barrier depth otomatis berdasarkan level pengirim:
-   * - EVP (Level 0) → depth 3 (dapat kirim ke Level 1, 2, 3)
-   * - VP (Level 1) → depth 2 (dapat kirim ke Level 2, 3)
-   * - Manager (Level 2) → depth 1 (dapat kirim ke Level 3)
-   * - Staff (Level 3) → tidak bisa kirim Disposisi
-   *
-   * @param position_id - Position ID (path parameter)
-   * @returns DisposisiRecipientResponseDto
-   *
-   * @throws 400 - Bad Request (invalid position_id)
-   * @throws 404 - Not Found (position not found)
-   * @throws 403 - Forbidden (non-managerial role or level 3)
-   * @throws 500 - Internal Server Error
-   */
-  @Get('get-recipient/:position_id')
-  async getDisposisiRecipients(
-    @Param('position_id') positionId: string,
-  ): Promise<DisposisiRecipientResponseDto> {
-    try {
-      const position = parseInt(positionId, 10);
-      if (isNaN(position)) {
-        throw new BadRequestException('position_id must be a valid number');
-      }
-
-      return await this.disposisiService.getDisposisiRecipients(position);
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Disposisi recipients',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -166,6 +177,7 @@ export class DisposisiController {
   @Post('send-message')
   async sendMessage(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
       console.log('[send-message] Raw body:', JSON.stringify(body, null, 2));
@@ -180,6 +192,8 @@ export class DisposisiController {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
       console.log('[send-message] Final pengirim_position_id:', body.pengirim_position_id);
 
       // Parse tertuju/penerima from form-data
@@ -245,7 +259,15 @@ export class DisposisiController {
         }
       }
 
-      return await this.disposisiService.sendMessage(body as CreateDisposisiDto);
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
+      return await this.disposisiService.sendMessage(
+        body as CreateDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -282,6 +304,7 @@ export class DisposisiController {
   @Post('save-draft')
   async saveDraft(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -354,6 +377,14 @@ export class DisposisiController {
         }
       }
 
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
+
       return await this.disposisiService.saveDraft(body as CreateDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -394,11 +425,15 @@ export class DisposisiController {
   @Get('get-send-message/:position_id')
   async getSendMessage(
     @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
   ): Promise<GetSendMessageResponseDto> {
     try {
       const position = parseInt(positionId, 10);
       if (isNaN(position)) {
         throw new BadRequestException('position_id must be a valid number');
+      }
+      if (String(position) !== String(user.position)) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
       }
 
       return await this.disposisiService.getSendMessage(position);
@@ -440,8 +475,10 @@ export class DisposisiController {
   @Put('update-message-status')
   async updateMessageStatus(
     @Body() dto: UpdateMessageStatusDto,
+    @CurrentUser() user: any,
   ): Promise<UpdateMessageStatusResponseDto> {
     try {
+      dto.position_id = String(user.position);
       return await this.disposisiService.updateMessageStatus(dto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -489,6 +526,7 @@ export class DisposisiController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<SendDraftDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -497,6 +535,9 @@ export class DisposisiController {
       } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
+
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -561,7 +602,16 @@ export class DisposisiController {
         }
       }
 
-      return await this.disposisiService.sendDraft(id, body as SendDraftDisposisiDto);
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
+      return await this.disposisiService.sendDraft(
+        id,
+        body as SendDraftDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -608,6 +658,7 @@ export class DisposisiController {
   async updateDraft(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     try {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
@@ -616,6 +667,9 @@ export class DisposisiController {
       } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
+
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -680,7 +734,16 @@ export class DisposisiController {
         }
       }
 
-      return await this.disposisiService.updateDraft(id, body as UpdateDraftDisposisiDto);
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
+      return await this.disposisiService.updateDraft(
+        id,
+        body as UpdateDraftDisposisiDto,
+        user?.persnum ? Number(user.persnum) : undefined,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -733,6 +796,7 @@ export class DisposisiController {
   @Post('forward')
   async forwardDisposisi(
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<ForwardDisposisiResponseDto> {
     try {
       console.log('[forward] Raw body:', JSON.stringify(body, null, 2));
@@ -744,6 +808,8 @@ export class DisposisiController {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
+      body.pengirim_position_id = parseInt(user.position, 10);
+      body.pengirim = String(user.position);
       console.log('[forward] Parsed pengirim_position_id:', body.pengirim_position_id);
 
       // Parse tertuju/penerima from form-data
@@ -809,6 +875,11 @@ export class DisposisiController {
         body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
       }
 
+      // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
+      if (body.is_priority !== undefined) {
+        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+      }
+
       console.log('[forward] Parsed body:', JSON.stringify(body, null, 2));
 
       return await this.disposisiService.forwardDisposisi(body as ForwardDisposisiDto);
@@ -865,6 +936,17 @@ export class DisposisiController {
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
 
+      try {
+        assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
         if (!dateInput) return '';
@@ -913,11 +995,15 @@ export class DisposisiController {
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
-      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
-      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
+
+      const ensureArray = <T = any>(value: T[] | T | null | undefined): T[] => {
+        if (Array.isArray(value)) return value;
+        if (value === null || value === undefined || value === '') return [];
+        return [value as T];
+      };
 
       // Check if tertuju are position_ids and convert to names
-      let tertujuArray = dto.tertuju || [];
+      let tertujuArray = ensureArray(dto.tertuju);
       const isPositionId = (value: any): boolean => {
         return typeof value === 'number' || 
                (typeof value === 'string' && /^\d+$/.test(value));
@@ -934,21 +1020,47 @@ export class DisposisiController {
         pengirimName = converted[0] || pengirimName;
       }
 
-      // Check if refPengirim is position_id and convert to name
-      let refPengirimName = refPengirim;
-      if (refPengirimName && isPositionId(refPengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
-        refPengirimName = converted[0] || refPengirimName;
+      // Data referensi untuk kotak tengah PDF:
+      // - Surat dari: pengirim saat ini (jabatan) - hanya jabatan tanpa organisasi
+      // - Tanggal: tanggal disposisi saat ini (formatted)
+      // - Nomor: dari input form (ref_nomor)
+      // - Perihal: dari input form (ref_perihal)
+      
+      // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
+      let refPengirimName = pengirimName;
+      if (refPengirimName.includes(' - ')) {
+        refPengirimName = refPengirimName.split(' - ')[0].trim();
       }
+
+      // Format tanggal disposisi untuk refTanggal (Indonesian long format)
+      const formatDateToIndonesian = (dateStr: string): string => {
+        if (!dateStr) return '';
+        try {
+          const monthNames = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          // Parse DD-MM-YYYY format
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+            const [day, month, year] = dateStr.split('-');
+            return `${parseInt(day)} ${monthNames[parseInt(month) - 1]} ${year}`;
+          }
+          return dateStr;
+        } catch (e) {
+          return dateStr;
+        }
+      };
+
+      const refTanggal = formatDateToIndonesian(formattedDate);
 
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
         htmlContent,
         tertujuArray,
-        dto.disposisi || [],
+        ensureArray(dto.disposisi),
         dto.sifat || 'Biasa',
         pengirimName,
-        dto.tembusan || [],
-        dto.lampiran_temp_ids || [],
+        ensureArray(dto.tembusan),
+        ensureArray(dto.lampiran_temp_ids),
         {
           refNomor,
           refPerihal,
@@ -959,6 +1071,10 @@ export class DisposisiController {
         },
       );
 
+      if (!pdfBuffer || typeof (pdfBuffer as any).length !== 'number') {
+        throw new Error('PDF buffer tidak valid');
+      }
+
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="preview-disposisi.pdf"`,
@@ -967,11 +1083,17 @@ export class DisposisiController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
+      const detail =
+        error instanceof Error
+          ? `${error.name}: ${error.message || 'Unknown error'}`
+          : typeof error === 'string'
+          ? error
+          : JSON.stringify(error);
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({
           error: 'Failed to generate preview', 
-          detail: error instanceof Error ? error.message : String(error) 
+          detail,
         });
     }
   }
@@ -1019,6 +1141,17 @@ export class DisposisiController {
       // htmlContent is now optional - use empty string as default for catatan section
       const htmlContent = dto.htmlContent || '';
 
+      try {
+        assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
         if (!dateInput) return '';
@@ -1067,8 +1200,6 @@ export class DisposisiController {
       // Parse ref.nomor dan ref.perihal dari body (form-data uses dot notation)
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
-      const refTanggal = dto.ref_tanggal || body['ref.tanggal'] || '';
-      const refPengirim = dto.ref_pengirim || body['ref.pengirim'] || '';
 
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
@@ -1088,12 +1219,38 @@ export class DisposisiController {
         pengirimName = converted[0] || pengirimName;
       }
 
-      // Check if refPengirim is position_id and convert to name
-      let refPengirimName = refPengirim;
-      if (refPengirimName && isPositionId(refPengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([refPengirimName]);
-        refPengirimName = converted[0] || refPengirimName;
+      // Data referensi untuk kotak tengah PDF:
+      // - Surat dari: pengirim saat ini (jabatan) - hanya jabatan tanpa organisasi
+      // - Tanggal: tanggal disposisi saat ini (formatted)
+      // - Nomor: dari input form (ref_nomor)
+      // - Perihal: dari input form (ref_perihal)
+      
+      // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
+      let refPengirimName = pengirimName;
+      if (refPengirimName.includes(' - ')) {
+        refPengirimName = refPengirimName.split(' - ')[0].trim();
       }
+
+      // Format tanggal disposisi untuk refTanggal (Indonesian long format)
+      const formatDateToIndonesian = (dateStr: string): string => {
+        if (!dateStr) return '';
+        try {
+          const monthNames = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          // Parse DD-MM-YYYY format
+          if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+            const [day, month, year] = dateStr.split('-');
+            return `${parseInt(day)} ${monthNames[parseInt(month) - 1]} ${year}`;
+          }
+          return dateStr;
+        } catch (e) {
+          return dateStr;
+        }
+      };
+
+      const refTanggal = formatDateToIndonesian(formattedDate);
 
       // Parse disposisi array (checkbox options)
       let disposisiArray = dto.disposisi || [];
@@ -1145,9 +1302,10 @@ export class DisposisiController {
   @Patch(':id/unset-priority')
   async unsetPriority(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.unsetPriority(id);
+      return await this.disposisiService.unsetPriority(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

@@ -8,8 +8,8 @@ import { SentMessageItemDto } from './sent-message.dto';
  */
 export class InboxSentQueryDto {
     @IsOptional()
-    @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], { message: 'Jenis naskah tidak valid' })
-    jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+    @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+    jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
     @IsOptional()
     @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
@@ -45,8 +45,6 @@ export class SentItemForCombinedDto extends SentMessageItemDto {
     is_favorit?: boolean;
     is_arsip?: boolean;
     is_note?: boolean;
-    is_tindak_lanjut?: boolean;
-    is_locked?: boolean;
 }
 
 export class InboxSentResponseDto {

@@ -1,7 +1,10 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
 import { AreaModule } from './modules/master-data/area/area.module';
@@ -51,10 +54,17 @@ import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
 import { DelegasiModule } from './modules/delegasi/delegasi.module';
 import { SearchModule } from './modules/search/search.module';
+import { FcmModule } from './modules/fcm/fcm.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
+import { ConfigAdminModule } from './modules/config/config.module';
+import { FaqModule } from './modules/faq/faq.module';
+import { ShortUrlModule } from './modules/short-url/short-url.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -67,6 +77,7 @@ import { SearchModule } from './modules/search/search.module';
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: false, // hanya untuk development
+        timezone: 'Z', // Force UTC timezone untuk konsistensi timestamp
         extra: {
           maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
         },
@@ -119,9 +130,21 @@ import { SearchModule } from './modules/search/search.module';
     DigsigModule,
     DelegasiModule,
     SearchModule,
+    FcmModule,
+    NotificationModule,
+    CompanySwitchModule,
+    ConfigAdminModule,
+    FaqModule,
+    ShortUrlModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly dataSource: DataSource) {}

@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNotEmpty } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 /**
@@ -11,6 +11,7 @@ export class GeneratePdfDto {
    * Bisa dalam bentuk plain text HTML atau base64 encoded
    */
   @IsString()
+  @IsNotEmpty({ message: 'htmlContent harus diisi' })
   htmlContent: string;
 
   /**
@@ -32,6 +33,27 @@ export class GeneratePdfDto {
     return value;
   })
   penerima?: string[];
+
+  /**
+   * ID Grup Penerima (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup untuk ditampilkan di PDF.
+   * Bisa digunakan bersamaan dengan field penerima (akan digabung).
+   */
+  @IsArray()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
 
   /**
    * Penerima Nota Dinas (Tertuju)
@@ -78,8 +100,20 @@ export class GeneratePdfDto {
    * Perihal/Subjek Nota Dinas
    */
   @IsString()
+  @IsNotEmpty({ message: 'Perihal harus diisi' })
+  perihal: string;
+
+  /**
+   * Klasifikasi arsip nota dinas.
+   * Dibuat mandatory agar preview/generate konsisten dengan send-message.
+   */
+  @IsString()
+  @IsNotEmpty({ message: 'Klasifikasi harus diisi' })
+  klasifikasi: string;
+
+  @IsString()
   @IsOptional()
-  perihal?: string;
+  klasifikasi_text?: string;
 
   /**
    * Tanggal Surat (format: DD/MM/YYYY atau full date string)
@@ -138,4 +172,25 @@ export class GeneratePdfDto {
     return value;
   })
   tembusan?: string[];
+
+  /**
+   * ID Grup Tembusan (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup untuk tembusan di PDF.
+   * Bisa digunakan bersamaan dengan field tembusan (akan digabung).
+   */
+  @IsArray()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 }

@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
@@ -31,6 +31,8 @@ import {
   RejectBulkNomorRequestDetailResponseDto,
   DeleteNomorRequestResponseDto,
   RejectAllNomorRequestResponseDto,
+  ApproveBulkPenandatanganDto,
+  ApproveBulkPenandatanganResponseDto,
 } from '../dto/admin-nomor-request.dto';
 import {
   GetNomorQueryDto,
@@ -41,10 +43,15 @@ import {
   AdminCreateNomorResponseDto,
 } from '../dto/admin-create-nomor.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class NomorService {
+  // Cache untuk position JSON data (per-request lifecycle)
+  private cachedPositionJsonData: any[] | null = null;
+
   constructor(
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
@@ -54,10 +61,135 @@ export class NomorService {
     private readonly nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
     @InjectRepository(JenisEntity)
     private readonly jenisRepository: Repository<JenisEntity>,
+    @InjectRepository(UserRoleEntity)
+    private readonly userRoleRepository: Repository<UserRoleEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
   ) {}
+
+  /**
+   * Helper: Get latest position JSON data dengan caching
+   * Cache di-reset setiap kali method ini dipanggil dengan forceRefresh=true
+   */
+  private async getLatestPositionJsonData(forceRefresh = false): Promise<any[]> {
+    if (!forceRefresh && this.cachedPositionJsonData !== null) {
+      return this.cachedPositionJsonData;
+    }
+
+    try {
+      const allOrgData = await this.orgDataService.findAll();
+      if (allOrgData.length > 0) {
+        const latestOrgData = allOrgData.sort((a, b) => {
+          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
+          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          this.cachedPositionJsonData = latestOrgData.position_json;
+          return this.cachedPositionJsonData;
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch position data from org_data');
+    }
+
+    this.cachedPositionJsonData = [];
+    return [];
+  }
+
+  /**
+   * Helper: Determine status dari details array
+   */
+  private determineStatusFromDetails(details: NomorRequestDetailEntity[]): string {
+    if (details.length === 0) return 'Belum Diajukan';
+
+    const hasDraft = details.some((d) => d.status === 'draft');
+    const hasBooking = details.some((d) => d.status === 'booking');
+    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const allHangus = details.every((d) => d.status === 'hangus');
+    const allDitolak = details.every((d) => d.status === 'ditolak');
+    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+    if (hasTerpakai) return 'Disetujui';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'Ditolak';
+    if (hasBooking) return 'Menunggu Verifikasi';
+    if (hasDraft) return 'Draft';
+    
+    return 'Belum Diajukan';
+  }
+
+  /**
+   * Helper: Determine status key untuk counting (lowercase dengan underscore)
+   */
+  private determineStatusKeyFromDetails(details: NomorRequestDetailEntity[]): string {
+    if (details.length === 0) return 'belum_diajukan';
+
+    const hasDraft = details.some((d) => d.status === 'draft');
+    const hasBooking = details.some((d) => d.status === 'booking');
+    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const allHangus = details.every((d) => d.status === 'hangus');
+    const allDitolak = details.every((d) => d.status === 'ditolak');
+    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+
+    if (hasTerpakai) return 'disetujui';
+    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'ditolak';
+    if (hasBooking) return 'menunggu_verifikasi';
+    if (hasDraft) return 'menunggu_persetujuan';
+    
+    return 'belum_diajukan';
+  }
+
+  /**
+   * Helper: Normalisasi status filter query agar kompatibel dengan label lama/typo
+   */
+  private normalizeStatusFilter(status?: string): string | undefined {
+    if (!status) return status;
+
+    const normalized = status.trim().toLowerCase();
+    if (normalized === 'menunggu persetujuan' || normalized === 'menunggu_persetujuan' || normalized === 'draft' ) {
+      return 'Draft';
+    }
+
+    return status;
+  }
+
+  /**
+   * Scope area berdasarkan kode area user.
+   * - A000 (kantor pusat): tanpa pembatasan area
+   * - Selain A000: dibatasi ke area user login
+   */
+  private getScopedAreaCode(user: JwtPayload): string | undefined {
+    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!requesterAreaCode) {
+      throw new BadRequestException('Area code tidak ditemukan pada token user');
+    }
+
+    return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+  }
+
+  /**
+   * Helper legacy: Check berdasarkan status detail (dipakai sebagai fallback data lama)
+   */
+  private isFromTulisSuratOtomatis(details: NomorRequestDetailEntity[]): boolean {
+    if (details.length === 0) return false;
+    return details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+  }
+
+  /**
+   * Helper: Pembeda usulan yang di-generate dari modul naskah.
+   * Fallback ke heuristik lama hanya untuk data legacy yang belum punya flag.
+   */
+  private isNaskahGeneratedRequest(
+    request: NomorRequestEntity,
+    details: NomorRequestDetailEntity[],
+  ): boolean {
+    if (request.isNaskahGenerated === true) return true;
+    if (request.isNaskahGenerated === false) return false;
+    return this.isFromTulisSuratOtomatis(details);
+  }
 
   /**
    * Helper: Map position text to jabatan code
@@ -246,6 +378,7 @@ export class NomorService {
       jumlah: dto.jumlah,
       penandatangan: dto.penandatangan || null,
       idPositionPenandatangan: dto.id_position_penandatangan || null,
+      isNaskahGenerated: false,
     });
 
     await this.nomorRequestRepository.save(nomorRequest);
@@ -284,23 +417,39 @@ export class NomorService {
 
   /**
    * User melihat usulan nomor berdasarkan position_id
+   * OPTIMIZED: Menggunakan LEFT JOIN untuk load details bersamaan
    */
   async getNomorRequestByPosition(
     positionId: number,
+    query?: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
+    // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
       where: { position: positionId.toString() },
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
+    // Pre-cache jenis data untuk generateNomorTemplate
+    const jenisCache = new Map<string, any>();
+    const uniqueJenis = [...new Set(requests.map(r => r.jenis).filter((j): j is string => j !== null && j !== undefined))];
+    if (uniqueJenis.length > 0) {
+      const jenisDataList = await this.jenisRepository.find({
+        where: uniqueJenis.map(j => ({ jenis: j })),
+      });
+      jenisDataList.forEach(j => jenisCache.set(j.jenis!, j));
+    }
+
+    // Generate data tanpa N+1 query
     const data = await Promise.all(
       requests.map(async (request) => {
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-          order: { createdAt: 'ASC' },
-        });
+        const details = request.details || [];
+        // Sort details by createdAt ASC
+        details.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-        // Generate template nomor
+        // Generate template nomor (menggunakan cache)
         const templateNomor = await this.generateNomorTemplate(request);
 
         return {
@@ -316,130 +465,285 @@ export class NomorService {
           perihal: request.perihal!,
           jumlah: request.jumlah!,
           penandatangan: request.penandatangan,
+          is_single_file: request.isSingleFile,
           template_nomor: templateNomor,
           created_at: request.createdAt,
-          details: details.map((detail) => ({
-            id: detail.id,
-            nomor: detail.nomor,
-            status: detail.status,
-            file_name: detail.fileName,
-            created_at: detail.createdAt,
-          })),
+          details: await Promise.all(
+                details.map(async (detail) => ({
+                  id: detail.id,
+                  nomor: detail.nomor,
+                  status: detail.status,
+                  file_name: detail.fileName,
+                  file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+                  created_at: detail.createdAt,
+                })),
+              ),
         };
       }),
     );
 
-    return {
+    // Apply search filter
+    let filteredData = data;
+    if (query?.search) {
+      const searchLower = query.search.toLowerCase();
+      filteredData = data.filter((item) => {
+        const perihalMatch = item.perihal && item.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = item.jenis && item.jenis.toLowerCase().includes(searchLower);
+        const penandatanganMatch = item.penandatangan && item.penandatangan.toLowerCase().includes(searchLower);
+        return perihalMatch || jenisMatch || penandatanganMatch;
+      });
+    }
+
+    // Apply status filter menggunakan helper
+    if (normalizedStatus && normalizedStatus !== 'Semua') {
+      filteredData = filteredData.filter((item) => {
+        const details = item.details || [];
+        // Convert to entity-like format for helper
+        const detailsForHelper = details.map(d => ({ status: d.status }) as NomorRequestDetailEntity);
+        const status = this.determineStatusFromDetails(detailsForHelper);
+        return status === normalizedStatus;
+      });
+    }
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
+
+    // Apply pagination
+    let paginatedData = filteredData;
+    const result: any = {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data,
+      data: filteredData,
     };
+
+    if (query?.page || query?.limit) {
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const total = filteredData.length;
+      const totalPages = Math.ceil(total / limit);
+      const skip = (page - 1) * limit;
+      paginatedData = filteredData.slice(skip, skip + limit);
+      result.data = paginatedData;
+      result.pagination = { page, limit, total, totalPages };
+    }
+
+    return result;
   }
 
   /**
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
-   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequestSubmitted(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequestSubmitted(
+    query?: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
+    // Optimized: Load requests dengan details dalam 1 query
     const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process data tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
+
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          return null;
         }
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        return null;
+      }
 
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
+      const status = this.determineStatusFromDetails(details);
 
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai');
-          const allHangus = details.every((d) => d.status === 'hangus');
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
 
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
+      const responseItem = {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
 
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      // Apply search filter across all fields
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const searchFields = [
+          responseItem.id?.toString(),
+          responseItem.company,
+          responseItem.area,
+          responseItem.sub_area,
+          responseItem.organization,
+          responseItem.position,
+          responseItem.persnum?.toString(),
+          responseItem.nama,
+          responseItem.tanggal,
+          responseItem.jenis,
+          responseItem.klasifikasi,
+          responseItem.perihal,
+          responseItem.jumlah?.toString(),
+          responseItem.penandatangan,
+          responseItem.status,
+        ];
         
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
+        const isMatch = searchFields.some(field => 
+          field && field.toLowerCase().includes(searchLower)
+        );
+        
+        if (!isMatch) {
+          return null;
+        }
+      }
 
-        return {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-      }),
-    );
+      // Apply status filter
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+        return null;
+      }
 
-    // Filter out null values (data dari tulis surat) and requests with status 'Belum Diajukan'
+      return responseItem;
+    });
+
+    // Filter out null values and 'Belum Diajukan'
     const submittedData = data.filter((item): item is Exclude<typeof item, null> => 
       item !== null && item.status !== 'Belum Diajukan'
     );
 
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      submittedData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = submittedData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = submittedData.slice(skip, skip + limit);
+
     return {
       success: true,
       message: 'Data usulan nomor yang diajukan berhasil diambil',
-      data: submittedData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
   /**
    * Count nomor request by status (for admin dashboard)
-   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+   * - Semua data dengan status selain "Belum Diajukan" di-count
+   * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
+  * Hanya count data dari usulan manual (is_naskah_generated != true)
+   * OPTIMIZED: Menggunakan LEFT JOIN
    */
-  async getAdminCountNomorRequest(): Promise<any> {
-    const requests = await this.nomorRequestRepository.find();
+  async getAdminCountNomorRequest(positionId: number, user?: JwtPayload): Promise<any> {
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
+
+    // Load requests, role admin data, dan position mapping in parallel
+    const [requests, penandatanganRequests, adminRoles, positionJsonData] = await Promise.all([
+      this.nomorRequestRepository.find({
+        relations: ['details'],
+      }),
+      this.nomorRequestRepository.find({
+        where: { idPositionPenandatangan: positionId },
+        relations: ['details'],
+      }),
+      this.userRoleRepository.find({
+        where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+        select: ['persnum'],
+      }),
+      this.getLatestPositionJsonData(),
+    ]);
+
+    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
+
+    const isProposedByAdmin = (request: NomorRequestEntity): boolean => {
+      const positionNumber = parseInt(request.position || '0', 10);
+      if (!positionNumber) return false;
+
+      const positionData = positionJsonData.find((p: any) => Number(p.position) === positionNumber);
+      const persnum = positionData?.persnum_person;
+      if (!persnum) return false;
+
+      return adminPersnumSet.has(Number(persnum));
+    };
 
     // Count by status
     const statusCounts = {
@@ -447,57 +751,73 @@ export class NomorService {
       disetujui: 0,
       ditolak: 0,
       belum_diajukan: 0,
+      draft: 0,
     };
 
+    let processedCount = 0;
     for (const request of requests) {
-      // Ambil detail untuk menentukan status
-      const details = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: request.id },
-      });
+      const details = request.details || [];
 
-      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-      if (details.length > 0) {
-        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        if (allDirectTerpakai) {
-          continue; // Skip data dari tulis surat
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          continue;
         }
       }
 
-      let status = 'belum_diajukan';
-      if (details.length > 0) {
-        const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        const allHangus = details.every((d) => d.status === 'hangus');
-        const allDitolak = details.every((d) => d.status === 'ditolak');
-        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-        if (hasTerpakai) {
-          status = 'disetujui';
-        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-          status = 'ditolak';
-        } else if (hasBooking) {
-          status = 'menunggu_verifikasi';
-        }
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        continue;
       }
+
+      const statusKey = this.determineStatusKeyFromDetails(details);
+
+      // Filter: jika status "belum_diajukan", hanya count yang dibuat oleh posisi ini
+      if (statusKey === 'belum_diajukan' && request.position !== positionId.toString()) {
+        continue;
+      }
+
+      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
+      if (statusKey === 'menunggu_persetujuan') {
+        // Draft hanya dihitung jika pengusul ber-role admin/superadmin
+        if (isProposedByAdmin(request)) {
+          statusCounts.draft++;
+        }
+        continue;
+      }
+
+      processedCount++;
 
       // Increment counter
-      switch (status) {
-        case 'menunggu_verifikasi':
-          statusCounts.menunggu_verifikasi++;
-          break;
-        case 'disetujui':
-          statusCounts.disetujui++;
-          break;
-        case 'ditolak':
-          statusCounts.ditolak++;
-          break;
-        case 'belum_diajukan':
-          statusCounts.belum_diajukan++;
-          break;
+      if (statusKey in statusCounts) {
+        statusCounts[statusKey as keyof typeof statusCounts]++;
       }
     }
 
-    const total = requests.length;
+    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
+    let menungguPersetujuanCount = 0;
+    for (const request of penandatanganRequests) {
+      const details = request.details || [];
+
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
+          continue;
+        }
+      }
+
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        continue;
+      }
+
+      const statusKey = this.determineStatusKeyFromDetails(details);
+      if (statusKey === 'menunggu_persetujuan') {
+        // Sinkron dengan draft: hanya usulan dari admin/superadmin
+        if (isProposedByAdmin(request)) {
+          menungguPersetujuanCount++;
+        }
+      }
+    }
 
     return {
       success: true,
@@ -507,19 +827,30 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
-        total,
+        draft: statusCounts.draft,
+        menunggu_persetujuan: menungguPersetujuanCount,
+        total: processedCount,
       },
     };
   }
 
   /**
    * Count nomor request by status filtered by position ID
-   * Hanya count data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya count data dari usulan manual (is_naskah_generated != true)
+   * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
-    const requests = await this.nomorRequestRepository.find({
-      where: { position: positionId.toString() },
-    });
+    // Load requests by requester position and by penandatangan position in parallel
+    const [requests, penandatanganRequests] = await Promise.all([
+      this.nomorRequestRepository.find({
+        where: { position: positionId.toString() },
+        relations: ['details'],
+      }),
+      this.nomorRequestRepository.find({
+        where: { idPositionPenandatangan: positionId },
+        relations: ['details'],
+      }),
+    ]);
 
     // Count by status
     const statusCounts = {
@@ -527,57 +858,48 @@ export class NomorService {
       disetujui: 0,
       ditolak: 0,
       belum_diajukan: 0,
+      draft: 0,
     };
 
+    let processedCount = 0;
     for (const request of requests) {
-      // Ambil detail untuk menentukan status
-      const details = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: request.id },
-      });
+      const details = request.details || [];
 
-      // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-      if (details.length > 0) {
-        const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        if (allDirectTerpakai) {
-          continue; // Skip data dari tulis surat
-        }
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        continue;
       }
 
-      let status = 'belum_diajukan';
-      if (details.length > 0) {
-        const hasBooking = details.some((d) => d.status === 'booking');
-        const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-        const allHangus = details.every((d) => d.status === 'hangus');
-        const allDitolak = details.every((d) => d.status === 'ditolak');
-        const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+      const statusKey = this.determineStatusKeyFromDetails(details);
 
-        if (hasTerpakai) {
-          status = 'disetujui';
-        } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-          status = 'ditolak';
-        } else if (hasBooking) {
-          status = 'menunggu_verifikasi';
-        }
+      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
+      if (statusKey === 'menunggu_persetujuan') {
+        statusCounts.draft++;
+        continue;
       }
+
+      processedCount++;
 
       // Increment counter
-      switch (status) {
-        case 'menunggu_verifikasi':
-          statusCounts.menunggu_verifikasi++;
-          break;
-        case 'disetujui':
-          statusCounts.disetujui++;
-          break;
-        case 'ditolak':
-          statusCounts.ditolak++;
-          break;
-        case 'belum_diajukan':
-          statusCounts.belum_diajukan++;
-          break;
+      if (statusKey in statusCounts) {
+        statusCounts[statusKey as keyof typeof statusCounts]++;
       }
     }
 
-    const total = requests.length;
+    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
+    let menungguPersetujuanCount = 0;
+    for (const request of penandatanganRequests) {
+      const details = request.details || [];
+
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        continue;
+      }
+
+      const statusKey = this.determineStatusKeyFromDetails(details);
+      if (statusKey === 'menunggu_persetujuan') {
+        menungguPersetujuanCount++;
+      }
+    }
 
     return {
       success: true,
@@ -588,116 +910,136 @@ export class NomorService {
         disetujui: statusCounts.disetujui,
         ditolak: statusCounts.ditolak,
         belum_diajukan: statusCounts.belum_diajukan,
-        total,
+        draft: statusCounts.draft,
+        menunggu_persetujuan: menungguPersetujuanCount,
+        total: processedCount,
       },
     };
   }
 
   /**
    * Admin melihat semua usulan nomor
-   * Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequest(): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+
+    // Optimized: Load dengan relations dalam 1 query
     const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    // Process tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
+
+      // Skip jika request di-generate dari modul naskah
+      if (this.isNaskahGeneratedRequest(request, details)) {
+        return null;
+      }
+
+      const status = this.determineStatusFromDetails(details);
+
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
+
+      // Apply search filter
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        const nomorMatch = request.penandatangan && request.penandatangan.toLowerCase().includes(searchLower);
         
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
+        if (!perihalMatch && !jenisMatch && !nomorMatch) {
+          return null;
         }
       }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
+
+      // Apply status filter
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+        return null;
+      }
+
+      return {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
+    });
+
+    // Filter out null values
+    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
     }
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
-
-        // Filter: Hanya tampilkan request yang pernah/sedang punya status 'booking'
-        // Karena request dari tulis surat langsung 'terpakai' tanpa 'booking'
-        const hasEverBeenBooked = details.some((d) => 
-          d.status === 'booking' || 
-          d.status === 'terpakai' || 
-          d.status === 'terpakai_final' ||
-          d.status === 'hangus'
-        );
-
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
-
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          const allHangus = details.every((d) => d.status === 'hangus');
-          const allDitolak = details.every((d) => d.status === 'ditolak');
-          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
-
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
-
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-        
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
-
-        return {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-      }),
-    );
-
-    // Filter out null values (data dari tulis surat)
-    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
 
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -705,104 +1047,172 @@ export class NomorService {
    * Admin melihat semua usulan nomor dengan filter posisi
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
-   * - Hanya menampilkan data dari usulan manual (bukan dari tulis surat otomatis)
+  * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequestByPosition(positionId: number): Promise<GetAdminNomorRequestResponseDto> {
-    const requests = await this.nomorRequestRepository.find({
-      order: { createdAt: 'DESC' },
-    });
+  async getAdminNomorRequestByPosition(
+    positionId: number,
+    query?: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    const normalizedStatus = this.normalizeStatusFilter(query?.status);
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
 
-    // Get latest org_data to extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
-      }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
+    // Optimized: Load dengan relations dalam 1 query
+    const [requests, adminRoles] = await Promise.all([
+      this.nomorRequestRepository.find({
+        where: { isNaskahGenerated: false },
+        relations: ['details'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.userRoleRepository.find({
+        where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+        select: ['persnum'],
+      }),
+    ]);
 
-    const data = await Promise.all(
-      requests.map(async (request) => {
-        // Ambil detail untuk menentukan status
-        const details = await this.nomorRequestDetailRepository.find({
-          where: { idRequest: request.id },
-        });
+    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
 
-        // Skip jika tidak pernah booking (berarti dari tulis surat otomatis)
-        if (details.length > 0) {
-          const allDirectTerpakai = details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          if (allDirectTerpakai) {
-            return null; // Skip data dari tulis surat
-          }
-        }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
 
-        let status = 'Belum Diajukan';
-        if (details.length > 0) {
-          const hasBooking = details.some((d) => d.status === 'booking');
-          const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
-          const allHangus = details.every((d) => d.status === 'hangus');
-          const allDitolak = details.every((d) => d.status === 'ditolak');
-          const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+    // Process tanpa N+1 query
+    const data = requests.map((request) => {
+      const details = request.details || [];
 
-          if (hasTerpakai) {
-            status = 'Disetujui';
-          } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
-            status = 'Ditolak';
-          } else if (hasBooking) {
-            status = 'Menunggu Verifikasi';
-          }
-        }
-
-        // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
-        if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
           return null;
         }
+      }
 
-        // Get position data to extract persnum and nama
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      const status = this.determineStatusFromDetails(details);
+
+      // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
+      if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
+        return null;
+      }
+
+      // Get position data
+      const positionNumber = parseInt(request.position!, 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      
+      const persnum = positionData?.persnum_person || null;
+      const nama = positionData?.persnum_person_text || null;
+
+      // Tampilkan hanya usulan dari user ber-role admin/superadmin
+      if (!persnum || !adminPersnumSet.has(Number(persnum))) {
+        return null;
+      }
+
+      const responseItem = {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum,
+        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        created_at: request.createdAt,
+        status,
+      };
+
+      // Apply search filter across all fields
+      if (query?.search) {
+        const searchLower = query.search.toLowerCase();
+        const searchFields = [
+          responseItem.id?.toString(),
+          responseItem.company,
+          responseItem.area,
+          responseItem.sub_area,
+          responseItem.organization,
+          responseItem.position,
+          responseItem.persnum?.toString(),
+          responseItem.nama,
+          responseItem.tanggal,
+          responseItem.jenis,
+          responseItem.klasifikasi,
+          responseItem.perihal,
+          responseItem.jumlah?.toString(),
+          responseItem.penandatangan,
+          responseItem.status,
+        ];
         
-        const persnum = positionData?.persnum_person || null;
-        const nama = positionData?.persnum_person_text || null;
+        const isMatch = searchFields.some(field => 
+          field && field.toLowerCase().includes(searchLower)
+        );
+        
+        if (!isMatch) {
+          return null;
+        }
+      }
 
-        return {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          persnum,
-          nama,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          created_at: request.createdAt,
-          status,
-        };
-      }),
-    );
+      // Apply status filter
+      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+        return null;
+      }
 
-    // Filter out null values (request yang difilter)
+      return responseItem;
+    });
+
+    // Filter out null values
     const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+
+    // Apply sorting
+    if (query?.sort_by) {
+      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+      filteredData.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = new Date(a.tanggal).getTime();
+          bValue = new Date(b.tanggal).getTime();
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.jenis || '').toLowerCase();
+          bValue = (b.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else if (query.sort_by === 'status') {
+          aValue = (a.status || '').toLowerCase();
+          bValue = (b.status || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    }
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
 
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 
@@ -941,8 +1351,11 @@ export class NomorService {
           created_at: d.createdAt,
         }))
       );
+
       responseData.details = detailsWithUrls;
     }
+
+    responseData.is_single_file = request.isSingleFile;
 
     return {
       success: true,
@@ -1143,6 +1556,7 @@ export class NomorService {
         penandatangan: request.penandatangan,
         created_at: request.createdAt,
         status,
+        is_single_file: request.isSingleFile,
         details: detailsWithUrls,
       },
     };
@@ -1176,10 +1590,10 @@ export class NomorService {
       throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
     }
 
-    // Jika action = 'replace', hapus detail lama dengan status booking dan file-nya
+    // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
     if (action === 'replace') {
       const oldDetails = await this.nomorRequestDetailRepository.find({
-        where: { idRequest: requestId, status: 'booking' },
+        where: { idRequest: requestId, status: 'draft' },
       });
 
       // Delete files dari storage untuk setiap detail
@@ -1198,7 +1612,7 @@ export class NomorService {
       // Hapus detail dari database
       await this.nomorRequestDetailRepository.delete({
         idRequest: requestId,
-        status: 'booking',
+        status: 'draft',
       });
     }
 
@@ -1234,7 +1648,7 @@ export class NomorService {
           nomor: null,
           fileName: fileName,
           fileText: fileKey, // Simpan file key dari storage
-          status: 'booking',
+          status: 'draft',
         });
         details.push(detail);
       }
@@ -1254,7 +1668,7 @@ export class NomorService {
           nomor: null,
           fileName: null,
           fileText: null,
-          status: 'booking',
+          status: 'draft',
         });
         details.push(detail);
       }
@@ -1293,6 +1707,141 @@ export class NomorService {
     } else if (noFileCount > 0) {
       resultMessage = `Berhasil booking ${noFileCount} nomor (tanpa file)`;
     }
+
+    return {
+      success: true,
+      message: resultMessage,
+      data: {
+        request_id: requestId,
+        details: detailsWithUrls,
+      },
+    };
+  }
+
+  /**
+   * User/Admin memproses usulan dan membuat booking nomor
+   * Upload SATU file yang akan di-assign ke SEMUA request detail
+   * Semua detail akan memiliki file path yang sama
+   *
+   * Flow:
+   * 1. Validasi request ada
+   * 2. Jika action=replace, hapus detail lama dengan status booking (dan file di storage)
+   * 3. Upload satu file ke storage
+   * 4. Buat detail records sesuai jumlah, semua dengan file key yang sama
+   * 5. Return response dengan file information
+   */
+  async bookingNomorRequestSingleFile(
+    requestId: string,
+    dto: BookingNomorRequestDto,
+    file?: Express.Multer.File,
+    folder: string = 'nomor',
+    action: 'append' | 'replace' = 'append',
+  ): Promise<BookingNomorRequestResponseDto> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
+    if (action === 'replace') {
+      const oldDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: requestId, status: 'draft' },
+      });
+
+      // Collect unique file keys untuk dihapus (hindari double delete)
+      const uniqueFileKeys = new Set<string>();
+      for (const detail of oldDetails) {
+        if (detail.fileText) {
+          uniqueFileKeys.add(detail.fileText);
+        }
+      }
+
+      // Delete unique files dari storage
+      for (const fileKey of uniqueFileKeys) {
+        try {
+          await this.storageService.deleteFile(fileKey);
+          console.log(`Deleted old file from storage: ${fileKey}`);
+        } catch (error) {
+          console.log(`Failed to delete file ${fileKey}:`, error.message);
+        }
+      }
+
+      // Hapus detail dari database
+      await this.nomorRequestDetailRepository.delete({
+        idRequest: requestId,
+        status: 'draft',
+      });
+    }
+
+    // Upload satu file jika ada
+    let fileKey: string | null = null;
+    let fileName: string | null = null;
+
+    if (file) {
+      fileName = file.originalname;
+      try {
+        const uploadResult = await this.storageService.uploadFile(file, folder);
+        fileKey = uploadResult.key;
+        console.log(`✅ File uploaded successfully (single): ${fileKey}`);
+      } catch (error) {
+        console.error(`❌ File upload error for ${fileName}:`, error.message);
+        throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+      }
+    }
+
+    // Tentukan jumlah detail yang akan dibuat
+    const jumlahDiajukan = dto.jumlah || request.jumlah || 0;
+
+    if (jumlahDiajukan <= 0 && !file) {
+      throw new BadRequestException(
+        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan',
+      );
+    }
+
+    const totalDetails = jumlahDiajukan > 0 ? jumlahDiajukan : 1;
+
+    // Buat semua details dengan file path yang sama
+    const details: NomorRequestDetailEntity[] = [];
+    for (let i = 0; i < totalDetails; i++) {
+      const detailId = uuidv4();
+      const detail = this.nomorRequestDetailRepository.create({
+        id: detailId,
+        idRequest: requestId,
+        nomor: null,
+        fileName: fileName,
+        fileText: fileKey,
+        status: 'draft',
+      });
+      details.push(detail);
+    }
+
+    await this.nomorRequestDetailRepository.save(details);
+
+    // Tandai request sebagai single file
+    request.isSingleFile = 1;
+    await this.nomorRequestRepository.save(request);
+
+    // Generate signed URL sekali saja karena semua detail pakai file yang sama
+    let fileUrl: string | null = null;
+    if (fileKey) {
+      fileUrl = await this.storageService.getFileUrl(fileKey);
+    }
+
+    const detailsWithUrls = details.map((detail) => ({
+      id: detail.id,
+      status: detail.status,
+      file_name: detail.fileName,
+      file_text: detail.fileText,
+      file_url: fileUrl,
+      created_at: detail.createdAt,
+    }));
+
+    const resultMessage = file
+      ? `Berhasil booking ${totalDetails} nomor dengan 1 file yang sama`
+      : `Berhasil booking ${totalDetails} nomor (tanpa file)`;
 
     return {
       success: true,
@@ -1407,11 +1956,37 @@ export class NomorService {
       throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
     }
 
-    // Update detail dengan file baru dan ubah status ke terpakai_final
-    detail.fileName = file.originalname;
-    detail.fileText = fileKey;
-    detail.status = 'terpakai_final';
-    await this.nomorRequestDetailRepository.save(detail);
+    // Cek apakah request ini single file mode
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: detail.idRequest! },
+    });
+
+    if (request?.isSingleFile === 1) {
+      // Single file mode: update semua detail yang berstatus 'terpakai' dalam request ini
+      const allTerpakaiDetails = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: detail.idRequest!, status: 'terpakai' },
+      });
+
+      await Promise.all(
+        allTerpakaiDetails.map((d) => {
+          d.fileName = file.originalname;
+          d.fileText = fileKey;
+          d.status = 'terpakai_final';
+          return this.nomorRequestDetailRepository.save(d);
+        }),
+      );
+
+      // Reload detail setelah update
+      detail.fileName = file.originalname;
+      detail.fileText = fileKey;
+      detail.status = 'terpakai_final';
+    } else {
+      // Multi file mode: hanya update detail yang dipilih
+      detail.fileName = file.originalname;
+      detail.fileText = fileKey;
+      detail.status = 'terpakai_final';
+      await this.nomorRequestDetailRepository.save(detail);
+    }
 
     return {
       success: true,
@@ -1672,16 +2247,6 @@ export class NomorService {
       throw new BadRequestException(
         `Detail nomor sudah diproses dengan status: ${detail.status}`,
       );
-    }
-
-    // Delete file dari storage jika ada
-    if (detail.fileText) {
-      try {
-        await this.storageService.deleteFile(detail.fileText);
-        console.log(`Deleted file from storage on reject: ${detail.fileText}`);
-      } catch (error) {
-        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-      }
     }
 
     detail.status = 'hangus';
@@ -1981,16 +2546,6 @@ export class NomorService {
           );
         }
 
-        // Delete file dari storage jika ada
-        if (detail.fileText) {
-          try {
-            await this.storageService.deleteFile(detail.fileText);
-            console.log(`Deleted file from storage on bulk reject: ${detail.fileText}`);
-          } catch (error) {
-            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-          }
-        }
-
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
 
@@ -2040,16 +2595,6 @@ export class NomorService {
     // Simpan status lama untuk log
     const oldStatus = detail.status;
 
-    // Delete file dari storage jika ada
-    if (detail.fileText) {
-      try {
-        await this.storageService.deleteFile(detail.fileText);
-        console.log(`Deleted file from storage on set hangus: ${detail.fileText}`);
-      } catch (error) {
-        console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-      }
-    }
-
     // Update status menjadi hangus
     detail.status = 'hangus';
     await this.nomorRequestDetailRepository.save(detail);
@@ -2069,98 +2614,162 @@ export class NomorService {
 
   /**
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
+   * OPTIMIZED: Pagination per usulan (request), output tetap flat per nomor
    */
-  async getNomor(query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
-    // Get all detail dengan status terpakai, terpakai_final, atau hangus
-    const details = await this.nomorRequestDetailRepository.find({
-      where: [
-        { status: 'terpakai' },
-        { status: 'terpakai_final' },
-        { status: 'hangus' },
-      ],
+  async getNomor(query: GetNomorQueryDto, user?: JwtPayload): Promise<GetNomorResponseDto> {
+    const scopedAreaCode = user ? this.getScopedAreaCode(user) : undefined;
+
+    // Load requests yang memiliki nomor dengan status terpakai/hangus
+    const requests = await this.nomorRequestRepository.find({
+      relations: ['details'],
       order: { createdAt: 'DESC' },
     });
 
-    // Get latest org_data for position information
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
-      }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
 
-    // Map data dari detail + request
-    const data = await Promise.all(
-      details.map(async (detail) => {
-        const request = await this.nomorRequestRepository.findOne({
-          where: { id: detail.idRequest! },
-        });
-
-        if (!request) {
+    // Process dan filter requests yang memiliki nomor jadi
+    const usulanData = requests.map((request) => {
+      if (scopedAreaCode) {
+        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        if (requestAreaCode !== scopedAreaCode) {
           return null;
         }
+      }
 
-        // Apply filter tahun jika ada
-        if (query.tahun) {
-          const detailTahun = new Date(request.tanggal!).getFullYear();
-          if (detailTahun !== query.tahun) {
-            return null;
-          }
+      // Filter details hanya yang sudah jadi (terpakai, terpakai_final, hangus)
+      const validDetails = (request.details || []).filter(
+        (d) => d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus'
+      );
+
+      // Skip jika tidak ada nomor yang sudah jadi
+      if (validDetails.length === 0) {
+        return null;
+      }
+
+      // Apply filter tahun jika ada
+      if (query.tahun) {
+        const requestTahun = new Date(request.tanggal!).getFullYear();
+        if (requestTahun !== query.tahun) {
+          return null;
         }
+      }
 
-        // Get position data pengusul untuk nama_pengirim
-        const positionNumber = parseInt(request.position || '0', 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-        const namaPengirim = positionData?.persnum_person_text || null;
-
-        // Get position data penandatangan untuk jabatan
-        let jabatan = null;
-        if (request.idPositionPenandatangan) {
-          const penandatanganPosition = positionJsonData.find(
-            (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
-          );
-          jabatan = penandatanganPosition?.position_text || null;
+      // Apply search filter (search di nomor, perihal, atau jenis)
+      if (query.search) {
+        const searchLower = query.search.toLowerCase();
+        const nomorMatch = validDetails.some(
+          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower)
+        );
+        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        
+        if (!nomorMatch && !perihalMatch && !jenisMatch) {
+          return null;
         }
+      }
 
-        return {
-          id: detail.id,
-          id_request: detail.idRequest || null,
-          jenis: request.jenis,
-          jabatan,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal,
-          tanggal: request.tanggal,
-          nomor: detail.nomor,
-          status: detail.status,
-          nama_pengirim: namaPengirim,
-          waktu: detail.createdAt,
-        };
-      }),
-    );
+      // Get position data pengusul
+      const positionNumber = parseInt(request.position || '0', 10);
+      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      const namaPengirim = positionData?.persnum_person_text || null;
+
+      // Get position data penandatangan
+      let jabatan = null;
+      if (request.idPositionPenandatangan) {
+        const penandatanganPosition = positionJsonData.find(
+          (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+        );
+        jabatan = penandatanganPosition?.position_text || null;
+      }
+
+      // Sort details by createdAt DESC (terbaru di atas)
+      validDetails.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Waktu usulan = waktu nomor terakhir yang dibuat (untuk sorting)
+      const latestDetailTime = validDetails.length > 0 ? validDetails[0].createdAt : request.createdAt;
+
+      return {
+        request,
+        jabatan,
+        namaPengirim,
+        waktu: latestDetailTime,
+        details: validDetails,
+      };
+    });
 
     // Filter out null values
-    const filteredData = data.filter((item) => item !== null);
+    const filteredUsulan = usulanData.filter((item) => item !== null);
+
+    // Apply sorting (default by waktu DESC - terbaru di atas)
+    const sortOrder = query?.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
+    if (query?.sort_by) {
+      filteredUsulan.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (query.sort_by === 'tanggal') {
+          aValue = a.request.tanggal ? new Date(a.request.tanggal).getTime() : 0;
+          bValue = b.request.tanggal ? new Date(b.request.tanggal).getTime() : 0;
+        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = new Date(a.waktu).getTime();
+          bValue = new Date(b.waktu).getTime();
+        } else if (query.sort_by === 'jenis') {
+          aValue = (a.request.jenis || '').toLowerCase();
+          bValue = (b.request.jenis || '').toLowerCase();
+          return aValue.localeCompare(bValue) * sortOrder;
+        } else {
+          return 0;
+        }
+
+        return (aValue - bValue) * sortOrder;
+      });
+    } else {
+      // Default sort by waktu DESC
+      filteredUsulan.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
+    }
+
+    // Apply pagination (per usulan, bukan per nomor)
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredUsulan.length;  // Total usulan
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedUsulan = filteredUsulan.slice(skip, skip + limit);
+
+    // Flatten ke format per-nomor untuk response
+    const flatData = paginatedUsulan.flatMap((item) =>
+      item.details.map((detail) => ({
+        id: detail.id,
+        id_request: item.request.id,
+        jenis: item.request.jenis,
+        jabatan: item.jabatan,
+        klasifikasi: item.request.klasifikasi,
+        perihal: item.request.perihal,
+        tanggal: item.request.tanggal,
+        nomor: detail.nomor,
+        status: detail.status,
+        nama_pengirim: item.namaPengirim,
+        waktu: detail.createdAt,
+      }))
+    );
 
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: filteredData,
+      data: flatData,
+      pagination: {
+        page,
+        limit,
+        total,          // Total usulan (bukan nomor)
+        totalPages,
+      },
     };
   }
 
   /**
    * Get nomor by id request (menampilkan semua nomor dalam satu request)
+   * OPTIMIZED: Menggunakan caching untuk position data
    */
   async getNomorById(idRequest: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
@@ -2171,24 +2780,8 @@ export class NomorService {
       throw new Error('Nomor request not found');
     }
 
-    // Get latest org_data untuk extract position details
-    let positionJsonData: any[] = [];
-    try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
-      }
-    } catch (error) {
-      console.log('Could not fetch position data from org_data');
-    }
+    // Optimized: Gunakan cached position data
+    const positionJsonData = await this.getLatestPositionJsonData();
 
     // Get position data penandatangan untuk jabatan
     let jabatan = null;
@@ -2205,19 +2798,21 @@ export class NomorService {
       order: { createdAt: 'ASC' },
     });
 
+    const validDetails = details.filter(
+      (d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor,
+    );
+
     // Generate signed URLs untuk nomor_list
     const nomorListWithUrls = await Promise.all(
-      details
-        .filter((d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor)
-        .map(async (d) => ({
-          id: d.id,
-          nomor: d.nomor,
-          status: d.status,
-          file_name: d.fileName || null,
-          file_text: d.fileText || null,
-          file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
-          created_at: d.createdAt,
-        }))
+      validDetails.map(async (d) => ({
+        id: d.id,
+        nomor: d.nomor,
+        status: d.status,
+        file_name: d.fileName || null,
+        file_text: d.fileText || null,
+        file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+        created_at: d.createdAt,
+      }))
     );
 
     return {
@@ -2231,6 +2826,7 @@ export class NomorService {
         perihal: request.perihal,
         tanggal: request.tanggal,
         jumlah: request.jumlah,
+        is_single_file: request.isSingleFile,
         nomor_list: nomorListWithUrls,
       },
     };
@@ -2314,16 +2910,6 @@ export class NomorService {
     for (const detail of details) {
       // Hanya set ditolak jika status masih booking
       if (detail.status === 'booking') {
-        // Delete file dari storage jika ada
-        if (detail.fileText) {
-          try {
-            await this.storageService.deleteFile(detail.fileText);
-            console.log(`Deleted file from storage on reject all: ${detail.fileText}`);
-          } catch (error) {
-            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
-          }
-        }
-
         detail.status = 'ditolak';
         await this.nomorRequestDetailRepository.save(detail);
         rejectedDetails.push({
@@ -2340,6 +2926,269 @@ export class NomorService {
         request_id: requestId,
         total_rejected: rejectedDetails.length,
         rejected_details: rejectedDetails,
+      },
+    };
+  }
+
+  /**
+    * Penandatangan melihat daftar usulan berdasarkan posisi penandatangan.
+    * Semua detail ditampilkan apa adanya (tanpa mapping status):
+    * draft, booking, terpakai, terpakai_final, ditolak, hangus, dll.
+   * position_id diambil dari bearer token
+   */
+  async getPendingApproval(positionId: number, query?: GetNomorQueryDto): Promise<any> {
+    // Ambil semua request yang penandatangannya adalah posisi ini
+    const requests = await this.nomorRequestRepository.find({
+      where: [
+        { idPositionPenandatangan: positionId, isNaskahGenerated: false },
+        { idPositionPenandatangan: positionId, isNaskahGenerated: IsNull() },
+      ],
+      relations: ['details'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const positionJsonData = await this.getLatestPositionJsonData();
+
+    const data = await Promise.all(
+      requests.map(async (request) => {
+        const details = request.details || [];
+        const requestStatus = details.some((d) => d.status !== 'draft')
+          ? 'approved'
+          : 'draft';
+        const positionNumber = parseInt(request.position!, 10);
+        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+
+        const templateNomor = await this.generateNomorTemplate(request);
+
+        return {
+          id: request.id,
+          company: request.company,
+          area: request.area,
+          sub_area: request.subArea,
+          organization: request.organization,
+          position: request.position,
+          nama: positionData?.persnum_person_text || null,
+          tanggal: request.tanggal,
+          jenis: request.jenis,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal,
+          jumlah: request.jumlah,
+          penandatangan: request.penandatangan,
+          is_single_file: request.isSingleFile,
+          status: requestStatus,
+          template_nomor: templateNomor,
+          created_at: request.createdAt,
+          details: await Promise.all(
+            details.map(async (d) => ({
+              id: d.id,
+              status: d.status,
+              file_name: d.fileName,
+              file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
+              template_nomor: templateNomor,
+              created_at: d.createdAt,
+            })),
+          ),
+        };
+      }),
+    );
+
+    // Apply search
+    let filteredData = data;
+    if (query?.search) {
+      const searchLower = query.search.toLowerCase();
+      filteredData = data.filter(
+        (item) =>
+          item.perihal?.toLowerCase().includes(searchLower) ||
+          item.jenis?.toLowerCase().includes(searchLower) ||
+          item.klasifikasi?.toLowerCase().includes(searchLower) ||
+          item.nama?.toLowerCase().includes(searchLower) ||
+          item.status?.toLowerCase().includes(searchLower),
+      );
+    }
+
+    // Apply pagination
+    const page = query?.page || 1;
+    const limit = query?.limit || 10;
+    const total = filteredData.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = filteredData.slice(skip, skip + limit);
+
+    return {
+      success: true,
+      message: 'Daftar usulan menunggu persetujuan berhasil diambil',
+      data: paginatedData,
+      pagination: { page, limit, total, totalPages },
+    };
+  }
+
+  /**
+   * Penandatangan menyetujui usulan (ubah semua detail draft → booking)
+   * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
+   */
+  async approvePenandatangan(requestId: string, positionId: number): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    if (Number(request.idPositionPenandatangan) !== positionId) {
+      throw new BadRequestException(
+        'Anda tidak berwenang menyetujui usulan ini. Hanya penandatangan yang ditunjuk yang dapat menyetujui.',
+      );
+    }
+
+    const draftDetails = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId, status: 'draft' },
+    });
+
+    if (draftDetails.length === 0) {
+      throw new BadRequestException('Tidak ada detail dengan status draft untuk disetujui');
+    }
+
+    for (const detail of draftDetails) {
+      detail.status = 'booking';
+    }
+    await this.nomorRequestDetailRepository.save(draftDetails);
+
+    return {
+      success: true,
+      message: `${draftDetails.length} usulan berhasil disetujui dan siap diverifikasi admin`,
+      data: {
+        request_id: requestId,
+        approved_count: draftDetails.length,
+        details: draftDetails.map((d) => ({ id: d.id, status: d.status })),
+      },
+    };
+  }
+
+  /**
+   * Penandatangan menolak usulan (ubah semua detail draft → ditolak)
+   * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
+   */
+  async rejectPenandatangan(requestId: string, positionId: number): Promise<any> {
+    const request = await this.nomorRequestRepository.findOne({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+    }
+
+    if (Number(request.idPositionPenandatangan) !== positionId) {
+      throw new BadRequestException(
+        'Anda tidak berwenang menolak usulan ini. Hanya penandatangan yang ditunjuk yang dapat menolak.',
+      );
+    }
+
+    const draftDetails = await this.nomorRequestDetailRepository.find({
+      where: { idRequest: requestId, status: 'draft' },
+    });
+
+    if (draftDetails.length === 0) {
+      throw new BadRequestException('Tidak ada detail dengan status draft untuk ditolak');
+    }
+
+    for (const detail of draftDetails) {
+      detail.status = 'ditolak';
+    }
+    await this.nomorRequestDetailRepository.save(draftDetails);
+
+    return {
+      success: true,
+      message: `${draftDetails.length} usulan berhasil ditolak`,
+      data: {
+        request_id: requestId,
+        rejected_count: draftDetails.length,
+        details: draftDetails.map((d) => ({ id: d.id, status: d.status })),
+      },
+    };
+  }
+
+  /**
+   * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
+   */
+  async approveBulkPenandatangan(
+    dto: ApproveBulkPenandatanganDto,
+    positionId: number,
+  ): Promise<ApproveBulkPenandatanganResponseDto> {
+    const results: {
+      detail_id: string;
+      request_id: string;
+      status: string;
+      success: boolean;
+      error?: string;
+    }[] = [];
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const detailId of dto.detail_ids) {
+      try {
+        const detail = await this.nomorRequestDetailRepository.findOne({
+          where: { id: detailId },
+        });
+
+        if (!detail) {
+          throw new NotFoundException(
+            `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+          );
+        }
+
+        if (detail.status !== 'draft') {
+          throw new BadRequestException(
+            `Detail nomor sudah diproses dengan status: ${detail.status}`,
+          );
+        }
+
+        const request = await this.nomorRequestRepository.findOne({
+          where: { id: detail.idRequest! },
+        });
+
+        if (!request) {
+          throw new NotFoundException(
+            `Usulan nomor dengan ID ${detail.idRequest} tidak ditemukan`,
+          );
+        }
+
+        if (Number(request.idPositionPenandatangan) !== positionId) {
+          throw new BadRequestException(
+            'Anda tidak berwenang menyetujui usulan ini. Hanya penandatangan yang ditunjuk yang dapat menyetujui.',
+          );
+        }
+
+        detail.status = 'booking';
+        await this.nomorRequestDetailRepository.save(detail);
+
+        results.push({
+          detail_id: detailId,
+          request_id: request.id,
+          status: detail.status,
+          success: true,
+        });
+        successCount++;
+      } catch (error) {
+        results.push({
+          detail_id: detailId,
+          request_id: '',
+          status: 'draft',
+          success: false,
+          error: error.message,
+        });
+        failedCount++;
+      }
+    }
+
+    return {
+      success: true,
+      message: `Selesai memproses ${dto.detail_ids.length} detail: ${successCount} berhasil, ${failedCount} gagal`,
+      data: {
+        success_count: successCount,
+        failed_count: failedCount,
+        results,
       },
     };
   }
@@ -2430,6 +3279,7 @@ export class NomorService {
         jumlah: dto.jumlah,
         penandatangan: dto.penandatangan || null,
         idPositionPenandatangan: dto.id_position_penandatangan || null,
+        isNaskahGenerated: false,
       });
 
       await queryRunner.manager.save(nomorRequest);
@@ -2498,13 +3348,13 @@ export class NomorService {
           penandatanganArea,
         );
 
-        // Insert nomor_request_detail dengan status terpakai_final (langsung dari admin)
+        // Insert nomor_request_detail dengan status terpakai (langsung dari admin)
         const detailId = uuidv4();
         const detail = this.nomorRequestDetailRepository.create({
           id: detailId,
           idRequest: requestId,
           nomor: nomorBaru,
-          status: 'terpakai_final',
+          status: 'terpakai',
         });
 
         await queryRunner.manager.save(detail);

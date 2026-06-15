@@ -42,6 +42,17 @@ export class NomorRequestEntity {
   @Column('int', { name: 'id_position_penandatangan', nullable: true })
   idPositionPenandatangan: number | null;
 
+  @Column('tinyint', { name: 'is_single_file', width: 1, default: 0 })
+  isSingleFile: number;
+
+  @Column('tinyint', {
+    name: 'is_naskah_generated',
+    width: 1,
+    nullable: true,
+    default: null,
+  })
+  isNaskahGenerated: boolean | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

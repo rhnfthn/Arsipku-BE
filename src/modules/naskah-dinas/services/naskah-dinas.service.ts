@@ -18,6 +18,7 @@ import {
 } from '../dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { v4 as uuidv4 } from 'uuid';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -35,6 +36,16 @@ export class NaskahDinasService {
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
   ) {}
+
+  private getScopedAreaCode(user: JwtPayload): string | undefined {
+    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+
+    if (!requesterAreaCode) {
+      throw new BadRequestException('Area code tidak ditemukan pada token user');
+    }
+
+    return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+  }
 
   // ============================================================
   // HELPER METHODS
@@ -220,8 +231,12 @@ export class NaskahDinasService {
    * - Pengirim: dari tabel eksternal (pihak luar perusahaan)
    * - Penerima: dari org_data (internal users dengan chief=1)
    */
-  async getRecipients(tgl?: string): Promise<NaskahDinasRecipientResponseDto> {
+  async getRecipients(
+    tgl?: string,
+    user?: JwtPayload,
+  ): Promise<NaskahDinasRecipientResponseDto> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
 
     // Get cached org data
     const orgData = await this.orgDataService.findOrg(tanggal);
@@ -235,7 +250,19 @@ export class NaskahDinasService {
     const barisData: NdOrgDataPositionDto[] = orgData.position_json;
 
     // Filter only managerial positions (chief=1) as valid recipients
-    const recipients = barisData.filter((pos) => pos.chief === 1);
+    // Scope area: A000 (pusat) melihat semua, selain itu hanya area user login
+    const recipients = barisData.filter((pos) => {
+      if (pos.chief !== 1) {
+        return false;
+      }
+
+      if (!scopedAreaCode) {
+        return true;
+      }
+
+      const recipientAreaCode = String(pos.area || '').trim().toUpperCase();
+      return recipientAreaCode === scopedAreaCode;
+    });
 
     return {
       recipients,
@@ -424,23 +451,41 @@ export class NaskahDinasService {
   /**
    * Get all Naskah Dinas (tanpa pagination)
    * Naskah Dinas = SDE dengan pengirim eksternal (field tempat berisi eksternal.id)
+   * 
+   * @param positionId - Optional filter by penerima position
+   * @param userArea - User's area from JWT token. If not A000 (kantor pusat), filter data by user's area
    */
   async getAll(
     positionId?: number,
+    userArea?: string,
   ): Promise<NdGetAllResponseDto> {
-    // Build query - SDE dengan tempat not null (menandakan pengirim eksternal)
+    // Build base query - SDE dengan tempat not null (menandakan pengirim eksternal)
     let query = this.naskahRepository
       .createQueryBuilder('naskah')
       .where('naskah.jenis = :jenis', { jenis: 'SDE' })
       .andWhere('naskah.tempat IS NOT NULL')
       .orderBy('naskah.tanggal', 'DESC');
 
-    // If positionId provided, filter by penerima
-    if (positionId) {
+    const shouldFilterByArea = !!userArea && userArea !== 'A000';
+    const shouldJoinSirkulasi = !!positionId || shouldFilterByArea;
+
+    // Join sirkulasi hanya jika perlu filter berdasarkan position/area.
+    // Untuk user kantor pusat (A000) tanpa positionId, query tidak difilter area.
+    if (shouldJoinSirkulasi) {
       query = query
+        .distinct(true)
         .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
-        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' })
-        .andWhere('sirkulasi.position = :position', { position: String(positionId) });
+        .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' });
+    }
+
+    // If positionId provided, filter by specific position
+    if (positionId) {
+      query = query.andWhere('sirkulasi.position = :position', { position: String(positionId) });
+    }
+
+    // If user is not from kantor pusat (A000), filter by user's area
+    if (shouldFilterByArea) {
+      query = query.andWhere('sirkulasi.area = :area', { area: userArea });
     }
 
     const naskahList = await query.getMany();
@@ -463,7 +508,12 @@ export class NaskahDinasService {
         where: { idNaskah: naskah.id },
       });
 
-      const penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
+      let penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
+      
+      // If user is not from kantor pusat, re-filter penerima by user's area for extra safety
+      if (userArea && userArea !== 'A000') {
+        penerimaSirkulasiList = penerimaSirkulasiList.filter((s) => s.area === userArea);
+      }
 
       // Ambil data pengirim dari tabel eksternal berdasarkan naskah.tempat (eksternal.id)
       let pengirimInfo: NdPengirimInfoDto = {

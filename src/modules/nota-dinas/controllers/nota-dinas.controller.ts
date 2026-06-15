@@ -4,6 +4,7 @@ import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@n
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
 import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
@@ -11,35 +12,48 @@ import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('ND')
 export class NotaDinasController {
-  constructor(private readonly notaDinasService: NotaDinasService) {}
+  constructor(
+    private readonly notaDinasService: NotaDinasService,
+    private readonly grupPenerimaService: GrupPenerimaService,
+  ) {}
 
   /**
-   * GET /ND/get-recipient/{positionId}
-   * Get eligible recipients for Nota Dinas based on position ID (using org_data)
+   * GET /ND/get-recipient
+   * Get eligible recipients for Nota Dinas based on position ID
    *
-   * @param positionId - Position ID (path parameter)
-   * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft dimana pengirim dipilih dari dropdown)
    * @returns NotaDinasRecipientResponseDto
    *
    * Response format mengikuti struktur position_json dari org_data:
    * - sender: OrgDataPositionDto (data posisi pengirim)
    * - recipients: { ATASAN, REKAN, BAWAHAN } (grouped recipients)
    *
+   * @example
+   * GET /ND/get-recipient (gunakan position dari JWT)
+   * GET /ND/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
+   *
    * @throws 404 - Not Found (position or org data not found)
    * @throws 403 - Forbidden (non-managerial position)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getNotaDinasRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
       return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -52,6 +66,92 @@ export class NotaDinasController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /ND/get-senders
+   * Get eligible senders for Konsep Nota Dinas
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns OrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /ND/get-senders (gunakan position dari JWT)
+   * GET /ND/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getNotaDinasSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get Nota Dinas recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /ND/get-direct-superior
+   * Get one direct superior (atasan langsung, 1 level di atas) by position.
+   *
+   * @param user - User dari JWT token
+   * @param query - Query parameters:
+   *   - position: required/optional position_id (fallback ke JWT position jika tidak dikirim)
+   *   - tgl: optional date in format YYYY-MM-DD
+   * @returns OrgDataPositionDto | null
+   *
+   * @example
+   * GET /ND/get-direct-superior?position=70017278
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-direct-superior')
+  async getDirectSuperior(
+    @CurrentUser() user: any,
+    @Query() query: GetRecipientQueryDto,
+  ): Promise<OrgDataPositionDto | null> {
+    try {
+      const positionId = query.position
+        ? parseInt(query.position, 10)
+        : parseInt(user.position, 10);
+
+      return await this.notaDinasService.getDirectSuperiorByPosition(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get direct superior',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -80,9 +180,10 @@ export class NotaDinasController {
   @Get(':id')
   async getNotaDinasDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.notaDinasService.getNotaDinasDetail(id);
+      return await this.notaDinasService.getNotaDinasDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -126,7 +227,6 @@ export class NotaDinasController {
    * @throws 403 - Forbidden (pengirim is not managerial)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
@@ -286,7 +386,6 @@ export class NotaDinasController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Patch('update-draft/:id')
@@ -336,7 +435,7 @@ export class NotaDinasController {
    * - Update isDraft = false pada semua sirkulasi
    *
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: BSrE passphrase (required if sign_option = 'digsig')
    *
    * @param id - Naskah ID (UUID)
@@ -358,6 +457,7 @@ export class NotaDinasController {
     FileFieldsInterceptor(
       [
         { name: 'lampiran_files', maxCount: 10 },
+        { name: 'final_pdf', maxCount: 1 },
       ],
       {
         limits: {
@@ -369,7 +469,7 @@ export class NotaDinasController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
     @CurrentUser() user?: any,
   ): Promise<SendMessageResponseDto> {
     try {
@@ -513,19 +613,47 @@ export class NotaDinasController {
       const dto = plainToInstance(GeneratePdfDto, body);
       const errors = await validate(dto);
       if (errors.length > 0) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ 
-            error: 'Validation failed', 
-            message: errors.map(e => Object.values(e.constraints || {})).flat() 
-          });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
+        });
       }
 
       // Validasi required field
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient =
+        (dto.tertuju?.length || 0) > 0 ||
+        (dto.penerima?.length || 0) > 0 ||
+        (dto.penerima_grup?.length || 0) > 0;
+
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
@@ -591,15 +719,30 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
+      // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
+      // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        tertujuArray = [...grupDisplayNames, ...tertujuArray];
+      }
+
       let tembusanArray = dto.tembusan || [];
+
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -714,19 +857,47 @@ export class NotaDinasController {
       const dto = plainToInstance(GeneratePdfDto, body);
       const errors = await validate(dto);
       if (errors.length > 0) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ 
-            error: 'Validation failed', 
-            message: errors.map(e => Object.values(e.constraints || {})).flat() 
-          });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
+        });
       }
 
       // Validasi required field
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient =
+        (dto.tertuju?.length || 0) > 0 ||
+        (dto.penerima?.length || 0) > 0 ||
+        (dto.penerima_grup?.length || 0) > 0;
+
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tgl || dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
@@ -796,15 +967,30 @@ export class NotaDinasController {
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
+      // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
+      // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        tertujuArray = [...grupDisplayNames, ...tertujuArray];
+      }
+
       let tembusanArray = dto.tembusan || [];
+
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
@@ -873,31 +1059,6 @@ export class NotaDinasController {
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  @Get('get-senders/:positionId')
-  async getNotaDinasSenders(
-    @Param('positionId', ParseIntPipe) positionId: number,
-    @Query() query: GetRecipientQueryDto,
-  ): Promise<OrgDataPositionDto[]> {
-    try {
-      return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Nota Dinas recipients',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 }

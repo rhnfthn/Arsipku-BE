@@ -21,6 +21,7 @@ import {
   AnyFilesInterceptor,
 } from '@nestjs/platform-express';
 import { SuratDinasInternalService } from '../services/surat-dinas-internal.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import {
   CreateSuratDinasInternalDto,
   UpdateDraftDto,
@@ -34,17 +35,19 @@ import {
   SdiRecipientResponseDto,
 } from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
   constructor(
     private readonly suratDinasInternalService: SuratDinasInternalService,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) {}
 
   /**
-   * GET /SDI/get-recipient/:positionId
+   * GET /SDI/get-recipient
    * Get eligible recipients for Surat Dinas Internal using org_data
    *
    * SDI Rules:
@@ -54,21 +57,30 @@ export class SuratDinasInternalController {
    * - Managerial only (chief = 1)
    * - Uses cached org_data for better performance
    *
-   * @param positionId - Position ID of the sender (path parameter)
-   * @param tgl - Optional date in format YYYY-MM-DD (query parameter)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Optional query params:
+   *   - tgl: date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
    * @returns SdiRecipientResponseDto
+   *
+   * @example
+   * GET /SDI/get-recipient (gunakan position dari JWT)
+   * GET /SDI/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    *
    * @throws 400 - Bad Request (invalid positionId)
    * @throws 404 - Not Found (position not found)
    * @throws 403 - Forbidden (non-managerial role)
    * @throws 500 - Internal Server Error
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getSdiRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetSdiRecipientQueryDto,
   ): Promise<SdiRecipientResponseDto> {
     try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSdiRecipients(
         positionId,
         query.tgl,
@@ -82,6 +94,51 @@ export class SuratDinasInternalController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get SDI recipients',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /SDI/get-senders
+   * Get eligible senders for Konsep Surat Dinas Internal
+   *
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id untuk mendapatkan daftar sender yang valid
+   * @returns SdiOrgDataPositionDto[] - List of eligible senders
+   *
+   * @example
+   * GET /SDI/get-senders (gunakan position dari JWT)
+   * GET /SDI/get-senders?pengirim=70017418 (gunakan pengirim yang dipilih)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('get-senders')
+  async getSdiSenders(
+    @CurrentUser() user: any,
+    @Query() query: GetSdiRecipientQueryDto,
+  ): Promise<SdiOrgDataPositionDto[]> {
+    try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      return await this.suratDinasInternalService.getSenderKonsep(
+        positionId,
+        query.tgl,
+      );
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Generic error handler
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to get SDI senders',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -107,11 +164,13 @@ export class SuratDinasInternalController {
    * @throws 404 - Not Found (naskah tidak ditemukan)
    * @throws 500 - Internal Server Error
    */
-  @Public() // Development: Bypass auth
   @Get(':id')
-  async getSdiDetail(@Param('id') id: string): Promise<any> {
+  async getSdiDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
     try {
-      return await this.suratDinasInternalService.getSdiDetail(id);
+      return await this.suratDinasInternalService.getSdiDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -269,7 +328,6 @@ export class SuratDinasInternalController {
    *
    * @returns SendMessageResponseDto with status='draf'
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
@@ -321,7 +379,6 @@ export class SuratDinasInternalController {
    * @param id - Naskah ID (UUID)
    * @returns SendMessageResponseDto with updated data
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
@@ -404,7 +461,7 @@ export class SuratDinasInternalController {
    * Form-data fields:
    * - Semua field optional (dapat update sebelum finalize)
    * - final_pdf: file (optional)
-   * - sign_option: 'digsig' | 'qr_only' | 'none' (optional)
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah' (optional)
    * - passphrase: string (required jika sign_option=digsig)
    *
    * Generate official nomor surat, update status to 'final' atau 'final_tte'
@@ -499,9 +556,30 @@ export class SuratDinasInternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -516,6 +594,39 @@ export class SuratDinasInternalController {
         }
       }
 
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      if (penerimaArray.length === 0 && penerimaGrupArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Check if penerima are position_ids and convert to names
       const isPositionId = (value: any): boolean => {
         return (
@@ -524,12 +635,19 @@ export class SuratDinasInternalController {
         );
       };
 
+      // Convert individual penerima position IDs to names
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
         penerimaArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
             penerimaArray,
             body.tanggal || body.tgl,
           );
+      }
+
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
+      if (penerimaGrupArray.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -542,12 +660,31 @@ export class SuratDinasInternalController {
         }
       }
 
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         tembusanArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
             tembusanArray,
             body.tanggal || body.tgl,
           );
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
+      let tembusanGrupArray: string[] = [];
+      if (body.tembusan_grup) {
+        if (typeof body.tembusan_grup === 'string') {
+          try {
+            tembusanGrupArray = JSON.parse(body.tembusan_grup);
+          } catch {
+            tembusanGrupArray = [body.tembusan_grup];
+          }
+        } else if (Array.isArray(body.tembusan_grup)) {
+          tembusanGrupArray = body.tembusan_grup;
+        }
+      }
+      if (tembusanGrupArray.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -643,9 +780,30 @@ export class SuratDinasInternalController {
       }
 
       if (!body || !body.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.klasifikasi) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Klasifikasi harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      if (!body.perihal) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Perihal harus diisi'],
+          error: 'Bad Request',
+        });
       }
 
       // Support both 'tertuju' and 'penerima' field names
@@ -660,6 +818,39 @@ export class SuratDinasInternalController {
         }
       }
 
+      let penerimaGrupArray: string[] = [];
+      if (body.penerima_grup) {
+        if (typeof body.penerima_grup === 'string') {
+          try {
+            penerimaGrupArray = JSON.parse(body.penerima_grup);
+          } catch {
+            penerimaGrupArray = [body.penerima_grup];
+          }
+        } else if (Array.isArray(body.penerima_grup)) {
+          penerimaGrupArray = body.penerima_grup;
+        }
+      }
+
+      if (penerimaArray.length === 0 && penerimaGrupArray.length === 0) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima/grup)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tanggal || body.tgl, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
+      }
+
       // Check if penerima are position_ids and convert to names
       const isPositionId = (value: any): boolean => {
         return (
@@ -668,12 +859,19 @@ export class SuratDinasInternalController {
         );
       };
 
+      // Convert individual penerima position IDs to names
       if (penerimaArray.length > 0 && isPositionId(penerimaArray[0])) {
         penerimaArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
             penerimaArray,
             body.tanggal || body.tgl,
           );
+      }
+
+      // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
+      if (penerimaGrupArray.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
       // Parse tembusan if it's a string (from form-data)
@@ -686,12 +884,31 @@ export class SuratDinasInternalController {
         }
       }
 
+      // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
         tembusanArray =
           await this.suratDinasInternalService.convertPositionIdsToNames(
             tembusanArray,
             body.tanggal || body.tgl,
           );
+      }
+
+      // Add grup tembusan display names — grup appears BEFORE individuals
+      let tembusanGrupArray: string[] = [];
+      if (body.tembusan_grup) {
+        if (typeof body.tembusan_grup === 'string') {
+          try {
+            tembusanGrupArray = JSON.parse(body.tembusan_grup);
+          } catch {
+            tembusanGrupArray = [body.tembusan_grup];
+          }
+        } else if (Array.isArray(body.tembusan_grup)) {
+          tembusanGrupArray = body.tembusan_grup;
+        }
+      }
+      if (tembusanGrupArray.length > 0) {
+        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
       // Parse lampiran_temp_ids if provided
@@ -762,34 +979,6 @@ export class SuratDinasInternalController {
           error: 'Failed to generate PDF',
           detail: error instanceof Error ? error.message : String(error),
         });
-    }
-  }
-
-  @Get('get-senders/:positionId')
-  async getNotaDinasSenders(
-    @Param('positionId', ParseIntPipe) positionId: number,
-    @Query() query: GetSdiRecipientQueryDto,
-  ): Promise<SdiOrgDataPositionDto[]> {
-    try {
-      return await this.suratDinasInternalService.getSenderKonsep(
-        positionId,
-        query.tgl,
-      );
-    } catch (error) {
-      // Re-throw NestJS exceptions as-is
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      // Generic error handler
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Failed to get Nota Dinas recipients',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 }

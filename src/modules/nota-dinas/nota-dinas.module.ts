@@ -16,6 +16,8 @@ import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
+import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -34,9 +36,11 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
     GeneratePdfModule,
     DigsigModule,
     SubAreaAlamatModule,
+    SearchModule,
+    GrupPenerimaModule,
   ],
   controllers: [NotaDinasController],
   providers: [NotaDinasService, NomorSuratService],
   exports: [NotaDinasService],
 })
-export class NotaDinasModule {}
+export class NotaDinasModule { }

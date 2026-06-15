@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, IsNumberString } from 'class-validator';
 
 /**
  * Query DTO untuk GET /ND/get-recipient
@@ -10,6 +10,14 @@ export class GetRecipientQueryDto {
     message: 'tgl must be in format YYYY-MM-DD',
   })
   tgl?: string;
+
+  @IsOptional()
+  @IsNumberString({}, { message: 'pengirim must be a valid number' })
+  pengirim?: string;
+
+  @IsOptional()
+  @IsNumberString({}, { message: 'position must be a valid number' })
+  position?: string;
 }
 
 /**

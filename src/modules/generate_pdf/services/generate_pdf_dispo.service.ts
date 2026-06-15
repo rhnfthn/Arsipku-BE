@@ -16,6 +16,7 @@ interface GeneratePdfDispoBody {
   pengirim?: string;
   tembusan?: string[];
   perihal?: string;
+  nomorAgenda?: string; // Nomor agenda (diisi dengan nomor surat yang baru di-generate)
   refNomor?: string;
   refPerihal?: string;
   refTanggal?: string; // Tanggal surat referensi
@@ -23,14 +24,22 @@ interface GeneratePdfDispoBody {
   tanggal?: string; // Tanggal disposisi terkirim (untuk agenda)
   penandatangan?: string;
   catatan?: string;
+  // QR Code HTML (optional - passed from digsig signing or preview)
+  qrCodeHtml?: string;
 }
 
 @Injectable()
 export class GeneratePdfDispoService {
   async generatePdf(body: GeneratePdfDispoBody): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfInternal(body), {
+      timeout: 90000,
     });
+
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
   private async _generatePdfInternal(body: GeneratePdfDispoBody): Promise<Buffer> {
@@ -81,7 +90,22 @@ export class GeneratePdfDispoService {
     const htmlCatatan = decodedContent || '';
     const penerima = body.penerima || [];
     const pengirim = body.pengirim || '';
-    const sifat = body.sifat || 'Biasa';
+
+    const normalizeSifat = (value?: string): string => {
+      if (!value) return 'biasa';
+      return String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    };
+
+    // Support variasi payload: biasa, terbatas, rahasia, sangat rahasia, sangat_rahasia.
+    const sifatLabelMap: Record<string, string> = {
+      biasa: 'Biasa',
+      terbatas: 'Terbatas',
+      rahasia: 'Rahasia',
+      sangat_rahasia: 'Sangat Rahasia',
+    };
+
+    const normalizedSifat = normalizeSifat(body.sifat);
+    const selectedSifatLabel = sifatLabelMap[normalizedSifat] || 'Biasa';
     const penandatangan = body.penandatangan || '';
     
     // Indonesian month names
@@ -159,6 +183,9 @@ export class GeneratePdfDispoService {
     
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
+
+    // QR Code section (optional - passed from digsig signing or preview)
+    const qrCodeHtml = body.qrCodeHtml || '';
     
     // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
     // Jika format "Position - Organization", ambil hanya Position
@@ -242,7 +269,7 @@ export class GeneratePdfDispoService {
     let sifatsHtml = array_sifat.map(item => `
       <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
         <div style="width: 16px; height: 16px; border: 1px solid #000; display: flex; align-items: center; justify-content: center; font-size: 10px;">
-          ${item === sifat ? '✓' : ''}
+          ${item === selectedSifatLabel ? '✓' : ''}
         </div>
         <span style="font-size: 11px;">${item}</span>
       </div>
@@ -268,7 +295,7 @@ export class GeneratePdfDispoService {
           <div style="width: 15%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
-              <div>No: ........</div>
+              <div>No: ${body.nomorAgenda || '........'}</div>
               <div>Tgl: ${tanggal}</div>
             </div>
           </div>
@@ -322,14 +349,12 @@ export class GeneratePdfDispoService {
         </div>
 
         <!-- Catatan Section -->
-        <div style="border-bottom: 2px solid #000; min-height: 280px; position: relative;">
+        <div style="border-bottom: 2px solid #000; min-height: 280px; display: flex; flex-direction: column;">
           <div style="padding: 8px 12px; font-weight: bold; font-size: 11px; text-decoration: underline; background-color: #f3f3f3; border-bottom: 1px solid #ddd;">CATATAN :</div>
-          <div style="padding: 12px; font-size: 10px; min-height: 240px; position: relative;">
+          <div style="padding: 12px; font-size: 10px; flex: 1;">
             ${catatan || htmlCatatan || ''}
           </div>
-          <div style="position: absolute; bottom: 12px; right: 12px; border: 2px solid #000; width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; background-color: rgba(255,255,255,0.8);">
-            Paraf
-          </div>
+          ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-end; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
         </div>
 
         <!-- Footer -->
@@ -342,11 +367,33 @@ export class GeneratePdfDispoService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(konten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      // Konten PDF statis, JS tidak dibutuhkan dan menurunkan stabilitas/performa render.
+      await page.setJavaScriptEnabled(false);
+
+      // Cegah request eksternal (http/https) yang bisa bikin render lambat/timeout.
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        ) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(konten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '30mm',
           bottom: '20mm',
