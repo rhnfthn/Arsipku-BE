@@ -12,6 +12,8 @@
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { NaskahDinasService } from '../services/naskah-dinas.service';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import {
   CreateNaskahDinasDto,
   GetNaskahDinasRecipientQueryDto,
@@ -34,9 +36,10 @@ export class NaskahDinasController {
   @Get('get-recipient')
   async getRecipients(
     @Query() query: GetNaskahDinasRecipientQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<NaskahDinasRecipientResponseDto> {
     try {
-      return await this.naskahDinasService.getRecipients(query.tgl);
+      return await this.naskahDinasService.getRecipients(query.tgl, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -97,16 +100,18 @@ export class NaskahDinasController {
    * GET /naskah-dinas
    * Get all Naskah Dinas (tanpa pagination)
    *
+   * @param user - Current logged-in user from JWT token
    * @param positionId - Optional filter by penerima position
    */
   @Get()
   async getAll(
+    @CurrentUser() user: JwtPayload,
     @Query('positionId') positionId?: string,
   ): Promise<NdGetAllResponseDto> {
     try {
       const posId = positionId ? parseInt(positionId, 10) : undefined;
 
-      return await this.naskahDinasService.getAll(posId);
+      return await this.naskahDinasService.getAll(posId, user.area);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

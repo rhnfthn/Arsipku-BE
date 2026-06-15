@@ -4,6 +4,7 @@ import { NomorEntity } from './entities/nomor.entity';
 import { NomorRequestEntity } from './entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from './entities/nomor-request-detail.entity';
 import { JenisEntity } from './entities/jenis.entity';
+import { UserRoleEntity } from '../superadmin/entities/user-role.entity';
 import { NomorService } from './services/nomor.service';
 import { NomorController } from './controllers/nomor.controller';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
@@ -16,6 +17,7 @@ import { StorageModule } from '../storage/storage.module';
       NomorRequestEntity,
       NomorRequestDetailEntity,
       JenisEntity,
+      UserRoleEntity,
     ]),
     OrgDataModule,
     StorageModule,

@@ -13,11 +13,13 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { DigsigLogService } from '../services/digsig-log.service';
+import { BsreAlertService } from '../services/bsre-alert.service';
 import {
   CreateDigsigLogDto,
   FilterDigsigLogDto,
   DigsigLogPaginatedResponseDto,
 } from '../dto/digsig-log.dto';
+import { ToggleBsreAlertDto } from '../dto/bsre-alert.dto';
 import { DigsigLogEntity } from '../entities/digsig-log.entity';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
@@ -26,7 +28,10 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 @Controller('digsig/log')
 @UseGuards(JwtAuthGuard)
 export class DigsigLogController {
-  constructor(private readonly digsigLogService: DigsigLogService) {}
+  constructor(
+    private readonly digsigLogService: DigsigLogService,
+    private readonly bsreAlertService: BsreAlertService,
+  ) {}
 
   /**
    * GET /digsig/log
@@ -81,6 +86,54 @@ export class DigsigLogController {
   @HttpCode(HttpStatus.OK)
   async checkBsreHealth() {
     return this.digsigLogService.checkBsreHealth();
+  }
+
+  /**
+   * GET /digsig/log/bsre-alert
+   * Get status alert gangguan BSrE (untuk semua user)
+   * Frontend harus poll endpoint ini untuk menampilkan banner alert
+   */
+  @Get('bsre-alert')
+  @HttpCode(HttpStatus.OK)
+  async getBsreAlertStatus() {
+    const data = await this.bsreAlertService.getAlertStatus();
+    return { success: true, data };
+  }
+
+  /**
+   * POST /digsig/log/bsre-alert/activate
+   * Aktifkan alert gangguan BSrE (admin only)
+   * Alert akan muncul di semua halaman untuk semua user
+   */
+  @Post('bsre-alert/activate')
+  @HttpCode(HttpStatus.OK)
+  async activateBsreAlert(
+    @Body() dto: ToggleBsreAlertDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const data = await this.bsreAlertService.activateAlert(
+      user.persnum,
+      user.nama,
+      dto.message,
+    );
+    return { success: true, message: 'Alert gangguan BSrE berhasil diaktifkan', data };
+  }
+
+  /**
+   * POST /digsig/log/bsre-alert/deactivate
+   * Nonaktifkan alert gangguan BSrE (admin only)
+   * Alert akan dihapus dari semua halaman
+   */
+  @Post('bsre-alert/deactivate')
+  @HttpCode(HttpStatus.OK)
+  async deactivateBsreAlert(
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const data = await this.bsreAlertService.deactivateAlert(
+      user.persnum,
+      user.nama,
+    );
+    return { success: true, message: 'Alert gangguan BSrE berhasil dinonaktifkan', data };
   }
 
   /**

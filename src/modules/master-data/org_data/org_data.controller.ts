@@ -70,6 +70,7 @@ type Departs = {
   tipe: string;
 };
 
+
 @Controller('org-data')
 export class OrgDataController {
   constructor(

@@ -44,6 +44,8 @@ export class CekDokumenService {
   async verifyByFile(
     file: Express.Multer.File,
     userPersnum: number,
+    userName?: string,
+    ipAddress?: string,
   ): Promise<CekDokumenResponseDto> {
     let tempFilePath: string | null = null;
     
@@ -101,6 +103,8 @@ export class CekDokumenService {
       // Log successful verification
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: this.bsreVerifyUrl,
         action: 'verify',
         status: 'sukses',
@@ -123,6 +127,8 @@ export class CekDokumenService {
       // Log failed verification
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: this.bsreVerifyUrl,
         action: 'verify',
         status: 'gagal',
@@ -173,6 +179,8 @@ export class CekDokumenService {
   async verifyBySignatureId(
     signatureId: string,
     userPersnum: number,
+    userName?: string,
+    ipAddress?: string,
   ): Promise<CekDokumenResponseDto> {
     try {
       // TODO: Implement actual BSrE API call
@@ -187,6 +195,8 @@ export class CekDokumenService {
       // Log verification attempt
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: `${this.bsreVerifyUrl}/${signatureId}`,
         action: 'verify',
         status: 'sukses',
@@ -212,6 +222,8 @@ export class CekDokumenService {
       // Log failed verification
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: `${this.bsreVerifyUrl}/${signatureId}`,
         action: 'verify',
         status: 'gagal',
@@ -233,6 +245,8 @@ export class CekDokumenService {
   async verifyByNameDoc(
     nameDoc: string,
     userPersnum: number,
+    userName?: string,
+    ipAddress?: string,
   ): Promise<CekDokumenResponseDto> {
     try {
       // TODO: Implement actual BSrE API call
@@ -248,6 +262,8 @@ export class CekDokumenService {
       // Log verification attempt
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: `${this.bsreVerifyUrl}/doc`,
         action: 'verify',
         status: 'sukses',
@@ -273,6 +289,8 @@ export class CekDokumenService {
       // Log failed verification
       await this.digsigLogService.createLog({
         userPersnum: userPersnum,
+        userName: userName || undefined,
+        ipAddress: ipAddress || undefined,
         apiEndpoint: `${this.bsreVerifyUrl}/doc`,
         action: 'verify',
         status: 'gagal',
@@ -314,9 +332,10 @@ export class CekDokumenService {
       const isWarning = summary === 'WARNING';
       
       // Map summary to status
-      let status: 'VALID' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
+      let status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
       if (summary === 'VALID') status = 'VALID';
-      else if (summary === 'WARNING' || summary === 'INVALID') status = 'INVALID';
+      else if (summary === 'WARNING') status = 'WARNING';
+      else if (summary === 'INVALID') status = 'INVALID';
 
       // Transform details array to signers
       const signers = (bsreResponse.details || []).map(detail => ({

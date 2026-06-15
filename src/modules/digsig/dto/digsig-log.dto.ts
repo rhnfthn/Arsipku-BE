@@ -43,10 +43,9 @@ export class CreateDigsigLogDto {
   nomorNaskah?: string;
 
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], {
-    message: 'Jenis naskah harus salah satu dari: ND, SDI, SDE, DI, KA',
-  })
-  jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  @IsString()
+  @MaxLength(100)
+  jenisNaskah?: string;
 
   @IsEnum(['sign', 'verify', 'download', 'upload'], {
     message: 'Action harus salah satu dari: sign, verify, download, upload',
@@ -92,8 +91,8 @@ export class FilterDigsigLogDto {
   nomorNaskah?: string;
 
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'])
-  jenisNaskah?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  @IsString()
+  jenisNaskah?: string;
 
   @IsOptional()
   @IsEnum(['sign', 'verify', 'download', 'upload'])

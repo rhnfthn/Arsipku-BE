@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   Param,
   Query,
@@ -35,28 +36,47 @@ import {
   RejectKonsepResponseDto,
   KonsepInboxResponseDto,
   KonsepSentResponseDto,
+  CreateDraftKonsepResponseDto,
+  UpdateDraftKonsepResponseDto,
+  GetDraftKonsepListResponseDto,
+  GetDraftKonsepDetailResponseDto,
+  DeleteDraftKonsepResponseDto,
+  BulkDeleteDraftKonsepResponseDto,
 } from '../dto/konsep';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 
 @Controller('KONSEP')
 export class KonsepController {
-  constructor(private readonly konsepService: KonsepService) {}
+  constructor(
+    private readonly konsepService: KonsepService,
+    private readonly grupPenerimaService: GrupPenerimaService,
+  ) {}
 
   // ============================================================
   // GET RECIPIENTS (ATASAN)
   // ============================================================
 
   /**
-   * GET /KONSEP/get-recipient/:position_id
+   * GET /KONSEP/get-recipient
    * Dapatkan daftar atasan yang bisa dipilih sebagai penerima konsep
    * 
-   * @param position_id Position ID pembuat konsep
+   * @param user - User dari JWT token (contains position)
+   * @param pengirim - Optional position_id pengirim (untuk kasus konsep dimana pengirim dipilih dari dropdown)
    * @returns Sender info dan list of managerial positions (ATASAN)
+   *
+   * @example
+   * GET /KONSEP/get-recipient (gunakan position dari JWT)
+   * GET /KONSEP/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
-  @Get('get-recipient/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getRecipient(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
+    @Query('pengirim') pengirim?: string,
   ): Promise<any> {
     try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = pengirim ? parseInt(pengirim, 10) : parseInt(user.position, 10);
       return await this.konsepService.getRecipient(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -88,9 +108,10 @@ export class KonsepController {
   @Get(':id')
   async getKonsepDetail(
     @Param('id') id: string,
+    @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.konsepService.getKonsepDetail(id);
+      return await this.konsepService.getKonsepDetail(id, String(user.position));
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -100,6 +121,37 @@ export class KonsepController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Gagal mendapatkan detail konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /KONSEP/:id/info
+   * Dapatkan detail konsep dan naskah TANPA flow disposisi/riwayat
+   * Endpoint simplified untuk view basic info saja
+   * 
+   * @param id Konsep ID (naskah jenis='K')
+   * @returns Detail konsep dan naskah asli (tanpa flow)
+   */
+  @Get(':id/info')
+  async getKonsepInfo(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
+    try {
+      return await this.konsepService.getKonsepInfo(id, String(user.position));
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal mendapatkan info konsep',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -121,11 +173,18 @@ export class KonsepController {
    * Konsep bisa dibuat sebagai tindak lanjut dari disposisi yang diterima
    * Kirim field `id_disposisi_referensi` untuk menghubungkan konsep dengan disposisi asal
    * 
+   * **DISPOSISI CHAIN TRACKING**:
+   * Sistem akan otomatis trace disposisi ke asal/root:
+   * - Jika A kirim DI-001 → B forward DI-002 → C terima DI-002
+   * - C buat konsep dengan id_disposisi_referensi = DI-002 (yang diterima)
+   * - Sistem akan simpan referensi ke DI-002 (langsung) DAN DI-001 (asal)
+   * - Pada GET detail, akan tampil disposisi_referensi dengan type='chain'
+   * 
    * Form-data fields:
    * - jenis: string (ND|SDI|SDE)
    * - from_position_id: number
    * - to_position_id: number
-   * - id_disposisi_referensi: string (OPTIONAL - ID naskah disposisi yang menjadi dasar konsep)
+   * - id_disposisi_referensi: string (OPTIONAL - ID naskah disposisi yang diterima/langsung)
    * - perihal, konten, klasifikasi, sifat, etc.
    * - lampiran_temp_ids: string[] (RECOMMENDED - IDs dari POST /upload-temporary-konsep)
    * - lampiran_files: file[] (DEPRECATED - untuk backward compatibility)
@@ -134,11 +193,11 @@ export class KonsepController {
    * 1. Terima disposisi (DI) dengan instruksi
    * 2. Upload files via POST /upload-temporary-konsep
    * 3. Get file IDs from response
-   * 4. Send lampiran_temp_ids + id_disposisi_referensi to this endpoint
+   * 4. Send lampiran_temp_ids + id_disposisi_referensi (ID disposisi yang diterima) to this endpoint
+   * 5. Sistem akan otomatis trace ke disposisi asal dan simpan kedua referensi
    * 
    * @returns CreateKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('create')
@@ -154,10 +213,12 @@ export class KonsepController {
   )
   async createKonsep(
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<CreateKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToCreateDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.createKonsep(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -180,17 +241,19 @@ export class KonsepController {
   // ============================================================
 
   /**
-   * GET /KONSEP/inbox/:position_id
-   * Dapatkan inbox konsep untuk pemeriksa/pengirim
+   * GET /KONSEP/inbox
+   * Dapatkan inbox konsep untuk pemeriksa/pengirim (from JWT token)
    * 
-   * @param position_id Position ID pemeriksa/pengirim
+   * @param user - User dari JWT token (contains position)
    * @returns KonsepInboxResponseDto
    */
-  @Get('inbox/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox')
   async getInbox(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<KonsepInboxResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.konsepService.getInbox(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -213,17 +276,19 @@ export class KonsepController {
   // ============================================================
 
   /**
-   * GET /KONSEP/sent/:position_id
-   * Dapatkan konsep yang dikirim oleh konseptor/pemeriksa
+   * GET /KONSEP/sent
+   * Dapatkan konsep yang dikirim oleh konseptor/pemeriksa (from JWT token)
    * 
-   * @param position_id Position ID konseptor/pemeriksa
+   * @param user - User dari JWT token (contains position)
    * @returns KonsepSentResponseDto
    */
-  @Get('sent/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('sent')
   async getSent(
-    @Param('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<KonsepSentResponseDto> {
     try {
+      const positionId = parseInt(user.position, 10);
       return await this.konsepService.getSent(positionId);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -261,7 +326,6 @@ export class KonsepController {
    * @param id Konsep ID yang akan di-forward
    * @returns ForwardKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('forward/:id')
@@ -278,10 +342,12 @@ export class KonsepController {
   async forwardKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<ForwardKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToForwardDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.forwardKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -323,10 +389,15 @@ export class KonsepController {
   async reviewKonsep(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Body() dto: ReviewKonsepDto,
   ): Promise<ReviewKonsepResponseDto> {
     try {
-      return await this.konsepService.reviewKonsep(id, positionId, dto);
+      const currentPositionId = Number(user.position);
+      if (positionId !== currentPositionId) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
+      }
+      return await this.konsepService.reviewKonsep(id, currentPositionId, dto);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -368,7 +439,6 @@ export class KonsepController {
    */
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
-  @Public()
   @Post('finalize/:id')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -379,10 +449,12 @@ export class KonsepController {
   async finalizeKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
   ): Promise<FinalizeKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToFinalizeDto(body, files);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.finalizeKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -419,16 +491,17 @@ export class KonsepController {
    * @param body Form-data body
    * @returns RejectKonsepResponseDto
    */
-  @Public() // Development: Bypass auth
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('reject/:id')
   async rejectKonsep(
     @Param('id') id: string,
     @Body() body: any,
+    @CurrentUser() user: any,
   ): Promise<RejectKonsepResponseDto> {
     try {
       const dto = await this.konsepService.parseFormDataToRejectDto(body);
+      dto.from_position_id = Number(user.position);
       return await this.konsepService.rejectKonsep(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -462,9 +535,14 @@ export class KonsepController {
   async markAsRead(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
   ): Promise<{ success: boolean; message: string }> {
     try {
-      return await this.konsepService.markAsRead(id, positionId);
+      const currentPositionId = Number(user.position);
+      if (positionId !== currentPositionId) {
+        throw new BadRequestException('position_id harus sesuai dengan user yang login');
+      }
+      return await this.konsepService.markAsRead(id, currentPositionId);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -532,23 +610,61 @@ export class KonsepController {
       }
 
       // Parse and convert penerima/tertuju to names if needed
-      let penerimaArray = this.parseArray(body.penerima || body.tertuju);
+      // Also check penerima_position_ids (from konsep form)
+      let penerimaArray = this.parseArray(body.penerima || body.tertuju || body.penerima_position_ids);
       if (penerimaArray.length > 0 && this.isPositionId(penerimaArray[0])) {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
+      // Prepend grup penerima display names (e.g., "Para Direktur") before individual names
+      if (body.penerima_grup) {
+        const grupIds = this.parseArray(body.penerima_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          penerimaArray = [...grupDisplayNames, ...penerimaArray];
+        }
+      }
+
       // Parse and convert tembusan to names if needed
-      let tembusanArray = this.parseArray(body.tembusan);
+      // Also check tembusan_position_ids (from konsep form)
+      let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
       }
 
+      // Prepend grup tembusan display names before individual names
+      if (body.tembusan_grup) {
+        const grupIds = this.parseArray(body.tembusan_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          tembusanArray = [...grupDisplayNames, ...tembusanArray];
+        }
+      }
+
+      // Parse and convert pengirim (dari) to name if needed
+      // Pengirim adalah pengirim_position_id atau to_position_id (atasan penandatangan)
+      let dariText = body.dari || body.nama_jabatan || '';
+      const pengirimPosId = body.pengirim_position_id || body.to_position_id;
+      if (!dariText && pengirimPosId && this.isPositionId(pengirimPosId)) {
+        const pengirimNames = await this.konsepService.convertPositionIdsToNames([pengirimPosId], body.tgl);
+        if (pengirimNames.length > 0) {
+          dariText = pengirimNames[0];
+        }
+      }
+
       // Build body with converted arrays
+      // Set kepada_yth dari penerimaArray jika belum ada
+      const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
+
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
         tertuju: penerimaArray,
         tembusan: tembusanArray,
+        kepada_yth: kepadaYth,
+        kepadaYth: kepadaYth,
+        dari: dariText,
+        nama_jabatan: dariText || body.nama_jabatan,
       };
 
       const pdfBuffer = await this.konsepService.generatePlainPdf(jenis, pdfBody);
@@ -622,15 +738,46 @@ export class KonsepController {
       }
 
       // Parse and convert penerima/tertuju to names if needed
-      let penerimaArray = this.parseArray(body.penerima || body.tertuju);
+      // Also check penerima_position_ids (from konsep form)
+      let penerimaArray = this.parseArray(body.penerima || body.tertuju || body.penerima_position_ids);
       if (penerimaArray.length > 0 && this.isPositionId(penerimaArray[0])) {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(penerimaArray, body.tgl);
       }
 
+      // Prepend grup penerima display names (e.g., "Para Direktur") before individual names
+      if (body.penerima_grup) {
+        const grupIds = this.parseArray(body.penerima_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          penerimaArray = [...grupDisplayNames, ...penerimaArray];
+        }
+      }
+
       // Parse and convert tembusan to names if needed
-      let tembusanArray = this.parseArray(body.tembusan);
+      // Also check tembusan_position_ids (from konsep form)
+      let tembusanArray = this.parseArray(body.tembusan || body.tembusan_position_ids);
       if (tembusanArray.length > 0 && this.isPositionId(tembusanArray[0])) {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(tembusanArray, body.tgl);
+      }
+
+      // Prepend grup tembusan display names before individual names
+      if (body.tembusan_grup) {
+        const grupIds = this.parseArray(body.tembusan_grup);
+        if (grupIds.length > 0) {
+          const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(grupIds);
+          tembusanArray = [...grupDisplayNames, ...tembusanArray];
+        }
+      }
+
+      // Parse and convert pengirim (dari) to name if needed
+      // Pengirim adalah pengirim_position_id atau to_position_id (atasan penandatangan)
+      let dariText = body.dari || body.nama_jabatan || '';
+      const pengirimPosId = body.pengirim_position_id || body.to_position_id;
+      if (!dariText && pengirimPosId && this.isPositionId(pengirimPosId)) {
+        const pengirimNames = await this.konsepService.convertPositionIdsToNames([pengirimPosId], body.tgl);
+        if (pengirimNames.length > 0) {
+          dariText = pengirimNames[0];
+        }
       }
 
       // Parse lampiran_temp_ids
@@ -640,11 +787,18 @@ export class KonsepController {
       }
 
       // Build body with converted arrays
+      // Set kepada_yth dari penerimaArray jika belum ada
+      const kepadaYth = body.kepada_yth || body.kepadaYth || penerimaArray.join('; ') || '';
+
       const pdfBody = {
         ...body,
         penerima: penerimaArray,
         tertuju: penerimaArray,
         tembusan: tembusanArray,
+        kepada_yth: kepadaYth,
+        kepadaYth: kepadaYth,
+        dari: dariText,
+        nama_jabatan: dariText || body.nama_jabatan,
       };
 
       const pdfBuffer = await this.konsepService.generatePreviewPdf(jenis, pdfBody, lampiranTempIds);
@@ -715,6 +869,285 @@ export class KonsepController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Gagal mendapatkan riwayat konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // ============================================================
+  // DRAFT KONSEP ENDPOINTS
+  // ============================================================
+
+  /**
+   * POST /KONSEP/draft/create
+   * Simpan draft konsep naskah baru (ND/SDI/SDE)
+   * 
+   * Draft konsep adalah konsep yang belum dikirim ke pemeriksa.
+   * User dapat menyimpan pekerjaan dan melanjutkan nanti.
+   * 
+   * Form-data fields:
+   * - jenis: string (ND|SDI|SDE) - wajib
+   * - from_position_id: number - wajib
+   * - to_position_id: number (opsional - penerima konsep)
+   * - perihal, konten, klasifikasi, sifat, etc.
+   * - lampiran_temp_ids: string[] (IDs dari POST /upload-temporary-konsep)
+   * 
+   * @returns CreateDraftKonsepResponseDto
+   */
+  @Post('draft/create')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'lampiran_files', maxCount: 10 }],
+      { limits: { fileSize: 50 * 1024 * 1024 } },
+    ),
+  )
+  async createDraftKonsep(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+  ): Promise<CreateDraftKonsepResponseDto> {
+    try {
+      const dto = await this.konsepService.parseFormDataToCreateDraftDto(body, files);
+      dto.from_position_id = Number(user.position);
+      return await this.konsepService.createDraftKonsep(dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal menyimpan draft konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /KONSEP/draft/list
+   * Dapatkan list draft konsep milik user (dari JWT token)
+   * 
+   * @param user - User dari JWT token (contains position)
+   * @query jenis - Filter by jenis: ND, SDI, SDE (optional)
+   * @query search - Search by perihal (optional)
+   * @query start_date - Start date filter YYYY-MM-DD (optional)
+   * @query end_date - End date filter YYYY-MM-DD (optional)
+   * @query preset - Date preset: 7_hari, 30_hari, 60_hari, 1_tahun, semua (optional)
+   * @query page - Page number, default 1 (optional)
+   * @query limit - Items per page, default 10 (optional)
+   * 
+   * @returns GetDraftKonsepListResponseDto
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('draft/list')
+  async getDraftKonsepList(
+    @CurrentUser() user: any,
+    @Query('jenis') jenis?: 'ND' | 'SDI' | 'SDE',
+    @Query('search') search?: string,
+    @Query('start_date') startDate?: string,
+    @Query('end_date') endDate?: string,
+    @Query('preset') preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<GetDraftKonsepListResponseDto> {
+    try {
+      const position = parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position in token');
+      }
+
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : 10;
+
+      const normalizedPreset = preset
+        ? (String(preset).toLowerCase().trim().replace(/\s+/g, '_') as '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua')
+        : undefined;
+
+      return await this.konsepService.getDraftKonsepList(
+        position,
+        jenis,
+        search,
+        startDate,
+        endDate,
+        normalizedPreset,
+        pageNum,
+        limitNum,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal mendapatkan list draft konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /KONSEP/draft/detail/:id
+   * Dapatkan detail draft konsep
+   * 
+   * @param id - ID draft (naskah ID)
+   * @param user - User dari JWT token (contains position)
+   * 
+   * @returns GetDraftKonsepDetailResponseDto
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('draft/detail/:id')
+  async getDraftKonsepDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<GetDraftKonsepDetailResponseDto> {
+    try {
+      const position = parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position in token');
+      }
+
+      return await this.konsepService.getDraftKonsepDetail(id, position);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal mendapatkan detail draft konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * PUT /KONSEP/draft/update/:id
+   * Update draft konsep
+   * 
+   * @param id - ID draft (naskah ID)
+   * @body action - 'draft' untuk simpan lagi, 'kirim' untuk convert ke konsep
+   * @body (other fields same as create)
+   * 
+   * @returns UpdateDraftKonsepResponseDto
+   */
+  @Put('draft/update/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'lampiran_files', maxCount: 10 }],
+      { limits: { fileSize: 50 * 1024 * 1024 } },
+    ),
+  )
+  async updateDraftKonsep(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+  ): Promise<UpdateDraftKonsepResponseDto> {
+    try {
+      const dto = await this.konsepService.parseFormDataToUpdateDraftDto(body, files);
+      dto.from_position_id = Number(user.position);
+      return await this.konsepService.updateDraftKonsep(id, dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal mengupdate draft konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * DELETE /KONSEP/draft/delete/:id
+   * Hapus draft konsep
+   * 
+   * @param id - ID draft (naskah ID)
+   * @param user - User dari JWT token (contains position)
+   * 
+   * @returns DeleteDraftKonsepResponseDto
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('draft/delete/:id')
+  async deleteDraftKonsep(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<DeleteDraftKonsepResponseDto> {
+    try {
+      const position = parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position in token');
+      }
+
+      return await this.konsepService.deleteDraftKonsep(id, position);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal menghapus draft konsep',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /KONSEP/draft/bulk-delete
+   * Hapus beberapa draft konsep sekaligus
+   * 
+   * @body draft_ids - Array of draft IDs to delete
+   * @param user - User dari JWT token (contains position)
+   * 
+   * @returns BulkDeleteDraftKonsepResponseDto
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('draft/bulk-delete')
+  async bulkDeleteDraftKonsep(
+    @Body() body: { draft_ids: string[] },
+    @CurrentUser() user: any,
+  ): Promise<BulkDeleteDraftKonsepResponseDto> {
+    try {
+      const position = parseInt(user.position, 10);
+      if (isNaN(position)) {
+        throw new BadRequestException('Invalid position in token');
+      }
+
+      if (!body.draft_ids || !Array.isArray(body.draft_ids) || body.draft_ids.length === 0) {
+        throw new BadRequestException('draft_ids harus berupa array yang tidak kosong');
+      }
+
+      return await this.konsepService.bulkDeleteDraftKonsep(body.draft_ids, position);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Gagal menghapus draft konsep secara bulk',
           error: error instanceof Error ? error.message : String(error),
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

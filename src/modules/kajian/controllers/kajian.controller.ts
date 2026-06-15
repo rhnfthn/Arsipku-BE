@@ -32,14 +32,15 @@ import { GetSendMessageResponseDto } from '../dto/get-send-message-response.dto'
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 @Controller('KA')
 export class KajianController {
   constructor(private readonly kajianService: KajianService) {}
 
   /**
-   * GET /KA/get-recipient/{positionId}
-   * Get eligible recipients for Kajian based on position ID (using org_data)
+   * GET /KA/get-recipient
+   * Get eligible recipients for Kajian based on position ID
    * 
    * Kajian Rules:
    * - Sender: Semua (Managerial, Fungsional, Staff)
@@ -47,16 +48,25 @@ export class KajianController {
    * - BAWAHAN: [] (tidak boleh ke bawahan)
    * - REKAN: [] (tidak boleh ke sesama level)
    *
-   * @param positionId - Position ID (path parameter)
-   * @param query - Query parameters (optional: tgl in format YYYY-MM-DD)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Query parameters:
+   *   - tgl: optional date in format YYYY-MM-DD
+   *   - pengirim: optional position_id pengirim (untuk kasus konsep/draft)
    * @returns KajianRecipientResponseDto
+   *
+   * @example
+   * GET /KA/get-recipient (gunakan position dari JWT)
+   * GET /KA/get-recipient?pengirim=70016742 (gunakan pengirim yang dipilih)
    */
-  @Get('get-recipient/:positionId')
+  @UseGuards(JwtAuthGuard)
+  @Get('get-recipient')
   async getKajianRecipients(
-    @Param('positionId', ParseIntPipe) positionId: number,
+    @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
   ): Promise<KajianRecipientResponseDto> {
     try {
+      // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
+      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
       // Note: tgl param from query is available but not currently used
       return await this.kajianService.getKajianRecipients(positionId);
     } catch (error) {
@@ -84,9 +94,12 @@ export class KajianController {
    * @returns Detail kajian lengkap
    */
   @Get(':id')
-  async getKajianDetail(@Param('id') id: string): Promise<any> {
+  async getKajianDetail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<any> {
     try {
-      return await this.kajianService.getKajianDetail(id);
+      return await this.kajianService.getKajianDetail(id, user.position);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -146,7 +159,7 @@ export class KajianController {
    * Status: 'final' (tanpa tanda_tangan) atau 'final_tte' (dengan tanda_tangan)
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
    */
   @UseGuards(JwtAuthGuard)
@@ -235,7 +248,7 @@ export class KajianController {
    * Finalize draft Kajian (update status dari draf ke final/final_tte)
    * 
    * Digital Signature Options:
-   * - sign_option: 'digsig' | 'qr_only' | 'none'
+   * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
    */
   @UseGuards(JwtAuthGuard)
@@ -361,15 +374,41 @@ export class KajianController {
       const errors = await validate(dto);
       if (errors.length > 0) {
         return res.status(HttpStatus.BAD_REQUEST).json({
-          error: 'Validation failed',
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
           message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
         });
       }
 
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent or konten' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       // Format tanggal dengan nama tempat
@@ -545,15 +584,41 @@ export class KajianController {
       const errors = await validate(dto);
       if (errors.length > 0) {
         return res.status(HttpStatus.BAD_REQUEST).json({
-          error: 'Validation failed',
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
           message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+          error: 'Bad Request',
         });
       }
 
       if (!dto || !dto.htmlContent) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ error: 'Missing required field: htmlContent' });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['htmlContent harus diisi'],
+          error: 'Bad Request',
+        });
+      }
+
+      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      if (!hasRecipient) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ['Minimal harus ada 1 penerima (tertuju/penerima)'],
+          error: 'Bad Request',
+        });
+      }
+
+      try {
+        assertDateNotInFuture(body.tgl || dto.tgl || dto.tanggal, 'Tanggal naskah');
+      } catch (error) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: [error.message],
+          error: 'Bad Request',
+        });
       }
 
       const namaTempat = body.nama_tempat || dto.nama_tempat || 'Tangerang';

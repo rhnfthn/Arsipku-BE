@@ -1,5 +1,5 @@
 import { IsNotEmpty, IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 /**
  * DTO untuk lampiran
@@ -47,7 +47,10 @@ export class CreateKonsepDto {
 
   @IsOptional()
   @IsString()
-  id_disposisi_referensi?: string; // ID naskah disposisi (DI) yang menjadi dasar pembuatan konsep ini
+  id_disposisi_referensi?: string; // ID naskah disposisi (DI) yang diterima langsung
+  // Sistem akan otomatis trace ke disposisi asal/root jika ini adalah forward
+  // Contoh: A kirim DI-001 → B forward DI-002 → C buat konsep
+  // Isi dengan ID DI-002 (yang diterima), sistem akan simpan ref ke DI-002 DAN DI-001
 
   // ============ KONTEN NASKAH ============
 
@@ -121,6 +124,36 @@ export class CreateKonsepDto {
   @IsArray()
   @IsNumber({}, { each: true })
   tembusan_position_ids?: number[]; // Tembusan surat
+
+  // ============ GRUP PENERIMA ============
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); }
+      catch { return [value]; }
+    }
+    return value;
+  })
+  penerima_grup?: string[]; // Array of grup_penerima UUIDs for penerima
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); }
+      catch { return [value]; }
+    }
+    return value;
+  })
+  tembusan_grup?: string[]; // Array of grup_penerima UUIDs for tembusan
 
   // ============ CATATAN KONSEP ============
 

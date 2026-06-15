@@ -1,17 +1,73 @@
-import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber, IsBoolean, IsDateString } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 /**
  * Query params untuk filter inbox
  */
 export class InboxQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA'], { message: 'Jenis naskah tidak valid' })
-  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+  jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @IsOptional()
   @IsEnum(['terbaca', 'belum_terbaca'], { message: 'Status baca tidak valid' })
   status_baca?: 'terbaca' | 'belum_terbaca';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  tinjut?: 'sudah_tinjut' | 'belum_tinjut';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  lock?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  note?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  arsip?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  priority?: boolean;
+
+  // Date Range Filter
+  @IsOptional()
+  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  start_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  end_date?: string; // Format: YYYY-MM-DD
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Normalize preset value: "7 hari" -> "7_hari", "7hari" -> "7_hari", etc.
+    const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
+    return normalized;
+  })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    return String(value).toLowerCase().trim();
+  })
+  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  sort?: 'terbaru' | 'terlama';
 
   @IsOptional()
   @Type(() => Number)
@@ -32,7 +88,7 @@ export class InboxItemDto {
   id_naskah: string;
 
   // Info Naskah (dari tabel naskah)
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
   jenis_label: string;
   nomor: string | null;
   tanggal: Date;
@@ -80,6 +136,9 @@ export class InboxItemDto {
   // Labels - array nama label yang di-assign ke naskah
   labels: string[];
 
+  // Tembusan flag - true jika naskah diterima sebagai tembusan
+  is_tembusan: boolean;
+
   // Priority flag (hanya untuk jenis='DI')
   is_priority?: boolean;
 
@@ -113,6 +172,7 @@ export class InboxResponseDto {
       SDE: number;
       DI: number;
       KA: number;
+      K: number;
     };
   };
 }

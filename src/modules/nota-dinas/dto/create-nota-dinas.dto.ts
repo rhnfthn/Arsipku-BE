@@ -1,4 +1,5 @@
 import { IsNotEmpty, IsArray, IsOptional, IsString, IsBoolean, IsEnum, ArrayMinSize, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 // Enum untuk sifat surat
 export enum SifatSurat {
@@ -13,7 +14,7 @@ export enum SifatSurat {
 export enum SignOption {
   DIGSIG = 'digsig',     // TTD Digital dengan BSrE + QR
   QR_ONLY = 'qr_only',   // Hanya QR tanpa BSrE
-  NONE = 'none',         // Tanpa TTD dan QR
+  TTD_BASAH = 'ttd_basah', // TTD Basah (tanpa QR, space untuk tanda tangan manual)
 }
 
 /**
@@ -27,13 +28,60 @@ export class CreateNotaDinasDto {
   @IsNotEmpty({ message: 'Pengirim (positionId) harus diisi' })
   pengirim: number; // positionId pengirim
 
+  @IsOptional()
   @IsArray({ message: 'Penerima harus berupa array positionId' })
-  @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  penerima: number[]; // array positionId penerima
+  penerima?: number[]; // array positionId penerima (individual)
 
   @IsOptional()
   @IsArray()
-  tembusan?: number[]; // array positionId tembusan (optional)
+  tembusan?: number[]; // array positionId tembusan (individual)
+
+  // ============================================
+  // GRUP PENERIMA (Alternative to individual)
+  // ============================================
+  /**
+   * ID Grup Penerima (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup sebagai penerima.
+   * Bisa digunakan bersamaan dengan field penerima (akan digabung).
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  /**
+   * ID Grup Tembusan (UUID dari tabel grup_penerima)
+   * Jika diisi, akan expand semua anggota grup sebagai tembusan.
+   * Bisa digunakan bersamaan dengan field tembusan (akan digabung).
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 
   // ============================================
   // KOP NASKAH (KEPALA)
@@ -144,8 +192,8 @@ export class CreateNotaDinasDto {
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option tidak valid' })
-  sign_option?: SignOption; // Opsi tanda tangan: digsig, qr_only, none
+  @IsEnum(SignOption, { message: 'sign_option harus salah satu dari: digsig, qr_only, ttd_basah' })
+  sign_option?: SignOption; // Opsi tanda tangan: digsig, qr_only, ttd_basah
 
   @IsOptional()
   @IsString()
@@ -166,11 +214,48 @@ export class FinalizeDraftDto {
 
   @IsOptional()
   @IsArray()
-  penerima?: number[]; // array positionId penerima
+  penerima?: number[]; // array positionId penerima (individual)
 
   @IsOptional()
   @IsArray()
-  tembusan?: number[]; // array positionId tembusan
+  tembusan?: number[]; // array positionId tembusan (individual)
+
+  // ============================================
+  // GRUP PENERIMA
+  // ============================================
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 
   // ============================================
   // KOP NASKAH (KEPALA)
@@ -270,7 +355,7 @@ export class FinalizeDraftDto {
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, none' })
+  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, ttd_basah' })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -291,11 +376,48 @@ export class UpdateDraftDto {
 
   @IsOptional()
   @IsArray()
-  penerima?: number[]; // array positionId penerima
+  penerima?: number[]; // array positionId penerima (individual)
 
   @IsOptional()
   @IsArray()
-  tembusan?: number[]; // array positionId tembusan
+  tembusan?: number[]; // array positionId tembusan (individual)
+
+  // ============================================
+  // GRUP PENERIMA
+  // ============================================
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  penerima_grup?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
+    }
+    return value;
+  })
+  tembusan_grup?: string[];
 
   // ============================================
   // KOP NASKAH (KEPALA)

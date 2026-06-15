@@ -306,6 +306,10 @@ export class DigsigDocumentService {
       document.currentSignerOrder = 1;
     }
 
+    // Hindari menyimpan ulang relasi signers yang sudah ter-load dari findById(),
+    // karena signers lama bisa ikut terbawa setelah delete/recreate dan memicu
+    // insert/update relasi yang tidak diinginkan.
+    delete (document as any).signers;
     await this.documentRepository.save(document);
     return this.findById(id);
   }
@@ -475,7 +479,7 @@ export class DigsigDocumentService {
         userPersnum: persnum,
         userName: signer.nama || undefined,
         idNaskah: documentId,
-        jenisNaskah: document.jenisNaskah as any,
+        jenisNaskah: document.jenisNaskah,
       });
 
       // Update signer status
@@ -560,7 +564,7 @@ export class DigsigDocumentService {
       userName: signer.nama || undefined,
       idNaskah: documentId,
       nomorNaskah: document.nomorDokumen,
-      jenisNaskah: document.jenisNaskah as any,
+      jenisNaskah: document.jenisNaskah,
       apiEndpoint: 'REJECT',
       action: 'sign',
       status: 'gagal',

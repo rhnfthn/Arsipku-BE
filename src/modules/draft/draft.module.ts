@@ -10,6 +10,9 @@ import { NaskahReferensiEntity } from '../naskah-referensi/entities/naskah_refer
 // import { SdiSdeEntity } from '../surat-dinas-eksternal/entities/sdi_sde.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { LabelModule } from '../label/label.module';
+import { SearchModule } from '../search/search.module';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
+import { OrgDataModule } from 'src/modules/master-data/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -23,6 +26,9 @@ import { LabelModule } from '../label/label.module';
       EksternalEntity,
     ]),
     LabelModule,
+    SearchModule,
+    GrupPenerimaModule,
+    OrgDataModule,
   ],
   controllers: [DraftController],
   providers: [DraftService],

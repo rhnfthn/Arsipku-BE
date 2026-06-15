@@ -31,6 +31,9 @@ import { DigsigService } from '../../digsig/services/digsig.service';
 import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -68,7 +71,9 @@ export class SuratDinasEksternalService {
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
     private readonly qrCodeService: QRCodeService,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
+  ) { }
 
   // ============================================================
   // HELPER: DATE UTILITIES (TIMEZONE-SAFE)
@@ -120,7 +125,7 @@ export class SuratDinasEksternalService {
       }
 
       const queryDate = tanggal ? this.parseDateString(tanggal) : new Date();
-      
+
       const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
         company,
         area,
@@ -160,7 +165,7 @@ export class SuratDinasEksternalService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
     }
@@ -171,10 +176,10 @@ export class SuratDinasEksternalService {
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
       const position = barisData.find((p: any) => p.position === numericId);
-      
+
       if (position) {
-        // Return position_text with organization_text
-        const fullName = `${position.position_text} - ${position.organization_text}`;
+        // Return position_text only (without organization_text) - sama seperti SDI
+        const fullName = `${position.position_text}`;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -194,7 +199,7 @@ export class SuratDinasEksternalService {
     throwOnNotFound: boolean = false,
   ): Promise<EksternalEntity[]> {
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (!penerimaIds || penerimaIds.length === 0) {
       return penerimaList;
     }
@@ -250,15 +255,15 @@ export class SuratDinasEksternalService {
 
     for (const extId of eksternalIds) {
       const cleanId = String(extId).trim();
-      
+
       // Check if it's a UUID (contains dashes)
       const isUuid = cleanId.includes('-') && cleanId.length === 36;
-      
+
       if (isUuid) {
         const eksternal = await this.eksternalRepository.findOne({
           where: { id: cleanId, aktif: true },
         });
-        
+
         if (eksternal) {
           names.push(eksternal.nama);
         } else {
@@ -303,7 +308,7 @@ export class SuratDinasEksternalService {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
       let lampiranText = lampiran;
       let lampiranFiles: any[] = [];
-      
+
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
@@ -376,7 +381,7 @@ export class SuratDinasEksternalService {
         filePath: string;
         tempFolderId: string | null;
       }> = [];
-      
+
       for (const lampiran of tempLampiran) {
         files.push({
           id: lampiran.id,
@@ -476,7 +481,7 @@ export class SuratDinasEksternalService {
         file_name: l.file_name,
         jenis: l.jenis,
       })));
-      
+
       throw new NotFoundException('Lampiran temporary tidak ditemukan');
     }
 
@@ -560,6 +565,8 @@ export class SuratDinasEksternalService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'SDE';
     const tahun = tanggal.getFullYear();
@@ -592,6 +599,7 @@ export class SuratDinasEksternalService {
       jumlah: 1,
       penandatangan: pengirim.persnum_person_text || null,
       idPositionPenandatangan: pengirim.position || null,
+      isNaskahGenerated: true,
     });
 
     await queryRunner.manager.save(nomorRequest);
@@ -660,8 +668,8 @@ export class SuratDinasEksternalService {
       id: uuidv4(),
       idRequest: requestId,
       nomor: nomorLengkap,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -812,7 +820,7 @@ export class SuratDinasEksternalService {
    * Get SDE recipients using org_data
    * 
    * SDE (Surat Dinas Eksternal):
-   * - Pengirim: dari org_data (positionId), harus managerial (chief=1)
+    * - Pengirim: dari org_data (positionId)
    * - Penerima: dari tabel eksternal (pihak luar perusahaan)
    * 
    * @param positionId - Position ID of the sender
@@ -845,13 +853,6 @@ export class SuratDinasEksternalService {
       );
     }
 
-    // Verify sender is chief (managerial)
-    if (sender.chief !== 1) {
-      throw new ForbiddenException(
-        `Position ${positionId} bukan managerial (chief). Hanya managerial yang dapat mengirim Surat Dinas Eksternal.`,
-      );
-    }
-
     // Get external recipients from tabel eksternal
     const recipients = await this.getExternalRecipients();
 
@@ -860,6 +861,70 @@ export class SuratDinasEksternalService {
       recipients,
       totalRecipients: recipients.length,
     };
+  }
+
+  async getSenderKonsep(
+    positionId: number,
+    tgl?: string,
+  ): Promise<SdeOrgDataPositionDto[]> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+
+    const orgData = await this.orgDataService.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const data: SdeOrgDataPositionDto[] = orgData.position_json;
+
+    const result: SdeOrgDataPositionDto[] = [];
+    const added = new Set<number>();
+
+    const pushUnique = (item?: SdeOrgDataPositionDto) => {
+      if (!item) return;
+      const key = Number(item.position);
+      if (added.has(key)) return;
+      added.add(key);
+      result.push(item);
+    };
+
+    let current = data.find((x) => Number(x.position) === Number(positionId));
+    if (!current) return result;
+
+    const bods = ['BOD', 'BOD-1'];
+
+    if (current.chief === 0) {
+      const chiefs = data.filter(
+        (x) =>
+          Number(x.divisi_id) === Number(current!.divisi_id) &&
+          x.chief === 1 &&
+          bods.includes(x.bod_tag as string),
+      );
+
+      chiefs.forEach(pushUnique);
+      current = chiefs.find((x) => x.bod_tag === 'BOD-1');
+    }
+
+    while (current) {
+      if (bods.includes(current.bod_tag as string)) {
+        pushUnique(current);
+      }
+
+      const parent = data.find(
+        (x) =>
+          Number(x.organization_id) === Number(current!.organization_parent) &&
+          x.chief === 1 &&
+          x.sub_area === current?.sub_area,
+      );
+
+      if (!parent) break;
+      current = parent;
+    }
+
+    result.sort((a, b) => Number(a.level) - Number(b.level));
+    return result;
   }
 
   /**
@@ -1022,8 +1087,10 @@ export class SuratDinasEksternalService {
    */
   private async createSde(
     dto: CreateSuratDinasEksternalDto,
-    status: 'draf' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'final' | 'final_tte',
   ): Promise<SdeSendMessageResponseDto> {
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -1051,17 +1118,17 @@ export class SuratDinasEksternalService {
     // - UUID (id dari tabel eksternal) - untuk string UUID
     // - Position ID (id_position_pembuat) - untuk angka/number
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (dto.penerima && dto.penerima.length > 0) {
       for (const penerimaValue of dto.penerima) {
         // Trim whitespace from value
         const cleanValue = String(penerimaValue).trim();
-        
+
         // Check if it's a UUID (contains dashes and is 36 chars) or a number (position ID)
         const isUuid = cleanValue.includes('-') && cleanValue.length === 36;
-        
+
         let eksternal: EksternalEntity | null = null;
-        
+
         if (isUuid) {
           // Search by eksternal.id (UUID)
           eksternal = await this.eksternalRepository.findOne({
@@ -1073,11 +1140,11 @@ export class SuratDinasEksternalService {
             where: { id_position_pembuat: cleanValue, aktif: true },
           });
         }
-        
+
         if (!eksternal) {
           continue; // Skip instead of throwing error to be more lenient
         }
-        
+
         // Avoid duplicates
         if (!penerimaList.find(p => p.id === eksternal!.id)) {
           penerimaList.push(eksternal);
@@ -1135,12 +1202,13 @@ export class SuratDinasEksternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
 
-      // Determine if this is a draft
-      const isDraft = status === 'draf';
+      // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
+      const isDraft = status === 'draf' || status === 'pending';
 
       // PHASE 5a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
       // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
@@ -1173,6 +1241,22 @@ export class SuratDinasEksternalService {
           const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
           await queryRunner.manager.save(tembusanSirkulasi);
+
+          // Send notification to tembusan internal (only for final naskah, not draft)
+          if (!isDraft) {
+            this.notificationService.createNaskahMasukNotification({
+              positionId: String(tembusan.position),
+              userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+              naskahId,
+              sirkulasiId: tembusanSirkulasi.id,
+              jenis: 'SDE',
+              nomor: nomorSurat,
+              perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text,
+              isTembusan: true,
+            }).catch(err => console.error('[SuratDinasEksternal] Failed to send notification to tembusan:', err));
+          }
         }
       }
 
@@ -1193,7 +1277,7 @@ export class SuratDinasEksternalService {
         // Get file names before moving
         const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
         lampiranFileNames = lampiranFiles.map(f => f.fileName);
-        
+
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1222,7 +1306,7 @@ export class SuratDinasEksternalService {
       const kepadaYth = kepadaYthList.join('; ');
 
       // Build alamat dari penerima pertama (atau gabungan)
-      const alamatPenerima = penerimaList.length === 1 
+      const alamatPenerima = penerimaList.length === 1
         ? penerimaList[0].alamat || ''
         : penerimaList.map(p => `${p.nama}: ${p.alamat || '-'}`).join('\n');
 
@@ -1238,7 +1322,7 @@ export class SuratDinasEksternalService {
 
       // PHASE 10: Auto-generate PDF with nomor and lampiran (only for final/final_tte)
       let finalPdfPath: string | undefined = undefined;
-      
+
       if (status !== 'draf') {
         try {
           // Get dynamic header info dari sub_area_alamat berdasarkan pengirim context
@@ -1296,7 +1380,7 @@ export class SuratDinasEksternalService {
           // Upload PDF to storage with organized folder structure
           const timestamp = Date.now();
           const pdfFileName = `SDE-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
-          
+
           const uploadResult = await this.storageService.uploadBuffer(
             pdfBuffer,
             pdfFileName,
@@ -1312,6 +1396,18 @@ export class SuratDinasEksternalService {
             { id: naskahId },
             { final_pdf: finalPdfPath },
           );
+
+          // Update nomor_request_detail dengan file PDF yang sudah di-generate
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update('nomor_request_detail')
+            .set({
+              fileName: pdfFileName,
+              fileText: finalPdfPath,
+            })
+            .where('nomor = :nomor', { nomor: nomorSurat })
+            .andWhere('status = :status', { status: 'terpakai_final' })
+            .execute();
         } catch (error) {
           // Don't fail the whole transaction if PDF generation fails
         }
@@ -1319,6 +1415,9 @@ export class SuratDinasEksternalService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
 
       // Build penerima response
       const penerimaResponses: SdePenerimaInfoDto[] = penerimaList.map(
@@ -1337,8 +1436,8 @@ export class SuratDinasEksternalService {
       }
 
       // Build lampiran text from file names
-      const lampiranText = lampiranFileNames.length > 0 
-        ? lampiranFileNames.join(', ') 
+      const lampiranText = lampiranFileNames.length > 0
+        ? lampiranFileNames.join(', ')
         : (dto.lampiran || undefined);
 
       // Return response - use toSirkulasiInfo directly from org_data (same as SDI)
@@ -1388,7 +1487,7 @@ export class SuratDinasEksternalService {
    */
   private async createSdeWithSigning(
     dto: CreateSuratDinasEksternalDto,
-    status: 'final' | 'final_tte',
+    status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SdeSendMessageResponseDto> {
     // Use provided date or today
@@ -1423,17 +1522,17 @@ export class SuratDinasEksternalService {
 
     // PHASE 3: Validate penerima dari tabel eksternal (sama seperti createSde)
     const penerimaList: EksternalEntity[] = [];
-    
+
     if (dto.penerima && dto.penerima.length > 0) {
       for (const penerimaValue of dto.penerima) {
         // Trim whitespace from value
         const cleanValue = String(penerimaValue).trim();
-        
+
         // Check if it's a UUID (contains dashes and is 36 chars) or a number (position ID)
         const isUuid = cleanValue.includes('-') && cleanValue.length === 36;
-        
+
         let eksternal: EksternalEntity | null = null;
-        
+
         if (isUuid) {
           // Search by eksternal.id (UUID)
           eksternal = await this.eksternalRepository.findOne({
@@ -1445,11 +1544,11 @@ export class SuratDinasEksternalService {
             where: { id_position_pembuat: cleanValue, aktif: true },
           });
         }
-        
+
         if (!eksternal) {
           continue; // Skip instead of throwing error to be more lenient
         }
-        
+
         // Avoid duplicates
         if (!penerimaList.find(p => p.id === eksternal!.id)) {
           penerimaList.push(eksternal);
@@ -1507,6 +1606,7 @@ export class SuratDinasEksternalService {
         konten: dto.konten,
         tempat: dto.nama_tempat || undefined,
         status: status,
+        signOption: dto.sign_option || null,
         final_pdf: undefined, // Will be updated after PDF generation
         english: dto.english || false,
       });
@@ -1534,14 +1634,16 @@ export class SuratDinasEksternalService {
       }
 
       // PHASE 7: Insert sirkulasi
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, false, 0);
+      // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
+      const isPending = status === 'pending';
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       // Insert penerima eksternal ke sirkulasi (using createSirkulasiFromEksternal)
       const penerimaResponses: any[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, false, i);
+        const penerimaSirkulasi = this.createSirkulasiFromEksternal(naskahId, penerima, isPending, i);
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push({
           nama: penerima.nama,
@@ -1552,9 +1654,30 @@ export class SuratDinasEksternalService {
       const tembusanResponses: SdeSirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, false, i);
+        const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isPending, i);
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
+
+        // Send notification to tembusan (skip for pending/TTD basah; penerima is external, no notification)
+        if (!isPending) {
+          console.log(`[SDE:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
+          this.notificationService.createNaskahMasukNotification({
+            positionId: String(tembusan.position),
+            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
+            naskahId,
+            sirkulasiId: tembusanSirkulasi.id,
+            jenis: 'SDE',
+            nomor: nomorSurat,
+            perihal: dto.perihal,
+            pengirim: pengirim.persnum_person_text || pengirim.position_text,
+            pengirimPosition: pengirim.position_text,
+            isTembusan: true,
+          }).then(notif => {
+            console.log(`[SDE:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
+          }).catch(err => {
+            console.error(`[SDE:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
+          });
+        }
       }
 
       // PHASE 8: Handle lampiran - Move dari temporary ke final folder
@@ -1563,12 +1686,12 @@ export class SuratDinasEksternalService {
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids:`, dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids type:`, typeof dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - lampiran_temp_ids[0]:`, dto.lampiran_temp_ids[0]);
-        
+
         // Get file names before moving
         const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
         console.log(`[SDE] PHASE 8 - Found ${lampiranFiles.length} lampiran files`);
         lampiranFileNames = lampiranFiles.map(f => f.fileName);
-        
+
         // Move lampiran dari temporary ke final folder
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
@@ -1639,18 +1762,18 @@ export class SuratDinasEksternalService {
       try {
         // Generate PDF dengan QR code di template (jika ada)
         console.log(`[SDE] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`);
-        
+
         // Use fallback for empty string, not just undefined/null
-        const finalPositionText = (dto.nama_jabatan && dto.nama_jabatan.trim()) 
-          ? dto.nama_jabatan 
+        const finalPositionText = (dto.nama_jabatan && dto.nama_jabatan.trim())
+          ? dto.nama_jabatan
           : pengirim.position_text;
         const finalNamaLengkap = (dto.nama_lengkap && dto.nama_lengkap.trim())
           ? dto.nama_lengkap
           : pengirim.persnum_person_text || '';
-        
+
         console.log(`[SDE] positionText for PDF: ${finalPositionText}`);
         console.log(`[SDE] namaLengkap for PDF: ${finalNamaLengkap}`);
-        
+
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: dto.konten,
           htmlContent: dto.konten,
@@ -1798,9 +1921,24 @@ export class SuratDinasEksternalService {
           { final_pdf: finalPdfPath },
         );
 
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
+
         // COMMIT TRANSACTION
         await queryRunner.commitTransaction();
         console.log(`[SDE] Transaction committed successfully`);
+
+        // Sync to Meilisearch (non-blocking, after successful commit)
+        this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
 
         // Format lampiran text
         const lampiranText = lampiranFileNames.length > 0 ? lampiranFileNames.join(', ') : '';
@@ -1868,7 +2006,7 @@ export class SuratDinasEksternalService {
         if (cleanValue.startsWith('{') && cleanValue.endsWith('}')) {
           cleanValue = '[' + cleanValue.slice(1, -1) + ']';
         }
-        
+
         try {
           // Try parse as JSON
           const parsed = JSON.parse(cleanValue);
@@ -2017,9 +2155,11 @@ export class SuratDinasEksternalService {
     }
 
     // Determine status based on sign_option
-    let status: 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
       status = 'final_tte';
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      status = 'pending';
     }
 
     // Call createSdeWithSigning with signing options
@@ -2062,6 +2202,8 @@ export class SuratDinasEksternalService {
     if (naskah.jenis !== 'SDE') {
       throw new BadRequestException(`Naskah bukan Surat Dinas Eksternal (SDE)`);
     }
+
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -2132,7 +2274,7 @@ export class SuratDinasEksternalService {
       // PHASE 6.1: Handle sirkulasi tembusan - ALWAYS ensure consistency
       // Get existing tembusan positions before deleting
       let tembusanPositionsToInsert: number[] = [];
-      
+
       if (dto.tembusan !== undefined) {
         // Use provided tembusan from DTO
         tembusanPositionsToInsert = dto.tembusan;
@@ -2250,7 +2392,7 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2297,20 +2439,20 @@ export class SuratDinasEksternalService {
         status: 'draf',
         perihal: updatedNaskah?.perihal || '',
         // Use toSirkulasiInfo directly from org_data (same as SDI)
-        pengirim: fallbackPengirimPosition 
+        pengirim: fallbackPengirimPosition
           ? this.toSirkulasiInfo(fallbackPengirimPosition)
           : {
-              position: parseInt(pengirimSirkulasi?.position || '0', 10),
-              position_text: pengirimSirkulasi?.positionText || '',
-              persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
-              nama: pengirimSirkulasi?.namaSirkuler || null,
-              organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
-              organization_text: pengirimSirkulasi?.organizationText || '',
-              sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
-              sub_area_text: pengirimSirkulasi?.subAreaText || null,
-              area: pengirimSirkulasi?.area || null,
-              area_text: pengirimSirkulasi?.areaText || null,
-            },
+            position: parseInt(pengirimSirkulasi?.position || '0', 10),
+            position_text: pengirimSirkulasi?.positionText || '',
+            persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
+            nama: pengirimSirkulasi?.namaSirkuler || null,
+            organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
+            organization_text: pengirimSirkulasi?.organizationText || '',
+            sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
+            sub_area_text: pengirimSirkulasi?.subAreaText || null,
+            area: pengirimSirkulasi?.area || null,
+            area_text: pengirimSirkulasi?.areaText || null,
+          },
         penerima: penerimaResponses,
         tembusan: tembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
@@ -2375,6 +2517,8 @@ export class SuratDinasEksternalService {
       throw new BadRequestException(`Naskah bukan Surat Dinas Eksternal (SDE)`);
     }
 
+    assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
+
     // Use provided date or today for org_data lookup
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2434,13 +2578,16 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'final' | 'final_tte' | 'draf';
+    let newStatus: 'pending' | 'final' | 'final_tte' | 'draf';
     if (dto.sign_option === SignOption.DIGSIG) {
       newStatus = 'final_tte'; // Digital signature dengan BSrE
       console.log('[SDE finalizeDraft] Status = final_tte (DIGSIG)');
     } else if (dto.sign_option === SignOption.QR_ONLY) {
-      newStatus = 'final_tte'; // QR code tanpa BSrE
-      console.log('[SDE finalizeDraft] Status = final_tte (QR_ONLY)');
+      newStatus = 'final'; // QR code tanpa BSrE
+      console.log('[SDE finalizeDraft] Status = final (QR_ONLY)');
+    } else if (dto.sign_option === SignOption.TTD_BASAH) {
+      newStatus = 'pending'; // TTD Basah - menunggu upload dokumen bertanda tangan
+      console.log('[SDE finalizeDraft] Status = pending (TTD_BASAH)');
     } else if (dto.tanda_tangan) {
       newStatus = 'final_tte'; // Legacy: tanda_tangan field provided
       console.log('[SDE finalizeDraft] Status = final_tte (tanda_tangan)');
@@ -2476,6 +2623,7 @@ export class SuratDinasEksternalService {
       const naskahUpdateData: Partial<NaskahEntity> = {
         nomor: nomorSurat,
         status: newStatus,
+        signOption: dto.sign_option || null,
       };
       if (dto.klasifikasi !== undefined) naskahUpdateData.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text !== undefined) naskahUpdateData.klasifikasi_text = dto.klasifikasi_text;
@@ -2497,22 +2645,27 @@ export class SuratDinasEksternalService {
         // Delete existing pengirim sirkulasi
         await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: naskahId, sirkuler: 'pengirim' });
 
-        // Re-insert pengirim with is_draft = FALSE (finalized!)
-        const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, false);
+        // Re-insert pengirim (isDraft stays true for pending/TTD basah)
+        const isPending = newStatus === 'pending';
+        const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, isPending);
         await queryRunner.manager.save(pengirimSirkulasi);
       } else {
-        // Just update isDraft = false on existing sirkulasi
-        await queryRunner.manager.update(
-          NaskahSirkulasi,
-          { idNaskah: naskahId },
-          { isDraft: false },
-        );
+        // Update isDraft based on status
+        // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
+        const isPending = newStatus === 'pending';
+        if (!isPending) {
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            { idNaskah: naskahId },
+            { isDraft: false },
+          );
+        }
       }
 
       // PHASE 8.1: Handle sirkulasi tembusan - ALWAYS ensure consistency  
       // Determine tembusan list to insert
       let tembusanPositionsToInsert: number[] = [];
-      
+
       if (dto.tembusan !== undefined) {
         // Use provided tembusan from DTO
         tembusanPositionsToInsert = dto.tembusan;
@@ -2543,6 +2696,23 @@ export class SuratDinasEksternalService {
             if (tembusanPos) {
               const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusanPos, false, i);
               await queryRunner.manager.save(tembusanSirkulasi);
+
+              // Send notification to tembusan internal (finalized naskah)
+              const finalPerihal = dto.perihal ?? naskah.perihal ?? '';
+              const finalPengirimName = finalPengirimPosition?.persnum_person_text || finalPengirimPosition?.position_text || existingPengirim?.namaSirkuler || '';
+              const finalPengirimPositionText = finalPengirimPosition?.position_text || existingPengirim?.positionText || '';
+              this.notificationService.createNaskahMasukNotification({
+                positionId: String(tembusanPos.position),
+                userPersnum: tembusanPos.persnum_person ? Number(tembusanPos.persnum_person) : undefined,
+                naskahId,
+                sirkulasiId: tembusanSirkulasi.id,
+                jenis: 'SDE',
+                nomor: nomorSurat,
+                perihal: finalPerihal,
+                pengirim: finalPengirimName,
+                pengirimPosition: finalPengirimPositionText,
+                isTembusan: true,
+              }).catch(err => console.error('[SuratDinasEksternal:Finalize] Failed to send notification to tembusan:', err));
             }
           }
         }
@@ -2582,7 +2752,7 @@ export class SuratDinasEksternalService {
       let pdfBuffer: Buffer;
       let signatureMetadata: string | null = null;
       let bsreNameDoc: string | null = null;
-      
+
       try {
         // Get pengirim sirkulasi for fallback data
         const pengirimSirkulasiForPdf = await queryRunner.manager.findOne(NaskahSirkulasi, {
@@ -2804,7 +2974,7 @@ export class SuratDinasEksternalService {
           console.log(`[SDE finalizeDraft] QR_ONLY mode - QR already in template, no BSrE signing needed`);
           // signatureMetadata tetap null
         }
-        // OPTION 3: NONE - tidak ada QR, tidak ada perubahan
+        // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
         const timestamp = Date.now();
@@ -2827,6 +2997,18 @@ export class SuratDinasEksternalService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
+
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
 
         // Update naskah with tanda_tangan metadata (if digsig)
         if (signatureMetadata) {
@@ -2900,7 +3082,7 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText = lampiranList.length > 0 
+    const lampiranText = lampiranList.length > 0
       ? lampiranList.map(l => l.file_name).join(', ')
       : undefined;
 
@@ -2949,20 +3131,20 @@ export class SuratDinasEksternalService {
         status: newStatus,
         perihal: updatedNaskah?.perihal || '',
         // Use toSirkulasiInfo directly from org_data (same as SDI)
-        pengirim: fallbackPengirimPosition 
+        pengirim: fallbackPengirimPosition
           ? this.toSirkulasiInfo(fallbackPengirimPosition)
           : {
-              position: parseInt(pengirimSirkulasi?.position || '0', 10),
-              position_text: pengirimSirkulasi?.positionText || '',
-              persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
-              nama: pengirimSirkulasi?.namaSirkuler || null,
-              organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
-              organization_text: pengirimSirkulasi?.organizationText || '',
-              sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
-              sub_area_text: pengirimSirkulasi?.subAreaText || null,
-              area: pengirimSirkulasi?.area || null,
-              area_text: pengirimSirkulasi?.areaText || null,
-            },
+            position: parseInt(pengirimSirkulasi?.position || '0', 10),
+            position_text: pengirimSirkulasi?.positionText || '',
+            persnum: pengirimSirkulasi?.idSirkuler ? parseInt(pengirimSirkulasi.idSirkuler, 10) : null,
+            nama: pengirimSirkulasi?.namaSirkuler || null,
+            organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
+            organization_text: pengirimSirkulasi?.organizationText || '',
+            sub_area: pengirimSirkulasi?.subArea ? parseInt(pengirimSirkulasi.subArea, 10) : null,
+            sub_area_text: pengirimSirkulasi?.subAreaText || null,
+            area: pengirimSirkulasi?.area || null,
+            area_text: pengirimSirkulasi?.areaText || null,
+          },
         penerima: penerimaResponses,
         tembusan: finalizeTembusanResponses, // Always return array (empty or filled)
         lampiran: lampiranText, // Nama file lampiran dari database
@@ -2988,7 +3170,7 @@ export class SuratDinasEksternalService {
     // Get org_data to validate position exists
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tanggal);
-    
+
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException('Data organisasi tidak ditemukan');
     }
@@ -3169,7 +3351,9 @@ export class SuratDinasEksternalService {
    * Get SDE detail by ID
    * Menampilkan keseluruhan informasi surat termasuk PDF final
    */
-  async getSdeDetail(naskahId: string): Promise<any> {
+  async getSdeDetail(naskahId: string, userPosition: string): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -3318,10 +3502,27 @@ export class SuratDinasEksternalService {
         final_pdf_url: finalPdfUrl,
 
         // Metadata
-        created_at: null,
-        updated_at: null,
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
       },
     };
+  }
+
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: { id: true },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
   }
 
   /**
@@ -3369,7 +3570,7 @@ export class SuratDinasEksternalService {
       // PHASE 2: Get org_data dan validasi pengirim & penerima
       const tanggal = new Date().toISOString().split('T')[0];
       const orgData = await this.orgDataService.findOrg(tanggal);
-      
+
       if (!orgData || !orgData.position_json) {
         throw new NotFoundException(
           `Data organisasi untuk tanggal ${tanggal} tidak ditemukan`,
@@ -3476,7 +3677,7 @@ export class SuratDinasEksternalService {
       // PHASE 7: Create entity content sesuai jenis
       const kepadaYthList = penerimaList.map((p) => `${p.position_text} ${p.organization_text}`);
       const kepadaYth = kepadaYthList.join('; ');
-      
+
       // Get header info
       const headerInfo = await this.getHeaderInfoByUser(
         {
@@ -3656,7 +3857,7 @@ export class SuratDinasEksternalService {
           htmlContent: konten,
           nomor: nomorSurat,
           penerima: kepadaYthList,
-          tembusan: tembusanList.length > 0 
+          tembusan: tembusanList.length > 0
             ? tembusanList.map(t => `${t.position_text} ${t.organization_text}`)
             : [],
           perihal: perihal,
@@ -3704,9 +3905,36 @@ export class SuratDinasEksternalService {
           { final_pdf: finalPdfPath },
         );
 
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: nomorSurat })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
+
         console.log(`[SDE Forward] PDF generated: ${finalPdfPath}`);
       } catch (error) {
         console.error('[SDE Forward] Failed to generate PDF:', error);
+      }
+
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
+      const sirkulasiPenerima = await queryRunner.manager.findOne(NaskahSirkulasi, {
+        where: {
+          idNaskah: dto.id_naskah_referensi,
+          position: String(dto.pengirim),
+          sirkuler: 'penerima',
+        },
+      });
+      if (sirkulasiPenerima) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerima.id },
+          { tindakLanjut: 1 },
+        );
       }
 
       // Commit transaction
@@ -3744,7 +3972,7 @@ export class SuratDinasEksternalService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('[SDE Forward] Error:', error);
-      
+
       throw new HttpException(
         {
           statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR,

@@ -35,6 +35,7 @@ const JENIS_SURAT_LABELS: Record<string, string> = {
   SDE: 'Surat Dinas Eksternal',
   DI: 'Disposisi',
   KA: 'Kajian',
+  K: 'Konsep',
 };
 
 @Injectable()
@@ -105,9 +106,9 @@ export class DashboardService {
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
@@ -117,10 +118,10 @@ export class DashboardService {
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.send_read_time IS NULL')
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.is_konsep = :isKonsep', { isKonsep: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
@@ -157,7 +158,7 @@ export class DashboardService {
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('n.jenis = :jenis', { jenis: 'DI' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
       .getCount();
@@ -167,7 +168,7 @@ export class DashboardService {
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('n.jenis = :jenis', { jenis: 'DI' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
       .andWhere('ns.send_read_time IS NULL')
@@ -179,7 +180,7 @@ export class DashboardService {
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .innerJoin('di', 'd', 'n.id = d.id_naskah')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('n.jenis = :jenis', { jenis: 'DI' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
       .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
@@ -190,7 +191,7 @@ export class DashboardService {
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('n.jenis = :jenis', { jenis: 'DI' })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
       .andWhere('ns.send_read_time IS NOT NULL')
@@ -268,24 +269,28 @@ export class DashboardService {
     });
 
     // Perlu Tindak Lanjut: surat masuk yang belum ditandai tindak lanjut
+    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
     const perluTindakLanjut = await this.naskahSirkulasiRepo
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
     // Surat Sudah Ditindaklanjuti: surat masuk yang sudah ditandai tindak lanjut
+    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
     const suratSudahDitinjut = await this.naskahSirkulasiRepo
       .createQueryBuilder('ns')
       .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
       .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
       .getCount();
 
@@ -325,7 +330,7 @@ export class DashboardService {
         'ns.id_naskah as id',
         'n.jenis as jenis',
         'n.perihal as perihal',
-        'n.tanggal as tanggal',
+        'COALESCE(pengirim.created_at, ns.created_at) as tanggal',
         'ns.send_read_time as send_read_time',
         'ns.flag_favorit as flag_favorit',
         'ns.flag_note as flag_note',
@@ -342,9 +347,12 @@ export class DashboardService {
       )
       .leftJoin('di', 'di', 'n.id = di.id_naskah')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .orderBy('n.tanggal', 'DESC')
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .orderBy('COALESCE(pengirim.created_at, ns.created_at)', 'DESC')
+      .addOrderBy('ns.id', 'DESC')
       .limit(10)
       .getRawMany();
 
@@ -419,7 +427,7 @@ export class DashboardService {
     // ==========================================
 
     const statistikJenisSurat: StatistikJenisSuratDto[] = [];
-    const jenisArr = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
+    const jenisArr = ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'];
 
     for (const jenis of jenisArr) {
       // Jumlah masuk per jenis
@@ -427,7 +435,7 @@ export class DashboardService {
         .createQueryBuilder('ns')
         .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
         .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
         .andWhere('n.jenis = :jenis', { jenis })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
         .getCount();
@@ -471,7 +479,7 @@ export class DashboardService {
         .createQueryBuilder('ns')
         .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
         .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'penerima' })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
         .andWhere('n.tanggal >= :start', { start: startOfMonth })
         .andWhere('n.tanggal <= :end', { end: endOfMonth })

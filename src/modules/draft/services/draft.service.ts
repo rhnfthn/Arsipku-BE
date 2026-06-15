@@ -14,12 +14,16 @@ import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_re
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
   GetDraftDetailResponseDto,
   DraftDetailDataDto,
   DraftDetailPenerimaDto,
+  DraftDetailGrupPenerimaDto,
   DraftDetailLampiranDto,
   DraftDetailReferensiDto,
   DraftDetailPetunjukDto,
@@ -35,7 +39,8 @@ const JENIS_TEXT_MAP: Record<string, string> = {
   DI: 'Disposisi',
   SDI: 'Surat Dinas Internal',
   SDE: 'Surat Dinas Eksternal',
-  KA: 'Korespondensi Aktif',
+  KA: 'Kajian',
+  K: 'Konsep',
 };
 
 // Mapping petunjuk disposisi kode ke label
@@ -57,6 +62,11 @@ const PETUNJUK_LABEL_MAP: Record<string, string> = {
   lainnya: 'Lainnya',
 };
 
+interface OrgPositionLite {
+  position: number;
+  persnum_person_text?: string | null;
+}
+
 @Injectable()
 export class DraftService {
   constructor(
@@ -77,7 +87,97 @@ export class DraftService {
     private readonly naskahLabelRepository: Repository<NaskahLabelEntity>,
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly grupPenerimaService: GrupPenerimaService,
+    private readonly orgDataService: OrgDataService,
   ) {}
+
+  /**
+   * Helper: Convert preset/custom date range to start & end date strings
+   * @param startDate - Custom start date (YYYY-MM-DD)
+   * @param endDate - Custom end date (YYYY-MM-DD)
+   * @param preset - Preset: 7_hari, 30_hari, 60_hari, 1_tahun, semua
+   * @param days - Legacy days parameter (deprecated)
+   * @returns { startDate: string | null, endDate: string | null }
+   */
+  private getDateRangeFromQuery(
+    startDate?: string,
+    endDate?: string,
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    days?: number,
+  ): { startDate: string | null; endDate: string | null } {
+    // Jika preset 'semua', return null (tanpa filter tanggal)
+    if (preset === 'semua') {
+      return { startDate: null, endDate: null };
+    }
+
+    // Jika ada custom date range, gunakan itu
+    if (startDate || endDate) {
+      return {
+        startDate: startDate || null,
+        endDate: endDate || null,
+      };
+    }
+
+    // Jika ada preset, hitung range dari hari ini
+    if (preset) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      let daysBack: number;
+      switch (preset) {
+        case '7_hari':
+          daysBack = 7;
+          break;
+        case '30_hari':
+          daysBack = 30;
+          break;
+        case '60_hari':
+          daysBack = 60;
+          break;
+        case '1_tahun':
+          daysBack = 365;
+          break;
+        default:
+          return { startDate: null, endDate: null };
+      }
+
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - daysBack);
+      const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+      return {
+        startDate: startDateStr,
+        endDate: todayStr,
+      };
+    }
+
+    // Legacy: jika ada days parameter (backward compatibility)
+    if (days && days > 0) {
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const startDateCalc = new Date(today);
+      startDateCalc.setDate(startDateCalc.getDate() - days);
+      const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+      return {
+        startDate: startDateStr,
+        endDate: todayStr,
+      };
+    }
+
+    // Default: 30 hari terakhir
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const startDateCalc = new Date(today);
+    startDateCalc.setDate(startDateCalc.getDate() - 30);
+    const startDateStr = startDateCalc.toISOString().split('T')[0];
+
+    return {
+      startDate: startDateStr,
+      endDate: todayStr,
+    };
+  }
 
   // ============================================================
   // GET /draft/list
@@ -88,43 +188,184 @@ export class DraftService {
    */
   async getDraftList(
     positionId: number,
-    jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA',
+    jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K',
+    favorite?: boolean,
+    lock?: boolean,
+    note?: boolean,
+    arsip?: boolean,
+    priority?: boolean,
     search?: string,
-    days: number = 30,
+    days?: number, // DEPRECATED: use startDate/endDate/preset instead
+    startDate?: string, // Format: YYYY-MM-DD
+    endDate?: string, // Format: YYYY-MM-DD
+    preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua',
+    sort: 'terbaru' | 'terlama' = 'terbaru',
     page: number = 1,
     limit: number = 10,
   ): Promise<GetDraftListResponseDto> {
-    // Calculate date filter
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - days);
+    // Calculate date range
+    const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
 
-    // Build query
-    const queryBuilder = this.naskahRepository
+    // Step 2: Build base query for naskah
+    const baseQueryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
-      .innerJoin(
-        'naskah_sirkulasi',
-        'sirkulasi',
-        'sirkulasi.id_naskah = naskah.id AND sirkulasi.sirkuler = :sirkuler AND sirkulasi.position = :position',
-        { sirkuler: 'pengirim', position: String(positionId) },
-      )
-      .where('naskah.status = :status', { status: 'draf' })
-      .andWhere('naskah.tanggal >= :dateFrom', { dateFrom });
+      .where('1 = 1')
+      .andWhere('naskah.status = :status', { status: 'draf' });
 
-    // Filter by jenis if provided
-    if (jenis) {
-      queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
+    // Ownership rule:
+    // - Primary: creator ownership via naskah.created_by_position
+    // - Fallback legacy: if created_by_position is NULL, use pengirim sirkulasi position
+    baseQueryBuilder.andWhere(
+      `(
+        naskah.created_by_position = :position
+        OR (
+          naskah.created_by_position IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_owner
+            WHERE ns_owner.id_naskah = naskah.id
+              AND ns_owner.sirkuler = 'pengirim'
+              AND ns_owner.position = :position
+          )
+        )
+      )`,
+      { position: String(positionId) },
+    );
+
+    if (favorite === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_fav
+          WHERE ns_fav.id_naskah = naskah.id
+            AND ns_fav.sirkuler = 'pengirim'
+            AND ns_fav.position = :position
+            AND ns_fav.flag_favorit = 1
+        )`,
+      );
+    }
+
+    if (lock === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_lock
+          WHERE ns_lock.id_naskah = naskah.id
+            AND ns_lock.sirkuler = 'pengirim'
+            AND ns_lock.position = :position
+            AND ns_lock.is_locked = 1
+        )`,
+      );
+    }
+
+    if (note === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_note
+          WHERE ns_note.id_naskah = naskah.id
+            AND ns_note.sirkuler = 'pengirim'
+            AND ns_note.position = :position
+            AND ns_note.flag_note = 1
+        )`,
+      );
+    }
+
+    if (arsip === true) {
+      baseQueryBuilder.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_sirkulasi ns_arsip_true
+          WHERE ns_arsip_true.id_naskah = naskah.id
+            AND ns_arsip_true.sirkuler = 'pengirim'
+            AND ns_arsip_true.position = :position
+            AND ns_arsip_true.flag_arsip = 1
+        )`,
+      );
+    } else {
+      // Default: show non-archived items for the user.
+      // If user has no sender-row (owner-based flow), keep it visible.
+      baseQueryBuilder.andWhere(
+        `(
+          NOT EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_arsip_any
+            WHERE ns_arsip_any.id_naskah = naskah.id
+              AND ns_arsip_any.sirkuler = 'pengirim'
+              AND ns_arsip_any.position = :position
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM naskah_sirkulasi ns_arsip_false
+            WHERE ns_arsip_false.id_naskah = naskah.id
+              AND ns_arsip_false.sirkuler = 'pengirim'
+              AND ns_arsip_false.position = :position
+              AND ns_arsip_false.flag_arsip = 0
+          )
+        )`,
+      );
+    }
+
+    // Apply date range filter
+    if (dateRange.startDate) {
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
+    }
+    if (dateRange.endDate) {
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
+    }
+
+    if (priority === true) {
+      baseQueryBuilder.andWhere(`naskah.jenis = 'DI'`);
+      baseQueryBuilder.andWhere(
+        `EXISTS (SELECT 1 FROM di WHERE di.id_naskah = naskah.id AND di.is_priority = 1)`,
+      );
     }
 
     // Search by perihal or nomor
     if (search) {
-      queryBuilder.andWhere(
+      baseQueryBuilder.andWhere(
         '(naskah.perihal LIKE :search OR naskah.nomor LIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    // Order by tanggal desc
-    queryBuilder.orderBy('naskah.tanggal', 'DESC');
+    // Summary follows all non-jenis filters so total_per_jenis stays informative
+    const summaryRaw = await baseQueryBuilder
+      .clone()
+      .select('COUNT(*)', 'total_semua')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'ND' THEN 1 ELSE 0 END)`, 'total_nd')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDI' THEN 1 ELSE 0 END)`, 'total_sdi')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDE' THEN 1 ELSE 0 END)`, 'total_sde')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'DI' THEN 1 ELSE 0 END)`, 'total_di')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'KA' THEN 1 ELSE 0 END)`, 'total_ka')
+      .addSelect(`SUM(CASE WHEN naskah.jenis = 'K' THEN 1 ELSE 0 END)`, 'total_k')
+      .getRawOne();
+
+    const summary = {
+      total_semua: parseInt(summaryRaw?.total_semua || '0', 10),
+      total_per_jenis: {
+        ND: parseInt(summaryRaw?.total_nd || '0', 10),
+        SDI: parseInt(summaryRaw?.total_sdi || '0', 10),
+        SDE: parseInt(summaryRaw?.total_sde || '0', 10),
+        DI: parseInt(summaryRaw?.total_di || '0', 10),
+        KA: parseInt(summaryRaw?.total_ka || '0', 10),
+        K: parseInt(summaryRaw?.total_k || '0', 10),
+      },
+    };
+
+    // List/pagination can still be narrowed by jenis
+    const queryBuilder = baseQueryBuilder.clone();
+    if (jenis) {
+      queryBuilder.andWhere('naskah.jenis = :jenis', { jenis });
+    }
+
+    const sortDirection = sort === 'terlama' ? 'ASC' : 'DESC';
+    // Samakan logic sort dengan inbox: gunakan timestamp pengirim naskah_sirkulasi.
+    const draftDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = naskah.id AND p.sirkuler = 'pengirim' AND p.position = :sortPosition LIMIT 1), naskah.tanggal)`;
+    queryBuilder
+      .setParameter('sortPosition', String(positionId))
+      .orderBy(draftDisplayCreatedAtExpr, sortDirection as 'ASC' | 'DESC')
+      .addOrderBy('naskah.id', sortDirection as 'ASC' | 'DESC');
 
     // Get total count for pagination
     const total = await queryBuilder.getCount();
@@ -141,36 +382,47 @@ export class DraftService {
     const naskahIds = naskahs.map(n => n.id);
     const labelsMap = new Map<string, string[]>();
 
-    // Get labels for all naskah
+    // Get labels for all naskah using repository approach
     if (naskahIds.length > 0) {
-      const labelsQuery = `
-        SELECT 
-          nl.naskah_id,
-          l.nama,
-          parent.nama as parent_nama
-        FROM naskah_label nl
-        INNER JOIN label l ON nl.label_id = l.id
-        LEFT JOIN label parent ON l.id_parent = parent.id AND parent.is_active = 1
-        WHERE nl.naskah_id IN (${naskahIds.map(() => '?').join(',')})
-        AND l.is_active = 1
-        ORDER BY l.urutan ASC, l.nama ASC
-      `;
-      const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
-      
-      // Group labels by naskah_id
-      labelsRows.forEach((row: any) => {
-        if (!labelsMap.has(row.naskah_id)) {
-          labelsMap.set(row.naskah_id, []);
+      try {
+        const naskahLabels = await this.naskahLabelRepository.find({
+          where: {
+            naskahId: In(naskahIds),
+          },
+          relations: ['label', 'label.parent'],
+        });
+
+        // Group labels by naskah_id
+        for (const nl of naskahLabels) {
+          if (!nl.label || !nl.label.isActive) continue;
+
+          if (!labelsMap.has(nl.naskahId)) {
+            labelsMap.set(nl.naskahId, []);
+          }
+
+          const labelName = nl.label.parent?.nama && nl.label.parent.isActive
+            ? `${nl.label.parent.nama} > ${nl.label.nama}`
+            : nl.label.nama;
+          
+          labelsMap.get(nl.naskahId)?.push(labelName);
         }
-        const labelName = row.parent_nama 
-          ? `${row.parent_nama} > ${row.nama}` 
-          : row.nama;
-        labelsMap.get(row.naskah_id)?.push(labelName);
-      });
+      } catch (error) {
+        // Log error but continue without labels
+        console.error('Error fetching labels for draft list:', error);
+      }
     }
 
     // Build response items
     const items: DraftListItemDto[] = [];
+
+    const orgDate = dateRange.endDate || new Date().toISOString().split('T')[0];
+    const orgData = await this.orgDataService.findOrg(orgDate);
+    const orgPositionMap = new Map<number, string | null>();
+    if (orgData?.position_json) {
+      for (const pos of orgData.position_json as OrgPositionLite[]) {
+        orgPositionMap.set(Number(pos.position), pos.persnum_person_text || null);
+      }
+    }
 
     for (const naskah of naskahs) {
       // Get pengirim for timestamp (created_at)
@@ -275,10 +527,26 @@ export class DraftService {
       // Format waktu in UTC (HH:mm)
       const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
 
+      // Draft konsep (ND/SDI/SDE) saat masih draf disimpan dengan nomor '-' oleh modul Konsep.
+      const isDraftKonsep = ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
+      const konseptorPositionId = naskah.createdByPosition
+        ? Number(naskah.createdByPosition)
+        : null;
+      const namaKonseptor =
+        konseptorPositionId !== null
+          ? orgPositionMap.get(konseptorPositionId) || null
+          : null;
+
       items.push({
         id_naskah: naskah.id,
+        id_sirkulasi: pengirimSirkulasi?.id || null,
         jenis: naskah.jenis,
         jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
+        penanda_konsep: isDraftKonsep,
+        konseptor_position_id: konseptorPositionId,
+        nama_konseptor: namaKonseptor,
+        asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
+        is_draft_konsep: isDraftKonsep,
         penerima: penerima,
         penerima_count: penerima.length,
         isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
@@ -297,6 +565,7 @@ export class DraftService {
         limit,
         totalPages,
       },
+      summary,
     };
   }
 
@@ -360,8 +629,20 @@ export class DraftService {
       organization_text: p.organizationText || '',
     }));
 
+    // Get grouped recipient metadata (for prefill tulis surat seperti ND)
+    const penerimaGrupIds = Array.from(
+      new Set(
+        penerimaList
+          .filter((p) => p.idGrupPenerima)
+          .map((p) => p.idGrupPenerima as string),
+      ),
+    );
+    const penerima_grup: DraftDetailGrupPenerimaDto[] =
+      await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+
     // Get tembusan (for ND)
     let tembusan: DraftDetailPenerimaDto[] | undefined;
+    let tembusan_grup: DraftDetailGrupPenerimaDto[] | undefined;
     if (naskah.jenis === 'ND') {
       const tembusanList = await this.naskahSirkulasiRepository.find({
         where: {
@@ -377,6 +658,17 @@ export class DraftService {
           nama: t.namaSirkuler || '',
           organization_text: t.organizationText || '',
         }));
+
+        const tembusanGrupIds = Array.from(
+          new Set(
+            tembusanList
+              .filter((t) => t.idGrupPenerima)
+              .map((t) => t.idGrupPenerima as string),
+          ),
+        );
+        tembusan_grup = await this.grupPenerimaService.getGrupInfoForResponse(
+          tembusanGrupIds,
+        );
       }
     }
 
@@ -444,7 +736,9 @@ export class DraftService {
         organization_text: pengirimSirkulasi.organizationText || '',
       },
       penerima,
+      penerima_grup,
       tembusan,
+      tembusan_grup,
       referensi,
       petunjuk_disposisi,
       lampiran,
@@ -595,6 +889,9 @@ export class DraftService {
 
     await this.naskahRepository.save(naskah);
 
+    // Sync to Meilisearch (non-blocking)
+    this.meilisearchSyncService.syncNaskah(idNaskah).catch(() => { });
+
     return {
       success: true,
       message: 'Naskah berhasil ditandatangani (TTE)',
@@ -689,6 +986,9 @@ export class DraftService {
           // Commit
           await queryRunner.commitTransaction();
           totalDeleted++;
+
+          // Remove from Meilisearch (non-blocking)
+          this.meilisearchSyncService.deleteNaskah(naskahId).catch(() => { });
         } catch (error) {
           await queryRunner.rollbackTransaction();
           failedIds.push(naskahId);

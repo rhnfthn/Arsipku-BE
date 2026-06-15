@@ -1,5 +1,5 @@
 import { IsNotEmpty, IsOptional, IsString, IsNumber, IsEnum, IsArray, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { LampiranDto } from './create-konsep.dto';
 
 /**
@@ -91,6 +91,36 @@ export class ForwardKonsepDto {
   @IsArray()
   @IsNumber({}, { each: true })
   tembusan_position_ids?: number[]; // Tembusan surat
+
+  // ============ GRUP PENERIMA ============
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); }
+      catch { return [value]; }
+    }
+    return value;
+  })
+  penerima_grup?: string[]; // Array of grup_penerima UUIDs for penerima
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); }
+      catch { return [value]; }
+    }
+    return value;
+  })
+  tembusan_grup?: string[]; // Array of grup_penerima UUIDs for tembusan
 
   // ============ CATATAN ============
 

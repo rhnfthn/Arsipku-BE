@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, DataSource, In } from 'typeorm';
@@ -22,7 +23,7 @@ import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import { DisposisiRecipientResponseDto } from '../dto/disposisi-recipient-response.dto';
-import { CreateDisposisiDto } from '../dto/create-disposisi.dto';
+import { CreateDisposisiDto, SignOption } from '../dto/create-disposisi.dto';
 import {
   SendDisposisiResponseDto,
   DisposisiSirkulasiInfoDto,
@@ -54,6 +55,11 @@ import { StorageService } from '../../storage/services/storage.service';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
+import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { NotificationService } from '../../notification/services';
+import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { QRCodeService } from '../../digsig/services/qrcode.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -141,7 +147,90 @@ export class DisposisiService {
     private readonly generatePdfDispoService: GeneratePdfDispoService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
-  ) {}
+    private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly notificationService: NotificationService,
+    private readonly qrCodeService: QRCodeService,
+    private readonly digsigService: DigsigService,
+  ) { }
+
+  private async validateDigsigPassphrase(params: {
+    persnum: number;
+    passphrase: string;
+    naskahId: string;
+    nomorDokumen: string;
+    tanggalDokumen: string;
+    klasifikasi: string;
+    perihal: string;
+    userName?: string;
+  }): Promise<void> {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.addPage([300, 200]);
+    const pdfBytes = await pdfDoc.save();
+    const dummyBuffer = Buffer.from(pdfBytes);
+
+    const tempFileName = `validate-digsig-${params.naskahId}-${Date.now()}.pdf`;
+    const tempUpload = await this.storageService.uploadBuffer(
+      dummyBuffer,
+      tempFileName,
+      'application/pdf',
+      'disposisi/temp',
+    );
+
+    try {
+      const userData = await this.digsigService.getUserDataForBsre(String(params.persnum));
+
+      await this.digsigService.hitDigsigEndpoint(
+        {
+          key: tempUpload.key,
+          filename: tempFileName,
+          nomorDokumen: params.nomorDokumen,
+          tanggalDokumen: params.tanggalDokumen,
+          klasifikasi: params.klasifikasi,
+          jenisNaskah: 'Disposisi Internal',
+          perihal: params.perihal,
+          nik: userData.nik,
+          passphrase: params.passphrase,
+          path_dokumen: 'disposisi/digsig/',
+          no_wa: userData.no_wa,
+        },
+        {
+          userPersnum: params.persnum,
+          userName: params.userName,
+          idNaskah: params.naskahId,
+          jenisNaskah: 'DI',
+        },
+      );
+    } catch (error) {
+      let message = 'Unknown error';
+
+      if (error instanceof HttpException) {
+        const response = error.getResponse() as any;
+        if (typeof response === 'string') {
+          message = response;
+        } else if (Array.isArray(response?.message)) {
+          message = response.message.join(', ');
+        } else if (response?.message) {
+          message = String(response.message);
+        } else {
+          message = error.message;
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      } else if (typeof error === 'string') {
+        message = error;
+      }
+
+      throw new BadRequestException(
+        `Gagal proses PDF/signing: ${message || 'Unknown error'}`,
+      );
+    } finally {
+      try {
+        await this.storageService.deleteFile(tempUpload.key);
+      } catch {
+        // Ignore cleanup error for temporary validation file.
+      }
+    }
+  }
 
   // ============================================================
   // HELPER METHODS FOR POSITION CONVERSION
@@ -166,7 +255,7 @@ export class DisposisiService {
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
     const orgData = await this.orgDataService.findOrg(tgl);
-    
+
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
       return positionIds.map(id => String(id)); // Fallback to IDs as strings
@@ -178,7 +267,7 @@ export class DisposisiService {
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
       const position = barisData.find(p => p.position === numericId);
-      
+
       if (position) {
         // Return position_text with organization_text
         const fullName = `${position.position_text} - ${position.organization_text}`;
@@ -235,6 +324,8 @@ export class DisposisiService {
     perihal: string,
     tanggal: Date,
     queryRunner: any,
+    finalPdfKey?: string,
+    finalPdfFileName?: string,
   ): Promise<string> {
     const jenis = 'DI';
     const tahun = tanggal.getFullYear();
@@ -267,6 +358,7 @@ export class DisposisiService {
       jumlah: 1,
       penandatangan: pengirim.persnum_person_text || null,
       idPositionPenandatangan: pengirim.position || null,
+      isNaskahGenerated: true,
     });
 
     await queryRunner.manager.save(nomorRequest);
@@ -318,8 +410,8 @@ export class DisposisiService {
       id: detailId,
       idRequest: requestId,
       nomor: nomorBaru,
-      fileName: null,
-      fileText: null,
+      fileName: finalPdfFileName || null,
+      fileText: finalPdfKey || null,
       status: 'terpakai_final',
     });
 
@@ -369,7 +461,7 @@ export class DisposisiService {
    * @param pengirim - Nama pengirim
    * @param tembusan - Array tembusan
    * @param lampiranTempIds - ID lampiran temporary untuk di-merge
-   * @param options - Additional options (refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
+   * @param options - Additional options (nomorAgenda, refNomor, refPerihal, refTanggal, refPengirim, tanggalDisposisi, isFinal, catatan)
    */
   async generatePdfFromHtml(
     htmlContent: string,
@@ -380,6 +472,7 @@ export class DisposisiService {
     tembusan: string[] = [],
     lampiranTempIds?: string[],
     options?: {
+      nomorAgenda?: string;
       refNomor?: string;
       refPerihal?: string;
       refTanggal?: string;
@@ -387,17 +480,16 @@ export class DisposisiService {
       tanggalDisposisi?: string;
       isFinal?: boolean;
       catatan?: string;
+      qrCodeHtml?: string;
     },
   ): Promise<Buffer> {
     try {
-      const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
-      
       // Format tanggal default jika tidak disediakan
-      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       });
 
       // Auto-check "Lainnya" if catatan is filled
@@ -406,20 +498,29 @@ export class DisposisiService {
         finalDisposisi.push('Lainnya');
       }
 
+      // Generate preview QR code jika qrCodeHtml tidak disediakan dan bukan final
+      let qrCodeHtml = options?.qrCodeHtml || '';
+      if (!qrCodeHtml && !options?.isFinal) {
+        qrCodeHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+      }
+
       let pdfBuffer = await this.generatePdfDispoService.generatePdf({
-        html: htmlBase64,
+        // Kirim plain HTML langsung agar tidak ada overhead encode/decode base64
+        htmlContent,
         penerima: penerima,
         disposisi: finalDisposisi,
         sifat: sifat || 'Biasa',
         pengirim: pengirim,
         tembusan: tembusan,
         perihal: options?.refPerihal || '',
+        nomorAgenda: options?.nomorAgenda || '',
         refNomor: options?.refNomor || '',
         refPerihal: options?.refPerihal || '',
         refTanggal: options?.refTanggal || '',
         refPengirim: options?.refPengirim || '',
         tanggal: tanggal,
         catatan: options?.catatan || '',
+        qrCodeHtml: qrCodeHtml,
       });
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
@@ -435,7 +536,13 @@ export class DisposisiService {
 
       return pdfBuffer;
     } catch (error) {
-      throw new BadRequestException(`Gagal generate PDF: ${error.message}`);
+      const detail =
+        error instanceof Error
+          ? `${error.name}: ${error.message || 'Unknown error'}`
+          : typeof error === 'string'
+          ? error
+          : JSON.stringify(error);
+      throw new BadRequestException(`Gagal generate PDF: ${detail}`);
     }
   }
 
@@ -465,7 +572,7 @@ export class DisposisiService {
         filePath: string;
         tempFolderId: string | null;
       }> = [];
-      
+
       for (const lampiran of tempLampiran) {
         files.push({
           id: lampiran.id,
@@ -774,12 +881,12 @@ export class DisposisiService {
     const bod1: OrgDataPosition[] =
       current.bod_tag === 'BOD'
         ? allData.filter(
-            (x) =>
-              x.sub_area === current.sub_area &&
-              x.chief === 1 &&
-              x.direktorat_id !== current.direktorat_id &&
-              x.bod_tag === 'BOD-1',
-          )
+          (x) =>
+            x.sub_area === current.sub_area &&
+            x.chief === 1 &&
+            x.direktorat_id !== current.direktorat_id &&
+            x.bod_tag === 'BOD-1',
+        )
         : [];
 
     /* 3️⃣ MERGE + DEDUP */
@@ -866,11 +973,11 @@ export class DisposisiService {
       const gm =
         current.bod_tag === 'BOD'
           ? barisData.filter(
-              (x) =>
-                x.chief === 1 &&
-                x.area !== current.area &&
-                x.bod_tag === 'BOD-1',
-            )
+            (x) =>
+              x.chief === 1 &&
+              x.area !== current.area &&
+              x.bod_tag === 'BOD-1',
+          )
           : [];
       return [...children, ...gm];
     }
@@ -987,7 +1094,7 @@ export class DisposisiService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-          `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
+        `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
       );
     }
   }
@@ -1158,12 +1265,17 @@ export class DisposisiService {
    */
   async sendMessage(
     dto: CreateDisposisiDto,
+    persnum?: number,
   ): Promise<SendDisposisiResponseDto> {
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      const isPending = dto.sign_option === SignOption.TTD_BASAH;
+
       // Get cached position data
       const barisData = await this.getPositionData();
 
@@ -1228,6 +1340,26 @@ export class DisposisiService {
         queryRunner
       );
 
+      if (dto.sign_option === SignOption.DIGSIG) {
+        if (!persnum) {
+          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        }
+        if (!dto.passphrase || !dto.passphrase.trim()) {
+          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        }
+
+        await this.validateDigsigPassphrase({
+          persnum,
+          passphrase: dto.passphrase,
+          naskahId,
+          nomorDokumen: generatedNomor,
+          tanggalDokumen: dto.tanggal_disposisi,
+          klasifikasi: dto.sifat || 'Biasa',
+          perihal: dto.perihal || '',
+          userName: pengirimData.persnum_person_text || undefined,
+        });
+      }
+
       // Insert ke tabel NASKAH
       // nomor: auto-generated dengan integrasi
       const naskah = this.naskahRepository.create({
@@ -1239,7 +1371,7 @@ export class DisposisiService {
         tanggal: tanggalDisposisi,
         perihal: dto.perihal, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
-        status: 'final',
+        status: isPending ? 'pending' : 'final',
         lampiran: dto.lampiran?.length
           ? `${dto.lampiran.length} file`
           : undefined,
@@ -1314,7 +1446,7 @@ export class DisposisiService {
           ? String(pengirimData.persnum_person)
           : '',
         namaSirkuler: pengirimData.persnum_person_text || '',
-        isDraft: false, // sendMessage = bukan draft
+        isDraft: isPending, // ttd_basah stays pending/tertunda
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1341,10 +1473,43 @@ export class DisposisiService {
             ? String(penerima.persnum_person)
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
-          isDraft: false, // sendMessage = bukan draft
+          isDraft: isPending, // ttd_basah stays pending/tertunda
           urutan: i, // urutan sesuai input form
         });
         await queryRunner.manager.save(penerimaSirkulasi);
+
+        if (isPending) {
+          penerimaResponses.push(this.toSirkulasiInfo(penerima));
+          continue;
+        }
+
+        // Send notification to penerima (for final disposisi, not draft)
+        console.log('='.repeat(60));
+        console.log('[Disposisi] 🔔 TRIGGERING NOTIFICATION for penerima');
+        console.log('[Disposisi] positionId:', String(penerima.position));
+        console.log('[Disposisi] userPersnum:', penerima.persnum_person);
+        console.log('[Disposisi] naskahId:', naskahId);
+        console.log('[Disposisi] sirkulasiId:', penerimaSirkulasi.id);
+        console.log('[Disposisi] perihal:', naskah.perihal || dto.perihal);
+        console.log('='.repeat(60));
+        
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'DI',
+          nomor: naskah.nomor || undefined,
+          perihal: naskah.perihal || dto.perihal,
+          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+          pengirimPosition: pengirimData.position_text,
+          isTembusan: false,
+        }).then(result => {
+          console.log('[Disposisi] ✅ Notification SUCCESS for penerima. ID:', result?.id);
+        }).catch(err => {
+          console.error('[Disposisi] ❌ Failed to send notification to penerima:', err.message);
+          console.error('[Disposisi] ❌ Stack:', err.stack);
+        });
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
@@ -1443,36 +1608,41 @@ export class DisposisiService {
             disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
           }
         }
-        
+
         // Auto-check "Lainnya" if catatan is filled
         if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
           disposisiArray.push('Lainnya');
         }
         console.log('[DI sendMessage] disposisiArray:', disposisiArray);
 
-        // Get reference data from naskah sebelumnya (if exists)
-        let refNomor = '';
-        let refPerihal = '';
-        let refTanggal = '';
-        let refPengirim = '';
-        
-        if (dto.id_naskah_sebelumnya) {
-          const naskahRef = await this.naskahRepository.findOne({
-            where: { id: dto.id_naskah_sebelumnya },
-          });
-          if (naskahRef) {
-            refNomor = naskahRef.nomor || '';
-            refPerihal = naskahRef.perihal || '';
-            refPengirim = ''; // Can be filled from sirkulasi pengirim if needed
-            if (naskahRef.tanggal) {
-              const refDate = new Date(naskahRef.tanggal);
-              refTanggal = refDate.toLocaleDateString('id-ID', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              });
-            }
-          }
+        // Data referensi untuk kotak tengah PDF:
+        // - Surat dari: pengirim surat saat ini (jabatan)
+        // - Tanggal: tanggal disposisi saat ini
+        // - Nomor: dari input form (dto.ref_nomor_surat)
+        // - Perihal: dari input form (dto.perihal)
+        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }); // Tanggal disposisi saat ini
+        const refNomor = dto.ref_nomor_surat || ''; // Dari input form
+        const refPerihal = dto.perihal; // Dari input form
+
+        // Generate QR Code untuk sign_option qr_only atau digsig
+        let qrCodeHtml = '';
+        if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+          const signedAt = tanggalDisposisi.toISOString();
+          const qrData = {
+            signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+            document_number: generatedNomor,
+            signed_at: signedAt,
+            signer_name: pengirimData.persnum_person_text || '',
+            signer_jabatan: pengirimData.position_text,
+            document_type: 'Disposisi Internal',
+          };
+          const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+          qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
         }
 
         // Generate PDF with all data
@@ -1484,6 +1654,7 @@ export class DisposisiService {
           pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
           tembusan: [],
           perihal: dto.perihal,
+          nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
           refNomor: refNomor,
           refPerihal: refPerihal,
           refTanggal: refTanggal,
@@ -1494,6 +1665,7 @@ export class DisposisiService {
             day: 'numeric',
           }),
           catatan: dto.catatan || '',
+          qrCodeHtml: qrCodeHtml,
         });
 
         // Merge with lampiran if any
@@ -1524,6 +1696,18 @@ export class DisposisiService {
           { final_pdf: finalPdfPath },
         );
 
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: generatedNomor })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
+
         console.log('[DI sendMessage] PDF auto-generated:', finalPdfPath);
       } catch (error) {
         console.error('[DI sendMessage] Failed to auto-generate PDF:', error);
@@ -1533,16 +1717,21 @@ export class DisposisiService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Sync to Meilisearch (non-blocking, after successful commit)
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+
       // Build response
       return {
         success: true,
-        message: 'Disposisi berhasil dikirim',
+        message: isPending
+          ? 'Disposisi berhasil dikirim ke tertunda'
+          : 'Disposisi berhasil dikirim',
         data: {
           id: naskahId,
           jenis: 'DI',
           nomor: generatedNomor, // Nomor dari integrasi
           tanggal: dto.tanggal_disposisi,
-          status: 'final',
+          status: isPending ? 'pending' : 'final',
           sifat: dto.sifat,
           perihal: dto.perihal,
           pengirim: this.toSirkulasiInfo(pengirimData),
@@ -1576,6 +1765,8 @@ export class DisposisiService {
    * @returns Promise<SendDisposisiResponseDto>
    */
   async saveDraft(dto: CreateDisposisiDto): Promise<SendDisposisiResponseDto> {
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -2080,6 +2271,7 @@ export class DisposisiService {
   async updateDraft(
     naskahId: string,
     dto: UpdateDraftDisposisiDto,
+    persnum?: number,
   ): Promise<UpdateDraftDisposisiResponseDto> {
     // PHASE 1: Validasi naskah exists dan status draft
     const naskah = await this.naskahRepository.findOne({
@@ -2103,6 +2295,8 @@ export class DisposisiService {
         `Naskah ini bukan disposisi (jenis: ${naskah.jenis}). API ini hanya untuk update disposisi.`,
       );
     }
+
+    assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
 
     // PHASE 2: Validasi pengirim adalah owner naskah
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
@@ -2134,8 +2328,9 @@ export class DisposisiService {
       (item) => String(item.position) === String(dto.pengirim_position_id),
     );
 
-    // Determine if this is a draft or final
-    const isDraft = dto.action !== 'kirim';
+    // Determine final state: draft, pending (ttd_basah), or final
+    const isPending = dto.action === 'kirim' && dto.sign_option === SignOption.TTD_BASAH;
+    const isDraft = dto.action !== 'kirim' || isPending;
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2178,7 +2373,34 @@ export class DisposisiService {
         // Untuk draft, gunakan nomor yang diberikan (jika ada)
         naskah.nomor = dto.ref_nomor_surat;
       }
-      naskah.status = isDraft ? 'draf' : 'final';
+      naskah.status = dto.action !== 'kirim' ? 'draf' : isPending ? 'pending' : 'final';
+
+      if (dto.action === 'kirim' && dto.sign_option === SignOption.DIGSIG) {
+        if (!persnum) {
+          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        }
+        if (!dto.passphrase || !dto.passphrase.trim()) {
+          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        }
+
+        const nomorToValidate = naskah.nomor || dto.ref_nomor_surat || `DI-${Date.now()}`;
+        const tanggalToValidate = naskah.tanggal
+          ? (naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal).split('T')[0])
+          : new Date().toISOString().split('T')[0];
+
+        await this.validateDigsigPassphrase({
+          persnum,
+          passphrase: dto.passphrase,
+          naskahId,
+          nomorDokumen: nomorToValidate,
+          tanggalDokumen: tanggalToValidate,
+          klasifikasi: naskah.sifat || dto.sifat || 'Biasa',
+          perihal: naskah.perihal || dto.perihal || '',
+          userName: pengirimData?.persnum_person_text || undefined,
+        });
+      }
 
       await queryRunner.manager.save(naskah);
 
@@ -2263,6 +2485,36 @@ export class DisposisiService {
             urutan: i, // urutan sesuai input form
           });
           await queryRunner.manager.save(penerimaSirkulasi);
+
+          // Send notification to penerima (only when sending/finalizing, not draft)
+          if (!isDraft && pengirimData) {
+            this.notificationService.createNaskahMasukNotification({
+              positionId: String(penerima.position),
+              userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+              naskahId,
+              sirkulasiId: penerimaSirkulasi.id,
+              jenis: 'DI',
+              nomor: naskah.nomor || undefined,
+              perihal: naskah.perihal || dto.perihal || '',
+              pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+              pengirimPosition: pengirimData.position_text,
+              isTembusan: false,
+            }).catch(err => console.error('[Disposisi:UpdateDraft] Failed to send notification to penerima:', err));
+          }
+        }
+
+        // Update kepadaYth di tabel "di" dengan penerima baru
+        const kepadaYthList = penerimaDataList.map(
+          (p) => `${p.position_text} ${p.organization_text}`,
+        );
+        const kepadaYth = kepadaYthList.join('; ');
+
+        const existingDiForPenerima = await this.diRepository.findOne({
+          where: { idNaskah: naskahId },
+        });
+        if (existingDiForPenerima) {
+          existingDiForPenerima.kepadaYth = kepadaYth;
+          await queryRunner.manager.save(existingDiForPenerima);
         }
       }
 
@@ -2317,10 +2569,10 @@ export class DisposisiService {
         // Update temporary lampiran: set id_naskah and is_temporary = 0
         await queryRunner.manager.update(
           NaskahLampiranEntity,
-          { 
+          {
             id: In(dto.lampiran_temp_ids),
           },
-          { 
+          {
             id_naskah: naskahId,
             is_temporary: 0,
           },
@@ -2374,6 +2626,37 @@ export class DisposisiService {
           await queryRunner.manager.save(existingDi);
         } else {
           // Insert data baru
+          // Build kepadaYth dari sirkulasi penerima yang sudah ada atau dari dto
+          let kepadaYthNew = '';
+          if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+            // Build dari dto penerima_position_ids yang sudah divalidasi di PHASE 5
+            const penerimaDataForDi: PositionData[] = [];
+            for (const penerimaId of dto.penerima_position_ids) {
+              const penerimaData = this.findByPosition(barisData, penerimaId);
+              if (penerimaData) {
+                penerimaDataForDi.push(penerimaData);
+              }
+            }
+            if (penerimaDataForDi.length > 0) {
+              const kepadaYthListNew = penerimaDataForDi.map(
+                (p) => `${p.position_text} ${p.organization_text}`,
+              );
+              kepadaYthNew = kepadaYthListNew.join('; ');
+            }
+          } else {
+            // Fallback: ambil dari sirkulasi penerima yang sudah ada
+            const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+              where: { idNaskah: naskahId, sirkuler: 'penerima' },
+              order: { urutan: 'ASC' },
+            });
+            if (existingPenerima.length > 0) {
+              const kepadaYthListExisting = existingPenerima.map(
+                (p) => `${p.positionText} ${p.organizationText}`,
+              );
+              kepadaYthNew = kepadaYthListExisting.join('; ');
+            }
+          }
+
           const diEntity = this.diRepository.create({
             idNaskah: naskahId,
             kopLogo: dto.kop_logo || '',
@@ -2390,12 +2673,138 @@ export class DisposisiService {
             nomor: dto.ref_nomor_surat || '',
             perihal: dto.perihal || '',
             klasifikasi: dto.klasifikasi || '',
-            kepadaYth: '', // Will be filled from penerima
+            kepadaYth: kepadaYthNew,
             disposisi: dto.disposisi || '',
             catatan: dto.catatan || '',
             paraf: dto.paraf || '',
           });
           await queryRunner.manager.save(diEntity);
+        }
+      }
+
+      // PHASE 8: Auto-generate PDF when draft is sent (action='kirim')
+      if (dto.action === 'kirim') {
+        try {
+          const currentPengirim = await queryRunner.manager.findOne(NaskahSirkulasi, {
+            where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+          });
+
+          const currentPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
+            where: { idNaskah: naskahId, sirkuler: 'penerima' },
+            order: { urutan: 'ASC', createdAt: 'ASC' },
+          });
+
+          const currentDi = await queryRunner.manager.findOne(DiEntity, {
+            where: { idNaskah: naskahId },
+          });
+
+          const currentLampiran = await queryRunner.manager.find(NaskahLampiranEntity, {
+            where: { id_naskah: naskahId },
+          });
+
+          const kepadaYthList = currentPenerima.map((p) => `${p.positionText} ${p.organizationText}`.trim());
+
+          // Parse disposisi text ke array checklist PDF
+          let disposisiArray: string[] = [];
+          const disposisiRaw = currentDi?.disposisi ?? naskah.konten ?? '';
+          if (Array.isArray(disposisiRaw)) {
+            disposisiArray = disposisiRaw;
+          } else if (typeof disposisiRaw === 'string') {
+            disposisiArray = disposisiRaw.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+          }
+
+          const catatanText = currentDi?.catatan || '';
+          if (catatanText.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+            disposisiArray.push('Lainnya');
+          }
+
+          const tanggalNaskah = naskah.tanggal instanceof Date
+            ? naskah.tanggal
+            : naskah.tanggal
+              ? new Date(naskah.tanggal)
+              : new Date();
+
+          const nomorDokumen = naskah.nomor || dto.ref_nomor_surat || `DI-${naskahId}`;
+          const refPengirim = currentPengirim?.positionText || pengirimData?.position_text || '';
+          const refPerihal = naskah.perihal || dto.perihal || '';
+          const refTanggal = tanggalNaskah.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          let qrCodeHtml = '';
+          if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+            const qrData = {
+              signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+              document_number: nomorDokumen,
+              signed_at: tanggalNaskah.toISOString(),
+              signer_name: currentPengirim?.namaSirkuler || pengirimData?.persnum_person_text || '',
+              signer_jabatan: currentPengirim?.positionText || pengirimData?.position_text || '',
+              document_type: 'Disposisi Internal',
+            };
+            const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+            qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
+          }
+
+          let pdfBuffer = await this.generatePdfDispoService.generatePdf({
+            html: '',
+            penerima: kepadaYthList,
+            disposisi: disposisiArray,
+            sifat: naskah.sifat || dto.sifat || 'Biasa',
+            pengirim: refPengirim,
+            tembusan: [],
+            perihal: refPerihal,
+            nomorAgenda: nomorDokumen,
+            refNomor: nomorDokumen,
+            refPerihal: refPerihal,
+            refTanggal: refTanggal,
+            refPengirim: refPengirim,
+            tanggal: refTanggal,
+            catatan: catatanText,
+            qrCodeHtml,
+          });
+
+          // Merge dengan lampiran yang sudah tersimpan di draft
+          const lampiranIds = currentLampiran.map((l) => l.id);
+          if (lampiranIds.length > 0) {
+            const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranIds);
+            if (lampiranFiles.length > 0) {
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            }
+          }
+
+          const timestamp = Date.now();
+          const safeNomor = nomorDokumen.replace(/\//g, '-');
+          const pdfFileName = `DI-${safeNomor}-${timestamp}.pdf`;
+
+          const uploadResult = await this.storageService.uploadBuffer(
+            pdfBuffer,
+            pdfFileName,
+            'application/pdf',
+            'disposisi/final',
+          );
+
+          await queryRunner.manager.update(
+            NaskahEntity,
+            { id: naskahId },
+            { final_pdf: uploadResult.key },
+          );
+
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update('nomor_request_detail')
+            .set({
+              fileName: pdfFileName,
+              fileText: uploadResult.key,
+            })
+            .where('nomor = :nomor', { nomor: nomorDokumen })
+            .andWhere('status = :status', { status: 'terpakai_final' })
+            .execute();
+
+          console.log('[DI updateDraft] PDF auto-generated:', uploadResult.key);
+        } catch (error) {
+          console.error('[DI updateDraft] Failed to auto-generate PDF:', error);
         }
       }
 
@@ -2485,15 +2894,21 @@ export class DisposisiService {
 
     return {
       success: true,
-      message: isDraft
+      message: dto.action !== 'kirim'
         ? 'Draft disposisi berhasil diupdate'
-        : 'Disposisi berhasil diupdate dan dikirim',
+        : isPending
+          ? 'Disposisi berhasil diupdate dan masuk tertunda'
+          : 'Disposisi berhasil diupdate dan dikirim',
       data: {
         id: naskahId,
         jenis: 'DI',
         nomor: updatedNaskah?.nomor || null,
         tanggal: tanggalStr,
-        status: isDraft ? ('draf' as const) : ('final' as const),
+        status: dto.action !== 'kirim'
+          ? ('draf' as const)
+          : isPending
+            ? ('pending' as const)
+            : ('final' as const),
         sifat: updatedNaskah?.sifat || '',
         perihal: updatedNaskah?.perihal || '',
         pengirim: sirkulasiToResponse(pengirimDataResult),
@@ -2527,6 +2942,7 @@ export class DisposisiService {
   async sendDraft(
     naskahId: string,
     dto: SendDraftDisposisiDto,
+    persnum?: number,
   ): Promise<SendDraftDisposisiResponseDto> {
     // Konversi ke UpdateDraftDisposisiDto dengan action = 'kirim'
     const updateDto: UpdateDraftDisposisiDto = {
@@ -2549,31 +2965,36 @@ export class DisposisiService {
       surat_dari: dto.surat_dari,
       klasifikasi: dto.klasifikasi,
       paraf: dto.paraf,
+      sign_option: dto.sign_option,
+      passphrase: dto.passphrase,
     };
 
     // Panggil updateDraft dengan naskahId dan action = 'kirim'
-    const result = await this.updateDraft(naskahId, updateDto);
+    const result = await this.updateDraft(naskahId, updateDto, persnum);
 
     // Return dengan format SendDraftDisposisiResponseDto (same as updateDraft but with final status)
     return {
       success: result.success,
-      message: 'Draft disposisi berhasil dikirim',
+      message:
+        result.data?.status === 'pending'
+          ? 'Draft disposisi berhasil dikirim ke tertunda'
+          : 'Draft disposisi berhasil dikirim',
       data: result.data
         ? {
-            id: result.data.id,
-            jenis: result.data.jenis,
-            nomor: result.data.nomor || '',
-            tanggal: result.data.tanggal,
-            status: 'final' as const,
-            sifat: result.data.sifat,
-            perihal: result.data.perihal,
-            pengirim: result.data.pengirim,
-            penerima: result.data.penerima,
-            disposisi: result.data.disposisi,
-            catatan: result.data.catatan,
-            lampiran: result.data.lampiran,
-            id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
-          }
+          id: result.data.id,
+          jenis: result.data.jenis,
+          nomor: result.data.nomor || '',
+          tanggal: result.data.tanggal,
+          status: result.data.status === 'pending' ? ('pending' as const) : ('final' as const),
+          sifat: result.data.sifat,
+          perihal: result.data.perihal,
+          pengirim: result.data.pengirim,
+          penerima: result.data.penerima,
+          disposisi: result.data.disposisi,
+          catatan: result.data.catatan,
+          lampiran: result.data.lampiran,
+          id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
+        }
         : undefined,
     };
   }
@@ -2632,7 +3053,7 @@ export class DisposisiService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim_position_id} bukan penerima dari naskah ${dto.id_naskah_diterima}. ` +
-            `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
+          `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
         );
       }
 
@@ -2794,6 +3215,20 @@ export class DisposisiService {
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
+        // Send notification to penerima (for forwarded disposisi)
+        this.notificationService.createNaskahMasukNotification({
+          positionId: String(penerima.position),
+          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
+          naskahId,
+          sirkulasiId: penerimaSirkulasi.id,
+          jenis: 'DI',
+          nomor: generatedNomor,
+          perihal: perihal,
+          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+          pengirimPosition: pengirimData.position_text,
+          isTembusan: false,
+        }).catch(err => console.error('[Disposisi:Forward] Failed to send notification to penerima:', err));
+
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
 
@@ -2814,7 +3249,7 @@ export class DisposisiService {
 
         if (previousLampiran.length > 0) {
           console.log(`[DI forward] Copying ${previousLampiran.length} lampiran from previous naskah`);
-          
+
           // Copy lampiran dengan ID baru tapi file_pdf sama (reference ke file yang sama)
           for (const prevLamp of previousLampiran) {
             const newLampiranId = uuidv4();
@@ -2840,7 +3275,7 @@ export class DisposisiService {
       // Option 2: Handle temporary lampiran TAMBAHAN (bisa dikombinasi dengan copy)
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
         console.log(`[DI forward] Adding ${dto.lampiran_temp_ids.length} new lampiran from temporary`);
-        
+
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -2850,7 +3285,7 @@ export class DisposisiService {
 
         // Fetch moved lampiran untuk response
         const movedLampiran = await this.naskahLampiranRepository.find({
-          where: { 
+          where: {
             id_naskah: naskahId,
             id: In(dto.lampiran_temp_ids),
           },
@@ -2864,7 +3299,7 @@ export class DisposisiService {
           });
         }
       }
-      
+
       // Option 3: Legacy direct lampiran upload (deprecated)
       else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
@@ -2926,38 +3361,26 @@ export class DisposisiService {
             disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
           }
         }
-        
+
         // Auto-check "Lainnya" if catatan is filled
         if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
           disposisiArray.push('Lainnya');
         }
         console.log('[DI forward] disposisiArray:', disposisiArray);
 
-        // Get reference data from naskah sebelumnya (naskah yang diterima)
-        let refNomor = naskahDiterima.nomor || '';
-        let refPerihal = naskahDiterima.perihal || '';
-        let refTanggal = '';
-        let refPengirim = '';
-        
-        if (naskahDiterima.tanggal) {
-          const refDate = new Date(naskahDiterima.tanggal);
-          refTanggal = refDate.toLocaleDateString('id-ID', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-        }
-
-        // Get pengirim asli dari naskah sebelumnya
-        const pengirimAsli = await this.naskahSirkulasiRepository.findOne({
-          where: {
-            idNaskah: dto.id_naskah_diterima,
-            sirkuler: 'pengirim',
-          },
-        });
-        if (pengirimAsli) {
-          refPengirim = `${pengirimAsli.positionText} ${pengirimAsli.organizationText}`;
-        }
+        // Data referensi untuk kotak tengah PDF:
+        // - Surat dari: pengirim surat saat ini (jabatan)
+        // - Tanggal: tanggal disposisi saat ini
+        // - Nomor: dari input form (dto.ref_nomor_surat)
+        // - Perihal: dari input form (perihal)
+        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }); // Tanggal disposisi saat ini
+        const refNomor = dto.ref_nomor_surat || ''; // Dari input form
+        const refPerihal = perihal; // Dari input form (sudah diset sebelumnya)
 
         // Generate PDF with all data
         let pdfBuffer = await this.generatePdfDispoService.generatePdf({
@@ -2968,6 +3391,7 @@ export class DisposisiService {
           pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
           tembusan: [],
           perihal: perihal,
+          nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
           refNomor: refNomor,
           refPerihal: refPerihal,
           refTanggal: refTanggal,
@@ -3010,10 +3434,30 @@ export class DisposisiService {
           { final_pdf: finalPdfPath },
         );
 
+        // Update nomor_request_detail dengan file PDF yang sudah di-generate
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update('nomor_request_detail')
+          .set({
+            fileName: pdfFileName,
+            fileText: finalPdfPath,
+          })
+          .where('nomor = :nomor', { nomor: generatedNomor })
+          .andWhere('status = :status', { status: 'terpakai_final' })
+          .execute();
+
         console.log('[DI forward] PDF auto-generated:', finalPdfPath);
       } catch (error) {
         console.error('[DI forward] Failed to auto-generate PDF:', error);
         // Don't fail the whole transaction if PDF generation fails
+      }
+
+      // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
+      if (sirkulasiPenerima) {
+        await queryRunner.manager.update(NaskahSirkulasi,
+          { id: sirkulasiPenerima.id },
+          { tindakLanjut: 1 },
+        );
       }
 
       // Commit transaction
@@ -3061,7 +3505,7 @@ export class DisposisiService {
    * Mengembalikan flow lengkap disposisi dari awal sampai akhir
    * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
    */
-  async getDisposisiDetail(naskahId: string): Promise<any> {
+  async getDisposisiDetail(naskahId: string, userPosition: string): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -3077,15 +3521,17 @@ export class DisposisiService {
       throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
     }
 
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
     // ============================================================
     // BUILD FULL CHAIN / RANGKAIAN
     // ============================================================
-    
+
     // STEP 1: Trace backward to find root
     let rootNaskahId = naskahId;
     let currentId = naskahId;
     const visitedIds = new Set<string>([currentId]);
-    
+
     while (true) {
       const referensi = await this.naskahReferensiRepository.findOne({
         where: { id_naskah: currentId },
@@ -3097,7 +3543,7 @@ export class DisposisiService {
       }
 
       const parentNaskah = await this.naskahRepository.findOne({
-        where: { 
+        where: {
           nomor: referensi.ref_nomor,
           jenis: 'DI',
         },
@@ -3115,7 +3561,7 @@ export class DisposisiService {
     // STEP 2: Build flow from root forward
     const flow: any[] = [];
     const naskahIdToLevel = new Map<string, number>();
-    
+
     // Helper function to build node data for flow
     const buildFlowNode = async (
       naskahData: NaskahEntity,
@@ -3156,14 +3602,14 @@ export class DisposisiService {
       // Format tanggal
       const tanggalStr = naskahData.tanggal
         ? (naskahData.tanggal instanceof Date
-            ? naskahData.tanggal.toISOString().split('T')[0]
-            : String(naskahData.tanggal).split('T')[0])
+          ? naskahData.tanggal.toISOString().split('T')[0]
+          : String(naskahData.tanggal).split('T')[0])
         : null;
 
       const tanggalAgendaStr = diData?.tanggalAgenda
         ? (diData.tanggalAgenda instanceof Date
-            ? diData.tanggalAgenda.toISOString().split('T')[0]
-            : String(diData.tanggalAgenda).split('T')[0])
+          ? diData.tanggalAgenda.toISOString().split('T')[0]
+          : String(diData.tanggalAgenda).split('T')[0])
         : null;
 
       // Get final PDF URL
@@ -3174,11 +3620,11 @@ export class DisposisiService {
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-            position_id: pengirimSirkulasi.position || '',
-            position_text: pengirimSirkulasi.positionText || '',
-            organization_text: pengirimSirkulasi.organizationText || '',
-            nama: pengirimSirkulasi.namaSirkuler || null,
-          }
+          position_id: pengirimSirkulasi.position || '',
+          position_text: pengirimSirkulasi.positionText || '',
+          organization_text: pengirimSirkulasi.organizationText || '',
+          nama: pengirimSirkulasi.namaSirkuler || null,
+        }
         : null;
 
       // Build penerima list with read status
@@ -3211,7 +3657,7 @@ export class DisposisiService {
         perihal: naskahData.perihal,
         sifat: naskahData.sifat,
         status: naskahData.status,
-        
+
         // DI specific fields
         kop_logo: diData?.kopLogo || null,
         kop_judul: diData?.kopJudul || null,
@@ -3221,25 +3667,29 @@ export class DisposisiService {
         surat_dari: diData?.suratDari || null,
         kepada_yth: diData?.kepadaYth || null,
         klasifikasi: diData?.klasifikasi || naskahData.klasifikasi || null,
-        
+
         // Disposisi content
         disposisi: diData?.disposisi || null,
         catatan: diData?.catatan || null,
         paraf: diData?.paraf || null,
         is_priority: diData?.isPriority ? true : false,
-        
+
         // Sirkulasi
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
-        
+
         // Lampiran
         lampiran: naskahData.lampiran || null,
         jumlah_lampiran: lampiranCount,
         lampiran_files: lampiranInfo,
-        
+
         // PDF
         final_pdf: naskahData.final_pdf || null,
         final_pdf_url: finalPdfUrl,
+        
+        // Metadata
+        created_at: pengirimSirkulasi?.createdAt || null,
+        updated_at: pengirimSirkulasi?.updatedAt || null,
         
         // Level in chain
         level: level,
@@ -3309,7 +3759,7 @@ export class DisposisiService {
    * @param naskahId - ID Naskah Disposisi
    * @returns Respons dengan status update
    */
-  async unsetPriority(naskahId: string): Promise<any> {
+  async unsetPriority(naskahId: string, userPosition: string): Promise<any> {
     try {
       // Check if naskah exists dan merupakan DI
       const naskah = await this.naskahRepository.findOne({
@@ -3319,6 +3769,8 @@ export class DisposisiService {
       if (!naskah) {
         throw new NotFoundException('Disposisi tidak ditemukan');
       }
+
+      await this.assertUserHasAccessToNaskah(naskahId, userPosition);
 
       // Find DI record
       const di = await this.diRepository.findOne({
@@ -3348,5 +3800,23 @@ export class DisposisiService {
       throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-}
 
+  private async assertUserHasAccessToNaskah(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<void> {
+    const access = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!access) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
+  }
+}

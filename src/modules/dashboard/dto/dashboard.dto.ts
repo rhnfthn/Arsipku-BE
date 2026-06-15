@@ -35,7 +35,7 @@ export class DashboardSummaryDto {
 
 // Statistik per jenis surat
 export class StatistikJenisSuratDto {
-  jenis: string; // ND, SDI, SDE, DI, KA
+  jenis: string; // ND, SDI, SDE, DI, KA, K
   jenis_label: string; // Nota Dinas, Surat Dinas Internal, etc
   jumlah_masuk: number;
   jumlah_keluar: number;
@@ -45,7 +45,7 @@ export class StatistikJenisSuratDto {
 export class SuratMasukTerbaruItemDto {
   id: string;
   id_sirkulasi: string; // ID dari naskah_sirkulasi untuk toggle flag
-  jenis: string; // ND, SDI, SDE, DI, KA
+  jenis: string; // ND, SDI, SDE, DI, KA, K
   pengirim_nama: string | null;
   pengirim_organization: string | null;
   perihal: string | null;

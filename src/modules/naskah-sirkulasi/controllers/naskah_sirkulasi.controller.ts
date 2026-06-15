@@ -10,7 +10,9 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { NaskahSirkulasiService } from '../services/naskah_sirkulasi.service';
 import { CreateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/create_naskah_sirkulasi.dto';
 import { UpdateNaskahSirkulasiDto } from '../dto/naskah_sirkulasi/update_naskah_sirkulasi.dto';
@@ -27,6 +29,10 @@ import {
   SentMessageResponseDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
 import {
+  TertundaQueryDto,
+  TertundaResponseDto,
+} from '../dto/naskah_sirkulasi/tertunda.dto';
+import {
   ToggleFlagDto,
   ToggleFlagResponseDto,
   BulkArchiveSentDto,
@@ -35,6 +41,8 @@ import {
 import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
 import { InboxSentResponseDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../../common/decorators';
 
 @Controller('naskah_sirkulasi')
 export class NaskahSirkulasiController {
@@ -68,59 +76,101 @@ export class NaskahSirkulasiController {
   // ============================================================
 
   /**
-   * GET /naskah_sirkulasi/inbox/:position_id
+   * GET /naskah_sirkulasi/inbox
    *
-   * Mengambil kotak masuk untuk position tertentu
+   * Mengambil kotak masuk untuk position tertentu (dari JWT token)
    * Join dengan tabel naskah untuk mendapatkan jenis, perihal, dll
    *
-   * @param positionId - Position ID penerima
-   * @param query - Filter options (jenis, status_baca)
+   * @param user - User dari JWT token (contains position)
+   * @param query - Filter options (jenis, status_baca, favorite, tinjut, lock, note, arsip)
    * @returns InboxResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/inbox/123?jenis=DI&status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/inbox?jenis=DI&status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/inbox?favorite=true
+   * GET /naskah_sirkulasi/inbox?tinjut=sudah_tinjut&lock=true
    */
-  @Get('inbox/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox')
   async getInbox(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query() query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.getInbox(positionId, query);
   }
 
   /**
-   * GET /naskah_sirkulasi/inbox-count/:position_id
+   * GET /naskah_sirkulasi/inbox-count
    *
-   * Menampilkan jumlah kotak masuk yang belum dibaca
+   * Menampilkan jumlah kotak masuk yang belum dibaca (dari JWT token)
    *
-   * @param positionId - Position ID penerima
+   * @param user - User dari JWT token (contains position)
    * @returns CountUnreadInboxResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/inbox-count/123
+   * GET /naskah_sirkulasi/inbox-count
    */
-  @Get('inbox-count/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox-count')
   async countUnreadInbox(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
   ): Promise<CountUnreadInboxResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.countUnreadInbox(positionId);
   }
 
   /**
-   * GET /naskah_sirkulasi/inbox-sent/:position_id
+   * GET /naskah_sirkulasi/inbox-sent
    *
-   * Mengambil kotak masuk dan kotak keluar sekaligus
+   * Mengambil kotak masuk dan kotak keluar sekaligus (dari JWT token)
    *
-   * @param positionId - Position ID
+   * @param user - User dari JWT token (contains position)
    * @param query - Filter options
    * @returns InboxSentResponseDto
    */
-  @Get('inbox-sent/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox-sent')
   async getInboxAndSent(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query() query: InboxSentQueryDto,
   ): Promise<InboxSentResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.getInboxAndSent(positionId, query);
+  }
+
+  // ============================================================
+  // TERTUNDA - Surat Tertunda / Pending TTD Basah
+  // ============================================================
+
+  /**
+   * GET /naskah_sirkulasi/tertunda
+   *
+   * Mengambil daftar surat tertunda (pending TTD basah) untuk position pengirim (dari JWT token)
+   * Naskah dengan status 'pending' yang belum dikirim ke penerima
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('tertunda')
+  async getTertunda(
+    @CurrentUser() user: any,
+    @Query() query: TertundaQueryDto,
+  ): Promise<TertundaResponseDto> {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getTertunda(positionId, query);
+  }
+
+  /**
+   * GET /naskah_sirkulasi/tertunda-count
+   *
+   * Menampilkan jumlah surat tertunda (dari JWT token)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('tertunda-count')
+  async countTertunda(
+    @CurrentUser() user: any,
+  ): Promise<{ total: number }> {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.countTertunda(positionId);
   }
 
   // ============================================================
@@ -128,25 +178,27 @@ export class NaskahSirkulasiController {
   // ============================================================
 
   /**
-   * GET /naskah_sirkulasi/sent/:position_id
+   * GET /naskah_sirkulasi/sent
    *
-   * Mengambil kotak keluar (pesan terkirim) untuk position tertentu
+   * Mengambil kotak keluar (pesan terkirim) untuk position tertentu (dari JWT token)
    * Termasuk status baca per penerima
    *
-   * @param positionId - Position ID pengirim
+   * @param user - User dari JWT token (contains position)
    * @param query - Filter options (jenis, status_baca)
    * @returns SentMessageResponseDto
    *
    * @example
-   * GET /naskah_sirkulasi/sent/123
-   * GET /naskah_sirkulasi/sent/123?jenis=DI
-   * GET /naskah_sirkulasi/sent/123?status_baca=belum_terbaca
+   * GET /naskah_sirkulasi/sent
+   * GET /naskah_sirkulasi/sent?jenis=DI
+   * GET /naskah_sirkulasi/sent?status_baca=belum_terbaca
    */
-  @Get('sent/:position_id')
+  @UseGuards(JwtAuthGuard)
+  @Get('sent')
   async getSentMessage(
-    @Param('position_id') positionId: string,
+    @CurrentUser() user: any,
     @Query() query: SentMessageQueryDto,
   ): Promise<SentMessageResponseDto> {
+    const positionId = user.position;
     return this.naskahSirkulasiService.getSentMessage(positionId, query);
   }
 
@@ -157,22 +209,29 @@ export class NaskahSirkulasiController {
   /**
    * PATCH /naskah_sirkulasi/toggle-flag
    *
-   * Toggle flag (favorit, note, arsip) pada item surat
+   * Toggle atau hapus flag (favorit, note, arsip) pada item surat
    * Global untuk semua jenis naskah: ND, SDI, SDE, DI, KA
    *
-   * @param dto - ToggleFlagDto { id_sirkulasi, flag_type }
+   * @param dto - ToggleFlagDto { id_sirkulasi, flag_type, action? }
    * @returns ToggleFlagResponseDto
    *
    * @example
-   * PATCH /naskah_sirkulasi/toggle-flag
+   * Toggle: PATCH /naskah_sirkulasi/toggle-flag
    * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit" }
+   * 
+   * Delete: PATCH /naskah_sirkulasi/toggle-flag
+   * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit", "action": "delete" }
    */
   @Patch('toggle-flag')
   @HttpCode(HttpStatus.OK)
   async toggleFlag(
     @Body() dto: ToggleFlagDto,
   ): Promise<ToggleFlagResponseDto> {
-    return this.naskahSirkulasiService.toggleFlag(dto.id_sirkulasi, dto.flag_type);
+    return this.naskahSirkulasiService.toggleFlag(
+      dto.id_sirkulasi,
+      dto.flag_type,
+      dto.action,
+    );
   }
 
   // ============================================================
@@ -209,19 +268,28 @@ export class NaskahSirkulasiController {
     );
   }
 
+  // ============================================================
+  // CRUD OPERATIONS - MUST BE LAST!
+  // ============================================================
+  // IMPORTANT: The @Get(':id') route must be placed AFTER all named routes
+  // like 'inbox-sent', 'toggle-flag', etc. Otherwise, NestJS will match
+  // 'inbox-sent' as an :id parameter and call findOne() instead of the
+  // correct handler. This caused the 404 error on remote deployment.
+
   @Get()
   findAll(): Promise<NaskahSirkulasi[]> {
     return this.naskahSirkulasiService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
-    return this.naskahSirkulasiService.findOne(id);
-  }
-
   @Post()
   create(@Body() data: CreateNaskahSirkulasiDto) {
     return this.naskahSirkulasiService.create(data);
+  }
+
+  // IMPORTANT: This must be the LAST @Get() route in this controller!
+  @Get(':id')
+  findOne(@Param('id') id: string): Promise<NaskahSirkulasi> {
+    return this.naskahSirkulasiService.findOne(id);
   }
 
   @Put(':id')

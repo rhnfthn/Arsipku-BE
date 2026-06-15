@@ -4,6 +4,7 @@ import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
 import { CreateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/create_grup_penerima_detail.dto';
 import { UpdateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/update_grup_penerima_detail.dto';
+import { GetGrupPenerimaQueryDto } from '../dto/grup_penerima/grup-penerima-response.dto';
 
 @Controller('persuratan/grup-penerima')
 export class GrupPenerimaController {
@@ -14,14 +15,38 @@ export class GrupPenerimaController {
     return this.grupPenerimaService.create(createGrupPenerimaDto);
   }
 
+  /**
+   * GET /persuratan/grup-penerima
+   * Get all grup penerima with enriched position detail from org_data
+   * 
+   * @param company - Filter by company
+   * @param area - Filter by area
+   * @param tgl - Optional date for org_data lookup (format: YYYY-MM-DD, default: today)
+   * @param jenis - Optional filter by naskah type: 'ND' (Directors + EVP) or 'SDI' (GM)
+   * 
+   * @example
+   * GET /persuratan/grup-penerima?company=10000&area=A000
+   * GET /persuratan/grup-penerima?company=10000&area=A000&tgl=2026-02-05
+   * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=ND
+   * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=SDI
+   */
   @Get()
-  findAll(@Query('company') company?: string, @Query('area') area?: string) {
-    return this.grupPenerimaService.findAll(company, area);
+  findAll(
+    @Query('company') company?: string,
+    @Query('area') area?: string,
+    @Query('tgl') tgl?: string,
+    @Query('jenis') jenis?: string,
+  ) {
+    return this.grupPenerimaService.findAllWithPositionDetail(company, area, tgl, jenis);
   }
 
+  /**
+   * GET /persuratan/grup-penerima/:id
+   * Get single grup penerima with enriched position detail
+   */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.grupPenerimaService.findOne(id);
+  findOne(@Param('id') id: string, @Query('tgl') tgl?: string) {
+    return this.grupPenerimaService.findOneWithPositionDetail(id, tgl);
   }
 
   @Put(':id')
@@ -46,9 +71,23 @@ export class GrupPenerimaController {
     return this.grupPenerimaService.addMember(id, createDetailDto);
   }
 
+  /**
+   * GET /persuratan/grup-penerima/:id/members
+   * Get members with enriched position detail from org_data
+   */
   @Get(':id/members')
-  getMembers(@Param('id') id: string) {
-    return this.grupPenerimaService.getMembers(id);
+  getMembers(@Param('id') id: string, @Query('tgl') tgl?: string) {
+    return this.grupPenerimaService.getMembersWithPositionDetail(id, tgl);
+  }
+
+  /**
+   * GET /persuratan/grup-penerima/:id/expand
+   * Expand grup to individual positions (used for sending naskah)
+   * Returns array of OrgDataPositionDto for all positions in the grup
+   */
+  @Get(':id/expand')
+  expandGrup(@Param('id') id: string, @Query('tgl') tgl?: string) {
+    return this.grupPenerimaService.expandGrupToPositions(id, tgl);
   }
 
   @Put('members/:detailId')

@@ -171,10 +171,31 @@ export class OrgDataService {
 
       console.log(`[OrgDataService] Searching in ${orgJson.length} organization records`);
 
+      // Helper mapper: flatten shape user/atasan response
+      const mapPositionWithOrg = (org: any, position: any) => ({
+        persnum: position.person?.persnum ?? null,
+        nama: position.person?.persnum_text ?? null,
+        company: org.company,
+        companyText: org.company_name,
+        area: org.area,
+        areaText: org.area_text,
+        subArea: org.sub_area,
+        subAreaText: org.sub_area_text,
+        organization: org.id,
+        organizationText: org.name,
+        organizationAbbreviation: org.abbreviation,
+        position: position.position,
+        positionText: position.position_text,
+        positionAbbreviation: position.abbreviation,
+        abbreviation: position.abbreviation || '', // Use position abbreviation
+        isChief: position.chief === 1,
+        bodTag: position.bod_tag,
+      });
+
       // Recursive function to search user in nested structure
       const searchPersnum = parseInt(String(persnum));
       
-      const findUserInOrg = (orgs: any[]): any | null => {
+      const findUserInOrg = (orgs: any[], parentOrg: any | null = null): any | null => {
         for (const org of orgs) {
           // Check all positions in this organization
           if (org.positions && Array.isArray(org.positions)) {
@@ -183,25 +204,24 @@ export class OrgDataService {
                 const positionPersnum = parseInt(String(position.person.persnum));
                 
                 if (positionPersnum === searchPersnum) {
+                  const userData = mapPositionWithOrg(org, position);
+
+                  // Atasan langsung: position di organization parent (1 level di atas)
+                  let atasanLangsung: any = null;
+                  if (parentOrg?.positions && Array.isArray(parentOrg.positions)) {
+                    const parentChief = parentOrg.positions.find(
+                      (p: any) => p?.person?.persnum && p?.chief === 1,
+                    );
+
+                    if (parentChief) {
+                      atasanLangsung = mapPositionWithOrg(parentOrg, parentChief);
+                    }
+                  }
+
                   // Found! Return combined data
                   return {
-                    persnum: position.person.persnum,
-                    nama: position.person.persnum_text,
-                    company: org.company,
-                    companyText: org.company_name,
-                    area: org.area,
-                    areaText: org.area_text,
-                    subArea: org.sub_area,
-                    subAreaText: org.sub_area_text,
-                    organization: org.id,
-                    organizationText: org.name,
-                    organizationAbbreviation: org.abbreviation,
-                    position: position.position,
-                    positionText: position.position_text,
-                    positionAbbreviation: position.abbreviation,
-                    abbreviation: position.abbreviation || '', // Use position abbreviation
-                    isChief: position.chief === 1,
-                    bodTag: position.bod_tag,
+                    ...userData,
+                    atasan_langsung: atasanLangsung,
                   };
                 }
               }
@@ -210,7 +230,7 @@ export class OrgDataService {
           
           // Recursively search in children
           if (org.children && Array.isArray(org.children)) {
-            const found = findUserInOrg(org.children);
+            const found = findUserInOrg(org.children, org);
             if (found) return found;
           }
         }
