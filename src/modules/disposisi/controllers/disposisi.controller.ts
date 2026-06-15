@@ -996,8 +996,14 @@ export class DisposisiController {
       const refNomor = dto.ref_nomor || body['ref.nomor'] || '';
       const refPerihal = dto.ref_perihal || body['ref.perihal'] || '';
 
+      const ensureArray = <T = any>(value: T[] | T | null | undefined): T[] => {
+        if (Array.isArray(value)) return value;
+        if (value === null || value === undefined || value === '') return [];
+        return [value as T];
+      };
+
       // Check if tertuju are position_ids and convert to names
-      let tertujuArray = dto.tertuju || [];
+      let tertujuArray = ensureArray(dto.tertuju);
       const isPositionId = (value: any): boolean => {
         return typeof value === 'number' || 
                (typeof value === 'string' && /^\d+$/.test(value));
@@ -1050,11 +1056,11 @@ export class DisposisiController {
       const pdfBuffer = await this.disposisiService.generatePdfFromHtml(
         htmlContent,
         tertujuArray,
-        dto.disposisi || [],
+        ensureArray(dto.disposisi),
         dto.sifat || 'Biasa',
         pengirimName,
-        dto.tembusan || [],
-        dto.lampiran_temp_ids || [],
+        ensureArray(dto.tembusan),
+        ensureArray(dto.lampiran_temp_ids),
         {
           refNomor,
           refPerihal,
@@ -1065,6 +1071,10 @@ export class DisposisiController {
         },
       );
 
+      if (!pdfBuffer || typeof (pdfBuffer as any).length !== 'number') {
+        throw new Error('PDF buffer tidak valid');
+      }
+
       res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="preview-disposisi.pdf"`,
@@ -1073,11 +1083,17 @@ export class DisposisiController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
+      const detail =
+        error instanceof Error
+          ? `${error.name}: ${error.message || 'Unknown error'}`
+          : typeof error === 'string'
+          ? error
+          : JSON.stringify(error);
       return res
         .status(HttpStatus.INTERNAL_SERVER_ERROR)
         .json({
           error: 'Failed to generate preview', 
-          detail: error instanceof Error ? error.message : String(error) 
+          detail,
         });
     }
   }

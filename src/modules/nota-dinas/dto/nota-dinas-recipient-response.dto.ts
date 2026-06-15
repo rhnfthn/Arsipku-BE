@@ -14,6 +14,10 @@ export class GetRecipientQueryDto {
   @IsOptional()
   @IsNumberString({}, { message: 'pengirim must be a valid number' })
   pengirim?: string;
+
+  @IsOptional()
+  @IsNumberString({}, { message: 'position must be a valid number' })
+  position?: string;
 }
 
 /**

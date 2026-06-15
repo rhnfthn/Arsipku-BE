@@ -7,9 +7,15 @@ import * as path from 'path';
 @Injectable()
 export class GeneratePdfService {
   async generatePdf(body: any): Promise<Buffer> {
-    return pdfQueue.add(() => this._generatePdfInternal(body), {
-      timeout: 30000,
+    const result = await pdfQueue.add(() => this._generatePdfInternal(body), {
+      timeout: 90000,
     });
+
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
   private async _generatePdfInternal(body: any): Promise<Buffer> {
@@ -263,11 +269,26 @@ export class GeneratePdfService {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(finalKonten, { waitUntil: 'networkidle0' });
+      page.setDefaultTimeout(60000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+          return request.continue();
+        }
+        return request.abort();
+      });
+
+      await page.setContent(finalKonten, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        timeout: 60000,
         margin: {
           top: '10mm',
           bottom: '15mm',

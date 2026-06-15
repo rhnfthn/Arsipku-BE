@@ -108,6 +108,7 @@ export class AuthService {
     user: JwtPayload;
   }> {
     const loginUrl = this.configService.get('AIRNAV_LOGIN_URL');
+    console.log(loginUrl);
 
     // ================================================================
     // 1. Login ke AirNav API dengan username & password
@@ -119,6 +120,7 @@ export class AuthService {
         {
           username,
           password,
+          redirect_uri: "http://localhost:3000/autharsipku",
         },
         {
           headers: {
@@ -129,6 +131,7 @@ export class AuthService {
       );
 
       const res = await firstValueFrom(req);
+      console.log(res.data);
       airnavResponse = res.data;
     } catch (err) {
       throw new UnauthorizedException({
@@ -142,21 +145,24 @@ export class AuthService {
     }
 
     // Check response structure
-    if (!airnavResponse || airnavResponse.responseStatus !== 200) {
+    console.log(airnavResponse.responStatus);
+    if (!airnavResponse || airnavResponse.responStatus !== 200) {
       throw new UnauthorizedException({
-        error: 'Invalid credentials',
-        message: airnavResponse?.message || 'Login failed',
+        error: 'Invalid credentialss',
+        message: airnavResponse?.message || 'Login faileds',
       });
     }
 
     // Extract data dari response AirNav
-    const { id, access_token, refresh_token, expired_token } = airnavResponse;
+    const { id, accessToken: access_token, refreshToken: refresh_token, expireToken: expired_token } = airnavResponse;
+    console.log(access_token);
     const persnum = Number(id);
 
     // ================================================================
     // 2. Check user di org_data
     // ================================================================
     const orgData = await this.orgDataService.findByPersnum(persnum);
+    console.log(orgData);
 
     if (!orgData) {
       throw new UnauthorizedException(
@@ -203,6 +209,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -361,6 +368,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -533,6 +541,7 @@ export class AuthService {
       positionText: orgData.positionText || '',
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
       
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -636,6 +645,7 @@ export class AuthService {
         positionText: orgData.positionText || '',
         bodTag: orgData.bodTag || '',
         abbreviation: orgData.abbreviation || '',
+        atasan_langsung: orgData.atasan_langsung || null,
       };
     }
 

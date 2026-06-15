@@ -2437,6 +2437,7 @@ export class KonsepService {
       SDE: 'Surat Dinas Eksternal',
       KA: 'Kajian',
       K: 'Konsep',
+      KN: 'Konsep Naskah',
     };
 
     try {
@@ -2755,6 +2756,7 @@ export class KonsepService {
 
         flow.push({
           id: naskahRef.id,
+          id_naskah_asli: naskahRef.id_naskah_asli,
           jenis: 'K',
           jenis_label: JENIS_LABELS['K'],
           jenis_naskah_konsep: naskahAsli?.jenis || null,
@@ -2800,6 +2802,70 @@ export class KonsepService {
 
           level: konsepLevel, // Selalu di atas disposisi chain
           created_at: riwayat.createdAt,
+          updated_at: null,
+        });
+      }
+
+      // Tambahkan node naskah asli (KN - Konsep Naskah) ke flow
+      if (naskahAsli) {
+        const finalPdfAsliUrl = naskahAsli.final_pdf
+          ? await this.storageService.getFileUrl(naskahAsli.final_pdf)
+          : null;
+
+        flow.push({
+          id: naskahAsli.id,
+          id_naskah_asli: naskahAsli.id,
+          jenis: 'KN',
+          jenis_label: JENIS_LABELS['KN'],
+          jenis_naskah_konsep: naskahAsli.jenis || null,
+          nomor: naskahAsli.nomor,
+          tanggal: naskahAsli.tanggal,
+          perihal: naskahAsli.perihal,
+          konten: naskahAsli.konten,
+          sifat: naskahAsli.sifat,
+          klasifikasi: naskahAsli.klasifikasi,
+          klasifikasi_text: naskahAsli.klasifikasi_text,
+          status: naskahAsli.status,
+          lampiran: naskahAsli.lampiran,
+
+          pengirim: pengirimAsli ? {
+            position_id: pengirimAsli.position || '',
+            position_text: pengirimAsli.positionText || '',
+            organization_text: pengirimAsli.organizationText || '',
+            nama: pengirimAsli.namaSirkuler || null,
+          } : null,
+
+          penerima: penerimaAsliList.map(p => ({
+            position_id: p.position || '',
+            position_text: p.positionText || '',
+            organization_text: p.organizationText || '',
+            nama: p.namaSirkuler || null,
+            status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+            read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+          })),
+          tembusan: tembusanAsliList.map(t => ({
+            position_id: t.position || '',
+            position_text: t.positionText || '',
+            organization_text: t.organizationText || '',
+            nama: t.namaSirkuler || null,
+          })),
+          penerima_grup: penerimaGrupInfo,
+          tembusan_grup: tembusanGrupInfo,
+
+          lampiran_files: lampiranAsliFiles,
+          jumlah_lampiran: lampiranAsliList.length,
+
+          final_pdf: naskahAsli.final_pdf || null,
+          final_pdf_url: finalPdfAsliUrl,
+          referensi: null,
+
+          detail: {
+            aksi: 'konsep_naskah',
+            catatan: null,
+          },
+
+          level: konsepLevel,
+          created_at: naskahAsli.tanggal || null,
           updated_at: null,
         });
       }
