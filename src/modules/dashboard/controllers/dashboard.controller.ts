@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { DashboardService } from '../services/dashboard.service';
+import { RealtimeSummaryService } from '../services/realtime-summary.service';
 import { DashboardResponseDto } from '../dto/dashboard.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
@@ -8,7 +9,10 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard)
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly realtimeSummaryService: RealtimeSummaryService,
+  ) {}
 
   /**
    * GET /dashboard
@@ -27,5 +31,17 @@ export class DashboardController {
   ): Promise<DashboardResponseDto> {
     const positionId = parseInt(user.position, 10);
     return this.dashboardService.getDashboardData(positionId, user.persnum);
+  }
+
+  /**
+   * GET /dashboard/realtime
+   *
+   * Endpoint agregat untuk polling sidebar (counter + label counts + bsre alert).
+   * In-memory cache 15 detik per user, dipakai untuk mengurangi beban DB
+   * saat banyak user online.
+   */
+  @Get('realtime')
+  async getRealtimeSummary(@CurrentUser() user: JwtPayload) {
+    return this.realtimeSummaryService.getSummary(user.position);
   }
 }
