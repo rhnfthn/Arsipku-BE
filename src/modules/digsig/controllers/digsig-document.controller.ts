@@ -16,6 +16,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { DigsigDocumentService } from '../services/digsig-document.service';
 import {
   CreateDigsigDocumentDto,
@@ -269,6 +270,8 @@ export class DigsigDocumentController {
    * Sign document
    */
   @Post(':id/sign')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async signDocument(
     @Param('id', ParseUUIDPipe) id: string,
