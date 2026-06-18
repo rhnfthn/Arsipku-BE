@@ -67,8 +67,31 @@ interface OrgPositionLite {
   persnum_person_text?: string | null;
 }
 
+interface DraftListCacheEntry {
+  data: GetDraftListResponseDto;
+  expires: number;
+}
+
+const DRAFT_LIST_CACHE_TTL_MS = 30_000; // 30 detik
+const DRAFT_LIST_MAX_CACHE = 2_000;
+
 @Injectable()
 export class DraftService {
+  // Cache list draft per kombinasi filter — TTL 30s
+  private readonly draftListCache = new Map<string, DraftListCacheEntry>();
+
+  /** Bust cache draft list (panggil saat ada perubahan draft yang harus reflect cepat) */
+  invalidateDraftListCache(positionId?: number) {
+    if (positionId !== undefined && positionId !== null) {
+      const prefix = `draft:${positionId}:`;
+      for (const key of this.draftListCache.keys()) {
+        if (key.startsWith(prefix)) this.draftListCache.delete(key);
+      }
+    } else {
+      this.draftListCache.clear();
+    }
+  }
+
   constructor(
     @InjectRepository(NaskahEntity)
     private readonly naskahRepository: Repository<NaskahEntity>,
@@ -203,6 +226,16 @@ export class DraftService {
     page: number = 1,
     limit: number = 10,
   ): Promise<GetDraftListResponseDto> {
+    // ==========================================
+    // CACHE CHECK (TTL 30s per filter combo)
+    // ==========================================
+    const cacheKey = `draft:${positionId}:${jenis ?? ''}:${favorite ?? ''}:${lock ?? ''}:${note ?? ''}:${arsip ?? ''}:${priority ?? ''}:${search ?? ''}:${days ?? ''}:${startDate ?? ''}:${endDate ?? ''}:${preset ?? ''}:${sort}:${page}:${limit}`;
+    const nowTs = Date.now();
+    const cached = this.draftListCache.get(cacheKey);
+    if (cached && cached.expires > nowTs) {
+      return cached.data;
+    }
+
     // Calculate date range
     const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
 
@@ -367,16 +400,12 @@ export class DraftService {
       .orderBy(draftDisplayCreatedAtExpr, sortDirection as 'ASC' | 'DESC')
       .addOrderBy('naskah.id', sortDirection as 'ASC' | 'DESC');
 
-    // Get total count for pagination
-    const total = await queryBuilder.getCount();
-    const totalPages = Math.ceil(total / limit);
+    // Get total count for pagination + execute query in one round-trip
     const offset = (page - 1) * limit;
-
-    // Apply pagination
     queryBuilder.skip(offset).take(limit);
 
-    // Execute query
-    const naskahs = await queryBuilder.getMany();
+    const [naskahs, total] = await queryBuilder.getManyAndCount();
+    const totalPages = Math.ceil(total / limit);
 
     // Get all naskah IDs untuk query labels
     const naskahIds = naskahs.map(n => n.id);
@@ -574,7 +603,7 @@ export class DraftService {
       }
     }
 
-    return {
+    const response: GetDraftListResponseDto = {
       success: true,
       data: items,
       pagination: {
@@ -585,6 +614,17 @@ export class DraftService {
       },
       summary,
     };
+
+    // Simpan ke cache (TTL 30s)
+    if (this.draftListCache.size >= DRAFT_LIST_MAX_CACHE) {
+      this.draftListCache.clear();
+    }
+    this.draftListCache.set(cacheKey, {
+      data: response,
+      expires: Date.now() + DRAFT_LIST_CACHE_TTL_MS,
+    });
+
+    return response;
   }
 
   // ============================================================
@@ -843,6 +883,9 @@ export class DraftService {
       // Commit
       await queryRunner.commitTransaction();
 
+      // Bust cache list draft user supaya item yang dihapus tidak muncul lagi
+      this.invalidateDraftListCache(positionId);
+
       return {
         success: true,
         message: 'Draft berhasil dihapus',
@@ -909,6 +952,9 @@ export class DraftService {
 
     // Sync to Meilisearch (non-blocking)
     this.meilisearchSyncService.syncNaskah(idNaskah).catch(() => { });
+
+    // Bust cache list draft user — naskah ini sudah pindah dari draf ke final_tte
+    this.invalidateDraftListCache(positionId);
 
     return {
       success: true,
@@ -1015,6 +1061,11 @@ export class DraftService {
         }
       } catch (error) {
         failedIds.push(naskahId);
+    // Bust cache list draft user — beberapa item sudah dihapus
+    if (totalDeleted > 0) {
+      this.invalidateDraftListCache(positionId);
+    }
+
       }
     }
 
