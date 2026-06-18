@@ -286,23 +286,21 @@ export class RekapNaskahService {
       }
     });
 
-    // Get org_data untuk extract jabatan
+    // Get org_data untuk extract jabatan (gunakan cache via findLatestOrg)
     let positionJsonData: any[] = [];
     try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+        positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
       console.log('Could not fetch position data from org_data');
+    }
+
+    // Build position lookup map sekali (no .find() per item)
+    const positionLookupMap = new Map<number, any>();
+    for (const p of positionJsonData) {
+      if (p?.position != null) positionLookupMap.set(Number(p.position), p);
     }
 
     // Map request by id untuk lookup cepat
@@ -323,16 +321,13 @@ export class RekapNaskahService {
         // Lookup request dari map
         const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
 
-        // Get jabatan dan lokasi dari penandatangan
+        // Get jabatan dan lokasi dari penandatangan (Map lookup, no array.find)
         let jabatan: string | null = null;
         let lokasi: string | null = null;
 
         if (request?.idPositionPenandatangan) {
-          const searchId = Number(request.idPositionPenandatangan);
-          const positionData = positionJsonData.find(
-            (p: any) => Number(p.position) === searchId,
-          );
-          
+          const positionData = positionLookupMap.get(Number(request.idPositionPenandatangan));
+
           if (positionData) {
             jabatan = positionData.position_text || null;
             lokasi = positionData.area_text || null;
@@ -688,23 +683,21 @@ export class RekapNaskahService {
       }
     });
 
-    // Get org_data untuk extract jabatan
+    // Get org_data untuk extract jabatan (gunakan cache via findLatestOrg)
     let positionJsonData: any[] = [];
     try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+        positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
       console.log('Could not fetch position data from org_data');
+    }
+
+    // Build position lookup map sekali (no .find() per item)
+    const positionLookupMap = new Map<number, any>();
+    for (const p of positionJsonData) {
+      if (p?.position != null) positionLookupMap.set(Number(p.position), p);
     }
 
     // Map request by id untuk lookup cepat
@@ -725,16 +718,13 @@ export class RekapNaskahService {
         // Lookup request dari map
         const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
 
-        // Get jabatan dan lokasi dari penandatangan
+        // Get jabatan dan lokasi dari penandatangan (Map lookup)
         let jabatan: string | null = null;
         let lokasi: string | null = null;
 
         if (request?.idPositionPenandatangan) {
-          const searchId = Number(request.idPositionPenandatangan);
-          const positionData = positionJsonData.find(
-            (p: any) => Number(p.position) === searchId,
-          );
-          
+          const positionData = positionLookupMap.get(Number(request.idPositionPenandatangan));
+
           if (positionData) {
             jabatan = positionData.position_text || null;
             lokasi = positionData.area_text || null;
