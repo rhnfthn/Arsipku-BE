@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
@@ -65,6 +66,23 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000, // 1 menit
+        limit: 60, // baseline (dipakai bila ada @UseGuards(ThrottlerGuard) tanpa @Throttle override)
+      },
+      {
+        name: 'auth',
+        ttl: 60000, // 1 menit
+        limit: 10, // login/verify/refresh token
+      },
+      {
+        name: 'sign',
+        ttl: 60000, // 1 menit
+        limit: 5, // BSrE sign — paling ketat (passphrase brute force protection)
+      },
+    ]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
