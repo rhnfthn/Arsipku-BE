@@ -10,6 +10,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import {
   DigsigService,
   SignResultResponse,
@@ -74,6 +75,8 @@ export class DigsigController {
    * NIK dan no_wa diambil dari JWT payload (user profile)
    */
   @Post('bsre/nota-dinas/:idNaskah')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async signNotaDinasBsre(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
@@ -94,6 +97,8 @@ export class DigsigController {
    * }
    */
   @Post('bsre/surat-internal/:idNaskah')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async signSdiBsre(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
@@ -112,7 +117,9 @@ export class DigsigController {
    * {
    *   "passphrase": "passphrase_bsre_user"
    * }
-   */
+   UseGuards(ThrottlerGuard)
+  @Throttle({ sign: { limit: 5, ttl: 60000 } })
+  @*/
   @Post('bsre/surat-eksternal/:idNaskah')
   @HttpCode(HttpStatus.OK)
   async signSdeBsre(
