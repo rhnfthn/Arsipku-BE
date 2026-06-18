@@ -38,8 +38,18 @@ const JENIS_SURAT_LABELS: Record<string, string> = {
   K: 'Konsep',
 };
 
+interface DashboardCacheEntry {
+  data: DashboardResponseDto;
+  expires: number;
+}
+
+const DASHBOARD_CACHE_TTL_MS = 60_000; // 60 detik
+const DASHBOARD_MAX_CACHE = 5_000;
+
 @Injectable()
 export class DashboardService {
+  private readonly dashboardCache = new Map<string, DashboardCacheEntry>();
+
   constructor(
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
@@ -52,6 +62,15 @@ export class DashboardService {
     @InjectRepository(KonsepEntity)
     private readonly konsepRepo: Repository<KonsepEntity>,
   ) {}
+
+  /** Invalidate cache dashboard untuk user tertentu (atau semua) */
+  invalidateDashboardCache(positionId?: number, persnum?: number) {
+    if (positionId !== undefined) {
+      this.dashboardCache.delete(`dashboard:${positionId}:${persnum ?? ''}`);
+    } else {
+      this.dashboardCache.clear();
+    }
+  }
 
   /**
    * Format waktu relatif untuk tampilan
@@ -97,202 +116,189 @@ export class DashboardService {
     const positionIdStr = positionId.toString();
 
     // ==========================================
-    // 1. SUMMARY DATA - KOTAK MASUK
+    // CACHE CHECK (TTL 60s per user)
     // ==========================================
-
-    // Total Pesan Masuk: semua surat yang diterima (konsisten dengan inbox)
-    // Exclude: is_draft, is_konsep, dan hanya count naskah dengan status final/final_tte
-    const totalPesanMasuk = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
-      .getCount();
-
-    // Pesan Baru: surat masuk yang BELUM DIBACA (send_read_time = null)
-    // Konsisten dengan inbox - exclude konsep dan hanya count final/final_tte
-    const pesanBaru = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('ns.send_read_time IS NULL')
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
-      .getCount();
-
-    // ==========================================
-    // 2. SUMMARY DATA - KOTAK KELUAR
-    // ==========================================
-
-    // Surat Terkirim: total surat yang sudah dikirim (bukan draft)
-    // PENTING: Hanya count naskah dengan status final/final_tte (konsisten dengan endpoint /sent)
-    const suratTerkirim = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
-      .getCount();
-
-    // Draft Tersimpan: naskah dengan status 'draf' yang dibuat user ini
-    const draftTersimpan = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-      .andWhere('n.status = :status', { status: 'draf' })
-      .getCount();
-
-    // ==========================================
-    // 3. SUMMARY DATA - DISPOSISI
-    // ==========================================
-
-    // Disposisi Masuk: surat dengan jenis = 'DI' yang diterima
-    const disposisiMasuk = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .getCount();
-
-    // Disposisi Belum Dibaca
-    const disposisiBelumDibaca = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.send_read_time IS NULL')
-      .getCount();
-
-    // Disposisi High Priority (is_priority = 1)
-    const disposisiHighPriority = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .innerJoin('di', 'd', 'n.id = d.id_naskah')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
-      .getCount();
-
-    // Disposisi Belum Ditindaklanjuti (sudah dibaca tapi tindak_lanjut = 0)
-    const disposisiBelumTinjut = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('ns.send_read_time IS NOT NULL')
-      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
-      .getCount();
-
-    // ==========================================
-    // 4. SUMMARY DATA - DIGITAL SIGNATURE
-    // ==========================================
-
-    // Dokumen yang menunggu TTD dari user ini (status = 'waiting', dokumen on_progress)
-    // PENTING: Menggunakan persnum (bukan position_id) agar konsisten dengan penandatanganan service
-    // Karena digsig signer disimpan berdasarkan persnum, bukan position
-    let digsigMenungguTtd = 0;
-    let digsigOnProgress = 0;
-
-    if (persnum) {
-      digsigMenungguTtd = await this.digsigSignerRepo
-        .createQueryBuilder('ds')
-        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
-        .where('ds.persnum = :persnum', { persnum })
-        .andWhere('ds.status = :status', { status: 'waiting' })
-        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
-        .getCount();
-
-      // Dokumen yang masih on_progress (user sudah TTD tapi menunggu signer lain)
-      digsigOnProgress = await this.digsigSignerRepo
-        .createQueryBuilder('ds')
-        .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
-        .where('ds.persnum = :persnum', { persnum })
-        .andWhere('ds.status = :status', { status: 'signed' })
-        .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
-        .getCount();
+    const cacheKey = `dashboard:${positionId}:${persnum ?? ''}`;
+    const nowTs = Date.now();
+    const cached = this.dashboardCache.get(cacheKey);
+    if (cached && cached.expires > nowTs) {
+      return cached.data;
     }
 
     // ==========================================
-    // 5. SUMMARY DATA - KONSEP (Draft Workflow)
+    // 1-6. SUMMARY DATA — semua count dijalankan PARALEL
     // ==========================================
 
-    // Konsep masuk: konsep yang dikirim ke position ini untuk review
-    const konsepMasuk = await this.konsepRepo.count({
-      where: {
-        toPosition: positionIdStr,
-      },
-    });
+    const sirkulerValues = ['penerima', 'tembusan'];
+    const statuses = ['final', 'final_tte'];
 
-    // Konsep belum dibaca
-    const konsepBelumDibaca = await this.konsepRepo.count({
-      where: {
-        toPosition: positionIdStr,
-        sendReadTime: IsNull(),
-      },
-    });
+    const [
+      totalPesanMasuk,
+      pesanBaru,
+      suratTerkirim,
+      draftTersimpan,
+      disposisiMasuk,
+      disposisiBelumDibaca,
+      disposisiHighPriority,
+      disposisiBelumTinjut,
+      konsepMasuk,
+      konsepBelumDibaca,
+      suratFavorit,
+      suratArsip,
+      perluTindakLanjut,
+      suratSudahDitinjut,
+    ] = await Promise.all([
+      // Total Pesan Masuk
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('n.status IN (:...statuses)', { statuses })
+        .getCount(),
 
-    // ==========================================
-    // 6. SUMMARY DATA - FLAGS & ACTIONS
-    // ==========================================
+      // Pesan Baru (belum dibaca)
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('ns.send_read_time IS NULL')
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('n.status IN (:...statuses)', { statuses })
+        .getCount(),
 
-    // Surat Favorit
-    const suratFavorit = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        flagFavorit: 1,
-        isDraft: false,
-      },
-    });
+      // Surat Terkirim
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('n.status IN (:...statuses)', { statuses })
+        .getCount(),
 
-    // Surat Arsip
-    const suratArsip = await this.naskahSirkulasiRepo.count({
-      where: {
-        position: positionIdStr,
-        flagArsip: 1,
-        isDraft: false,
-      },
-    });
+      // Draft Tersimpan
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+        .andWhere('n.status = :status', { status: 'draf' })
+        .getCount(),
 
-    // Perlu Tindak Lanjut: surat masuk yang belum ditandai tindak lanjut
-    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
-    const perluTindakLanjut = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
-      .getCount();
+      // Disposisi Masuk
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .getCount(),
 
-    // Surat Sudah Ditindaklanjuti: surat masuk yang sudah ditandai tindak lanjut
-    // PENTING: Exclude is_konsep agar konsisten dengan kotak masuk (search-v3)
-    const suratSudahDitinjut = await this.naskahSirkulasiRepo
-      .createQueryBuilder('ns')
-      .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-      .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-      .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
-      .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
-      .getCount();
+      // Disposisi Belum Dibaca
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('ns.send_read_time IS NULL')
+        .getCount(),
+
+      // Disposisi High Priority
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .innerJoin('di', 'd', 'n.id = d.id_naskah')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
+        .getCount(),
+
+      // Disposisi Belum Ditindaklanjuti
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('ns.send_read_time IS NOT NULL')
+        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+        .getCount(),
+
+      // Konsep Masuk
+      this.konsepRepo.count({ where: { toPosition: positionIdStr } }),
+
+      // Konsep Belum Dibaca
+      this.konsepRepo.count({
+        where: { toPosition: positionIdStr, sendReadTime: IsNull() },
+      }),
+
+      // Surat Favorit
+      this.naskahSirkulasiRepo.count({
+        where: { position: positionIdStr, flagFavorit: 1, isDraft: false },
+      }),
+
+      // Surat Arsip
+      this.naskahSirkulasiRepo.count({
+        where: { position: positionIdStr, flagArsip: 1, isDraft: false },
+      }),
+
+      // Perlu Tindak Lanjut
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('n.status IN (:...statuses)', { statuses })
+        .getCount(),
+
+      // Surat Sudah Ditindaklanjuti
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('n.status IN (:...statuses)', { statuses })
+        .getCount(),
+    ]);
+
+    // Digsig counts (butuh persnum, jalankan paralel juga)
+    let digsigMenungguTtd = 0;
+    let digsigOnProgress = 0;
+    if (persnum) {
+      [digsigMenungguTtd, digsigOnProgress] = await Promise.all([
+        this.digsigSignerRepo
+          .createQueryBuilder('ds')
+          .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+          .where('ds.persnum = :persnum', { persnum })
+          .andWhere('ds.status = :status', { status: 'waiting' })
+          .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+          .getCount(),
+        this.digsigSignerRepo
+          .createQueryBuilder('ds')
+          .innerJoin('digsig_document', 'dd', 'ds.id_document = dd.id')
+          .where('ds.persnum = :persnum', { persnum })
+          .andWhere('ds.status = :status', { status: 'signed' })
+          .andWhere('dd.status = :docStatus', { docStatus: 'on_progress' })
+          .getCount(),
+      ]);
+    }
 
     const summary: DashboardSummaryDto = {
       // Kotak Masuk
@@ -423,89 +429,118 @@ export class DashboardService {
     );
 
     // ==========================================
-    // 9. STATISTIK SURAT PER JENIS
+    // 9. STATISTIK SURAT PER JENIS (GROUP BY — 2 query)
     // ==========================================
 
-    const statistikJenisSurat: StatistikJenisSuratDto[] = [];
     const jenisArr = ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'];
 
-    for (const jenis of jenisArr) {
-      // Jumlah masuk per jenis
-      const jumlahMasuk = await this.naskahSirkulasiRepo
+    const [masukPerJenisRaw, keluarPerJenisRaw] = await Promise.all([
+      // Jumlah masuk per jenis (group by)
+      this.naskahSirkulasiRepo
         .createQueryBuilder('ns')
+        .select('n.jenis', 'jenis')
+        .addSelect('COUNT(*)', 'jumlah')
         .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
         .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-        .andWhere('n.jenis = :jenis', { jenis })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .getCount();
+        .groupBy('n.jenis')
+        .getRawMany(),
 
-      // Jumlah keluar per jenis
-      const jumlahKeluar = await this.naskahSirkulasiRepo
+      // Jumlah keluar per jenis (group by)
+      this.naskahSirkulasiRepo
         .createQueryBuilder('ns')
+        .select('n.jenis', 'jenis')
+        .addSelect('COUNT(*)', 'jumlah')
         .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
         .where('ns.position = :positionId', { positionId: positionIdStr })
         .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-        .andWhere('n.jenis = :jenis', { jenis })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .getCount();
+        .groupBy('n.jenis')
+        .getRawMany(),
+    ]);
 
-      statistikJenisSurat.push({
-        jenis,
-        jenis_label: JENIS_SURAT_LABELS[jenis] || jenis,
-        jumlah_masuk: jumlahMasuk,
-        jumlah_keluar: jumlahKeluar,
-      });
-    }
+    const masukMap = new Map<string, number>(
+      masukPerJenisRaw.map((r) => [r.jenis, Number(r.jumlah)]),
+    );
+    const keluarMap = new Map<string, number>(
+      keluarPerJenisRaw.map((r) => [r.jenis, Number(r.jumlah)]),
+    );
+
+    const statistikJenisSurat: StatistikJenisSuratDto[] = jenisArr.map((jenis) => ({
+      jenis,
+      jenis_label: JENIS_SURAT_LABELS[jenis] || jenis,
+      jumlah_masuk: masukMap.get(jenis) || 0,
+      jumlah_keluar: keluarMap.get(jenis) || 0,
+    }));
 
     // ==========================================
-    // 10. STATISTIK SURAT (6 bulan terakhir)
+    // 10. STATISTIK SURAT (6 bulan terakhir) — GROUP BY (2 query)
     // ==========================================
 
     const now = new Date();
-    const statistikBulanan: StatistikBulananDto[] = [];
+    // Awal bulan 5 bulan lalu (rentang 6 bulan termasuk bulan ini)
+    const rangeStart = new Date(now.getFullYear(), now.getMonth() - 5, 1, 0, 0, 0);
+    const rangeEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
+    const [masukPerBulanRaw, keluarPerBulanRaw] = await Promise.all([
+      // Surat masuk per bulan
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .select('YEAR(n.tanggal)', 'tahun')
+        .addSelect('MONTH(n.tanggal)', 'bulan')
+        .addSelect('COUNT(*)', 'jumlah')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('n.tanggal >= :start', { start: rangeStart })
+        .andWhere('n.tanggal <= :end', { end: rangeEnd })
+        .groupBy('YEAR(n.tanggal)')
+        .addGroupBy('MONTH(n.tanggal)')
+        .getRawMany(),
+
+      // Surat keluar per bulan
+      this.naskahSirkulasiRepo
+        .createQueryBuilder('ns')
+        .select('YEAR(n.tanggal)', 'tahun')
+        .addSelect('MONTH(n.tanggal)', 'bulan')
+        .addSelect('COUNT(*)', 'jumlah')
+        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
+        .where('ns.position = :positionId', { positionId: positionIdStr })
+        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
+        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
+        .andWhere('n.tanggal >= :start', { start: rangeStart })
+        .andWhere('n.tanggal <= :end', { end: rangeEnd })
+        .groupBy('YEAR(n.tanggal)')
+        .addGroupBy('MONTH(n.tanggal)')
+        .getRawMany(),
+    ]);
+
+    const masukBulanMap = new Map<string, number>(
+      masukPerBulanRaw.map((r) => [`${r.tahun}-${r.bulan}`, Number(r.jumlah)]),
+    );
+    const keluarBulanMap = new Map<string, number>(
+      keluarPerBulanRaw.map((r) => [`${r.tahun}-${r.bulan}`, Number(r.jumlah)]),
+    );
+
+    const statistikBulanan: StatistikBulananDto[] = [];
     for (let i = 5; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const bulanNumber = targetDate.getMonth() + 1;
       const tahun = targetDate.getFullYear();
-
-      // Start dan end of month
-      const startOfMonth = new Date(tahun, bulanNumber - 1, 1);
-      const endOfMonth = new Date(tahun, bulanNumber, 0, 23, 59, 59);
-
-      // Surat Masuk bulan ini
-      const suratMasukBulan = await this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('n.tanggal >= :start', { start: startOfMonth })
-        .andWhere('n.tanggal <= :end', { end: endOfMonth })
-        .getCount();
-
-      // Surat Terkirim bulan ini
-      const suratTerkirimBulan = await this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('n.tanggal >= :start', { start: startOfMonth })
-        .andWhere('n.tanggal <= :end', { end: endOfMonth })
-        .getCount();
+      const key = `${tahun}-${bulanNumber}`;
 
       statistikBulanan.push({
         bulan: NAMA_BULAN[bulanNumber - 1],
         bulan_number: bulanNumber,
         tahun: tahun,
-        surat_masuk: suratMasukBulan,
-        surat_terkirim: suratTerkirimBulan,
+        surat_masuk: masukBulanMap.get(key) || 0,
+        surat_terkirim: keluarBulanMap.get(key) || 0,
       });
     }
 
-    return {
+    const response: DashboardResponseDto = {
       success: true,
       message: 'Dashboard data berhasil diambil',
       data: {
@@ -516,5 +551,18 @@ export class DashboardService {
         statistik_jenis_surat: statistikJenisSurat,
       },
     };
+
+    // ==========================================
+    // SIMPAN KE CACHE (TTL 60s)
+    // ==========================================
+    if (this.dashboardCache.size >= DASHBOARD_MAX_CACHE) {
+      this.dashboardCache.clear();
+    }
+    this.dashboardCache.set(cacheKey, {
+      data: response,
+      expires: Date.now() + DASHBOARD_CACHE_TTL_MS,
+    });
+
+    return response;
   }
 }
