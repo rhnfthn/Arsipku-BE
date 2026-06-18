@@ -424,41 +424,72 @@ export class DraftService {
       }
     }
 
-    for (const naskah of naskahs) {
-      // Get pengirim for timestamp (created_at)
-      const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
+    // ============================================================
+    // BULK FETCH (eliminasi N+1)
+    // ============================================================
+    if (naskahIds.length > 0) {
+      // 1. Bulk pengirim sirkulasi (per naskah, position user)
+      const pengirimSirkulasiList = await this.naskahSirkulasiRepository.find({
         where: {
-          idNaskah: naskah.id,
+          idNaskah: In(naskahIds),
           sirkuler: 'pengirim',
           position: String(positionId),
         },
       });
+      const pengirimSirkMap = new Map<string, (typeof pengirimSirkulasiList)[number]>();
+      for (const p of pengirimSirkulasiList) {
+        if (p.idNaskah) pengirimSirkMap.set(p.idNaskah, p);
+      }
 
-      // Get penerima for this naskah
-      let penerima: any[] = [];
+      // 2. Bulk semua penerima sirkulasi
+      const allPenerima = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: In(naskahIds),
+          sirkuler: 'penerima',
+        },
+      });
+      // Group by idNaskah
+      const penerimaByNaskah = new Map<string, typeof allPenerima>();
+      for (const p of allPenerima) {
+        if (!p.idNaskah) continue;
+        if (!penerimaByNaskah.has(p.idNaskah)) {
+          penerimaByNaskah.set(p.idNaskah, []);
+        }
+        penerimaByNaskah.get(p.idNaskah)!.push(p);
+      }
 
-      // For SDE, get penerima from naskah_sirkulasi (REFACTORED)
-      if (naskah.jenis === 'SDE') {
-        // REFACTOR: Data penerima eksternal sekarang ada di naskah_sirkulasi
-        const penerimaList = await this.naskahSirkulasiRepository.find({
-          where: {
-            idNaskah: naskah.id,
-            sirkuler: 'penerima',
-          },
+      // 3. Bulk fetch eksternal untuk SDE penerima
+      const sdeNaskahIds = naskahs.filter((n) => n.jenis === 'SDE').map((n) => n.id);
+      const eksternalIdSet = new Set<string>();
+      for (const naskahId of sdeNaskahIds) {
+        const list = penerimaByNaskah.get(naskahId) || [];
+        for (const p of list) {
+          if (p.idSirkuler) eksternalIdSet.add(p.idSirkuler);
+        }
+      }
+      const eksternalMap = new Map<string, any>();
+      if (eksternalIdSet.size > 0) {
+        const eksternalList = await this.eksternalRepository.find({
+          where: { id: In(Array.from(eksternalIdSet)) },
         });
+        for (const e of eksternalList) {
+          eksternalMap.set(e.id, e);
+        }
+      }
 
-        console.log('🔍 SDE Draft Debug - Naskah ID:', naskah.id);
-        console.log('🔍 SDE Draft Debug - Penerima found from sirkulasi:', penerimaList.length);
+      // ============================================================
+      // BUILD RESPONSE ITEMS (no N+1)
+      // ============================================================
+      for (const naskah of naskahs) {
+        const pengirimSirkulasi = pengirimSirkMap.get(naskah.id);
 
-        for (const p of penerimaList) {
-          // idSirkuler untuk SDE adalah ID eksternal (UUID string)
-          const eksternalId = p.idSirkuler || null;
-          
-          // Jika ada ID eksternal, coba ambil detail dari tabel eksternal
-          if (eksternalId) {
-            const eksternalData = await this.eksternalRepository.findOne({
-              where: { id: eksternalId },
-            });
+        let penerima: any[] = [];
+        const penerimaList = penerimaByNaskah.get(naskah.id) || [];
+
+        if (naskah.jenis === 'SDE') {
+          for (const p of penerimaList) {
+            const eksternalId = p.idSirkuler || null;
+            const eksternalData = eksternalId ? eksternalMap.get(eksternalId) : null;
 
             if (eksternalData) {
               penerima.push({
@@ -471,8 +502,7 @@ export class DraftService {
                 company: eksternalData.company || p.companyText || null,
                 area: eksternalData.area || p.areaText || null,
               });
-            } else {
-              // Fallback ke data dari sirkulasi
+            } else if (eksternalId) {
               penerima.push({
                 id: eksternalId,
                 nama: p.namaSirkuler || '',
@@ -483,77 +513,65 @@ export class DraftService {
                 company: p.companyText || null,
                 area: p.areaText || null,
               });
+            } else {
+              penerima.push({
+                nama: p.namaSirkuler || p.positionText || '',
+                alamat: p.alamat || null,
+                telepon: p.telepon || null,
+                email: p.email || null,
+                kontak: null,
+                company: p.companyText || null,
+                area: p.areaText || null,
+              });
             }
-          } else {
-            // Tidak ada ID eksternal, gunakan data dari sirkulasi saja
-            penerima.push({
-              nama: p.namaSirkuler || p.positionText || '',
-              alamat: p.alamat || null,
-              telepon: p.telepon || null,
-              email: p.email || null,
-              kontak: null,
-              company: p.companyText || null,
-              area: p.areaText || null,
-            });
           }
+        } else {
+          // ND, SDI, DI, KA
+          penerima = penerimaList.map((p) => ({
+            position_id: Number(p.position),
+            position_text: p.positionText || '',
+            nama: p.namaSirkuler || '',
+            organization_text: p.organizationText || '',
+          }));
         }
-        
-        console.log('🔍 SDE Draft Debug - penerima processed:', penerima.length);
-      } else {
-        // For other jenis (ND, SDI, DI, KA), get from naskah_sirkulasi
-        const penerimaList = await this.naskahSirkulasiRepository.find({
-          where: {
-            idNaskah: naskah.id,
-            sirkuler: 'penerima',
-          },
-        });
 
-        // Map all penerima
-        penerima = penerimaList.map((p) => ({
-          position_id: Number(p.position),
-          position_text: p.positionText || '',
-          nama: p.namaSirkuler || '',
-          organization_text: p.organizationText || '',
-        }));
-      }
+        // Tanggal — fallback chain
+        const tanggal = pengirimSirkulasi?.updatedAt
+          ? new Date(pengirimSirkulasi.updatedAt)
+          : pengirimSirkulasi?.createdAt
+            ? new Date(pengirimSirkulasi.createdAt)
+            : new Date(naskah.tanggal);
 
-      // Use created_at or updated_at from sirkulasi (pengirim)
-      const tanggal = pengirimSirkulasi?.updatedAt 
-        ? new Date(pengirimSirkulasi.updatedAt)
-        : pengirimSirkulasi?.createdAt
-        ? new Date(pengirimSirkulasi.createdAt)
-        : new Date(naskah.tanggal);
+        const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
 
-      // Format waktu in UTC (HH:mm)
-      const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
-
-      // Draft konsep (ND/SDI/SDE) saat masih draf disimpan dengan nomor '-' oleh modul Konsep.
-      const isDraftKonsep = ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
-      const konseptorPositionId = naskah.createdByPosition
-        ? Number(naskah.createdByPosition)
-        : null;
-      const namaKonseptor =
-        konseptorPositionId !== null
-          ? orgPositionMap.get(konseptorPositionId) || null
+        const isDraftKonsep =
+          ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
+        const konseptorPositionId = naskah.createdByPosition
+          ? Number(naskah.createdByPosition)
           : null;
+        const namaKonseptor =
+          konseptorPositionId !== null
+            ? orgPositionMap.get(konseptorPositionId) || null
+            : null;
 
-      items.push({
-        id_naskah: naskah.id,
-        id_sirkulasi: pengirimSirkulasi?.id || null,
-        jenis: naskah.jenis,
-        jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
-        penanda_konsep: isDraftKonsep,
-        konseptor_position_id: konseptorPositionId,
-        nama_konseptor: namaKonseptor,
-        asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
-        is_draft_konsep: isDraftKonsep,
-        penerima: penerima,
-        penerima_count: penerima.length,
-        isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
-        tanggal: tanggal,
-        waktu: waktuUTC,
-        labels: labelsMap.get(naskah.id) || [],
-      });
+        items.push({
+          id_naskah: naskah.id,
+          id_sirkulasi: pengirimSirkulasi?.id || null,
+          jenis: naskah.jenis,
+          jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
+          penanda_konsep: isDraftKonsep,
+          konseptor_position_id: konseptorPositionId,
+          nama_konseptor: namaKonseptor,
+          asal_draft: isDraftKonsep ? 'konsep' : 'naskah',
+          is_draft_konsep: isDraftKonsep,
+          penerima: penerima,
+          penerima_count: penerima.length,
+          isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
+          tanggal: tanggal,
+          waktu: waktuUTC,
+          labels: labelsMap.get(naskah.id) || [],
+        });
+      }
     }
 
     return {
