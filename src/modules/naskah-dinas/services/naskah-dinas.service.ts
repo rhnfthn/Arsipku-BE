@@ -490,7 +490,40 @@ export class NaskahDinasService {
 
     const naskahList = await query.getMany();
 
-    // Get org_data untuk lookup pembuat
+    if (naskahList.length === 0) {
+      return { success: true, data: [], total: 0 };
+    }
+
+    // ============================================================
+    // BULK FETCH (eliminasi N+1)
+    // ============================================================
+    const naskahIds = naskahList.map((n) => n.id).filter(Boolean);
+    const tempatIds = naskahList.map((n) => n.tempat).filter((t): t is string => !!t);
+
+    // 1. Bulk semua sirkulasi sekaligus
+    const allSirkulasi = naskahIds.length
+      ? await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: In(naskahIds) },
+        })
+      : [];
+    const sirkulasiByNaskah = new Map<string, typeof allSirkulasi>();
+    for (const s of allSirkulasi) {
+      if (!s.idNaskah) continue;
+      if (!sirkulasiByNaskah.has(s.idNaskah)) sirkulasiByNaskah.set(s.idNaskah, []);
+      sirkulasiByNaskah.get(s.idNaskah)!.push(s);
+    }
+
+    // 2. Bulk eksternal pengirim
+    const eksternalMap = new Map<string, any>();
+    if (tempatIds.length > 0) {
+      const uniqueTempat = Array.from(new Set(tempatIds));
+      const eksternalList = await this.eksternalRepository.find({
+        where: { id: In(uniqueTempat) },
+      });
+      for (const e of eksternalList) eksternalMap.set(e.id, e);
+    }
+
+    // 3. Get org_data untuk lookup pembuat (sudah ter-cache di OrgDataService)
     const today = new Date().toISOString().split('T')[0];
     let barisData: NdOrgDataPositionDto[] = [];
     try {
@@ -501,21 +534,38 @@ export class NaskahDinasService {
     } catch (err) {
       // Ignore error
     }
+    const positionMap = new Map<string, NdOrgDataPositionDto>();
+    for (const p of barisData) {
+      if (p.position != null) positionMap.set(String(p.position), p);
+    }
 
-    // Get sirkulasi data + pengirim eksternal for each naskah
-    const dataPromises = naskahList.map(async (naskah) => {
-      const sirkulasiList = await this.naskahSirkulasiRepository.find({
-        where: { idNaskah: naskah.id },
-      });
+    // 4. Bulk signed URL (paralel) — ini yang biasanya dominan latency
+    const finalPdfUrlMap = new Map<string, string>();
+    const naskahWithPdf = naskahList.filter((n) => !!n.final_pdf);
+    await Promise.all(
+      naskahWithPdf.map(async (n) => {
+        try {
+          const url = await this.storageService.getFileUrl(n.final_pdf!);
+          if (url) finalPdfUrlMap.set(n.id, url);
+        } catch (err: any) {
+          console.warn(`Failed to get signed URL for ${n.final_pdf}:`, err?.message);
+        }
+      }),
+    );
 
-      let penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
-      
-      // If user is not from kantor pusat, re-filter penerima by user's area for extra safety
+    // ============================================================
+    // BUILD RESPONSE (no async per item)
+    // ============================================================
+    const data = naskahList.map((naskah) => {
+      let penerimaSirkulasiList = (sirkulasiByNaskah.get(naskah.id) || []).filter(
+        (s) => s.sirkuler === 'penerima',
+      );
+
       if (userArea && userArea !== 'A000') {
         penerimaSirkulasiList = penerimaSirkulasiList.filter((s) => s.area === userArea);
       }
 
-      // Ambil data pengirim dari tabel eksternal berdasarkan naskah.tempat (eksternal.id)
+      // Pengirim eksternal
       let pengirimInfo: NdPengirimInfoDto = {
         id: '',
         nama: 'Eksternal',
@@ -524,21 +574,13 @@ export class NaskahDinasService {
         email: '',
         kontak: '',
       };
-
       if (naskah.tempat) {
-        try {
-          const eksternal = await this.eksternalRepository.findOne({
-            where: { id: naskah.tempat },
-          });
-          if (eksternal) {
-            pengirimInfo = this.toEksternalPengirimInfo(eksternal);
-          }
-        } catch (err) {
-          // Error ignored
+        const eksternal = eksternalMap.get(naskah.tempat);
+        if (eksternal) {
+          pengirimInfo = this.toEksternalPengirimInfo(eksternal);
         }
       }
 
-      // Build penerima info from sirkulasi
       const penerimaInfo: NdPenerimaInfoDto[] = penerimaSirkulasiList.map((s) => ({
         position: Number(s.position) || 0,
         position_text: s.positionText || '',
@@ -552,27 +594,27 @@ export class NaskahDinasService {
         area_text: s.areaText || null,
       }));
 
-      // Handle tanggal - bisa Date object atau string dari DB
+      // Tanggal
       let tanggalStr = '';
       if (naskah.tanggal) {
-        tanggalStr = naskah.tanggal instanceof Date 
-          ? naskah.tanggal.toISOString().split('T')[0]
-          : String(naskah.tanggal).split('T')[0];
+        tanggalStr =
+          naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal).split('T')[0];
       }
 
-      // Get jam UTC from createdAt (hanya waktu tanpa tanggal)
+      // Jam UTC
       let jamUtc = '';
       if (naskah.createdAt) {
-        const dateObj = naskah.createdAt instanceof Date
-          ? naskah.createdAt
-          : new Date(naskah.createdAt);
-        jamUtc = dateObj.toISOString().split('T')[1].split('.')[0]; // HH:mm:ss
+        const dateObj =
+          naskah.createdAt instanceof Date ? naskah.createdAt : new Date(naskah.createdAt);
+        jamUtc = dateObj.toISOString().split('T')[1].split('.')[0];
       }
 
-      // Lookup pembuat dari org_data
+      // Pembuat
       let pembuatInfo: NdPembuatInfoDto | null = null;
-      if (naskah.createdByPosition && barisData.length > 0) {
-        const pembuatPos = barisData.find((p) => String(p.position) === String(naskah.createdByPosition));
+      if (naskah.createdByPosition) {
+        const pembuatPos = positionMap.get(String(naskah.createdByPosition));
         if (pembuatPos) {
           pembuatInfo = {
             position: pembuatPos.position,
@@ -589,15 +631,7 @@ export class NaskahDinasService {
         }
       }
 
-      // Generate signed URL for file
-      let finalPdfUrl: string | null = null;
-      if (naskah.final_pdf) {
-        try {
-          finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
-        } catch (error) {
-          console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
-        }
-      }
+      const finalPdfUrl: string | null = finalPdfUrlMap.get(naskah.id) || null;
 
       return {
         id: naskah.id,
@@ -614,8 +648,6 @@ export class NaskahDinasService {
         pembuat: pembuatInfo,
       };
     });
-
-    const data = await Promise.all(dataPromises);
 
     return {
       success: true,
