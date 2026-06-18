@@ -16,7 +16,8 @@ export class EksternalService {
   ) {}
 
   /**
-   * Helper method to get nama pembuat from org_data using id_position
+   * Helper method to get nama pembuat from org_data using id_position.
+   * Cache di OrgDataService sudah handle JSON load.
    */
   private async getNamaPembuat(idPosition: string): Promise<string | null> {
     if (!idPosition) return null;
@@ -40,6 +41,29 @@ export class EksternalService {
       console.error('Error getting nama pembuat:', error);
       return null;
     }
+  }
+
+  /**
+   * Build a single position-id → nama lookup Map dari position_json sekali,
+   * dipakai supaya findAll tidak N+1 saat memetakan banyak item.
+   */
+  private async buildNamaPembuatMap(idPositions: string[]): Promise<Map<number, string | null>> {
+    const map = new Map<number, string | null>();
+    const ids = idPositions.filter(Boolean);
+    if (ids.length === 0) return map;
+
+    const latestOrgData = await this.orgDataService.findLatestOrg();
+    const positionJson = latestOrgData?.position_json;
+    if (!Array.isArray(positionJson)) return map;
+
+    const idSet = new Set(ids.map((id) => Number(id)));
+    for (const pos of positionJson) {
+      const posNum = Number(pos.position);
+      if (idSet.has(posNum)) {
+        map.set(posNum, pos.persnum_person_text || null);
+      }
+    }
+    return map;
   }
 
   async create(createEksternalDto: CreateEksternalDto): Promise<EksternalEntity> {
@@ -67,21 +91,21 @@ export class EksternalService {
       .orderBy('eksternal.nama', 'ASC')
       .getMany();
 
-    // Add nama_pembuat for each item
-    const results = await Promise.all(
-      eksternal.map(async (item) => {
-        const nama_pembuat = item.id_position_pembuat 
-          ? await this.getNamaPembuat(item.id_position_pembuat)
-          : null;
-        
-        return {
-          ...item,
-          nama_pembuat,
-        };
-      })
-    );
+    if (eksternal.length === 0) return [];
 
-    return results;
+    // Bulk fetch nama_pembuat sekali (bukan per item)
+    const idPositions = eksternal
+      .map((item) => item.id_position_pembuat)
+      .filter((id): id is string => Boolean(id));
+
+    const namaPembuatMap = await this.buildNamaPembuatMap(idPositions);
+
+    return eksternal.map((item) => ({
+      ...item,
+      nama_pembuat: item.id_position_pembuat
+        ? namaPembuatMap.get(Number(item.id_position_pembuat)) || null
+        : null,
+    }));
   }
 
   async findOne(id: string): Promise<any> {

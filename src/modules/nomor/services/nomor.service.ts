@@ -69,8 +69,8 @@ export class NomorService {
   ) {}
 
   /**
-   * Helper: Get latest position JSON data dengan caching
-   * Cache di-reset setiap kali method ini dipanggil dengan forceRefresh=true
+   * Helper: Get latest position JSON data dengan caching.
+   * Memanfaatkan cache 5 menit di OrgDataService.findLatestOrg().
    */
   private async getLatestPositionJsonData(forceRefresh = false): Promise<any[]> {
     if (!forceRefresh && this.cachedPositionJsonData !== null) {
@@ -78,18 +78,10 @@ export class NomorService {
     }
 
     try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          this.cachedPositionJsonData = latestOrgData.position_json;
-          return this.cachedPositionJsonData;
-        }
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+        this.cachedPositionJsonData = latestOrgData.position_json;
+        return this.cachedPositionJsonData;
       }
     } catch (error) {
       console.log('Could not fetch position data from org_data');
@@ -734,11 +726,17 @@ export class NomorService {
 
     const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
 
+    // Build position lookup Map sekali (no .find() per request — O(1) lookup)
+    const positionLookupMap = new Map<number, any>();
+    for (const p of positionJsonData) {
+      if (p?.position != null) positionLookupMap.set(Number(p.position), p);
+    }
+
     const isProposedByAdmin = (request: NomorRequestEntity): boolean => {
       const positionNumber = parseInt(request.position || '0', 10);
       if (!positionNumber) return false;
 
-      const positionData = positionJsonData.find((p: any) => Number(p.position) === positionNumber);
+      const positionData = positionLookupMap.get(positionNumber);
       const persnum = positionData?.persnum_person;
       if (!persnum) return false;
 
