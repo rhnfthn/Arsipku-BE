@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Get, Req, UseGuards, Query, Res, UnauthorizedException, BadRequestException, Redirect } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
@@ -135,6 +136,8 @@ export class AuthController {
    * Direct Login - login dengan username & password (untuk testing)
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 10, ttl: 60000 } })
   @Post('login')
   @ApiOperation({
     summary: 'Direct Login (Username & Password)',
@@ -160,7 +163,9 @@ export class AuthController {
 
   /**
    * Test Login - manual login dengan token dari AirNav
-   */
+   UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 10, ttl: 60000 } })
+  @*/
   @Public()
   @Post('test-login')
   @ApiOperation({
@@ -187,7 +192,9 @@ export class AuthController {
 
   /**
    * Verify Token - endpoint untuk callback dari AirNav
-   */
+   UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @*/
   @Public()
   @Post('verify-token')
   @ApiOperation({
@@ -218,6 +225,8 @@ export class AuthController {
   /**
    * Refresh Token - perpanjang session
    */
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
   @Post('refresh-token')
   @ApiOperation({
     summary: 'Refresh Token',
