@@ -26,24 +26,18 @@ export class AdminService {
    * Get list of users with their roles
    * Search by name, username, or persnum
    * Filter by role
+   *
+   * Refactored: bulk queries + Map lookup (no N+1).
    */
   async searchUsers(query: SearchUsersDto): Promise<SearchUsersResponseDto> {
-    // Build query untuk pa_personal
-    const whereConditions: any[] = [];
-
-    // Active users only (end_date in future)
-    whereConditions.push({
-      endDate: '9999-12-31',
-    });
-
-    // Search filter
+    // Step 1: ambil daftar Person sesuai filter
+    let persons: Person[] = [];
     if (query.search) {
       const searchTerm = `%${query.search}%`;
-      // Try to parse as number for persnum search
       const persnumSearch = isNaN(Number(query.search)) ? null : Number(query.search);
-      
-      const persons = await this.personRepo.find({
-        where: persnumSearch 
+
+      persons = await this.personRepo.find({
+        where: persnumSearch
           ? [
               { persnum: persnumSearch, endDate: '9999-12-31' },
               { name: Like(searchTerm), endDate: '9999-12-31' },
@@ -55,107 +49,96 @@ export class AdminService {
             ],
         order: { name: 'ASC' },
       });
+    } else {
+      // No search term — ambil semua admin/superadmin lalu fetch person batch
+      const allUserRoles = await this.userRoleRepo.find({
+        where: { role: In([UserRole.ADMIN, UserRole.SUPERADMIN]) },
+        order: { createdAt: 'DESC' },
+      });
 
-      // Get user roles
-      const users: UserListItemDto[] = [];
-      for (const person of persons) {
-        if (!person.persnum) continue;
-
-        const userRole = await this.userRoleRepo.findOne({
-          where: { persnum: person.persnum },
-        });
-
-        // Filter by role if specified
-        if (query.role && (!userRole || userRole.role !== query.role)) {
-          continue;
-        }
-
-        users.push({
-          persnum: person.persnum,
-          name: person.name || '',
-          uname: person.uname || '',
-          role: userRole?.role || null,
-          bod_tag: null, // will be populated below
-          position_text: null, // will be populated below
-          status: 'aktif',
-          assigned_at: userRole?.createdAt || null,
-        });
+      const persnums = allUserRoles.map((u) => u.persnum).filter((p): p is number => p != null);
+      if (persnums.length === 0) {
+        return {
+          success: true,
+          message: 'Berhasil mengambil data pengguna',
+          data: {
+            users: [],
+            summary: { total: 0, total_admin: 0, total_superadmin: 0, total_regular_users: 0 },
+          },
+        };
       }
 
-      // Populate bod_tag and position_text from org data
-      for (const user of users) {
-        try {
-          const orgData = await this.orgDataService.findByPersnum(user.persnum);
-          user.bod_tag = orgData?.bodTag || null;
-          user.position_text = orgData?.positionText || null;
-        } catch {
-          user.bod_tag = null;
-          user.position_text = null;
-        }
-      }
+      persons = await this.personRepo.find({
+        where: { persnum: In(persnums) },
+      });
+    }
 
-      // Count summary
-      const totalAdmin = users.filter(u => u.role === UserRole.ADMIN).length;
-      const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
-      const totalRegular = users.filter(u => !u.role).length;
-
+    if (persons.length === 0) {
       return {
         success: true,
         message: 'Berhasil mengambil data pengguna',
         data: {
-          users,
-          summary: {
-            total: users.length,
-            total_admin: totalAdmin,
-            total_superadmin: totalSuperadmin,
-            total_regular_users: totalRegular,
-          },
+          users: [],
+          summary: { total: 0, total_admin: 0, total_superadmin: 0, total_regular_users: 0 },
         },
       };
     }
 
-    // No search term - get all admin and superadmin users
-    const allUserRoles = await this.userRoleRepo.find({
-      where: { role: In([UserRole.ADMIN, UserRole.SUPERADMIN]) },
-      order: { createdAt: 'DESC' },
+    // Step 2: bulk fetch roles untuk semua persnum
+    const persnums = persons.map((p) => p.persnum).filter((p): p is number => p != null);
+    const userRoles = await this.userRoleRepo.find({
+      where: { persnum: In(persnums) },
     });
+    const roleMap = new Map(userRoles.map((r) => [r.persnum, r]));
 
+    // Step 3: build position info Map dari position_json sekali (no N+1)
+    const orgData = await this.orgDataService.findLatestOrg();
+    const positionInfoMap = new Map<number, { bodTag: string | null; positionText: string | null }>();
+    if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+      const persnumSet = new Set(persnums);
+      for (const pos of orgData.position_json as any[]) {
+        const pn = pos.persnum_person ?? pos.persnum;
+        if (pn != null) {
+          const pnNum = Number(pn);
+          if (persnumSet.has(pnNum) && !positionInfoMap.has(pnNum)) {
+            positionInfoMap.set(pnNum, {
+              bodTag: pos.bod_tag ?? null,
+              positionText: pos.position_text ?? null,
+            });
+          }
+        }
+      }
+    }
+
+    // Step 4: build response
     const users: UserListItemDto[] = [];
-    for (const userRole of allUserRoles) {
-      const person = await this.personRepo.findOne({
-        where: { persnum: userRole.persnum },
-      });
+    for (const person of persons) {
+      if (!person.persnum) continue;
 
-      if (!person || !person.persnum) continue;
+      const userRole = roleMap.get(person.persnum);
+
+      // Filter by role kalau diminta
+      if (query.role && (!userRole || userRole.role !== query.role)) {
+        continue;
+      }
+
+      const posInfo = positionInfoMap.get(person.persnum);
 
       users.push({
         persnum: person.persnum,
         name: person.name || '',
         uname: person.uname || '',
-        role: userRole.role,
-        bod_tag: null, // will be populated below
-        position_text: null, // will be populated below
+        role: userRole?.role || null,
+        bod_tag: posInfo?.bodTag || null,
+        position_text: posInfo?.positionText || null,
         status: 'aktif',
-        assigned_at: userRole.createdAt || null,
+        assigned_at: userRole?.createdAt || null,
       });
     }
 
-    // Count summary
-    const totalAdmin = users.filter(u => u.role === UserRole.ADMIN).length;
-    const totalSuperadmin = users.filter(u => u.role === UserRole.SUPERADMIN).length;
-    const totalRegular = users.filter(u => !u.role).length;
-
-    // Populate bod_tag and position_text from org data
-    for (const user of users) {
-      try {
-        const orgData = await this.orgDataService.findByPersnum(user.persnum);
-        user.bod_tag = orgData?.bodTag || null;
-        user.position_text = orgData?.positionText || null;
-      } catch {
-        user.bod_tag = null;
-        user.position_text = null;
-      }
-    }
+    const totalAdmin = users.filter((u) => u.role === UserRole.ADMIN).length;
+    const totalSuperadmin = users.filter((u) => u.role === UserRole.SUPERADMIN).length;
+    const totalRegular = users.filter((u) => !u.role).length;
 
     return {
       success: true,
