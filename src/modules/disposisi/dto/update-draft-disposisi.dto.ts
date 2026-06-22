@@ -49,6 +49,11 @@ export class UpdateDraftDisposisiDto {
   @IsString()
   ref_nomor_surat?: string;
 
+  // Ref. Perihal Surat (dari naskah referensi, fallback perihal)
+  @IsOptional()
+  @IsString()
+  ref_perihal?: string;
+
   // Perihal (masuk ke tabel naskah)
   @IsOptional()
   @IsString()
