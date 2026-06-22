@@ -1369,7 +1369,7 @@ export class DisposisiService {
         sifat: dto.sifat,
         nomor: generatedNomor, // Nomor otomatis ter-generate dengan integrasi
         tanggal: tanggalDisposisi,
-        perihal: dto.perihal, // Perihal masuk ke tabel naskah
+        perihal: dto.perihal || dto.ref_perihal || undefined, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: isPending ? 'pending' : 'final',
         lampiran: dto.lampiran?.length
@@ -1584,7 +1584,7 @@ export class DisposisiService {
         suratDari: dto.surat_dari ?? null,
         tanggal: tanggalDisposisi,
         nomor: generatedNomor, // Nomor otomatis dari integrasi
-        perihal: dto.perihal,
+        perihal: dto.perihal || dto.ref_perihal || null,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
@@ -1627,7 +1627,7 @@ export class DisposisiService {
           day: 'numeric',
         }); // Tanggal disposisi saat ini
         const refNomor = dto.ref_nomor_surat || ''; // Dari input form
-        const refPerihal = dto.perihal; // Dari input form
+        const refPerihal = dto.perihal || dto.ref_perihal || ''; // Dari input form
 
         // Generate QR Code untuk sign_option qr_only atau digsig
         let qrCodeHtml = '';
@@ -1653,7 +1653,7 @@ export class DisposisiService {
           sifat: dto.sifat || 'Biasa',
           pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
           tembusan: [],
-          perihal: dto.perihal,
+          perihal: dto.perihal || dto.ref_perihal || '',
           nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
           refNomor: refNomor,
           refPerihal: refPerihal,
@@ -1733,7 +1733,7 @@ export class DisposisiService {
           tanggal: dto.tanggal_disposisi,
           status: isPending ? 'pending' : 'final',
           sifat: dto.sifat,
-          perihal: dto.perihal,
+          perihal: dto.perihal || dto.ref_perihal || '',
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
@@ -1817,7 +1817,7 @@ export class DisposisiService {
         sifat: dto.sifat,
         nomor: dto.ref_nomor_surat || undefined, // Opsional untuk disposisi pertama
         tanggal: tanggalDisposisi,
-        perihal: dto.perihal, // Perihal masuk ke tabel naskah
+        perihal: dto.perihal || dto.ref_perihal || undefined, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
         status: 'draf',
         lampiran: dto.lampiran?.length
@@ -1999,7 +1999,7 @@ export class DisposisiService {
         suratDari: dto.surat_dari ?? null,
         tanggal: tanggalDisposisi,
         nomor: dto.ref_nomor_surat ?? null,
-        perihal: dto.perihal,
+        perihal: dto.perihal || dto.ref_perihal || null,
         klasifikasi: dto.klasifikasi ?? null,
         kepadaYth: kepadaYth,
         disposisi: dto.disposisi ?? null, // Langsung dari FE (checkbox yang diformat)
@@ -2023,7 +2023,7 @@ export class DisposisiService {
           tanggal: dto.tanggal_disposisi,
           status: 'draf',
           sifat: dto.sifat,
-          perihal: dto.perihal,
+          perihal: dto.perihal || dto.ref_perihal || '',
           pengirim: this.toSirkulasiInfo(pengirimData),
           penerima: penerimaResponses,
           disposisi: dto.disposisi,
@@ -2671,7 +2671,7 @@ export class DisposisiService {
               ? new Date(dto.tanggal_disposisi)
               : naskah.tanggal || null,
             nomor: dto.ref_nomor_surat || '',
-            perihal: dto.perihal || '',
+            perihal: dto.perihal || dto.ref_perihal || '',
             klasifikasi: dto.klasifikasi || '',
             kepadaYth: kepadaYthNew,
             disposisi: dto.disposisi || '',
@@ -2951,7 +2951,7 @@ export class DisposisiService {
       tanggal_disposisi: dto.tanggal_disposisi,
       sifat: dto.sifat,
       ref_nomor_surat: dto.ref_nomor_surat,
-      perihal: dto.perihal,
+      perihal: dto.perihal || dto.ref_perihal,
       id_naskah_sebelumnya: dto.id_naskah_sebelumnya,
       disposisi: dto.disposisi,
       catatan: dto.catatan,
