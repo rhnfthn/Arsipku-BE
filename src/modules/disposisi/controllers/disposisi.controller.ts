@@ -230,12 +230,18 @@ export class DisposisiController {
         body.tanggal_disposisi = body.tanggal;
       }
 
-      // Parse ref.nomor dan ref.perihal from form-data (dot notation)
+      // Parse ref.nomor dan ref.perihal from form-data (dot notation or underscore)
       if (!body.ref_nomor_surat && body['ref.nomor']) {
         body.ref_nomor_surat = body['ref.nomor'];
       }
+      if (!body.ref_nomor_surat && body.ref_nomor) {
+        body.ref_nomor_surat = body.ref_nomor;
+      }
       if (!body.perihal && body['ref.perihal']) {
         body.perihal = body['ref.perihal'];
+      }
+      if (!body.perihal && body.ref_perihal) {
+        body.perihal = body.ref_perihal;
       }
 
       // Parse disposisi array to string if needed
@@ -348,12 +354,18 @@ export class DisposisiController {
         body.tanggal_disposisi = body.tanggal;
       }
 
-      // Parse ref.nomor dan ref.perihal from form-data (dot notation)
+      // Parse ref.nomor dan ref.perihal from form-data (dot notation or underscore)
       if (!body.ref_nomor_surat && body['ref.nomor']) {
         body.ref_nomor_surat = body['ref.nomor'];
       }
+      if (!body.ref_nomor_surat && body.ref_nomor) {
+        body.ref_nomor_surat = body.ref_nomor;
+      }
       if (!body.perihal && body['ref.perihal']) {
         body.perihal = body['ref.perihal'];
+      }
+      if (!body.perihal && body.ref_perihal) {
+        body.perihal = body.ref_perihal;
       }
 
       // Parse disposisi array to string if needed
@@ -573,12 +585,18 @@ export class DisposisiController {
         body.tanggal_disposisi = body.tanggal;
       }
 
-      // Parse ref.nomor dan ref.perihal from form-data (dot notation)
+      // Parse ref.nomor dan ref.perihal from form-data (dot notation or underscore)
       if (!body.ref_nomor_surat && body['ref.nomor']) {
         body.ref_nomor_surat = body['ref.nomor'];
       }
+      if (!body.ref_nomor_surat && body.ref_nomor) {
+        body.ref_nomor_surat = body.ref_nomor;
+      }
       if (!body.perihal && body['ref.perihal']) {
         body.perihal = body['ref.perihal'];
+      }
+      if (!body.perihal && body.ref_perihal) {
+        body.perihal = body.ref_perihal;
       }
 
       // Parse disposisi array to string if needed
@@ -705,12 +723,18 @@ export class DisposisiController {
         body.tanggal_disposisi = body.tanggal;
       }
 
-      // Parse ref.nomor dan ref.perihal from form-data (dot notation)
+      // Parse ref.nomor dan ref.perihal from form-data (dot notation or underscore)
       if (!body.ref_nomor_surat && body['ref.nomor']) {
         body.ref_nomor_surat = body['ref.nomor'];
       }
+      if (!body.ref_nomor_surat && body.ref_nomor) {
+        body.ref_nomor_surat = body.ref_nomor;
+      }
       if (!body.perihal && body['ref.perihal']) {
         body.perihal = body['ref.perihal'];
+      }
+      if (!body.perihal && body.ref_perihal) {
+        body.perihal = body.ref_perihal;
       }
 
       // Parse disposisi array to string if needed
@@ -844,6 +868,20 @@ export class DisposisiController {
       // Parse tanggal_disposisi from form-data
       if (!body.tanggal_disposisi && body.tanggal) {
         body.tanggal_disposisi = body.tanggal;
+      }
+
+      // Parse ref.nomor dan ref.perihal from form-data (dot notation or underscore)
+      if (!body.ref_nomor_surat && body['ref.nomor']) {
+        body.ref_nomor_surat = body['ref.nomor'];
+      }
+      if (!body.ref_nomor_surat && body.ref_nomor) {
+        body.ref_nomor_surat = body.ref_nomor;
+      }
+      if (!body.perihal && body['ref.perihal']) {
+        body.perihal = body['ref.perihal'];
+      }
+      if (!body.perihal && body.ref_perihal) {
+        body.perihal = body.ref_perihal;
       }
 
       // Parse disposisi array to string if needed
