@@ -71,6 +71,11 @@ export class CreateDisposisiDto {
   @IsString()
   ref_nomor_surat?: string;
 
+  // Ref. Perihal Surat (dari naskah referensi, dipakai sebagai fallback perihal)
+  @IsOptional()
+  @IsString()
+  ref_perihal?: string;
+
   // Ref. Perihal Surat Disposisi (disimpan ke tabel naskah.perihal)
   @IsNotEmpty({ message: 'Perihal harus diisi' })
   @IsString()
