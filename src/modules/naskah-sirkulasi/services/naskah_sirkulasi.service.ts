@@ -576,6 +576,183 @@ export class NaskahSirkulasiService {
   }
 
   // ============================================================
+  // INBOX NAVIGATION - Previous & Next pesan kotak masuk
+  // ============================================================
+
+  /**
+   * Get naskah previous & next dari sebuah naskah di kotak masuk user.
+   * Hanya naskah yang user punya akses (sebagai penerima/tembusan) yang
+   * dikembalikan. Filter jenis ikut serta bila diberikan.
+   *
+   * Urutan menggunakan created_at pengirim (DESC = terbaru) konsisten
+   * dengan getInbox. Flag arsip default diexclude (sesuai inbox).
+   *
+   * @param positionId - Position ID penerima (dari JWT)
+   * @param idNaskah   - ID naskah acuan (naskah yang sedang dibuka)
+   * @param jenis      - Filter jenis (optional)
+   */
+  async getInboxNavigation(
+    positionId: string,
+    idNaskah: string,
+    jenis?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      current: { id_naskah: string } | null;
+      previous: {
+        id_naskah: string;
+        jenis: string;
+        jenis_label: string;
+        nomor: string | null;
+        perihal: string | null;
+        pengirim_position_text: string;
+        pengirim_nama: string;
+        created_at: Date;
+      } | null;
+      next: {
+        id_naskah: string;
+        jenis: string;
+        jenis_label: string;
+        nomor: string | null;
+        perihal: string | null;
+        pengirim_position_text: string;
+        pengirim_nama: string;
+        created_at: Date;
+      } | null;
+    };
+  }> {
+    const sortDirection = 'DESC'; // konsisten dengan inbox default (terbaru)
+
+    // 1) Validasi: pastikan user memang punya akses ke naskah ini
+    //    (sebagai penerima/tembusan, bukan draft, status final/final_tte)
+    const accessCheck = `
+      SELECT s.id_naskah
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      WHERE s.position = ?
+        AND s.sirkuler IN ('penerima', 'tembusan')
+        AND s.is_draft = 0
+        AND (s.is_konsep = 0 OR n.jenis = 'K')
+        AND n.status IN ('final', 'final_tte')
+        AND s.flag_arsip = 0
+        AND s.id_naskah = ?
+      LIMIT 1
+    `;
+    const accessRows: any[] = await this.dataSource.query(accessCheck, [positionId, idNaskah]);
+    if (accessRows.length === 0) {
+      return {
+        success: false,
+        message: 'Unauthorized',
+        data: { current: null, previous: null, next: null },
+      };
+    }
+
+    // 2) Ambil created_at pengirim untuk naskah acuan
+    const refQuery = `
+      SELECT COALESCE(
+        (SELECT p.created_at FROM naskah_sirkulasi p
+         WHERE p.id_naskah = ? AND p.sirkuler = 'pengirim' LIMIT 1),
+        s.created_at
+      ) AS ref_created_at
+      FROM naskah_sirkulasi s
+      WHERE s.id_naskah = ? AND s.sirkuler IN ('penerima', 'tembusan') AND s.position = ?
+      LIMIT 1
+    `;
+    const refRows: any[] = await this.dataSource.query(refQuery, [idNaskah, idNaskah, positionId]);
+    if (refRows.length === 0) {
+      return {
+        success: true,
+        message: 'Naskah acuan tidak ditemukan di kotak masuk',
+        data: { current: { id_naskah: idNaskah }, previous: null, next: null },
+      };
+    }
+    const refCreatedAt = refRows[0].ref_created_at;
+
+    // 3) Build base where clause (hanya pesan yang user punya akses, exclude arsip)
+    const baseWhere = `
+      WHERE s.position = ?
+        AND s.sirkuler IN ('penerima', 'tembusan')
+        AND s.is_draft = 0
+        AND (s.is_konsep = 0 OR n.jenis = 'K')
+        AND n.status IN ('final', 'final_tte')
+        AND s.flag_arsip = 0
+    `;
+    const baseParams: any[] = [positionId];
+    const jenisClause = jenis ? ` AND n.jenis = ?` : '';
+    const jenisParams = jenis ? [jenis] : [];
+
+    const orderExpr = `COALESCE(
+      (SELECT p.created_at FROM naskah_sirkulasi p
+       WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1),
+      s.created_at
+    )`;
+
+    // 4) Ambil satu naskah SEBELUM (lebih lama) dan satu SESUDAH (lebih baru).
+    //    Karena inbox default DESC (terbaru di atas), maka:
+    //      - "next"     = naskah lebih baru (created_at > ref)
+    //      - "previous" = naskah lebih lama (created_at < ref)
+    const navSelect = `
+      SELECT
+        s.id_naskah,
+        n.jenis,
+        n.nomor,
+        n.perihal,
+        pengirim.position_text AS pengirim_position_text,
+        pengirim.nama_sirkuler AS pengirim_nama,
+        ${orderExpr} AS created_at
+      FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN naskah_sirkulasi pengirim
+        ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
+      ${baseWhere}${jenisClause}
+        AND ${orderExpr} <> ?
+        AND ${orderExpr} <op> ?
+      ORDER BY ${orderExpr} <dir>, s.id <dir>
+      LIMIT 1
+    `;
+
+    // previous (lebih lama): created_at < refCreatedAt, urut DESC ambil baris pertama
+    const prevQuery = navSelect
+      .replace(/<op>/g, '<')
+      .replace(/<dir>/g, 'DESC');
+    const prevRows: any[] = await this.dataSource.query(
+      prevQuery,
+      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
+    );
+
+    // next (lebih baru): created_at > refCreatedAt, urut ASC ambil baris pertama
+    const nextQuery = navSelect
+      .replace(/<op>/g, '>')
+      .replace(/<dir>/g, 'ASC');
+    const nextRows: any[] = await this.dataSource.query(
+      nextQuery,
+      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
+    );
+
+    const mapNav = (row: any) => ({
+      id_naskah: row.id_naskah,
+      jenis: row.jenis,
+      jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+      nomor: row.nomor,
+      perihal: row.perihal,
+      pengirim_position_text: row.pengirim_position_text || '',
+      pengirim_nama: row.pengirim_nama || '',
+      created_at: row.created_at,
+    });
+
+    return {
+      success: true,
+      message: 'Berhasil mengambil navigasi kotak masuk',
+      data: {
+        current: { id_naskah: idNaskah },
+        previous: prevRows.length > 0 ? mapNav(prevRows[0]) : null,
+        next: nextRows.length > 0 ? mapNav(nextRows[0]) : null,
+      },
+    };
+  }
+
+  // ============================================================
   // TERTUNDA - Surat Tertunda / Pending TTD Basah
   // ============================================================
 
