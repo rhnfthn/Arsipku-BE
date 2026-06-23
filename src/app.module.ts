@@ -60,6 +60,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { CompanySwitchModule } from './modules/company-switch/company-switch.module';
 import { ConfigAdminModule } from './modules/config/config.module';
 import { FaqModule } from './modules/faq/faq.module';
+import { PedomanModule } from './modules/pedoman/pedoman.module';
 import { ShortUrlModule } from './modules/short-url/short-url.module';
 
 @Module({
@@ -153,6 +154,7 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
     CompanySwitchModule,
     ConfigAdminModule,
     FaqModule,
+    PedomanModule,
     ShortUrlModule,
   ],
   controllers: [AppController],
