@@ -516,7 +516,17 @@ export class NaskahService {
    * @returns Full chain dengan detail setiap naskah
    */
   async getDetailWithChain(naskahId: string, userPosition: string): Promise<any> {
-    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+    // Fetch user's sirkulasi record once — reuse for access check & flag extraction
+    const userSirkulasi = await this.naskahSirkulasiRepository.findOne({
+      where: {
+        idNaskah: naskahId,
+        position: String(userPosition),
+      },
+    });
+
+    if (!userSirkulasi) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    }
 
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
@@ -878,6 +888,14 @@ export class NaskahService {
       success: true,
       message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
       data: flow,
+      user_sirkulasi: {
+        id_sirkulasi: userSirkulasi.id,
+        is_favorit: !!userSirkulasi.flagFavorit,
+        is_arsip: !!userSirkulasi.flagArsip,
+        is_note: !!userSirkulasi.flagNote,
+        is_tindak_lanjut: !!userSirkulasi.tindakLanjut,
+        is_locked: !!userSirkulasi.isLocked,
+      },
     };
   }
 
