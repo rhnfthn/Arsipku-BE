@@ -31,7 +31,7 @@ export class FaqKategoriController {
         {
           success: false,
           message: 'Gagal mengambil data kategori',
-          error: error.message,
+          error: (error as Error).message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -52,7 +52,7 @@ export class FaqKategoriController {
         {
           success: false,
           message: 'Gagal mengambil data kategori',
-          error: error.message,
+          error: (error as Error).message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -75,7 +75,7 @@ export class FaqKategoriController {
         {
           success: false,
           message: 'Gagal membuat kategori',
-          error: error.message,
+          error: (error as Error).message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -99,7 +99,7 @@ export class FaqKategoriController {
         {
           success: false,
           message: 'Gagal mengupdate kategori',
-          error: error.message,
+          error: (error as Error).message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -120,7 +120,7 @@ export class FaqKategoriController {
         {
           success: false,
           message: 'Gagal menghapus kategori',
-          error: error.message,
+          error: (error as Error).message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );

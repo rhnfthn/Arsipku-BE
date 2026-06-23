@@ -101,6 +101,35 @@ export class NaskahSirkulasiController {
   }
 
   /**
+   * GET /naskah_sirkulasi/inbox/:idNaskah/navigation
+   *
+   * Ambil naskah previous & next dari sebuah naskah di kotak masuk user.
+   * Hanya naskah yang user punya akses (penerima/tembusan) yang dikembalikan.
+   *
+   * @param user       - User dari JWT token (contains position)
+   * @param idNaskah   - ID naskah acuan
+   * @param jenis      - Optional filter jenis (ND, SDI, SDE, DI, KA, K)
+   *
+   * @example
+   * GET /naskah_sirkulasi/inbox/abc-123/navigation
+   * GET /naskah_sirkulasi/inbox/abc-123/navigation?jenis=ND
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('inbox/:idNaskah/navigation')
+  async getInboxNavigation(
+    @CurrentUser() user: any,
+    @Param('idNaskah') idNaskah: string,
+    @Query('jenis') jenis?: string,
+  ) {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getInboxNavigation(
+      positionId,
+      idNaskah,
+      jenis,
+    );
+  }
+
+  /**
    * GET /naskah_sirkulasi/inbox-count
    *
    * Menampilkan jumlah kotak masuk yang belum dibaca (dari JWT token)
