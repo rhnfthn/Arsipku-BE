@@ -86,6 +86,9 @@ export class NaskahSirkulasi {
   @Column('tinyint', { name: 'flag_note', nullable: true, default: 0 })
   flagNote: number | null;
 
+  @Column('text', { name: 'note_text', nullable: true })
+  noteText: string | null;
+
   @Column('tinyint', { name: 'flag_arsip', nullable: true, default: 0 })
   flagArsip: number | null;
 

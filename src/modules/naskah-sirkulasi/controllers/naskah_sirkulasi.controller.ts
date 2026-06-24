@@ -260,6 +260,7 @@ export class NaskahSirkulasiController {
       dto.id_sirkulasi,
       dto.flag_type,
       dto.action,
+      dto.note_text,
     );
   }
 
