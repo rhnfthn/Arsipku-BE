@@ -130,6 +130,7 @@ export class InboxItemDto {
   is_favorit: boolean;
   is_arsip: boolean;
   is_note: boolean;
+  note_text: string | null;
   is_tindak_lanjut: boolean;
   is_locked: boolean;
 

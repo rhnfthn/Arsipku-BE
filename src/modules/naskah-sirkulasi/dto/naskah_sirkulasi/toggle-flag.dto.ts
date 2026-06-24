@@ -19,6 +19,10 @@ export class ToggleFlagDto {
     message: 'action harus salah satu dari: toggle, delete',
   })
   action?: 'toggle' | 'delete';
+
+  @IsOptional()
+  @IsString()
+  note_text?: string;
 }
 
 /**
@@ -32,6 +36,7 @@ export class ToggleFlagResponseDto {
     flag_type: string;
     new_value: boolean | null;
     action: 'toggle' | 'delete';
+    note_text?: string | null;
   } | null;
 }
 
