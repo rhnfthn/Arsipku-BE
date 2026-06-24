@@ -44,6 +44,12 @@ export class FaqEntity {
   @Column({ type: 'int', default: 0, name: 'tidak_puas' })
   tidakPuas: number;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  fileUrl?: string;
+
+  @Column({ type: 'json', nullable: true })
+  lampirans?: { url: string; name: string }[];
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
