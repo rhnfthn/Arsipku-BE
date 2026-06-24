@@ -41,11 +41,8 @@ export class PedomanEntity {
   @Column({ type: 'varchar', length: 255, nullable: true })
   fileUrl?: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  lampiranUrl?: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  lampiranName?: string;
+  @Column({ type: 'json', nullable: true })
+  lampirans?: { url: string; name: string }[];
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;

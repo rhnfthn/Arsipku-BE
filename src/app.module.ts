@@ -95,6 +95,8 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
         password: config.get('DB_PASS'),
         database: config.get('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        migrationsRun: true,
         synchronize: false, // hanya untuk development
         timezone: 'Z', // Force UTC timezone untuk konsistensi timestamp
         extra: {

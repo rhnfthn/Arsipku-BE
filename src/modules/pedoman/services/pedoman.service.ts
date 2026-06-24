@@ -1,15 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { PedomanEntity } from '../entities/pedoman.entity';
 import { CreatePedomanDto } from '../dto/create-pedoman.dto';
 import { UpdatePedomanDto } from '../dto/update-pedoman.dto';
-import { PedomanData, PedomanResponseDto } from '../dto/pedoman.dto';
+import { PedomanData, PedomanResponseDto, LampiranItem } from '../dto/pedoman.dto';
 import { StorageService } from '../../storage/services/storage.service';
 
 @Injectable()
 export class PedomanService {
+  private readonly logger = new Logger(PedomanService.name);
+
   constructor(
     @InjectRepository(PedomanEntity)
     private readonly pedomanRepository: Repository<PedomanEntity>,
@@ -25,8 +27,7 @@ export class PedomanService {
       nomorDokumen: pedoman.nomorDokumen,
       tanggalBerlaku: pedoman.tanggalBerlaku,
       fileUrl: pedoman.fileUrl,
-      lampiranUrl: pedoman.lampiranUrl,
-      lampiranName: pedoman.lampiranName,
+      lampirans: pedoman.lampirans,
       isActive: pedoman.isActive,
       created_at: pedoman.createdAt,
       updated_at: pedoman.updatedAt,
@@ -104,8 +105,7 @@ export class PedomanService {
       nomorDokumen: dto.nomorDokumen,
       tanggalBerlaku: new Date(dto.tanggalBerlaku),
       fileUrl: dto.fileUrl,
-      lampiranUrl: dto.lampiranUrl,
-      lampiranName: dto.lampiranName,
+      lampirans: dto.lampirans,
       isActive: dto.isActive ?? true,
     } as any);
 
@@ -136,18 +136,7 @@ export class PedomanService {
       pedoman.tanggalBerlaku = new Date(dto.tanggalBerlaku);
     }
     if (dto.fileUrl !== undefined) pedoman.fileUrl = dto.fileUrl;
-    if (dto.lampiranUrl !== undefined) {
-      // Hapus lampiran lama dari MinIO jika diganti
-      if (pedoman.lampiranUrl && pedoman.lampiranUrl !== dto.lampiranUrl) {
-        try {
-          await this.storageService.deleteFile(pedoman.lampiranUrl);
-        } catch (err) {
-          console.error('Failed to delete old lampiran from storage:', err.message);
-        }
-      }
-      pedoman.lampiranUrl = dto.lampiranUrl;
-    }
-    if (dto.lampiranName !== undefined) pedoman.lampiranName = dto.lampiranName;
+    if (dto.lampirans !== undefined) pedoman.lampirans = dto.lampirans;
     if (dto.isActive !== undefined) pedoman.isActive = dto.isActive;
 
     const updated = await this.pedomanRepository.save(pedoman);
@@ -162,7 +151,7 @@ export class PedomanService {
 
   /**
    * Hapus pedoman berdasarkan ID (khusus super admin)
-   * Juga menghapus file lampiran dari MinIO jika ada
+   * Hard delete dari database + hapus semua file lampiran dari MinIO object storage.
    */
   async remove(id: string): Promise<PedomanResponseDto> {
     const pedoman = await this.pedomanRepository.findOne({ where: { id } });
@@ -170,16 +159,21 @@ export class PedomanService {
       throw new NotFoundException(`Pedoman dengan ID ${id} tidak ditemukan`);
     }
 
-    // Hapus lampiran dari MinIO jika ada
-    if (pedoman.lampiranUrl) {
-      try {
-        await this.storageService.deleteFile(pedoman.lampiranUrl);
-      } catch (err) {
-        console.error('Failed to delete lampiran from storage:', err.message);
+    const data = this.toPedomanData(pedoman);
+
+    // Hapus semua file lampiran dari MinIO object storage
+    if (pedoman.lampirans && pedoman.lampirans.length > 0) {
+      for (const lampiran of pedoman.lampirans) {
+        try {
+          await this.storageService.deleteFile(lampiran.url);
+          this.logger.log(`🗑️ File lampiran dihapus dari MinIO: ${lampiran.url}`);
+        } catch (err: any) {
+          this.logger.warn(`⚠️ Gagal menghapus file lampiran dari MinIO: ${lampiran.url} - ${err.message}`);
+        }
       }
     }
 
-    const data = this.toPedomanData(pedoman);
+    // Hard delete dari database
     await this.pedomanRepository.remove(pedoman);
 
     return {
@@ -187,38 +181,5 @@ export class PedomanService {
       message: 'Pedoman berhasil dihapus',
       data,
     };
-  }
-
-  /**
-   * Upload lampiran file ke MinIO
-   * Menggunakan uploadBuffer untuk mendukung berbagai tipe file (image, pdf, dll)
-   * @param file - File yang diupload (image/pdf/etc)
-   * @returns { lampiranUrl, lampiranName, previewUrl }
-   */
-  async uploadLampiran(file: Express.Multer.File): Promise<{
-    lampiranUrl: string;
-    lampiranName: string;
-    previewUrl: string;
-  }> {
-    const uploadResult = await this.storageService.uploadBuffer(
-      file.buffer,
-      file.originalname,
-      file.mimetype,
-      'pedoman/lampiran',
-    );
-
-    return {
-      lampiranUrl: uploadResult.key,
-      lampiranName: file.originalname,
-      previewUrl: uploadResult.key,
-    };
-  }
-
-  /**
-   * Mendapatkan signed URL untuk preview file lampiran
-   * @param key - Key file di MinIO
-   */
-  async getLampiranPreviewUrl(key: string): Promise<string> {
-    return await this.storageService.getPreviewUrl(key);
   }
 }
