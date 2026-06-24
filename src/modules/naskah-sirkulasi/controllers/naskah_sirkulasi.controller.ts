@@ -202,6 +202,31 @@ export class NaskahSirkulasiController {
     return this.naskahSirkulasiService.countTertunda(positionId);
   }
 
+  /**
+   * GET /naskah_sirkulasi/tertunda/:idNaskah/navigation
+   *
+   * Ambil naskah previous & next dari sebuah naskah di daftar tertunda user.
+   * Hanya naskah tertunda (pengirim, is_draft=1, status=pending) yang dikembalikan.
+   *
+   * @example
+   * GET /naskah_sirkulasi/tertunda/abc-123/navigation
+   * GET /naskah_sirkulasi/tertunda/abc-123/navigation?jenis=ND
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('tertunda/:idNaskah/navigation')
+  async getTertundaNavigation(
+    @CurrentUser() user: any,
+    @Param('idNaskah') idNaskah: string,
+    @Query('jenis') jenis?: string,
+  ) {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getTertundaNavigation(
+      positionId,
+      idNaskah,
+      jenis,
+    );
+  }
+
   // ============================================================
   // SENT MESSAGE - Kotak Keluar (Global untuk semua jenis naskah)
   // ============================================================
@@ -229,6 +254,31 @@ export class NaskahSirkulasiController {
   ): Promise<SentMessageResponseDto> {
     const positionId = user.position;
     return this.naskahSirkulasiService.getSentMessage(positionId, query);
+  }
+
+  /**
+   * GET /naskah_sirkulasi/sent/:idNaskah/navigation
+   *
+   * Ambil naskah previous & next dari sebuah naskah di kotak keluar (terkirim) user.
+   * Hanya naskah yang user kirim (pengirim, final/final_tte) yang dikembalikan.
+   *
+   * @example
+   * GET /naskah_sirkulasi/sent/abc-123/navigation
+   * GET /naskah_sirkulasi/sent/abc-123/navigation?jenis=ND
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('sent/:idNaskah/navigation')
+  async getSentNavigation(
+    @CurrentUser() user: any,
+    @Param('idNaskah') idNaskah: string,
+    @Query('jenis') jenis?: string,
+  ) {
+    const positionId = user.position;
+    return this.naskahSirkulasiService.getSentNavigation(
+      positionId,
+      idNaskah,
+      jenis,
+    );
   }
 
   // ============================================================
