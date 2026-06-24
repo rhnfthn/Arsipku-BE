@@ -344,6 +344,33 @@ export class SuratDinasEksternalController {
         body.english = body.english === 'true' || body.english === true;
       }
 
+      // Parse array fields from form-data JSON strings
+      const parseJsonArray = (value: any): any[] => {
+        if (!value) return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return [value];
+          }
+        }
+        return [value];
+      };
+
+      if (body.penerima !== undefined) {
+        body.penerima = parseJsonArray(body.penerima);
+      }
+      if (body.tertuju !== undefined) {
+        body.tertuju = parseJsonArray(body.tertuju);
+      }
+      if (body.tembusan !== undefined) {
+        body.tembusan = parseJsonArray(body.tembusan);
+      }
+      if (body.lampiran_temp_ids !== undefined) {
+        body.lampiran_temp_ids = parseJsonArray(body.lampiran_temp_ids);
+      }
+
       const dto = body as UpdateSdeDraftDto;
       return await this.sdeService.updateDraft(id, dto);
     } catch (error) {
