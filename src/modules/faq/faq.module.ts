@@ -7,10 +7,12 @@ import { FaqController } from './controllers/faq.controller';
 import { FaqKategoriController } from './controllers/faq-kategori.controller';
 import { FaqService } from './services/faq.service';
 import { FaqKategoriService } from './services/faq-kategori.service';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([FaqEntity, FaqVoteEntity, FaqKategoriEntity]),
+    StorageModule,
   ],
   controllers: [FaqController, FaqKategoriController],
   providers: [FaqService, FaqKategoriService],
