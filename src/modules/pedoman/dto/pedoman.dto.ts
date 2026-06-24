@@ -1,5 +1,10 @@
 import { PedomanJenis } from '../entities/pedoman.entity';
 
+export interface LampiranItem {
+  url: string;
+  name: string;
+}
+
 export interface PedomanData {
   id: string;
   judul: string;
@@ -8,8 +13,7 @@ export interface PedomanData {
   nomorDokumen: string;
   tanggalBerlaku: Date;
   fileUrl?: string;
-  lampiranUrl?: string;
-  lampiranName?: string;
+  lampirans?: LampiranItem[];
   isActive: boolean;
   created_at: Date;
   updated_at: Date;
