@@ -98,7 +98,7 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         migrationsRun: true,
         synchronize: false, // hanya untuk development
-        timezone: 'Z', // Force UTC timezone untuk konsistensi timestamp
+        timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
         extra: {
           maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
         },

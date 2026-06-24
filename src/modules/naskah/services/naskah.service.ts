@@ -16,6 +16,7 @@ import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.
 import { NotificationService } from '../../notification/services/notification.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
 import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
+import { formatWibDateTime } from '../../../common/helpers/date-format.helper';
 import {
   NaskahDetailResponseDto,
   SirkulasiDetailDto,
@@ -856,9 +857,9 @@ export class NaskahService {
         // Level
         level,
         
-        // Timestamps - menggunakan created_at dari pengirim sirkulasi (UTC dari database)
-        created_at: pengirimSirkulasi?.createdAt || null,
-        updated_at: pengirimSirkulasi?.updatedAt || null,
+        // Timestamps - format WIB string agar FE tampil langsung tanpa konversi
+        created_at: formatWibDateTime(pengirimSirkulasi?.createdAt) || null,
+        updated_at: formatWibDateTime(pengirimSirkulasi?.updatedAt) || null,
       };
     };
 
