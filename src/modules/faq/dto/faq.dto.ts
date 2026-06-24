@@ -6,6 +6,8 @@ export interface FaqData {
   kategoriNama: string;
   puas: number;
   tidak_puas: number;
+  fileUrl?: string;
+  lampirans?: { url: string; name: string }[];
   created_at: Date;
   updated_at: Date;
 }
