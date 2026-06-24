@@ -97,6 +97,14 @@ export class PedomanController {
         );
       }
 
+      // Validasi: hanya izinkan akses file dari folder pedoman/
+      if (!path.startsWith('pedoman/')) {
+        throw new HttpException(
+          { success: false, message: 'Akses ditolak: path tidak valid' },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
       // Get file buffer from MinIO
       const fileBuffer = await this.storageService.getFile(path);
 
@@ -151,6 +159,28 @@ export class PedomanController {
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+      fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'image/gif',
+          'image/webp',
+          'image/svg+xml',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ];
+        if (allowedTypes.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new HttpException(
+            { success: false, message: `Tipe file tidak diizinkan: ${file.mimetype}` },
+            HttpStatus.BAD_REQUEST,
+          ), false);
+        }
+      },
     }),
   )
   async uploadLampiran(@UploadedFiles() files: Express.Multer.File[]): Promise<any> {
