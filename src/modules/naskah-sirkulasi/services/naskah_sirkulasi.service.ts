@@ -401,6 +401,7 @@ export class NaskahSirkulasiService {
         s.flag_favorit,
         s.flag_arsip,
         s.flag_note,
+        s.note_text,
         s.tindak_lanjut,
         s.is_locked,
         pengirim.position as pengirim_position_id,
@@ -519,6 +520,7 @@ export class NaskahSirkulasiService {
         is_favorit: row.flag_favorit === 1,
         is_arsip: row.flag_arsip === 1,
         is_note: row.flag_note === 1,
+        note_text: row.note_text || null,
         is_tindak_lanjut: row.tindak_lanjut === 1,
         is_locked: row.is_locked === 1,
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
@@ -886,6 +888,7 @@ export class NaskahSirkulasiService {
         s.nama_sirkuler as pengirim_nama,
         s.flag_favorit,
         s.flag_note,
+        s.note_text,
         s.flag_arsip,
         s.tindak_lanjut,
         s.is_locked,
@@ -1215,6 +1218,7 @@ export class NaskahSirkulasiService {
         s.nama_sirkuler as pengirim_nama,
         s.flag_favorit,
         s.flag_note,
+        s.note_text,
         s.flag_arsip,
         s.tindak_lanjut,
         s.is_locked,
@@ -1515,6 +1519,7 @@ export class NaskahSirkulasiService {
     idSirkulasi: string,
     flagType: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock',
     action: 'toggle' | 'delete' = 'toggle',
+    noteText?: string,
   ): Promise<ToggleFlagResponseDto> {
     // Cari record
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
@@ -1571,9 +1576,16 @@ export class NaskahSirkulasiService {
     }
 
     // Update database
-    await this.naskahSirkulasiRepo.update(idSirkulasi, {
+    const updateData: any = {
       [fieldName]: newValue,
-    });
+    };
+
+    // Save note_text when toggling note flag
+    if (flagType === 'note') {
+      updateData.noteText = newValue === 1 ? (noteText || null) : null;
+    }
+
+    await this.naskahSirkulasiRepo.update(idSirkulasi, updateData);
 
     return {
       success: true,
@@ -1583,6 +1595,7 @@ export class NaskahSirkulasiService {
         flag_type: flagType,
         new_value: newValue === 1,
         action,
+        note_text: flagType === 'note' ? (newValue === 1 ? (noteText || null) : null) : undefined,
       },
     };
   }
@@ -1801,6 +1814,7 @@ export class NaskahSirkulasiService {
           s.flag_favorit,
           s.flag_arsip,
           s.flag_note,
+          s.note_text,
           s.tindak_lanjut,
           s.is_locked,
           COALESCE(
@@ -1844,6 +1858,7 @@ export class NaskahSirkulasiService {
           s.flag_favorit,
           s.flag_arsip,
           s.flag_note,
+          s.note_text,
           0 as tindak_lanjut, 
           0 as is_locked,
           s.created_at,
@@ -2009,6 +2024,7 @@ export class NaskahSirkulasiService {
           is_favorit: row.flag_favorit === 1,
           is_arsip: row.flag_arsip === 1,
           is_note: row.flag_note === 1,
+          note_text: row.note_text || null,
           is_tindak_lanjut: row.tindak_lanjut === 1,
           is_locked: row.is_locked === 1,
           labels: labelsMap.get(row.id_naskah) || [],
@@ -2060,6 +2076,7 @@ export class NaskahSirkulasiService {
           is_favorit: !!row.flag_favorit,
           is_arsip: !!row.flag_arsip,
           is_note: !!row.flag_note,
+          note_text: row.note_text || null,
           is_tindak_lanjut: false,
           is_locked: false,
         });
