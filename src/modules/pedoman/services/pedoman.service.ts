@@ -106,7 +106,7 @@ export class PedomanService {
       tanggalBerlaku: new Date(dto.tanggalBerlaku),
       fileUrl: dto.fileUrl,
       lampirans: dto.lampirans,
-      isActive: dto.isActive ?? true,
+      isActive: true,
     } as any);
 
     const saved = await this.pedomanRepository.save(pedoman);
@@ -136,8 +136,23 @@ export class PedomanService {
       pedoman.tanggalBerlaku = new Date(dto.tanggalBerlaku);
     }
     if (dto.fileUrl !== undefined) pedoman.fileUrl = dto.fileUrl;
-    if (dto.lampirans !== undefined) pedoman.lampirans = dto.lampirans;
-    if (dto.isActive !== undefined) pedoman.isActive = dto.isActive;
+    if (dto.lampirans !== undefined) {
+      // Hapus file lampiran lama yang tidak ada di daftar baru dari MinIO
+      const oldLampirans = pedoman.lampirans || [];
+      const newUrls = (dto.lampirans || []).map((l) => l.url);
+      for (const oldLampiran of oldLampirans) {
+        if (!newUrls.includes(oldLampiran.url)) {
+          try {
+            await this.storageService.deleteFile(oldLampiran.url);
+            this.logger.log(`🗑️ File lampiran lama dihapus dari MinIO: ${oldLampiran.url}`);
+          } catch (err: any) {
+            this.logger.warn(`⚠️ Gagal menghapus file lampiran lama: ${oldLampiran.url} - ${err.message}`);
+          }
+        }
+      }
+      pedoman.lampirans = dto.lampirans;
+    }
+    // isActive selalu true — semua pedoman tampil ke semua user
 
     const updated = await this.pedomanRepository.save(pedoman);
     const singleUpdated = Array.isArray(updated) ? updated[0] : updated;
