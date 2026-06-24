@@ -8,19 +8,21 @@ import {
   Param,
   Query,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
   HttpException,
   HttpStatus,
   Res,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { PedomanService } from '../services/pedoman.service';
 import { CreatePedomanDto } from '../dto/create-pedoman.dto';
 import { UpdatePedomanDto } from '../dto/update-pedoman.dto';
 import { PedomanResponseDto } from '../dto/pedoman.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles } from '../../../common/decorators';
+import { Roles, Public } from '../../../common/decorators';
+import { StorageService } from '../../storage/services/storage.service';
+import type { Response } from 'express';
 
 /**
  * Controller untuk fitur Pedoman.
@@ -34,7 +36,10 @@ import { Roles } from '../../../common/decorators';
  */
 @Controller('pedoman')
 export class PedomanController {
-  constructor(private readonly pedomanService: PedomanService) {}
+  constructor(
+    private readonly pedomanService: PedomanService,
+    private readonly storageService: StorageService,
+  ) {}
 
   /**
    * GET /pedoman
@@ -64,6 +69,127 @@ export class PedomanController {
         {
           success: false,
           message: 'Gagal mengambil data pedoman',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * GET /pedoman/preview-lampiran?path=xxx
+   * Preview/stream file lampiran langsung dari MinIO.
+   * Akses: PUBLIC (tanpa JWT) — agar <img> dan <a> tag bisa langsung mengakses.
+   *
+   * Query: ?path=<file_key_in_minio>
+   */
+  @Get('preview-lampiran')
+  @Public()
+  async previewLampiran(
+    @Query('path') path: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      if (!path) {
+        throw new HttpException(
+          { success: false, message: 'Parameter path wajib diisi' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Get file buffer from MinIO
+      const fileBuffer = await this.storageService.getFile(path);
+
+      // Determine content type based on file extension
+      const extension = path.split('.').pop()?.toLowerCase();
+      let contentType = 'application/octet-stream';
+
+      if (extension === 'pdf') {
+        contentType = 'application/pdf';
+      } else if (['jpg', 'jpeg'].includes(extension || '')) {
+        contentType = 'image/jpeg';
+      } else if (extension === 'png') {
+        contentType = 'image/png';
+      } else if (extension === 'gif') {
+        contentType = 'image/gif';
+      } else if (extension === 'webp') {
+        contentType = 'image/webp';
+      } else if (extension === 'svg') {
+        contentType = 'image/svg+xml';
+      }
+
+      // Set headers for inline preview (not download)
+      res.set({
+        'Content-Type': contentType,
+        'Content-Disposition': `inline; filename="${path.split('/').pop()}"`,
+        'Content-Length': fileBuffer.length,
+        'Cache-Control': 'public, max-age=3600',
+      });
+
+      res.status(HttpStatus.OK).send(fileBuffer);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Gagal memuat lampiran',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /pedoman/upload-lampiran
+   * Upload multiple file lampiran ke MinIO.
+   * Akses: admin & super admin
+   */
+  @Post('upload-lampiran')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'superadmin')
+  @UseInterceptors(
+    FilesInterceptor('lampirans', 10, {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+    }),
+  )
+  async uploadLampiran(@UploadedFiles() files: Express.Multer.File[]): Promise<any> {
+    try {
+      if (!files || files.length === 0) {
+        throw new HttpException(
+          { success: false, message: 'File tidak ditemukan' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Upload all files directly to MinIO object storage (path: pedoman/lampiran)
+      const lampirans = await Promise.all(
+        files.map(async (file) => {
+          const uploadResult = await this.storageService.uploadBuffer(
+            file.buffer,
+            file.originalname,
+            file.mimetype,
+            'pedoman/lampiran',
+          );
+          return {
+            url: uploadResult.key,
+            name: file.originalname,
+          };
+        }),
+      );
+
+      return {
+        success: true,
+        data: {
+          lampirans,
+        },
+      };
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Gagal mengunggah lampiran',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -162,120 +288,6 @@ export class PedomanController {
         {
           success: false,
           message: 'Gagal menghapus pedoman',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * POST /pedoman/upload-lampiran
-   * Upload file lampiran (image/pdf) untuk pedoman.
-   * File disimpan ke MinIO di folder pedoman/lampiran.
-   * Akses: khusus admin/superadmin
-   *
-   * Form-data:
-   *  - lampiran: file (single file, max 10MB)
-   *
-   * Response:
-   * {
-   *   success: true,
-   *   data: {
-   *     lampiranUrl: "pedoman/lampiran/1234567890-filename.jpg",
-   *     lampiranName: "filename.jpg",
-   *     previewUrl: "pedoman/lampiran/1234567890-filename.jpg"
-   *   }
-   * }
-   */
-  @Post('upload-lampiran')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
-  @UseInterceptors(
-    FileInterceptor('lampiran', {
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB
-      },
-      fileFilter: (_req, file, cb) => {
-        const allowedMimes = [
-          'image/jpeg',
-          'image/png',
-          'image/gif',
-          'image/webp',
-          'application/pdf',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/vnd.ms-excel',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ];
-        if (allowedMimes.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(
-            new HttpException(
-              {
-                success: false,
-                message: `Tipe file ${file.mimetype} tidak didukung. Gunakan gambar (JPG/PNG/GIF/WebP) atau dokumen (PDF/DOC/DOCX/XLS/XLSX).`,
-              },
-              HttpStatus.BAD_REQUEST,
-            ),
-            false,
-          );
-        }
-      },
-    }),
-  )
-  async uploadLampiran(
-    @UploadedFile() file: Express.Multer.File,
-  ): Promise<{ success: boolean; data: any }> {
-    try {
-      if (!file) {
-        throw new HttpException(
-          {
-            success: false,
-            message: 'Tidak ada file yang diupload',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const result = await this.pedomanService.uploadLampiran(file);
-
-      return {
-        success: true,
-        data: result,
-      };
-    } catch (error: any) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal mengupload lampiran',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * GET /pedoman/preview-lampiran/*
-   * Preview lampiran file directly from storage
-   */
-  @Get('preview-lampiran/*')
-  @UseGuards(JwtAuthGuard)
-  async previewLampiran(
-    @Param('0') path: string,
-    @Res() res: any,
-  ) {
-    try {
-      const url = await this.pedomanService.getLampiranPreviewUrl(path);
-      return res.redirect(url);
-    } catch (error: any) {
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal mendapatkan url preview lampiran',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

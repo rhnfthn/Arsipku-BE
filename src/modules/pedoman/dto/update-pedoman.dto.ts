@@ -5,6 +5,8 @@ import {
   IsDateString,
   IsBoolean,
   MaxLength,
+  IsUrl,
+  ValidateIf,
 } from 'class-validator';
 import { PedomanJenis } from '../entities/pedoman.entity';
 
@@ -33,18 +35,13 @@ export class UpdatePedomanDto {
 
   @IsString()
   @IsOptional()
+  @ValidateIf((o) => o.fileUrl && o.fileUrl.trim().length > 0)
+  @IsUrl()
   @MaxLength(255)
   fileUrl?: string;
 
-  @IsString()
   @IsOptional()
-  @MaxLength(500)
-  lampiranUrl?: string;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(255)
-  lampiranName?: string;
+  lampirans?: { url: string; name: string }[];
 
   @IsBoolean()
   @IsOptional()
