@@ -893,6 +893,7 @@ export class NaskahService {
         is_favorit: !!userSirkulasi.flagFavorit,
         is_arsip: !!userSirkulasi.flagArsip,
         is_note: !!userSirkulasi.flagNote,
+        note_text: userSirkulasi.noteText || null,
         is_tindak_lanjut: !!userSirkulasi.tindakLanjut,
         is_locked: !!userSirkulasi.isLocked,
       },
