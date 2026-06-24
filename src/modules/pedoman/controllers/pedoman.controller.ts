@@ -98,7 +98,7 @@ export class PedomanController {
       }
 
       // Validasi: hanya izinkan akses file dari folder pedoman/
-      if (!path.startsWith('pedoman/')) {
+      if (!path.startsWith('pedoman/') || path.includes('..')) {
         throw new HttpException(
           { success: false, message: 'Akses ditolak: path tidak valid' },
           HttpStatus.FORBIDDEN,

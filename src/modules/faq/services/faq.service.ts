@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,9 +8,12 @@ import { FaqKategoriEntity } from '../entities/faq-kategori.entity';
 import { CreateFaqDto } from '../dto/create-faq.dto';
 import { UpdateFaqDto } from '../dto/update-faq.dto';
 import { FaqData, FaqResponseDto } from '../dto/faq.dto';
+import { StorageService } from '../../storage/services/storage.service';
 
 @Injectable()
 export class FaqService {
+  private readonly logger = new Logger(FaqService.name);
+
   constructor(
     @InjectRepository(FaqEntity)
     private readonly faqRepository: Repository<FaqEntity>,
@@ -18,6 +21,7 @@ export class FaqService {
     private readonly faqVoteRepository: Repository<FaqVoteEntity>,
     @InjectRepository(FaqKategoriEntity)
     private readonly kategoriRepository: Repository<FaqKategoriEntity>,
+    private readonly storageService: StorageService,
   ) {}
 
   private toFaqData(faq: FaqEntity): FaqData {
@@ -29,6 +33,8 @@ export class FaqService {
       kategoriNama: faq.kategoriEntity?.nama || '',
       puas: faq.puas,
       tidak_puas: faq.tidakPuas,
+      fileUrl: faq.fileUrl,
+      lampirans: faq.lampirans,
       created_at: faq.createdAt,
       updated_at: faq.updatedAt,
     };
@@ -104,6 +110,8 @@ export class FaqService {
       pertanyaan: dto.pertanyaan,
       deskripsi: dto.deskripsi,
       kategoriId: dto.kategoriId,
+      fileUrl: dto.fileUrl,
+      lampirans: dto.lampirans,
       puas: 0,
       tidakPuas: 0,
     });
@@ -133,6 +141,23 @@ export class FaqService {
 
     if (dto.pertanyaan !== undefined) faq.pertanyaan = dto.pertanyaan;
     if (dto.deskripsi !== undefined) faq.deskripsi = dto.deskripsi;
+    if (dto.fileUrl !== undefined) faq.fileUrl = dto.fileUrl;
+    if (dto.lampirans !== undefined) {
+      // Hapus file lampiran lama yang tidak ada di daftar baru dari MinIO
+      const oldLampirans = faq.lampirans || [];
+      const newUrls = (dto.lampirans || []).map((l) => l.url);
+      for (const oldLampiran of oldLampirans) {
+        if (!newUrls.includes(oldLampiran.url)) {
+          try {
+            await this.storageService.deleteFile(oldLampiran.url);
+            this.logger.log(`🗑️ File lampiran FAQ lama dihapus dari MinIO: ${oldLampiran.url}`);
+          } catch (err: any) {
+            this.logger.warn(`⚠️ Gagal menghapus file lampiran FAQ lama: ${oldLampiran.url} - ${err.message}`);
+          }
+        }
+      }
+      faq.lampirans = dto.lampirans;
+    }
     if (dto.kategoriId !== undefined) {
       // Validate kategori exists
       const kategori = await this.kategoriRepository.findOne({
@@ -167,6 +192,19 @@ export class FaqService {
     }
 
     const data = this.toFaqData(faq);
+
+    // Hapus semua file lampiran dari MinIO object storage
+    if (faq.lampirans && faq.lampirans.length > 0) {
+      for (const lampiran of faq.lampirans) {
+        try {
+          await this.storageService.deleteFile(lampiran.url);
+          this.logger.log(`🗑️ File lampiran FAQ dihapus dari MinIO: ${lampiran.url}`);
+        } catch (err: any) {
+          this.logger.warn(`⚠️ Gagal menghapus file lampiran FAQ dari MinIO: ${lampiran.url} - ${err.message}`);
+        }
+      }
+    }
+
     await this.faqRepository.remove(faq);
 
     return {
