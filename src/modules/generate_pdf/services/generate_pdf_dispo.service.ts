@@ -354,7 +354,7 @@ export class GeneratePdfDispoService {
           <div style="padding: 12px; font-size: 10px; flex: 1;">
             ${catatan || htmlCatatan || ''}
           </div>
-          ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-end; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
+          ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-start; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
         </div>
 
         <!-- Footer -->

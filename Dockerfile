@@ -23,6 +23,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 
 ENV NODE_ENV=production
+ENV TZ=Asia/Jakarta
 EXPOSE 3000
 
 CMD ["node", "dist/main.js"]
