@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,6 +6,7 @@ import axios, { AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { SendMailDto } from '../dto';
 import { MailLogEntity } from '../entities';
+import { Session } from '../../auth/entities/session.entity';
 
 export interface MailLogContext {
   naskah_id?: string;
@@ -20,27 +21,53 @@ export interface MailLogContext {
 export class MailServiceService {
   private readonly logger = new Logger(MailServiceService.name);
   private readonly baseUrl: string;
-  private readonly token: string;
 
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(MailLogEntity)
     private readonly mailLogRepository: Repository<MailLogEntity>,
+    @InjectRepository(Session)
+    private readonly sessionRepository: Repository<Session>,
   ) {
     this.baseUrl = this.configService.get<string>('MAIL_API_BASE_URL') || '';
-    this.token = this.configService.get<string>('MAIL_API_TOKEN') || '';
 
-    if (!this.baseUrl || !this.token) {
-      this.logger.warn('MAIL_API_BASE_URL or MAIL_API_TOKEN is not set. Mail service will not work properly.');
+    if (!this.baseUrl) {
+      this.logger.warn('MAIL_API_BASE_URL is not set. Mail service will not work properly.');
     }
+  }
+
+  /**
+   * Get AirNav SSO access token from session (same pattern as digsig module)
+   * Token ini didapat saat user login via SSO AirNav
+   */
+  private async getAirnavTokenFromSession(persnum: number): Promise<string> {
+    const session = await this.sessionRepository.findOne({
+      where: { userPersnum: persnum },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!session) {
+      throw new BadRequestException(
+        'Session tidak ditemukan. Silakan login ulang untuk mengirim email.',
+      );
+    }
+
+    if (new Date() > new Date(session.airnavExpiredAt)) {
+      throw new BadRequestException(
+        'Token AirNav sudah expired. Silakan login ulang untuk mengirim email.',
+      );
+    }
+
+    return session.airnavAccessToken;
   }
 
   /**
    * Kirim email dengan lampiran dari URL
    * Endpoint: GET /mail (body in request, per Postman collection)
    */
-  async sendMail(dto: SendMailDto, context?: MailLogContext) {
-    const result = await this.callMailApi('/mail', dto, 'GET');
+  async sendMail(dto: SendMailDto, persnum: number, context?: MailLogContext) {
+    const token = await this.getAirnavTokenFromSession(persnum);
+    const result = await this.callMailApi('/mail', dto, 'GET', token);
     await this.logMail(dto, 'success', null, result, context);
     return result;
   }
@@ -49,9 +76,10 @@ export class MailServiceService {
    * Kirim email dengan lampiran base64
    * Endpoint: POST /mail/base64
    */
-  async sendMailBase64(dto: SendMailDto, context?: MailLogContext) {
+  async sendMailBase64(dto: SendMailDto, persnum: number, context?: MailLogContext) {
     try {
-      const result = await this.callMailApi('/mail/base64', dto, 'POST');
+      const token = await this.getAirnavTokenFromSession(persnum);
+      const result = await this.callMailApi('/mail/base64', dto, 'POST', token);
       await this.logMail(dto, 'success', null, result, context);
       return result;
     } catch (err) {
@@ -64,8 +92,9 @@ export class MailServiceService {
    * Simpan draft email
    * Endpoint: POST /mail/draft
    */
-  async saveDraft(dto: SendMailDto, context?: MailLogContext) {
-    const result = await this.callMailApi('/mail/draft', dto, 'POST');
+  async saveDraft(dto: SendMailDto, persnum: number, context?: MailLogContext) {
+    const token = await this.getAirnavTokenFromSession(persnum);
+    const result = await this.callMailApi('/mail/draft', dto, 'POST', token);
     await this.logMail(dto, 'success', null, result, context);
     return result;
   }
@@ -133,12 +162,12 @@ export class MailServiceService {
   }
 
   /**
-   * Helper: panggil API mail eksternal dengan bearer token
+   * Helper: panggil API mail eksternal dengan SSO bearer token dari session
    */
-  private async callMailApi(endpoint: string, dto: SendMailDto, method: 'GET' | 'POST' = 'POST') {
-    if (!this.baseUrl || !this.token) {
+  private async callMailApi(endpoint: string, dto: SendMailDto, method: 'GET' | 'POST' = 'POST', token: string) {
+    if (!this.baseUrl || !token) {
       throw new HttpException(
-        { success: false, message: 'Mail API configuration is missing (MAIL_API_BASE_URL / MAIL_API_TOKEN)' },
+        { success: false, message: 'Mail API configuration is missing (MAIL_API_BASE_URL / SSO token)' },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -149,7 +178,7 @@ export class MailServiceService {
       this.logger.log(`Calling mail API: ${method} ${url}`);
       const config = {
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         timeout: 30000,
