@@ -209,7 +209,7 @@ export class SuratDinasEksternalController {
     @Body() dto: SendSdeEmailDto,
   ): Promise<any> {
     try {
-      return await this.sdeService.sendSdeEmail(id, user.position, dto);
+      return await this.sdeService.sendSdeEmail(id, user.position, user.persnum, user.nama, dto);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -219,6 +219,36 @@ export class SuratDinasEksternalController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to send SDE via email',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /SDE/:id/save-email-draft
+   * Simpan draft email SDE di mail server AirNav
+   * Body: { to, cc?, bcc?, from_as?, lampiran_ids? }
+   */
+  @Post(':id/save-email-draft')
+  @UseGuards(JwtAuthGuard)
+  async saveSdeEmailDraft(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: SendSdeEmailDto,
+  ): Promise<any> {
+    try {
+      return await this.sdeService.saveSdeEmailDraft(id, user.position, user.persnum, user.nama, dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to save SDE email draft',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
