@@ -34,6 +34,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { MailServiceService } from '../../mail-service/services/mail-service.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -73,6 +74,7 @@ export class SuratDinasEksternalService {
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly mailServiceService: MailServiceService,
   ) { }
 
   // ============================================================
@@ -3505,6 +3507,105 @@ export class SuratDinasEksternalService {
         created_at: pengirimSirkulasi?.createdAt || null,
         updated_at: pengirimSirkulasi?.updatedAt || null,
       },
+    };
+  }
+
+  /**
+   * Kirim SDE via email ke penerima eksternal
+   * Mengambil PDF final + lampiran dari S3, lalu kirim via mail-service
+   */
+  async sendSdeEmail(
+    naskahId: string,
+    userPosition: string,
+    dto: { to: string; cc?: string; bcc?: string; from_as?: string; lampiran_ids?: string[] },
+  ): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
+    const naskah = await this.naskahRepository.findOne({ where: { id: naskahId } });
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+    if (naskah.jenis !== 'SDE') {
+      throw new BadRequestException('Naskah bukan Surat Dinas Eksternal (SDE)');
+    }
+    if (!naskah.final_pdf) {
+      throw new BadRequestException('Surat belum memiliki PDF final. Pastikan surat sudah ditandatangani.');
+    }
+
+    // Ambil PDF final sebagai buffer dari S3
+    const pdfBuffer = await this.storageService.getFile(naskah.final_pdf);
+    const pdfBase64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+
+    // Build lampiran array
+    const lampiran: any[] = [
+      {
+        filename: `${naskah.nomor || naskah.perihal || 'Surat'}.pdf`.replace(/[/\\?%*:|"<>]/g, '_'),
+        filebase64: pdfBase64,
+      },
+    ];
+
+    // Ambil lampiran tambahan dari S3 jika ada
+    if (dto.lampiran_ids && dto.lampiran_ids.length > 0) {
+      const lampiranFiles = await this.naskahLampiranRepository.find({
+        where: { id: In(dto.lampiran_ids), id_naskah: naskahId },
+      });
+      for (const l of lampiranFiles) {
+        if (l.file_pdf) {
+          try {
+            const buf = await this.storageService.getFile(l.file_pdf);
+            lampiran.push({
+              filename: l.file_name || `lampiran-${l.id}.pdf`,
+              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
+            });
+          } catch (err) {
+            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
+          }
+        }
+      }
+    } else {
+      // Default: ambil semua lampiran
+      const allLampiran = await this.naskahLampiranRepository.find({
+        where: { id_naskah: naskahId },
+      });
+      for (const l of allLampiran) {
+        if (l.file_pdf) {
+          try {
+            const buf = await this.storageService.getFile(l.file_pdf);
+            lampiran.push({
+              filename: l.file_name || `lampiran-${l.id}.pdf`,
+              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
+            });
+          } catch (err) {
+            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
+          }
+        }
+      }
+    }
+
+    // Build email payload
+    const emailPayload = {
+      subjek: `Surat Dinas Eksternal - ${naskah.perihal || naskah.nomor || naskahId}`,
+      from_as: dto.from_as || 'ARSIPKU',
+      to: dto.to,
+      konten: `Yth. Penerima,\n\nTerlampir Surat Dinas Eksternal Nomor: ${naskah.nomor || '-'}\nPerihal: ${naskah.perihal || '-'}\n\nSurat dikirim melalui sistem ArsipKu - AirNav Indonesia.\n\nHormat kami,\nSistem ArsipKu`,
+      cc: dto.cc || '',
+      bcc: dto.bcc || '',
+      lampiran,
+    };
+
+    // Kirim via mail-service (base64 endpoint karena lampiran dalam base64)
+    const result = await this.mailServiceService.sendMailBase64(emailPayload, {
+      naskah_id: naskahId,
+      jenis_naskah: 'SDE',
+      nomor_surat: naskah.nomor || undefined,
+      perihal: naskah.perihal || undefined,
+      sender_persnum: userPosition,
+    });
+
+    return {
+      success: true,
+      message: 'Email berhasil dikirim',
+      data: result,
     };
   }
 
