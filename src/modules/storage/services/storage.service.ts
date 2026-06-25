@@ -140,6 +140,8 @@ export class StorageService implements OnModuleInit {
     }
     const allowedMimeTypes = {
       'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc']
     };
 
     const ext = path.extname(file.originalname).toLowerCase();

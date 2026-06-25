@@ -1,6 +1,8 @@
 import { Controller, Post, Get, Body, Query, HttpStatus, HttpException } from '@nestjs/common';
 import { MailServiceService } from '../services';
 import { SendMailDto } from '../dto';
+import { CurrentUser } from '../../../common/decorators';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('mail-service')
 export class MailServiceController {
@@ -34,9 +36,15 @@ export class MailServiceController {
    * Kirim email dengan lampiran dari URL
    */
   @Post('send')
-  async sendMail(@Body() dto: SendMailDto) {
+  async sendMail(
+    @Body() dto: SendMailDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
     try {
-      const result = await this.mailService.sendMail(dto);
+      const result = await this.mailService.sendMail(dto, user.persnum, {
+        sender_persnum: String(user.persnum),
+        sender_nama: user.nama,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;
@@ -52,9 +60,15 @@ export class MailServiceController {
    * Kirim email dengan lampiran base64
    */
   @Post('send-base64')
-  async sendMailBase64(@Body() dto: SendMailDto) {
+  async sendMailBase64(
+    @Body() dto: SendMailDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
     try {
-      const result = await this.mailService.sendMailBase64(dto);
+      const result = await this.mailService.sendMailBase64(dto, user.persnum, {
+        sender_persnum: String(user.persnum),
+        sender_nama: user.nama,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;
@@ -70,9 +84,15 @@ export class MailServiceController {
    * Simpan draft email
    */
   @Post('draft')
-  async saveDraft(@Body() dto: SendMailDto) {
+  async saveDraft(
+    @Body() dto: SendMailDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
     try {
-      const result = await this.mailService.saveDraft(dto);
+      const result = await this.mailService.saveDraft(dto, user.persnum, {
+        sender_persnum: String(user.persnum),
+        sender_nama: user.nama,
+      });
       return { success: true, data: result };
     } catch (err) {
       if (err instanceof HttpException) throw err;
