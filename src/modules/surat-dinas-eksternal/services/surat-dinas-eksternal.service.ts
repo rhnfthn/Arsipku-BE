@@ -3517,6 +3517,8 @@ export class SuratDinasEksternalService {
   async sendSdeEmail(
     naskahId: string,
     userPosition: string,
+    userPersnum: number,
+    senderNama: string,
     dto: { to: string; cc?: string; bcc?: string; from_as?: string; lampiran_ids?: string[] },
   ): Promise<any> {
     await this.assertUserHasAccessToNaskah(naskahId, userPosition);
@@ -3584,27 +3586,130 @@ export class SuratDinasEksternalService {
 
     // Build email payload
     const emailPayload = {
-      subjek: `Surat Dinas Eksternal - ${naskah.perihal || naskah.nomor || naskahId}`,
+      subjek: `${naskah.perihal || naskah.nomor || naskahId}`,
       from_as: dto.from_as || 'ARSIPKU',
       to: dto.to,
-      konten: `Yth. Penerima,\n\nTerlampir Surat Dinas Eksternal Nomor: ${naskah.nomor || '-'}\nPerihal: ${naskah.perihal || '-'}\n\nSurat dikirim melalui sistem ArsipKu - AirNav Indonesia.\n\nHormat kami,\nSistem ArsipKu`,
+      konten: `<p>Yth. Bapak/Ibu,</p><br><p>Bersama email ini kami sampaikan dokumen korespondensi dari AirNav Indonesia</p><p>Untuk informasi lebih lanjut, mohon dapat mengacu pada dokumen terlampir sesuai kebutuhan tindak lanjut.</p><p>Email ini dikirim secara otomatis melalui sistem korespondensi AirNav Indonesia dan tidak memerlukan balasan. (No Reply)</p><p>Atas perhatian dan kerja sama yang diberikan, kami ucapkan terima kasih.</p><br><p>Hormat kami,</p><p>AirNav Indonesia</p>`,
       cc: dto.cc || '',
       bcc: dto.bcc || '',
       lampiran,
     };
 
     // Kirim via mail-service (base64 endpoint karena lampiran dalam base64)
-    const result = await this.mailServiceService.sendMailBase64(emailPayload, {
+    const result = await this.mailServiceService.sendMailBase64(emailPayload, userPersnum, {
       naskah_id: naskahId,
       jenis_naskah: 'SDE',
       nomor_surat: naskah.nomor || undefined,
       perihal: naskah.perihal || undefined,
-      sender_persnum: userPosition,
+      sender_persnum: String(userPersnum),
+      sender_nama: senderNama || undefined,
     });
 
     return {
       success: true,
       message: 'Email berhasil dikirim',
+      data: result,
+    };
+  }
+
+  /**
+   * Simpan draft email SDE di mail server AirNav
+   * Menggunakan endpoint /mail/draft dengan payload sama seperti sendSdeEmail
+   */
+  async saveSdeEmailDraft(
+    naskahId: string,
+    userPosition: string,
+    userPersnum: number,
+    senderNama: string,
+    dto: { to: string; cc?: string; bcc?: string; from_as?: string; lampiran_ids?: string[] },
+  ): Promise<any> {
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+
+    const naskah = await this.naskahRepository.findOne({ where: { id: naskahId } });
+    if (!naskah) {
+      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+    }
+    if (naskah.jenis !== 'SDE') {
+      throw new BadRequestException('Naskah bukan Surat Dinas Eksternal (SDE)');
+    }
+    if (!naskah.final_pdf) {
+      throw new BadRequestException('Surat belum memiliki PDF final. Pastikan surat sudah ditandatangani.');
+    }
+
+    // Ambil PDF final sebagai buffer dari S3
+    const pdfBuffer = await this.storageService.getFile(naskah.final_pdf);
+    const pdfBase64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+
+    // Build lampiran array
+    const lampiran: any[] = [
+      {
+        filename: `${naskah.nomor || naskah.perihal || 'Surat'}.pdf`.replace(/[/\\?%*:|"<>]/g, '_'),
+        filebase64: pdfBase64,
+      },
+    ];
+
+    // Ambil lampiran tambahan dari S3 jika ada
+    if (dto.lampiran_ids && dto.lampiran_ids.length > 0) {
+      const lampiranFiles = await this.naskahLampiranRepository.find({
+        where: { id: In(dto.lampiran_ids), id_naskah: naskahId },
+      });
+      for (const l of lampiranFiles) {
+        if (l.file_pdf) {
+          try {
+            const buf = await this.storageService.getFile(l.file_pdf);
+            lampiran.push({
+              filename: l.file_name || `lampiran-${l.id}.pdf`,
+              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
+            });
+          } catch (err) {
+            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
+          }
+        }
+      }
+    } else {
+      // Default: ambil semua lampiran
+      const allLampiran = await this.naskahLampiranRepository.find({
+        where: { id_naskah: naskahId },
+      });
+      for (const l of allLampiran) {
+        if (l.file_pdf) {
+          try {
+            const buf = await this.storageService.getFile(l.file_pdf);
+            lampiran.push({
+              filename: l.file_name || `lampiran-${l.id}.pdf`,
+              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
+            });
+          } catch (err) {
+            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
+          }
+        }
+      }
+    }
+
+    // Build email payload
+    const emailPayload = {
+      subjek: `${naskah.perihal || naskah.nomor || naskahId}`,
+      from_as: dto.from_as || 'ARSIPKU',
+      to: dto.to,
+      konten: `<p>Yth. Bapak/Ibu,</p><br><p>Bersama email ini kami sampaikan dokumen korespondensi dari AirNav Indonesia</p><p>Untuk informasi lebih lanjut, mohon dapat mengacu pada dokumen terlampir sesuai kebutuhan tindak lanjut.</p><p>Email ini dikirim secara otomatis melalui sistem korespondensi AirNav Indonesia dan tidak memerlukan balasan. (No Reply)</p><p>Atas perhatian dan kerja sama yang diberikan, kami ucapkan terima kasih.</p><br><p>Hormat kami,</p><p>AirNav Indonesia</p>`,
+      cc: dto.cc || '',
+      bcc: dto.bcc || '',
+      lampiran,
+    };
+
+    // Simpan draft via mail-service (/mail/draft)
+    const result = await this.mailServiceService.saveDraft(emailPayload, userPersnum, {
+      naskah_id: naskahId,
+      jenis_naskah: 'SDE',
+      nomor_surat: naskah.nomor || undefined,
+      perihal: naskah.perihal || undefined,
+      sender_persnum: String(userPersnum),
+      sender_nama: senderNama || undefined,
+    });
+
+    return {
+      success: true,
+      message: 'Draft email berhasil disimpan',
       data: result,
     };
   }
