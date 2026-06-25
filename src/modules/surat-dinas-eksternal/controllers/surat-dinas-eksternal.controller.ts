@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto, SdeOrgDataPositionDto } from '../dto/sde-recipient-response.dto';
 import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } from '../dto/create-surat-dinas-eksternal.dto';
+import { SendSdeEmailDto } from '../dto/send-sde-email.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
@@ -188,6 +189,36 @@ export class SuratDinasEksternalController {
           success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to get SDE detail',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /SDE/:id/send-email
+   * Kirim SDE via email ke penerima eksternal
+   * Body: { to, cc?, bcc?, from_as?, lampiran_ids? }
+   */
+  @Post(':id/send-email')
+  @UseGuards(JwtAuthGuard)
+  async sendSdeEmail(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: SendSdeEmailDto,
+  ): Promise<any> {
+    try {
+      return await this.sdeService.sendSdeEmail(id, user.position, dto);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          success: false,
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to send SDE via email',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

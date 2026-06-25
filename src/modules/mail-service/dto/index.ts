@@ -1,0 +1,1 @@
+export { SendMailDto, MailLampiranDto } from './send-mail.dto';
