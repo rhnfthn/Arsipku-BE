@@ -62,6 +62,7 @@ import { ConfigAdminModule } from './modules/config/config.module';
 import { FaqModule } from './modules/faq/faq.module';
 import { PedomanModule } from './modules/pedoman/pedoman.module';
 import { ShortUrlModule } from './modules/short-url/short-url.module';
+import { MailServiceModule } from './modules/mail-service/mail-service.module';
 
 @Module({
   imports: [
@@ -158,6 +159,7 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
     FaqModule,
     PedomanModule,
     ShortUrlModule,
+    MailServiceModule,
   ],
   controllers: [AppController],
   providers: [
