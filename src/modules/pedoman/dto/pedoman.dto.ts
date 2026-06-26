@@ -1,3 +1,8 @@
+// ============================================================
+// DTO: PedomanData & PedomanResponseDto
+// Interface untuk bentuk response JSON (success, message, data).
+// ============================================================
+
 import { PedomanJenis } from '../entities/pedoman.entity';
 
 export interface LampiranItem {

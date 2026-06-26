@@ -1,3 +1,9 @@
+// ============================================================
+// DTO: CreatePedomanDto
+// Validasi input saat MEMBUAT pedoman baru.
+// Semua field wajib kecuali fileUrl, lampirans, isActive.
+// ============================================================
+
 import {
   IsString,
   IsNotEmpty,
