@@ -1,3 +1,9 @@
+// ============================================================
+// DTO: UpdatePedomanDto
+// Validasi input saat MENGUPDATE pedoman.
+// Semua field opsional — hanya field yang dikirim yang diupdate.
+// ============================================================
+
 import {
   IsString,
   IsOptional,
