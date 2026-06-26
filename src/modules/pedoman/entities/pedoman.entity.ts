@@ -1,3 +1,9 @@
+// ============================================================
+// ENTITY: Pedoman
+// Tabel: pedoman
+// Menyimpan data dokumen pedoman (Peraturan, Keputusan, SOP).
+// ============================================================
+
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -17,6 +23,12 @@ export enum PedomanJenis {
   SOP_KEARSIPAN = 'SOP Kearsipan',
 }
 
+// ============================================================
+// Tabel: pedoman
+// Kolom: id, judul, deskripsi, jenis, nomorDokumen,
+//        tanggalBerlaku, fileUrl, lampirans (JSON),
+//        isActive (soft delete), created_at, updated_at
+// ============================================================
 @Entity('pedoman')
 export class PedomanEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -1,3 +1,9 @@
+// ============================================================
+// CONTROLLER: PedomanController
+// Endpoint HTTP untuk fitur Pedoman.
+// Base path: /pedoman
+// ============================================================
+
 import {
   Controller,
   Get,
@@ -41,16 +47,10 @@ export class PedomanController {
     private readonly storageService: StorageService,
   ) {}
 
-  /**
-   * GET /pedoman
-   * Mendapatkan semua pedoman, opsional filter berdasarkan jenis dan search.
-   * Akses: semua user (JWT required)
-   *
-   * Query:
-   *  ?jenis=Peraturan Direksi|Keputusan Direksi|SOP Kearsipan
-   *  ?search=kata+kunci
-   *  ?includeInactive=true  (hanya super admin)
-   */
+  // ================================================================
+  //  ENDPOINT READ: GET /pedoman — List semua pedoman (dengan filter)
+  //  Akses: semua user login
+  // ================================================================
   @Get()
   @UseGuards(JwtAuthGuard)
   async findAll(
@@ -76,13 +76,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * GET /pedoman/preview-lampiran?path=xxx
-   * Preview/stream file lampiran langsung dari MinIO.
-   * Akses: PUBLIC (tanpa JWT) — agar <img> dan <a> tag bisa langsung mengakses.
-   *
-   * Query: ?path=<file_key_in_minio>
-   */
+  // ================================================================
+  //  ENDPOINT: GET /pedoman/preview-lampiran — Stream file dari MinIO
+  //  Akses: PUBLIC (tanpa JWT, agar <img>/<a> bisa langsung akses)
+  // ================================================================
   @Get('preview-lampiran')
   @Public()
   async previewLampiran(
@@ -148,11 +145,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * POST /pedoman/upload-lampiran
-   * Upload multiple file lampiran ke MinIO.
-   * Akses: admin & super admin
-   */
+  // ================================================================
+  //  ENDPOINT UPLOAD: POST /pedoman/upload-lampiran — Upload file ke MinIO
+  //  Akses: admin & superadmin
+  // ================================================================
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
@@ -227,11 +223,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * GET /pedoman/:id
-   * Mendapatkan pedoman berdasarkan ID.
-   * Akses: semua user (JWT required)
-   */
+  // ================================================================
+  //  ENDPOINT READ: GET /pedoman/:id — Get pedoman by ID
+  //  Akses: semua user login
+  // ================================================================
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   async findOne(@Param('id') id: string): Promise<PedomanResponseDto> {
@@ -250,11 +245,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * POST /pedoman
-   * Membuat pedoman baru.
-   * Akses: khusus super admin
-   */
+  // ================================================================
+  //  ENDPOINT CREATE: POST /pedoman — Buat pedoman baru
+  //  Akses: admin & superadmin
+  // ================================================================
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
@@ -274,11 +268,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * PATCH /pedoman/:id
-   * Memperbarui pedoman berdasarkan ID.
-   * Akses: khusus super admin
-   */
+  // ================================================================
+  //  ENDPOINT UPDATE: PATCH /pedoman/:id — Update pedoman
+  //  Akses: admin & superadmin
+  // ================================================================
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
@@ -301,11 +294,10 @@ export class PedomanController {
     }
   }
 
-  /**
-   * DELETE /pedoman/:id
-   * Menghapus pedoman berdasarkan ID.
-   * Akses: khusus super admin
-   */
+  // ================================================================
+  //  ENDPOINT DELETE: DELETE /pedoman/:id — Hapus pedoman (hard delete)
+  //  Akses: admin & superadmin
+  // ================================================================
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
