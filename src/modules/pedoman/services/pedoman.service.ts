@@ -1,3 +1,8 @@
+// ============================================================
+// SERVICE: PedomanService
+// Logika bisnis: CRUD, filter, upload/delete file di MinIO.
+// ============================================================
+
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -18,6 +23,7 @@ export class PedomanService {
     private readonly storageService: StorageService,
   ) {}
 
+  // ---------- HELPER: konversi Entity → DTO ----------
   private toPedomanData(pedoman: PedomanEntity): PedomanData {
     return {
       id: pedoman.id,
@@ -34,13 +40,7 @@ export class PedomanService {
     };
   }
 
-  /**
-   * Get semua pedoman, dengan optional filter jenis dan search.
-   * Default hanya mengembalikan pedoman yang aktif (isActive = true).
-   * @param jenis - filter berdasarkan jenis dokumen (opsional)
-   * @param search - kata kunci pencarian pada judul dan deskripsi (opsional)
-   * @param includeInactive - jika true, tampilkan juga pedoman yang tidak aktif (opsional, default false)
-   */
+  // ========== READ: Get semua pedoman (dengan filter) ==========
   async findAll(
     jenis?: string,
     search?: string,
@@ -77,9 +77,7 @@ export class PedomanService {
     };
   }
 
-  /**
-   * Get pedoman berdasarkan ID
-   */
+  // ========== READ: Get pedoman by ID ==========
   async findOne(id: string): Promise<PedomanResponseDto> {
     const pedoman = await this.pedomanRepository.findOne({ where: { id } });
     if (!pedoman) {
@@ -93,9 +91,7 @@ export class PedomanService {
     };
   }
 
-  /**
-   * Buat pedoman baru (khusus super admin)
-   */
+  // ========== CREATE: Buat pedoman baru ==========
   async create(dto: CreatePedomanDto): Promise<PedomanResponseDto> {
     const pedoman = this.pedomanRepository.create({
       id: uuidv4(),
@@ -119,9 +115,7 @@ export class PedomanService {
     };
   }
 
-  /**
-   * Update pedoman berdasarkan ID (khusus super admin)
-   */
+  // ========== UPDATE: Update pedoman + hapus lampiran lama dari MinIO ==========
   async update(id: string, dto: UpdatePedomanDto): Promise<PedomanResponseDto> {
     const pedoman = await this.pedomanRepository.findOne({ where: { id } });
     if (!pedoman) {
@@ -164,10 +158,7 @@ export class PedomanService {
     };
   }
 
-  /**
-   * Hapus pedoman berdasarkan ID (khusus super admin)
-   * Hard delete dari database + hapus semua file lampiran dari MinIO object storage.
-   */
+  // ========== DELETE: Hard delete + hapus semua lampiran dari MinIO ==========
   async remove(id: string): Promise<PedomanResponseDto> {
     const pedoman = await this.pedomanRepository.findOne({ where: { id } });
     if (!pedoman) {
