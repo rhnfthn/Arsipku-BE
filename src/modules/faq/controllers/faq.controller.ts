@@ -151,15 +151,23 @@ export class FaqController {
         if (allowedTypes.includes(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new HttpException(
-            { success: false, message: `Tipe file tidak diizinkan: ${file.mimetype}` },
-            HttpStatus.BAD_REQUEST,
-          ), false);
+          cb(
+            new HttpException(
+              {
+                success: false,
+                message: `Tipe file tidak diizinkan: ${file.mimetype}`,
+              },
+              HttpStatus.BAD_REQUEST,
+            ),
+            false,
+          );
         }
       },
     }),
   )
-  async uploadLampiran(@UploadedFiles() files: Express.Multer.File[]): Promise<any> {
+  async uploadLampiran(
+    @UploadedFiles() files: Express.Multer.File[],
+  ): Promise<any> {
     try {
       if (!files || files.length === 0) {
         throw new HttpException(
