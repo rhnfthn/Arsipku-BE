@@ -6,47 +6,40 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { normalizeRoleName } from '../enums/role-name.enum';
 
 /**
- * Roles Guard
- * Checks if user has required roles to access the route
- * Usage: Apply after JwtAuthGuard
+ * Roles Guard (string-based, sederhana)
+ * Pakai enum RoleName + normalisasi (backward compat dgn JWT lama lowercase).
+ * Prioritas: user.activeRole.name (JWT baru) > user.role (backward compat).
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
-      ROLES_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
-    if (!requiredRoles) {
-      return true;
-    }
+    if (!requiredRoles || requiredRoles.length === 0) return true;
 
     const { user } = context.switchToHttp().getRequest();
+    if (!user) throw new ForbiddenException('User not found');
 
-    console.log('[RolesGuard] Checking roles:', {
-      user: user ? { persnum: user.persnum, role: user.role } : null,
-      requiredRoles,
-      hasUser: !!user,
-    });
+    const userRole = normalizeRoleName(user?.activeRole?.name ?? user?.role);
+    if (!userRole) throw new ForbiddenException('Missing user role');
 
-    if (!user) {
-      throw new ForbiddenException('User not found');
-    }
+    const normalizedRequired = requiredRoles
+      .map((r) => normalizeRoleName(r))
+      .filter(Boolean) as string[];
 
-    // Check if user has role property and matches required roles
-    const hasRole = requiredRoles.some((role) => role === user.role);
-
-    if (!hasRole) {
+    if (!normalizedRequired.includes(userRole)) {
       throw new ForbiddenException(
-        `User does not have required role. Required: ${requiredRoles.join(', ')}, Current: ${user.role}`,
+        `User does not have required role. Required: ${normalizedRequired.join(', ')}, Current: ${userRole}`,
       );
     }
-
     return true;
   }
 }
