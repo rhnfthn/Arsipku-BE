@@ -24,7 +24,7 @@ export class FaqService {
     private readonly storageService: StorageService,
   ) {}
 
-  private toFaqData(faq: FaqEntity): FaqData {
+  private toFaqData(faq: FaqEntity, userVote?: string | null): FaqData {
     return {
       id: faq.id,
       pertanyaan: faq.pertanyaan,
@@ -35,17 +35,24 @@ export class FaqService {
       tidak_puas: faq.tidakPuas,
       fileUrl: faq.fileUrl,
       lampirans: faq.lampirans,
+      userVote: userVote ?? null,
       created_at: faq.createdAt,
       updated_at: faq.updatedAt,
     };
   }
 
   /**
-   * Get semua FAQ, dengan optional filter kategori dan search
+   * Get semua FAQ, dengan optional filter kategori dan search.
+   * Jika userId diberikan, sertakan status vote user tersebut untuk setiap FAQ.
    * @param kategoriId - ID kategori FAQ (opsional)
    * @param search - kata kunci pencarian pada pertanyaan dan deskripsi (opsional)
+   * @param userId - ID user untuk mengecek status vote (opsional)
    */
-  async findAll(kategoriId?: string, search?: string): Promise<FaqResponseDto> {
+  async findAll(
+    kategoriId?: string,
+    search?: string,
+    userId?: string,
+  ): Promise<FaqResponseDto> {
     const qb = this.faqRepository
       .createQueryBuilder('faq')
       .leftJoinAndSelect('faq.kategoriEntity', 'kategori');
@@ -65,19 +72,36 @@ export class FaqService {
 
     const faqs = await qb.getMany();
 
+    // Ambil status vote user untuk semua FAQ yang di-fetch (batch query)
+    const userVotesMap = new Map<string, string>();
+    if (userId && faqs.length > 0) {
+      const faqIds = faqs.map((f) => f.id);
+      const votes = await this.faqVoteRepository
+        .createQueryBuilder('vote')
+        .where('vote.faqId IN (:...faqIds)', { faqIds })
+        .andWhere('vote.userId = :userId', { userId })
+        .getMany();
+      for (const vote of votes) {
+        userVotesMap.set(vote.faqId, vote.voteType);
+      }
+    }
+
     return {
       success: true,
       message: kategoriId
         ? `Data FAQ berhasil diambil`
         : 'Data FAQ berhasil diambil',
-      data: faqs.map((faq) => this.toFaqData(faq)),
+      data: faqs.map((faq) =>
+        this.toFaqData(faq, userVotesMap.get(faq.id)),
+      ),
     };
   }
 
   /**
-   * Get FAQ berdasarkan ID
+   * Get FAQ berdasarkan ID.
+   * Jika userId diberikan, sertakan status vote user tersebut.
    */
-  async findOne(id: string): Promise<FaqResponseDto> {
+  async findOne(id: string, userId?: string): Promise<FaqResponseDto> {
     const faq = await this.faqRepository.findOne({
       where: { id },
       relations: ['kategoriEntity'],
@@ -86,10 +110,20 @@ export class FaqService {
       throw new NotFoundException(`FAQ dengan ID ${id} tidak ditemukan`);
     }
 
+    let userVote: string | undefined;
+    if (userId) {
+      const vote = await this.faqVoteRepository.findOne({
+        where: { faqId: id, userId },
+      });
+      if (vote) {
+        userVote = vote.voteType;
+      }
+    }
+
     return {
       success: true,
       message: 'Data FAQ berhasil diambil',
-      data: this.toFaqData(faq),
+      data: this.toFaqData(faq, userVote),
     };
   }
 
@@ -205,6 +239,10 @@ export class FaqService {
       }
     }
 
+    // Hapus semua vote records yang terkait dengan FAQ ini
+    await this.faqVoteRepository.delete({ faqId: id });
+    this.logger.log(`🗑️ Vote records untuk FAQ ${id} dihapus`);
+
     await this.faqRepository.remove(faq);
 
     return {
@@ -271,7 +309,7 @@ export class FaqService {
     return {
       success: true,
       message: `Feedback '${voteType}' berhasil dicatat`,
-      data: this.toFaqData(updated),
+      data: this.toFaqData(updated, voteType),
     };
   }
 

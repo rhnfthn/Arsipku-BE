@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { FaqKategoriEntity } from '../entities/faq-kategori.entity';
+import { FaqEntity } from '../entities/faq.entity';
 import { CreateFaqKategoriDto } from '../dto/create-faq-kategori.dto';
 import { UpdateFaqKategoriDto } from '../dto/update-faq-kategori.dto';
 import { FaqKategoriData, FaqKategoriResponseDto } from '../dto/faq-kategori.dto';
@@ -12,6 +13,8 @@ export class FaqKategoriService {
   constructor(
     @InjectRepository(FaqKategoriEntity)
     private readonly kategoriRepository: Repository<FaqKategoriEntity>,
+    @InjectRepository(FaqEntity)
+    private readonly faqRepository: Repository<FaqEntity>,
   ) {}
 
   private toFaqKategoriData(kategori: FaqKategoriEntity): FaqKategoriData {
@@ -123,13 +126,24 @@ export class FaqKategoriService {
   }
 
   /**
-   * Hapus kategori berdasarkan ID
+   * Hapus kategori berdasarkan ID.
+   * Akan menolak penghapusan jika masih ada FAQ yang terhubung ke kategori ini.
    */
   async remove(id: string): Promise<FaqKategoriResponseDto> {
     const kategori = await this.kategoriRepository.findOne({ where: { id } });
     if (!kategori) {
       throw new NotFoundException(
         `Kategori FAQ dengan ID ${id} tidak ditemukan`,
+      );
+    }
+
+    // Cek apakah masih ada FAQ yang menggunakan kategori ini
+    const faqCount = await this.faqRepository.count({
+      where: { kategoriId: id },
+    });
+    if (faqCount > 0) {
+      throw new BadRequestException(
+        `Tidak dapat menghapus kategori '${kategori.nama}' karena masih ada ${faqCount} FAQ yang terhubung. Hapus atau pindahkan FAQ terlebih dahulu.`,
       );
     }
 
