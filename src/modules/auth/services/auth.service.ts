@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -8,6 +8,7 @@ import { firstValueFrom } from 'rxjs';
 import { SessionService } from './session.service';
 import { UserRoleEntity } from '../../superadmin/entities/user-role.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { RbacService } from '../../rbac/services/rbac.service';
 import {
   JwtPayload,
   AirNavTokenResponse,
@@ -24,11 +25,39 @@ export class AuthService {
     private readonly orgDataService: OrgDataService,
     @InjectRepository(UserRoleEntity)
     private userRoleRepo: Repository<UserRoleEntity>,
+    @Inject(forwardRef(() => RbacService))
+    private readonly rbacService: RbacService,
   ) {}
 
   // ============================================
   // Helper Methods untuk fetch data dari HR API
   // ============================================
+
+  /**
+   * Build RBAC activeRole + activePermissions + roles[] (stateless, dari rbac_user_role).
+   * Fallback: jika RbacService tidak tersedia (mis. tabel belum di-seed) → default USER tanpa permission.
+   */
+  private async buildRbacContext(persnum: number): Promise<{
+    activeRole: JwtPayload['activeRole'];
+    activePermissions: JwtPayload['activePermissions'];
+    roles: JwtPayload['roles'];
+    role: 'user' | 'admin' | 'superadmin';
+  }> {
+    try {
+      const ctx = await this.rbacService.buildActiveRoleAndPermissions(persnum);
+      return {
+        activeRole: ctx.activeRole,
+        activePermissions: ctx.activePermissions,
+        roles: ctx.roles,
+        role: ctx.role,
+      };
+    } catch (e) {
+      console.warn('[AuthService] RBAC context failed, fallback to legacy user_role:', e?.message);
+      const userRole = await this.userRoleRepo.findOne({ where: { persnum } });
+      const role = (userRole?.role || 'user') as 'user' | 'admin' | 'superadmin';
+      return { activeRole: null, activePermissions: [], roles: [], role };
+    }
+  }
 
   /**
    * Get NIK/KTP user dari HR API berdasarkan persnum
@@ -181,7 +210,13 @@ export class AuthService {
     console.log('[AuthService] UserRole from DB:', userRole);
     console.log('[AuthService] Role value:', userRole?.role);
 
-    const role = userRole?.role || 'user';
+    const legacyRole = userRole?.role || 'user';
+
+    // ================================================================
+    // 3b. Build RBAC context (activeRole, activePermissions, roles)
+    // ================================================================
+    const rbacCtx = await this.buildRbacContext(persnum);
+    const role = rbacCtx.role || legacyRole;
 
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
@@ -196,6 +231,9 @@ export class AuthService {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
+      activeRole: rbacCtx.activeRole ?? undefined,
+      activePermissions: rbacCtx.activePermissions,
+      roles: rbacCtx.roles,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -339,8 +377,15 @@ export class AuthService {
       where: { persnum },
     });
 
-    const role = userRole?.role || 'user';
-    console.log('[AuthService] User role:', role);
+    const legacyRole = userRole?.role || 'user';
+    console.log('[AuthService] User role (legacy):', legacyRole);
+
+    // ================================================================
+    // 3b. Build RBAC context (activeRole, activePermissions, roles)
+    // ================================================================
+    const rbacCtx = await this.buildRbacContext(persnum);
+    const role = rbacCtx.role || legacyRole;
+    console.log('[AuthService] User role (final):', role);
 
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
@@ -355,6 +400,9 @@ export class AuthService {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
+      activeRole: rbacCtx.activeRole ?? undefined,
+      activePermissions: rbacCtx.activePermissions,
+      roles: rbacCtx.roles,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -519,7 +567,11 @@ export class AuthService {
       where: { persnum: payload.persnum },
     });
 
-    const role = userRole?.role || 'user';
+    const legacyRole = userRole?.role || 'user';
+
+    // Build fresh RBAC context
+    const rbacCtx = await this.buildRbacContext(payload.persnum);
+    const role = rbacCtx.role || legacyRole;
 
     // Fetch fresh NIK dan noWa dari HR API
     const personalData = await this.fetchUserPersonalData(payload.persnum, ssoRefresh.accessToken);
@@ -528,6 +580,9 @@ export class AuthService {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
       role: role as 'user' | 'admin' | 'superadmin',
+      activeRole: rbacCtx.activeRole ?? undefined,
+      activePermissions: rbacCtx.activePermissions,
+      roles: rbacCtx.roles,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
