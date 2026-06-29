@@ -20,6 +20,7 @@ export class SirkulasiDetailDto {
   position_status: string | null;
   id_sirkuler: string | null; // persnum
   nama_sirkuler: string | null;
+  email: string | null;
   send_read_time: Date | null;
   send_read_user: string | null;
   is_draft: boolean;

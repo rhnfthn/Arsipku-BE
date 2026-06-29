@@ -443,6 +443,7 @@ export class NaskahService {
       position_status: s.positionStatus,
       id_sirkuler: s.idSirkuler,
       nama_sirkuler: s.namaSirkuler,
+      email: s.email || null,
       send_read_time: s.sendReadTime,
       send_read_user: s.sendReadUser,
       is_draft: s.isDraft ?? false,
@@ -778,6 +779,7 @@ export class NaskahService {
         position_text: p.positionText || '',
         organization_text: p.organizationText || '',
         nama: p.namaSirkuler || null,
+        email: p.email || null,
         status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
@@ -788,6 +790,7 @@ export class NaskahService {
         position_text: t.positionText || '',
         organization_text: t.organizationText || '',
         nama: t.namaSirkuler || null,
+        email: t.email || null,
         status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
       }));
