@@ -1,8 +1,22 @@
+export interface ActivePermission {
+  resource: string;
+  actions: string[];
+}
+
+export interface ActiveRoleInfo {
+  id: string;
+  name: string;
+}
+
 export interface JwtPayload {
   persnum: number;
   nama: string;
   role: 'user' | 'admin' | 'superadmin';
-  
+  // RBAC v2 — stateless di JWT (switch role = re-sign JWT)
+  activeRole?: ActiveRoleInfo | null;
+  activePermissions?: ActivePermission[];
+  roles?: ActiveRoleInfo[];
+
   // Organization data from org_data
   company: string;
   companyText: string;

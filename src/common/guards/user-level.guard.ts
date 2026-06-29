@@ -2,6 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { USER_LEVELS_KEY } from '../decorators/user-levels.decorator';
 import { UserLevel, getUserLevel } from '../enums/user-level.enum';
+import { normalizeRoleName, RoleName } from '../enums/role-name.enum';
 import { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 
 @Injectable()
@@ -28,7 +29,8 @@ export class UserLevelGuard implements CanActivate {
     }
 
     // Admin and superadmin bypass user level check
-    if (user.role === 'admin' || user.role === 'superadmin') {
+    const activeRoleName = normalizeRoleName(user?.activeRole?.name ?? user?.role);
+    if (activeRoleName === RoleName.ADMIN || activeRoleName === RoleName.SUPERADMIN) {
       return true;
     }
 
