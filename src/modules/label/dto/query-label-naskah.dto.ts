@@ -1,7 +1,15 @@
-import { IsOptional, IsEnum, IsNumber, IsDateString, IsBoolean } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber, IsDateString, IsBoolean, IsString } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class QueryLabelNaskahDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    return String(value).trim();
+  })
+  @IsString()
+  search?: string;
+
   @IsOptional()
   @Transform(({ value }) => {
     if (!value) return value;
