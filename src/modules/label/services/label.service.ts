@@ -351,6 +351,7 @@ export class LabelService {
     const limitNum = Math.max(query.limit || 10, 1);
     const offset = (pageNum - 1) * limitNum;
     const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
+    const searchKeyword = query.search?.trim().toLowerCase();
     const dateRange = this.getDateRangeFromQuery(
       query.start_date,
       query.end_date,
@@ -624,6 +625,27 @@ export class LabelService {
 
     const baseFilteredItems = detailedItems
       .filter((item: any) => {
+        if (searchKeyword) {
+          const searchableText = [
+            item.response.perihal,
+            item.response.nomor,
+            item.response.jenis,
+            item.response.jenis_label,
+            item.response.pengirim?.nama,
+            item.response.pengirim?.position_text,
+            item.response.pengirim?.organization_text,
+            ...(item.response.penerima || []).map((p: any) => `${p.nama || ''} ${p.position_text || ''}`),
+            ...(item.response.tembusan || []).map((p: any) => `${p.nama || ''} ${p.position_text || ''}`),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+
+          if (!searchableText.includes(searchKeyword)) {
+            return false;
+          }
+        }
+
         if (query.source && item.source !== query.source) {
           return false;
         }
