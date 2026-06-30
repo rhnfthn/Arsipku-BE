@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
+import { NaskahDinasVerifikatorEntity } from '../entities/naskah-dinas-verifikator.entity';
 import {
   CreateNaskahDinasDto,
   NdOrgDataPositionDto,
@@ -15,6 +16,7 @@ import {
   NdPengirimInfoDto,
   NdPenerimaInfoDto,
   NdPembuatInfoDto,
+  NdVerifikatorProgressDto,
 } from '../dto';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
@@ -32,6 +34,8 @@ export class NaskahDinasService {
     private readonly naskahRepository: Repository<NaskahEntity>,
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
+    @InjectRepository(NaskahDinasVerifikatorEntity)
+    private readonly verifikatorRepository: Repository<NaskahDinasVerifikatorEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
@@ -45,6 +49,129 @@ export class NaskahDinasService {
     }
 
     return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
+  }
+
+  private parseNumberArray(value: any): number[] {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map(Number).filter((item) => Number.isFinite(item));
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed.map(Number).filter((item) => Number.isFinite(item));
+        }
+        const parsedNumber = Number(parsed);
+        return Number.isFinite(parsedNumber) ? [parsedNumber] : [];
+      } catch {
+        return value
+          .split(',')
+          .map((v: string) => Number(v.trim()))
+          .filter((item) => Number.isFinite(item));
+      }
+    }
+    const parsedNumber = Number(value);
+    return Number.isFinite(parsedNumber) ? [parsedNumber] : [];
+  }
+
+  private normalizeSifat(value?: string): 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka' {
+    const normalized = String(value || 'biasa')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+
+    const map: Record<string, 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka'> = {
+      sangat_rahasia: 'sangat_rahasia',
+      rahasia: 'rahasia',
+      terbatas: 'terbatas',
+      biasa: 'biasa',
+      terbuka: 'terbuka',
+      'biasa/terbuka': 'biasa',
+      biasa_terbuka: 'biasa',
+    };
+
+    return map[normalized] || 'biasa';
+  }
+
+  private getVerifikatorProgress(
+    verifikators: NaskahDinasVerifikatorEntity[],
+  ): NdVerifikatorProgressDto {
+    const total = verifikators.length;
+    const verified = verifikators.filter((v) => v.status === 'verified').length;
+    const rejected = verifikators.filter((v) => v.status === 'rejected').length;
+    const waiting = verifikators.find((v) => v.status === 'waiting') || null;
+
+    return {
+      verified,
+      total,
+      rejected,
+      currentOrder: waiting?.urutan || null,
+      status:
+        total === 0
+          ? 'none'
+          : rejected > 0
+            ? 'rejected'
+            : verified === total
+              ? 'completed'
+              : 'on_progress',
+    };
+  }
+
+  private toVerifikatorInfo(verifikator: NaskahDinasVerifikatorEntity) {
+    return {
+      id: verifikator.id,
+      urutan: verifikator.urutan,
+      persnum: verifikator.persnum,
+      nama: verifikator.nama,
+      jabatan: verifikator.jabatan,
+      lokasi: verifikator.lokasi,
+      positionId: verifikator.positionId,
+      status: verifikator.status,
+      verifiedAt: verifikator.verifiedAt,
+      rejectedAt: verifikator.rejectedAt,
+      keterangan: verifikator.keterangan,
+    };
+  }
+
+  private createVerifikatorEntities(
+    idNaskah: string,
+    persnums: number[],
+    positions: NdOrgDataPositionDto[],
+  ): NaskahDinasVerifikatorEntity[] {
+    const uniquePersnums = Array.from(new Set(persnums.filter((item) => Number.isFinite(item))));
+
+    return uniquePersnums.map((persnum, index) => {
+      const position = positions.find(
+        (p) =>
+          Number(p.persnum_person) === Number(persnum) ||
+          Number(p.persnum) === Number(persnum),
+      );
+
+      if (!position) {
+        throw new NotFoundException(`Verifikator dengan persnum ${persnum} tidak ditemukan`);
+      }
+
+      const rawPosition = position as any;
+
+      return this.verifikatorRepository.create({
+        id: uuidv4(),
+        idNaskah,
+        urutan: index + 1,
+        persnum,
+        nama: position.persnum_person_text || position.nama || null,
+        jabatan: position.position_text || null,
+        lokasi: position.sub_area_text || position.area_text || null,
+        positionId: position.position ? Number(position.position) : null,
+        company: rawPosition.company ? String(rawPosition.company) : null,
+        companyText: rawPosition.company_name || rawPosition.companyText || null,
+        area: position.area || null,
+        areaText: position.area_text || null,
+        subArea: position.sub_area ? String(position.sub_area) : null,
+        subAreaText: position.sub_area_text || null,
+        organization: position.organization_id ? String(position.organization_id) : null,
+        organizationText: position.organization_text || null,
+        status: index === 0 ? 'waiting' : 'pending',
+      });
+    });
   }
 
   // ============================================================
@@ -161,26 +288,18 @@ export class NaskahDinasService {
     body: any,
     file?: Express.Multer.File,
   ): Promise<{ dto: CreateNaskahDinasDto; file?: Express.Multer.File }> {
-    // Helper: Parse number array field
-    const parseNumberArray = (value: any): number[] => {
-      if (!value) return [];
-      if (Array.isArray(value)) return value.map(Number);
-      if (typeof value === 'string') {
-        try {
-          const parsed = JSON.parse(value);
-          return Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
-        } catch {
-          return value.split(',').map((v: string) => Number(v.trim()));
-        }
-      }
-      return [Number(value)];
-    };
-
     // Parse tertuju - array of positionId (penerima internal)
-    const tertujuArray = parseNumberArray(body.tertuju);
+    const tertujuArray = this.parseNumberArray(body.tertuju ?? body['tertuju[]']);
     if (tertujuArray.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (tertuju)');
     }
+
+    const verifikatorArray = this.parseNumberArray(
+      body.verifikator ??
+        body['verifikator[]'] ??
+        body.verifikator_ids ??
+        body['verifikator_ids[]'],
+    );
 
     // Build DTO dengan field names sesuai form UI
     const dto: CreateNaskahDinasDto = {
@@ -196,6 +315,7 @@ export class NaskahDinasService {
       konten: body.konten,
       english: body.english === 'true' || body.english === true,
       created_by_position_id: body.created_by_position_id,
+      verifikator: verifikatorArray,
     };
 
     return { dto, file };
@@ -363,7 +483,7 @@ export class NaskahDinasService {
       naskah.jenis = 'SDE'; // Masuk sebagai SDE
       naskah.nomor = dto.nomor_asal || null; // Nomor Asal Naskah → naskah.nomor
       naskah.klasifikasi = dto.klasifikasi || '';
-      naskah.sifat = dto.sifat_naskah as any; // Sifat Naskah
+      naskah.sifat = this.normalizeSifat(dto.sifat_naskah); // Sifat Naskah
       naskah.perihal = dto.perihal;
       naskah.lampiran = dto.lampiran || ''; // Lampiran (text description)
       naskah.konten = dto.konten || '';
@@ -386,6 +506,17 @@ export class NaskahDinasService {
         await queryRunner.manager.save(sirkulasiPenerima);
         penerimaResponses.push(this.toPenerimaInfo(pos));
       }
+
+      const verifikatorRows = this.createVerifikatorEntities(
+        naskahId,
+        dto.verifikator || [],
+        barisData,
+      );
+      if (verifikatorRows.length > 0) {
+        await queryRunner.manager.save(verifikatorRows);
+      }
+
+      const verifikatorProgress = this.getVerifikatorProgress(verifikatorRows);
 
       await queryRunner.commitTransaction();
 
@@ -428,12 +559,18 @@ export class NaskahDinasService {
           tanggal: tanggalNaskah.toISOString().split('T')[0],
           jam: new Date().toISOString().split('T')[1].split('.')[0], // HH:mm:ss
           status: 'final',
+          sifat: naskah.sifat,
+          klasifikasi: naskah.klasifikasi,
+          lampiran: naskah.lampiran,
           perihal: dto.perihal,
           final_pdf: finalPdfPath,
           final_pdf_url: finalPdfUrl,
           pengirim: this.toEksternalPengirimInfo(pengirimEksternal),
           penerima: penerimaResponses,
           pembuat: pembuatInfo,
+          verifikatorProgress,
+          totalVerifikator: verifikatorRows.length,
+          verifikators: verifikatorRows.map((verifikator) => this.toVerifikatorInfo(verifikator)),
         },
       };
     } catch (error) {
@@ -511,6 +648,20 @@ export class NaskahDinasService {
       if (!s.idNaskah) continue;
       if (!sirkulasiByNaskah.has(s.idNaskah)) sirkulasiByNaskah.set(s.idNaskah, []);
       sirkulasiByNaskah.get(s.idNaskah)!.push(s);
+    }
+
+    const allVerifikators = naskahIds.length
+      ? await this.verifikatorRepository.find({
+          where: { idNaskah: In(naskahIds) },
+          order: { urutan: 'ASC' },
+        })
+      : [];
+    const verifikatorsByNaskah = new Map<string, NaskahDinasVerifikatorEntity[]>();
+    for (const verifikator of allVerifikators) {
+      if (!verifikatorsByNaskah.has(verifikator.idNaskah)) {
+        verifikatorsByNaskah.set(verifikator.idNaskah, []);
+      }
+      verifikatorsByNaskah.get(verifikator.idNaskah)!.push(verifikator);
     }
 
     // 2. Bulk eksternal pengirim
@@ -632,6 +783,7 @@ export class NaskahDinasService {
       }
 
       const finalPdfUrl: string | null = finalPdfUrlMap.get(naskah.id) || null;
+      const verifikators = verifikatorsByNaskah.get(naskah.id) || [];
 
       return {
         id: naskah.id,
@@ -640,12 +792,18 @@ export class NaskahDinasService {
         tanggal: tanggalStr,
         jam: jamUtc,
         status: naskah.status,
+        sifat: naskah.sifat,
+        klasifikasi: naskah.klasifikasi,
+        lampiran: naskah.lampiran,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
         final_pdf_url: finalPdfUrl,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         pembuat: pembuatInfo,
+        verifikatorProgress: this.getVerifikatorProgress(verifikators),
+        totalVerifikator: verifikators.length,
+        verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
       };
     });
 
@@ -779,6 +937,11 @@ export class NaskahDinasService {
       }
     }
 
+    const verifikators = await this.verifikatorRepository.find({
+      where: { idNaskah: id },
+      order: { urutan: 'ASC' },
+    });
+
     return {
       success: true,
       data: {
@@ -788,12 +951,377 @@ export class NaskahDinasService {
         tanggal: tanggalStr,
         jam: jamUtc,
         status: naskah.status,
+        sifat: naskah.sifat,
+        klasifikasi: naskah.klasifikasi,
+        lampiran: naskah.lampiran,
         perihal: naskah.perihal,
         final_pdf: naskah.final_pdf,
         final_pdf_url: finalPdfUrl,
         pengirim: pengirimInfo,
         penerima: penerimaInfo,
         pembuat: pembuatInfo,
+        verifikatorProgress: this.getVerifikatorProgress(verifikators),
+        totalVerifikator: verifikators.length,
+        verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+      },
+    };
+  }
+
+  async updateMessage(
+    id: string,
+    dto: CreateNaskahDinasDto,
+    file?: Express.Multer.File,
+  ): Promise<NdGetDetailResponseDto> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const naskah = await queryRunner.manager.findOne(NaskahEntity, {
+        where: { id, jenis: 'SDE' },
+      });
+
+      if (!naskah || !naskah.tempat) {
+        throw new NotFoundException(`Naskah Dinas dengan ID ${id} tidak ditemukan`);
+      }
+
+      let tanggal = new Date().toISOString().split('T')[0];
+      if (dto.tanggal_surat) {
+        if (dto.tanggal_surat.includes('.')) {
+          const [day, month, year] = dto.tanggal_surat.split('.');
+          tanggal = `${year}-${month}-${day}`;
+        } else {
+          tanggal = dto.tanggal_surat;
+        }
+      }
+
+      const pengirimEksternal = await this.eksternalRepository.findOne({
+        where: { id: dto.asal_naskah, aktif: true },
+      });
+
+      if (!pengirimEksternal) {
+        throw new NotFoundException(
+          `Asal naskah dengan ID ${dto.asal_naskah} tidak ditemukan atau tidak aktif`,
+        );
+      }
+
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      if (!orgData || !orgData.position_json) {
+        throw new NotFoundException(`Data organisasi untuk tanggal ${tanggal} tidak ditemukan`);
+      }
+
+      const barisData: NdOrgDataPositionDto[] = orgData.position_json;
+      const penerimaPositions: NdOrgDataPositionDto[] = [];
+
+      for (const posId of dto.tertuju) {
+        const position = barisData.find((p) => Number(p.position) === Number(posId));
+        if (!position) {
+          throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan`);
+        }
+        penerimaPositions.push(position);
+      }
+
+      let finalPdfPath = naskah.final_pdf || null;
+      if (file) {
+        const uploadResult = await this.storageService.uploadFile(file, 'naskah-dinas/final');
+        finalPdfPath = uploadResult.key;
+      }
+
+      let tanggalNaskah = new Date();
+      if (dto.tanggal_surat) {
+        if (dto.tanggal_surat.includes('.')) {
+          const [day, month, year] = dto.tanggal_surat.split('.');
+          tanggalNaskah = new Date(`${year}-${month}-${day}`);
+        } else {
+          tanggalNaskah = new Date(dto.tanggal_surat);
+        }
+      }
+
+      naskah.nomor = dto.nomor_asal || null;
+      naskah.klasifikasi = dto.klasifikasi || '';
+      naskah.sifat = this.normalizeSifat(dto.sifat_naskah);
+      naskah.perihal = dto.perihal;
+      naskah.lampiran = dto.lampiran || '';
+      naskah.konten = dto.konten || '';
+      naskah.final_pdf = finalPdfPath || '';
+      naskah.tanggal = tanggalNaskah;
+      naskah.tempat = dto.asal_naskah;
+      naskah.createdByPosition = dto.created_by_position_id || naskah.createdByPosition;
+
+      await queryRunner.manager.save(naskah);
+
+      await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: id });
+      await queryRunner.manager.save(this.createSirkulasiFromEksternal(id, pengirimEksternal));
+
+      for (const pos of penerimaPositions) {
+        await queryRunner.manager.save(this.createSirkulasiFromOrgData(id, 'penerima', pos));
+      }
+
+      await queryRunner.manager.delete(NaskahDinasVerifikatorEntity, { idNaskah: id });
+      const verifikatorRows = this.createVerifikatorEntities(id, dto.verifikator || [], barisData);
+      if (verifikatorRows.length > 0) {
+        await queryRunner.manager.save(verifikatorRows);
+      }
+
+      await queryRunner.commitTransaction();
+
+      return await this.getDetail(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async getMyVerificationList(user: JwtPayload, filter: any = {}) {
+    const page = Number(filter.page || 1);
+    const limit = Number(filter.limit || 10);
+    const skip = (page - 1) * limit;
+    const persnum = Number(user.persnum);
+
+    const queryBuilder = this.verifikatorRepository
+      .createQueryBuilder('myVerifier')
+      .innerJoinAndSelect('myVerifier.naskah', 'naskah')
+      .where('myVerifier.persnum = :persnum', { persnum })
+      .andWhere('naskah.jenis = :jenis', { jenis: 'SDE' })
+      .andWhere('naskah.tempat IS NOT NULL')
+      .orderBy('naskah.createdAt', 'DESC');
+
+    if (filter.status && filter.status !== 'all') {
+      queryBuilder.andWhere('myVerifier.status = :status', { status: filter.status });
+    }
+
+    if (filter.search) {
+      queryBuilder.andWhere('(naskah.nomor LIKE :search OR naskah.perihal LIKE :search)', {
+        search: `%${filter.search}%`,
+      });
+    }
+
+    const [myVerifierRows, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
+    const naskahIds = myVerifierRows.map((row) => row.idNaskah);
+
+    const allVerifikators = naskahIds.length
+      ? await this.verifikatorRepository.find({
+          where: { idNaskah: In(naskahIds) },
+          order: { urutan: 'ASC' },
+        })
+      : [];
+
+    const verifikatorsByNaskah = new Map<string, NaskahDinasVerifikatorEntity[]>();
+    for (const verifikator of allVerifikators) {
+      if (!verifikatorsByNaskah.has(verifikator.idNaskah)) {
+        verifikatorsByNaskah.set(verifikator.idNaskah, []);
+      }
+      verifikatorsByNaskah.get(verifikator.idNaskah)!.push(verifikator);
+    }
+
+    const tempatIds = myVerifierRows
+      .map((row) => row.naskah?.tempat)
+      .filter((tempat): tempat is string => !!tempat);
+    const eksternalMap = new Map<string, EksternalEntity>();
+    if (tempatIds.length > 0) {
+      const eksternalList = await this.eksternalRepository.find({
+        where: { id: In(Array.from(new Set(tempatIds))) },
+      });
+      for (const eksternal of eksternalList) {
+        eksternalMap.set(eksternal.id, eksternal);
+      }
+    }
+
+    const data = await Promise.all(
+      myVerifierRows.map(async (row) => {
+        const naskah = row.naskah;
+        const verifikators = verifikatorsByNaskah.get(row.idNaskah) || [];
+        const progress = this.getVerifikatorProgress(verifikators);
+        const pengirim = naskah.tempat ? eksternalMap.get(naskah.tempat) : null;
+
+        let finalPdfUrl: string | null = null;
+        if (naskah.final_pdf) {
+          try {
+            finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+          } catch (error) {
+            console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
+          }
+        }
+
+        return {
+          id: naskah.id,
+          verifierId: row.id,
+          tanggalDibuat: naskah.createdAt,
+          tanggal: naskah.tanggal,
+          nomor: naskah.nomor,
+          perihal: naskah.perihal,
+          status: progress.status,
+          myVerifikatorStatus: row.status,
+          canVerify: row.status === 'waiting',
+          canReject: row.status === 'waiting',
+          final_pdf: naskah.final_pdf,
+          final_pdf_url: finalPdfUrl,
+          pengirim: pengirim ? this.toEksternalPengirimInfo(pengirim) : null,
+          verifikatorProgress: progress,
+          totalVerifikator: verifikators.length,
+          verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+          myVerifikatorInfo: this.toVerifikatorInfo(row),
+        };
+      }),
+    );
+
+    const summary = await this.verifikatorRepository
+      .createQueryBuilder('verifikator')
+      .select([
+        `SUM(CASE WHEN verifikator.status = 'waiting' THEN 1 ELSE 0 END) as totalWaiting`,
+        `SUM(CASE WHEN verifikator.status = 'verified' THEN 1 ELSE 0 END) as totalVerified`,
+        `SUM(CASE WHEN verifikator.status = 'rejected' THEN 1 ELSE 0 END) as totalRejected`,
+        `COUNT(*) as total`,
+      ])
+      .where('verifikator.persnum = :persnum', { persnum })
+      .getRawOne();
+
+    return {
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      summary: {
+        totalWaiting: parseInt(summary?.totalWaiting || '0', 10),
+        totalVerified: parseInt(summary?.totalVerified || '0', 10),
+        totalRejected: parseInt(summary?.totalRejected || '0', 10),
+        total: parseInt(summary?.total || '0', 10),
+      },
+    };
+  }
+
+  async getVerificationDetail(id: string, user: JwtPayload) {
+    const response = await this.getDetail(id);
+    const myVerifikator = response.data.verifikators.find(
+      (verifikator) => Number(verifikator.persnum) === Number(user.persnum),
+    );
+
+    if (!myVerifikator) {
+      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+    }
+
+    return {
+      ...response,
+      data: {
+        ...response.data,
+        myVerifikatorInfo: myVerifikator,
+        canVerify: myVerifikator.status === 'waiting',
+        canReject: myVerifikator.status === 'waiting',
+      },
+    };
+  }
+
+  async verifyNaskah(id: string, user: JwtPayload, keterangan?: string) {
+    const verifikators = await this.verifikatorRepository.find({
+      where: { idNaskah: id },
+      order: { urutan: 'ASC' },
+    });
+
+    if (verifikators.length === 0) {
+      throw new NotFoundException('Naskah ini tidak memiliki verifikator');
+    }
+
+    const myVerifikator = verifikators.find(
+      (verifikator) => Number(verifikator.persnum) === Number(user.persnum),
+    );
+
+    if (!myVerifikator) {
+      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+    }
+
+    if (myVerifikator.status !== 'waiting') {
+      if (myVerifikator.status === 'verified') {
+        throw new BadRequestException('Anda sudah memverifikasi naskah ini');
+      }
+      if (myVerifikator.status === 'rejected') {
+        throw new BadRequestException('Naskah ini sudah Anda tolak');
+      }
+      throw new BadRequestException('Belum giliran Anda untuk memverifikasi naskah ini');
+    }
+
+    myVerifikator.status = 'verified';
+    myVerifikator.verifiedAt = new Date();
+    myVerifikator.keterangan = keterangan || null;
+    await this.verifikatorRepository.save(myVerifikator);
+
+    const nextVerifikator = verifikators.find(
+      (verifikator) =>
+        verifikator.urutan > myVerifikator.urutan && verifikator.status === 'pending',
+    );
+    if (nextVerifikator) {
+      nextVerifikator.status = 'waiting';
+      await this.verifikatorRepository.save(nextVerifikator);
+    }
+
+    const refreshed = await this.verifikatorRepository.find({
+      where: { idNaskah: id },
+      order: { urutan: 'ASC' },
+    });
+
+    return {
+      success: true,
+      message: 'Naskah berhasil diverifikasi',
+      data: {
+        id,
+        verifikatorProgress: this.getVerifikatorProgress(refreshed),
+        verifikators: refreshed.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+      },
+    };
+  }
+
+  async rejectNaskah(id: string, user: JwtPayload, alasan: string) {
+    if (!alasan?.trim()) {
+      throw new BadRequestException('Alasan penolakan wajib diisi');
+    }
+
+    const verifikators = await this.verifikatorRepository.find({
+      where: { idNaskah: id },
+      order: { urutan: 'ASC' },
+    });
+
+    if (verifikators.length === 0) {
+      throw new NotFoundException('Naskah ini tidak memiliki verifikator');
+    }
+
+    const myVerifikator = verifikators.find(
+      (verifikator) => Number(verifikator.persnum) === Number(user.persnum),
+    );
+
+    if (!myVerifikator) {
+      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+    }
+
+    if (myVerifikator.status !== 'waiting') {
+      if (myVerifikator.status === 'verified') {
+        throw new BadRequestException('Anda sudah memverifikasi naskah ini, tidak dapat menolak');
+      }
+      if (myVerifikator.status === 'rejected') {
+        throw new BadRequestException('Naskah ini sudah Anda tolak');
+      }
+      throw new BadRequestException('Belum giliran Anda untuk menolak naskah ini');
+    }
+
+    myVerifikator.status = 'rejected';
+    myVerifikator.rejectedAt = new Date();
+    myVerifikator.keterangan = alasan.trim();
+    await this.verifikatorRepository.save(myVerifikator);
+
+    const refreshed = await this.verifikatorRepository.find({
+      where: { idNaskah: id },
+      order: { urutan: 'ASC' },
+    });
+
+    return {
+      success: true,
+      message: 'Naskah berhasil ditolak',
+      data: {
+        id,
+        verifikatorProgress: this.getVerifikatorProgress(refreshed),
+        verifikators: refreshed.map((verifikator) => this.toVerifikatorInfo(verifikator)),
       },
     };
   }
