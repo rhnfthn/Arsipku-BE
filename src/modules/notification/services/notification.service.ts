@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NotificationEntity, NotificationType, NaskahMasukNotificationData } from '../entities';
 import { CreateNotificationDto, NotificationQueryDto, CreateNaskahMasukNotificationDto } from '../dto';
 import { FcmService } from '../../fcm/services';
+import { NotificationGateway } from '../gateways';
 
 @Injectable()
 export class NotificationService {
@@ -14,6 +15,7 @@ export class NotificationService {
     @InjectRepository(NotificationEntity)
     private readonly notificationRepository: Repository<NotificationEntity>,
     private readonly fcmService: FcmService,
+    private readonly notificationGateway: NotificationGateway,
   ) {
     this.logger.log('✅ NotificationService initialized');
   }
@@ -59,6 +61,23 @@ export class NotificationService {
         this.logger.log(`✅ [createNotification] Push notification sent`);
       } else {
         this.logger.log(`⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`);
+      }
+
+      // Emit realtime via WebSocket
+      try {
+        this.notificationGateway.emitNewNotification(
+          saved.positionId,
+          saved.userPersnum,
+          saved,
+        );
+        const unread = await this.getUnreadCount(saved.positionId);
+        this.notificationGateway.emitUnreadCount(
+          saved.positionId,
+          saved.userPersnum,
+          unread,
+        );
+      } catch (err: any) {
+        this.logger.warn(`⚠️ [createNotification] WS emit failed: ${err?.message}`);
       }
 
       return saved;
@@ -197,7 +216,18 @@ export class NotificationService {
     notification.isRead = true;
     notification.readAt = new Date();
 
-    return this.notificationRepository.save(notification);
+    const saved = await this.notificationRepository.save(notification);
+
+    // Emit realtime
+    try {
+      this.notificationGateway.emitRead(saved.positionId, saved.userPersnum, saved.id);
+      const unread = await this.getUnreadCount(saved.positionId);
+      this.notificationGateway.emitUnreadCount(saved.positionId, saved.userPersnum, unread);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [markAsRead] WS emit failed: ${err?.message}`);
+    }
+
+    return saved;
   }
 
   /**
@@ -209,7 +239,17 @@ export class NotificationService {
       { isRead: true, readAt: new Date() },
     );
 
-    return result.affected ?? 0;
+    const affected = result.affected ?? 0;
+
+    // Emit realtime
+    try {
+      this.notificationGateway.emitReadAll(positionId, null);
+      this.notificationGateway.emitUnreadCount(positionId, null, 0);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [markAllAsRead] WS emit failed: ${err?.message}`);
+    }
+
+    return affected;
   }
 
   /**
@@ -224,7 +264,19 @@ export class NotificationService {
       positionId,
     });
 
-    return (result.affected ?? 0) > 0;
+    const deleted = (result.affected ?? 0) > 0;
+
+    if (deleted) {
+      try {
+        this.notificationGateway.emitDeleted(positionId, null, notificationId);
+        const unread = await this.getUnreadCount(positionId);
+        this.notificationGateway.emitUnreadCount(positionId, null, unread);
+      } catch (err: any) {
+        this.logger.warn(`⚠️ [deleteNotification] WS emit failed: ${err?.message}`);
+      }
+    }
+
+    return deleted;
   }
 
   /**
