@@ -37,6 +37,6 @@ import { RbacModule } from '../rbac/rbac.module';
   ],
   providers: [SessionService, AuthService, JwtStrategy],
   controllers: [AuthController],
-  exports: [SessionService, AuthService],
+  exports: [SessionService, AuthService, JwtModule],
 })
 export class AuthModule {}
