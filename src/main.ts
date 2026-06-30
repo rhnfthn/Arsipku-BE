@@ -2,6 +2,7 @@ process.env.TZ = 'Asia/Jakarta';
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter, AllExceptionsFilter } from './common/filters';
 import { TransformResponseInterceptor } from './common/interceptors';
@@ -10,6 +11,9 @@ async function bootstrap() {
   const PORT = process.env.PORT;
   console.log(`Running Server on PORT : ${PORT}`);
   const app = await NestFactory.create(AppModule);
+
+  // WebSocket adapter (Socket.IO) untuk NotificationGateway
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Global Exception Filters
   app.useGlobalFilters(
