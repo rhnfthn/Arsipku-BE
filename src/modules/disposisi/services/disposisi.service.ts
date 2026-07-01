@@ -254,7 +254,15 @@ export class DisposisiService {
 
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
-    const orgData = await this.orgDataService.findOrg(tgl);
+    let orgData;
+    try {
+      orgData = await this.orgDataService.findOrg(tgl);
+    } catch (e) {
+      console.warn(
+        `[convertPositionIdsToNames] Org data for ${tgl} not found, falling back to latest.`,
+      );
+      orgData = await this.orgDataService.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
@@ -766,10 +774,25 @@ export class DisposisiService {
 
   /**
    * Get cached position_json from org_data
+   * Falls back to latest org_data if exact date not found.
    */
   private async getPositionData(tgl?: string): Promise<PositionData[]> {
     const today = tgl || new Date().toISOString().split('T')[0];
-    const orgData = await this.orgDataService.findOrg(today);
+    let orgData;
+    try {
+      orgData = await this.orgDataService.findOrg(today);
+    } catch (e) {
+      // Fallback ke data org terbaru jika tanggal hari ini belum di-generate
+      console.warn(
+        `[getPositionData] Org data for ${today} not found, falling back to latest.`,
+      );
+      orgData = await this.orgDataService.findLatestOrg();
+    }
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi tidak ditemukan. Silakan generate via GET /org-data`,
+      );
+    }
     return orgData.position_json as PositionData[];
   }
 
