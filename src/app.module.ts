@@ -65,6 +65,7 @@ import { PedomanModule } from './modules/pedoman/pedoman.module';
 import { ShortUrlModule } from './modules/short-url/short-url.module';
 import { MailServiceModule } from './modules/mail-service/mail-service.module';
 import { RbacModule } from './modules/rbac/rbac.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 
 @Module({
   imports: [
@@ -163,6 +164,7 @@ import { RbacModule } from './modules/rbac/rbac.module';
     ShortUrlModule,
     MailServiceModule,
     RbacModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [
