@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull } from 'typeorm';
@@ -46,9 +47,12 @@ import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 @Injectable()
 export class NomorService {
+  private readonly logger = new Logger(NomorService.name);
+
   // Cache untuk position JSON data (per-request lifecycle)
   private cachedPositionJsonData: any[] | null = null;
 
@@ -66,6 +70,7 @@ export class NomorService {
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   /**
@@ -374,6 +379,11 @@ export class NomorService {
     });
 
     await this.nomorRequestRepository.save(nomorRequest);
+
+    // Emit nomor count lengkap ke admin (ada usulan baru)
+    try {
+      await this.emitNomorCountRefresh(dto.position_id?.toString());
+    } catch {}
 
     return {
       success: true,
@@ -913,6 +923,28 @@ export class NomorService {
         total: processedCount,
       },
     };
+  }
+
+  /**
+   * Helper: Emit nomor count lengkap ke admin (broadcast) dan user (per position).
+   * Dipanggil setelah aksi yang mengubah count (create, approve, reject, submit, etc).
+   */
+  private async emitNomorCountRefresh(positionId?: string, user?: JwtPayload): Promise<void> {
+    try {
+      // Emit ke admin/superadmin dengan count lengkap
+      if (user) {
+        const adminResult = await this.getAdminCountNomorRequest(Number(user.position), user);
+        this.realtimeEmitService.emitNomorCountAdminBroadcast(adminResult?.data ?? {});
+      }
+
+      // Emit ke user position dengan count lengkap
+      if (positionId) {
+        const userResult = await this.getAdminCountNomorRequestByPosition(Number(positionId));
+        this.realtimeEmitService.emitNomorCountUser(positionId, userResult?.data ?? {});
+      }
+    } catch (err: any) {
+      this.logger?.warn?.(`⚠️ [emitNomorCountRefresh] failed: ${err?.message}`);
+    }
   }
 
   /**
@@ -2207,6 +2239,11 @@ export class NomorService {
 
       await queryRunner.commitTransaction();
 
+      // Emit nomor count lengkap ke requester position + admin
+      try {
+        await this.emitNomorCountRefresh(request.position ?? undefined);
+      } catch {}
+
       return {
         success: true,
         message: 'Nomor berhasil disetujui dan digenerate',
@@ -2249,6 +2286,11 @@ export class NomorService {
 
     detail.status = 'hangus';
     await this.nomorRequestDetailRepository.save(detail);
+
+    // Emit nomor count lengkap ke admin
+    try {
+      await this.emitNomorCountRefresh();
+    } catch {}
 
     return {
       success: true,
@@ -2502,6 +2544,11 @@ export class NomorService {
       }
     }
 
+    // Emit nomor count lengkap ke admin (bulk approve selesai)
+    try {
+      await this.emitNomorCountRefresh();
+    } catch {}
+
     return {
       success: true,
       message: `Selesai memproses ${dto.detail_ids.length} detail: ${successCount} berhasil, ${failedCount} gagal`,
@@ -2563,6 +2610,11 @@ export class NomorService {
         failedCount++;
       }
     }
+
+    // Emit nomor count lengkap ke admin (bulk reject selesai)
+    try {
+      await this.emitNomorCountRefresh();
+    } catch {}
 
     return {
       success: true,
@@ -2867,6 +2919,11 @@ export class NomorService {
     // Delete request
     await this.nomorRequestRepository.delete({ id: requestId });
 
+    // Emit nomor count lengkap ke requester position + admin
+    try {
+      await this.emitNomorCountRefresh(request.position ?? undefined);
+    } catch {}
+
     return {
       success: true,
       message: 'Usulan nomor berhasil dihapus',
@@ -2916,6 +2973,11 @@ export class NomorService {
         });
       }
     }
+
+    // Emit nomor count lengkap ke requester position + admin
+    try {
+      await this.emitNomorCountRefresh(request.position ?? undefined);
+    } catch {}
 
     return {
       success: true,
@@ -3052,6 +3114,11 @@ export class NomorService {
     }
     await this.nomorRequestDetailRepository.save(draftDetails);
 
+    // Emit nomor count lengkap ke admin (ada usulan siap diverifikasi)
+    try {
+      await this.emitNomorCountRefresh();
+    } catch {}
+
     return {
       success: true,
       message: `${draftDetails.length} usulan berhasil disetujui dan siap diverifikasi admin`,
@@ -3094,6 +3161,13 @@ export class NomorService {
       detail.status = 'ditolak';
     }
     await this.nomorRequestDetailRepository.save(draftDetails);
+
+    // Emit nomor count lengkap ke requester position
+    try {
+      if (request.position) {
+        await this.emitNomorCountRefresh(request.position);
+      }
+    } catch {}
 
     return {
       success: true,
