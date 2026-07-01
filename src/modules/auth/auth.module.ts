@@ -13,6 +13,7 @@ import { AuthController } from './controllers/auth.controller';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DelegasiModule } from '../delegasi/delegasi.module';
+import { RbacModule } from '../rbac/rbac.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { DelegasiModule } from '../delegasi/delegasi.module';
     OrgDataModule,
     SubAreaAlamatModule,
     forwardRef(() => DelegasiModule),
+    forwardRef(() => RbacModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -35,6 +37,6 @@ import { DelegasiModule } from '../delegasi/delegasi.module';
   ],
   providers: [SessionService, AuthService, JwtStrategy],
   controllers: [AuthController],
-  exports: [SessionService, AuthService],
+  exports: [SessionService, AuthService, JwtModule],
 })
 export class AuthModule {}

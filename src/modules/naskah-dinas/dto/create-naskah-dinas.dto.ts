@@ -102,6 +102,13 @@ export class CreateNaskahDinasDto {
   created_by_position_id?: string; // Position ID pembuat
 
   // ============================================
+  // VERIFIKATOR (OPSIONAL, BUKAN DIGSIG)
+  // ============================================
+  @IsOptional()
+  @IsArray({ message: 'Verifikator harus berupa array' })
+  verifikator?: number[]; // array persnum verifikator, urutan mengikuti pilihan admin
+
+  // ============================================
   // FILE ATTACHMENT (langsung ke final_pdf)
   // ============================================
   // File akan diupload via form-data field 'file_attachment'

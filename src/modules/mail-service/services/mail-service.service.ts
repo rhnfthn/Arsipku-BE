@@ -29,7 +29,7 @@ export class MailServiceService {
     @InjectRepository(Session)
     private readonly sessionRepository: Repository<Session>,
   ) {
-    this.baseUrl = this.configService.get<string>('MAIL_API_BASE_URL') || '';
+    this.baseUrl = this.normalizeBaseUrl(this.configService.get<string>('MAIL_API_BASE_URL') || '');
 
     if (!this.baseUrl) {
       this.logger.warn('MAIL_API_BASE_URL is not set. Mail service will not work properly.');
@@ -172,7 +172,7 @@ export class MailServiceService {
       );
     }
 
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = this.buildMailApiUrl(endpoint);
 
     try {
       this.logger.log(`Calling mail API: ${method} ${url}`);
@@ -209,6 +209,45 @@ export class MailServiceService {
 
       throw new HttpException(
         { success: false, message: `Failed to call mail API: ${error.message}` },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  private normalizeBaseUrl(value: string): string {
+    const trimmed = value.trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+
+    return `https://${trimmed}`;
+  }
+
+  private buildMailApiUrl(endpoint: string): string {
+    try {
+      const url = new URL(this.baseUrl);
+      const baseSegments = url.pathname.split('/').filter(Boolean);
+      const endpointSegments = endpoint.split('/').filter(Boolean);
+
+      while (
+        baseSegments.length > 0 &&
+        endpointSegments.length > 0 &&
+        baseSegments[baseSegments.length - 1] === endpointSegments[0]
+      ) {
+        endpointSegments.shift();
+      }
+
+      const finalSegments = [...baseSegments, ...endpointSegments];
+      url.pathname = finalSegments.length ? `/${finalSegments.join('/')}` : '/';
+      url.search = '';
+      url.hash = '';
+
+      return url.toString();
+    } catch {
+      throw new HttpException(
+        { success: false, message: 'Invalid MAIL_API_BASE_URL configuration' },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

@@ -3,3 +3,4 @@ export * from './roles.decorator';
 export * from './public.decorator';
 export * from './user-levels.decorator';
 export * from './skip-transform.decorator';
+export * from './require-permission.decorator';
