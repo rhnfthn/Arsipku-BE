@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { NaskahSirkulasiService } from 'src/modules/naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { LabelService } from 'src/modules/label/services/label.service';
 import { BsreAlertService } from 'src/modules/digsig/services/bsre-alert.service';
+import { NaskahDinasVerifikatorEntity } from 'src/modules/naskah-dinas/entities/naskah-dinas-verifikator.entity';
+import { NomorService } from 'src/modules/nomor/services/nomor.service';
 
 interface CacheEntry {
   data: any;
@@ -24,10 +28,13 @@ export class RealtimeSummaryService {
     private readonly sirkulasiService: NaskahSirkulasiService,
     private readonly labelService: LabelService,
     private readonly bsreAlertService: BsreAlertService,
+    private readonly nomorService: NomorService,
+    @InjectRepository(NaskahDinasVerifikatorEntity)
+    private readonly verifikatorRepository: Repository<NaskahDinasVerifikatorEntity>,
   ) {}
 
-  async getSummary(positionId: string) {
-    const cacheKey = `realtime:${positionId}`;
+  async getSummary(positionId: string, persnum?: number) {
+    const cacheKey = `realtime:${positionId}:${persnum ?? 'all'}`;
     const now = Date.now();
     const cached = this.cache.get(cacheKey);
 
@@ -35,16 +42,26 @@ export class RealtimeSummaryService {
       return { ...cached.data, cached: true };
     }
 
-    const [inboxCount, labelCounts, bsreAlert] = await Promise.all([
+    const [inboxCount, labelCounts, bsreAlert, verifikatorWaitingCount, nomorAdminCount, nomorUserCount] = await Promise.all([
       this.sirkulasiService.countUnreadInbox(positionId).catch(() => null),
       this.labelService.countNaskahPerLabel(positionId).catch(() => ({})),
       this.bsreAlertService.getAlertStatus().catch(() => null),
+      persnum != null
+        ? this.verifikatorRepository.count({ where: { persnum, status: 'waiting' } }).catch(() => 0)
+        : this.verifikatorRepository.count({ where: { status: 'waiting' } }).catch(() => 0),
+      this.nomorService.getAdminCountNomorRequest(Number(positionId)).catch(() => null),
+      this.nomorService.getAdminCountNomorRequestByPosition(Number(positionId)).catch(() => null),
     ]);
 
     const data = {
       inboxCount,
       labelCounts,
       bsreAlert,
+      naskahDinasVerifikatorWaitingCount: verifikatorWaitingCount,
+      nomorCounts: {
+        admin: nomorAdminCount?.data ?? null,
+        user: nomorUserCount?.data ?? null,
+      },
       generatedAt: new Date().toISOString(),
     };
 
