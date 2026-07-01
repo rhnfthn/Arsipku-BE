@@ -1,6 +1,6 @@
 // ============================================================
 // DTO: CreatePedomanDto
-// Validasi input saat MEMBUAT pedoman baru.
+// Validasi input saat MEMBUAT untuk pedoman baru.
 // Semua field wajib kecuali fileUrl, lampirans, isActive.
 // ============================================================
 
