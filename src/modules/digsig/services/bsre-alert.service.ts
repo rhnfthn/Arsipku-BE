@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { BsreAlertEntity } from '../entities/bsre-alert.entity';
 import { BsreAlertStatusDto } from '../dto/bsre-alert.dto';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 const DEFAULT_ALERT_MESSAGE = 'Layanan BSrE sedang mengalami gangguan. Mohon coba beberapa saat lagi.';
 
@@ -12,6 +13,7 @@ export class BsreAlertService {
   constructor(
     @InjectRepository(BsreAlertEntity)
     private readonly alertRepository: Repository<BsreAlertEntity>,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   /**
@@ -70,12 +72,19 @@ export class BsreAlertService {
 
     await this.alertRepository.save(alert);
 
-    return {
+    const result = {
       isActive: true,
       message: alert.message,
       activatedAt: alert.activatedAt,
       activatedByName: alert.activatedByName,
     };
+
+    // Emit realtime BsrE alert toggle ke semua client
+    try {
+      this.realtimeEmitService.emitBsreAlert(result);
+    } catch {}
+
+    return result;
   }
 
   /**
@@ -92,12 +101,19 @@ export class BsreAlertService {
 
     await this.alertRepository.save(alert);
 
-    return {
+    const result = {
       isActive: false,
       message: null,
       activatedAt: null,
       activatedByName: null,
     };
+
+    // Emit realtime BsrE alert toggle ke semua client
+    try {
+      this.realtimeEmitService.emitBsreAlert(result);
+    } catch {}
+
+    return result;
   }
 
   /**
