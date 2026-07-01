@@ -44,6 +44,28 @@ export class NdPembuatInfoDto {
   area_text: string | null;
 }
 
+export class NdVerifikatorProgressDto {
+  verified: number;
+  total: number;
+  rejected: number;
+  currentOrder: number | null;
+  status: 'none' | 'on_progress' | 'completed' | 'rejected';
+}
+
+export class NdVerifikatorInfoDto {
+  id: string;
+  urutan: number;
+  persnum: number;
+  nama: string | null;
+  jabatan: string | null;
+  lokasi: string | null;
+  positionId: number | null;
+  status: 'pending' | 'waiting' | 'verified' | 'rejected';
+  verifiedAt: Date | null;
+  rejectedAt: Date | null;
+  keterangan: string | null;
+}
+
 /**
  * Data response untuk send-message Naskah Dinas
  */
@@ -54,12 +76,18 @@ export class NdSendMessageDataDto {
   tanggal: string;
   jam: string; // UTC timestamp
   status: string;
+  sifat: string | null;
+  klasifikasi: string | null;
+  lampiran: string | null;
   perihal: string;
   final_pdf: string | null;
   final_pdf_url: string | null;
   pengirim: NdPengirimInfoDto;
   penerima: NdPenerimaInfoDto[];
   pembuat: NdPembuatInfoDto | null;
+  verifikatorProgress: NdVerifikatorProgressDto;
+  totalVerifikator: number;
+  verifikators: NdVerifikatorInfoDto[];
 }
 
 /**

@@ -87,6 +87,23 @@ export class LabelController {
   }
 
   /**
+   * GET /labels/:labelId/naskah
+   * Mengambil semua naskah dengan label tertentu beserta detail lengkap
+   */
+  @Get(':labelId/naskah')
+  async getNaskahByLabel(
+    @Param('labelId') labelId: string,
+    @Query() query: QueryLabelNaskahDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<any> {
+    return this.labelService.getNaskahByLabel(
+      labelId,
+      this.getPositionId(user),
+      query,
+    );
+  }
+
+  /**
    * GET /labels/:id
    * Mengambil label berdasarkan ID
    */
@@ -167,20 +184,4 @@ export class LabelController {
     return this.labelService.getLabelsForNaskah(naskahId);
   }
 
-  /**
-   * GET /labels/:labelId/naskah
-   * Mengambil semua naskah dengan label tertentu beserta detail lengkap
-   */
-  @Get(':labelId/naskah')
-  async getNaskahByLabel(
-    @Param('labelId') labelId: string,
-    @Query() query: QueryLabelNaskahDto,
-    @CurrentUser() user: JwtPayload,
-  ): Promise<any> {
-    return this.labelService.getNaskahByLabel(
-      labelId,
-      this.getPositionId(user),
-      query,
-    );
-  }
 }

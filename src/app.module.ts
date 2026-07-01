@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionGuard } from './common/guards/permission.guard';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
 import { AreaModule } from './modules/master-data/area/area.module';
@@ -63,6 +64,7 @@ import { FaqModule } from './modules/faq/faq.module';
 import { PedomanModule } from './modules/pedoman/pedoman.module';
 import { ShortUrlModule } from './modules/short-url/short-url.module';
 import { MailServiceModule } from './modules/mail-service/mail-service.module';
+import { RbacModule } from './modules/rbac/rbac.module';
 
 @Module({
   imports: [
@@ -160,6 +162,7 @@ import { MailServiceModule } from './modules/mail-service/mail-service.module';
     PedomanModule,
     ShortUrlModule,
     MailServiceModule,
+    RbacModule,
   ],
   controllers: [AppController],
   providers: [
@@ -167,6 +170,10 @@ import { MailServiceModule } from './modules/mail-service/mail-service.module';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
   ],
 })
