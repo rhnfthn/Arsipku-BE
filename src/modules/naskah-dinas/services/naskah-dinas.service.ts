@@ -22,6 +22,7 @@ import { OrgDataService } from 'src/modules/master-data/org_data/org_data.servic
 import { StorageService } from '../../storage/services/storage.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { v4 as uuidv4 } from 'uuid';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -39,6 +40,7 @@ export class NaskahDinasService {
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   private getScopedAreaCode(user: JwtPayload): string | undefined {
@@ -1262,6 +1264,25 @@ export class NaskahDinasService {
       order: { urutan: 'ASC' },
     });
 
+    // Emit verifikator waiting count per-persnum ke semua user yang masih waiting
+    try {
+      const waitingRows = await this.verifikatorRepository
+        .createQueryBuilder('v')
+        .select('v.persnum', 'persnum')
+        .addSelect('COUNT(*)', 'count')
+        .where('v.status = :status', { status: 'waiting' })
+        .groupBy('v.persnum')
+        .getRawMany();
+      for (const row of waitingRows) {
+        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
+          Number(row.persnum),
+          Number(row.count),
+        );
+      }
+      // User yang baru verify: count mereka = 0
+      this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(user.persnum), 0);
+    } catch {}
+
     return {
       success: true,
       message: 'Naskah berhasil diverifikasi',
@@ -1314,6 +1335,25 @@ export class NaskahDinasService {
       where: { idNaskah: id },
       order: { urutan: 'ASC' },
     });
+
+    // Emit verifikator waiting count per-persnum ke semua user yang masih waiting
+    try {
+      const waitingRows = await this.verifikatorRepository
+        .createQueryBuilder('v')
+        .select('v.persnum', 'persnum')
+        .addSelect('COUNT(*)', 'count')
+        .where('v.status = :status', { status: 'waiting' })
+        .groupBy('v.persnum')
+        .getRawMany();
+      for (const row of waitingRows) {
+        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
+          Number(row.persnum),
+          Number(row.count),
+        );
+      }
+      // User yang baru reject: count mereka = 0
+      this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(user.persnum), 0);
+    } catch {}
 
     return {
       success: true,
