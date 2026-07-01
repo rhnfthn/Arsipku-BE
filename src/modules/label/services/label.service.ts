@@ -9,6 +9,7 @@ import {
   AddNaskahToLabelDto,
   QueryLabelNaskahDto,
 } from '../dto';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 type DatePreset = '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
@@ -30,6 +31,7 @@ export class LabelService {
     @InjectRepository(NaskahLabelEntity)
     private readonly naskahLabelRepository: Repository<NaskahLabelEntity>,
     private readonly dataSource: DataSource,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   /**
@@ -120,7 +122,15 @@ export class LabelService {
       createdBy: userId,
     });
 
-    return this.labelRepository.save(label);
+    const saved = await this.labelRepository.save(label);
+
+    // Emit label counts refresh ke position room
+    try {
+      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      this.realtimeEmitService.emitLabelCounts(positionId, counts);
+    } catch {}
+
+    return saved;
   }
 
   /**
@@ -221,7 +231,15 @@ export class LabelService {
     }
 
     Object.assign(label, updateLabelDto);
-    return this.labelRepository.save(label);
+    const saved = await this.labelRepository.save(label);
+
+    // Emit label counts refresh ke position room
+    try {
+      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      this.realtimeEmitService.emitLabelCounts(positionId, counts);
+    } catch {}
+
+    return saved;
   }
 
   /**
@@ -246,6 +264,12 @@ export class LabelService {
 
     label.isActive = false;
     await this.labelRepository.save(label);
+
+    // Emit label counts refresh ke position room
+    try {
+      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      this.realtimeEmitService.emitLabelCounts(positionId, counts);
+    } catch {}
   }
 
   /**
@@ -307,6 +331,12 @@ export class LabelService {
       results.push(saved);
     }
 
+    // Emit label counts refresh ke position room
+    try {
+      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      this.realtimeEmitService.emitLabelCounts(positionId, counts);
+    } catch {}
+
     return results;
   }
 
@@ -325,6 +355,10 @@ export class LabelService {
     if (result.affected === 0) {
       throw new NotFoundException('Relasi naskah-label tidak ditemukan');
     }
+
+    // Note: Tidak emit label counts di sini karena method ini tidak
+    // menerima positionId. Caller (controller) bertanggung jawab
+    // memanggil realtimeEmitService.emitLabelCounts jika diperlukan.
   }
 
   /**

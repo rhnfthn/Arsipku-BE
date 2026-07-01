@@ -31,6 +31,7 @@ import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { LabelService } from '../../label/services/label.service';
 import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -62,6 +63,7 @@ export class NaskahSirkulasiService {
     private readonly labelService: LabelService,
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) { }
 
   /**
@@ -147,6 +149,18 @@ export class NaskahSirkulasiService {
     // Sync to Meilisearch when sirkulasi changes (affects pengirim/penerima info)
     if (saved.idNaskah) {
       this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => { });
+    }
+
+    // Emit inbox count refresh ke penerima position
+    if (saved.position) {
+      try {
+        const inboxResult = await this.countUnreadInbox(String(saved.position)).catch(() => null);
+        const count =
+          inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
+            ? (inboxResult as any).data.count
+            : 0;
+        this.realtimeEmitService.emitInboxCount(String(saved.position), count);
+      } catch {}
     }
 
     return saved;
@@ -242,6 +256,16 @@ export class NaskahSirkulasiService {
       sendReadTime: now,
       sendReadUser: readUser,
     });
+
+    // Emit inbox count refresh ke penerima position
+    try {
+      const inboxResult = await this.countUnreadInbox(String(dto.position_id)).catch(() => null);
+      const count =
+        inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
+          ? (inboxResult as any).data.count
+          : 0;
+      this.realtimeEmitService.emitInboxCount(String(dto.position_id), count);
+    } catch {}
 
     return {
       success: true,

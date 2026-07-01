@@ -1,0 +1,113 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { RealtimeGateway } from '../gateways/realtime.gateway';
+
+/**
+ * RealtimeEmitService
+ *
+ * Single entry point untuk semua emit WebSocket realtime sidebar.
+ * Service lain (NaskahSirkulasi, Label, BsreAlert, Nomor, NaskahDinas)
+ * cukup inject service ini dan panggil method yang relevan.
+ *
+ * ⚠️ Service ini TIDAK menginject service data apapun untuk menghindari
+ * circular dependency. Pemanggil bertanggung jawab menyediakan payload
+ * (data sudah di-fetch oleh service yang melakukan perubahan).
+ */
+@Injectable()
+export class RealtimeEmitService {
+  private readonly logger = new Logger(RealtimeEmitService.name);
+
+  constructor(private readonly gateway: RealtimeGateway) {}
+
+  // ──────────────────────────────────────────────
+  // Full summary
+  // ──────────────────────────────────────────────
+
+  emitSummary(positionId: string, payload: any) {
+    try {
+      this.gateway.emitRealtimeSummary(positionId, payload);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitSummary] failed for ${positionId}: ${err?.message}`);
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // Inbox count
+  // ──────────────────────────────────────────────
+
+  emitInboxCount(positionId: string, count: number) {
+    try {
+      this.gateway.emitInboxCount(positionId, count);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitInboxCount] failed for ${positionId}: ${err?.message}`);
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // Label counts
+  // ──────────────────────────────────────────────
+
+  emitLabelCounts(positionId: string, counts: Record<string, number>) {
+    try {
+      this.gateway.emitLabelCounts(positionId, counts);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitLabelCounts] failed for ${positionId}: ${err?.message}`);
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // BsrE alert
+  // ──────────────────────────────────────────────
+
+  emitBsreAlert(payload: any) {
+    try {
+      this.gateway.emitBsreAlert(payload);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitBsreAlert] failed: ${err?.message}`);
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // Nomor counts
+  // ──────────────────────────────────────────────
+
+  emitNomorCountUser(positionId: string, counts: any) {
+    try {
+      this.gateway.emitNomorCount(positionId, 'user', counts);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitNomorCountUser] failed for ${positionId}: ${err?.message}`);
+    }
+  }
+
+  emitNomorCountAdminBroadcast(counts: any) {
+    try {
+      this.gateway.emitNomorCountAdmin(counts);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitNomorCountAdminBroadcast] failed: ${err?.message}`);
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // Naskah Dinas Verifikator count
+  // ──────────────────────────────────────────────
+
+  emitNaskahDinasVerifikatorCount(positionId: string, waiting: number) {
+    try {
+      this.gateway.emitNaskahDinasVerifikatorCount(positionId, waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahDinasVerifikatorCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  emitNaskahDinasVerifikatorCountBroadcast(waiting: number) {
+    try {
+      this.gateway.emitNaskahDinasVerifikatorCountBroadcast(waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahDinasVerifikatorCountBroadcast] failed: ${err?.message}`,
+      );
+    }
+  }
+}
