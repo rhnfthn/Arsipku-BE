@@ -37,6 +37,7 @@ async function bootstrap() {
   // Enable CORS if needed
   app.enableCors();
 
+  console.log(`✅ ArsipKu API ready on http://localhost:${PORT}`);
   await app.listen(PORT);
 }
 bootstrap();

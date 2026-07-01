@@ -8,11 +8,14 @@ import {
   Param,
   HttpException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { FaqKategoriService } from '../services/faq-kategori.service';
 import { CreateFaqKategoriDto } from '../dto/create-faq-kategori.dto';
 import { UpdateFaqKategoriDto } from '../dto/update-faq-kategori.dto';
 import { FaqKategoriResponseDto } from '../dto/faq-kategori.dto';
+import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
+import { Roles } from '../../../common/decorators';
 
 @Controller('faq-kategori')
 export class FaqKategoriController {
@@ -64,6 +67,8 @@ export class FaqKategoriController {
    * Membuat kategori baru
    */
   @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'superadmin')
   async create(
     @Body() dto: CreateFaqKategoriDto,
   ): Promise<FaqKategoriResponseDto> {
@@ -87,6 +92,8 @@ export class FaqKategoriController {
    * Update kategori berdasarkan ID
    */
   @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'superadmin')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateFaqKategoriDto,
@@ -111,6 +118,8 @@ export class FaqKategoriController {
    * Hapus kategori berdasarkan ID
    */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'superadmin')
   async remove(@Param('id') id: string): Promise<FaqKategoriResponseDto> {
     try {
       return await this.kategoriService.remove(id);

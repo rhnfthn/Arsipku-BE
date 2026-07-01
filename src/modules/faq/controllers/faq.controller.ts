@@ -42,9 +42,14 @@ export class FaqController {
   async findAll(
     @Query('kategoriId') kategoriId?: string,
     @Query('search') search?: string,
+    @CurrentUser('persnum') userId?: number,
   ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.findAll(kategoriId, search);
+      return await this.faqService.findAll(
+        kategoriId,
+        search,
+        userId != null ? String(userId) : undefined,
+      );
     } catch (error) {
       throw new HttpException(
         {
@@ -213,9 +218,15 @@ export class FaqController {
    * Mendapatkan FAQ berdasarkan ID
    */
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<FaqResponseDto> {
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser('persnum') userId?: number,
+  ): Promise<FaqResponseDto> {
     try {
-      return await this.faqService.findOne(id);
+      return await this.faqService.findOne(
+        id,
+        userId != null ? String(userId) : undefined,
+      );
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(

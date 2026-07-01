@@ -8,6 +8,7 @@ export interface FaqData {
   tidak_puas: number;
   fileUrl?: string;
   lampirans?: { url: string; name: string }[];
+  userVote?: string | null;
   created_at: Date;
   updated_at: Date;
 }
