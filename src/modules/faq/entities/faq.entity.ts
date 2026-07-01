@@ -9,17 +9,6 @@ import {
 } from 'typeorm';
 import { FaqKategoriEntity } from './faq-kategori.entity';
 
-export enum FaqKategori {
-  ARSIPKU = 'Arsipku',
-  KOTAK_MASUK = 'Kotak Masuk',
-  TULIS_SURAT = 'Tulis Surat',
-  PENOMORAN = 'Penomoran',
-  DOKUMEN_TEMPLATE = 'Dokumen & Template',
-  TANDA_TANGAN_DIGITAL = 'Tanda Tangan Digital (BSrE)',
-  MASTER_DATA = 'Master Data',
-  PENGATURAN_AKUN = 'Pengaturan & Akun',
-}
-
 @Entity('faq')
 export class FaqEntity {
   @PrimaryGeneratedColumn('uuid')
