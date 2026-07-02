@@ -3,7 +3,7 @@ import { DashboardService } from '../services/dashboard.service';
 import { RealtimeSummaryService } from '../services/realtime-summary.service';
 import { DashboardResponseDto } from '../dto/dashboard.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('dashboard')
@@ -26,6 +26,7 @@ export class DashboardController {
    * - statistik: statistik surat masuk & keluar 6 bulan terakhir
    */
   @Get()
+  @RequirePermission('dashboard', 'read')
   async getDashboard(
     @CurrentUser() user: JwtPayload,
   ): Promise<DashboardResponseDto> {
@@ -41,6 +42,7 @@ export class DashboardController {
    * saat banyak user online.
    */
   @Get('realtime')
+  @RequirePermission('dashboard', 'read')
   async getRealtimeSummary(@CurrentUser() user: JwtPayload) {
     return this.realtimeSummaryService.getSummary(user.position);
   }

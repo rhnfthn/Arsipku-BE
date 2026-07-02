@@ -16,10 +16,7 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
 
   // Global Exception Filters
-  app.useGlobalFilters(
-    new AllExceptionsFilter(),
-    new HttpExceptionFilter(),
-  );
+  app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
 
   // Global Interceptors
   const reflector = app.get(Reflector);

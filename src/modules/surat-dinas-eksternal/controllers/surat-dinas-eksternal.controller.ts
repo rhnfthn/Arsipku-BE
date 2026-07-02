@@ -8,7 +8,7 @@ import { CreateSuratDinasEksternalDto, UpdateSdeDraftDto, FinalizeSdeDraftDto } 
 import { SendSdeEmailDto } from '../dto/send-sde-email.dto';
 import { SdeSendMessageResponseDto } from '../dto/send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, Public, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
@@ -74,6 +74,7 @@ export class SuratDinasEksternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getSdeRecipients(
     @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
@@ -103,6 +104,7 @@ export class SuratDinasEksternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-tembusan')
+  @RequirePermission('naskah-dinas', 'read')
   async getSdeTembusan(
     @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
@@ -128,6 +130,7 @@ export class SuratDinasEksternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-senders')
+  @RequirePermission('naskah-dinas', 'read')
   async getSdeSenders(
     @CurrentUser() user: any,
     @Query() query: GetSdeRecipientQueryDto,
@@ -173,6 +176,7 @@ export class SuratDinasEksternalController {
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getSdeDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -202,6 +206,7 @@ export class SuratDinasEksternalController {
    * Body: { to, cc?, bcc?, from_as?, lampiran_ids? }
    */
   @Post(':id/send-email')
+  @RequirePermission('naskah-dinas', 'send-email')
   @UseGuards(JwtAuthGuard)
   async sendSdeEmail(
     @Param('id') id: string,
@@ -232,6 +237,7 @@ export class SuratDinasEksternalController {
    * Body: { to, cc?, bcc?, from_as?, lampiran_ids? }
    */
   @Post(':id/save-email-draft')
+  @RequirePermission('naskah-dinas', 'send-email')
   @UseGuards(JwtAuthGuard)
   async saveSdeEmailDraft(
     @Param('id') id: string,
@@ -273,6 +279,7 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('send-message')
+  @RequirePermission('naskah-dinas', 'create')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   async sendMessage(
@@ -338,6 +345,7 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(AnyFilesInterceptor())
   async saveDraft(
     @Body() body: any,
@@ -383,6 +391,7 @@ export class SuratDinasEksternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
+  @RequirePermission('naskah-dinas', 'update')
   @UseInterceptors(AnyFilesInterceptor())
   async updateDraft(
     @Param('id') id: string,
@@ -475,6 +484,7 @@ export class SuratDinasEksternalController {
    * @throws 500 - Internal Server Error
    */
   @Post('upload-temporary')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
       limits: {
@@ -555,6 +565,7 @@ export class SuratDinasEksternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(AnyFilesInterceptor())
   async sendDraft(
     @Param('id') id: string,
@@ -615,6 +626,7 @@ export class SuratDinasEksternalController {
    * @returns List of draft SDE
    */
   @Get('draft-list/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftList(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query('tgl') tgl?: string,
@@ -652,6 +664,7 @@ export class SuratDinasEksternalController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -824,6 +837,7 @@ export class SuratDinasEksternalController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('generate-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
     @Body() body: any,
     @CurrentUser() user: any,

@@ -24,7 +24,7 @@ import {
   BulkDeleteDraftResponseDto,
 } from '../dto/draft/draft.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 
 @Controller('draft')
 export class DraftController {
@@ -53,6 +53,7 @@ export class DraftController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('list')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftList(
     @CurrentUser() user: any,
     @Query() query: GetDraftListQueryDto,
@@ -120,6 +121,7 @@ export class DraftController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('detail/:id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getDraftDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -159,6 +161,7 @@ export class DraftController {
    */
   @UseGuards(JwtAuthGuard)
   @Delete('delete/:id')
+  @RequirePermission('naskah-dinas', 'delete')
   async deleteDraft(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -198,6 +201,7 @@ export class DraftController {
    * @returns SignDraftResponseDto
    */
   @Put('sign/:id')
+  @RequirePermission('naskah-dinas', 'sign')
   async signDraft(
     @Param('id') id: string,
     @Body() dto: SignDraftDto,
@@ -229,6 +233,7 @@ export class DraftController {
    * @returns BulkDeleteDraftResponseDto
    */
   @Post('bulk-delete')
+  @RequirePermission('naskah-dinas', 'delete')
   async bulkDeleteDraft(
     @Body() dto: BulkDeleteDraftDto,
   ): Promise<BulkDeleteDraftResponseDto> {

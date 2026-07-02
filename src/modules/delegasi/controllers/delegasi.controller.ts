@@ -19,6 +19,7 @@ import { QueryDelegasiDto } from '../dto/query-delegasi.dto';
 import { SwitchRoleDto } from '../dto/switch-role.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { PositionService } from '../../master-data/position/position.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
@@ -44,6 +45,7 @@ export class DelegasiController {
    */
   @Get()
   @ApiOperation({ summary: 'Get all delegasi with filtering and pagination' })
+  @RequirePermission('delegasi', 'read')
   findAll(@Query() query: QueryDelegasiDto) {
     return this.delegasiService.findAll(query);
   }
@@ -54,6 +56,7 @@ export class DelegasiController {
    */
   @Get('position-statuses')
   @ApiOperation({ summary: 'Get available position statuses for delegation' })
+  @RequirePermission('delegasi', 'read')
   getPositionStatuses() {
     return this.delegasiService.getPositionStatuses();
   }
@@ -71,6 +74,7 @@ export class DelegasiController {
    */
   @Get('personil')
   @ApiOperation({ summary: 'Get list of personil for delegation' })
+  @RequirePermission('delegasi', 'read')
   async getPersonil(
     @Query('company') company?: string, 
     @Query('search') search?: string,
@@ -184,6 +188,7 @@ export class DelegasiController {
    */
   @Get('jabatan')
   @ApiOperation({ summary: 'Get list of jabatan for delegation with area info' })
+  @RequirePermission('delegasi', 'read')
   async getJabatan(
     @Query('company') company?: string,
     @CurrentUser() user?: JwtPayload,
@@ -297,6 +302,7 @@ export class DelegasiController {
    */
   @Get('statistics')
   @ApiOperation({ summary: 'Get delegation statistics' })
+  @RequirePermission('delegasi', 'read')
   getStatistics(@Query('company') company?: string) {
     return this.delegasiService.getStatistics(company);
   }
@@ -307,6 +313,7 @@ export class DelegasiController {
    */
   @Get('by-persnum/:persnum')
   @ApiOperation({ summary: 'Get active delegations by persnum (as delegator)' })
+  @RequirePermission('delegasi', 'read')
   findActiveByPersnum(@Param('persnum') persnum: string) {
     return this.delegasiService.findActiveByPersnum(persnum);
   }
@@ -319,6 +326,7 @@ export class DelegasiController {
    */
   @Get('available-roles')
   @ApiOperation({ summary: 'Get available roles for profile switch' })
+  @RequirePermission('delegasi', 'read')
   getAvailableRoles(@CurrentUser() user: JwtPayload) {
     return this.delegasiService.getAvailableRoles(String(user.persnum));
   }
@@ -339,6 +347,7 @@ export class DelegasiController {
     summary: 'Switch role to delegated position or reset to original',
     description: 'Generate new JWT with delegated position data or reset to original role (YBS)',
   })
+  @RequirePermission('delegasi', 'create')
   async switchRole(
     @Body() dto: SwitchRoleDto,
     @CurrentUser() user: JwtPayload,
@@ -381,6 +390,7 @@ export class DelegasiController {
    */
   @Get('by-position/:position')
   @ApiOperation({ summary: 'Get active delegations by position' })
+  @RequirePermission('delegasi', 'read')
   findActiveByAsPosition(@Param('position') position: string) {
     return this.delegasiService.findActiveByAsPosition(position);
   }
@@ -391,6 +401,7 @@ export class DelegasiController {
    */
   @Get('check/:persnum/:position')
   @ApiOperation({ summary: 'Check if person has active delegation' })
+  @RequirePermission('delegasi', 'read')
   async checkActiveDelegation(
     @Param('persnum') persnum: string,
     @Param('position') position: string,
@@ -405,6 +416,7 @@ export class DelegasiController {
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get delegasi by ID' })
+  @RequirePermission('delegasi', 'read')
   findOne(@Param('id') id: string) {
     return this.delegasiService.findOne(id);
   }
@@ -416,6 +428,7 @@ export class DelegasiController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new delegasi' })
+  @RequirePermission('delegasi', 'create')
   create(@Body() createDelegasiDto: CreateDelegasiDto, @CurrentUser() user: JwtPayload) {
     return this.delegasiService.create(createDelegasiDto, user);
   }
@@ -426,6 +439,7 @@ export class DelegasiController {
    */
   @Put(':id')
   @ApiOperation({ summary: 'Update delegasi' })
+  @RequirePermission('delegasi', 'update')
   update(@Param('id') id: string, @Body() updateDelegasiDto: UpdateDelegasiDto, @CurrentUser() user: JwtPayload) {
     return this.delegasiService.update(id, updateDelegasiDto);
   }
@@ -437,6 +451,7 @@ export class DelegasiController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete delegasi' })
+  @RequirePermission('delegasi', 'delete')
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.delegasiService.remove(id);
   }
