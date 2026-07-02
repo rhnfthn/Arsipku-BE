@@ -11,7 +11,7 @@ import { MeilisearchSearchService } from '../services/meilisearch-search.service
 import { MeilisearchService } from '../services/meilisearch.service';
 import { GlobalSearchDto, GlobalSearchResponseDto } from '../dto/global-search.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -45,6 +45,7 @@ export class MeilisearchSearchController {
     @Get()
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Search with Meilisearch (v2)' })
+    @RequirePermission('smart-search', 'search')
     async search(
         @Query() dto: GlobalSearchDto,
         @CurrentUser() user: JwtPayload,
@@ -82,6 +83,7 @@ export class MeilisearchSearchController {
     @Get('stats')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Get Meilisearch index stats' })
+    @RequirePermission('smart-search', 'search')
     async getStats() {
         if (!this.meilisearchService.isAvailable()) {
             return {
@@ -107,6 +109,7 @@ export class MeilisearchSearchController {
     @Get('health')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Check Meilisearch health' })
+    @RequirePermission('smart-search', 'search')
     async health() {
         const isAvailable = this.meilisearchService.isAvailable();
         return {

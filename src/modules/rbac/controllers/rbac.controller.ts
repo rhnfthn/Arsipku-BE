@@ -7,6 +7,7 @@ import {
   Put,
   Param,
   Body,
+  Query,
   ParseIntPipe,
   UseGuards,
   ForbiddenException,
@@ -158,6 +159,42 @@ export class RbacController {
   // ============================================================
   // User <-> Role assignment
   // ============================================================
+
+  /**
+   * Bug B6 fix: GET /rbac/users — list semua user dengan role (pagination, search, filter).
+   */
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('user', 'read')
+  async listUserRolesTable(@Query() query: { search?: string; roleName?: string; page?: string; limit?: string }) {
+    const result = await this.rbacService.findAllUserRoles({
+      search: query.search,
+      roleName: query.roleName,
+      page: query.page ? Number(query.page) : 1,
+      limit: query.limit ? Number(query.limit) : 10,
+    });
+    return {
+      success: true,
+      data: result.data,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
+  }
+
+  /**
+   * Bug B7 fix: GET /rbac/users/:persnum/profile — ambil profile user by persnum exact.
+   */
+  @Get('users/:persnum/profile')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('user', 'read')
+  async getUserProfile(@Param('persnum', ParseIntPipe) persnum: number) {
+    const profile = await this.rbacService.findUserProfile(persnum);
+    if (!profile) {
+      return { success: false, data: null, message: `User dengan persnum ${persnum} tidak ditemukan` };
+    }
+    return { success: true, data: profile };
+  }
 
   @Get('users/:persnum/roles')
   @UseGuards(JwtAuthGuard, RolesGuard)

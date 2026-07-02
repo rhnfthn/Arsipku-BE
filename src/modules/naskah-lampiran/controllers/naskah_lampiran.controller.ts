@@ -14,6 +14,7 @@ import { NaskahLampiranService } from '../services/naskah_lampiran.service';
 import { CreateNaskahLampiranDto } from '../dto/naskah_lampiran/create_naskah_lampiran.dto';
 import { UpdateNaskahLampiranDto } from '../dto/naskah_lampiran/update_naskah_lampiran.dto';
 import { StorageService } from 'src/modules/storage/services/storage.service';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('persuratan/naskah-lampiran')
 export class NaskahLampiranController {
@@ -23,11 +24,13 @@ export class NaskahLampiranController {
   ) {}
 
   @Post()
+  @RequirePermission('naskah-dinas', 'create')
   create(@Body() createNaskahLampiranDto: CreateNaskahLampiranDto) {
     return this.naskahLampiranService.create(createNaskahLampiranDto);
   }
 
   @Get('deltemp')
+  @RequirePermission('naskah-dinas', 'delete')
   async findFileTemp() {
     const tempfiles = await this.naskahLampiranService.findFileTemp();
     if (tempfiles.length === 0) {
@@ -48,21 +51,25 @@ export class NaskahLampiranController {
   }
 
   @Get()
+  @RequirePermission('naskah-dinas', 'read')
   findAll(@Query('id_naskah') id_naskah?: string) {
     return this.naskahLampiranService.findAll(id_naskah);
   }
 
   @Get('naskah/:id_naskah')
+  @RequirePermission('naskah-dinas', 'read')
   findByNaskah(@Param('id_naskah') id_naskah: string) {
     return this.naskahLampiranService.findByNaskah(id_naskah);
   }
 
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   findOne(@Param('id') id: string) {
     return this.naskahLampiranService.findOne(id);
   }
 
   @Put(':id')
+  @RequirePermission('naskah-dinas', 'update')
   update(
     @Param('id') id: string,
     @Body() updateNaskahLampiranDto: UpdateNaskahLampiranDto,
@@ -71,6 +78,7 @@ export class NaskahLampiranController {
   }
 
   @Delete(':id')
+  @RequirePermission('naskah-dinas', 'delete')
   remove(@Param('id') id: string) {
     return this.naskahLampiranService.remove(id);
   }

@@ -21,7 +21,7 @@ import {
   PenandatangananDetailDto,
 } from '../dto/penandatanganan.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -40,6 +40,7 @@ export class PenandatangananController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getMySigningList(
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterPenandatangananDto,
@@ -53,6 +54,7 @@ export class PenandatangananController {
    */
   @Get('summary')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getSigningSummary(
     @CurrentUser() user: JwtPayload,
   ): Promise<{
@@ -70,6 +72,7 @@ export class PenandatangananController {
    */
   @Get(':id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getSigningDetail(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,
@@ -85,6 +88,7 @@ export class PenandatangananController {
    */
   @Post(':id/sign')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SignWithPassphraseDto,
@@ -103,6 +107,7 @@ export class PenandatangananController {
    */
   @Post(':id/reject')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async rejectDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectSigningDto,

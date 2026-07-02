@@ -14,6 +14,7 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { StorageService, UploadResult } from '../../storage/services/storage.service';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('upload')
 export class UploadController {
@@ -25,6 +26,7 @@ export class UploadController {
    * Body: form-data with key 'file'
    */
   @Post('file')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -53,6 +55,7 @@ export class UploadController {
    * Body: form-data with key 'file'
    */
   @Post('file/:folder')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -82,6 +85,7 @@ export class UploadController {
    * Body: form-data with key 'files' (multiple)
    */
   @Post('files')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FilesInterceptor('files', 10, {
       limits: {
@@ -111,6 +115,7 @@ export class UploadController {
    * GET /upload/url/:key
    */
   @Get('url/*key')
+  @RequirePermission('naskah-dinas', 'read')
   async getFileUrl(
     @Param('key') key: string,
   ): Promise<{ success: boolean; url: string }> {
@@ -127,6 +132,7 @@ export class UploadController {
    * GET /upload/download/:key
    */
   @Get('download/*key')
+  @RequirePermission('naskah-dinas', 'read')
   async downloadFile(
     @Param('key') key: string,
     @Res({ passthrough: true }) res: Response,
@@ -149,6 +155,7 @@ export class UploadController {
    * GET /upload/list/:prefix?
    */
   @Get('list')
+  @RequirePermission('naskah-dinas', 'read')
   async listAllFiles(): Promise<{ success: boolean; files: string[] }> {
     const files = await this.storageService.listFiles();
 
@@ -159,6 +166,7 @@ export class UploadController {
   }
 
   @Get('list/:prefix')
+  @RequirePermission('naskah-dinas', 'read')
   async listFiles(
     @Param('prefix') prefix: string,
   ): Promise<{ success: boolean; files: string[] }> {
@@ -175,6 +183,7 @@ export class UploadController {
    * GET /upload/exists/:key
    */
   @Get('exists/*key')
+  @RequirePermission('naskah-dinas', 'read')
   async checkFileExists(
     @Param('key') key: string,
   ): Promise<{ success: boolean; exists: boolean }> {
@@ -191,6 +200,7 @@ export class UploadController {
    * DELETE /upload/file/:key
    */
   @Delete('file/*key')
+  @RequirePermission('naskah-dinas', 'delete')
   async deleteFile(
     @Param('key') key: string,
   ): Promise<{ success: boolean; message: string }> {

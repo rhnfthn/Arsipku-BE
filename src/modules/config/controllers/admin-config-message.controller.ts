@@ -15,7 +15,7 @@ import { ConfigMessageService } from '../services';
 import { CreateMessageDto, UpdateMessageDto, ToggleBannerDto } from '../dto';
 import { ConfigMessage } from '../entities';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles } from '../../../common/decorators';
+import { Roles, RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Message
@@ -32,6 +32,7 @@ export class AdminConfigMessageController {
    * Mengambil semua pesan
    */
   @Get()
+  @RequirePermission('konfigurasi', 'read')
   async findAll(): Promise<ConfigMessage[]> {
     return this.configMessageService.findAll();
   }
@@ -42,6 +43,7 @@ export class AdminConfigMessageController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('konfigurasi', 'update')
   async create(@Body() dto: CreateMessageDto): Promise<ConfigMessage> {
     return this.configMessageService.create(dto);
   }
@@ -52,6 +54,7 @@ export class AdminConfigMessageController {
    * NOTE: Static routes must come before parameterized routes
    */
   @Put('upsert')
+  @RequirePermission('konfigurasi', 'update')
   async upsert(@Body() dto: CreateMessageDto): Promise<ConfigMessage> {
     return this.configMessageService.upsert(dto);
   }
@@ -63,6 +66,7 @@ export class AdminConfigMessageController {
    */
   @Patch('hide-all')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('konfigurasi', 'update')
   async hideAllBanners(): Promise<{ message: string }> {
     await this.configMessageService.hideAllBanners();
     return { message: 'Semua banner berhasil disembunyikan' };
@@ -73,6 +77,7 @@ export class AdminConfigMessageController {
    * Mengambil pesan berdasarkan ID
    */
   @Get(':id')
+  @RequirePermission('konfigurasi', 'read')
   async findOne(@Param('id') id: string): Promise<ConfigMessage> {
     return this.configMessageService.findOne(id);
   }
@@ -82,6 +87,7 @@ export class AdminConfigMessageController {
    * Update pesan
    */
   @Put(':id')
+  @RequirePermission('konfigurasi', 'update')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateMessageDto,
@@ -96,6 +102,7 @@ export class AdminConfigMessageController {
    * Jika ada body { show_banner: true/false }, akan set ke nilai tersebut
    */
   @Patch(':id/banner')
+  @RequirePermission('konfigurasi', 'update')
   async toggleBanner(
     @Param('id') id: string,
     @Body() dto?: ToggleBannerDto,
@@ -116,6 +123,7 @@ export class AdminConfigMessageController {
    * Show banner
    */
   @Patch(':id/show')
+  @RequirePermission('konfigurasi', 'update')
   async showBanner(@Param('id') id: string): Promise<ConfigMessage> {
     return this.configMessageService.showBanner(id);
   }
@@ -125,6 +133,7 @@ export class AdminConfigMessageController {
    * Hide banner
    */
   @Patch(':id/hide')
+  @RequirePermission('konfigurasi', 'update')
   async hideBanner(@Param('id') id: string): Promise<ConfigMessage> {
     return this.configMessageService.hideBanner(id);
   }
@@ -134,6 +143,7 @@ export class AdminConfigMessageController {
    * Delete pesan
    */
   @Delete(':id')
+  @RequirePermission('konfigurasi', 'update')
   async delete(@Param('id') id: string): Promise<{ message: string }> {
     return this.configMessageService.delete(id);
   }

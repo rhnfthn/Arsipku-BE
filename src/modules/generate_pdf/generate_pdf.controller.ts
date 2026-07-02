@@ -2,12 +2,14 @@ import { Controller, Post, Body, Res, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { GeneratePdfService } from './generate_pdf.service';
 import { CreateGeneratePdfDto } from './dto/create-generate_pdf.dto';
+import { RequirePermission } from '../../common/decorators';
 
 @Controller('generate-pdf')
 export class GeneratePdfController {
   constructor(private readonly pdfService: GeneratePdfService) {}
 
   @Post()
+  @RequirePermission('naskah-dinas', 'read-detail')
   async create(@Body() body: CreateGeneratePdfDto, @Res() res: Response) {
     try {
       const pdfBuffer = await this.pdfService.generatePdf(body);
