@@ -80,6 +80,23 @@ export class NotificationController {
     };
   }
 
+  @Patch('naskah/:naskahId/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark notifications related to a naskah as read' })
+  async markByNaskahAsRead(
+    @Param('naskahId') naskahId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const positionId = this.getPositionId(user);
+    const count = await this.notificationService.markByNaskahAsRead(positionId, naskahId);
+
+    return {
+      success: true,
+      message: `${count} notifications marked as read`,
+      data: { count },
+    };
+  }
+
   @Patch('read-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark all notifications as read' })
