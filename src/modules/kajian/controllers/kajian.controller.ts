@@ -30,7 +30,7 @@ import { GeneratePdfKajianDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-kajian-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, Public, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
@@ -60,6 +60,7 @@ export class KajianController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getKajianRecipients(
     @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
@@ -94,6 +95,7 @@ export class KajianController {
    * @returns Detail kajian lengkap
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getKajianDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -164,6 +166,7 @@ export class KajianController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('send-message')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -253,6 +256,7 @@ export class KajianController {
    */
   @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -302,6 +306,7 @@ export class KajianController {
    * Get all draft Kajian by position
    */
   @Get('draft-list/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftList(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query() query: GetRecipientQueryDto,
@@ -328,6 +333,7 @@ export class KajianController {
    * Get all Kajian sent by position
    */
   @Get('get-send-message/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getSendMessage(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query() query: GetRecipientQueryDto,
@@ -358,6 +364,7 @@ export class KajianController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -573,6 +580,7 @@ export class KajianController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }]))
   @Post('generate-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
     @Body() body: any,
     @CurrentUser() user: any,

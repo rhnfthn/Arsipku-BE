@@ -20,7 +20,7 @@ import type { Response } from 'express';
 import { FileFieldsInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { KonsepService } from '../services/konsep.service';
 import { UserLevelGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser } from '../../../common/decorators';
+import { UserLevels, Public, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import {
@@ -70,6 +70,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getRecipient(
     @CurrentUser() user: any,
     @Query('pengirim') pengirim?: string,
@@ -106,6 +107,7 @@ export class KonsepController {
    * @returns Detail konsep, naskah asli, riwayat, dan lampiran
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getKonsepDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -137,6 +139,7 @@ export class KonsepController {
    * @returns Detail konsep dan naskah asli (tanpa flow)
    */
   @Get(':id/info')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getKonsepInfo(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -201,6 +204,7 @@ export class KonsepController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('create')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'lampiran_files', maxCount: 10 }],
@@ -249,6 +253,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('inbox')
+  @RequirePermission('naskah-dinas', 'read')
   async getInbox(
     @CurrentUser() user: any,
   ): Promise<KonsepInboxResponseDto> {
@@ -284,6 +289,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('sent')
+  @RequirePermission('naskah-dinas', 'read')
   async getSent(
     @CurrentUser() user: any,
   ): Promise<KonsepSentResponseDto> {
@@ -329,6 +335,7 @@ export class KonsepController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('forward/:id')
+  @RequirePermission('naskah-dinas', 'approve')
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'lampiran_files', maxCount: 10 }],
@@ -386,6 +393,7 @@ export class KonsepController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Put('review/:id')
+  @RequirePermission('naskah-dinas', 'update')
   async reviewKonsep(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
@@ -440,6 +448,7 @@ export class KonsepController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('finalize/:id')
+  @RequirePermission('naskah-dinas', 'approve')
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'lampiran_files', maxCount: 10 }],
@@ -494,6 +503,7 @@ export class KonsepController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.NON_MANAGERIAL, UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('reject/:id')
+  @RequirePermission('naskah-dinas', 'approve')
   async rejectKonsep(
     @Param('id') id: string,
     @Body() body: any,
@@ -532,6 +542,7 @@ export class KonsepController {
    * @returns { success: boolean, message: string }
    */
   @Put('read/:id')
+  @RequirePermission('naskah-dinas', 'read')
   async markAsRead(
     @Param('id') id: string,
     @Query('position_id', ParseIntPipe) positionId: number,
@@ -855,6 +866,7 @@ export class KonsepController {
    * @returns Riwayat setiap langkah (create, forward, finalize, dll)
    */
   @Get('riwayat/:id')
+  @RequirePermission('naskah-dinas', 'read')
   async getRiwayat(
     @Param('id') id: string,
   ): Promise<any> {
@@ -897,6 +909,7 @@ export class KonsepController {
    * @returns CreateDraftKonsepResponseDto
    */
   @Post('draft/create')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'lampiran_files', maxCount: 10 }],
@@ -945,6 +958,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('draft/list')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftKonsepList(
     @CurrentUser() user: any,
     @Query('jenis') jenis?: 'ND' | 'SDI' | 'SDE',
@@ -1005,6 +1019,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('draft/detail/:id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getDraftKonsepDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -1043,6 +1058,7 @@ export class KonsepController {
    * @returns UpdateDraftKonsepResponseDto
    */
   @Put('draft/update/:id')
+  @RequirePermission('naskah-dinas', 'update')
   @UseInterceptors(
     FileFieldsInterceptor(
       [{ name: 'lampiran_files', maxCount: 10 }],
@@ -1086,6 +1102,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Delete('draft/delete/:id')
+  @RequirePermission('naskah-dinas', 'delete')
   async deleteDraftKonsep(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -1124,6 +1141,7 @@ export class KonsepController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('draft/bulk-delete')
+  @RequirePermission('naskah-dinas', 'delete')
   async bulkDeleteDraftKonsep(
     @Body() body: { draft_ids: string[] },
     @CurrentUser() user: any,

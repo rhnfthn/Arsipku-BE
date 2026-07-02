@@ -12,7 +12,9 @@ import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 // ============================================================
-// Definisi 15 resource + permission per resource (URS Poin 12)
+// Definisi 19 resource + permission per resource (URS Poin 12)
+// 15 original + 4 baru (master-data, laporan, konfigurasi, delegasi)
+// + action arsip-aktif.delete
 // ============================================================
 
 interface PermDef {
@@ -74,6 +76,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create', description: 'Menciptakan arsip' },
       { action: 'read', description: 'Melihat daftar arsip aktif' },
       { action: 'update', description: 'Update metadata arsip' },
+      { action: 'delete', description: 'Menghapus arsip aktif' },
       { action: 'borrow', description: 'Peminjaman arsip' },
       { action: 'return', description: 'Pengembalian arsip' },
       { action: 'monitor-retensi', description: 'Monitoring masa retensi' },
@@ -160,25 +163,57 @@ const resourcesWithPermissions: ResourceDef[] = [
     description: 'Dashboard & statistik',
     permissions: [{ action: 'read', description: 'Melihat dashboard & statistik' }],
   },
+  {
+    name: 'master-data',
+    description: 'Manajemen master data (jenis, klasifikasi, perusahaan, organization, area, person, tertuju eksternal, template, grup penerima)',
+    permissions: [
+      { action: 'create', description: 'Menciptakan master data' },
+      { action: 'read', description: 'Melihat daftar master data' },
+      { action: 'update', description: 'Update master data' },
+      { action: 'delete', description: 'Hapus master data' },
+    ],
+  },
+  {
+    name: 'laporan',
+    description: 'Laporan & rekapitulasi naskah dinas',
+    permissions: [
+      { action: 'read', description: 'Melihat laporan' },
+      { action: 'export', description: 'Export laporan (PDF/Excel)' },
+    ],
+  },
+  {
+    name: 'konfigurasi',
+    description: 'Konfigurasi sistem (announcement banner, digsig config, bsre alert)',
+    permissions: [
+      { action: 'read', description: 'Melihat konfigurasi' },
+      { action: 'update', description: 'Update konfigurasi' },
+    ],
+  },
+  {
+    name: 'delegasi',
+    description: 'Manajemen delegasi role & switch role / switch company',
+    permissions: [
+      { action: 'create', description: 'Membuat delegasi / switch role' },
+      { action: 'read', description: 'Melihat daftar delegasi' },
+      { action: 'update', description: 'Update delegasi' },
+      { action: 'delete', description: 'Hapus delegasi' },
+    ],
+  },
 ];
 
 // ============================================================
 // Assignment permission per role (sesuai matriks §7.2 rbac.md)
-// SUPERADMIN: explicit role.* + user.* (sisanya via bypass)
+// SUPERADMIN: ALL permission (dari definisi resources) — tidak ada bypass guard
 // ADMIN: operasional full
 // USER: create naskah + view arsip + request penomoran + helpdesk create
 // ============================================================
 
+const allPermissionNames: string[] = resourcesWithPermissions.flatMap(
+  (r) => r.permissions.map((p) => `${r.name}.${p.action}`),
+);
+
 const rolePermissionAssignments: Record<string, string[]> = {
-  SUPERADMIN: [
-    'role.read',
-    'role.create',
-    'role.update',
-    'role.delete',
-    'role.assign-permission',
-    'user.read',
-    'user.assign-role',
-  ],
+  SUPERADMIN: allPermissionNames,
   ADMIN: [
     'naskah-dinas.create',
     'naskah-dinas.read',
@@ -197,6 +232,7 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'arsip-aktif.create',
     'arsip-aktif.read',
     'arsip-aktif.update',
+    'arsip-aktif.delete',
     'arsip-aktif.borrow',
     'arsip-aktif.return',
     'arsip-aktif.monitor-retensi',
@@ -221,6 +257,19 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'pedoman.read',
     'dashboard.read',
     'smart-search.search',
+    // Permission baru (Tahap 1 RBAC hardening)
+    'master-data.create',
+    'master-data.read',
+    'master-data.update',
+    'master-data.delete',
+    'laporan.read',
+    'laporan.export',
+    'konfigurasi.read',
+    'konfigurasi.update',
+    'delegasi.create',
+    'delegasi.read',
+    'delegasi.update',
+    'delegasi.delete',
   ],
   USER: [
     'naskah-dinas.create',
@@ -233,6 +282,11 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'smart-search.search',
     'dashboard.read',
     'helpdesk.create',
+    // Permission baru (Tahap 1 RBAC hardening) — USER read-only
+    'master-data.read',
+    'laporan.read',
+    'konfigurasi.read',
+    'delegasi.read',
   ],
 };
 

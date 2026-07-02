@@ -3,12 +3,14 @@ import { EksternalService } from '../services/eksternal.service';
 import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
 import { UpdateEksternalDto } from '../dto/eksternal/update_eksternal.dto';
 import { EksternalListResponseDto, EksternalItemResponseDto, EksternalActionResponseDto } from '../dto/eksternal/eksternal-response.dto';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('persuratan/eksternal')
 export class EksternalController {
   constructor(private readonly eksternalService: EksternalService) {}
 
   @Post()
+  @RequirePermission('surat-masuk-eksternal', 'create')
   async create(@Body() createEksternalDto: CreateEksternalDto): Promise<EksternalItemResponseDto> {
     try {
       const created = await this.eksternalService.create(createEksternalDto);
@@ -22,6 +24,7 @@ export class EksternalController {
   }
 
   @Get()
+  @RequirePermission('surat-masuk-eksternal', 'read')
   async findAll(@Query('company') company?: string, @Query('area') area?: string): Promise<EksternalListResponseDto> {
     const list = await this.eksternalService.findAll(company, area);
     return {
@@ -32,6 +35,7 @@ export class EksternalController {
   }
 
   @Get(':id')
+  @RequirePermission('surat-masuk-eksternal', 'read')
   async findOne(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const eksternal = await this.eksternalService.findOne(id);
     return {
@@ -41,6 +45,7 @@ export class EksternalController {
   }
 
   @Put(':id')
+  @RequirePermission('surat-masuk-eksternal', 'verify')
   async update(@Param('id') id: string, @Body() updateEksternalDto: UpdateEksternalDto): Promise<EksternalItemResponseDto> {
     const updated = await this.eksternalService.update(id, updateEksternalDto);
     return {
@@ -50,6 +55,7 @@ export class EksternalController {
   }
 
   @Put(':id/toggle-aktif')
+  @RequirePermission('surat-masuk-eksternal', 'verify')
   async toggleAktif(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const result = await this.eksternalService.toggleAktif(id);
     return {
@@ -59,6 +65,7 @@ export class EksternalController {
   }
 
   @Delete(':id')
+  @RequirePermission('surat-masuk-eksternal', 'create')
   async remove(@Param('id') id: string): Promise<EksternalActionResponseDto> {
     await this.eksternalService.remove(id);
     return {

@@ -21,7 +21,7 @@ import {
   CekDokumenResponseDto,
 } from '../dto/cek-dokumen.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -42,6 +42,7 @@ export class CekDokumenController {
   @Post('upload')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyByUpload(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
@@ -63,6 +64,7 @@ export class CekDokumenController {
    */
   @Post('signature-id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyBySignatureId(
     @Body() dto: CekDokumenBySignatureIdDto,
     @CurrentUser() user: JwtPayload,
@@ -78,6 +80,7 @@ export class CekDokumenController {
    */
   @Get('signature-id/:signatureId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyBySignatureIdParam(
     @Param('signatureId') signatureId: string,
     @CurrentUser() user: JwtPayload,
@@ -95,6 +98,7 @@ export class CekDokumenController {
    */
   @Post('name-doc')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyByNameDoc(
     @Body() dto: CekDokumenByNameDocDto,
     @CurrentUser() user: JwtPayload,

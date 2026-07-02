@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Query, HttpStatus, HttpException } from '@nestjs/common';
 import { MailServiceService } from '../services';
 import { SendMailDto } from '../dto';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('mail-service')
@@ -13,6 +13,7 @@ export class MailServiceController {
    * Ambil log email dengan pagination
    */
   @Get('logs')
+  @RequirePermission('naskah-dinas', 'read')
   async getLogs(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -36,6 +37,7 @@ export class MailServiceController {
    * Kirim email dengan lampiran dari URL
    */
   @Post('send')
+  @RequirePermission('naskah-dinas', 'send-email')
   async sendMail(
     @Body() dto: SendMailDto,
     @CurrentUser() user: JwtPayload,
@@ -60,6 +62,7 @@ export class MailServiceController {
    * Kirim email dengan lampiran base64
    */
   @Post('send-base64')
+  @RequirePermission('naskah-dinas', 'send-email')
   async sendMailBase64(
     @Body() dto: SendMailDto,
     @CurrentUser() user: JwtPayload,
@@ -84,6 +87,7 @@ export class MailServiceController {
    * Simpan draft email
    */
   @Post('draft')
+  @RequirePermission('naskah-dinas', 'create')
   async saveDraft(
     @Body() dto: SendMailDto,
     @CurrentUser() user: JwtPayload,

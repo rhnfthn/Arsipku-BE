@@ -21,7 +21,7 @@ import {
   SignBsreDto,
   CreateDigsigDto,
 } from '../dto';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from 'src/modules/storage/services/storage.service';
@@ -38,6 +38,7 @@ export class DigsigController {
 
   @Post('sign')
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('naskah-dinas', 'sign')
   async create(@Body() CreateDigsigDto: CreateDigsigDto) {
     const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
     const keypathfile = `/nota-dinas/final/${filename}`;
@@ -59,6 +60,7 @@ export class DigsigController {
 
   @Post('testverify')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifai() {
     const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135-1768806147569.pdf';
     const finalPdfPath = `/nota-dinas/digsig/${filename}`;
@@ -78,6 +80,7 @@ export class DigsigController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signNotaDinasBsre(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignBsreDto,
@@ -100,6 +103,7 @@ export class DigsigController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signSdiBsre(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignBsreDto,
@@ -122,6 +126,7 @@ export class DigsigController {
   @*/
   @Post('bsre/surat-eksternal/:idNaskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signSdeBsre(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignBsreDto,
@@ -141,6 +146,7 @@ export class DigsigController {
    */
   @Post('internal/nota-dinas/:idNaskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signNotaDinasInternal(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignInternalDto,
@@ -155,6 +161,7 @@ export class DigsigController {
    */
   @Post('internal/surat-internal/:idNaskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signSdiInternal(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignInternalDto,
@@ -169,6 +176,7 @@ export class DigsigController {
    */
   @Post('internal/surat-eksternal/:idNaskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signSdeInternal(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Body() dto: SignInternalDto,
@@ -188,6 +196,7 @@ export class DigsigController {
    */
   @Get('user-data')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getUserData(@CurrentUser() user: JwtPayload) {
     return this.digsigService.getUserDataFromJwt(user);
   }
@@ -200,6 +209,7 @@ export class DigsigController {
    */
   @Get('ktp')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getktp(@CurrentUser() user: JwtPayload) {
     if (!user.nik) {
       throw new BadRequestException(
@@ -222,6 +232,7 @@ export class DigsigController {
    */
   @Get('verify/:signatureId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyBySignatureId(@Param('signatureId') signatureId: string) {
     return this.digsigService.verifyBySignatureId(signatureId);
   }
@@ -233,6 +244,7 @@ export class DigsigController {
    */
   @Post('verify/bsre')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async verifyWithBsre(@Body() body: { name_doc: string }) {
     return this.digsigService.verifyWithBsre(body.name_doc);
   }
