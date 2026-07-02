@@ -22,7 +22,7 @@ import {
 import { ToggleBsreAlertDto } from '../dto/bsre-alert.dto';
 import { DigsigLogEntity } from '../entities/digsig-log.entity';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('digsig/log')
@@ -53,6 +53,7 @@ export class DigsigLogController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async findAll(
     @Query() filter: FilterDigsigLogDto,
   ): Promise<DigsigLogPaginatedResponseDto> {
@@ -65,6 +66,7 @@ export class DigsigLogController {
    */
   @Get('statistics')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getStatistics(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -84,6 +86,7 @@ export class DigsigLogController {
    */
   @Get('bsre-health')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async checkBsreHealth() {
     return this.digsigLogService.checkBsreHealth();
   }
@@ -95,6 +98,7 @@ export class DigsigLogController {
    */
   @Get('bsre-alert')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getBsreAlertStatus() {
     const data = await this.bsreAlertService.getAlertStatus();
     return { success: true, data };
@@ -107,6 +111,7 @@ export class DigsigLogController {
    */
   @Post('bsre-alert/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('konfigurasi', 'update')
   async activateBsreAlert(
     @Body() dto: ToggleBsreAlertDto,
     @CurrentUser() user: JwtPayload,
@@ -126,6 +131,7 @@ export class DigsigLogController {
    */
   @Post('bsre-alert/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('konfigurasi', 'update')
   async deactivateBsreAlert(
     @CurrentUser() user: JwtPayload,
   ) {
@@ -142,6 +148,7 @@ export class DigsigLogController {
    */
   @Get('my-logs')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getMyLogs(
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterDigsigLogDto,
@@ -155,6 +162,7 @@ export class DigsigLogController {
    */
   @Get('naskah/:idNaskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async findByNaskah(
     @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
     @Query() filter: FilterDigsigLogDto,
@@ -168,6 +176,7 @@ export class DigsigLogController {
    */
   @Get(':id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<DigsigLogEntity> {
@@ -181,6 +190,7 @@ export class DigsigLogController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('naskah-dinas', 'sign')
   async createLog(
     @Body() dto: CreateDigsigLogDto,
     @Req() req: Request,

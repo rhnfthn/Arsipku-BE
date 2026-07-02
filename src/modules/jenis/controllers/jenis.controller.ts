@@ -4,6 +4,7 @@ import { JenisService } from '../services/jenis.service';
 import { JenisResponseDto } from '../dto/jenis.dto';
 import { CreateJenisDto } from '../dto/create-jenis.dto';
 import { UpdateJenisDto } from '../dto/update-jenis.dto';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('jenis')
 export class JenisController {
@@ -14,6 +15,7 @@ export class JenisController {
    * Mengambil semua jenis surat dengan file URLs
    */
   @Get()
+  @RequirePermission('master-data', 'read')
   async findAll(): Promise<any> {
     const result = await this.jenisService.findAll();
     
@@ -39,6 +41,7 @@ export class JenisController {
    * Mengambil jenis by kode
    */
   @Get('code/:code')
+  @RequirePermission('master-data', 'read')
   async findByCode(@Param('code') code: string) {
     const jenis = await this.jenisService.findByCode(code);
     return {
@@ -65,6 +68,7 @@ export class JenisController {
    * - file: File (optional)
    */
   @Post()
+  @RequirePermission('master-data', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -99,6 +103,7 @@ export class JenisController {
    * Mengambil jenis by ID dengan file URL
    */
   @Get(':id')
+  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
     const fileUrl = jenis.fileName ? await this.jenisService.getFileUrl(jenis.fileName) : null;
@@ -128,6 +133,7 @@ export class JenisController {
    * - file: File (optional)
    */
   @Put(':id')
+  @RequirePermission('master-data', 'update')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -163,6 +169,7 @@ export class JenisController {
    * Hapus jenis
    */
   @Delete(':id')
+  @RequirePermission('master-data', 'delete')
   async remove(@Param('id') id: string) {
     const result = await this.jenisService.remove(id);
     return {
