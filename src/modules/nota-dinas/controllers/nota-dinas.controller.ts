@@ -12,10 +12,11 @@ import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
+@UseGuards(JwtAuthGuard)
 @Controller('ND')
 export class NotaDinasController {
   constructor(
@@ -47,6 +48,7 @@ export class NotaDinasController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getNotaDinasRecipients(
     @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
@@ -89,6 +91,7 @@ export class NotaDinasController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-senders')
+  @RequirePermission('naskah-dinas', 'read')
   async getNotaDinasSenders(
     @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
@@ -130,6 +133,7 @@ export class NotaDinasController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-direct-superior')
+  @RequirePermission('naskah-dinas', 'read')
   async getDirectSuperior(
     @CurrentUser() user: any,
     @Query() query: GetRecipientQueryDto,
@@ -178,6 +182,7 @@ export class NotaDinasController {
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getNotaDinasDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -230,6 +235,7 @@ export class NotaDinasController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('save-draft')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -307,6 +313,7 @@ export class NotaDinasController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('send-message')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -389,6 +396,7 @@ export class NotaDinasController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Patch('update-draft/:id')
+  @RequirePermission('naskah-dinas', 'update')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -453,6 +461,7 @@ export class NotaDinasController {
    */
   @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -515,6 +524,7 @@ export class NotaDinasController {
    * @returns GetSendMessageResponseDto
    */
   @Get('draft-list/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftList(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query() query: GetRecipientQueryDto,
@@ -554,6 +564,7 @@ export class NotaDinasController {
    * @returns GetSendMessageResponseDto
    */
   @Get('get-send-message/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getSendMessage(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query() query: GetRecipientQueryDto,
@@ -598,6 +609,7 @@ export class NotaDinasController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -846,6 +858,7 @@ export class NotaDinasController {
     { name: 'lampiran_files', maxCount: 10 },
   ]))
   @Post('generate-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
     @Body() body: any,
     @CurrentUser() user: any,

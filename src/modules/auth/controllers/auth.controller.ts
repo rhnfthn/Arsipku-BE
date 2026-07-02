@@ -2,11 +2,14 @@ import { Controller, Post, Body, Get, Req, UseGuards, Query, Res, UnauthorizedEx
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { JwtService } from '@nestjs/jwt';
 import type { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { DelegasiService } from '../../delegasi/services/delegasi.service';
+import { RbacService } from '../../rbac/services/rbac.service';
+import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { VerifyTokenDto } from '../dto/verify-token.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
@@ -25,6 +28,9 @@ export class AuthController {
     private readonly configService: ConfigService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly delegasiService: DelegasiService,
+    private readonly rbacService: RbacService,
+    private readonly permissionCache: PermissionCacheService,
+    private readonly jwtService: JwtService,
   ) {}
 
   /**
@@ -431,6 +437,55 @@ export class AuthController {
       user,
       alamatInfo,
       delegations: delegations.length > 0 ? delegations : undefined,
+    };
+  }
+
+  /**
+   * GET /auth/refresh-permissions
+   * Re-query permission live dari DB (bukan dari JWT) dan re-sign JWT baru.
+   * Dipakai frontend setelah superadmin update RBAC agar perubahan efektif segera.
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('refresh-permissions')
+  @ApiOperation({
+    summary: 'Refresh permissions',
+    description: 'Re-query permission live dari DB dan return JWT baru dengan permission terbaru.',
+  })
+  async refreshPermissions(@CurrentUser() user: JwtPayload) {
+    if (!user.persnum) {
+      throw new UnauthorizedException('User identity missing');
+    }
+
+    this.permissionCache.invalidate(user.persnum);
+
+    const ctx = await this.rbacService.buildActiveRoleAndPermissions(user.persnum);
+
+    const { exp, iat, ...base } = user as any;
+    const newPayload: JwtPayload = {
+      ...base,
+      activeRole: ctx.activeRole ?? null,
+      activePermissions: ctx.activePermissions,
+      role: ctx.role,
+      roles: ctx.roles,
+    };
+
+    const expiresIn =
+      exp && typeof exp === 'number'
+        ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600)
+        : 86400;
+
+    const accessToken = await this.jwtService.signAsync(newPayload, { expiresIn });
+
+    return {
+      success: true,
+      message: 'Permissions refreshed',
+      data: {
+        accessToken,
+        activeRole: newPayload.activeRole,
+        activePermissions: newPayload.activePermissions,
+        role: newPayload.role,
+      },
     };
   }
 }

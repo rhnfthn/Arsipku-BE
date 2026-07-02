@@ -13,7 +13,7 @@ import { ConfigDigsigService } from '../services';
 import { UpdateDigsigConfigDto, BulkUpdateDigsigConfigDto } from '../dto';
 import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles } from '../../../common/decorators';
+import { Roles, RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Digsig
@@ -30,6 +30,7 @@ export class AdminConfigDigsigController {
    * Mengambil semua konfigurasi digsig
    */
   @Get()
+  @RequirePermission('konfigurasi', 'read')
   async findAll(): Promise<ConfigDigsig[]> {
     return this.configDigsigService.findAll();
   }
@@ -39,6 +40,7 @@ export class AdminConfigDigsigController {
    * Mengambil konfigurasi berdasarkan jenis naskah
    */
   @Get(':jenis')
+  @RequirePermission('konfigurasi', 'read')
   async findByJenis(@Param('jenis') jenis: JenisNaskah): Promise<ConfigDigsig> {
     return this.configDigsigService.findByJenis(jenis);
   }
@@ -49,6 +51,7 @@ export class AdminConfigDigsigController {
    */
   @Put()
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('konfigurasi', 'update')
   async update(@Body() dto: UpdateDigsigConfigDto): Promise<ConfigDigsig> {
     return this.configDigsigService.update(dto);
   }
@@ -59,6 +62,7 @@ export class AdminConfigDigsigController {
    */
   @Put('bulk')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('konfigurasi', 'update')
   async bulkUpdate(@Body() dto: BulkUpdateDigsigConfigDto): Promise<ConfigDigsig[]> {
     return this.configDigsigService.bulkUpdate(dto.configs);
   }
@@ -68,6 +72,7 @@ export class AdminConfigDigsigController {
    * Toggle satu mode on/off untuk jenis naskah tertentu
    */
   @Patch(':jenis/toggle/:mode')
+  @RequirePermission('konfigurasi', 'update')
   async toggle(
     @Param('jenis') jenis: JenisNaskah,
     @Param('mode') mode: TtdMode,

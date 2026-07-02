@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionGuard } from './common/guards/permission.guard';
+import { CommonGuardsModule } from './common/guards/common-guards.module';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
 import { AreaModule } from './modules/master-data/area/area.module';
@@ -70,6 +71,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    CommonGuardsModule,
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
