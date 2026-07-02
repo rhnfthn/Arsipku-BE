@@ -21,7 +21,7 @@ import { UpdateFaqDto } from '../dto/update-faq.dto';
 import { FaqResponseDto } from '../dto/faq.dto';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, Public } from '../../../common/decorators';
+import { Roles, Public, RequirePermission } from '../../../common/decorators';
 import { StorageService } from '../../storage/services/storage.service';
 import type { Response } from 'express';
 
@@ -39,6 +39,7 @@ export class FaqController {
    * Query: ?search=kata+kunci
    */
   @Get()
+  @RequirePermission('helpdesk', 'read')
   async findAll(
     @Query('kategoriId') kategoriId?: string,
     @Query('search') search?: string,
@@ -137,6 +138,7 @@ export class FaqController {
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('helpdesk', 'manage')
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -218,6 +220,7 @@ export class FaqController {
    * Mendapatkan FAQ berdasarkan ID
    */
   @Get(':id')
+  @RequirePermission('helpdesk', 'read')
   async findOne(
     @Param('id') id: string,
     @CurrentUser('persnum') userId?: number,
@@ -247,6 +250,7 @@ export class FaqController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('helpdesk', 'manage')
   async create(@Body() dto: CreateFaqDto): Promise<FaqResponseDto> {
     try {
       return await this.faqService.create(dto);
@@ -270,6 +274,7 @@ export class FaqController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('helpdesk', 'manage')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateFaqDto,
@@ -296,6 +301,7 @@ export class FaqController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('helpdesk', 'manage')
   async remove(@Param('id') id: string): Promise<FaqResponseDto> {
     try {
       return await this.faqService.remove(id);
@@ -317,6 +323,7 @@ export class FaqController {
    * Menambah counter "puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/puas')
+  @RequirePermission('helpdesk', 'create')
   async incrementPuas(
     @Param('id') id: string,
     @CurrentUser('persnum') userId: number,
@@ -341,6 +348,7 @@ export class FaqController {
    * Menambah counter "tidak puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/tidak-puas')
+  @RequirePermission('helpdesk', 'create')
   async incrementTidakPuas(
     @Param('id') id: string,
     @CurrentUser('persnum') userId: number,

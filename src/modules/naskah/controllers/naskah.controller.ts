@@ -19,18 +19,20 @@ import { UpdateNaskahDto } from '../dto/naskah/update_naskah.dto';
 import { NaskahDetailResponseDto } from '../dto/naskah/naskah-detail.dto';
 import { CountDraftNaskahResponseDto } from '../dto/count-draft.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 
 @Controller('persuratan/naskah')
 export class NaskahController {
   constructor(private readonly naskahService: NaskahService) {}
 
   @Post()
+  @RequirePermission('naskah-dinas', 'create')
   create(@Body() createNaskahDto: CreateNaskahDto) {
     return this.naskahService.create(createNaskahDto);
   }
 
   @Get()
+  @RequirePermission('naskah-dinas', 'read')
   findAll(
     @Query('jenis') jenis?: string,
     @Query('status') status?: string,
@@ -40,6 +42,7 @@ export class NaskahController {
   }
 
   @Get('jenis/:jenis')
+  @RequirePermission('naskah-dinas', 'read')
   findByJenis(@Param('jenis') jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') {
     return this.naskahService.findByJenis(jenis);
   }
@@ -49,6 +52,7 @@ export class NaskahController {
    * Mengambil data lengkap: naskah, sirkulasi, lampiran, referensi, dan detail per jenis
    */
   @Get('detail/:id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   getDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -61,6 +65,7 @@ export class NaskahController {
    * Get count draft naskah berdasarkan position id
    */
   @Get('count-draft/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   countDraft(
     @Param('positionId') positionId: string,
   ): Promise<CountDraftNaskahResponseDto> {
@@ -73,6 +78,7 @@ export class NaskahController {
    * Body: form-data with key 'file' (optional, signed scan PDF/image)
    */
   @Post(':id/finalize-pending')
+  @RequirePermission('naskah-dinas', 'approve')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -103,6 +109,7 @@ export class NaskahController {
    * @returns Chain lengkap urutan terbaru → awal
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   getDetailWithChain(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -111,11 +118,13 @@ export class NaskahController {
   }
 
   @Put(':id')
+  @RequirePermission('naskah-dinas', 'update')
   update(@Param('id') id: string, @Body() updateNaskahDto: UpdateNaskahDto) {
     return this.naskahService.update(id, updateNaskahDto);
   }
 
   @Put(':id/status/:status')
+  @RequirePermission('naskah-dinas', 'update')
   updateStatus(
     @Param('id') id: string,
     @Param('status') status: 'draf' | 'pending' | 'final' | 'final_tte',
@@ -124,6 +133,7 @@ export class NaskahController {
   }
 
   @Delete(':id')
+  @RequirePermission('naskah-dinas', 'delete')
   remove(@Param('id') id: string) {
     return this.naskahService.remove(id);
   }

@@ -12,6 +12,7 @@ import { CompanySwitchService } from '../services/company-switch.service';
 import { AuthService } from '../../auth/services/auth.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import {
   SwitchCompanyDto,
@@ -41,6 +42,7 @@ export class CompanySwitchController {
     description: 'Returns all companies where the current user has active positions (from om_relation_sp)',
   })
   @ApiResponse({ status: 200, type: AvailableCompaniesResponseDto })
+  @RequirePermission('delegasi', 'read')
   async getAvailableCompanies(
     @CurrentUser() user: JwtPayload,
   ): Promise<AvailableCompaniesResponseDto> {
@@ -70,6 +72,7 @@ export class CompanySwitchController {
       },
     },
   })
+  @RequirePermission('delegasi', 'read')
   async hasMultipleCompanies(@CurrentUser() user: JwtPayload) {
     const hasMultiple = await this.companySwitchService.hasMultipleCompanies(user.persnum);
     return { hasMultiple };
@@ -100,6 +103,7 @@ export class CompanySwitchController {
       },
     },
   })
+  @RequirePermission('delegasi', 'read')
   getCurrentCompany(@CurrentUser() user: JwtPayload) {
     return {
       company: user.company,
@@ -136,6 +140,7 @@ export class CompanySwitchController {
     description: 'Generate new JWT with different company/position data, or reset to default company',
   })
   @ApiResponse({ status: 200, type: SwitchCompanyResponseDto })
+  @RequirePermission('delegasi', 'create')
   async switchCompany(
     @Body() dto: SwitchCompanyDto,
     @CurrentUser() user: JwtPayload,
@@ -185,6 +190,7 @@ export class CompanySwitchController {
     description: 'Reset user back to their original/default company and position from om_relation_sp',
   })
   @ApiResponse({ status: 200, type: SwitchCompanyResponseDto })
+  @RequirePermission('delegasi', 'create')
   async resetToDefault(
     @CurrentUser() user: JwtPayload,
   ): Promise<SwitchCompanyResponseDto> {
