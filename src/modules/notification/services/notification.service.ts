@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationEntity, NotificationType, NaskahMasukNotificationData } from '../entities';
 import { CreateNotificationDto, NotificationQueryDto, CreateNaskahMasukNotificationDto } from '../dto';
@@ -228,6 +228,57 @@ export class NotificationService {
     }
 
     return saved;
+  }
+
+  /**
+   * Mark unread notifications for a naskah as read.
+   * Dipakai saat user membuka detail naskah dari kotak masuk, supaya badge
+   * notification ikut sinkron walaupun user tidak klik item notification.
+   */
+  async markByNaskahAsRead(
+    positionId: string,
+    naskahId: string,
+  ): Promise<number> {
+    if (!naskahId) return 0;
+
+    const notifications = await this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.position_id = :positionId', { positionId })
+      .andWhere('notification.is_read = :isRead', { isRead: false })
+      .andWhere(
+        `(
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskahId')) = :naskahId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.idNaskah')) = :naskahId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.id_naskah')) = :naskahId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskah_id')) = :naskahId
+        )`,
+        { naskahId },
+      )
+      .getMany();
+
+    if (notifications.length === 0) return 0;
+
+    const readAt = new Date();
+    await this.notificationRepository.update(
+      { id: In(notifications.map((notification) => notification.id)) },
+      { isRead: true, readAt },
+    );
+
+    try {
+      for (const notification of notifications) {
+        this.notificationGateway.emitRead(
+          notification.positionId,
+          notification.userPersnum,
+          notification.id,
+        );
+      }
+      const unread = await this.getUnreadCount(positionId);
+      this.notificationGateway.emitUnreadCount(positionId, null, unread);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`);
+    }
+
+    return notifications.length;
   }
 
   /**
