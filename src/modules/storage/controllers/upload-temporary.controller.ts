@@ -17,7 +17,7 @@ import { Repository, In } from 'typeorm';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { StorageService } from '../services/storage.service';
-import { Public } from '../../../common/decorators';
+import { Public, RequirePermission } from '../../../common/decorators';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface UploadTemporaryLampiranResponseDto {
@@ -76,6 +76,7 @@ export class UploadTemporaryController {
    * @throws 500 - Internal Server Error
    */
   @Post('upload-temporary')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
       limits: {
@@ -181,6 +182,7 @@ export class UploadTemporaryController {
    * @throws 500 - Internal Server Error
    */
   @Delete('file-temporary/:id')
+  @RequirePermission('naskah-dinas', 'delete')
   async deleteLampiran(
     @Param('id') id: string,
   ): Promise<{ success: boolean; message: string }> {
@@ -270,6 +272,7 @@ export class UploadTemporaryController {
    * @throws 500 - Internal Server Error
    */
   @Get('preview-file/:id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewFile(
     @Param('id') id: string,
     @Res() res: Response,

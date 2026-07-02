@@ -2,7 +2,7 @@ import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ConfigDigsigService, ConfigMessageService } from '../services';
 import { ConfigDigsig, ConfigMessage, JenisNaskah } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
-import { Public } from '../../../common/decorators';
+import { Public, RequirePermission } from '../../../common/decorators';
 
 /**
  * Public Controller untuk config yang bisa diakses user biasa
@@ -32,6 +32,7 @@ export class ConfigController {
    */
   @Get('digsig')
   @UseGuards(JwtAuthGuard)
+  @RequirePermission('konfigurasi', 'read')
   async getAllDigsigConfig(): Promise<ConfigDigsig[]> {
     return this.configDigsigService.findAll();
   }
@@ -42,6 +43,7 @@ export class ConfigController {
    */
   @Get('digsig/:jenis')
   @UseGuards(JwtAuthGuard)
+  @RequirePermission('konfigurasi', 'read')
   async getDigsigConfig(@Param('jenis') jenis: JenisNaskah): Promise<ConfigDigsig> {
     return this.configDigsigService.findByJenis(jenis);
   }

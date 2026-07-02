@@ -28,7 +28,7 @@ import {
 } from '../dto/digsig-document.dto';
 import { DigsigDocumentEntity } from '../entities/digsig-document.entity';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from '../../storage/services/storage.service';
 import { JenisService } from '../../jenis/services/jenis.service';
@@ -49,6 +49,7 @@ export class DigsigDocumentController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
+  @RequirePermission('naskah-dinas', 'create')
   async create(
     @Body() dto: CreateDigsigDocumentDto,
     @UploadedFile() file: Express.Multer.File,
@@ -105,6 +106,7 @@ export class DigsigDocumentController {
   @Put(':id')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
+  @RequirePermission('naskah-dinas', 'update')
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDigsigDocumentDto,
@@ -156,6 +158,7 @@ export class DigsigDocumentController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async findAll(
     @Query() filter: FilterDigsigDocumentDto,
   ): Promise<DigsigDocumentPaginatedResponseDto> {
@@ -168,6 +171,7 @@ export class DigsigDocumentController {
    */
   @Get('my-documents')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getMyDocuments(
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterDigsigDocumentDto,
@@ -184,6 +188,7 @@ export class DigsigDocumentController {
    */
   @Get('pending-signatures')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getMyPendingSignatures(
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterDigsigDocumentDto,
@@ -197,6 +202,7 @@ export class DigsigDocumentController {
    */
   @Get('jenis-naskah')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getJenisNaskahOptions() {
     const result = await this.jenisService.findAll();
     
@@ -221,6 +227,7 @@ export class DigsigDocumentController {
    */
   @Get('verifikator')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getVerifikator(
     @CurrentUser() user: JwtPayload,
   ) {
@@ -233,6 +240,7 @@ export class DigsigDocumentController {
    */
   @Get(':id')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'read-detail')
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<DigsigDocumentEntity & { fileUrl?: string; signedFileUrl?: string }> {
@@ -273,6 +281,7 @@ export class DigsigDocumentController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ sign: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async signDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SignDocumentDto,
@@ -287,6 +296,7 @@ export class DigsigDocumentController {
    */
   @Post(':id/reject')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('naskah-dinas', 'sign')
   async rejectDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectDocumentDto,
@@ -301,6 +311,7 @@ export class DigsigDocumentController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('naskah-dinas', 'delete')
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,

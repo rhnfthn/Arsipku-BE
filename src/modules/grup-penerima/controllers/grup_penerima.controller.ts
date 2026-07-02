@@ -5,12 +5,14 @@ import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima
 import { CreateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/create_grup_penerima_detail.dto';
 import { UpdateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/update_grup_penerima_detail.dto';
 import { GetGrupPenerimaQueryDto } from '../dto/grup_penerima/grup-penerima-response.dto';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('persuratan/grup-penerima')
 export class GrupPenerimaController {
   constructor(private readonly grupPenerimaService: GrupPenerimaService) {}
 
   @Post()
+  @RequirePermission('master-data', 'create')
   create(@Body() createGrupPenerimaDto: CreateGrupPenerimaDto) {
     return this.grupPenerimaService.create(createGrupPenerimaDto);
   }
@@ -31,6 +33,7 @@ export class GrupPenerimaController {
    * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=SDI
    */
   @Get()
+  @RequirePermission('master-data', 'read')
   findAll(
     @Query('company') company?: string,
     @Query('area') area?: string,
@@ -45,21 +48,25 @@ export class GrupPenerimaController {
    * Get single grup penerima with enriched position detail
    */
   @Get(':id')
+  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.findOneWithPositionDetail(id, tgl);
   }
 
   @Put(':id')
+  @RequirePermission('master-data', 'update')
   update(@Param('id') id: string, @Body() updateGrupPenerimaDto: UpdateGrupPenerimaDto) {
     return this.grupPenerimaService.update(id, updateGrupPenerimaDto);
   }
 
   @Put(':id/toggle-aktif')
+  @RequirePermission('master-data', 'update')
   toggleAktif(@Param('id') id: string) {
     return this.grupPenerimaService.toggleAktif(id);
   }
 
   @Delete(':id')
+  @RequirePermission('master-data', 'delete')
   remove(@Param('id') id: string) {
     return this.grupPenerimaService.remove(id);
   }
@@ -67,6 +74,7 @@ export class GrupPenerimaController {
   // ===== Member Management =====
 
   @Post(':id/members')
+  @RequirePermission('master-data', 'create')
   addMember(@Param('id') id: string, @Body() createDetailDto: CreateGrupPenerimaDetailDto) {
     return this.grupPenerimaService.addMember(id, createDetailDto);
   }
@@ -76,6 +84,7 @@ export class GrupPenerimaController {
    * Get members with enriched position detail from org_data
    */
   @Get(':id/members')
+  @RequirePermission('master-data', 'read')
   getMembers(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.getMembersWithPositionDetail(id, tgl);
   }
@@ -86,16 +95,19 @@ export class GrupPenerimaController {
    * Returns array of OrgDataPositionDto for all positions in the grup
    */
   @Get(':id/expand')
+  @RequirePermission('master-data', 'read')
   expandGrup(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.expandGrupToPositions(id, tgl);
   }
 
   @Put('members/:detailId')
+  @RequirePermission('master-data', 'update')
   updateMember(@Param('detailId') detailId: string, @Body() updateDetailDto: UpdateGrupPenerimaDetailDto) {
     return this.grupPenerimaService.updateMember(detailId, updateDetailDto);
   }
 
   @Delete(':id/members/:detailId')
+  @RequirePermission('master-data', 'delete')
   removeMember(@Param('detailId') detailId: string) {
     return this.grupPenerimaService.removeMember(detailId);
   }

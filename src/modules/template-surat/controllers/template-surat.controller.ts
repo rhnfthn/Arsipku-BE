@@ -14,6 +14,7 @@ import { TemplateSuratService } from '../services/template-surat.service';
 import { CreateTemplateSuratDto } from '../dto/create-template-surat.dto';
 import { UpdateTemplateSuratDto } from '../dto/update-template-surat.dto';
 import { TemplateSuratListResponseDto, TemplateSuratItemResponseDto, TemplateSuratActionResponseDto } from '../dto/template-surat-response.dto';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('persuratan/template')
 export class TemplateSuratController {
@@ -28,6 +29,7 @@ export class TemplateSuratController {
    * - content: string (optional) - HTML content
    */
   @Post()
+  @RequirePermission('master-data', 'create')
   async create(@Body() dto: CreateTemplateSuratDto): Promise<TemplateSuratItemResponseDto> {
     try {
       const created = await this.templateSuratService.create(dto);
@@ -39,6 +41,7 @@ export class TemplateSuratController {
   }
 
   @Get()
+  @RequirePermission('master-data', 'read')
   async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findAll(nama_template);
     const mapped = this.templateSuratService.toDtoList(list);
@@ -46,6 +49,7 @@ export class TemplateSuratController {
   }
 
   @Get('global')
+  @RequirePermission('master-data', 'read')
   async findGlobal(): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findGlobal();
     const mapped = this.templateSuratService.toDtoList(list);
@@ -53,6 +57,7 @@ export class TemplateSuratController {
   }
 
   @Get('position/:id_position')
+  @RequirePermission('master-data', 'read')
   async findByPosition(@Param('id_position') id_position: string): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findByPosition(id_position);
     const mapped = this.templateSuratService.toDtoList(list);
@@ -60,6 +65,7 @@ export class TemplateSuratController {
   }
 
   @Get(':id')
+  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string): Promise<TemplateSuratItemResponseDto> {
     const t = await this.templateSuratService.findOne(id);
     return { success: true, data: this.templateSuratService.toDto(t) };
@@ -74,6 +80,7 @@ export class TemplateSuratController {
    * - content: string (optional) - HTML content
    */
   @Put(':id')
+  @RequirePermission('master-data', 'update')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateTemplateSuratDto,
@@ -83,6 +90,7 @@ export class TemplateSuratController {
   }
 
   @Delete(':id')
+  @RequirePermission('master-data', 'delete')
   async remove(@Param('id') id: string): Promise<TemplateSuratActionResponseDto> {
     await this.templateSuratService.remove(id);
     return { success: true, message: 'Template Surat removed successfully' };

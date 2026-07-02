@@ -3,7 +3,7 @@ import { AdminService } from '../services/admin.service';
 import { SearchUsersDto, SearchUsersResponseDto } from '../dto/search-users.dto';
 import { AssignRoleDto, AssignRoleResponseDto, UpdateRoleResponseDto } from '../dto/assign-role.dto';
 import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
-import { Roles } from '../../../common/decorators';
+import { Roles, RequirePermission } from '../../../common/decorators';
 import { RolesGuard, JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -24,6 +24,7 @@ export class AdminController {
    * Access: Superadmin only
    */
   @Roles('superadmin')
+  @RequirePermission('user', 'read')
   @Get('users')
   async searchUsers(
     @Query() query: SearchUsersDto,
@@ -38,6 +39,7 @@ export class AdminController {
    * Access: Superadmin only
    */
   @Roles('superadmin')
+  @RequirePermission('user', 'read')
   @Get('users/:persnum')
   async getUserByPersnum(
     @Param('persnum', ParseIntPipe) persnum: number,
@@ -54,6 +56,7 @@ export class AdminController {
    * Access: Superadmin only
    */
   @Roles('superadmin')
+  @RequirePermission('user', 'assign-role')
   @Post('users/:persnum/role')
   async assignRole(
     @Param('persnum', ParseIntPipe) persnum: number,
@@ -72,6 +75,7 @@ export class AdminController {
    * Access: Superadmin only
    */
   @Roles('superadmin')
+  @RequirePermission('user', 'assign-role')
   @Put('users/:persnum/role')
   async updateRole(
     @Param('persnum', ParseIntPipe) persnum: number,
@@ -88,6 +92,7 @@ export class AdminController {
    * Access: Superadmin only
    */
   @Roles('superadmin')
+  @RequirePermission('user', 'assign-role')
   @Delete('users/:persnum/role')
   async removeRole(
     @Param('persnum', ParseIntPipe) persnum: number,
