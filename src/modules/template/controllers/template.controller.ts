@@ -17,6 +17,7 @@ import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
 import { TemplateListResponseDto, TemplateItemResponseDto, TemplateActionResponseDto } from '../dto/template-response.dto';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('templates')
 export class TemplateController {
@@ -30,6 +31,7 @@ export class TemplateController {
    * - file: File (optional) - Template file
    */
   @Post()
+  @RequirePermission('master-data', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -51,6 +53,7 @@ export class TemplateController {
   }
 
   @Get()
+  @RequirePermission('master-data', 'read')
   async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateListResponseDto> {
     const list = await this.templateService.findAll(nama_template);
     const mapped = await this.templateService.toDtoList(list);
@@ -58,6 +61,7 @@ export class TemplateController {
   }
 
   @Get(':id')
+  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string): Promise<TemplateItemResponseDto> {
     const t = await this.templateService.findOne(id);
     return { success: true, data: await this.templateService.toDto(t) };
@@ -71,6 +75,7 @@ export class TemplateController {
    * - file: File (optional) - New template file
    */
   @Put(':id')
+  @RequirePermission('master-data', 'update')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -88,6 +93,7 @@ export class TemplateController {
   }
 
   @Delete(':id')
+  @RequirePermission('master-data', 'delete')
   async remove(@Param('id') id: string): Promise<TemplateActionResponseDto> {
     await this.templateService.remove(id);
     return { success: true, message: 'Template removed successfully' };

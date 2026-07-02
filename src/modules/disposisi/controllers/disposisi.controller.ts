@@ -20,7 +20,7 @@ import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { DisposisiService } from '../services/disposisi.service';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import { UserLevelGuard } from '../../../common/guards';
 import { UserLevels } from '../../../common/decorators';
@@ -80,6 +80,7 @@ export class DisposisiController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getDisposisiRecipients(
     @CurrentUser() user: any,
     @Query('pengirim') pengirim?: string,
@@ -136,6 +137,7 @@ export class DisposisiController {
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getDisposisiDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -175,6 +177,7 @@ export class DisposisiController {
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('send-message')
+  @RequirePermission('naskah-dinas', 'create')
   async sendMessage(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -308,6 +311,7 @@ export class DisposisiController {
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('save-draft')
+  @RequirePermission('naskah-dinas', 'create')
   async saveDraft(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -435,6 +439,7 @@ export class DisposisiController {
    * @throws 500 - Internal Server Error
    */
   @Get('get-send-message/:position_id')
+  @RequirePermission('naskah-dinas', 'read')
   async getSendMessage(
     @Param('position_id') positionId: string,
     @CurrentUser() user: any,
@@ -485,6 +490,7 @@ export class DisposisiController {
    * @throws 500 - Internal Server Error
    */
   @Put('update-message-status')
+  @RequirePermission('naskah-dinas', 'update')
   async updateMessageStatus(
     @Body() dto: UpdateMessageStatusDto,
     @CurrentUser() user: any,
@@ -535,6 +541,7 @@ export class DisposisiController {
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @UseInterceptors(AnyFilesInterceptor())
   @Put('send-draft/:id')
+  @RequirePermission('naskah-dinas', 'create')
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
@@ -673,6 +680,7 @@ export class DisposisiController {
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @UseInterceptors(AnyFilesInterceptor())
   @Patch('update-draft/:id')
+  @RequirePermission('naskah-dinas', 'update')
   async updateDraft(
     @Param('id') id: string,
     @Body() body: any,
@@ -818,6 +826,7 @@ export class DisposisiController {
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('forward')
+  @RequirePermission('naskah-dinas', 'create')
   async forwardDisposisi(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -953,6 +962,7 @@ export class DisposisiController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -1158,6 +1168,7 @@ export class DisposisiController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('generate-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -1338,6 +1349,7 @@ export class DisposisiController {
    * @returns Response dengan status update
    */
   @Patch(':id/unset-priority')
+  @RequirePermission('naskah-dinas', 'update')
   async unsetPriority(
     @Param('id') id: string,
     @CurrentUser() user: any,

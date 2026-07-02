@@ -26,7 +26,7 @@ import { CreatePedomanDto } from '../dto/create-pedoman.dto';
 import { UpdatePedomanDto } from '../dto/update-pedoman.dto';
 import { PedomanResponseDto } from '../dto/pedoman.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, Public } from '../../../common/decorators';
+import { Roles, Public, RequirePermission } from '../../../common/decorators';
 import { StorageService } from '../../storage/services/storage.service';
 import type { Response } from 'express';
 
@@ -53,6 +53,7 @@ export class PedomanController {
   // ================================================================
   @Get()
   @UseGuards(JwtAuthGuard)
+  @RequirePermission('pedoman', 'read')
   async findAll(
     @Query('jenis') jenis?: string,
     @Query('search') search?: string,
@@ -152,6 +153,7 @@ export class PedomanController {
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('pedoman', 'read')
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
@@ -229,6 +231,7 @@ export class PedomanController {
   // ================================================================
   @Get(':id')
   @UseGuards(JwtAuthGuard)
+  @RequirePermission('pedoman', 'read')
   async findOne(@Param('id') id: string): Promise<PedomanResponseDto> {
     try {
       return await this.pedomanService.findOne(id);
@@ -252,6 +255,7 @@ export class PedomanController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('pedoman', 'read')
   async create(@Body() dto: CreatePedomanDto): Promise<PedomanResponseDto> {
     try {
       return await this.pedomanService.create(dto);
@@ -275,6 +279,7 @@ export class PedomanController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('pedoman', 'read')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePedomanDto,
@@ -301,6 +306,7 @@ export class PedomanController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
+  @RequirePermission('pedoman', 'read')
   async remove(@Param('id') id: string): Promise<PedomanResponseDto> {
     try {
       return await this.pedomanService.remove(id);

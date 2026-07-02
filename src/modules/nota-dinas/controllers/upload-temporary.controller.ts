@@ -2,7 +2,7 @@ import { Controller, Post, Delete, Param, HttpException, HttpStatus, UseIntercep
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
-import { Public } from '../../../common/decorators';
+import { Public, RequirePermission } from '../../../common/decorators';
 
 @Controller()
 export class UploadTemporaryController {
@@ -36,6 +36,7 @@ export class UploadTemporaryController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Post('upload-temporary')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FilesInterceptor('lampiran_files', 10, {
       limits: {
@@ -86,6 +87,7 @@ export class UploadTemporaryController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.MANAGERIAL, UserLevel.DIREKSI)
   @Delete('file-temporary/:id')
+  @RequirePermission('naskah-dinas', 'delete')
   async deleteLampiran(
     @Param('id') id: string,
   ): Promise<{ success: boolean; message: string }> {

@@ -35,7 +35,7 @@ import {
   SdiRecipientResponseDto,
 } from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, CurrentUser } from '../../../common/decorators';
+import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
@@ -74,6 +74,7 @@ export class SuratDinasInternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-recipient')
+  @RequirePermission('naskah-dinas', 'read')
   async getSdiRecipients(
     @CurrentUser() user: any,
     @Query() query: GetSdiRecipientQueryDto,
@@ -117,6 +118,7 @@ export class SuratDinasInternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('get-senders')
+  @RequirePermission('naskah-dinas', 'read')
   async getSdiSenders(
     @CurrentUser() user: any,
     @Query() query: GetSdiRecipientQueryDto,
@@ -165,6 +167,7 @@ export class SuratDinasInternalController {
    * @throws 500 - Internal Server Error
    */
   @Get(':id')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async getSdiDetail(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -207,6 +210,7 @@ export class SuratDinasInternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('send-message')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -290,6 +294,7 @@ export class SuratDinasInternalController {
    * @returns GetSendMessageResponseDto
    */
   @Get('get-send-message/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getSendMessage(
     @Param('positionId', ParseIntPipe) positionId: number,
   ): Promise<GetSendMessageResponseDto> {
@@ -331,6 +336,7 @@ export class SuratDinasInternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Post('save-draft')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
       limits: {
@@ -382,6 +388,7 @@ export class SuratDinasInternalController {
   // @UseGuards(UserLevelGuard)
   // @UserLevels(UserLevel.DIREKSI)
   @Patch('update-draft/:id')
+  @RequirePermission('naskah-dinas', 'update')
   @UseInterceptors(
     FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
       limits: {
@@ -431,6 +438,7 @@ export class SuratDinasInternalController {
    * @returns GetSendMessageResponseDto with draft list
    */
   @Get('draft-list/:positionId')
+  @RequirePermission('naskah-dinas', 'read')
   async getDraftList(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query('tgl') tgl?: string,
@@ -472,6 +480,7 @@ export class SuratDinasInternalController {
    */
   @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -544,6 +553,7 @@ export class SuratDinasInternalController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('preview-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async previewPdf(
     @Body() body: any,
     @CurrentUser() user: any,
@@ -768,6 +778,7 @@ export class SuratDinasInternalController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(AnyFilesInterceptor())
   @Post('generate-pdf')
+  @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
     @Body() body: any,
     @CurrentUser() user: any,

@@ -10,7 +10,7 @@ import { GlobalSearchService } from '../services/global-search.service';
 import { GlobalSearchDto, GlobalSearchResponseDto } from '../dto/global-search.dto';
 import { SearchSuggestionDto, SearchSuggestionResponseDto } from '../dto/search-suggestion.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -56,6 +56,7 @@ export class GlobalSearchController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('smart-search', 'search')
   async search(
     @Query() dto: GlobalSearchDto,
     @CurrentUser() user: JwtPayload,
@@ -84,6 +85,7 @@ export class GlobalSearchController {
    */
   @Get('suggestions')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('smart-search', 'search')
   async getSuggestions(
     @Query() dto: SearchSuggestionDto,
   ): Promise<SearchSuggestionResponseDto> {

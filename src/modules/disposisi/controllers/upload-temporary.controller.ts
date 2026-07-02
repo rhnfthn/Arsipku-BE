@@ -10,6 +10,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { DisposisiService } from '../services/disposisi.service';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { JwtAuthGuard } from '../../../common/guards';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('DI')
 export class UploadTemporaryController {
@@ -43,6 +44,7 @@ export class UploadTemporaryController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FilesInterceptor('files', 10))
   @Post('upload-temporary')
+  @RequirePermission('naskah-dinas', 'create')
   async uploadTemporary(
     @UploadedFiles() files: Express.Multer.File[],
   ): Promise<UploadTemporaryLampiranResponseDto> {
