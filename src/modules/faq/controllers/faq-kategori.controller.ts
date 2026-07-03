@@ -26,7 +26,7 @@ export class FaqKategoriController {
    * Mendapatkan semua kategori FAQ
    */
   @Get()
-  @RequirePermission('helpdesk', 'read')
+  @RequirePermission('faq', 'read')
   async findAll(): Promise<FaqKategoriResponseDto> {
     try {
       return await this.kategoriService.findAll();
@@ -47,7 +47,7 @@ export class FaqKategoriController {
    * Mendapatkan kategori berdasarkan ID
    */
   @Get(':id')
-  @RequirePermission('helpdesk', 'read')
+  @RequirePermission('faq', 'read')
   async findOne(@Param('id') id: string): Promise<FaqKategoriResponseDto> {
     try {
       return await this.kategoriService.findOne(id);
@@ -71,7 +71,7 @@ export class FaqKategoriController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'manage')
   async create(
     @Body() dto: CreateFaqKategoriDto,
   ): Promise<FaqKategoriResponseDto> {
@@ -97,7 +97,7 @@ export class FaqKategoriController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'manage')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateFaqKategoriDto,
@@ -124,7 +124,7 @@ export class FaqKategoriController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'manage')
   async remove(@Param('id') id: string): Promise<FaqKategoriResponseDto> {
     try {
       return await this.kategoriService.remove(id);

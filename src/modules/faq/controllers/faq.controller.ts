@@ -39,7 +39,7 @@ export class FaqController {
    * Query: ?search=kata+kunci
    */
   @Get()
-  @RequirePermission('helpdesk', 'read')
+  @RequirePermission('faq', 'read')
   async findAll(
     @Query('kategoriId') kategoriId?: string,
     @Query('search') search?: string,
@@ -138,7 +138,7 @@ export class FaqController {
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'manage')
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -220,7 +220,7 @@ export class FaqController {
    * Mendapatkan FAQ berdasarkan ID
    */
   @Get(':id')
-  @RequirePermission('helpdesk', 'read')
+  @RequirePermission('faq', 'read')
   async findOne(
     @Param('id') id: string,
     @CurrentUser('persnum') userId?: number,
@@ -250,7 +250,7 @@ export class FaqController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'manage')
   async create(@Body() dto: CreateFaqDto): Promise<FaqResponseDto> {
     try {
       return await this.faqService.create(dto);
@@ -274,7 +274,7 @@ export class FaqController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'update')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateFaqDto,
@@ -301,7 +301,7 @@ export class FaqController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'superadmin')
-  @RequirePermission('helpdesk', 'manage')
+  @RequirePermission('faq', 'delete')
   async remove(@Param('id') id: string): Promise<FaqResponseDto> {
     try {
       return await this.faqService.remove(id);
@@ -323,7 +323,7 @@ export class FaqController {
    * Menambah counter "puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/puas')
-  @RequirePermission('helpdesk', 'create')
+  @RequirePermission('faq', 'create')
   async incrementPuas(
     @Param('id') id: string,
     @CurrentUser('persnum') userId: number,
@@ -348,7 +348,7 @@ export class FaqController {
    * Menambah counter "tidak puas" pada FAQ (per user, satu kali)
    */
   @Post(':id/tidak-puas')
-  @RequirePermission('helpdesk', 'create')
+  @RequirePermission('faq', 'create')
   async incrementTidakPuas(
     @Param('id') id: string,
     @CurrentUser('persnum') userId: number,

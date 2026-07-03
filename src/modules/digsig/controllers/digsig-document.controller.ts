@@ -296,7 +296,7 @@ export class DigsigDocumentController {
    */
   @Post(':id/reject')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('naskah-dinas', 'sign')
+  @RequirePermission('naskah-dinas', 'reject')
   async rejectDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectDocumentDto,
