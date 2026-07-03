@@ -61,6 +61,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Database files
 /db
+/src/migrations/
 
 #Docs
 /docs
