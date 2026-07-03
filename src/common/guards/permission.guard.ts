@@ -18,7 +18,7 @@ import { PermissionCacheService } from './permission-cache.service';
  * PermissionGuard (granular, resource+action) — V2: baca permission dari DB live.
  *
  * - Jika endpoint TIDAK punya @RequirePermission -> allow (endpoint terbuka bagi yang login)
- * - SUPERADMIN bypass aktif (per URS Poin 12: superadmin = akses penuh semua aspek sistem)
+ * - SUPERADMIN juga dicek permission-nya via DB (no bypass — Opsi C hybrid)
  * - Cek permission user dari DB live (via RbacService.buildActiveRoleAndPermissions)
  *   dengan cache in-memory (TTL 30 detik) untuk mitigasi performance cost.
  *
