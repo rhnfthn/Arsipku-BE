@@ -259,4 +259,25 @@ export class NotificationGateway
       this.server.to(`user:${userPersnum}`).emit('notification:deleted', payload);
     }
   }
+
+  /**
+   * Emit RBAC role change ke user tertentu (real-time role update tanpa relog).
+   * Dipanggil saat superadmin assign/remove role ke user lain.
+   */
+  emitRbacRoleChanged(persnum: number, data: { action: string; roleName?: string }) {
+    if (!this.server) return;
+    this.logger.log(`📢 Emit rbac:role-changed to user:${persnum} — ${data.action}`);
+    this.server.to(`user:${persnum}`).emit('rbac:role-changed', { persnum, ...data });
+  }
+
+  /**
+   * Emit RBAC permission change ke semua user dengan role tertentu.
+   * Dipanggil saat superadmin edit permission suatu role (propagasi ke semua pemilik role).
+   */
+  emitRbacPermissionChanged(roleName: string, data: { roleId: string }) {
+    if (!this.server) return;
+    const lowerRole = roleName.toLowerCase();
+    this.logger.log(`📢 Emit rbac:permission-changed to role:${lowerRole} — ${data.roleId}`);
+    this.server.to(`role:${lowerRole}`).emit('rbac:permission-changed', { roleName, ...data });
+  }
 }
