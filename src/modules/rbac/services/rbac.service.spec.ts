@@ -13,6 +13,7 @@ import { RoleName } from '../../../common/enums/role-name.enum';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { Person } from '../../master-data/person/entities/person.entity';
 import { RbacService } from './rbac.service';
+import { NotificationGateway } from '../../notification/gateways/notification.gateway';
 
 describe('RbacService', () => {
   let service: RbacService;
@@ -23,6 +24,7 @@ describe('RbacService', () => {
   let permissionCache: any;
   let dataSource: any;
   let txManager: any;
+  let notificationGateway: any;
 
   beforeEach(async () => {
     roleRepo = {
@@ -81,6 +83,10 @@ describe('RbacService', () => {
     dataSource = {
       transaction: jest.fn(async (cb: any) => cb(txManager)),
     };
+    notificationGateway = {
+      emitRbacRoleChanged: jest.fn(),
+      emitRbacPermissionChanged: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -93,6 +99,7 @@ describe('RbacService', () => {
         { provide: getRepositoryToken(Person), useValue: personRepo },
         { provide: PermissionCacheService, useValue: permissionCache },
         { provide: DataSource, useValue: dataSource },
+        { provide: NotificationGateway, useValue: notificationGateway },
       ],
     }).compile();
 
@@ -211,6 +218,7 @@ describe('RbacService', () => {
     it('should re-activate when existing is nonaktif', async () => {
       const existing = { id: 'ur-1', persnum: 123, roleId: 'role-1', active: false };
       rbacUserRoleRepo.findOne.mockResolvedValue(existing);
+      rbacUserRoleRepo.find.mockResolvedValue([]);
 
       const result = await service.assignRoleToUser(123, 'role-1', null);
 
@@ -221,6 +229,7 @@ describe('RbacService', () => {
 
     it('should create new when not exists', async () => {
       rbacUserRoleRepo.findOne.mockResolvedValue(null);
+      rbacUserRoleRepo.find.mockResolvedValue([]);
 
       const result = await service.assignRoleToUser(123, 'role-1', null);
 
