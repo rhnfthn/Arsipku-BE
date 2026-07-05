@@ -67,6 +67,7 @@ import { ShortUrlModule } from './modules/short-url/short-url.module';
 import { MailServiceModule } from './modules/mail-service/mail-service.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -167,6 +168,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
     MailServiceModule,
     RbacModule,
     RealtimeModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [
