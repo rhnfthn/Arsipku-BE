@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationEntity, NotificationType, NaskahMasukNotificationData } from '../entities';
 import { CreateNotificationDto, NotificationQueryDto, CreateNaskahMasukNotificationDto } from '../dto';
 import { FcmService } from '../../fcm/services';
 import { NotificationGateway } from '../gateways';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 @Injectable()
 export class NotificationService {
@@ -14,10 +15,44 @@ export class NotificationService {
   constructor(
     @InjectRepository(NotificationEntity)
     private readonly notificationRepository: Repository<NotificationEntity>,
+    private readonly dataSource: DataSource,
     private readonly fcmService: FcmService,
     private readonly notificationGateway: NotificationGateway,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {
     this.logger.log('✅ NotificationService initialized');
+  }
+
+  private async emitInboxCountIfNeeded(saved: NotificationEntity) {
+    const action = String(saved.data?.action || '');
+    const opensInbox =
+      action === 'OPEN_INBOX_DETAIL' ||
+      action === 'OPEN_DISPOSISI_DETAIL' ||
+      saved.type === NotificationType.NASKAH_MASUK ||
+      saved.type === NotificationType.NASKAH_TEMBUSAN ||
+      saved.type === NotificationType.DISPOSISI ||
+      saved.type === NotificationType.DISPOSISI_SELESAI ||
+      saved.type === NotificationType.KONSEP_DISETUJUI ||
+      saved.type === NotificationType.KONSEP_DITOLAK;
+
+    if (!opensInbox || !saved.positionId) return;
+
+    const result = await this.dataSource.query(
+      `
+        SELECT COUNT(*) as count
+        FROM naskah_sirkulasi s
+        INNER JOIN naskah n ON s.id_naskah = n.id
+        WHERE s.position = ?
+          AND s.sirkuler IN ('penerima', 'tembusan')
+          AND s.is_draft = 0
+          AND (s.is_konsep = 0 OR n.jenis = 'K')
+          AND s.send_read_time IS NULL
+          AND n.status IN ('final', 'final_tte')
+      `,
+      [saved.positionId],
+    );
+    const count = parseInt(result?.[0]?.count || '0', 10);
+    this.realtimeEmitService.emitInboxCount(saved.positionId, count);
   }
 
   /**
@@ -76,6 +111,7 @@ export class NotificationService {
           saved.userPersnum,
           unread,
         );
+        await this.emitInboxCountIfNeeded(saved);
       } catch (err: any) {
         this.logger.warn(`⚠️ [createNotification] WS emit failed: ${err?.message}`);
       }
