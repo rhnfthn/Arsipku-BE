@@ -2478,7 +2478,7 @@ export class NotaDinasService {
     let nomorSurat = '';
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'pending' | 'final' | 'final_tte' | 'draf';
+    let newStatus: 'final' | 'final_tte';
     if (dto.sign_option === SignOption.DIGSIG) {
       newStatus = 'final_tte'; // Digital signature dengan BSrE
       console.log('[ND finalizeDraft] Status = final_tte (DIGSIG)');
@@ -2486,8 +2486,8 @@ export class NotaDinasService {
       newStatus = 'final'; // QR code tanpa BSrE
       console.log('[ND finalizeDraft] Status = final (QR_ONLY)');
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
-      newStatus = 'pending'; // TTD Basah - menunggu upload dokumen bertanda tangan
-      console.log('[ND finalizeDraft] Status = pending (TTD_BASAH)');
+      newStatus = 'final'; // TTD Basah dari send-draft tetap masuk sebagai naskah final
+      console.log('[ND finalizeDraft] Status = final (TTD_BASAH)');
     } else if (dto.tanda_tangan) {
       newStatus = 'final_tte'; // Legacy: tanda_tangan field provided
       console.log('[ND finalizeDraft] Status = final_tte (tanda_tangan)');
@@ -2640,8 +2640,8 @@ export class NotaDinasService {
           );
         }
 
-        // Re-insert pengirim (isDraft stays true for pending/TTD basah)
-        const isPending = newStatus === 'pending';
+        // send-draft selalu membuka sirkulasi karena status akhirnya final/final_tte.
+        const isPending = false;
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
           const pengirimSirkulasi = this.createSirkulasiFromOrgData(
             naskahId,
@@ -2684,16 +2684,11 @@ export class NotaDinasService {
         }
         // Note: NdEntity.tembusan tidak lagi digunakan - data dari naskah_sirkulasi
       } else {
-        // No sirkulasi changes - update isDraft based on status
-        // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
-        const isPending = newStatus === 'pending';
-        if (!isPending) {
-          await queryRunner.manager.update(
-            NaskahSirkulasi,
-            { idNaskah: naskahId },
-            { isDraft: false },
-          );
-        }
+        await queryRunner.manager.update(
+          NaskahSirkulasi,
+          { idNaskah: naskahId },
+          { isDraft: false },
+        );
       }
 
       // PHASE 9: Update lampiran if provided
@@ -3084,6 +3079,53 @@ export class NotaDinasService {
     const lampiranTextResponse = lampiranData.length > 0
       ? lampiranData.map(l => l.file_name).join(', ')
       : (updatedNaskah?.lampiran || undefined);
+
+    if (newStatus === 'final' || newStatus === 'final_tte') {
+      await Promise.all([
+        ...penerimaData.map((penerima) =>
+          this.notificationService
+            .createNaskahMasukNotification({
+              positionId: String(penerima.position),
+              userPersnum: penerima.idSirkuler ? Number(penerima.idSirkuler) : undefined,
+              naskahId,
+              sirkulasiId: penerima.id,
+              jenis: 'ND',
+              nomor: nomorSurat,
+              perihal: updatedNaskah?.perihal || '',
+              pengirim: pengirimData?.namaSirkuler || pengirimData?.positionText || '-',
+              pengirimPosition: pengirimData?.positionText || '-',
+              isTembusan: false,
+            })
+            .catch((err) => {
+              console.error(
+                `[ND finalizeDraft] Failed to create notification for penerima ${penerima.position}:`,
+                err.message,
+              );
+            }),
+        ),
+        ...tembusanData.map((tembusan) =>
+          this.notificationService
+            .createNaskahMasukNotification({
+              positionId: String(tembusan.position),
+              userPersnum: tembusan.idSirkuler ? Number(tembusan.idSirkuler) : undefined,
+              naskahId,
+              sirkulasiId: tembusan.id,
+              jenis: 'ND',
+              nomor: nomorSurat,
+              perihal: updatedNaskah?.perihal || '',
+              pengirim: pengirimData?.namaSirkuler || pengirimData?.positionText || '-',
+              pengirimPosition: pengirimData?.positionText || '-',
+              isTembusan: true,
+            })
+            .catch((err) => {
+              console.error(
+                `[ND finalizeDraft] Failed to create notification for tembusan ${tembusan.position}:`,
+                err.message,
+              );
+            }),
+        ),
+      ]);
+    }
 
     return {
       success: true,
