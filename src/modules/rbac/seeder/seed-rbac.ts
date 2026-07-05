@@ -52,20 +52,10 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
-    name: 'surat-keluar-eksternal',
-    description: 'Pengiriman surat dinas ke eksternal via email',
-    permissions: [
-      { action: 'send', description: 'Kirim surat ke email eksternal' },
-      { action: 'read', description: 'Melihat status pengiriman' },
-    ],
-  },
-  {
     name: 'penomoran',
     description: 'Permintaan & verifikasi penomoran naskah dinas',
     permissions: [
-      { action: 'request', description: 'Mengajukan permintaan nomor' },
       { action: 'read', description: 'Melihat daftar permintaan nomor' },
-      { action: 'verify', description: 'Verifikasi permintaan nomor (Admin TU)' },
       { action: 'report', description: 'Melihat laporan rekapitulasi penomoran' },
     ],
   },
@@ -77,16 +67,6 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'read', description: 'Melihat daftar arsip aktif' },
       { action: 'update', description: 'Update metadata arsip' },
       { action: 'delete', description: 'Menghapus arsip aktif' },
-    ],
-  },
-  {
-    name: 'pemusnahan',
-    description: 'Usulan & persetujuan pemusnahan arsip',
-    permissions: [
-      { action: 'propose', description: 'Mengajukan usulan pemusnahan' },
-      { action: 'read', description: 'Melihat daftar usulan pemusnahan' },
-      { action: 'approve', description: 'Menyetujui pemusnahan' },
-      { action: 'execute', description: 'Eksekusi pemusnahan' },
     ],
   },
   {
@@ -207,25 +187,18 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'surat-masuk-eksternal.create',
     'surat-masuk-eksternal.read',
     'surat-masuk-eksternal.verify',
-    'surat-keluar-eksternal.send',
-    'surat-keluar-eksternal.read',
-    'penomoran.request',
     'penomoran.read',
-    'penomoran.verify',
     'penomoran.report',
     'arsip-aktif.create',
     'arsip-aktif.read',
     'arsip-aktif.update',
     'arsip-aktif.delete',
-    'pemusnahan.propose',
-    'pemusnahan.read',
-    'pemusnahan.approve',
-    'pemusnahan.execute',
     'tata-naskah-pyb.request',
     'tata-naskah-pyb.read',
     'tata-naskah-pyb.verify',
     'tata-naskah-pyb.approve',
     'user.read',
+    'user.assign-role',
     'pedoman.read',
     'faq.read',
     'faq.manage',
@@ -251,7 +224,6 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'naskah-dinas.create',
     'naskah-dinas.read',
     'naskah-dinas.read-detail',
-    'penomoran.request',
     'penomoran.read',
     'arsip-aktif.read',
     'pedoman.read',
@@ -373,13 +345,15 @@ async function main() {
 
   // 4. Cleanup legacy resources & permissions yang sudah tidak dipakai
   //    (resource 'helpdesk' & 'sekretaris' sudah diganti/dihapus dari seeder).
-  const legacyResourceNames = ['helpdesk', 'sekretaris', 'arsip-inaktif'];
+  const legacyResourceNames = ['helpdesk', 'sekretaris', 'arsip-inaktif', 'pemusnahan'];
   // Permission lama yang sudah dihapus dari seeder (fitur tidak ada)
   const legacyPermissionNames = [
     'arsip-aktif.borrow',
     'arsip-aktif.return',
     'arsip-aktif.monitor-retensi',
     'naskah-dinas.delete',
+    'penomoran.request',
+    'penomoran.verify',
   ];
   for (const permName of legacyPermissionNames) {
     const legacyPerm = await permRepo.findOne({ where: { name: permName } });
