@@ -23,6 +23,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { v4 as uuidv4 } from 'uuid';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { NotificationService } from '../../notification/services';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -41,6 +42,7 @@ export class NaskahDinasService {
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
     private readonly realtimeEmitService: RealtimeEmitService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private getScopedAreaCode(user: JwtPayload): string | undefined {
@@ -174,6 +176,70 @@ export class NaskahDinasService {
         status: index === 0 ? 'waiting' : 'pending',
       });
     });
+  }
+
+  private async emitVerifierWaitingCounts(forceZeroPersnums: number[] = []) {
+    const waitingRows = await this.verifikatorRepository
+      .createQueryBuilder('v')
+      .select('v.persnum', 'persnum')
+      .addSelect('COUNT(*)', 'count')
+      .where('v.status = :status', { status: 'waiting' })
+      .groupBy('v.persnum')
+      .getRawMany();
+
+    for (const row of waitingRows) {
+      this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
+        Number(row.persnum),
+        Number(row.count),
+      );
+    }
+
+    for (const persnum of forceZeroPersnums) {
+      if (Number.isFinite(persnum)) {
+        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(persnum), 0);
+      }
+    }
+  }
+
+  private async notifyNaskahDinasRecipients(idNaskah: string) {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+    if (!naskah || !['final', 'final_tte'].includes(String(naskah.status))) return;
+
+    const pengirim = naskah.tempat
+      ? await this.eksternalRepository.findOne({ where: { id: naskah.tempat } }).catch(() => null)
+      : null;
+
+    const recipients = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah,
+        sirkuler: In(['penerima', 'tembusan'] as any),
+      },
+    });
+
+    await Promise.all(
+      recipients
+        .filter((sirkulasi) => sirkulasi.position && !sirkulasi.isDraft)
+        .map((sirkulasi) =>
+          this.notificationService
+            .createNaskahMasukNotification({
+              positionId: String(sirkulasi.position),
+              userPersnum: sirkulasi.idSirkuler ? Number(sirkulasi.idSirkuler) : undefined,
+              naskahId: idNaskah,
+              sirkulasiId: sirkulasi.id,
+              jenis: 'SDE',
+              nomor: naskah.nomor || undefined,
+              perihal: naskah.perihal || '-',
+              pengirim: pengirim?.nama || 'Eksternal',
+              pengirimPosition: pengirim?.nama || 'Eksternal',
+              isTembusan: sirkulasi.sirkuler === 'tembusan',
+            })
+            .catch((err) => {
+              console.warn(
+                `[NaskahDinas] Failed to notify recipient ${sirkulasi.position}: ${err?.message}`,
+              );
+            }),
+        ),
+    );
   }
 
   // ============================================================
@@ -468,6 +534,13 @@ export class NaskahDinasService {
 
       // 4. Create naskah record (jenis = SDE, tapi sirkulasi hanya penerima)
       const naskahId = uuidv4();
+      const verifikatorRows = this.createVerifikatorEntities(
+        naskahId,
+        dto.verifikator || [],
+        barisData,
+      );
+      const initialStatus: 'pending' | 'final' =
+        verifikatorRows.length > 0 ? 'pending' : 'final';
       
       // Parse tanggal surat untuk naskah
       let tanggalNaskah = new Date();
@@ -489,7 +562,7 @@ export class NaskahDinasService {
       naskah.perihal = dto.perihal;
       naskah.lampiran = dto.lampiran || ''; // Lampiran (text description)
       naskah.konten = dto.konten || '';
-      naskah.status = 'final'; // Naskah Dinas langsung final
+      naskah.status = initialStatus;
       naskah.final_pdf = finalPdfPath || '';
       naskah.tanggal = tanggalNaskah;
       naskah.tempat = dto.asal_naskah; // Simpan eksternal.id untuk referensi pengirim
@@ -509,11 +582,6 @@ export class NaskahDinasService {
         penerimaResponses.push(this.toPenerimaInfo(pos));
       }
 
-      const verifikatorRows = this.createVerifikatorEntities(
-        naskahId,
-        dto.verifikator || [],
-        barisData,
-      );
       if (verifikatorRows.length > 0) {
         await queryRunner.manager.save(verifikatorRows);
       }
@@ -521,6 +589,12 @@ export class NaskahDinasService {
       const verifikatorProgress = this.getVerifikatorProgress(verifikatorRows);
 
       await queryRunner.commitTransaction();
+
+      if (verifikatorRows.length > 0) {
+        this.emitVerifierWaitingCounts().catch(() => {});
+      } else {
+        this.notifyNaskahDinasRecipients(naskahId).catch(() => {});
+      }
 
       // Lookup pembuat dari org_data untuk response
       let pembuatInfo: NdPembuatInfoDto | null = null;
@@ -560,7 +634,7 @@ export class NaskahDinasService {
           nomor: dto.nomor_asal || null,
           tanggal: tanggalNaskah.toISOString().split('T')[0],
           jam: new Date().toISOString().split('T')[1].split('.')[0], // HH:mm:ss
-          status: 'final',
+          status: initialStatus,
           sifat: naskah.sifat,
           klasifikasi: naskah.klasifikasi,
           lampiran: naskah.lampiran,
@@ -1039,6 +1113,8 @@ export class NaskahDinasService {
         }
       }
 
+      const verifikatorRows = this.createVerifikatorEntities(id, dto.verifikator || [], barisData);
+
       naskah.nomor = dto.nomor_asal || null;
       naskah.klasifikasi = dto.klasifikasi || '';
       naskah.sifat = this.normalizeSifat(dto.sifat_naskah);
@@ -1049,6 +1125,7 @@ export class NaskahDinasService {
       naskah.tanggal = tanggalNaskah;
       naskah.tempat = dto.asal_naskah;
       naskah.createdByPosition = dto.created_by_position_id || naskah.createdByPosition;
+      naskah.status = verifikatorRows.length > 0 ? 'pending' : 'final';
 
       await queryRunner.manager.save(naskah);
 
@@ -1060,12 +1137,17 @@ export class NaskahDinasService {
       }
 
       await queryRunner.manager.delete(NaskahDinasVerifikatorEntity, { idNaskah: id });
-      const verifikatorRows = this.createVerifikatorEntities(id, dto.verifikator || [], barisData);
       if (verifikatorRows.length > 0) {
         await queryRunner.manager.save(verifikatorRows);
       }
 
       await queryRunner.commitTransaction();
+
+      if (verifikatorRows.length > 0) {
+        this.emitVerifierWaitingCounts().catch(() => {});
+      } else {
+        this.notifyNaskahDinasRecipients(id).catch(() => {});
+      }
 
       return await this.getDetail(id);
     } catch (error) {
@@ -1092,6 +1174,8 @@ export class NaskahDinasService {
 
     if (filter.status && filter.status !== 'all') {
       queryBuilder.andWhere('myVerifier.status = :status', { status: filter.status });
+    } else if (!filter.status) {
+      queryBuilder.andWhere('myVerifier.status = :status', { status: 'waiting' });
     }
 
     if (filter.search) {
@@ -1257,6 +1341,9 @@ export class NaskahDinasService {
     if (nextVerifikator) {
       nextVerifikator.status = 'waiting';
       await this.verifikatorRepository.save(nextVerifikator);
+    } else {
+      await this.naskahRepository.update({ id }, { status: 'final' });
+      this.notifyNaskahDinasRecipients(id).catch(() => {});
     }
 
     const refreshed = await this.verifikatorRepository.find({
@@ -1266,21 +1353,7 @@ export class NaskahDinasService {
 
     // Emit verifikator waiting count per-persnum ke semua user yang masih waiting
     try {
-      const waitingRows = await this.verifikatorRepository
-        .createQueryBuilder('v')
-        .select('v.persnum', 'persnum')
-        .addSelect('COUNT(*)', 'count')
-        .where('v.status = :status', { status: 'waiting' })
-        .groupBy('v.persnum')
-        .getRawMany();
-      for (const row of waitingRows) {
-        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
-          Number(row.persnum),
-          Number(row.count),
-        );
-      }
-      // User yang baru verify: count mereka = 0
-      this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(user.persnum), 0);
+      await this.emitVerifierWaitingCounts([Number(user.persnum)]);
     } catch {}
 
     return {
@@ -1338,21 +1411,7 @@ export class NaskahDinasService {
 
     // Emit verifikator waiting count per-persnum ke semua user yang masih waiting
     try {
-      const waitingRows = await this.verifikatorRepository
-        .createQueryBuilder('v')
-        .select('v.persnum', 'persnum')
-        .addSelect('COUNT(*)', 'count')
-        .where('v.status = :status', { status: 'waiting' })
-        .groupBy('v.persnum')
-        .getRawMany();
-      for (const row of waitingRows) {
-        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
-          Number(row.persnum),
-          Number(row.count),
-        );
-      }
-      // User yang baru reject: count mereka = 0
-      this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(user.persnum), 0);
+      await this.emitVerifierWaitingCounts([Number(user.persnum)]);
     } catch {}
 
     return {

@@ -57,7 +57,7 @@ export class ReviewKonsepDto {
 
 /**
  * DTO untuk reject konsep
- * Menolak konsep dan mengembalikan ke pembuat
+ * Menolak konsep dan mengembalikan ke pengirim sebelumnya
  */
 export class RejectKonsepDto {
   @IsNotEmpty()
@@ -70,7 +70,7 @@ export class RejectKonsepDto {
 
   @IsOptional()
   @IsNumber()
-  return_to_position_id?: number; // Kembalikan ke posisi tertentu (default: pembuat awal)
+  return_to_position_id?: number; // Kembalikan ke posisi tertentu (default: pengirim sebelumnya)
 }
 
 /**

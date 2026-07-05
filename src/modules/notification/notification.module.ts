@@ -6,6 +6,7 @@ import { NotificationGateway } from './gateways';
 import { NotificationEntity } from './entities';
 import { FcmModule } from '../fcm/fcm.module';
 import { AuthModule } from '../auth/auth.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 @Global()
 @Module({
@@ -13,6 +14,7 @@ import { AuthModule } from '../auth/auth.module';
     TypeOrmModule.forFeature([NotificationEntity]),
     AuthModule,
     FcmModule,
+    RealtimeModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, NotificationGateway],
