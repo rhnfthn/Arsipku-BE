@@ -21,6 +21,8 @@ import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pd
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -90,8 +92,98 @@ export class KonsepService {
     private qrCodeService: QRCodeService,
     private subAreaAlamatService: SubAreaAlamatService,
     private grupPenerimaService: GrupPenerimaService,
+    private notificationService: NotificationService,
     private dataSource: DataSource,
   ) {}
+
+  private async notifyKonsepMasuk(params: {
+    idKonsep: string;
+    idNaskah: string;
+    jenis: 'ND' | 'SDI' | 'SDE';
+    toPos: PositionData;
+    fromPos: PositionData;
+    aksi: 'create' | 'forward' | 'reject';
+    sirkulasiId: string;
+    catatan?: string | null;
+  }) {
+    const isReject = params.aksi === 'reject';
+    await this.notificationService
+      .createNotification({
+        positionId: String(params.toPos.position),
+        userPersnum: params.toPos.persnum_person ? Number(params.toPos.persnum_person) : undefined,
+        type: isReject ? NotificationType.KONSEP_DITOLAK : NotificationType.KONSEP_DISETUJUI,
+        title: isReject ? 'Konsep dikembalikan' : 'Konsep masuk',
+        body:
+          params.catatan ||
+          `${params.fromPos.position_text || params.fromPos.persnum_person_text || 'Pengirim'} mengirim konsep`,
+        data: {
+          action: 'OPEN_INBOX_DETAIL',
+          naskahId: params.idKonsep,
+          idNaskah: params.idNaskah,
+          idKonsep: params.idKonsep,
+          sirkulasiId: params.sirkulasiId,
+          jenis: 'K',
+          jenisNaskahAsli: params.jenis,
+          aksi: params.aksi,
+        },
+      })
+      .catch((err) => {
+        console.warn(
+          `[Konsep] Failed to notify konsep ${params.idKonsep} for position ${params.toPos.position}: ${err?.message}`,
+        );
+      });
+  }
+
+  private async notifyFinalNaskahRecipients(idNaskah: string, fallbackPengirim?: PositionData | null) {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+    if (!naskah || !['final', 'final_tte'].includes(String(naskah.status))) return;
+
+    const pengirim = await this.naskahSirkulasiRepository.findOne({
+      where: { idNaskah, sirkuler: 'pengirim' },
+      order: { createdAt: 'DESC' },
+    });
+
+    const recipients = await this.naskahSirkulasiRepository.find({
+      where: {
+        idNaskah,
+        sirkuler: In(['penerima', 'tembusan'] as any),
+        isKonsep: 0,
+        isDraft: false,
+      },
+    });
+
+    await Promise.all(
+      recipients
+        .filter((sirkulasi) => sirkulasi.position)
+        .map((sirkulasi) =>
+          this.notificationService
+            .createNaskahMasukNotification({
+              positionId: String(sirkulasi.position),
+              userPersnum: sirkulasi.idSirkuler ? Number(sirkulasi.idSirkuler) : undefined,
+              naskahId: idNaskah,
+              sirkulasiId: sirkulasi.id,
+              jenis: naskah.jenis || 'ND',
+              nomor: naskah.nomor || undefined,
+              perihal: naskah.perihal || '-',
+              pengirim:
+                pengirim?.namaSirkuler ||
+                fallbackPengirim?.persnum_person_text ||
+                fallbackPengirim?.position_text ||
+                '-',
+              pengirimPosition:
+                pengirim?.positionText ||
+                fallbackPengirim?.position_text ||
+                '-',
+              isTembusan: sirkulasi.sirkuler === 'tembusan',
+            })
+            .catch((err) => {
+              console.warn(
+                `[Konsep] Failed to notify final naskah ${idNaskah} for position ${sirkulasi.position}: ${err?.message}`,
+              );
+            }),
+        ),
+    );
+  }
 
   /**
    * CREATE KONSEP - Workflow Tracking
@@ -387,6 +479,17 @@ export class KonsepService {
       );
 
       await queryRunner.commitTransaction();
+
+      this.notifyKonsepMasuk({
+        idKonsep: naskahKonsepId,
+        idNaskah: naskahAsliId,
+        jenis: dto.jenis,
+        toPos,
+        fromPos,
+        aksi: 'create',
+        sirkulasiId: sirkulasiKonsepPenerima.id,
+        catatan: dto.catatan || null,
+      }).catch(() => {});
 
       return {
         success: true,
@@ -1491,6 +1594,17 @@ export class KonsepService {
 
       await queryRunner.commitTransaction();
 
+      this.notifyKonsepMasuk({
+        idKonsep: newNaskahKonsepId,
+        idNaskah: naskahAsliId,
+        jenis: (naskahAsli?.jenis || 'ND') as 'ND' | 'SDI' | 'SDE',
+        toPos,
+        fromPos,
+        aksi: 'forward',
+        sirkulasiId: sirkulasiPenerima.id,
+        catatan: dto.catatan || null,
+      }).catch(() => {});
+
       return {
         success: true,
         message: 'Konsep berhasil diteruskan',
@@ -1917,6 +2031,8 @@ export class KonsepService {
 
       await queryRunner.commitTransaction();
 
+      this.notifyFinalNaskahRecipients(naskahAsliId, pengirimPosData).catch(() => {});
+
       return {
         success: true,
         message: 'Konsep berhasil difinalisasi',
@@ -2024,19 +2140,11 @@ export class KonsepService {
         // Use specified return position
         returnToPositionId = dto.return_to_position_id;
       } else {
-        // Get pembuat awal (urutan=1, aksi='create') from first konsep
-        const firstRiwayat = await queryRunner.manager
-          .createQueryBuilder(KonsepRiwayatEntity, 'kr')
-          .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
-          .andWhere('kr.urutan = :urutan', { urutan: 1 })
-          .andWhere('kr.aksi = :aksi', { aksi: 'create' })
-          .getOne();
-
-        if (!firstRiwayat) {
-          throw new BadRequestException('Tidak dapat menemukan pembuat konsep awal');
+        // Default reject mundur satu langkah ke pengirim konsep sebelumnya.
+        if (!latestRiwayat.fromPositionId) {
+          throw new BadRequestException('Tidak dapat menemukan pengirim konsep sebelumnya');
         }
-
-        returnToPositionId = firstRiwayat.fromPositionId;
+        returnToPositionId = latestRiwayat.fromPositionId;
       }
 
       const returnToPos = this.findByPosition(barisData, returnToPositionId);
@@ -2117,6 +2225,17 @@ export class KonsepService {
 
       // Get naskah asli for response jenis
       const naskahAsli = await this.naskahRepository.findOne({ where: { id: naskahAsliId } });
+
+      this.notifyKonsepMasuk({
+        idKonsep: newNaskahKonsepId,
+        idNaskah: naskahAsliId,
+        jenis: (naskahAsli?.jenis || 'ND') as 'ND' | 'SDI' | 'SDE',
+        toPos: returnToPos,
+        fromPos,
+        aksi: 'reject',
+        sirkulasiId: sirkulasiPenerima.id,
+        catatan: dto.catatan || null,
+      }).catch(() => {});
 
       return {
         success: true,
@@ -4506,6 +4625,17 @@ export class KonsepService {
         );
 
         await queryRunner.commitTransaction();
+
+        this.notifyKonsepMasuk({
+          idKonsep: naskahKonsepId,
+          idNaskah: idDraft,
+          jenis: (dto.jenis || naskah.jenis || 'ND') as 'ND' | 'SDI' | 'SDE',
+          toPos,
+          fromPos,
+          aksi: 'create',
+          sirkulasiId: sirkulasiKonsepPenerima.id,
+          catatan: dto.catatan || null,
+        }).catch(() => {});
 
         return {
           success: true,
