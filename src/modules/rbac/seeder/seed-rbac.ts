@@ -224,8 +224,14 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'naskah-dinas.create',
     'naskah-dinas.read',
     'naskah-dinas.read-detail',
+<<<<<<< Updated upstream
+=======
+    'naskah-dinas.send-email',
+    'penomoran.request',
+>>>>>>> Stashed changes
     'penomoran.read',
     'arsip-aktif.read',
+    'surat-masuk-eksternal.read',
     'pedoman.read',
     'faq.read',
     'smart-search.search',

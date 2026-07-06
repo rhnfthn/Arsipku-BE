@@ -299,25 +299,28 @@ export class FcmService implements OnModuleInit {
       return { success: 0, failure: 0 };
     }
 
+    // Send as data-only message (no `notification` key).
+    // Title and body are stored under custom keys (notifTitle/notifBody)
+    // to prevent Firebase from auto-parsing them into a `notification` payload
+    // which would cause the OS to display its own notification (duplicate).
+    const dataPayload = {
+      ...(data || {}),
+      notifTitle: title,
+      notifBody: body,
+    };
+
     const message: admin.messaging.MulticastMessage = {
       tokens,
-      notification: {
-        title,
-        body,
-      },
-      data: data || {},
+      data: dataPayload,
       android: {
         priority: 'high',
-        notification: {
-          sound: 'default',
-          channelId: 'default',
-        },
       },
       apns: {
         payload: {
           aps: {
             sound: 'default',
             badge: 1,
+            'content-available': 1,
           },
         },
       },
