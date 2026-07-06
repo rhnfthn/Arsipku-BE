@@ -11,6 +11,7 @@ import {
 } from '../entities';
 import type { ActivePermission, ActiveRoleInfo } from '../../auth/interfaces/jwt-payload.interface';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
+import { NotificationGateway } from '../../notification/gateways/notification.gateway';
 import { Person } from '../../master-data/person/entities/person.entity';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class RbacService {
     private readonly personRepo: Repository<Person>,
     private readonly permissionCache: PermissionCacheService,
     private readonly dataSource: DataSource,
+    private readonly notificationGateway: NotificationGateway,
   ) {}
 
   /**
@@ -222,6 +224,13 @@ export class RbacService {
 
     // Invalidate semua cache — user dengan role ini harus re-query permission
     this.permissionCache.invalidateAll();
+    // Real-time: emit ke semua user dengan role ini agar FE refresh permission
+    try {
+      const role = await this.roleRepo.findOne({ where: { id: roleId } });
+      if (role) {
+        this.notificationGateway.emitRbacPermissionChanged(role.name, { roleId });
+      }
+    } catch {}
   }
 
   // ============================================================
@@ -372,6 +381,17 @@ export class RbacService {
       );
     }
 
+    // Validasi: 1 user hanya boleh 1 role aktif.
+    // Hapus (deactivate) semua role aktif lain sebelum assign role baru.
+    const activeRoles = await this.rbacUserRoleRepo.find({
+      where: { persnum, active: true },
+    });
+    for (const ar of activeRoles) {
+      if (ar.roleId !== roleId) {
+        await this.rbacUserRoleRepo.delete(ar.id);
+      }
+    }
+
     let result: RbacUserRoleEntity;
     if (existing && !existing.active) {
       // Re-activate jika sebelumnya dinonaktifkan
@@ -389,6 +409,14 @@ export class RbacService {
     }
     // Bug B1 fix: invalidate cache user ini agar permission baru efektif segera
     this.permissionCache.invalidate(persnum);
+    // Real-time: emit ke user yg di-assign agar FE auto-refresh profile
+    try {
+      const assignedRole = await this.roleRepo.findOne({ where: { id: roleId } });
+      this.notificationGateway.emitRbacRoleChanged(persnum, {
+        action: 'assigned',
+        roleName: assignedRole?.name,
+      });
+    } catch {}
     return result;
   }
 
@@ -417,6 +445,13 @@ export class RbacService {
     await this.rbacUserRoleRepo.delete({ persnum, roleId });
     // Bug B1 fix: invalidate cache user ini
     this.permissionCache.invalidate(persnum);
+    // Real-time: emit ke user yg di-remove agar FE auto-refresh profile
+    try {
+      this.notificationGateway.emitRbacRoleChanged(persnum, {
+        action: 'removed',
+        roleName: role?.name,
+      });
+    } catch {}
   }
 
   /**

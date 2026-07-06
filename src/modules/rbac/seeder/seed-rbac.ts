@@ -36,9 +36,9 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'read', description: 'Melihat daftar naskah dinas' },
       { action: 'read-detail', description: 'Melihat detail naskah dinas' },
       { action: 'update', description: 'Mengupdate draft naskah dinas' },
-      { action: 'delete', description: 'Menghapus draft naskah dinas' },
       { action: 'approve', description: 'Menyetujui naskah dinas' },
       { action: 'sign', description: 'Tanda tangan elektronik' },
+      { action: 'reject', description: 'Menolak naskah/dokumen' },
       { action: 'send-email', description: 'Kirim surat eksternal via email' },
     ],
   },
@@ -52,20 +52,10 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
-    name: 'surat-keluar-eksternal',
-    description: 'Pengiriman surat dinas ke eksternal via email',
-    permissions: [
-      { action: 'send', description: 'Kirim surat ke email eksternal' },
-      { action: 'read', description: 'Melihat status pengiriman' },
-    ],
-  },
-  {
     name: 'penomoran',
     description: 'Permintaan & verifikasi penomoran naskah dinas',
     permissions: [
-      { action: 'request', description: 'Mengajukan permintaan nomor' },
       { action: 'read', description: 'Melihat daftar permintaan nomor' },
-      { action: 'verify', description: 'Verifikasi permintaan nomor (Admin TU)' },
       { action: 'report', description: 'Melihat laporan rekapitulasi penomoran' },
     ],
   },
@@ -77,29 +67,6 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'read', description: 'Melihat daftar arsip aktif' },
       { action: 'update', description: 'Update metadata arsip' },
       { action: 'delete', description: 'Menghapus arsip aktif' },
-      { action: 'borrow', description: 'Peminjaman arsip' },
-      { action: 'return', description: 'Pengembalian arsip' },
-      { action: 'monitor-retensi', description: 'Monitoring masa retensi' },
-    ],
-  },
-  {
-    name: 'arsip-inaktif',
-    description: 'Pengelolaan arsip inaktif',
-    permissions: [
-      { action: 'read', description: 'Melihat daftar arsip inaktif' },
-      { action: 'verify', description: 'Verifikasi arsip dari unit kerja' },
-      { action: 'transfer', description: 'Memindahkan status arsip aktif → inaktif' },
-      { action: 'borrow', description: 'Peminjaman arsip inaktif' },
-    ],
-  },
-  {
-    name: 'pemusnahan',
-    description: 'Usulan & persetujuan pemusnahan arsip',
-    permissions: [
-      { action: 'propose', description: 'Mengajukan usulan pemusnahan' },
-      { action: 'read', description: 'Melihat daftar usulan pemusnahan' },
-      { action: 'approve', description: 'Menyetujui pemusnahan' },
-      { action: 'execute', description: 'Eksekusi pemusnahan' },
     ],
   },
   {
@@ -113,25 +80,19 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
-    name: 'sekretaris',
-    description: 'Pengaturan penunjukkan sekretaris',
-    permissions: [
-      { action: 'assign', description: 'Menunjuk sekretaris' },
-      { action: 'read', description: 'Melihat daftar sekretaris' },
-    ],
-  },
-  {
     name: 'pedoman',
     description: 'Fitur pedoman (Peraturan/Keputusan Direksi, SOP)',
     permissions: [{ action: 'read', description: 'Melihat pedoman (semua role)' }],
   },
   {
-    name: 'helpdesk',
-    description: 'PIC Helpdesk (manajemen tiket)',
+    name: 'faq',
+    description: 'FAQ & manajemen FAQ (menggantikan resource helpdesk lama)',
     permissions: [
-      { action: 'read', description: 'Melihat tiket helpdesk' },
-      { action: 'manage', description: 'Mengelola tiket (PIC)' },
-      { action: 'create', description: 'Membuat tiket bantuan' },
+      { action: 'read', description: 'Melihat FAQ' },
+      { action: 'manage', description: 'Mengelola FAQ (PIC)' },
+      { action: 'create', description: 'Membuat FAQ' },
+      { action: 'update', description: 'Mengedit FAQ' },
+      { action: 'delete', description: 'Menghapus FAQ' },
     ],
   },
   {
@@ -205,7 +166,7 @@ const resourcesWithPermissions: ResourceDef[] = [
 // Assignment permission per role (sesuai matriks §7.2 rbac.md)
 // SUPERADMIN: ALL permission (dari definisi resources) — tidak ada bypass guard
 // ADMIN: operasional full
-// USER: create naskah + view arsip + request penomoran + helpdesk create
+// USER: create naskah + view arsip + request penomoran
 // ============================================================
 
 const allPermissionNames: string[] = resourcesWithPermissions.flatMap(
@@ -219,45 +180,33 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'naskah-dinas.read',
     'naskah-dinas.read-detail',
     'naskah-dinas.update',
-    'naskah-dinas.delete',
+    'naskah-dinas.approve',
+    'naskah-dinas.sign',
+    'naskah-dinas.reject',
+    'naskah-dinas.send-email',
     'surat-masuk-eksternal.create',
     'surat-masuk-eksternal.read',
     'surat-masuk-eksternal.verify',
-    'surat-keluar-eksternal.send',
-    'surat-keluar-eksternal.read',
-    'penomoran.request',
     'penomoran.read',
-    'penomoran.verify',
     'penomoran.report',
     'arsip-aktif.create',
     'arsip-aktif.read',
     'arsip-aktif.update',
     'arsip-aktif.delete',
-    'arsip-aktif.borrow',
-    'arsip-aktif.return',
-    'arsip-aktif.monitor-retensi',
-    'arsip-inaktif.read',
-    'arsip-inaktif.verify',
-    'arsip-inaktif.transfer',
-    'arsip-inaktif.borrow',
-    'pemusnahan.propose',
-    'pemusnahan.read',
-    'pemusnahan.approve',
-    'pemusnahan.execute',
-    'sekretaris.assign',
-    'sekretaris.read',
     'tata-naskah-pyb.request',
     'tata-naskah-pyb.read',
     'tata-naskah-pyb.verify',
     'tata-naskah-pyb.approve',
-    'helpdesk.read',
-    'helpdesk.manage',
-    'helpdesk.create',
     'user.read',
+    'user.assign-role',
     'pedoman.read',
+    'faq.read',
+    'faq.manage',
+    'faq.create',
+    'faq.update',
+    'faq.delete',
     'dashboard.read',
     'smart-search.search',
-    // Permission baru (Tahap 1 RBAC hardening)
     'master-data.create',
     'master-data.read',
     'master-data.update',
@@ -275,13 +224,12 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'naskah-dinas.create',
     'naskah-dinas.read',
     'naskah-dinas.read-detail',
-    'penomoran.request',
     'penomoran.read',
     'arsip-aktif.read',
     'pedoman.read',
+    'faq.read',
     'smart-search.search',
     'dashboard.read',
-    'helpdesk.create',
     // Permission baru (Tahap 1 RBAC hardening) — USER read-only
     'master-data.read',
     'laporan.read',
@@ -292,7 +240,7 @@ const rolePermissionAssignments: Record<string, string[]> = {
 
 const roleDescriptions: Record<RoleName, string> = {
   [RoleName.SUPERADMIN]: 'Akses penuh seluruh aspek sistem + manajemen RBAC',
-  [RoleName.ADMIN]: 'Operasional: Admin TU, Sekretaris, User Managerial, PIC Helpdesk',
+  [RoleName.ADMIN]: 'Operasional: Admin TU, User Managerial',
   [RoleName.USER]: 'User biasa: penciptaan naskah, viewing arsip, pengajuan penomoran',
 };
 
@@ -393,6 +341,38 @@ async function main() {
       await rpRepo.save({ id: uuidv4(), roleId: role.id, permissionId: pid });
     }
     console.log(`✅ ${permNames.length} permissions assigned to ${roleName}`);
+  }
+
+  // 4. Cleanup legacy resources & permissions yang sudah tidak dipakai
+  //    (resource 'helpdesk' & 'sekretaris' sudah diganti/dihapus dari seeder).
+  const legacyResourceNames = ['helpdesk', 'sekretaris', 'arsip-inaktif', 'pemusnahan'];
+  // Permission lama yang sudah dihapus dari seeder (fitur tidak ada)
+  const legacyPermissionNames = [
+    'arsip-aktif.borrow',
+    'arsip-aktif.return',
+    'arsip-aktif.monitor-retensi',
+    'naskah-dinas.delete',
+    'penomoran.request',
+    'penomoran.verify',
+  ];
+  for (const permName of legacyPermissionNames) {
+    const legacyPerm = await permRepo.findOne({ where: { name: permName } });
+    if (!legacyPerm) continue;
+    await rpRepo.delete({ permissionId: legacyPerm.id });
+    await permRepo.delete(legacyPerm.id);
+    console.log(`🧹 Legacy permission '${permName}' removed`);
+  }
+  for (const legacyName of legacyResourceNames) {
+    const legacyResource = await resourceRepo.findOne({ where: { name: legacyName } });
+    if (!legacyResource) continue;
+    // Hapus semua role_permission yang menunjuk ke permission dari resource ini
+    const legacyPerms = await permRepo.find({ where: { resourceId: legacyResource.id } });
+    for (const lp of legacyPerms) {
+      await rpRepo.delete({ permissionId: lp.id });
+      await permRepo.delete(lp.id);
+    }
+    await resourceRepo.delete(legacyResource.id);
+    console.log(`🧹 Legacy resource '${legacyName}' + ${legacyPerms.length} permissions removed`);
   }
 
   await dataSource.destroy();
