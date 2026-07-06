@@ -87,11 +87,17 @@ export class NotificationService {
       // Send push notification if userPersnum is provided
       if (sendPush && dto.userPersnum) {
         this.logger.log(`📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`);
+        // Include notificationId in data payload so mobile can dedup
+        // across FCM and WebSocket sources.
+        const dataWithId = {
+          ...(this.convertDataToString(dto.data) || {}),
+          notificationId: saved.id,
+        };
         await this.fcmService.sendToUser(
           dto.userPersnum,
           dto.title,
           dto.body,
-          this.convertDataToString(dto.data),
+          dataWithId,
         );
         this.logger.log(`✅ [createNotification] Push notification sent`);
       } else {
