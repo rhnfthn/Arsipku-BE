@@ -24,6 +24,7 @@ import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { v4 as uuidv4 } from 'uuid';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -240,6 +241,57 @@ export class NaskahDinasService {
             }),
         ),
     );
+  }
+
+  private async notifyCurrentVerifikator(
+    verifikator: NaskahDinasVerifikatorEntity | null | undefined,
+    idNaskah: string,
+  ) {
+    if (!verifikator?.positionId) return;
+
+    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+
+    await this.notificationService.createNotification({
+      positionId: String(verifikator.positionId),
+      userPersnum: verifikator.persnum,
+      type: NotificationType.NASKAH_DINAS_VERIFIKATOR,
+      title: 'Verifikasi naskah dinas',
+      body: naskah?.perihal || 'Ada naskah dinas yang perlu diverifikasi',
+      data: {
+        action: 'OPEN_NASKAH_DINAS_VERIFIKATOR',
+        naskahId: idNaskah,
+        verifierId: verifikator.id,
+        nomor: naskah?.nomor || null,
+        perihal: naskah?.perihal || null,
+        jenis: naskah?.jenis || 'SDE',
+      },
+    });
+  }
+
+  private async notifyNaskahDinasOwner(
+    idNaskah: string,
+    type: NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI | NotificationType.NASKAH_DINAS_DITOLAK,
+    body: string,
+  ) {
+    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+    if (!naskah?.createdByPosition) return;
+
+    await this.notificationService.createNotification({
+      positionId: String(naskah.createdByPosition),
+      type,
+      title:
+        type === NotificationType.NASKAH_DINAS_DITOLAK
+          ? 'Naskah dinas ditolak'
+          : 'Verifikasi naskah dinas selesai',
+      body,
+      data: {
+        action: 'OPEN_NASKAH_DINAS_DETAIL',
+        naskahId: idNaskah,
+        nomor: naskah.nomor || null,
+        perihal: naskah.perihal || null,
+        jenis: naskah.jenis || 'SDE',
+      },
+    });
   }
 
   // ============================================================
@@ -592,6 +644,10 @@ export class NaskahDinasService {
 
       if (verifikatorRows.length > 0) {
         this.emitVerifierWaitingCounts().catch(() => {});
+        this.notifyCurrentVerifikator(
+          verifikatorRows.find((verifikator) => verifikator.status === 'waiting'),
+          naskahId,
+        ).catch(() => {});
       } else {
         this.notifyNaskahDinasRecipients(naskahId).catch(() => {});
       }
@@ -1145,6 +1201,10 @@ export class NaskahDinasService {
 
       if (verifikatorRows.length > 0) {
         this.emitVerifierWaitingCounts().catch(() => {});
+        this.notifyCurrentVerifikator(
+          verifikatorRows.find((verifikator) => verifikator.status === 'waiting'),
+          id,
+        ).catch(() => {});
       } else {
         this.notifyNaskahDinasRecipients(id).catch(() => {});
       }
@@ -1341,8 +1401,14 @@ export class NaskahDinasService {
     if (nextVerifikator) {
       nextVerifikator.status = 'waiting';
       await this.verifikatorRepository.save(nextVerifikator);
+      this.notifyCurrentVerifikator(nextVerifikator, id).catch(() => {});
     } else {
       await this.naskahRepository.update({ id }, { status: 'final' });
+      this.notifyNaskahDinasOwner(
+        id,
+        NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
+        'Seluruh verifikator telah menyetujui naskah dinas',
+      ).catch(() => {});
       this.notifyNaskahDinasRecipients(id).catch(() => {});
     }
 
@@ -1403,6 +1469,12 @@ export class NaskahDinasService {
     myVerifikator.rejectedAt = new Date();
     myVerifikator.keterangan = alasan.trim();
     await this.verifikatorRepository.save(myVerifikator);
+
+    this.notifyNaskahDinasOwner(
+      id,
+      NotificationType.NASKAH_DINAS_DITOLAK,
+      `${myVerifikator.nama || 'Verifikator'} menolak naskah dinas: ${alasan.trim()}`,
+    ).catch(() => {});
 
     const refreshed = await this.verifikatorRepository.find({
       where: { idNaskah: id },

@@ -20,6 +20,7 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { SearchModule } from '../search/search.module';
 import { MailServiceModule } from '../mail-service/mail-service.module';
+import { KonsepModule } from '../konsep/konsep.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { MailServiceModule } from '../mail-service/mail-service.module';
     DigsigModule,
     SearchModule,
     MailServiceModule,
+    KonsepModule,
   ],
   controllers: [SuratDinasEksternalController],
   providers: [SuratDinasEksternalService, NomorSuratService],
