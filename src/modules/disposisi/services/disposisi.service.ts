@@ -57,6 +57,7 @@ import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
@@ -254,7 +255,15 @@ export class DisposisiService {
 
     // Get org_data for position lookup
     const tgl = tanggal || new Date().toISOString().split('T')[0];
-    const orgData = await this.orgDataService.findOrg(tgl);
+    let orgData;
+    try {
+      orgData = await this.orgDataService.findOrg(tgl);
+    } catch (e) {
+      console.warn(
+        `[convertPositionIdsToNames] Org data for ${tgl} not found, falling back to latest.`,
+      );
+      orgData = await this.orgDataService.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
@@ -766,10 +775,25 @@ export class DisposisiService {
 
   /**
    * Get cached position_json from org_data
+   * Falls back to latest org_data if exact date not found.
    */
   private async getPositionData(tgl?: string): Promise<PositionData[]> {
     const today = tgl || new Date().toISOString().split('T')[0];
-    const orgData = await this.orgDataService.findOrg(today);
+    let orgData;
+    try {
+      orgData = await this.orgDataService.findOrg(today);
+    } catch (e) {
+      // Fallback ke data org terbaru jika tanggal hari ini belum di-generate
+      console.warn(
+        `[getPositionData] Org data for ${today} not found, falling back to latest.`,
+      );
+      orgData = await this.orgDataService.findLatestOrg();
+    }
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi tidak ditemukan. Silakan generate via GET /org-data`,
+      );
+    }
     return orgData.position_json as PositionData[];
   }
 
@@ -1493,17 +1517,16 @@ export class DisposisiService {
         console.log('[Disposisi] perihal:', naskah.perihal || dto.perihal);
         console.log('='.repeat(60));
         
-        this.notificationService.createNaskahMasukNotification({
+        this.notificationService.createDisposisiNotification({
           positionId: String(penerima.position),
           userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
           naskahId,
           sirkulasiId: penerimaSirkulasi.id,
-          jenis: 'DI',
           nomor: naskah.nomor || undefined,
           perihal: naskah.perihal || dto.perihal,
+          instruksi: dto.disposisi || dto.catatan || naskah.perihal || dto.perihal,
           pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
           pengirimPosition: pengirimData.position_text,
-          isTembusan: false,
         }).then(result => {
           console.log('[Disposisi] ✅ Notification SUCCESS for penerima. ID:', result?.id);
         }).catch(err => {
@@ -2488,17 +2511,16 @@ export class DisposisiService {
 
           // Send notification to penerima (only when sending/finalizing, not draft)
           if (!isDraft && pengirimData) {
-            this.notificationService.createNaskahMasukNotification({
+            this.notificationService.createDisposisiNotification({
               positionId: String(penerima.position),
               userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
               naskahId,
               sirkulasiId: penerimaSirkulasi.id,
-              jenis: 'DI',
               nomor: naskah.nomor || undefined,
               perihal: naskah.perihal || dto.perihal || '',
+              instruksi: dto.disposisi || dto.catatan || naskah.perihal || dto.perihal || '',
               pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
               pengirimPosition: pengirimData.position_text,
-              isTembusan: false,
             }).catch(err => console.error('[Disposisi:UpdateDraft] Failed to send notification to penerima:', err));
           }
         }
@@ -3216,17 +3238,16 @@ export class DisposisiService {
         await queryRunner.manager.save(penerimaSirkulasi);
 
         // Send notification to penerima (for forwarded disposisi)
-        this.notificationService.createNaskahMasukNotification({
+        this.notificationService.createDisposisiNotification({
           positionId: String(penerima.position),
           userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
           naskahId,
           sirkulasiId: penerimaSirkulasi.id,
-          jenis: 'DI',
           nomor: generatedNomor,
           perihal: perihal,
+          instruksi: dto.disposisi || dto.catatan || perihal,
           pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
           pengirimPosition: pengirimData.position_text,
-          isTembusan: false,
         }).catch(err => console.error('[Disposisi:Forward] Failed to send notification to penerima:', err));
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -3462,6 +3483,35 @@ export class DisposisiService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      this.naskahSirkulasiRepository
+        .findOne({
+          where: {
+            idNaskah: dto.id_naskah_diterima,
+            sirkuler: 'pengirim',
+          },
+        })
+        .then((previousPengirim) => {
+          if (!previousPengirim?.position) return;
+
+          return this.notificationService.createDisposisiNotification({
+            positionId: String(previousPengirim.position),
+            userPersnum: previousPengirim.idSirkuler ? Number(previousPengirim.idSirkuler) : undefined,
+            naskahId: dto.id_naskah_diterima,
+            sirkulasiId: previousPengirim.id,
+            disposisiId: naskahId,
+            nomor: naskahDiterima.nomor || undefined,
+            perihal: naskahDiterima.perihal || perihal,
+            instruksi: dto.disposisi || dto.catatan || 'Disposisi telah ditindaklanjuti',
+            pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+            pengirimPosition: pengirimData.position_text,
+            type: NotificationType.DISPOSISI_SELESAI,
+            body: `${pengirimData.position_text} telah menindaklanjuti disposisi`,
+          });
+        })
+        .catch((err) =>
+          console.error('[Disposisi:Forward] Failed to send selesai notification:', err),
+        );
 
       // Build response
       return {

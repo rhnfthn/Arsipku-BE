@@ -663,11 +663,13 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'penomoran.export-usulan',
     'penomoran.read-persetujuan',
     'penomoran.export-persetujuan',
+    // Penomoran & arsip (dari origin/main)
+    'penomoran.read',
+    'surat-masuk-eksternal.read',
     // FAQ + Pedoman (read-only)
     'faq.read',
     'pedoman.read',
     // Lain-lain
-    'arsip-aktif.read',
     'smart-search.search',
     'dashboard.read',
     'naskah-masuk.read-verifikasi',

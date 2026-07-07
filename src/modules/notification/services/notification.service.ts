@@ -2,7 +2,12 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { NotificationEntity, NotificationType, NaskahMasukNotificationData } from '../entities';
+import {
+  NotificationEntity,
+  NotificationType,
+  NaskahMasukNotificationData,
+  DisposisiNotificationData,
+} from '../entities';
 import { CreateNotificationDto, NotificationQueryDto, CreateNaskahMasukNotificationDto } from '../dto';
 import { FcmService } from '../../fcm/services';
 import { NotificationGateway } from '../gateways';
@@ -87,11 +92,17 @@ export class NotificationService {
       // Send push notification if userPersnum is provided
       if (sendPush && dto.userPersnum) {
         this.logger.log(`📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`);
+        // Include notificationId in data payload so mobile can dedup
+        // across FCM and WebSocket sources.
+        const dataWithId = {
+          ...(this.convertDataToString(dto.data) || {}),
+          notificationId: saved.id,
+        };
         await this.fcmService.sendToUser(
           dto.userPersnum,
           dto.title,
           dto.body,
-          this.convertDataToString(dto.data),
+          dataWithId,
         );
         this.logger.log(`✅ [createNotification] Push notification sent`);
       } else {
@@ -180,6 +191,58 @@ export class NotificationService {
       this.logger.error(`❌ [createNaskahMasukNotification] Stack: ${error.stack}`);
       throw error;
     }
+  }
+
+  /**
+   * Create notification for disposisi-specific filters.
+   */
+  async createDisposisiNotification(
+    dto: {
+      positionId: string;
+      userPersnum?: number;
+      naskahId: string;
+      sirkulasiId?: string;
+      disposisiId?: string;
+      nomor?: string;
+      perihal: string;
+      instruksi?: string;
+      pengirim: string;
+      pengirimPosition?: string;
+      type?: NotificationType.DISPOSISI | NotificationType.DISPOSISI_SELESAI;
+      title?: string;
+      body?: string;
+    },
+    sendPush = true,
+  ): Promise<NotificationEntity> {
+    const type = dto.type || NotificationType.DISPOSISI;
+    const isDone = type === NotificationType.DISPOSISI_SELESAI;
+    const title = dto.title || (isDone ? 'Disposisi selesai' : 'Disposisi masuk');
+    const body = dto.body || dto.perihal || dto.instruksi || '-';
+
+    const data: DisposisiNotificationData & Record<string, any> = {
+      disposisiId: dto.disposisiId || dto.naskahId,
+      naskahId: dto.naskahId,
+      instruksi: dto.instruksi || dto.perihal || '-',
+      pengirim: dto.pengirim,
+      action: 'OPEN_DISPOSISI_DETAIL',
+      sirkulasiId: dto.sirkulasiId,
+      jenis: 'DI',
+      nomor: dto.nomor || null,
+      perihal: dto.perihal,
+      pengirimPosition: dto.pengirimPosition || dto.pengirim,
+    };
+
+    return this.createNotification(
+      {
+        positionId: dto.positionId,
+        userPersnum: dto.userPersnum,
+        type,
+        title,
+        body,
+        data,
+      },
+      sendPush,
+    );
   }
 
   /**

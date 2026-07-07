@@ -7,9 +7,10 @@ import {
   AdminConfigMessageController,
   ConfigController,
 } from './controllers';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ConfigDigsig, ConfigMessage])],
+  imports: [TypeOrmModule.forFeature([ConfigDigsig, ConfigMessage]), OrgDataModule],
   controllers: [
     AdminConfigDigsigController,
     AdminConfigMessageController,

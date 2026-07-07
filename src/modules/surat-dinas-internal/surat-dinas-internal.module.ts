@@ -19,6 +19,7 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { SearchModule } from '../search/search.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
+import { KonsepModule } from '../konsep/konsep.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
     DigsigModule,
     SearchModule,
     GrupPenerimaModule,
+    KonsepModule,
   ],
   controllers: [SuratDinasInternalController],
   providers: [SuratDinasInternalService, NomorSuratService],
