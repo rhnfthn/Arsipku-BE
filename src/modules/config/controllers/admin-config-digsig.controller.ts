@@ -12,15 +12,16 @@ import {
 import { ConfigDigsigService } from '../services';
 import { UpdateDigsigConfigDto, BulkUpdateDigsigConfigDto } from '../dto';
 import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
-import { JwtAuthGuard, PermissionGuard } from '../../../common/guards';
+import { JwtAuthGuard } from '../../../common/guards';
 import { RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Digsig
  * Endpoint: /admin/config/digsig
+ * Note: PermissionGuard berjalan global (APP_GUARD), cukup @RequirePermission di method.
  */
 @Controller('admin/config/digsig')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard)
 export class AdminConfigDigsigController {
   constructor(private readonly configDigsigService: ConfigDigsigService) {}
 

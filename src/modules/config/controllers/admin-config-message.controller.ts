@@ -14,15 +14,16 @@ import {
 import { ConfigMessageService } from '../services';
 import { CreateMessageDto, UpdateMessageDto, ToggleBannerDto } from '../dto';
 import { ConfigMessage } from '../entities';
-import { JwtAuthGuard, PermissionGuard } from '../../../common/guards';
+import { JwtAuthGuard } from '../../../common/guards';
 import { RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Message
  * Endpoint: /admin/config/message
+ * Note: PermissionGuard berjalan global (APP_GUARD), cukup @RequirePermission di method.
  */
 @Controller('admin/config/message')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard)
 export class AdminConfigMessageController {
   constructor(private readonly configMessageService: ConfigMessageService) {}
 
