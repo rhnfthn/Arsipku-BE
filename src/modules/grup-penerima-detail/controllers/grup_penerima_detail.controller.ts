@@ -15,13 +15,11 @@ export class GrupPenerimaDetailController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(@Query('id_grup_penerima') id_grup_penerima?: string) {
     return this.detailService.findAll(id_grup_penerima);
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string) {
     return this.detailService.findOne(id);
   }

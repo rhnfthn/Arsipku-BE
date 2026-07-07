@@ -20,14 +20,12 @@ export class TitelaturEnController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   async findAll(@Query('company') company: string, @Query('object_type') object_type: string) {
     const results = await this.service.findAll(company, object_type);
     return { success: true, data: results, total: results.length };
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   async findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
     const r = await this.service.findOne(id);
     return { success: true, data: r };

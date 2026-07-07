@@ -53,7 +53,6 @@ export class TemplateController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateListResponseDto> {
     const list = await this.templateService.findAll(nama_template);
     const mapped = await this.templateService.toDtoList(list);
@@ -61,7 +60,6 @@ export class TemplateController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string): Promise<TemplateItemResponseDto> {
     const t = await this.templateService.findOne(id);
     return { success: true, data: await this.templateService.toDto(t) };
