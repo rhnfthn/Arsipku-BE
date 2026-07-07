@@ -28,6 +28,7 @@ import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pd
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
 import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
+import { KonsepService } from '../../konsep/services/konsep.service';
 import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
@@ -78,6 +79,7 @@ export class SuratDinasInternalService {
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
     private readonly grupPenerimaService: GrupPenerimaService,
+    private readonly konsepService: KonsepService,
   ) { }
 
   // ============================================================
@@ -2910,6 +2912,10 @@ export class SuratDinasInternalService {
         // For non-digsig, log but don't fail
         console.error('[SDI finalizeDraft] PDF generation error:', error);
       }
+
+      // Close konsep workflow if this naskah asli originated from a konsep
+      // (is_konsep=0 on sirkulasi for dashboard counts + 'finalize' riwayat node).
+      await this.konsepService.closeKonsepWorkflow(naskahId, queryRunner);
 
       // Commit transaction
       await queryRunner.commitTransaction();

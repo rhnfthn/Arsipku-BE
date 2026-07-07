@@ -7,6 +7,9 @@ import {
 } from '../dto/cek-dokumen.dto';
 import { DigsigLogService } from './digsig-log.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 
 /**
  * Service untuk fitur "Cek Dokumen"
@@ -25,9 +28,33 @@ export class CekDokumenService {
     private readonly configService: ConfigService,
     private readonly digsigLogService: DigsigLogService,
     private readonly storageService: StorageService,
+    private readonly orgDataService: OrgDataService,
+    private readonly notificationService: NotificationService,
   ) {
     this.bsreVerifyUrl = this.configService.get<string>('BSRE_VERIFY_URL') || 'http://172.20.16.115:7000/verify';
     this.bsreTimeout = this.configService.get<number>('BSRE_TIMEOUT') || 30000;
+  }
+
+  private async notifyVerificationResult(
+    userPersnum: number,
+    filename: string,
+    message: string,
+  ) {
+    const userData = await this.orgDataService.findByPersnum(userPersnum).catch(() => null);
+    const positionId = userData?.position;
+    if (!positionId) return;
+
+    await this.notificationService.createNotification({
+      positionId: String(positionId),
+      userPersnum,
+      type: NotificationType.DIGSIG_VERIFIKASI,
+      title: 'Verifikasi dokumen selesai',
+      body: `${filename}: ${message}`,
+      data: {
+        action: 'OPEN_DIGSIG_VERIFIKASI',
+        filename,
+      },
+    });
   }
 
   /**
@@ -120,7 +147,16 @@ export class CekDokumenService {
       }
 
       // Transform response dari BSrE ke format standar
-      return this.transformBsreResponse(response.data, file.originalname);
+      const result = this.transformBsreResponse(response.data, file.originalname);
+      this.notifyVerificationResult(
+        userPersnum,
+        file.originalname,
+        result.message || 'Verifikasi selesai',
+      ).catch((err) =>
+        console.warn(`[CekDokumenService] Failed to send verification notification: ${err?.message}`),
+      );
+
+      return result;
     } catch (error) {
       console.error(`[CekDokumenService] Error verifying file:`, error.message);
       
@@ -204,7 +240,7 @@ export class CekDokumenService {
       });
 
       // TODO: Ganti dengan response dari BSrE API
-      return {
+      const result: CekDokumenResponseDto = {
         success: true,
         message: 'Fitur verifikasi dokumen via signature ID belum tersedia. API BSrE verify endpoint belum dikonfigurasi.',
         data: {
@@ -218,6 +254,14 @@ export class CekDokumenService {
           verifiedAt: new Date().toISOString(),
         },
       };
+      this.notifyVerificationResult(
+        userPersnum,
+        signatureId,
+        result.message,
+      ).catch((err) =>
+        console.warn(`[CekDokumenService] Failed to send verification notification: ${err?.message}`),
+      );
+      return result;
     } catch (error) {
       // Log failed verification
       await this.digsigLogService.createLog({
@@ -271,7 +315,7 @@ export class CekDokumenService {
       });
 
       // TODO: Ganti dengan response dari BSrE API
-      return {
+      const result: CekDokumenResponseDto = {
         success: true,
         message: 'Fitur verifikasi dokumen via name_doc belum tersedia. API BSrE verify endpoint belum dikonfigurasi.',
         data: {
@@ -285,6 +329,14 @@ export class CekDokumenService {
           verifiedAt: new Date().toISOString(),
         },
       };
+      this.notifyVerificationResult(
+        userPersnum,
+        nameDoc,
+        result.message,
+      ).catch((err) =>
+        console.warn(`[CekDokumenService] Failed to send verification notification: ${err?.message}`),
+      );
+      return result;
     } catch (error) {
       // Log failed verification
       await this.digsigLogService.createLog({
