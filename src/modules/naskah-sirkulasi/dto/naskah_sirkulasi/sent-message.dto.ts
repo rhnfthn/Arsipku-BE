@@ -1,4 +1,10 @@
-import { IsOptional, IsEnum, IsNumber, IsDateString, IsBoolean } from 'class-validator';
+import {
+  IsOptional,
+  IsEnum,
+  IsNumber,
+  IsDateString,
+  IsBoolean,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -6,7 +12,9 @@ import { Type, Transform } from 'class-transformer';
  */
 export class SentMessageQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], {
+    message: 'Jenis naskah tidak valid',
+  })
   jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @IsOptional()
@@ -19,7 +27,9 @@ export class SentMessageQueryDto {
   favorite?: boolean;
 
   @IsOptional()
-  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], {
+    message: 'Status tindak lanjut tidak valid',
+  })
   tinjut?: 'sudah_tinjut' | 'belum_tinjut';
 
   @IsOptional()
@@ -44,11 +54,17 @@ export class SentMessageQueryDto {
 
   // Date Range Filter
   @IsOptional()
-  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   start_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
-  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   end_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
@@ -58,7 +74,10 @@ export class SentMessageQueryDto {
     const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
     return normalized;
   })
-  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], {
+    message:
+      'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua',
+  })
   preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
@@ -66,7 +85,9 @@ export class SentMessageQueryDto {
     if (!value) return value;
     return String(value).toLowerCase().trim();
   })
-  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  @IsEnum(['terbaru', 'terlama'], {
+    message: 'Sort tidak valid. Gunakan: terbaru atau terlama',
+  })
   sort?: 'terbaru' | 'terlama';
 
   @IsOptional()
@@ -100,6 +121,30 @@ export class PenerimaWithStatusDto {
   nama: string | null;
   status_baca: 'terbaca' | 'belum_terbaca';
   read_time: Date | null;
+  is_tindak_lanjut?: boolean;
+}
+
+export class SentTrackingLogDto {
+  id_sirkulasi: string;
+  id_naskah: string;
+  jenis: string;
+  jenis_label: string;
+  nomor: string | null;
+  perihal: string | null;
+  created_at: Date;
+  pengirim: SirkulasiInfoDto;
+  penerima: PenerimaWithStatusDto[];
+  tembusan: PenerimaWithStatusDto[];
+  summary_baca: {
+    total: number;
+    terbaca: number;
+    belum_terbaca: number;
+  };
+  summary_tindak_lanjut: {
+    total: number;
+    sudah: number;
+    belum: number;
+  };
 }
 
 /**
@@ -119,6 +164,7 @@ export class SentMessageItemDto {
   pengirim: SirkulasiInfoDto;
   penerima: PenerimaWithStatusDto[];
   tembusan: PenerimaWithStatusDto[];
+  tracking_logs?: SentTrackingLogDto[];
   summary_baca: {
     total: number;
     terbaca: number;
