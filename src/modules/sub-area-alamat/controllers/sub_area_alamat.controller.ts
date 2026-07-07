@@ -15,13 +15,11 @@ export class SubAreaAlamatController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(@Query('company') company?: string, @Query('area') area?: string) {
     return this.subAreaAlamatService.findAll(company, area);
   }
 
   @Get('by-location/:company/:area/:sub_area')
-  @RequirePermission('master-data', 'read')
   findBySubArea(
     @Param('company') company: string,
     @Param('area') area: string,
@@ -31,7 +29,6 @@ export class SubAreaAlamatController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string) {
     return this.subAreaAlamatService.findOne(id);
   }

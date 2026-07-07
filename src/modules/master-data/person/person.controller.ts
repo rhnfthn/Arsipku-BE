@@ -30,7 +30,6 @@ export class PersonController {
   constructor(private readonly personService: PersonService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(
     @Query('search') search?: string,
     @Query('page') page?: string,
@@ -44,7 +43,6 @@ export class PersonController {
   }
 
   @Get('suggestion')
-  @RequirePermission('master-data', 'read')
   suggestion(
     @Query('search') search?: string,
   ): Promise<{ persnum: number; name: string }[]> {
@@ -56,7 +54,6 @@ export class PersonController {
    * @example GET /person/name-persnum
    */
   @Get('name-persnum')
-  @RequirePermission('master-data', 'read')
   findAllNamePersnum(): Promise<{ persnum: number; name: string }[]> {
     return this.personService.findAllNamePersnum();
   }
@@ -68,7 +65,6 @@ export class PersonController {
    * @example GET /person/with-position/all?search=ahmad&page=1&limit=10
    */
   @Get('with-position/all')
-  @RequirePermission('master-data', 'read')
   findAllWithPosition(
     @Query('search') search?: string,
     @Query('page') page?: string,
@@ -88,7 +84,6 @@ export class PersonController {
    * @example GET /person/company/1?search=ahmad
    */
   @Get('company/:companyId')
-  @RequirePermission('master-data', 'read')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Query('search') search?: string,
@@ -101,7 +96,6 @@ export class PersonController {
    * @example GET /person/position/1000?search=ahmad
    */
   @Get('position/:positionId')
-  @RequirePermission('master-data', 'read')
   findByPosition(
     @Param('positionId', ParseIntPipe) positionId: number,
     @Query('search') search?: string,
@@ -114,7 +108,6 @@ export class PersonController {
    * @example GET /person/company/1/organization/100
    */
   @Get('company/:companyId/organization/:organizationId')
-  @RequirePermission('master-data', 'read')
   findByOrganization(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Param('organizationId', ParseIntPipe) organizationId: number,
@@ -127,7 +120,6 @@ export class PersonController {
    * @example GET /person/search?name=ahmad
    */
   @Get('search')
-  @RequirePermission('master-data', 'read')
   searchByName(@Query('name') name: string): Promise<Person[]> {
     return this.personService.searchByName(name);
   }
@@ -137,7 +129,6 @@ export class PersonController {
    * @example GET /person/:persnum/details
    */
   @Get(':persnum/details')
-  @RequirePermission('master-data', 'read')
   findOneWithDetails(
     @Param('persnum', ParseIntPipe) persnum: number,
   ) {
@@ -149,7 +140,6 @@ export class PersonController {
    * @example GET /person/persnum/12345
    */
   @Get('persnum/:persnum')
-  @RequirePermission('master-data', 'read')
   findByPersnum(
     @Param('persnum', ParseIntPipe) persnum: number,
   ): Promise<Person> {
@@ -157,7 +147,6 @@ export class PersonController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<Person> {
     return this.personService.findOne(id);
   }
