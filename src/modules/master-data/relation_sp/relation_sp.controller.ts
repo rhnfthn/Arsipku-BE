@@ -18,13 +18,11 @@ export class RelationSpController {
   constructor(private readonly relationSpService: RelationSpService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(): Promise<RelationSp[]> {
     return this.relationSpService.findAll();
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<RelationSp> {
     return this.relationSpService.findOne(id);
   }

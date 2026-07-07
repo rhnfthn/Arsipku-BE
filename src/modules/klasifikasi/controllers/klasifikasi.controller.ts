@@ -9,13 +9,11 @@ export class KlasifikasiController {
   constructor(private readonly klasifikasiService: KlasifikasiService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(@Query('company') company?: string) {
     return this.klasifikasiService.findAll(company);
   }
 
   @Get('by-code/:company/:kode')
-  @RequirePermission('master-data', 'read')
   findByCode(@Param('company') company: string, @Param('kode') kode: string) {
     return this.klasifikasiService.findByCode(company, kode);
   }
@@ -27,7 +25,6 @@ export class KlasifikasiController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string) {
     return this.klasifikasiService.findOne(id);
   }
