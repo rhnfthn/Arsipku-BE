@@ -1480,8 +1480,7 @@ export class NaskahSirkulasiService {
             s.created_at
           FROM naskah_sirkulasi s
           INNER JOIN naskah n ON s.id_naskah = n.id
-          WHERE s.position = ?
-          AND s.sirkuler = 'pengirim'
+          WHERE s.sirkuler = 'pengirim'
           AND s.is_draft = 0
           AND s.is_konsep = 0
           AND n.jenis = 'K'
@@ -1493,7 +1492,7 @@ export class NaskahSirkulasiService {
           )
           ORDER BY s.created_at ASC, s.id ASC
         `,
-        [positionId, naskahId],
+        [naskahId],
       );
 
       const workflowNaskahIds = workflowRows.map((row: any) => row.id_naskah);
