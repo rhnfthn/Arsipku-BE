@@ -41,7 +41,6 @@ export class TemplateSuratController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findAll(nama_template);
     const mapped = this.templateSuratService.toDtoList(list);
@@ -49,7 +48,6 @@ export class TemplateSuratController {
   }
 
   @Get('global')
-  @RequirePermission('master-data', 'read')
   async findGlobal(): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findGlobal();
     const mapped = this.templateSuratService.toDtoList(list);
@@ -57,7 +55,6 @@ export class TemplateSuratController {
   }
 
   @Get('position/:id_position')
-  @RequirePermission('master-data', 'read')
   async findByPosition(@Param('id_position') id_position: string): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findByPosition(id_position);
     const mapped = this.templateSuratService.toDtoList(list);
@@ -65,7 +62,6 @@ export class TemplateSuratController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string): Promise<TemplateSuratItemResponseDto> {
     const t = await this.templateSuratService.findOne(id);
     return { success: true, data: this.templateSuratService.toDto(t) };

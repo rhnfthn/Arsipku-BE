@@ -15,13 +15,11 @@ export class DisposisiItemController {
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(@Query('company') company?: string) {
     return this.disposisiItemService.findAll(company);
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string) {
     return this.disposisiItemService.findOne(id);
   }
