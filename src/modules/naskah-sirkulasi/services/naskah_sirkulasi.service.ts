@@ -18,9 +18,20 @@ import {
   SentMessageItemDto,
   PenerimaWithStatusDto,
 } from '../dto/naskah_sirkulasi/sent-message.dto';
-import { InboxSentResponseDto, SentItemForCombinedDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
-import { TertundaQueryDto, TertundaResponseDto, TertundaItemDto } from '../dto/naskah_sirkulasi/tertunda.dto';
-import { ToggleFlagResponseDto, BulkArchiveSentResponseDto } from '../dto/naskah_sirkulasi/toggle-flag.dto';
+import {
+  InboxSentResponseDto,
+  SentItemForCombinedDto,
+  InboxSentQueryDto,
+} from '../dto/naskah_sirkulasi/inbox-sent.dto';
+import {
+  TertundaQueryDto,
+  TertundaResponseDto,
+  TertundaItemDto,
+} from '../dto/naskah_sirkulasi/tertunda.dto';
+import {
+  ToggleFlagResponseDto,
+  BulkArchiveSentResponseDto,
+} from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
@@ -64,7 +75,7 @@ export class NaskahSirkulasiService {
     private readonly dataSource: DataSource,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly realtimeEmitService: RealtimeEmitService,
-  ) { }
+  ) {}
 
   /**
    * Helper: Convert preset/custom date range to start & end date strings
@@ -148,13 +159,15 @@ export class NaskahSirkulasiService {
 
     // Sync to Meilisearch when sirkulasi changes (affects pengirim/penerima info)
     if (saved.idNaskah) {
-      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => { });
+      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => {});
     }
 
     // Emit inbox count refresh ke penerima position
     if (saved.position) {
       try {
-        const inboxResult = await this.countUnreadInbox(String(saved.position)).catch(() => null);
+        const inboxResult = await this.countUnreadInbox(
+          String(saved.position),
+        ).catch(() => null);
         const count =
           inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
             ? (inboxResult as any).data.count
@@ -176,7 +189,7 @@ export class NaskahSirkulasiService {
 
     // Sync to Meilisearch when sirkulasi changes
     if (saved.idNaskah) {
-      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => { });
+      this.meilisearchSyncService.syncNaskah(saved.idNaskah).catch(() => {});
     }
 
     return saved;
@@ -212,7 +225,9 @@ export class NaskahSirkulasiService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${dto.id_naskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${dto.id_naskah} tidak ditemukan`,
+      );
     }
 
     // Find sirkulasi record for this naskah + position (penerima or tembusan)
@@ -259,7 +274,9 @@ export class NaskahSirkulasiService {
 
     // Emit inbox count refresh ke penerima position
     try {
-      const inboxResult = await this.countUnreadInbox(String(dto.position_id)).catch(() => null);
+      const inboxResult = await this.countUnreadInbox(
+        String(dto.position_id),
+      ).catch(() => null);
       const count =
         inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
           ? (inboxResult as any).data.count
@@ -305,6 +322,26 @@ export class NaskahSirkulasiService {
     query: InboxQueryDto,
   ): Promise<InboxResponseDto> {
     const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
+    const konsepWorkflowKey = `COALESCE(n.id_naskah_asli, n.id)`;
+    const latestKonsepForInboxClause = `
+      AND (
+        n.jenis <> 'K'
+        OR s.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = s.position
+          AND s2.sirkuler IN ('penerima', 'tembusan')
+          AND s2.is_draft = 0
+          AND (s2.is_konsep = 0 OR n2.jenis = 'K')
+          AND n2.jenis = 'K'
+          AND n2.status IN ('final', 'final_tte')
+          AND COALESCE(n2.id_naskah_asli, n2.id) = ${konsepWorkflowKey}
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
     // Build query dengan raw SQL untuk performa dan fleksibilitas
     let summaryWhereClause = `
       WHERE s.position = ?
@@ -312,6 +349,7 @@ export class NaskahSirkulasiService {
       AND s.is_draft = 0
       AND (s.is_konsep = 0 OR n.jenis = 'K')
       AND n.status IN ('final', 'final_tte')
+      ${latestKonsepForInboxClause}
     `;
     const summaryParams: any[] = [positionId];
     let whereClause = summaryWhereClause;
@@ -379,7 +417,11 @@ export class NaskahSirkulasiService {
     // Gunakan created_at pengirim agar konsisten dengan data tanggal yang ditampilkan di response inbox.
     const inboxDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1), s.created_at)`;
     const inboxLocalDateExpr = `DATE(DATE_ADD(${inboxDisplayCreatedAtExpr}, INTERVAL 7 HOUR))`;
-    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    const dateRange = this.getDateRangeFromQuery(
+      query.start_date,
+      query.end_date,
+      query.preset,
+    );
     if (dateRange.startDate) {
       whereClause += ` AND ${inboxLocalDateExpr} >= ?`;
       params.push(dateRange.startDate);
@@ -449,7 +491,11 @@ export class NaskahSirkulasiService {
       ORDER BY COALESCE(pengirim.created_at, s.created_at) ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
+    const rows = await this.dataSource.query(selectQuery, [
+      ...params,
+      limit,
+      offset,
+    ]);
 
     // Get all recipients (kepada) for each naskah
     const naskahIds = [...new Set(rows.map((r: any) => r.id_naskah))];
@@ -549,7 +595,7 @@ export class NaskahSirkulasiService {
         is_locked: row.is_locked === 1,
         labels: labelsMap.get(row.id_naskah) || [], // Labels yang di-assign ke naskah
         is_tembusan: row.sirkuler_type === 'tembusan',
-        is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : false,
+        is_priority: row.jenis === 'DI' ? row.is_priority === 1 : false,
         created_at: row.created_at,
         updated_at: row.updated_at,
         source: 'inbox',
@@ -573,7 +619,10 @@ export class NaskahSirkulasiService {
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${summaryWhereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, summaryParams);
+    const summaryResult = await this.dataSource.query(
+      summaryQuery,
+      summaryParams,
+    );
     const summary = summaryResult[0] || {};
 
     return {
@@ -649,6 +698,31 @@ export class NaskahSirkulasiService {
     };
   }> {
     const sortDirection = 'DESC'; // konsisten dengan inbox default (terbaru)
+    const konsepWorkflowKey = `COALESCE(n.id_naskah_asli, n.id)`;
+    const latestKonsepForInboxClause = `
+      AND (
+        n.jenis <> 'K'
+        OR s.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = s.position
+          AND s2.sirkuler IN ('penerima', 'tembusan')
+          AND s2.is_draft = 0
+          AND (s2.is_konsep = 0 OR n2.jenis = 'K')
+          AND n2.jenis = 'K'
+          AND n2.status IN ('final', 'final_tte')
+          AND COALESCE(n2.id_naskah_asli, n2.id) = ${konsepWorkflowKey}
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
+    const orderExpr = `COALESCE(
+      (SELECT p.created_at FROM naskah_sirkulasi p
+       WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1),
+      s.created_at
+    )`;
 
     // 1) Validasi: pastikan user memang punya akses ke naskah ini
     //    (sebagai penerima/tembusan, bukan draft, status final/final_tte)
@@ -665,7 +739,10 @@ export class NaskahSirkulasiService {
         AND s.id_naskah = ?
       LIMIT 1
     `;
-    const accessRows: any[] = await this.dataSource.query(accessCheck, [positionId, idNaskah]);
+    const accessRows: any[] = await this.dataSource.query(accessCheck, [
+      positionId,
+      idNaskah,
+    ]);
     if (accessRows.length === 0) {
       return {
         success: false,
@@ -676,16 +753,16 @@ export class NaskahSirkulasiService {
 
     // 2) Ambil created_at pengirim untuk naskah acuan
     const refQuery = `
-      SELECT COALESCE(
-        (SELECT p.created_at FROM naskah_sirkulasi p
-         WHERE p.id_naskah = ? AND p.sirkuler = 'pengirim' LIMIT 1),
-        s.created_at
-      ) AS ref_created_at
+      SELECT ${orderExpr} AS ref_created_at, s.id AS ref_sirkulasi_id
       FROM naskah_sirkulasi s
+      INNER JOIN naskah n ON s.id_naskah = n.id
       WHERE s.id_naskah = ? AND s.sirkuler IN ('penerima', 'tembusan') AND s.position = ?
       LIMIT 1
     `;
-    const refRows: any[] = await this.dataSource.query(refQuery, [idNaskah, idNaskah, positionId]);
+    const refRows: any[] = await this.dataSource.query(refQuery, [
+      idNaskah,
+      positionId,
+    ]);
     if (refRows.length === 0) {
       return {
         success: true,
@@ -694,6 +771,7 @@ export class NaskahSirkulasiService {
       };
     }
     const refCreatedAt = refRows[0].ref_created_at;
+    const refSirkulasiId = refRows[0].ref_sirkulasi_id;
 
     // 3) Build base where clause (hanya pesan yang user punya akses, exclude arsip)
     const baseWhere = `
@@ -703,16 +781,11 @@ export class NaskahSirkulasiService {
         AND (s.is_konsep = 0 OR n.jenis = 'K')
         AND n.status IN ('final', 'final_tte')
         AND s.flag_arsip = 0
+        ${latestKonsepForInboxClause}
     `;
     const baseParams: any[] = [positionId];
     const jenisClause = jenis ? ` AND n.jenis = ?` : '';
     const jenisParams = jenis ? [jenis] : [];
-
-    const orderExpr = `COALESCE(
-      (SELECT p.created_at FROM naskah_sirkulasi p
-       WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1),
-      s.created_at
-    )`;
 
     // 4) Ambil satu naskah SEBELUM (lebih lama) dan satu SESUDAH (lebih baru).
     //    Karena inbox default DESC (terbaru di atas), maka:
@@ -732,8 +805,10 @@ export class NaskahSirkulasiService {
       LEFT JOIN naskah_sirkulasi pengirim
         ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       ${baseWhere}${jenisClause}
-        AND ${orderExpr} <> ?
-        AND ${orderExpr} <op> ?
+        AND (
+          ${orderExpr} <op> ?
+          OR (${orderExpr} = ? AND s.id <id_op> ?)
+        )
       ORDER BY ${orderExpr} <dir>, s.id <dir>
       LIMIT 1
     `;
@@ -741,20 +816,28 @@ export class NaskahSirkulasiService {
     // previous (lebih lama): created_at < refCreatedAt, urut DESC ambil baris pertama
     const prevQuery = navSelect
       .replace(/<op>/g, '<')
+      .replace(/<id_op>/g, '<')
       .replace(/<dir>/g, 'DESC');
-    const prevRows: any[] = await this.dataSource.query(
-      prevQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const prevRows: any[] = await this.dataSource.query(prevQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+      refSirkulasiId,
+    ]);
 
     // next (lebih baru): created_at > refCreatedAt, urut ASC ambil baris pertama
     const nextQuery = navSelect
       .replace(/<op>/g, '>')
+      .replace(/<id_op>/g, '>')
       .replace(/<dir>/g, 'ASC');
-    const nextRows: any[] = await this.dataSource.query(
-      nextQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const nextRows: any[] = await this.dataSource.query(nextQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+      refSirkulasiId,
+    ]);
 
     const mapNav = (row: any) => ({
       id_naskah: row.id_naskah,
@@ -864,7 +947,11 @@ export class NaskahSirkulasiService {
     }
 
     // Date Range Filter
-    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    const dateRange = this.getDateRangeFromQuery(
+      query.start_date,
+      query.end_date,
+      query.preset,
+    );
     if (dateRange.startDate) {
       whereClause += ` AND DATE(s.created_at) >= ?`;
       params.push(dateRange.startDate);
@@ -926,7 +1013,11 @@ export class NaskahSirkulasiService {
       ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
+    const rows = await this.dataSource.query(selectQuery, [
+      ...params,
+      limit,
+      offset,
+    ]);
 
     // Get summary counts
     const summaryQuery = `
@@ -941,7 +1032,10 @@ export class NaskahSirkulasiService {
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${summaryWhereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, summaryParams);
+    const summaryResult = await this.dataSource.query(
+      summaryQuery,
+      summaryParams,
+    );
     const summaryData = summaryResult[0] || {};
 
     if (rows.length === 0) {
@@ -1079,6 +1173,43 @@ export class NaskahSirkulasiService {
     query: SentMessageQueryDto,
   ): Promise<SentMessageResponseDto> {
     const sortDirection = query.sort === 'terlama' ? 'ASC' : 'DESC';
+    const konsepWorkflowKey = `COALESCE(n.id_naskah_asli, n.id)`;
+    const latestKonsepForSenderClause = `
+      AND (
+        n.jenis <> 'K'
+        OR s.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = s.position
+          AND s2.sirkuler = 'pengirim'
+          AND s2.is_draft = 0
+          AND s2.is_konsep = 0
+          AND n2.jenis = 'K'
+          AND COALESCE(n2.id_naskah_asli, n2.id) = ${konsepWorkflowKey}
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
+    const activityAtExpr = `
+      CASE
+        WHEN n.jenis = 'K' THEN COALESCE(
+          (
+            SELECT MAX(s3.created_at)
+            FROM naskah_sirkulasi s3
+            INNER JOIN naskah n3 ON s3.id_naskah = n3.id
+            WHERE s3.sirkuler = 'pengirim'
+            AND s3.is_draft = 0
+            AND s3.is_konsep = 0
+            AND n3.jenis = 'K'
+            AND COALESCE(n3.id_naskah_asli, n3.id) = ${konsepWorkflowKey}
+          ),
+          s.created_at
+        )
+        ELSE s.created_at
+      END
+    `;
     // Build base query untuk mendapat naskah yang dikirim oleh position ini
     let summaryWhereClause = `
       WHERE s.position = ?
@@ -1086,6 +1217,7 @@ export class NaskahSirkulasiService {
       AND s.is_draft = 0
       AND s.is_konsep = 0
       AND n.status IN ('final', 'final_tte')
+      ${latestKonsepForSenderClause}
     `;
     const summaryParams: any[] = [positionId];
     let whereClause = summaryWhereClause;
@@ -1194,17 +1326,21 @@ export class NaskahSirkulasiService {
     }
 
     // Date Range Filter
-    const dateRange = this.getDateRangeFromQuery(query.start_date, query.end_date, query.preset);
+    const dateRange = this.getDateRangeFromQuery(
+      query.start_date,
+      query.end_date,
+      query.preset,
+    );
     if (dateRange.startDate) {
-      whereClause += ` AND DATE(s.created_at) >= ?`;
+      whereClause += ` AND DATE(${activityAtExpr}) >= ?`;
       params.push(dateRange.startDate);
-      summaryWhereClause += ` AND DATE(s.created_at) >= ?`;
+      summaryWhereClause += ` AND DATE(${activityAtExpr}) >= ?`;
       summaryParams.push(dateRange.startDate);
     }
     if (dateRange.endDate) {
-      whereClause += ` AND DATE(s.created_at) <= ?`;
+      whereClause += ` AND DATE(${activityAtExpr}) <= ?`;
       params.push(dateRange.endDate);
-      summaryWhereClause += ` AND DATE(s.created_at) <= ?`;
+      summaryWhereClause += ` AND DATE(${activityAtExpr}) <= ?`;
       summaryParams.push(dateRange.endDate);
     }
 
@@ -1246,17 +1382,21 @@ export class NaskahSirkulasiService {
         s.flag_arsip,
         s.tindak_lanjut,
         s.is_locked,
-        s.created_at,
+        ${activityAtExpr} as created_at,
         s.updated_at,
         di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
-      ORDER BY s.created_at ${sortDirection}, s.id ${sortDirection}
+      ORDER BY created_at ${sortDirection}, s.id ${sortDirection}
       LIMIT ? OFFSET ?
     `;
-    const rows = await this.dataSource.query(selectQuery, [...params, limit, offset]);
+    const rows = await this.dataSource.query(selectQuery, [
+      ...params,
+      limit,
+      offset,
+    ]);
 
     // Get summary counts dengan filter yang sama seperti list/pagination
     const summaryQuery = `
@@ -1272,9 +1412,12 @@ export class NaskahSirkulasiService {
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${summaryWhereClause}
     `;
-    const summaryResult = await this.dataSource.query(summaryQuery, summaryParams);
+    const summaryResult = await this.dataSource.query(
+      summaryQuery,
+      summaryParams,
+    );
     const summaryData = summaryResult[0] || {};
-    
+
     const summary = {
       total_semua: parseInt(summaryData.total_semua || '0', 10),
       total_per_jenis: {
@@ -1336,6 +1479,137 @@ export class NaskahSirkulasiService {
 
     // Untuk setiap naskah, ambil daftar penerima
     const items: SentMessageItemDto[] = [];
+    const mapInternalRecipientStatus = (p: any) => ({
+      position_id: p.position_id || '',
+      position_text: p.position_text || '',
+      organization_text: p.organization_text || '',
+      nama: p.nama || null,
+      status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
+      read_time: p.send_read_time || null,
+      is_tindak_lanjut: p.tindak_lanjut === 1,
+    });
+
+    const buildTrackingSummary = (penerimaRows: any[], tembusanRows: any[]) => {
+      const allRecipients = [...penerimaRows, ...tembusanRows];
+      const terbaca = allRecipients.filter(
+        (p: any) => p.status_baca === 'terbaca',
+      ).length;
+      const tindakLanjut = allRecipients.filter(
+        (p: any) => p.is_tindak_lanjut,
+      ).length;
+
+      return {
+        summary_baca: {
+          total: allRecipients.length,
+          terbaca,
+          belum_terbaca: allRecipients.length - terbaca,
+        },
+        summary_tindak_lanjut: {
+          total: allRecipients.length,
+          sudah: tindakLanjut,
+          belum: allRecipients.length - tindakLanjut,
+        },
+      };
+    };
+
+    const getKonsepTrackingLogs = async (naskahId: string) => {
+      const workflowRows = await this.dataSource.query(
+        `
+          SELECT
+            s.id as id_sirkulasi,
+            s.id_naskah,
+            n.jenis,
+            n.nomor,
+            n.perihal,
+            s.position as pengirim_position_id,
+            s.position_text as pengirim_position_text,
+            s.organization_text as pengirim_organization_text,
+            s.nama_sirkuler as pengirim_nama,
+            s.created_at
+          FROM naskah_sirkulasi s
+          INNER JOIN naskah n ON s.id_naskah = n.id
+          WHERE s.sirkuler = 'pengirim'
+          AND s.is_draft = 0
+          AND s.is_konsep = 0
+          AND n.jenis = 'K'
+          AND COALESCE(n.id_naskah_asli, n.id) = (
+            SELECT COALESCE(nref.id_naskah_asli, nref.id)
+            FROM naskah nref
+            WHERE nref.id = ?
+            LIMIT 1
+          )
+          ORDER BY s.created_at ASC, s.id ASC
+        `,
+        [naskahId],
+      );
+
+      const workflowNaskahIds = workflowRows.map((row: any) => row.id_naskah);
+      if (workflowNaskahIds.length === 0) return [];
+
+      const recipientRows = await this.dataSource.query(
+        `
+          SELECT
+            id_naskah,
+            sirkuler,
+            position as position_id,
+            position_text,
+            organization_text,
+            nama_sirkuler as nama,
+            send_read_time,
+            tindak_lanjut
+          FROM naskah_sirkulasi
+          WHERE id_naskah IN (${workflowNaskahIds.map(() => '?').join(',')})
+          AND sirkuler IN ('penerima', 'tembusan')
+          ORDER BY id_naskah ASC, sirkuler ASC, urutan ASC, id ASC
+        `,
+        workflowNaskahIds,
+      );
+
+      const recipientsByNaskah = new Map<
+        string,
+        { penerima: any[]; tembusan: any[] }
+      >();
+      for (const recipient of recipientRows) {
+        const group = recipientsByNaskah.get(recipient.id_naskah) || {
+          penerima: [],
+          tembusan: [],
+        };
+        const mapped = mapInternalRecipientStatus(recipient);
+        if (recipient.sirkuler === 'tembusan') group.tembusan.push(mapped);
+        else group.penerima.push(mapped);
+        recipientsByNaskah.set(recipient.id_naskah, group);
+      }
+
+      return workflowRows.map((workflowRow: any) => {
+        const grouped = recipientsByNaskah.get(workflowRow.id_naskah) || {
+          penerima: [],
+          tembusan: [],
+        };
+        const summaries = buildTrackingSummary(
+          grouped.penerima,
+          grouped.tembusan,
+        );
+
+        return {
+          id_sirkulasi: workflowRow.id_sirkulasi,
+          id_naskah: workflowRow.id_naskah,
+          jenis: workflowRow.jenis,
+          jenis_label: JENIS_LABELS[workflowRow.jenis] || workflowRow.jenis,
+          nomor: workflowRow.nomor,
+          perihal: workflowRow.perihal,
+          created_at: workflowRow.created_at,
+          pengirim: {
+            position_id: workflowRow.pengirim_position_id || '',
+            position_text: workflowRow.pengirim_position_text || '',
+            organization_text: workflowRow.pengirim_organization_text || '',
+            nama: workflowRow.pengirim_nama || null,
+          },
+          penerima: grouped.penerima,
+          tembusan: grouped.tembusan,
+          ...summaries,
+        };
+      });
+    };
 
     for (const row of rows) {
       let penerima: any[] = [];
@@ -1352,16 +1626,23 @@ export class NaskahSirkulasiService {
             telepon,
             email,
             company_text as company,
-            area_text as area
+            area_text as area,
+            send_read_time,
+            tindak_lanjut
           FROM naskah_sirkulasi
           WHERE id_naskah = ?
           AND sirkuler = 'penerima'
           ORDER BY urutan ASC
         `;
-        const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
+        const penerimaRows = await this.dataSource.query(penerimaQuery, [
+          row.id_naskah,
+        ]);
 
         console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
-        console.log('🔍 SDE Debug - Penerima count:', penerimaRows?.length || 0);
+        console.log(
+          '🔍 SDE Debug - Penerima count:',
+          penerimaRows?.length || 0,
+        );
 
         if (penerimaRows && penerimaRows.length > 0) {
           // For each penerima, try to enrich with data from eksternal table
@@ -1382,6 +1663,9 @@ export class NaskahSirkulasiService {
                   kontak: eksternalData.kontak || null,
                   company: eksternalData.company,
                   area: eksternalData.area,
+                  status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
+                  read_time: p.send_read_time || null,
+                  is_tindak_lanjut: p.tindak_lanjut === 1,
                 });
               } else {
                 // Fallback to sirkulasi data
@@ -1394,12 +1678,18 @@ export class NaskahSirkulasiService {
                   kontak: null,
                   company: p.company || null,
                   area: p.area || null,
+                  status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
+                  read_time: p.send_read_time || null,
+                  is_tindak_lanjut: p.tindak_lanjut === 1,
                 });
               }
             }
           }
         } else {
-          console.log('⚠️ SDE Warning - No penerima found in sirkulasi for naskah:', row.id_naskah);
+          console.log(
+            '⚠️ SDE Warning - No penerima found in sirkulasi for naskah:',
+            row.id_naskah,
+          );
         }
       } else {
         // Untuk jenis lain (ND, SDI, DI, KA), ambil dari naskah_sirkulasi
@@ -1409,22 +1699,18 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
-            send_read_time
+            send_read_time,
+            tindak_lanjut
           FROM naskah_sirkulasi
           WHERE id_naskah = ?
           AND sirkuler = 'penerima'
         `;
-        const penerimaRows = await this.dataSource.query(penerimaQuery, [row.id_naskah]);
+        const penerimaRows = await this.dataSource.query(penerimaQuery, [
+          row.id_naskah,
+        ]);
 
         // Map penerima dengan status baca
-        penerima = penerimaRows.map((p: any) => ({
-          position_id: p.position_id || '',
-          position_text: p.position_text || '',
-          organization_text: p.organization_text || '',
-          nama: p.nama || null,
-          status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
-          read_time: p.send_read_time || null,
-        }));
+        penerima = penerimaRows.map(mapInternalRecipientStatus);
 
         const tembusanQuery = `
           SELECT 
@@ -1432,21 +1718,17 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
-            send_read_time
+            send_read_time,
+            tindak_lanjut
           FROM naskah_sirkulasi
           WHERE id_naskah = ?
           AND sirkuler = 'tembusan'
         `;
-        const tembusanRows = await this.dataSource.query(tembusanQuery, [row.id_naskah]);
+        const tembusanRows = await this.dataSource.query(tembusanQuery, [
+          row.id_naskah,
+        ]);
 
-        tembusan = tembusanRows.map((t: any) => ({
-          position_id: t.position_id || '',
-          position_text: t.position_text || '',
-          organization_text: t.organization_text || '',
-          nama: t.nama || null,
-          status_baca: t.send_read_time ? 'terbaca' : 'belum_terbaca',
-          read_time: t.send_read_time || null,
-        }));
+        tembusan = tembusanRows.map(mapInternalRecipientStatus);
       }
 
       // Filter by status_baca jika diperlukan (hanya untuk non-SDE)
@@ -1459,14 +1741,54 @@ export class NaskahSirkulasiService {
         }
       }
 
+      let trackingLogs: any[] = [];
+      if (row.jenis === 'K') {
+        trackingLogs = await getKonsepTrackingLogs(row.id_naskah);
+      }
+
+      if (trackingLogs.length === 0) {
+        const summaries = buildTrackingSummary(penerima, tembusan);
+        trackingLogs = [
+          {
+            id_sirkulasi: row.id_sirkulasi,
+            id_naskah: row.id_naskah,
+            jenis: row.jenis,
+            jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+            nomor: row.nomor,
+            perihal: row.perihal,
+            created_at: row.created_at,
+            pengirim: {
+              position_id: row.pengirim_position_id || '',
+              position_text: row.pengirim_position_text || '',
+              organization_text: row.pengirim_organization_text || '',
+              nama: row.pengirim_nama || null,
+            },
+            penerima,
+            tembusan,
+            ...summaries,
+          },
+        ];
+      }
+
       // Hitung summary baca (hanya untuk non-SDE)
       let terbaca = 0;
       let belumTerbaca = 0;
-      const allSirkulasi = [...penerima, ...tembusan];
+      const trackingRecipients = trackingLogs.flatMap((log: any) => [
+        ...(log.penerima || []),
+        ...(log.tembusan || []),
+      ]);
+      const allSirkulasi =
+        row.jenis === 'K' && trackingRecipients.length > 0
+          ? trackingRecipients
+          : [...penerima, ...tembusan];
 
       if (row.jenis !== 'SDE') {
-        terbaca = allSirkulasi.filter((p: any) => p.status_baca === 'terbaca').length;
-        belumTerbaca = allSirkulasi.filter((p: any) => p.status_baca === 'belum_terbaca').length;
+        terbaca = allSirkulasi.filter(
+          (p: any) => p.status_baca === 'terbaca',
+        ).length;
+        belumTerbaca = allSirkulasi.filter(
+          (p: any) => p.status_baca === 'belum_terbaca',
+        ).length;
       }
 
       // Get lampiran count
@@ -1495,6 +1817,7 @@ export class NaskahSirkulasiService {
         },
         penerima,
         tembusan,
+        tracking_logs: trackingLogs,
         summary_baca: {
           total: allSirkulasi.length,
           terbaca,
@@ -1570,6 +1893,44 @@ export class NaskahSirkulasiService {
       } | null;
     };
   }> {
+    const konsepWorkflowKey = `COALESCE(n.id_naskah_asli, n.id)`;
+    const latestKonsepForSenderClause = `
+      AND (
+        n.jenis <> 'K'
+        OR s.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = s.position
+          AND s2.sirkuler = 'pengirim'
+          AND s2.is_draft = 0
+          AND s2.is_konsep = 0
+          AND n2.jenis = 'K'
+          AND COALESCE(n2.id_naskah_asli, n2.id) = ${konsepWorkflowKey}
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
+    const activityAtExpr = `
+      CASE
+        WHEN n.jenis = 'K' THEN COALESCE(
+          (
+            SELECT MAX(s3.created_at)
+            FROM naskah_sirkulasi s3
+            INNER JOIN naskah n3 ON s3.id_naskah = n3.id
+            WHERE s3.sirkuler = 'pengirim'
+            AND s3.is_draft = 0
+            AND s3.is_konsep = 0
+            AND n3.jenis = 'K'
+            AND COALESCE(n3.id_naskah_asli, n3.id) = ${konsepWorkflowKey}
+          ),
+          s.created_at
+        )
+        ELSE s.created_at
+      END
+    `;
+
     // 1) Validasi akses: user harus pengirim naskah ini (non-draft, non-konsep, final)
     const accessCheck = `
       SELECT s.id_naskah
@@ -1584,7 +1945,10 @@ export class NaskahSirkulasiService {
         AND s.id_naskah = ?
       LIMIT 1
     `;
-    const accessRows: any[] = await this.dataSource.query(accessCheck, [positionId, idNaskah]);
+    const accessRows: any[] = await this.dataSource.query(accessCheck, [
+      positionId,
+      idNaskah,
+    ]);
     if (accessRows.length === 0) {
       return {
         success: false,
@@ -1593,10 +1957,11 @@ export class NaskahSirkulasiService {
       };
     }
 
-    // 2) Ambil created_at pengirim untuk naskah acuan
+    // 2) Ambil activity_at pengirim untuk naskah acuan
     const refRows: any[] = await this.dataSource.query(
-      `SELECT s.created_at AS ref_created_at
+      `SELECT ${activityAtExpr} AS ref_created_at, s.id AS ref_sirkulasi_id
        FROM naskah_sirkulasi s
+       INNER JOIN naskah n ON s.id_naskah = n.id
        WHERE s.id_naskah = ? AND s.sirkuler = 'pengirim' AND s.position = ?
        LIMIT 1`,
       [idNaskah, positionId],
@@ -1609,6 +1974,7 @@ export class NaskahSirkulasiService {
       };
     }
     const refCreatedAt = refRows[0].ref_created_at;
+    const refSirkulasiId = refRows[0].ref_sirkulasi_id;
 
     // 3) Base where clause (hanya pesan terkirim user, exclude arsip)
     const baseWhere = `
@@ -1618,12 +1984,13 @@ export class NaskahSirkulasiService {
         AND s.is_konsep = 0
         AND n.status IN ('final', 'final_tte')
         AND s.flag_arsip = 0
+        ${latestKonsepForSenderClause}
     `;
     const baseParams: any[] = [positionId];
     const jenisClause = jenis ? ` AND n.jenis = ?` : '';
     const jenisParams = jenis ? [jenis] : [];
 
-    const orderExpr = `s.created_at`;
+    const orderExpr = activityAtExpr;
 
     // 4) Ambil satu naskah SEBELUM (lebih lama) dan satu SESUDAH (lebih baru).
     const navSelect = `
@@ -1638,25 +2005,39 @@ export class NaskahSirkulasiService {
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
       ${baseWhere}${jenisClause}
-        AND ${orderExpr} <> ?
-        AND ${orderExpr} <op> ?
+        AND (
+          ${orderExpr} <op> ?
+          OR (${orderExpr} = ? AND s.id <id_op> ?)
+        )
       ORDER BY ${orderExpr} <dir>, s.id <dir>
       LIMIT 1
     `;
 
     // previous (lebih lama): created_at < refCreatedAt, urut DESC ambil baris pertama
-    const prevQuery = navSelect.replace(/<op>/g, '<').replace(/<dir>/g, 'DESC');
-    const prevRows: any[] = await this.dataSource.query(
-      prevQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const prevQuery = navSelect
+      .replace(/<op>/g, '<')
+      .replace(/<id_op>/g, '<')
+      .replace(/<dir>/g, 'DESC');
+    const prevRows: any[] = await this.dataSource.query(prevQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+      refSirkulasiId,
+    ]);
 
     // next (lebih baru): created_at > refCreatedAt, urut ASC ambil baris pertama
-    const nextQuery = navSelect.replace(/<op>/g, '>').replace(/<dir>/g, 'ASC');
-    const nextRows: any[] = await this.dataSource.query(
-      nextQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const nextQuery = navSelect
+      .replace(/<op>/g, '>')
+      .replace(/<id_op>/g, '>')
+      .replace(/<dir>/g, 'ASC');
+    const nextRows: any[] = await this.dataSource.query(nextQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+      refSirkulasiId,
+    ]);
 
     const mapNav = (row: any) => ({
       id_naskah: row.id_naskah,
@@ -1736,7 +2117,10 @@ export class NaskahSirkulasiService {
         AND s.id_naskah = ?
       LIMIT 1
     `;
-    const accessRows: any[] = await this.dataSource.query(accessCheck, [positionId, idNaskah]);
+    const accessRows: any[] = await this.dataSource.query(accessCheck, [
+      positionId,
+      idNaskah,
+    ]);
     if (accessRows.length === 0) {
       return {
         success: false,
@@ -1796,17 +2180,21 @@ export class NaskahSirkulasiService {
 
     // previous (lebih lama)
     const prevQuery = navSelect.replace(/<op>/g, '<').replace(/<dir>/g, 'DESC');
-    const prevRows: any[] = await this.dataSource.query(
-      prevQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const prevRows: any[] = await this.dataSource.query(prevQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+    ]);
 
     // next (lebih baru)
     const nextQuery = navSelect.replace(/<op>/g, '>').replace(/<dir>/g, 'ASC');
-    const nextRows: any[] = await this.dataSource.query(
-      nextQuery,
-      [...baseParams, ...jenisParams, refCreatedAt, refCreatedAt],
-    );
+    const nextRows: any[] = await this.dataSource.query(nextQuery, [
+      ...baseParams,
+      ...jenisParams,
+      refCreatedAt,
+      refCreatedAt,
+    ]);
 
     const mapNav = (row: any) => ({
       id_naskah: row.id_naskah,
@@ -1909,7 +2297,7 @@ export class NaskahSirkulasiService {
 
     // Save note_text when toggling note flag
     if (flagType === 'note') {
-      updateData.noteText = newValue === 1 ? (noteText || null) : null;
+      updateData.noteText = newValue === 1 ? noteText || null : null;
     }
 
     await this.naskahSirkulasiRepo.update(idSirkulasi, updateData);
@@ -1922,7 +2310,12 @@ export class NaskahSirkulasiService {
         flag_type: flagType,
         new_value: newValue === 1,
         action,
-        note_text: flagType === 'note' ? (newValue === 1 ? (noteText || null) : null) : undefined,
+        note_text:
+          flagType === 'note'
+            ? newValue === 1
+              ? noteText || null
+              : null
+            : undefined,
       },
     };
   }
@@ -1933,7 +2326,7 @@ export class NaskahSirkulasiService {
 
   /**
    * Bulk archive atau delete pesan terkirim
-   * 
+   *
    * Archive: Set flag_arsip = 1 pada sirkulasi pengirim untuk setiap naskah
    * Delete: Hapus naskah beserta semua data terkait (sirkulasi, lampiran, referensi)
    *
@@ -2016,9 +2409,10 @@ export class NaskahSirkulasiService {
 
     return {
       success: true,
-      message: totalProcessed > 0
-        ? `Berhasil ${actionText} ${totalProcessed} pesan terkirim`
-        : `Tidak ada pesan terkirim yang berhasil ${actionText}`,
+      message:
+        totalProcessed > 0
+          ? `Berhasil ${actionText} ${totalProcessed} pesan terkirim`
+          : `Tidak ada pesan terkirim yang berhasil ${actionText}`,
       data: {
         total_requested: naskahIds.length,
         total_processed: totalProcessed,
@@ -2033,7 +2427,7 @@ export class NaskahSirkulasiService {
 
   /**
    * Get combined inbox and sent messages
-   * 
+   *
    * @param positionId - Position ID
    * @param query - Filter options
    * @returns InboxSentResponseDto
@@ -2249,7 +2643,9 @@ export class NaskahSirkulasiService {
       const labelsRows = await this.dataSource.query(labelsQuery, naskahIds);
       labelsRows.forEach((row: any) => {
         if (!labelsMap.has(row.naskah_id)) labelsMap.set(row.naskah_id, []);
-        const labelName = row.parent_nama ? `${row.parent_nama} > ${row.nama}` : row.nama;
+        const labelName = row.parent_nama
+          ? `${row.parent_nama} > ${row.nama}`
+          : row.nama;
         labelsMap.get(row.naskah_id)?.push(labelName);
       });
 
@@ -2258,7 +2654,7 @@ export class NaskahSirkulasiService {
       const kepadaQuery = `
         SELECT 
           id_naskah, position as position_id, nama_sirkuler as nama, 
-          position_text, organization_text, send_read_time
+          position_text, organization_text, send_read_time, tindak_lanjut
         FROM naskah_sirkulasi
         WHERE id_naskah IN (${naskahIds.map(() => '?').join(',')})
         AND sirkuler = 'penerima'
@@ -2277,7 +2673,8 @@ export class NaskahSirkulasiService {
         });
 
         // Populate Penerima Status Map (for Sent display)
-        if (!penerimaStatusMap.has(row.id_naskah)) penerimaStatusMap.set(row.id_naskah, []);
+        if (!penerimaStatusMap.has(row.id_naskah))
+          penerimaStatusMap.set(row.id_naskah, []);
         penerimaStatusMap.get(row.id_naskah)?.push({
           position_id: row.position_id || '',
           nama: row.nama || null,
@@ -2285,12 +2682,13 @@ export class NaskahSirkulasiService {
           organization_text: row.organization_text || '',
           status_baca: row.send_read_time ? 'terbaca' : 'belum_terbaca',
           read_time: row.send_read_time || null,
+          is_tindak_lanjut: row.tindak_lanjut === 1,
         });
       });
 
       // 3. SDE Recipients (External) - Special handling for SDE if needed
       // Logic for SDE in getSentMessage is complex (fetching from naskah_sirkulasi then eksternal table)
-      // For simplicity/performance in this combined view, we might reuse the standard sirkulasi names 
+      // For simplicity/performance in this combined view, we might reuse the standard sirkulasi names
       // or duplicate the complex SDE logic if strict fidelity is required.
       // Implementing simplified SDE logic here relying on sirkulasi names which should be present.
     }
@@ -2298,12 +2696,12 @@ export class NaskahSirkulasiService {
     // Map Results
     const results: (InboxItemDto | SentItemForCombinedDto)[] = [];
     for (const row of rows) {
-      // Lampiran count separate query if not in 'n.lampiran' field? 
+      // Lampiran count separate query if not in 'n.lampiran' field?
       // Existing code used `SELECT COUNT(*) FROM naskah_lampiran`. `n.lampiran` might be a string descriptor or count?
       // Checking existing getInbox: `n.lampiran` is selected. But getSentMessage calculates it using count.
       // Let's optimize: assume n.lampiran is what we want OR query count if needed.
       // Use existing pattern: `getSentMessage` does a count query. `getInbox` does not?
-      // Wait, getInbox selects `n.lampiran` and puts it in item.lampiran. 
+      // Wait, getInbox selects `n.lampiran` and puts it in item.lampiran.
       // getSentMessage selects `n.lampiran` but THEN overwrites item.lampiran with a COUNT query.
       // This suggests `n.lampiran` column might be unreliable or different.
       // I will follow the specific logic per source.
@@ -2359,13 +2757,17 @@ export class NaskahSirkulasiService {
           created_at: row.created_at,
           updated_at: row.updated_at,
           source: 'inbox',
-          is_priority: row.jenis === 'DI' ? (row.is_priority === 1) : undefined,
+          is_priority: row.jenis === 'DI' ? row.is_priority === 1 : undefined,
         });
       } else {
         // Sent
         const recipients = penerimaStatusMap.get(row.id_naskah) || [];
-        const terbaca = recipients.filter((p) => p.status_baca === 'terbaca').length;
-        const belumTerbaca = recipients.filter((p) => p.status_baca === 'belum_terbaca').length;
+        const terbaca = recipients.filter(
+          (p) => p.status_baca === 'terbaca',
+        ).length;
+        const belumTerbaca = recipients.filter(
+          (p) => p.status_baca === 'belum_terbaca',
+        ).length;
 
         results.push({
           id_sirkulasi: row.id_sirkulasi,
@@ -2477,6 +2879,26 @@ export class NaskahSirkulasiService {
    * @returns { position_id: number, count: number }
    */
   async countUnreadInbox(positionId: string): Promise<any> {
+    const konsepWorkflowKey = `COALESCE(n.id_naskah_asli, n.id)`;
+    const latestKonsepForInboxClause = `
+      AND (
+        n.jenis <> 'K'
+        OR s.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = s.position
+          AND s2.sirkuler IN ('penerima', 'tembusan')
+          AND s2.is_draft = 0
+          AND (s2.is_konsep = 0 OR n2.jenis = 'K')
+          AND n2.jenis = 'K'
+          AND n2.status IN ('final', 'final_tte')
+          AND COALESCE(n2.id_naskah_asli, n2.id) = ${konsepWorkflowKey}
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
     const query = `
       SELECT COUNT(*) as count
       FROM naskah_sirkulasi s
@@ -2487,6 +2909,7 @@ export class NaskahSirkulasiService {
       AND (s.is_konsep = 0 OR n.jenis = 'K')
       AND s.send_read_time IS NULL
       AND n.status IN ('final', 'final_tte')
+      ${latestKonsepForInboxClause}
     `;
 
     const result = await this.dataSource.query(query, [positionId]);
