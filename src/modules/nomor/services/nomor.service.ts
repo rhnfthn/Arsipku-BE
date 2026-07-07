@@ -48,6 +48,8 @@ import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 
 @Injectable()
 export class NomorService {
@@ -71,6 +73,7 @@ export class NomorService {
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
     private readonly realtimeEmitService: RealtimeEmitService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -384,6 +387,28 @@ export class NomorService {
     try {
       await this.emitNomorCountRefresh(dto.position_id?.toString());
     } catch {}
+
+    if (nomorRequest.idPositionPenandatangan) {
+      this.notifyNomorPosition({
+        positionId: nomorRequest.idPositionPenandatangan,
+        request: nomorRequest,
+        type: NotificationType.PENOMORAN_USULAN,
+        title: 'Usulan penomoran baru',
+        body: nomorRequest.perihal || 'Ada usulan penomoran yang perlu disetujui',
+        action: 'OPEN_PERSETUJUAN_PENOMORAN',
+      }).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+      );
+    } else {
+      this.notifyNomorAdmins(
+        nomorRequest,
+        NotificationType.PENOMORAN_USULAN,
+        'Usulan penomoran baru',
+        nomorRequest.perihal || 'Ada usulan penomoran baru',
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_USULAN admin notification: ${err?.message}`),
+      );
+    }
 
     return {
       success: true,
@@ -945,6 +970,112 @@ export class NomorService {
     } catch (err: any) {
       this.logger?.warn?.(`⚠️ [emitNomorCountRefresh] failed: ${err?.message}`);
     }
+  }
+
+  private async resolvePersnumByPosition(positionId?: string | number | null): Promise<number | undefined> {
+    if (positionId == null) return undefined;
+
+    try {
+      const positionJsonData = await this.getLatestPositionJsonData();
+      const position = positionJsonData.find((p: any) => String(p.position) === String(positionId));
+      const persnum = Number(position?.persnum_person);
+      return Number.isFinite(persnum) ? persnum : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private buildNomorNotificationData(
+    request: NomorRequestEntity,
+    action: string,
+    detail?: NomorRequestDetailEntity,
+  ) {
+    return {
+      action,
+      requestId: request.id,
+      detailId: detail?.id || null,
+      nomor: detail?.nomor || null,
+      jenis: request.jenis || null,
+      perihal: request.perihal || null,
+      tanggal: request.tanggal || null,
+      positionId: request.position || null,
+      penandatanganPositionId: request.idPositionPenandatangan || null,
+    };
+  }
+
+  private async notifyNomorPosition(params: {
+    positionId?: string | number | null;
+    userPersnum?: number;
+    request: NomorRequestEntity;
+    detail?: NomorRequestDetailEntity;
+    type: NotificationType;
+    title: string;
+    body: string;
+    action: string;
+  }) {
+    if (params.positionId == null) return;
+
+    const userPersnum =
+      params.userPersnum ?? (await this.resolvePersnumByPosition(params.positionId));
+
+    await this.notificationService.createNotification({
+      positionId: String(params.positionId),
+      userPersnum,
+      type: params.type,
+      title: params.title,
+      body: params.body,
+      data: this.buildNomorNotificationData(params.request, params.action, params.detail),
+    });
+  }
+
+  private async notifyNomorAdmins(
+    request: NomorRequestEntity,
+    type: NotificationType,
+    title: string,
+    body: string,
+    action = 'OPEN_VERIFIKASI_PENOMORAN',
+  ) {
+    const admins = await this.userRoleRepository.find({
+      where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+    });
+
+    const deduped = new Map<string, UserRoleEntity>();
+    for (const admin of admins) {
+      if (admin.idPosition) deduped.set(String(admin.idPosition), admin);
+    }
+
+    await Promise.allSettled(
+      Array.from(deduped.values()).map((admin) =>
+        this.notifyNomorPosition({
+          positionId: admin.idPosition,
+          userPersnum: admin.persnum,
+          request,
+          type,
+          title,
+          body,
+          action,
+        }),
+      ),
+    );
+  }
+
+  private async notifyNomorRequester(
+    request: NomorRequestEntity,
+    type: NotificationType,
+    title: string,
+    body: string,
+    action = 'OPEN_USULAN_PENOMORAN',
+    detail?: NomorRequestDetailEntity,
+  ) {
+    await this.notifyNomorPosition({
+      positionId: request.position,
+      request,
+      detail,
+      type,
+      title,
+      body,
+      action,
+    });
   }
 
   /**
@@ -1713,6 +1844,28 @@ export class NomorService {
 
     await this.nomorRequestDetailRepository.save(details);
 
+    if (request.idPositionPenandatangan) {
+      this.notifyNomorPosition({
+        positionId: request.idPositionPenandatangan,
+        request,
+        type: NotificationType.PENOMORAN_USULAN,
+        title: 'Usulan penomoran menunggu persetujuan',
+        body: request.perihal || 'Ada usulan penomoran yang perlu disetujui',
+        action: 'OPEN_PERSETUJUAN_PENOMORAN',
+      }).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+      );
+    } else {
+      this.notifyNomorAdmins(
+        request,
+        NotificationType.PENOMORAN_VERIFIKASI,
+        'Usulan penomoran siap diverifikasi',
+        request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+      );
+    }
+
     // Generate signed URLs untuk files yang berhasil di-upload
     const detailsWithUrls = await Promise.all(
       details.map(async (detail) => ({
@@ -1853,6 +2006,28 @@ export class NomorService {
     // Tandai request sebagai single file
     request.isSingleFile = 1;
     await this.nomorRequestRepository.save(request);
+
+    if (request.idPositionPenandatangan) {
+      this.notifyNomorPosition({
+        positionId: request.idPositionPenandatangan,
+        request,
+        type: NotificationType.PENOMORAN_USULAN,
+        title: 'Usulan penomoran menunggu persetujuan',
+        body: request.perihal || 'Ada usulan penomoran yang perlu disetujui',
+        action: 'OPEN_PERSETUJUAN_PENOMORAN',
+      }).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+      );
+    } else {
+      this.notifyNomorAdmins(
+        request,
+        NotificationType.PENOMORAN_VERIFIKASI,
+        'Usulan penomoran siap diverifikasi',
+        request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+      );
+    }
 
     // Generate signed URL sekali saja karena semua detail pakai file yang sama
     let fileUrl: string | null = null;
@@ -2244,6 +2419,17 @@ export class NomorService {
         await this.emitNomorCountRefresh(request.position ?? undefined);
       } catch {}
 
+      this.notifyNomorRequester(
+        request,
+        NotificationType.PENOMORAN_SELESAI,
+        'Nomor berhasil diterbitkan',
+        detail.nomor ? `Nomor ${detail.nomor} telah diterbitkan` : 'Nomor telah diterbitkan',
+        'OPEN_DETAIL_PENOMORAN',
+        detail,
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_SELESAI notification: ${err?.message}`),
+      );
+
       return {
         success: true,
         message: 'Nomor berhasil disetujui dan digenerate',
@@ -2284,13 +2470,30 @@ export class NomorService {
       );
     }
 
+    const request = detail.idRequest
+      ? await this.nomorRequestRepository.findOne({ where: { id: detail.idRequest } })
+      : null;
+
     detail.status = 'hangus';
     await this.nomorRequestDetailRepository.save(detail);
 
     // Emit nomor count lengkap ke admin
     try {
-      await this.emitNomorCountRefresh();
+      await this.emitNomorCountRefresh(request?.position ?? undefined);
     } catch {}
+
+    if (request) {
+      this.notifyNomorRequester(
+        request,
+        NotificationType.PENOMORAN_DITOLAK,
+        'Usulan penomoran ditolak',
+        request.perihal || 'Usulan penomoran ditolak',
+        'OPEN_DETAIL_PENOMORAN',
+        detail,
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+      );
+    }
 
     return {
       success: true,
@@ -2512,6 +2715,17 @@ export class NomorService {
 
           await queryRunner.commitTransaction();
 
+          this.notifyNomorRequester(
+            request,
+            NotificationType.PENOMORAN_SELESAI,
+            'Nomor berhasil diterbitkan',
+            detail.nomor ? `Nomor ${detail.nomor} telah diterbitkan` : 'Nomor telah diterbitkan',
+            'OPEN_DETAIL_PENOMORAN',
+            detail,
+          ).catch((err) =>
+            this.logger.warn(`Failed to send PENOMORAN_SELESAI notification: ${err?.message}`),
+          );
+
           results.push({
             id: detail.id,
             nomor: detail.nomor,
@@ -2591,8 +2805,25 @@ export class NomorService {
           );
         }
 
+        const request = detail.idRequest
+          ? await this.nomorRequestRepository.findOne({ where: { id: detail.idRequest } })
+          : null;
+
         detail.status = 'hangus';
         await this.nomorRequestDetailRepository.save(detail);
+
+        if (request) {
+          this.notifyNomorRequester(
+            request,
+            NotificationType.PENOMORAN_DITOLAK,
+            'Usulan penomoran ditolak',
+            request.perihal || 'Usulan penomoran ditolak',
+            'OPEN_DETAIL_PENOMORAN',
+            detail,
+          ).catch((err) =>
+            this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+          );
+        }
 
         results.push({
           id: detail.id,
@@ -2979,6 +3210,18 @@ export class NomorService {
       await this.emitNomorCountRefresh(request.position ?? undefined);
     } catch {}
 
+    if (rejectedDetails.length > 0) {
+      this.notifyNomorRequester(
+        request,
+        NotificationType.PENOMORAN_DITOLAK,
+        'Usulan penomoran ditolak',
+        request.perihal || 'Usulan penomoran ditolak',
+        'OPEN_DETAIL_PENOMORAN',
+      ).catch((err) =>
+        this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+      );
+    }
+
     return {
       success: true,
       message: `${rejectedDetails.length} nomor berhasil ditolak`,
@@ -3119,6 +3362,25 @@ export class NomorService {
       await this.emitNomorCountRefresh();
     } catch {}
 
+    this.notifyNomorRequester(
+      request,
+      NotificationType.PENOMORAN_PERSETUJUAN,
+      'Usulan penomoran disetujui penandatangan',
+      request.perihal || 'Usulan penomoran telah disetujui penandatangan',
+      'OPEN_USULAN_PENOMORAN',
+    ).catch((err) =>
+      this.logger.warn(`Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`),
+    );
+
+    this.notifyNomorAdmins(
+      request,
+      NotificationType.PENOMORAN_VERIFIKASI,
+      'Usulan penomoran siap diverifikasi',
+      request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
+    ).catch((err) =>
+      this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+    );
+
     return {
       success: true,
       message: `${draftDetails.length} usulan berhasil disetujui dan siap diverifikasi admin`,
@@ -3168,6 +3430,16 @@ export class NomorService {
         await this.emitNomorCountRefresh(request.position);
       }
     } catch {}
+
+    this.notifyNomorRequester(
+      request,
+      NotificationType.PENOMORAN_DITOLAK,
+      'Usulan penomoran ditolak penandatangan',
+      request.perihal || 'Usulan penomoran ditolak penandatangan',
+      'OPEN_USULAN_PENOMORAN',
+    ).catch((err) =>
+      this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+    );
 
     return {
       success: true,
@@ -3235,6 +3507,26 @@ export class NomorService {
         detail.status = 'booking';
         await this.nomorRequestDetailRepository.save(detail);
 
+        this.notifyNomorRequester(
+          request,
+          NotificationType.PENOMORAN_PERSETUJUAN,
+          'Usulan penomoran disetujui penandatangan',
+          request.perihal || 'Usulan penomoran telah disetujui penandatangan',
+          'OPEN_USULAN_PENOMORAN',
+          detail,
+        ).catch((err) =>
+          this.logger.warn(`Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`),
+        );
+
+        this.notifyNomorAdmins(
+          request,
+          NotificationType.PENOMORAN_VERIFIKASI,
+          'Usulan penomoran siap diverifikasi',
+          request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
+        ).catch((err) =>
+          this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+        );
+
         results.push({
           detail_id: detailId,
           request_id: request.id,
@@ -3253,6 +3545,10 @@ export class NomorService {
         failedCount++;
       }
     }
+
+    try {
+      await this.emitNomorCountRefresh();
+    } catch {}
 
     return {
       success: true,

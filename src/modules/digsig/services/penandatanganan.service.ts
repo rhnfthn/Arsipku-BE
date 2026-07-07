@@ -14,6 +14,9 @@ import { DigsigService } from './digsig.service';
 import { DigsigLogService } from './digsig-log.service';
 import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 import {
   FilterPenandatangananDto,
   SignWithPassphraseDto,
@@ -37,7 +40,60 @@ export class PenandatangananService {
     private readonly digsigService: DigsigService,
     private readonly digsigLogService: DigsigLogService,
     private readonly storageService: StorageService,
+    private readonly orgDataService: OrgDataService,
+    private readonly notificationService: NotificationService,
   ) {}
+
+  private async notifySigner(
+    document: DigsigDocumentEntity,
+    signer: DigsigDocumentSignerEntity | null | undefined,
+  ) {
+    if (!signer?.positionId) return;
+
+    await this.notificationService.createNotification({
+      positionId: String(signer.positionId),
+      userPersnum: signer.persnum,
+      type: NotificationType.DIGSIG_TANDA_TANGAN,
+      title: 'Dokumen menunggu tanda tangan',
+      body: document.perihal || document.nomorDokumen || 'Ada dokumen yang perlu ditandatangani',
+      data: {
+        action: 'OPEN_DIGSIG_PENANDATANGANAN',
+        requestId: document.id,
+        documentId: document.id,
+        signerId: signer.id,
+        nomor: document.nomorDokumen,
+        perihal: document.perihal,
+        jenis: document.jenisNaskah,
+      },
+    });
+  }
+
+  private async notifyCreator(
+    document: DigsigDocumentEntity,
+    type: NotificationType.DIGSIG_SELESAI | NotificationType.DIGSIG_DITOLAK,
+    title: string,
+    body: string,
+  ) {
+    const userData = await this.orgDataService.findByPersnum(document.createdBy).catch(() => null);
+    const positionId = userData?.position;
+    if (!positionId) return;
+
+    await this.notificationService.createNotification({
+      positionId: String(positionId),
+      userPersnum: document.createdBy,
+      type,
+      title,
+      body,
+      data: {
+        action: 'OPEN_DIGSIG_DETAIL',
+        requestId: document.id,
+        documentId: document.id,
+        nomor: document.nomorDokumen,
+        perihal: document.perihal,
+        jenis: document.jenisNaskah,
+      },
+    });
+  }
 
   /**
    * Get list of documents for signing page
@@ -291,10 +347,24 @@ export class PenandatangananService {
         if (nextSigner) {
           nextSigner.status = 'waiting';
           await this.signerRepository.save(nextSigner);
+          this.notifySigner(document, nextSigner).catch((err) =>
+            console.warn(`[Penandatanganan] Failed to send next signer notification: ${err?.message}`),
+          );
         }
       }
 
       await this.documentRepository.save(document);
+
+      if (document.status === 'completed') {
+        this.notifyCreator(
+          document,
+          NotificationType.DIGSIG_SELESAI,
+          'Dokumen selesai ditandatangani',
+          document.perihal || document.nomorDokumen || 'Dokumen selesai ditandatangani',
+        ).catch((err) =>
+          console.warn(`[Penandatanganan] Failed to send completed notification: ${err?.message}`),
+        );
+      }
 
       return {
         success: true,
@@ -382,6 +452,15 @@ export class PenandatangananService {
     document.rejectedAt = rejectedAt;
     document.rejectionReason = dto.alasan;
     await this.documentRepository.save(document);
+
+    this.notifyCreator(
+      document,
+      NotificationType.DIGSIG_DITOLAK,
+      'Dokumen ditolak',
+      dto.alasan || document.perihal || 'Dokumen ditolak',
+    ).catch((err) =>
+      console.warn(`[Penandatanganan] Failed to send rejected notification: ${err?.message}`),
+    );
 
     // Log rejection (using 'sign' action with gagal status to indicate rejection)
     await this.digsigLogService.createLog({

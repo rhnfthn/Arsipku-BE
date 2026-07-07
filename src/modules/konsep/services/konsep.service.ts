@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, IsNull } from 'typeorm';
+import { Repository, DataSource, In, IsNull, QueryRunner } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
@@ -258,7 +258,9 @@ export class KonsepService {
         perihal: dto.perihal,
         konten: dto.konten,
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
-        status: 'final',
+        // Konsep naskah asli stays 'draf' until finalized via send-draft (ND/SDI/SDE).
+        // Was 'final' which blocked send-draft guard ("Naskah sudah berstatus final").
+        status: 'draf',
         id_naskah_konsep: naskahKonsepId, // Link to konsep workflow
       });
       await queryRunner.manager.save(naskahAsli);
@@ -3845,6 +3847,92 @@ export class KonsepService {
     });
 
     await queryRunner.manager.save(riwayat);
+  }
+
+  /**
+   * Close konsep workflow for a naskah asli that is being finalized via the
+   * direct send-draft path (ND/SDI/SDE finalizeDraft).
+   *
+   * send-draft performs the actual signing (BSrE/QR) + nomor generation + send,
+   * but it is unaware of the konsep workflow: konsep sirkulasi stay is_konsep=1
+   * (excluded from dashboard counts) and no 'finalize' riwayat node is recorded.
+   * This method closes that gap by:
+   *   1. Flipping is_konsep=0 on all sirkulasi of the naskah asli (dashboard).
+   *   2. Marking all konsep K workflow records as final (workflow completed).
+   *   3. Appending a 'finalize' riwayat node (audit history).
+   *
+   * No-op if the naskah is not a konsep naskah (id_naskah_konsep is null) or the
+   * workflow was already closed (a 'finalize' riwayat already exists).
+   *
+   * Must be called inside the caller's transaction (same queryRunner), before
+   * commitTransaction.
+   */
+  async closeKonsepWorkflow(
+    naskahAsliId: string,
+    queryRunner: QueryRunner,
+    catatan?: string | null,
+    createdBy?: string | null,
+  ): Promise<void> {
+    const naskahAsli = await queryRunner.manager.findOne(NaskahEntity, {
+      where: { id: naskahAsliId },
+    });
+    // Not a konsep naskah → nothing to close.
+    if (!naskahAsli || !naskahAsli.id_naskah_konsep) return;
+
+    // 1. Flip is_konsep=0 on all sirkulasi of the naskah asli so the finalized
+    //    naskah is included in dashboard counts (dashboard filters is_konsep=0).
+    await queryRunner.manager.update(
+      NaskahSirkulasi,
+      { idNaskah: naskahAsliId },
+      { isKonsep: 0 },
+    );
+
+    // 2. Find all konsep K workflow records for this naskah asli.
+    const konsepKs = await queryRunner.manager.find(NaskahEntity, {
+      where: { id_naskah_asli: naskahAsliId, jenis: 'K' },
+      select: ['id'],
+    });
+    const konsepIds = konsepKs.map((k) => k.id);
+    if (konsepIds.length === 0) return;
+
+    // 3. Mark all konsep K workflow records as final (workflow completed).
+    await queryRunner.manager.update(
+      NaskahEntity,
+      { id: In(konsepIds) },
+      { status: 'final' },
+    );
+
+    // 4. Append 'finalize' riwayat node if not already recorded (idempotent).
+    const existingFinalize = await queryRunner.manager
+      .createQueryBuilder(KonsepRiwayatEntity, 'kr')
+      .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
+      .andWhere('kr.aksi = :aksi', { aksi: 'finalize' })
+      .getCount();
+    if (existingFinalize > 0) return; // workflow already closed
+
+    const latestRiwayat = await queryRunner.manager
+      .createQueryBuilder(KonsepRiwayatEntity, 'kr')
+      .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
+      .orderBy('kr.urutan', 'DESC')
+      .getOne();
+    if (!latestRiwayat) return;
+
+    // Finalizer = current penerima (latest riwayat toPositionId).
+    await this.saveRiwayat(
+      queryRunner,
+      latestRiwayat.idNaskahKonsep,
+      latestRiwayat.urutan + 1,
+      latestRiwayat.toPositionId ?? 0,
+      latestRiwayat.toPositionText,
+      latestRiwayat.toNama,
+      null, // finalize has no further recipient
+      null,
+      null,
+      'finalize',
+      catatan ?? null,
+      createdBy ?? null,
+      null, // pdfSnapshot — final PDF is produced by send-draft itself
+    );
   }
 
   // ==========================================
