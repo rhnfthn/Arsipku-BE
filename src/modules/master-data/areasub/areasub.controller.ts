@@ -19,7 +19,6 @@ export class AreasubController {
   constructor(private readonly subAreaService: AreasubService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(): Promise<any[]> {
     return this.subAreaService.findAll();
   }
@@ -29,7 +28,6 @@ export class AreasubController {
    * @example GET /areasub/company/1
    */
   @Get('company/:companyId')
-  @RequirePermission('master-data', 'read')
   findByCompany(@Param('companyId', ParseIntPipe) companyId: number): Promise<any[]> {
     return this.subAreaService.findByCompany(companyId);
   }
@@ -39,7 +37,6 @@ export class AreasubController {
    * @example GET /areasub/company/1/area/A01
    */
   @Get('company/:companyId/area/:areaCode')
-  @RequirePermission('master-data', 'read')
   findByCompanyAndArea(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Param('areaCode') areaCode: string,
@@ -48,7 +45,6 @@ export class AreasubController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<any> {
     return this.subAreaService.findOne(id);
   }

@@ -18,13 +18,11 @@ export class RelationOscController {
   constructor(private readonly RelationOscService: RelationOscService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(): Promise<RelationOsc[]> {
     return this.RelationOscService.findAll();
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<RelationOsc> {
     return this.RelationOscService.findOne(id);
   }

@@ -15,7 +15,6 @@ export class JenisController {
    * Mengambil semua jenis surat dengan file URLs
    */
   @Get()
-  @RequirePermission('master-data', 'read')
   async findAll(): Promise<any> {
     const result = await this.jenisService.findAll();
     
@@ -41,7 +40,6 @@ export class JenisController {
    * Mengambil jenis by kode
    */
   @Get('code/:code')
-  @RequirePermission('master-data', 'read')
   async findByCode(@Param('code') code: string) {
     const jenis = await this.jenisService.findByCode(code);
     return {
@@ -103,7 +101,6 @@ export class JenisController {
    * Mengambil jenis by ID dengan file URL
    */
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
     const fileUrl = jenis.fileName ? await this.jenisService.getFileUrl(jenis.fileName) : null;
