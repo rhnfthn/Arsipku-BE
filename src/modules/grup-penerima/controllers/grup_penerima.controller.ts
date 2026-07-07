@@ -33,7 +33,6 @@ export class GrupPenerimaController {
    * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=SDI
    */
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(
     @Query('company') company?: string,
     @Query('area') area?: string,
@@ -48,7 +47,6 @@ export class GrupPenerimaController {
    * Get single grup penerima with enriched position detail
    */
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.findOneWithPositionDetail(id, tgl);
   }
@@ -84,7 +82,6 @@ export class GrupPenerimaController {
    * Get members with enriched position detail from org_data
    */
   @Get(':id/members')
-  @RequirePermission('master-data', 'read')
   getMembers(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.getMembersWithPositionDetail(id, tgl);
   }
@@ -95,7 +92,6 @@ export class GrupPenerimaController {
    * Returns array of OrgDataPositionDto for all positions in the grup
    */
   @Get(':id/expand')
-  @RequirePermission('master-data', 'read')
   expandGrup(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.expandGrupToPositions(id, tgl);
   }
