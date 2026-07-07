@@ -20,7 +20,6 @@ export class PositionController {
   constructor(private readonly positionService: PositionService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(): Promise<OmPosition[]> {
     return this.positionService.findAll();
   }
@@ -30,7 +29,6 @@ export class PositionController {
    * @example GET /position/company/1?search=manager
    */
   @Get('company/:companyId')
-  @RequirePermission('master-data', 'read')
   findByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Query('search') search?: string,
@@ -44,7 +42,6 @@ export class PositionController {
    * @example GET /position/organization/100?search=manager
    */
   @Get('organization/:organizationId')
-  @RequirePermission('master-data', 'read')
   findByOrganization(
     @Param('organizationId', ParseIntPipe) organizationId: number,
     @Query('search') search?: string,
@@ -57,7 +54,6 @@ export class PositionController {
    * @example GET /position/company/1/with-persons
    */
   @Get('company/:companyId/with-persons')
-  @RequirePermission('master-data', 'read')
   findByCompanyWithPersons(
     @Param('companyId', ParseIntPipe) companyId: number,
   ) {
@@ -69,7 +65,6 @@ export class PositionController {
    * @example GET /position/company/1/chiefs
    */
   @Get('company/:companyId/chiefs')
-  @RequirePermission('master-data', 'read')
   findChiefPositions(
     @Param('companyId', ParseIntPipe) companyId: number,
   ): Promise<OmPosition[]> {
@@ -77,7 +72,6 @@ export class PositionController {
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<OmPosition> {
     return this.positionService.findOne(id);
   }

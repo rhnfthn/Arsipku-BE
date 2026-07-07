@@ -226,13 +226,11 @@ export class OrgDataController {
    * @throws 404 - Not Found (org_data not found for date)
    */
   @Get('pengirim/managerial')
-  @RequirePermission('master-data', 'read')
   async getAllManagerialPositions(@Query() query: OrgFilterQueryDto) {
     return this.orgBuildService.getAllManagerialPositions(query.tgl);
   }
 
   @Get()
-  @RequirePermission('master-data', 'read')
   async getCombinedData(@Query() query: OrgFilterQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const [ooData, oaData, osData, oscData, spData, odData] = await Promise.all(
@@ -336,37 +334,31 @@ export class OrgDataController {
   }
 
   @Get('oo')
-  @RequirePermission('master-data', 'read')
   async getRelationOo() {
     return this.relationOoService.findAll(); // panggil service dari module lain
   }
 
   @Get('oa')
-  @RequirePermission('master-data', 'read')
   async getRelationOa() {
     return this.relationOaService.findAll(); // panggil service lain juga
   }
 
   @Get('os')
-  @RequirePermission('master-data', 'read')
   async getRelationOs() {
     return this.relationOsService.findAll();
   }
 
   @Get('osc')
-  @RequirePermission('master-data', 'read')
   async getRelationOsc() {
     return this.relationOscService.findAll();
   }
 
   @Get('sp')
-  @RequirePermission('master-data', 'read')
   async getRelationSp() {
     return this.relationSpService.findAll();
   }
 
   @Get('ood')
-  @RequirePermission('master-data', 'read')
   async getRelationOod(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     return this.relationOoService.findManyRelation(tgl);
@@ -437,7 +429,6 @@ export class OrgDataController {
   }
 
   @Get('getdata')
-  @RequirePermission('master-data', 'read')
   async getOrgs(@Query() query: OrgFilterQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const data = await this.orgBuildService.findOrg(tgl);
@@ -524,7 +515,6 @@ export class OrgDataController {
   }
 
   @Get('dispo-tertuju')
-  @RequirePermission('master-data', 'read')
   async getDispoTertuju(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const position_id = query.position_id;
@@ -535,7 +525,6 @@ export class OrgDataController {
   }
 
   @Get('nodin-tertuju')
-  @RequirePermission('master-data', 'read')
   async getNodinTertuju(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const position_id = query.position_id;
@@ -546,7 +535,6 @@ export class OrgDataController {
   }
 
   @Get('sudin-tertuju')
-  @RequirePermission('master-data', 'read')
   async getSudinTertuju(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const position_id = query.position_id;
@@ -557,7 +545,6 @@ export class OrgDataController {
   }
 
   @Get('my-position')
-  @RequirePermission('master-data', 'read')
   async getMyPosition(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const data = await this.orgBuildService.findOrg(tgl);
