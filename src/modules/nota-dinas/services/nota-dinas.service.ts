@@ -46,6 +46,7 @@ import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pd
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { DigsigService } from 'src/modules/digsig/services';
 import { QRCodeService, QRCodeData } from '../../digsig/services/qrcode.service';
+import { KonsepService } from '../../konsep/services/konsep.service';
 import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
@@ -89,6 +90,7 @@ export class NotaDinasService {
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
     private readonly grupPenerimaService: GrupPenerimaService,
+    private readonly konsepService: KonsepService,
   ) { }
 
   // ============================================================
@@ -3022,6 +3024,10 @@ export class NotaDinasService {
           `Gagal proses PDF/signing: ${error.message || 'Unknown error'}`
         );
       }
+
+      // Close konsep workflow if this naskah asli originated from a konsep
+      // (is_konsep=0 on sirkulasi for dashboard counts + 'finalize' riwayat node).
+      await this.konsepService.closeKonsepWorkflow(naskahId, queryRunner);
 
       // Commit transaction
       await queryRunner.commitTransaction();
