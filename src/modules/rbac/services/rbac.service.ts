@@ -13,6 +13,9 @@ import type { ActivePermission, ActiveRoleInfo } from '../../auth/interfaces/jwt
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { NotificationGateway } from '../../notification/gateways/notification.gateway';
 import { Person } from '../../master-data/person/entities/person.entity';
+import { rbacMatrixTree, type MatrixHalaman } from '../seeder/rbac-matrix-data';
+import { utamaMatrix } from '../seeder/utama-matrix';
+import { utilitasMatrix } from '../seeder/utilitas-matrix';
 
 @Injectable()
 export class RbacService {
@@ -249,6 +252,112 @@ export class RbacService {
       relations: ['resource'],
       order: { name: 'ASC' },
     });
+  }
+
+  // ============================================================
+  // Matrix (Excel-style tree)
+  // ============================================================
+
+  async findUtamaMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(utamaMatrix, roleId);
+  }
+
+  async findUtilitasMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(utilitasMatrix, roleId);
+  }
+
+  private async buildMatrixTree(
+    node: any,
+    roleId?: string,
+  ): Promise<{ tree: any; assignedPermissionIds: string[] }> {
+    const allPerms = await this.permissionRepo.find({ select: ['id', 'name', 'action', 'resourceId'] });
+    const nameToId = new Map<string, string>();
+    for (const p of allPerms) nameToId.set(p.name, p.id);
+
+    const tree = JSON.parse(JSON.stringify(node));
+    for (const menu of tree.menus ?? []) {
+      for (const sub of menu.subMenus ?? []) {
+        for (const fitur of sub.fiturs ?? []) {
+          for (const perm of fitur.permissions ?? []) {
+            const name = `${perm.resource}.${perm.action}`;
+            perm.permissionId = nameToId.get(name) ?? null;
+            perm.permissionName = name;
+          }
+        }
+      }
+    }
+
+    const assignedPermissionIds: string[] = [];
+    if (roleId) {
+      const rolePerms = await this.rolePermissionRepo.find({ where: { roleId }, select: ['permissionId'] });
+      assignedPermissionIds.push(...rolePerms.map((rp) => rp.permissionId));
+    }
+
+    return { tree, assignedPermissionIds };
+  }
+
+  async findMatrix(roleId?: string): Promise<{
+    tree: MatrixHalaman[];
+    assignedPermissionIds: string[];
+    assignedPermissionNames: string[];
+  }> {
+    const allPerms = await this.permissionRepo.find({
+      select: ['id', 'name', 'action', 'resourceId'],
+    });
+    const nameToId = new Map<string, string>();
+    const idToName = new Map<string, string>();
+    for (const p of allPerms) {
+      nameToId.set(p.name, p.id);
+      idToName.set(p.id, p.name);
+    }
+
+    // Build tree with permissionIds injected
+    const buildTree = (nodes: MatrixHalaman[]): MatrixHalaman[] => {
+      return nodes.map((node) => ({
+        ...node,
+        menus: node.menus.map((menu) => ({
+          ...menu,
+          subMenus: menu.subMenus.map((sub) => ({
+            ...sub,
+            fiturs: sub.fiturs.map((fitur) => ({
+              ...fitur,
+              permissions: fitur.permissions.map((perm) => {
+                const name = `${perm.resource}.${perm.action}`;
+                return {
+                  ...perm,
+                  permissionId: nameToId.get(name) ?? null,
+                  permissionName: name,
+                };
+              }),
+            })),
+          })),
+        })),
+      }));
+    };
+
+    const assignedPermissionIds: string[] = [];
+    if (roleId) {
+      const rolePerms = await this.rolePermissionRepo.find({
+        where: { roleId },
+        select: ['permissionId'],
+      });
+      assignedPermissionIds.push(...rolePerms.map((rp) => rp.permissionId));
+    }
+    const assignedPermissionNames = assignedPermissionIds
+      .map((id) => idToName.get(id))
+      .filter((n): n is string => !!n);
+
+    return {
+      tree: buildTree(rbacMatrixTree),
+      assignedPermissionIds,
+      assignedPermissionNames,
+    };
   }
 
   // ============================================================

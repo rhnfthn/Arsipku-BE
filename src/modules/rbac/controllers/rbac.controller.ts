@@ -148,6 +148,30 @@ export class RbacController {
   // Role <-> Permission assignment (matrix)
   // ============================================================
 
+  @Get('matrix')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findMatrix(roleId);
+    return { success: true, data: result };
+  }
+
+  @Get('matrix/utama')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getUtamaMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findUtamaMatrix(roleId);
+    return { success: true, data: result };
+  }
+
+  @Get('matrix/utilitas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getUtilitasMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findUtilitasMatrix(roleId);
+    return { success: true, data: result };
+  }
+
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')
