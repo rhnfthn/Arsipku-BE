@@ -2337,23 +2337,11 @@ export class KonsepService {
       );
 
       // Auto mark tindak_lanjut = 1 pada sirkulasi penerima konsep yang melakukan approve/finalize
-      const sirkulasiPenerimaKonsep = await queryRunner.manager.findOne(
-        NaskahSirkulasi,
-        {
-          where: {
-            idNaskah: latestRiwayat.idNaskahKonsep,
-            position: String(dto.from_position_id),
-            sirkuler: 'penerima',
-          },
-        },
+      await this.markReceivedNaskahAsTindakLanjut(
+        queryRunner.manager,
+        latestRiwayat.idNaskahKonsep,
+        dto.from_position_id,
       );
-      if (sirkulasiPenerimaKonsep) {
-        await queryRunner.manager.update(
-          NaskahSirkulasi,
-          { id: sirkulasiPenerimaKonsep.id },
-          { tindakLanjut: 1 },
-        );
-      }
 
       await queryRunner.commitTransaction();
 
@@ -4394,6 +4382,21 @@ export class KonsepService {
       { status: 'final' },
     );
 
+    const latestActionableRiwayat = await queryRunner.manager
+      .createQueryBuilder(KonsepRiwayatEntity, 'kr')
+      .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
+      .andWhere('kr.to_position_id IS NOT NULL')
+      .orderBy('kr.urutan', 'DESC')
+      .getOne();
+
+    if (latestActionableRiwayat?.toPositionId) {
+      await this.markReceivedNaskahAsTindakLanjut(
+        queryRunner.manager,
+        latestActionableRiwayat.idNaskahKonsep,
+        latestActionableRiwayat.toPositionId,
+      );
+    }
+
     // 4. Append 'finalize' riwayat node if not already recorded (idempotent).
     const existingFinalize = await queryRunner.manager
       .createQueryBuilder(KonsepRiwayatEntity, 'kr')
@@ -4402,11 +4405,13 @@ export class KonsepService {
       .getCount();
     if (existingFinalize > 0) return; // workflow already closed
 
-    const latestRiwayat = await queryRunner.manager
-      .createQueryBuilder(KonsepRiwayatEntity, 'kr')
-      .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
-      .orderBy('kr.urutan', 'DESC')
-      .getOne();
+    const latestRiwayat =
+      latestActionableRiwayat ??
+      (await queryRunner.manager
+        .createQueryBuilder(KonsepRiwayatEntity, 'kr')
+        .where('kr.id_naskah_konsep IN (:...ids)', { ids: konsepIds })
+        .orderBy('kr.urutan', 'DESC')
+        .getOne());
     if (!latestRiwayat) return;
 
     // Finalizer = current penerima (latest riwayat toPositionId).
