@@ -10,7 +10,6 @@ export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   @Get()
-  @RequirePermission('master-data', 'read')
   findAll(): Promise<OmCompany[]> {
     return this.companyService.findAll();
   }
@@ -21,13 +20,11 @@ export class CompanyController {
    * @example GET /company/1/tree
    */
   @Get(':companyId/tree')
-  @RequirePermission('master-data', 'read')
   getCompanyTree(@Param('companyId', ParseIntPipe) companyId: number) {
     return this.companyService.getCompanyTree(companyId);
   }
 
   @Get(':id')
-  @RequirePermission('master-data', 'read')
   findOne(@Param('id') id: string): Promise<OmCompany> {
     return this.companyService.findOne(id);
   }
