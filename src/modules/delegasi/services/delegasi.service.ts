@@ -9,6 +9,8 @@ import { QueryDelegasiDto } from '../dto/query-delegasi.dto';
 import { PositionStatus, getDelegablePositionStatuses, POSITION_STATUS_LABELS } from '../../../common/enums/position-status.enum';
 import { PositionService } from '../../master-data/position/position.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 
 // Interface untuk data dari position_json (cached org data)
 interface PositionData {
@@ -64,6 +66,7 @@ export class DelegasiService {
     private delegasiRepository: Repository<DelegasiEntity>,
     private readonly positionService: PositionService,
     private readonly orgDataService: OrgDataService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -146,6 +149,36 @@ export class DelegasiService {
       console.warn('[DelegasiService] Failed to resolve position data by position:', message);
       return undefined;
     }
+  }
+
+  private async notifyDelegasi(
+    delegasi: DelegasiEntity,
+    target: 'delegate' | 'owner' = 'delegate',
+    title = 'Delegasi jabatan',
+    body?: string,
+  ) {
+    const positionId = target === 'delegate' ? delegasi.as_position : delegasi.position;
+    const userPersnum = target === 'delegate' ? delegasi.as_persnum : delegasi.persnum;
+    if (!positionId) return;
+
+    await this.notificationService.createNotification({
+      positionId: String(positionId),
+      userPersnum: userPersnum ? Number(userPersnum) : undefined,
+      type: NotificationType.DELEGASI,
+      title,
+      body:
+        body ||
+        `${delegasi.name || 'Pemberi delegasi'} mendelegasikan ${delegasi.position_text || 'jabatan'} kepada ${delegasi.as_name || 'penerima delegasi'}`,
+      data: {
+        action: 'OPEN_DELEGASI',
+        delegasiId: delegasi.id,
+        positionStatus: delegasi.position_status,
+        startDate: delegasi.start_date,
+        endDate: delegasi.end_date,
+        positionId: delegasi.position,
+        asPositionId: delegasi.as_position,
+      },
+    });
   }
 
   /**
@@ -266,6 +299,9 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+    this.notifyDelegasi(saved, 'delegate', 'Delegasi baru').catch((error) =>
+      console.warn('[DelegasiService] Failed to send create notification:', error?.message),
+    );
     return this.addStatus(saved);
   }
 
@@ -520,6 +556,9 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+    this.notifyDelegasi(saved, 'delegate', 'Delegasi diperbarui').catch((error) =>
+      console.warn('[DelegasiService] Failed to send update notification:', error?.message),
+    );
     return this.addStatus(saved);
   }
 
@@ -534,6 +573,14 @@ export class DelegasiService {
     }
 
     await this.delegasiRepository.remove(delegasi);
+    this.notifyDelegasi(
+      delegasi,
+      'owner',
+      'Delegasi dihapus',
+      `Delegasi untuk ${delegasi.as_name || delegasi.as_position_text || 'personil'} telah dihapus`,
+    ).catch((error) =>
+      console.warn('[DelegasiService] Failed to send remove notification:', error?.message),
+    );
     return { message: `Delegasi untuk ${delegasi.name || 'personil'} berhasil dihapus` };
   }
 

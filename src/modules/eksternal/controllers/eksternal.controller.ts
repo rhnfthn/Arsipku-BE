@@ -24,7 +24,6 @@ export class EksternalController {
   }
 
   @Get()
-  @RequirePermission('surat-masuk-eksternal', 'read')
   async findAll(@Query('company') company?: string, @Query('area') area?: string): Promise<EksternalListResponseDto> {
     const list = await this.eksternalService.findAll(company, area);
     return {
@@ -35,7 +34,6 @@ export class EksternalController {
   }
 
   @Get(':id')
-  @RequirePermission('surat-masuk-eksternal', 'read')
   async findOne(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const eksternal = await this.eksternalService.findOne(id);
     return {

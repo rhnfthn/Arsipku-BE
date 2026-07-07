@@ -3,6 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigMessage, MessageType } from '../entities';
 import { CreateMessageDto, UpdateMessageDto, ToggleBannerDto } from '../dto';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 
 @Injectable()
 export class ConfigMessageService {
@@ -14,7 +17,46 @@ export class ConfigMessageService {
   constructor(
     @InjectRepository(ConfigMessage)
     private readonly configMessageRepository: Repository<ConfigMessage>,
+    private readonly orgDataService: OrgDataService,
+    private readonly notificationService: NotificationService,
   ) {}
+
+  private async notifySystemMessage(message: ConfigMessage) {
+    if (!message.showBanner) return;
+
+    const latestOrg = await this.orgDataService.findLatestOrg();
+    const positions = Array.isArray(latestOrg?.position_json)
+      ? latestOrg!.position_json
+      : [];
+
+    const recipients = new Map<string, { positionId: string; userPersnum?: number }>();
+    for (const position of positions) {
+      if (!position?.position) continue;
+      const positionId = String(position.position);
+      const persnum = Number(position.persnum_person);
+      recipients.set(positionId, {
+        positionId,
+        userPersnum: Number.isFinite(persnum) ? persnum : undefined,
+      });
+    }
+
+    await Promise.allSettled(
+      Array.from(recipients.values()).map((recipient) =>
+        this.notificationService.createNotification({
+          positionId: recipient.positionId,
+          userPersnum: recipient.userPersnum,
+          type: NotificationType.SYSTEM,
+          title: message.title,
+          body: message.message,
+          data: {
+            action: 'OPEN_SYSTEM_ANNOUNCEMENT',
+            messageId: message.id,
+            messageType: message.type,
+          },
+        }),
+      ),
+    );
+  }
 
   /**
    * Mengambil semua pesan
@@ -80,6 +122,10 @@ export class ConfigMessageService {
     // Invalidate cache
     this.invalidateCache();
 
+    this.notifySystemMessage(saved).catch((error) =>
+      console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+    );
+
     return saved;
   }
 
@@ -88,6 +134,7 @@ export class ConfigMessageService {
    */
   async update(id: string, dto: UpdateMessageDto): Promise<ConfigMessage> {
     const message = await this.findOne(id);
+    const wasHidden = !message.showBanner;
 
     if (dto.title !== undefined) {
       message.title = dto.title;
@@ -107,6 +154,12 @@ export class ConfigMessageService {
     // Invalidate cache
     this.invalidateCache();
 
+    if (saved.showBanner && (wasHidden || dto.show_banner === true)) {
+      this.notifySystemMessage(saved).catch((error) =>
+        console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+      );
+    }
+
     return saved;
   }
 
@@ -115,6 +168,7 @@ export class ConfigMessageService {
    */
   async toggleBanner(id: string, dto: ToggleBannerDto): Promise<ConfigMessage> {
     const message = await this.findOne(id);
+    const wasHidden = !message.showBanner;
     
     // Jika dto.show_banner undefined, toggle current state
     if (dto.show_banner !== undefined) {
@@ -127,6 +181,12 @@ export class ConfigMessageService {
 
     // Invalidate cache
     this.invalidateCache();
+
+    if (saved.showBanner && wasHidden) {
+      this.notifySystemMessage(saved).catch((error) =>
+        console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+      );
+    }
 
     return saved;
   }
