@@ -15,7 +15,7 @@ import { CreateFaqKategoriDto } from '../dto/create-faq-kategori.dto';
 import { UpdateFaqKategoriDto } from '../dto/update-faq-kategori.dto';
 import { FaqKategoriResponseDto } from '../dto/faq-kategori.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, RequirePermission } from '../../../common/decorators';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('faq-kategori')
 export class FaqKategoriController {
@@ -70,7 +70,6 @@ export class FaqKategoriController {
    */
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'manage')
   async create(
     @Body() dto: CreateFaqKategoriDto,
@@ -96,7 +95,6 @@ export class FaqKategoriController {
    */
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'manage')
   async update(
     @Param('id') id: string,
@@ -123,7 +121,6 @@ export class FaqKategoriController {
    */
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'manage')
   async remove(@Param('id') id: string): Promise<FaqKategoriResponseDto> {
     try {

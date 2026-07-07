@@ -10,7 +10,8 @@ import {
   PERMISSION_KEY,
   RequiredPermission,
 } from '../decorators/require-permission.decorator';
-import { normalizeRoleName, RoleName } from '../enums/role-name.enum';
+import { RoleName } from '../enums/role-name.enum';
+import type { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { RbacService } from '../../modules/rbac/services/rbac.service';
 import { PermissionCacheService } from './permission-cache.service';
 
@@ -47,10 +48,23 @@ export class PermissionGuard implements CanActivate {
     // Endpoint tanpa @RequirePermission -> terbuka bagi yang login
     if (!permission) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
+    const request = context.switchToHttp().getRequest<{
+      user?: JwtPayload;
+    }>();
+    const user: JwtPayload | undefined = request.user;
 
     if (!user) throw new ForbiddenException('User not authenticated');
+
+    // 🛡️ SUPERADMIN bypass — selalu lolos (README §3.2 rule 2)
+    const activeRoleName =
+      user.activeRole?.name ??
+      (user.role ? String(user.role).toUpperCase() : undefined);
+    if (
+      activeRoleName &&
+      activeRoleName.toUpperCase() === String(RoleName.SUPERADMIN)
+    ) {
+      return true;
+    }
 
     // Ambil persnum dari JWT
     const persnum: number | undefined = user.persnum;
@@ -62,7 +76,9 @@ export class PermissionGuard implements CanActivate {
     // Fallback ke JWT activePermissions jika DB query gagal (graceful degradation)
     const activePermissions = await this.getLivePermissions(
       persnum,
-      Array.isArray(user.activePermissions) ? user.activePermissions : undefined,
+      Array.isArray(user.activePermissions)
+        ? user.activePermissions
+        : undefined,
     );
 
     if (!activePermissions || activePermissions.length === 0) {
@@ -71,7 +87,8 @@ export class PermissionGuard implements CanActivate {
 
     const hasPermission = activePermissions.some(
       (p: { resource: string; actions: string[] }) =>
-        p.resource === permission.resource && p.actions.includes(permission.action),
+        p.resource === permission.resource &&
+        p.actions.includes(permission.action),
     );
 
     if (!hasPermission) {

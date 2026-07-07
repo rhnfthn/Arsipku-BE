@@ -67,40 +67,26 @@ describe('PermissionGuard', () => {
   });
 
   // ============================================================
-  // SUPERADMIN — kini cek permission seperti role lain (no bypass)
+  // SUPERADMIN bypass — selalu lolos (README §3.2 rule 2)
   // ============================================================
-  it('should allow SUPERADMIN with matching permission (DB query)', async () => {
-    permissionCache.get.mockReturnValue(null);
-    rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
-      activePermissions: [{ resource: 'role', actions: ['create', 'read'] }],
-      activeRole: { id: 'r1', name: RoleName.SUPERADMIN },
-      roles: [{ id: 'r1', name: RoleName.SUPERADMIN }],
-      role: 'superadmin',
-    });
-
+  it('should bypass SUPERADMIN without DB query (activeRole.name)', async () => {
     const ctx = mockContext(
       { persnum: 1, activeRole: { name: 'SUPERADMIN' } },
       { resource: 'role', action: 'create' },
     );
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
-    expect(rbacService.buildActiveRoleAndPermissions).toHaveBeenCalledWith(1);
+    expect(rbacService.buildActiveRoleAndPermissions).not.toHaveBeenCalled();
   });
 
-  it('should deny SUPERADMIN when permission unchecked (DB query returns no match)', async () => {
-    permissionCache.get.mockReturnValue(null);
-    rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
-      activePermissions: [{ resource: 'role', actions: ['read'] }],
-      activeRole: { id: 'r1', name: RoleName.SUPERADMIN },
-      roles: [{ id: 'r1', name: RoleName.SUPERADMIN }],
-      role: 'superadmin',
-    });
-
+  it('should bypass SUPERADMIN without DB query (legacy role field)', async () => {
     const ctx = mockContext(
-      { persnum: 1, activeRole: { name: 'SUPERADMIN' } },
+      { persnum: 1, role: 'superadmin' },
       { resource: 'dashboard', action: 'read' },
     );
-    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    const result = await guard.canActivate(ctx);
+    expect(result).toBe(true);
+    expect(rbacService.buildActiveRoleAndPermissions).not.toHaveBeenCalled();
   });
 
   // ============================================================
