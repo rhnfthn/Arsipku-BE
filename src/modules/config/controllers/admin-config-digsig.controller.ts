@@ -12,16 +12,15 @@ import {
 import { ConfigDigsigService } from '../services';
 import { UpdateDigsigConfigDto, BulkUpdateDigsigConfigDto } from '../dto';
 import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
-import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, RequirePermission } from '../../../common/decorators';
+import { JwtAuthGuard, PermissionGuard } from '../../../common/guards';
+import { RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Digsig
  * Endpoint: /admin/config/digsig
  */
 @Controller('admin/config/digsig')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'superadmin')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AdminConfigDigsigController {
   constructor(private readonly configDigsigService: ConfigDigsigService) {}
 
@@ -63,7 +62,9 @@ export class AdminConfigDigsigController {
   @Put('bulk')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('konfigurasi', 'update')
-  async bulkUpdate(@Body() dto: BulkUpdateDigsigConfigDto): Promise<ConfigDigsig[]> {
+  async bulkUpdate(
+    @Body() dto: BulkUpdateDigsigConfigDto,
+  ): Promise<ConfigDigsig[]> {
     return this.configDigsigService.bulkUpdate(dto.configs);
   }
 
