@@ -69,7 +69,7 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Manajemen FAQ',
               permissions: [
-                { action: 'manage', label: 'Manage', description: 'Mengelola FAQ (PIC)', resource: 'faq' },
+                { action: 'read', label: 'Read', description: 'Halaman Manajemen FAQ', resource: 'faq' },
                 { action: 'create', label: 'Create', description: 'Button Tambah FAQ', resource: 'faq' },
                 { action: 'update', label: 'Update', description: 'Button Edit FAQ', resource: 'faq' },
                 { action: 'delete', label: 'Delete', description: 'Button Hapus FAQ', resource: 'faq' },
@@ -117,6 +117,7 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Manajemen Pedoman',
               permissions: [
+                { action: 'read', label: 'Read', description: 'Halaman Manajemen Pedoman', resource: 'pedoman' },
                 { action: 'create', label: 'Create', description: 'Button Tambah Pedoman', resource: 'pedoman' },
                 { action: 'update', label: 'Update', description: 'Button Edit Pedoman', resource: 'pedoman' },
                 { action: 'delete', label: 'Delete', description: 'Button Delete Pedoman', resource: 'pedoman' },

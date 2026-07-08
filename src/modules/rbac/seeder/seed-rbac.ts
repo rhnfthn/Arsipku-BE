@@ -227,7 +227,6 @@ const resourcesWithPermissions: ResourceDef[] = [
     description: 'FAQ & manajemen FAQ (menggantikan resource helpdesk lama)',
     permissions: [
       { action: 'read', description: 'Melihat FAQ' },
-      { action: 'manage', description: 'Mengelola FAQ (PIC)' },
       { action: 'create', description: 'Membuat FAQ' },
       { action: 'update', description: 'Mengedit FAQ' },
       { action: 'delete', description: 'Menghapus FAQ' },
@@ -347,17 +346,12 @@ const resourcesWithPermissions: ResourceDef[] = [
   },
   {
     name: 'naskah-masuk',
-    description: 'Naskah Masuk — Verifikasi Naskah & Verifikator',
+    description: 'Naskah Masuk — Verifikasi Naskah',
     permissions: [
       { action: 'create', description: 'Button Tambah Naskah Masuk' },
       { action: 'read-verifikasi', description: 'Halaman Verifikasi Naskah' },
       { action: 'read-verifikasi-detail', description: 'Button Show Detail Naskah' },
-      { action: 'read-verifikator', description: 'Halaman Verifikator' },
-      { action: 'read-verifikator-lihat', description: 'Button Lihat Dokumen' },
-      { action: 'read-verifikator-detail', description: 'Button Show Detail Dokumen' },
       { action: 'update-verifikasi', description: 'Button Action Edit Naskah' },
-      { action: 'update-verifikator', description: 'Button Action Confirm' },
-      { action: 'update-verifikator-reject', description: 'Button Action Reject' },
       { action: 'export', description: 'Button Export Naskah Masuk' },
     ],
   },
