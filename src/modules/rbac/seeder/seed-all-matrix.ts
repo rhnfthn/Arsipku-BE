@@ -195,7 +195,8 @@ const rbacManagementResources: { name: string; description: string; permissions:
     description: 'Layanan Email (legacy resource — kept for compatibility)',
     permissions: [
       { action: 'create', description: 'Kirim Email' },
-      { action: 'read', description: 'Melihat Layanan Email' },
+      { action: 'read', description: 'Melihat halaman Kirim Email' },
+      { action: 'read-log', description: 'Melihat halaman Log Email' },
     ],
   },
   {
