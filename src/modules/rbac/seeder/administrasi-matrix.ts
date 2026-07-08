@@ -141,10 +141,9 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Penomoran',
               permissions: [
-                { action: 'read-penomoran', label: 'Read', description: 'Melihat daftar Penomoran', resource: 'penomoran' },
+                { action: 'read-penomoran', label: 'Read', description: 'Melihat halaman Penomoran', resource: 'penomoran' },
                 { action: 'create-penomoran', label: 'Create', description: 'Button Tambah Penomoran', resource: 'penomoran' },
                 { action: 'export-penomoran', label: 'Export', description: 'Button Export Penomoran', resource: 'penomoran' },
-                { action: 'report', label: 'Report', description: 'Melihat laporan rekapitulasi penomoran', resource: 'penomoran' },
               ],
             },
           ],
@@ -152,42 +151,25 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
       ],
     },
     // ============================================================
-    // 4. Naskah Masuk (Verifikasi & Verifikator)
+    // 4. Naskah Masuk
     // ============================================================
     {
       key: 'naskah-masuk',
       label: 'Naskah Masuk',
       subMenus: [
         {
-          key: 'verifikasi',
-          label: 'Verifikasi Naskah',
+          key: 'naskah-masuk',
+          label: 'Naskah Masuk',
           fiturs: [
             {
               key: 'halaman',
-              label: 'Halaman Verifikasi Naskah',
+              label: 'Halaman Naskah Masuk',
               permissions: [
                 { action: 'create', label: 'Create', description: 'Button Tambah Naskah Masuk', resource: 'naskah-masuk' },
                 { action: 'read-verifikasi', label: 'Read', description: 'Halaman Verifikasi Naskah', resource: 'naskah-masuk' },
                 { action: 'read-verifikasi-detail', label: 'Read', description: 'Button Show Detail Naskah', resource: 'naskah-masuk' },
                 { action: 'update-verifikasi', label: 'Update', description: 'Button Action Edit Naskah', resource: 'naskah-masuk' },
                 { action: 'export', label: 'Export', description: 'Button Export Naskah Masuk', resource: 'naskah-masuk' },
-              ],
-            },
-          ],
-        },
-        {
-          key: 'verifikator',
-          label: 'Verifikator',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Verifikator',
-              permissions: [
-                { action: 'read-verifikator', label: 'Read', description: 'Halaman Verifikator', resource: 'naskah-masuk' },
-                { action: 'read-verifikator-lihat', label: 'Read', description: 'Button Lihat Dokumen', resource: 'naskah-masuk' },
-                { action: 'read-verifikator-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'naskah-masuk' },
-                { action: 'update-verifikator', label: 'Update', description: 'Button Action Confirm', resource: 'naskah-masuk' },
-                { action: 'update-verifikator-reject', label: 'Update', description: 'Button Action Reject', resource: 'naskah-masuk' },
               ],
             },
           ],
@@ -273,80 +255,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
       ],
     },
     // ============================================================
-    // 6. Surat Masuk Eksternal
-    // ============================================================
-    {
-      key: 'surat-masuk-eksternal',
-      label: 'Surat Masuk Eksternal',
-      subMenus: [
-        {
-          key: 'surat-masuk-eksternal',
-          label: 'Surat Masuk Eksternal',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Surat Masuk Eksternal',
-              permissions: [
-                { action: 'create', label: 'Create', description: 'Registrasi surat masuk eksternal', resource: 'surat-masuk-eksternal' },
-                { action: 'read', label: 'Read', description: 'Melihat daftar surat masuk', resource: 'surat-masuk-eksternal' },
-                { action: 'verify', label: 'Verify', description: 'Verifikasi & disposisi surat masuk', resource: 'surat-masuk-eksternal' },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    // ============================================================
-    // 7. Arsip Aktif
-    // ============================================================
-    {
-      key: 'arsip-aktif',
-      label: 'Arsip Aktif',
-      subMenus: [
-        {
-          key: 'arsip-aktif',
-          label: 'Arsip Aktif',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Arsip Aktif',
-              permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat daftar arsip aktif', resource: 'arsip-aktif' },
-                { action: 'create', label: 'Create', description: 'Menciptakan arsip', resource: 'arsip-aktif' },
-                { action: 'update', label: 'Update', description: 'Update metadata arsip', resource: 'arsip-aktif' },
-                { action: 'delete', label: 'Delete', description: 'Menghapus arsip aktif', resource: 'arsip-aktif' },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    // ============================================================
-    // 8. Tata Naskah PYB
-    // ============================================================
-    {
-      key: 'tata-naskah-pyb',
-      label: 'Tata Naskah PYB',
-      subMenus: [
-        {
-          key: 'tata-naskah-pyb',
-          label: 'Tata Naskah PYB',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Tata Naskah PYB',
-              permissions: [
-                { action: 'request', label: 'Request', description: 'Mengajukan akses PYB/Ketua Tim', resource: 'tata-naskah-pyb' },
-                { action: 'read', label: 'Read', description: 'Melihat daftar pengajuan', resource: 'tata-naskah-pyb' },
-                { action: 'verify', label: 'Verify', description: 'Verifikasi pengajuan', resource: 'tata-naskah-pyb' },
-                { action: 'approve', label: 'Approve', description: 'Approval final', resource: 'tata-naskah-pyb' },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    // ============================================================
     // 9. Konfigurasi Sistem (Super Admin only)
     // ============================================================
     {
@@ -362,7 +270,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               label: 'Halaman Konfigurasi',
               permissions: [
                 { action: 'read', label: 'Read', description: 'Melihat konfigurasi sistem', resource: 'konfigurasi' },
-                { action: 'update', label: 'Update', description: 'Update konfigurasi sistem', resource: 'konfigurasi' },
               ],
             },
           ],

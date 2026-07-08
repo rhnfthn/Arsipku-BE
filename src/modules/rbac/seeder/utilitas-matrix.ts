@@ -177,6 +177,32 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
         },
       ],
     },
+    // ============================================================
+    // Verifikasi Naskah
+    // ============================================================
+    {
+      key: 'verifikasi-naskah',
+      label: 'Verifikasi Naskah',
+      subMenus: [
+        {
+          key: 'verifikasi-naskah',
+          label: 'Verifikasi Naskah',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Verifikasi Naskah',
+              permissions: [
+                { action: 'read', label: 'Read', description: 'Melihat halaman Verifikasi Naskah', resource: 'utilitas.verifikasi-naskah' },
+                { action: 'read-lihat', label: 'Read', description: 'Melihat dokumen file', resource: 'utilitas.verifikasi-naskah' },
+                { action: 'read-detail', label: 'Read', description: 'Melihat detail naskah', resource: 'utilitas.verifikasi-naskah' },
+                { action: 'confirm', label: 'Confirm', description: 'Confirm naskah', resource: 'utilitas.verifikasi-naskah' },
+                { action: 'reject', label: 'Reject', description: 'Menolak naskah', resource: 'utilitas.verifikasi-naskah' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 
