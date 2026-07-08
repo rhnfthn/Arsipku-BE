@@ -14,16 +14,16 @@ import {
 import { ConfigMessageService } from '../services';
 import { CreateMessageDto, UpdateMessageDto, ToggleBannerDto } from '../dto';
 import { ConfigMessage } from '../entities';
-import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, RequirePermission } from '../../../common/decorators';
+import { JwtAuthGuard } from '../../../common/guards';
+import { RequirePermission } from '../../../common/decorators';
 
 /**
  * Admin Controller untuk konfigurasi Message
  * Endpoint: /admin/config/message
+ * Note: PermissionGuard berjalan global (APP_GUARD), cukup @RequirePermission di method.
  */
 @Controller('admin/config/message')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'superadmin')
+@UseGuards(JwtAuthGuard)
 export class AdminConfigMessageController {
   constructor(private readonly configMessageService: ConfigMessageService) {}
 
@@ -110,8 +110,8 @@ export class AdminConfigMessageController {
     // Jika tidak ada body, toggle current state
     if (!dto || dto.show_banner === undefined) {
       const message = await this.configMessageService.findOne(id);
-      return this.configMessageService.toggleBanner(id, { 
-        show_banner: !message.showBanner 
+      return this.configMessageService.toggleBanner(id, {
+        show_banner: !message.showBanner,
       });
     }
     // Jika ada body, set ke nilai yang diberikan
