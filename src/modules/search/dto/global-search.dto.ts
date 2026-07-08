@@ -347,6 +347,22 @@ export class GlobalSearchDto {
   isRead?: boolean;
 
   /**
+   * Filter by favorite status (flag_favorit).
+   * - true: Only favorited documents
+   * - false: Only non-favorited documents
+   * - undefined: All documents (no filter)
+   * Works in combination with scope (e.g., scope=inbox + favorit=true).
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  favorit?: boolean;
+
+  /**
    * Organization ID user yang sedang search
    */
   @IsOptional()
