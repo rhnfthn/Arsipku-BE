@@ -44,6 +44,10 @@ export class FacetsDto {
     isRead?: Record<string, number>;
     /** Kategori facets: tindak lanjut & read status counts */
     kategori?: Record<string, number>;
+    /** Favorit facets: { "true": count, "false": count } */
+    favorit?: Record<string, number>;
+    /** Priority facets: { "true": count, "false": count } */
+    priority?: Record<string, number>;
 }
 
 /**
