@@ -410,6 +410,17 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'delete', description: 'Button Action Delete Template' },
     ],
   },
+  {
+    name: 'verifikasi-naskah',
+    description: 'Verifikasi Naskah — halaman verifikasi & aksi confirm/reject',
+    permissions: [
+      { action: 'read', description: 'Melihat halaman Verifikasi Naskah' },
+      { action: 'read-lihat', description: 'Melihat dokumen file' },
+      { action: 'read-detail', description: 'Melihat detail naskah' },
+      { action: 'confirm', description: 'Confirm naskah' },
+      { action: 'reject', description: 'Menolak naskah' },
+    ],
+  },
 ];
 
 // ============================================================
@@ -575,6 +586,13 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'template.update',
     'template.delete',
 
+    // ===== Verifikasi Naskah (Utilitas) =====
+    'verifikasi-naskah.read',
+    'verifikasi-naskah.read-lihat',
+    'verifikasi-naskah.read-detail',
+    'verifikasi-naskah.confirm',
+    'verifikasi-naskah.reject',
+
     // ===== Konfigurasi (README §2.2 — Admin mengelola konfigurasi) =====
     'konfigurasi.read',
     'konfigurasi.update',
@@ -642,6 +660,10 @@ const rolePermissionAssignments: Record<string, string[]> = {
     'template.read-download',
     'template.update',
     'template.delete',
+    // Verifikasi Naskah (Utilitas — read only untuk USER)
+    'verifikasi-naskah.read',
+    'verifikasi-naskah.read-lihat',
+    'verifikasi-naskah.read-detail',
     'titelatur.create',
     'titelatur.read',
     'titelatur.update',
