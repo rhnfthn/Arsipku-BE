@@ -305,10 +305,16 @@ const resourcesWithPermissions: ResourceDef[] = [
   },
   {
     name: 'laporan',
-    description: 'Laporan Surat & Laporan SLA',
+    description: 'Laporan Rekap Naskah, Detail Naskah, Naskah Masuk, Surat, SLA',
     permissions: [
-      { action: 'read', description: 'Melihat halaman Laporan (Surat / SLA)' },
-      { action: 'export', description: 'Button Cetak Laporan (PDF) / Export Excel' },
+      { action: 'read', description: 'Melihat halaman Laporan' },
+      { action: 'export', description: 'Button Cetak/Export Laporan' },
+      { action: 'read-rekap-naskah', description: 'Halaman Rekap Naskah' },
+      { action: 'export-rekap-naskah', description: 'Button Export Rekap Naskah' },
+      { action: 'read-detail-naskah', description: 'Halaman Detail Naskah' },
+      { action: 'export-detail-naskah', description: 'Button Export Detail Naskah' },
+      { action: 'read-naskah-masuk', description: 'Halaman Naskah Masuk' },
+      { action: 'export-naskah-masuk', description: 'Button Export Naskah Masuk' },
     ],
   },
   {
@@ -524,6 +530,12 @@ const rolePermissionAssignments: Record<string, string[]> = {
     // ===== Laporan (README §5.3 — Admin: Rekap Naskah, Detail Naskah, Naskah Masuk; SLA & Surat = Super Admin) =====
     'laporan.read',
     'laporan.export',
+    'laporan.read-rekap-naskah',
+    'laporan.export-rekap-naskah',
+    'laporan.read-detail-naskah',
+    'laporan.export-detail-naskah',
+    'laporan.read-naskah-masuk',
+    'laporan.export-naskah-masuk',
 
     // ===== FAQ (README §5.4) =====
     'faq.read',
