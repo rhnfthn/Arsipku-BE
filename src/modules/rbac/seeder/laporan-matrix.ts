@@ -101,52 +101,6 @@ export const laporanMatrix: LaporanMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 4. Laporan Surat (Super Admin only — PDF & Excel)
-    // ============================================================
-    {
-      key: 'laporan-surat',
-      label: 'Laporan Surat',
-      subMenus: [
-        {
-          key: 'laporan-surat',
-          label: 'Laporan Surat',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Laporan Surat',
-              permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat laporan surat', resource: 'laporan' },
-                { action: 'export', label: 'Export', description: 'Button Export Laporan Surat (PDF/Excel)', resource: 'laporan' },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    // ============================================================
-    // 5. Laporan SLA (Super Admin only — PDF & Excel)
-    // ============================================================
-    {
-      key: 'laporan-sla',
-      label: 'Laporan SLA',
-      subMenus: [
-        {
-          key: 'laporan-sla',
-          label: 'Laporan SLA',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Laporan SLA',
-              permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat laporan SLA', resource: 'laporan' },
-                { action: 'export', label: 'Export', description: 'Button Export Laporan SLA (PDF/Excel)', resource: 'laporan' },
-              ],
-            },
-          ],
-        },
-      ],
-    },
   ],
 };
 

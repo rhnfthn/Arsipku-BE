@@ -397,8 +397,8 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
-    "name": "administrasi.naskah-masuk.verifikasi-naskah.button-action-edit-naskah",
-    "description": "administrasi.naskah-masuk.verifikasi-naskah.button-action-edit-naskah",
+    "name": "administrasi.naskah-masuk.button-action-edit-naskah",
+    "description": "administrasi.naskah-masuk.button-action-edit-naskah",
     "permissions": [
       {
         "action": "update",
@@ -407,8 +407,8 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
-    "name": "administrasi.naskah-masuk.verifikasi-naskah.button-action-show-detail-naskah",
-    "description": "administrasi.naskah-masuk.verifikasi-naskah.button-action-show-detail-naskah",
+    "name": "administrasi.naskah-masuk.button-action-show-detail-naskah",
+    "description": "administrasi.naskah-masuk.button-action-show-detail-naskah",
     "permissions": [
       {
         "action": "read",
@@ -417,8 +417,8 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
-    "name": "administrasi.naskah-masuk.verifikasi-naskah.button-export",
-    "description": "administrasi.naskah-masuk.verifikasi-naskah.button-export",
+    "name": "administrasi.naskah-masuk.button-export",
+    "description": "administrasi.naskah-masuk.button-export",
     "permissions": [
       {
         "action": "export",
@@ -427,8 +427,8 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
-    "name": "administrasi.naskah-masuk.verifikasi-naskah.button-tambah-naskah-masuk",
-    "description": "administrasi.naskah-masuk.verifikasi-naskah.button-tambah-naskah-masuk",
+    "name": "administrasi.naskah-masuk.button-tambah-naskah-masuk",
+    "description": "administrasi.naskah-masuk.button-tambah-naskah-masuk",
     "permissions": [
       {
         "action": "create",
@@ -437,62 +437,12 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
-    "name": "administrasi.naskah-masuk.verifikasi-naskah.halaman-verifikasi-naskah",
-    "description": "administrasi.naskah-masuk.verifikasi-naskah.halaman-verifikasi-naskah",
+    "name": "administrasi.naskah-masuk.halaman-verifikasi-naskah",
+    "description": "administrasi.naskah-masuk.halaman-verifikasi-naskah",
     "permissions": [
       {
         "action": "read",
-        "description": "Halaman Verifikasi Naskah - Read"
-      }
-    ]
-  },
-  {
-    "name": "administrasi.naskah-masuk.verifikator.button-action-confirm",
-    "description": "administrasi.naskah-masuk.verifikator.button-action-confirm",
-    "permissions": [
-      {
-        "action": "update",
-        "description": "Button Action Confirm - Update"
-      }
-    ]
-  },
-  {
-    "name": "administrasi.naskah-masuk.verifikator.button-action-reject",
-    "description": "administrasi.naskah-masuk.verifikator.button-action-reject",
-    "permissions": [
-      {
-        "action": "update",
-        "description": "Button Action Reject - Update"
-      }
-    ]
-  },
-  {
-    "name": "administrasi.naskah-masuk.verifikator.button-lihat-dokumen",
-    "description": "administrasi.naskah-masuk.verifikator.button-lihat-dokumen",
-    "permissions": [
-      {
-        "action": "read",
-        "description": "Button Lihat Dokumen - Read"
-      }
-    ]
-  },
-  {
-    "name": "administrasi.naskah-masuk.verifikator.button-show-detail-dokumen",
-    "description": "administrasi.naskah-masuk.verifikator.button-show-detail-dokumen",
-    "permissions": [
-      {
-        "action": "read",
-        "description": "Button Show Detail Dokumen - Read"
-      }
-    ]
-  },
-  {
-    "name": "administrasi.naskah-masuk.verifikator.halaman-verifikator",
-    "description": "administrasi.naskah-masuk.verifikator.halaman-verifikator",
-    "permissions": [
-      {
-        "action": "read",
-        "description": "Halaman Verifikator - Read"
+        "description": "Halaman Naskah Masuk - Read"
       }
     ]
   },
@@ -2733,8 +2683,8 @@ export const rbacMatrixTree: MatrixHalaman[] = [
         "label": "Naskah Masuk",
         "subMenus": [
           {
-            "key": "verifikasi-naskah",
-            "label": "Verifikasi Naskah",
+            "key": "naskah-masuk",
+            "label": "Naskah Masuk",
             "fiturs": [
               {
                 "key": "button-action-edit-naskah",
@@ -2743,7 +2693,7 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                   {
                     "action": "update",
                     "label": "Update",
-                    "resource": "administrasi.naskah-masuk.verifikasi-naskah.button-action-edit-naskah"
+                    "resource": "administrasi.naskah-masuk.button-action-edit-naskah"
                   }
                 ]
               },
@@ -2754,7 +2704,7 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                   {
                     "action": "read",
                     "label": "Read",
-                    "resource": "administrasi.naskah-masuk.verifikasi-naskah.button-action-show-detail-naskah"
+                    "resource": "administrasi.naskah-masuk.button-action-show-detail-naskah"
                   }
                 ]
               },
@@ -2765,7 +2715,7 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                   {
                     "action": "export",
                     "label": "Read (Export)",
-                    "resource": "administrasi.naskah-masuk.verifikasi-naskah.button-export"
+                    "resource": "administrasi.naskah-masuk.button-export"
                   }
                 ]
               },
@@ -2776,79 +2726,18 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                   {
                     "action": "create",
                     "label": "Create",
-                    "resource": "administrasi.naskah-masuk.verifikasi-naskah.button-tambah-naskah-masuk"
+                    "resource": "administrasi.naskah-masuk.button-tambah-naskah-masuk"
                   }
                 ]
               },
               {
                 "key": "halaman-verifikasi-naskah",
-                "label": "Halaman Verifikasi Naskah",
+                "label": "Halaman Naskah Masuk",
                 "permissions": [
                   {
                     "action": "read",
                     "label": "Read",
-                    "resource": "administrasi.naskah-masuk.verifikasi-naskah.halaman-verifikasi-naskah"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "key": "verifikator",
-            "label": "Verifikator",
-            "fiturs": [
-              {
-                "key": "button-action-confirm",
-                "label": "Button Action Confirm",
-                "permissions": [
-                  {
-                    "action": "update",
-                    "label": "Update",
-                    "resource": "administrasi.naskah-masuk.verifikator.button-action-confirm"
-                  }
-                ]
-              },
-              {
-                "key": "button-action-reject",
-                "label": "Button Action Reject",
-                "permissions": [
-                  {
-                    "action": "update",
-                    "label": "Update",
-                    "resource": "administrasi.naskah-masuk.verifikator.button-action-reject"
-                  }
-                ]
-              },
-              {
-                "key": "button-lihat-dokumen",
-                "label": "Button Lihat Dokumen",
-                "permissions": [
-                  {
-                    "action": "read",
-                    "label": "Read",
-                    "resource": "administrasi.naskah-masuk.verifikator.button-lihat-dokumen"
-                  }
-                ]
-              },
-              {
-                "key": "button-show-detail-dokumen",
-                "label": "Button Show Detail Dokumen",
-                "permissions": [
-                  {
-                    "action": "read",
-                    "label": "Read",
-                    "resource": "administrasi.naskah-masuk.verifikator.button-show-detail-dokumen"
-                  }
-                ]
-              },
-              {
-                "key": "halaman-verifikator",
-                "label": "Halaman Verifikator",
-                "permissions": [
-                  {
-                    "action": "read",
-                    "label": "Read",
-                    "resource": "administrasi.naskah-masuk.verifikator.halaman-verifikator"
+                    "resource": "administrasi.naskah-masuk.halaman-verifikasi-naskah"
                   }
                 ]
               }
@@ -5049,13 +4938,10 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "administrasi.delegasi.button-export:export",
     "administrasi.delegasi.button-tambah-delegasi:create",
     "administrasi.delegasi.halaman-delegasi:read",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-action-show-detail-naskah:read",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-export:export",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-tambah-naskah-masuk:create",
-    "administrasi.naskah-masuk.verifikasi-naskah.halaman-verifikasi-naskah:read",
-    "administrasi.naskah-masuk.verifikator.button-lihat-dokumen:read",
-    "administrasi.naskah-masuk.verifikator.button-show-detail-dokumen:read",
-    "administrasi.naskah-masuk.verifikator.halaman-verifikator:read",
+    "administrasi.naskah-masuk.button-action-show-detail-naskah:read",
+    "administrasi.naskah-masuk.button-export:export",
+    "administrasi.naskah-masuk.button-tambah-naskah-masuk:create",
+    "administrasi.naskah-masuk.halaman-verifikasi-naskah:read",
     "administrasi.penomoran.penomoran.button-export:export",
     "administrasi.penomoran.penomoran.button-tambah-penomoran:create",
     "administrasi.penomoran.penomoran.halaman-penomoran:read",
@@ -5168,16 +5054,11 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "administrasi.manajemen-rbac.user-role.button-export:export",
     "administrasi.manajemen-rbac.user-role.button-tambah-role:create",
     "administrasi.manajemen-rbac.user-role.halaman-user-role:read",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-action-edit-naskah:update",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-action-show-detail-naskah:read",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-export:export",
-    "administrasi.naskah-masuk.verifikasi-naskah.button-tambah-naskah-masuk:create",
-    "administrasi.naskah-masuk.verifikasi-naskah.halaman-verifikasi-naskah:read",
-    "administrasi.naskah-masuk.verifikator.button-action-confirm:update",
-    "administrasi.naskah-masuk.verifikator.button-action-reject:update",
-    "administrasi.naskah-masuk.verifikator.button-lihat-dokumen:read",
-    "administrasi.naskah-masuk.verifikator.button-show-detail-dokumen:read",
-    "administrasi.naskah-masuk.verifikator.halaman-verifikator:read",
+    "administrasi.naskah-masuk.button-action-edit-naskah:update",
+    "administrasi.naskah-masuk.button-action-show-detail-naskah:read",
+    "administrasi.naskah-masuk.button-export:export",
+    "administrasi.naskah-masuk.button-tambah-naskah-masuk:create",
+    "administrasi.naskah-masuk.halaman-verifikasi-naskah:read",
     "administrasi.penomoran.penomoran.button-export:export",
     "administrasi.penomoran.penomoran.button-tambah-penomoran:create",
     "administrasi.penomoran.penomoran.halaman-penomoran:read",
