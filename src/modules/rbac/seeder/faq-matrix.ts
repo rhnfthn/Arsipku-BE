@@ -74,6 +74,7 @@ export const faqMatrix: FaqMatrixHalaman = {
                 { action: 'update', label: 'Update', description: 'Button Edit FAQ', resource: 'faq' },
                 { action: 'delete', label: 'Delete', description: 'Button Hapus FAQ', resource: 'faq' },
                 { action: 'export', label: 'Export', description: 'Button Export FAQ', resource: 'faq' },
+                { action: 'manage', label: 'Manage', description: 'Kelola FAQ (CRUD)', resource: 'faq' },
               ],
             },
           ],
