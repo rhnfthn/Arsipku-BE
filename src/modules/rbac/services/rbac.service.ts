@@ -213,8 +213,8 @@ export class RbacService {
       const existingIds = new Set(existing.map((rp) => rp.permissionId));
       const newIds = new Set(permissionIds);
 
-      // Diff: hanya yang berubah
-      const toAdd = permissionIds.filter((id) => !existingIds.has(id));
+      // Diff: hanya yang berubah (dedupe permissionIds via Set)
+      const toAdd = [...new Set(permissionIds.filter((id) => !existingIds.has(id)))];
       const toRemove = existing.filter((rp) => !newIds.has(rp.permissionId));
 
       if (toRemove.length > 0) {
