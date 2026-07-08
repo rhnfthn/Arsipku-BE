@@ -377,16 +377,17 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
-    // Default: exclude actioned (tindak_lanjut=1) so a naskah the user already
-    // forwarded/tindak-lanjut'd leaves kotak-masuk (goes to "sudah ditindaklanjuti"
-    // view via tinjut='sudah_tinjut'). Prevents the forwarded naskah from
-    // cluttering the active inbox (it's been actioned, like a "sent" item).
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
-    } else {
-      whereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
-      summaryWhereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
@@ -915,16 +916,17 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
-    // Default: exclude actioned (tindak_lanjut=1) so a naskah the user already
-    // forwarded/tindak-lanjut'd leaves kotak-masuk (goes to "sudah ditindaklanjuti"
-    // view via tinjut='sudah_tinjut'). Prevents the forwarded naskah from
-    // cluttering the active inbox (it's been actioned, like a "sent" item).
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
-    } else {
-      whereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
-      summaryWhereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
@@ -1298,16 +1300,17 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
-    // Default: exclude actioned (tindak_lanjut=1) so a naskah the user already
-    // forwarded/tindak-lanjut'd leaves kotak-masuk (goes to "sudah ditindaklanjuti"
-    // view via tinjut='sudah_tinjut'). Prevents the forwarded naskah from
-    // cluttering the active inbox (it's been actioned, like a "sent" item).
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
-    } else {
-      whereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
-      summaryWhereClause += ` AND (s.tindak_lanjut = 0 OR s.tindak_lanjut IS NULL)`;
+    } else if (query.tinjut === 'belum_tinjut') {
+      whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
