@@ -21,7 +21,7 @@ import { UpdateFaqDto } from '../dto/update-faq.dto';
 import { FaqResponseDto } from '../dto/faq.dto';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, Public, RequirePermission } from '../../../common/decorators';
+import { Public, RequirePermission } from '../../../common/decorators';
 import { StorageService } from '../../storage/services/storage.service';
 import type { Response } from 'express';
 
@@ -137,7 +137,6 @@ export class FaqController {
    */
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'manage')
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
@@ -249,7 +248,6 @@ export class FaqController {
    */
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'manage')
   async create(@Body() dto: CreateFaqDto): Promise<FaqResponseDto> {
     try {
@@ -273,7 +271,6 @@ export class FaqController {
    */
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'update')
   async update(
     @Param('id') id: string,
@@ -300,7 +297,6 @@ export class FaqController {
    */
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('faq', 'delete')
   async remove(@Param('id') id: string): Promise<FaqResponseDto> {
     try {

@@ -26,7 +26,7 @@ import { CreatePedomanDto } from '../dto/create-pedoman.dto';
 import { UpdatePedomanDto } from '../dto/update-pedoman.dto';
 import { PedomanResponseDto } from '../dto/pedoman.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, Public, RequirePermission } from '../../../common/decorators';
+import { Public, RequirePermission } from '../../../common/decorators';
 import { StorageService } from '../../storage/services/storage.service';
 import type { Response } from 'express';
 
@@ -152,7 +152,6 @@ export class PedomanController {
   // ================================================================
   @Post('upload-lampiran')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('pedoman', 'read')
   @UseInterceptors(
     FilesInterceptor('lampirans', 10, {
@@ -254,7 +253,6 @@ export class PedomanController {
   // ================================================================
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('pedoman', 'read')
   async create(@Body() dto: CreatePedomanDto): Promise<PedomanResponseDto> {
     try {
@@ -278,7 +276,6 @@ export class PedomanController {
   // ================================================================
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('pedoman', 'read')
   async update(
     @Param('id') id: string,
@@ -305,7 +302,6 @@ export class PedomanController {
   // ================================================================
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'superadmin')
   @RequirePermission('pedoman', 'read')
   async remove(@Param('id') id: string): Promise<PedomanResponseDto> {
     try {
