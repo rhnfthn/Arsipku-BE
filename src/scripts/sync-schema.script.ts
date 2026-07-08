@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { TitelaturEnEntity } from '../modules/titelatur-en/entities/titelatur-en.entity';
+import { TemplateEntity } from '../modules/template/entities/template.entity';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -19,7 +20,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USER || 'root',
   password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'arsipku',
-  entities: [TitelaturEnEntity],
+  entities: [TitelaturEnEntity, TemplateEntity],
   synchronize: true,
   timezone: '+07:00',
 });
