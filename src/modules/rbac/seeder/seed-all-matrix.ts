@@ -364,14 +364,30 @@ async function main() {
 
   // 4b. Also add ALL other permissions in DB (from seed-rbac.ts: administrasi, laporan, faq, etc.)
   const allDbPerms = await permRepo.find({ select: ['id'] });
-  const existingRp = await rpRepo.find({ where: { roleId: roles[RoleName.SUPERADMIN].id }, select: ['permissionId'] });
-  const existingPermIds = new Set(existingRp.map((rp) => rp.permissionId));
-  const extraRows = allDbPerms
-    .filter((p) => !existingPermIds.has(p.id))
-    .map((p) => ({ id: uuidv4(), roleId: roles[RoleName.SUPERADMIN].id, permissionId: p.id }));
-  if (extraRows.length > 0) {
-    await rpRepo.save(extraRows);
-    console.log(`✅ ${extraRows.length} extra permissions appended to SUPERADMIN (from seed-rbac.ts)`);
+  const allDbPermIds = allDbPerms.map((p) => p.id);
+
+  // Append missing permissions to SUPERADMIN
+  const superadminExisting = await rpRepo.find({ where: { roleId: roles[RoleName.SUPERADMIN].id }, select: ['permissionId'] });
+  const superadminExistingIds = new Set(superadminExisting.map((rp) => rp.permissionId));
+  const superadminExtra = allDbPermIds
+    .filter((pid) => !superadminExistingIds.has(pid))
+    .map((pid) => ({ id: uuidv4(), roleId: roles[RoleName.SUPERADMIN].id, permissionId: pid }));
+  if (superadminExtra.length > 0) {
+    await rpRepo.save(superadminExtra);
+    console.log(`✅ ${superadminExtra.length} extra permissions appended to SUPERADMIN (from seed-rbac.ts)`);
+  }
+
+  // 4c. Assign ALL permissions (Utama + Utilitas + flat) to ADMIN and USER too (default: everything enabled)
+  for (const roleName of [RoleName.ADMIN, RoleName.USER] as const) {
+    const roleExisting = await rpRepo.find({ where: { roleId: roles[roleName].id }, select: ['permissionId'] });
+    const roleExistingIds = new Set(roleExisting.map((rp) => rp.permissionId));
+    const roleExtra = allDbPermIds
+      .filter((pid) => !roleExistingIds.has(pid))
+      .map((pid) => ({ id: uuidv4(), roleId: roles[roleName].id, permissionId: pid }));
+    if (roleExtra.length > 0) {
+      await rpRepo.save(roleExtra);
+      console.log(`✅ ${roleExtra.length} extra permissions appended to ${roleName} (Utama+Utilitas matrix)`);
+    }
   }
 
   // 5. Assign user persnum ke SUPERADMIN (jika belum)
