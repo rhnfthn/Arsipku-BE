@@ -817,6 +817,38 @@ export class SearchV3Service {
             kategoriFacets[row.kategori] = parseInt(row.count, 10);
         });
 
+        // Favorit facets (favorited vs non-favorited counts)
+        const favoritQuery = `
+      SELECT 
+        CASE WHEN s.flag_favorit = 1 THEN 'true' ELSE 'false' END as is_favorit,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY is_favorit
+    `;
+        const favoritRows = await this.dataSource.query(favoritQuery, baseParams);
+        const favoritFacets: Record<string, number> = {};
+        favoritRows.forEach((row: any) => {
+            favoritFacets[row.is_favorit] = parseInt(row.count, 10);
+        });
+
+        // Priority facets (priority DI vs non-priority counts)
+        const priorityQuery = `
+      SELECT 
+        CASE WHEN n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1) THEN 'true' ELSE 'false' END as is_priority,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY is_priority
+    `;
+        const priorityRows = await this.dataSource.query(priorityQuery, baseParams);
+        const priorityFacets: Record<string, number> = {};
+        priorityRows.forEach((row: any) => {
+            priorityFacets[row.is_priority] = parseInt(row.count, 10);
+        });
+
         return {
             jenis: jenisFacets,
             status: statusFacets,
@@ -824,6 +856,8 @@ export class SearchV3Service {
             label: labelFacets,
             isRead: isReadFacets,
             kategori: kategoriFacets,
+            favorit: favoritFacets,
+            priority: priorityFacets,
         };
     }
 
