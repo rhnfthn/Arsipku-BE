@@ -351,7 +351,7 @@ async function main() {
   }
   console.log(`✅ ${allResources.length} resources + ${permIdByName.size} permissions upserted`);
 
-  // 4. Assign ALL permissions to SUPERADMIN (replace)
+  // 4. Assign ALL permissions (Utama + Utilitas + RBAC management) to SUPERADMIN (replace)
   const allPermIds = Array.from(permIdByName.values());
   await rpRepo.delete({ roleId: roles[RoleName.SUPERADMIN].id });
   const superadminRows = allPermIds.map((pid) => ({
@@ -361,6 +361,18 @@ async function main() {
   }));
   await rpRepo.save(superadminRows);
   console.log(`✅ ${allPermIds.length} permissions assigned to SUPERADMIN (full replace)`);
+
+  // 4b. Also add ALL other permissions in DB (from seed-rbac.ts: administrasi, laporan, faq, etc.)
+  const allDbPerms = await permRepo.find({ select: ['id'] });
+  const existingRp = await rpRepo.find({ where: { roleId: roles[RoleName.SUPERADMIN].id }, select: ['permissionId'] });
+  const existingPermIds = new Set(existingRp.map((rp) => rp.permissionId));
+  const extraRows = allDbPerms
+    .filter((p) => !existingPermIds.has(p.id))
+    .map((p) => ({ id: uuidv4(), roleId: roles[RoleName.SUPERADMIN].id, permissionId: p.id }));
+  if (extraRows.length > 0) {
+    await rpRepo.save(extraRows);
+    console.log(`✅ ${extraRows.length} extra permissions appended to SUPERADMIN (from seed-rbac.ts)`);
+  }
 
   // 5. Assign user persnum ke SUPERADMIN (jika belum)
   const superadminPersnum = Number(process.env.SUPERADMIN_PERSNUM || 10083493);
