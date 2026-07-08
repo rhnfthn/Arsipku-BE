@@ -205,8 +205,17 @@ export class RbacService {
    *
    * Bug B1 fix: invalidate seluruh permission cache karena perubahan permission
    * role berdampak ke semua user yang punya role ini.
+   *
+   * Bug scope fix: jika matrixPermissionIds diberikan, HANYA permission yang ada
+   * di matrixPermissionIds yang bisa di-remove. Permission di luar scope matrix
+   * (mis. naskah-dinas:read-detail untuk digsig controllers) tetap dipertahankan
+   * agar backend API tidak 403.
    */
-  async assignPermissionsToRole(roleId: string, permissionIds: string[]): Promise<void> {
+  async assignPermissionsToRole(
+    roleId: string,
+    permissionIds: string[],
+    matrixPermissionIds?: string[],
+  ): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const rolePermRepo = manager.getRepository(RolePermissionEntity);
       const existing = await rolePermRepo.find({ where: { roleId } });
@@ -215,7 +224,15 @@ export class RbacService {
 
       // Diff: hanya yang berubah (dedupe permissionIds via Set)
       const toAdd = [...new Set(permissionIds.filter((id) => !existingIds.has(id)))];
-      const toRemove = existing.filter((rp) => !newIds.has(rp.permissionId));
+
+      // Hanya hapus permission yang ada dalam scope matrix (jika diberikan).
+      // Permission di luar scope matrix dipertahankan.
+      const scopeSet = matrixPermissionIds ? new Set(matrixPermissionIds) : null;
+      const toRemove = existing.filter((rp) => {
+        if (newIds.has(rp.permissionId)) return false; // masih dipilih
+        if (scopeSet && !scopeSet.has(rp.permissionId)) return false; // di luar scope matrix — keep
+        return true; // dalam scope matrix & tidak dipilih — remove
+      });
 
       if (toRemove.length > 0) {
         await rolePermRepo.delete(toRemove.map((rp) => rp.id));
