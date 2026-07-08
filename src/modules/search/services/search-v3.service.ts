@@ -455,6 +455,17 @@ export class SearchV3Service {
             }
         }
 
+        // === FAVORIT FILTER ===
+        if (dto.favorit !== undefined) {
+            if (dto.favorit === true) {
+                whereClauses.push(`s.flag_favorit = 1`);
+                appliedFilters.push('favorit: true');
+            } else {
+                whereClauses.push(`(s.flag_favorit IS NULL OR s.flag_favorit = 0)`);
+                appliedFilters.push('favorit: false');
+            }
+        }
+
         // === KATEGORI FILTER ===
         if (kategori) {
             switch (kategori) {
