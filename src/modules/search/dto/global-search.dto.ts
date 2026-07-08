@@ -363,6 +363,22 @@ export class GlobalSearchDto {
   favorit?: boolean;
 
   /**
+   * Filter by priority status (Disposisi with is_priority=1).
+   * - true: Only priority documents
+   * - false: Only non-priority documents
+   * - undefined: All documents (no filter)
+   * Works in combination with scope (e.g., scope=inbox + priority=true).
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  priority?: boolean;
+
+  /**
    * Organization ID user yang sedang search
    */
   @IsOptional()
