@@ -16,6 +16,9 @@ import { Person } from '../../master-data/person/entities/person.entity';
 import { rbacMatrixTree, type MatrixHalaman } from '../seeder/rbac-matrix-data';
 import { utamaMatrix } from '../seeder/utama-matrix';
 import { utilitasMatrix } from '../seeder/utilitas-matrix';
+import { administrasiMatrix } from '../seeder/administrasi-matrix';
+import { laporanMatrix } from '../seeder/laporan-matrix';
+import { faqMatrix } from '../seeder/faq-matrix';
 
 @Injectable()
 export class RbacService {
@@ -270,6 +273,27 @@ export class RbacService {
     assignedPermissionIds: string[];
   }> {
     return this.buildMatrixTree(utilitasMatrix, roleId);
+  }
+
+  async findAdministrasiMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(administrasiMatrix, roleId);
+  }
+
+  async findLaporanMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(laporanMatrix, roleId);
+  }
+
+  async findFaqMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(faqMatrix, roleId);
   }
 
   private async buildMatrixTree(
