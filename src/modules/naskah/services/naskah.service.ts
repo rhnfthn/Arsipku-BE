@@ -542,65 +542,79 @@ export class NaskahService {
     }
 
     // ============================================================
-    // BUILD FULL CHAIN / RANGKAIAN dengan level berdasarkan depth referensi
+    // BUILD ANCESTOR CHAIN (scoped: root -> naskah yang dilihat)
+    // Hanya kumpulkan jalur ancestor (viewed -> parent -> ... -> root).
+    // JANGAN traverse forward ke downstream/sibling — anti bocor riwayat
+    // naskah orang lain ke viewer yang tidak seharusnya lihat.
     // ============================================================
-    
-    // STEP 1: Collect semua naskah yang terhubung dalam chain
+
+    // STEP 1: Collect ancestor chain saja (linear, backward only)
     const allNaskahInChain = new Set<string>();
     const allReferensiMap = new Map<string, any>(); // id_naskah -> referensi data
-    
-    // Trace both directions: backward (ke parent) dan forward (dari children)
-    const traceBothDirections = async (startId: string) => {
+
+    const traceBackwardOnly = async (startId: string) => {
       const visited = new Set<string>();
-      const queue = [startId];
-      
-      while (queue.length > 0) {
-        const currentId = queue.shift();
-        if (!currentId || visited.has(currentId)) continue;
-        
+      let currentId: string | null = startId;
+
+      while (currentId && !visited.has(currentId)) {
         visited.add(currentId);
         allNaskahInChain.add(currentId);
-        
-        // Backward: cari naskah yang direferensikan
+
+        // Backward: cari naskah yang direferensikan (parent)
         const referensi = await this.naskahReferensiRepository.findOne({
           where: { id_naskah: currentId },
         });
-        
-        if (referensi) {
-          allReferensiMap.set(currentId, referensi);
-          // Find parent by ref_nomor
-          const whereClause: any = { nomor: referensi.ref_nomor };
-          if (referensi.ref_jenis) {
-            whereClause.jenis = referensi.ref_jenis;
-          }
-          const parentNaskah = await this.naskahRepository.findOne({
-            where: whereClause,
-          });
-          if (parentNaskah && !visited.has(parentNaskah.id)) {
-            queue.push(parentNaskah.id);
-          }
+
+        if (!referensi || !referensi.ref_nomor) break;
+
+        allReferensiMap.set(currentId, referensi);
+
+        // Find parent by ref_nomor (+ ref_jenis jika ada)
+        const whereClause: any = { nomor: referensi.ref_nomor };
+        if (referensi.ref_jenis) {
+          whereClause.jenis = referensi.ref_jenis;
         }
-        
-        // Forward: cari naskah yang mereferensikan currentId (children)
-        const naskahCurrent = await this.naskahRepository.findOne({
-          where: { id: currentId },
+        const parentNaskah = await this.naskahRepository.findOne({
+          where: whereClause,
         });
-        
-        if (naskahCurrent && naskahCurrent.nomor) {
-          const children = await this.naskahReferensiRepository.find({
-            where: { ref_nomor: naskahCurrent.nomor },
-          });
-          
-          for (const child of children) {
-            if (child.id_naskah && !visited.has(child.id_naskah)) {
-              queue.push(child.id_naskah);
-            }
-          }
-        }
+
+        if (!parentNaskah) break;
+        currentId = parentNaskah.id;
       }
     };
-    
-    await traceBothDirections(naskahId);
+
+    await traceBackwardOnly(naskahId);
+
+    // STEP 1b: Forward-traverse dari naskah yang dilihat — ikut forward MILIK
+    // USER SENDIRI (pengirim == userPosition) saja, berhenti di forward orang
+    // lain. Ini agar kotak-masuk user tetap melihat tindak-lanjut/forward-nya
+    // sendiri, tanpa membocorkan downstream orang lain (D3, D4, ...).
+    const forwardOwnChain = async (parentId: string) => {
+      const parent = await this.naskahRepository.findOne({
+        where: { id: parentId },
+      });
+      if (!parent || !parent.nomor) return;
+
+      const children = await this.naskahReferensiRepository.find({
+        where: { ref_nomor: parent.nomor },
+      });
+
+      for (const child of children) {
+        if (!child.id_naskah || allNaskahInChain.has(child.id_naskah)) continue;
+
+        // Hanya ikut child yang pengirimnya == user saat ini
+        const pengirim = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: child.id_naskah, sirkuler: 'pengirim' },
+        });
+        if (!pengirim || String(pengirim.position) !== String(userPosition)) continue;
+
+        allNaskahInChain.add(child.id_naskah);
+        allReferensiMap.set(child.id_naskah, child);
+        await forwardOwnChain(child.id_naskah);
+      }
+    };
+
+    await forwardOwnChain(naskahId);
     
     // STEP 2: Calculate level untuk setiap naskah berdasarkan kedalaman referensi
     // Level = depth dari referenced parent (0 jika tidak ada referensi)
