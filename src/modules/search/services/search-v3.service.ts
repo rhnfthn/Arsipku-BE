@@ -118,9 +118,14 @@ export class SearchV3Service {
         paramIndex++;
 
         // Exclude drafts and konsep by default, but allow them when explicitly searching drafts or pending.
+        // For inbox/sent scope, allow konsep with jenis='K' (matches /naskah_sirkulasi/inbox behavior).
         if (!isDraftSearch && !isPendingSearch) {
             whereClauses.push(`(s.is_draft = 0 OR s.is_draft IS NULL)`);
-            whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL)`);
+            if (scope === SearchScopeEnum.INBOX || scope === SearchScopeEnum.SENT) {
+                whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL OR n.jenis = 'K')`);
+            } else {
+                whereClauses.push(`(s.is_konsep = 0 OR s.is_konsep IS NULL)`);
+            }
         }
 
         // === SCOPE FILTER ===
@@ -144,11 +149,48 @@ export class SearchV3Service {
                     whereClauses.push(`s.sirkuler IN ('penerima', 'tembusan')`);
                     whereClauses.push(`n.status IN ('final', 'final_tte')`);
                     whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
+                    // Konsep workflow: only show latest konsep per naskah_asli
+                    // (matches /naskah_sirkulasi/inbox behavior)
+                    whereClauses.push(`(
+                        n.jenis <> 'K'
+                        OR s.id = (
+                            SELECT s2.id
+                            FROM naskah_sirkulasi s2
+                            INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+                            WHERE s2.position = s.position
+                            AND s2.sirkuler IN ('penerima', 'tembusan')
+                            AND s2.is_draft = 0
+                            AND (s2.is_konsep = 0 OR n2.jenis = 'K')
+                            AND n2.jenis = 'K'
+                            AND n2.status IN ('final', 'final_tte')
+                            AND COALESCE(n2.id_naskah_asli, n2.id) = COALESCE(n.id_naskah_asli, n.id)
+                            ORDER BY s2.created_at DESC, s2.id DESC
+                            LIMIT 1
+                        )
+                    )`);
                     break;
                 case 'sent':
                     whereClauses.push(`s.sirkuler = 'pengirim'`);
                     whereClauses.push(`n.status IN ('final', 'final_tte')`);
                     whereClauses.push(`(s.flag_arsip IS NULL OR s.flag_arsip = 0)`);
+                    // Konsep workflow: only show latest konsep per naskah_asli
+                    // (matches /naskah_sirkulasi/sent behavior)
+                    whereClauses.push(`(
+                        n.jenis <> 'K'
+                        OR s.id = (
+                            SELECT s2.id
+                            FROM naskah_sirkulasi s2
+                            INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+                            WHERE s2.position = s.position
+                            AND s2.sirkuler = 'pengirim'
+                            AND s2.is_draft = 0
+                            AND s2.is_konsep = 0
+                            AND n2.jenis = 'K'
+                            AND COALESCE(n2.id_naskah_asli, n2.id) = COALESCE(n.id_naskah_asli, n.id)
+                            ORDER BY s2.created_at DESC, s2.id DESC
+                            LIMIT 1
+                        )
+                    )`);
                     break;
                 case 'draft':
                     whereClauses.push(`s.sirkuler = 'pengirim'`);
