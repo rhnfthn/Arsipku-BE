@@ -466,6 +466,18 @@ export class SearchV3Service {
             }
         }
 
+        // === PRIORITY FILTER ===
+        if (dto.priority !== undefined) {
+            if (dto.priority === true) {
+                whereClauses.push(`n.jenis = 'DI'`);
+                whereClauses.push(`EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`);
+                appliedFilters.push('priority: true');
+            } else {
+                whereClauses.push(`(n.jenis != 'DI' OR NOT EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1))`);
+                appliedFilters.push('priority: false');
+            }
+        }
+
         // === KATEGORI FILTER ===
         if (kategori) {
             switch (kategori) {
