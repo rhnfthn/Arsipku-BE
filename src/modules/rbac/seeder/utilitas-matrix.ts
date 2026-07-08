@@ -1,5 +1,6 @@
 // Matrix RBAC untuk Halaman Utilitas — Super Admin
-// Sesuai spesifikasi user.
+// Resource names use FLAT format (matching useFeatureAccess.ts frontend checks
+// and backend @RequirePermission decorators).
 
 export interface UtilitasMatrixPermission {
   action: string;
@@ -32,6 +33,9 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
   key: 'utilitas',
   label: 'Utilitas',
   menus: [
+    // ============================================================
+    // TTD Digital
+    // ============================================================
     {
       key: 'ttd-digital',
       label: 'TTD Digital',
@@ -44,11 +48,11 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Verifikasi Dokumen',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Verifikasi Dokumen', resource: 'utilitas.ttd-digital.verifikasi-dokumen' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Dokumen', resource: 'utilitas.ttd-digital.verifikasi-dokumen' },
-                { action: 'read-lihat', label: 'Read', description: 'Button Lihat File Dokumen', resource: 'utilitas.ttd-digital.verifikasi-dokumen' },
-                { action: 'read-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'utilitas.ttd-digital.verifikasi-dokumen' },
-                { action: 'update', label: 'Update', description: 'Button Edit Dokumen', resource: 'utilitas.ttd-digital.verifikasi-dokumen' },
+                { action: 'read-verifikasi-dokumen', label: 'Read', description: 'Melihat halaman Verifikasi Dokumen', resource: 'digsig' },
+                { action: 'read-verifikasi-dokumen-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'digsig' },
+                { action: 'read-verifikasi-dokumen-lihat', label: 'Read', description: 'Button Lihat Dokumen (Verifikasi)', resource: 'digsig' },
+                { action: 'create-verifikasi-dokumen', label: 'Create', description: 'Button Tambah Dokumen', resource: 'digsig' },
+                { action: 'update-verifikasi-dokumen', label: 'Update', description: 'Button Edit Dokumen', resource: 'digsig' },
               ],
             },
           ],
@@ -61,11 +65,11 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Penandatanganan',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Penandatanganan', resource: 'utilitas.ttd-digital.penandatanganan' },
-                { action: 'read-lihat', label: 'Read', description: 'Button Lihat File Dokumen', resource: 'utilitas.ttd-digital.penandatanganan' },
-                { action: 'read-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'utilitas.ttd-digital.penandatanganan' },
-                { action: 'create-ttd', label: 'Create', description: 'Button Tanda Tangan', resource: 'utilitas.ttd-digital.penandatanganan' },
-                { action: 'create-tolak', label: 'Create', description: 'Button Tolak', resource: 'utilitas.ttd-digital.penandatanganan' },
+                { action: 'read-penandatanganan', label: 'Read', description: 'Melihat halaman Penandatanganan', resource: 'digsig' },
+                { action: 'read-penandatanganan-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'digsig' },
+                { action: 'read-penandatanganan-lihat', label: 'Read', description: 'Button Lihat Dokumen (Penandatanganan)', resource: 'digsig' },
+                { action: 'create-penandatanganan-ttd', label: 'Create', description: 'Button Tanda Tangan', resource: 'digsig' },
+                { action: 'create-penandatanganan-tolak', label: 'Create', description: 'Button Tolak', resource: 'digsig' },
               ],
             },
           ],
@@ -78,7 +82,7 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Cek Dokumen',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Cek Dokumen', resource: 'utilitas.ttd-digital.cek-dokumen' },
+                { action: 'read-cek-dokumen', label: 'Read', description: 'Melihat halaman Cek Dokumen', resource: 'digsig' },
               ],
             },
           ],
@@ -91,14 +95,17 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Log Disdig',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Log Disdig', resource: 'utilitas.ttd-digital.log-disdig' },
-                { action: 'create', label: 'Create', description: 'Button Aktifkan Alert Gangguan', resource: 'utilitas.ttd-digital.log-disdig' },
+                { action: 'read-log-disdig', label: 'Read', description: 'Melihat halaman Log Disdig', resource: 'digsig' },
+                { action: 'create-log-disdig-alert', label: 'Create', description: 'Button Aktifkan Alert Gangguan', resource: 'digsig' },
               ],
             },
           ],
         },
       ],
     },
+    // ============================================================
+    // Penyingkatan Tautan
+    // ============================================================
     {
       key: 'penyingkatan-tautan',
       label: 'Penyingkatan Tautan',
@@ -111,16 +118,19 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Penyingkatan Tautan',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Penyingkatan Tautan', resource: 'utilitas.penyingkatan-tautan' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Tautan', resource: 'utilitas.penyingkatan-tautan' },
-                { action: 'update', label: 'Update', description: 'Button Edit Tautan', resource: 'utilitas.penyingkatan-tautan' },
-                { action: 'delete', label: 'Delete', description: 'Button Delete Tautan', resource: 'utilitas.penyingkatan-tautan' },
+                { action: 'read', label: 'Read', description: 'Melihat halaman Penyingkatan Tautan', resource: 'penyingkat-tautan' },
+                { action: 'create', label: 'Create', description: 'Button Tambah Tautan', resource: 'penyingkat-tautan' },
+                { action: 'update', label: 'Update', description: 'Button Edit Tautan', resource: 'penyingkat-tautan' },
+                { action: 'delete', label: 'Delete', description: 'Button Delete Tautan', resource: 'penyingkat-tautan' },
               ],
             },
           ],
         },
       ],
     },
+    // ============================================================
+    // Layanan Email
+    // ============================================================
     {
       key: 'layanan-email',
       label: 'Layanan Email',
@@ -133,8 +143,8 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Kirim Email',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Kirim Email', resource: 'utilitas.layanan-email' },
-                { action: 'create', label: 'Create', description: 'Button Kirim Email', resource: 'utilitas.layanan-email' },
+                { action: 'read', label: 'Read', description: 'Melihat halaman Kirim Email', resource: 'layanan-email' },
+                { action: 'create', label: 'Create', description: 'Button Kirim Email', resource: 'layanan-email' },
               ],
             },
           ],
@@ -147,13 +157,16 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Log Email',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Log Email', resource: 'utilitas.layanan-email.log' },
+                { action: 'read-log', label: 'Read', description: 'Melihat halaman Log Email', resource: 'layanan-email' },
               ],
             },
           ],
         },
       ],
     },
+    // ============================================================
+    // Template
+    // ============================================================
     {
       key: 'template',
       label: 'Template',
@@ -166,11 +179,11 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Template',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Template', resource: 'utilitas.template' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Template', resource: 'utilitas.template' },
-                { action: 'read-download', label: 'Read', description: 'Button Download Template', resource: 'utilitas.template' },
-                { action: 'update', label: 'Update', description: 'Button Edit Template', resource: 'utilitas.template' },
-                { action: 'delete', label: 'Delete', description: 'Button Delete Template', resource: 'utilitas.template' },
+                { action: 'read', label: 'Read', description: 'Melihat halaman Template', resource: 'template' },
+                { action: 'create', label: 'Create', description: 'Button Tambah Template', resource: 'template' },
+                { action: 'read-download', label: 'Read', description: 'Button Download Template', resource: 'template' },
+                { action: 'update', label: 'Update', description: 'Button Edit Template', resource: 'template' },
+                { action: 'delete', label: 'Delete', description: 'Button Delete Template', resource: 'template' },
               ],
             },
           ],
@@ -192,11 +205,11 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Verifikasi Naskah',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Verifikasi Naskah', resource: 'utilitas.verifikasi-naskah' },
-                { action: 'read-lihat', label: 'Read', description: 'Melihat dokumen file', resource: 'utilitas.verifikasi-naskah' },
-                { action: 'read-detail', label: 'Read', description: 'Melihat detail naskah', resource: 'utilitas.verifikasi-naskah' },
-                { action: 'confirm', label: 'Confirm', description: 'Confirm naskah', resource: 'utilitas.verifikasi-naskah' },
-                { action: 'reject', label: 'Reject', description: 'Menolak naskah', resource: 'utilitas.verifikasi-naskah' },
+                { action: 'read', label: 'Read', description: 'Melihat halaman Verifikasi Naskah', resource: 'verifikasi-naskah' },
+                { action: 'read-lihat', label: 'Read', description: 'Melihat dokumen file', resource: 'verifikasi-naskah' },
+                { action: 'read-detail', label: 'Read', description: 'Melihat detail naskah', resource: 'verifikasi-naskah' },
+                { action: 'confirm', label: 'Confirm', description: 'Confirm naskah', resource: 'verifikasi-naskah' },
+                { action: 'reject', label: 'Reject', description: 'Menolak naskah', resource: 'verifikasi-naskah' },
               ],
             },
           ],
