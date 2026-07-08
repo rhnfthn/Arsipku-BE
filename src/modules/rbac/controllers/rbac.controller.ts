@@ -172,6 +172,30 @@ export class RbacController {
     return { success: true, data: result };
   }
 
+  @Get('matrix/administrasi')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getAdministrasiMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findAdministrasiMatrix(roleId);
+    return { success: true, data: result };
+  }
+
+  @Get('matrix/laporan')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getLaporanMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findLaporanMatrix(roleId);
+    return { success: true, data: result };
+  }
+
+  @Get('matrix/faq')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getFaqMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findFaqMatrix(roleId);
+    return { success: true, data: result };
+  }
+
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')
