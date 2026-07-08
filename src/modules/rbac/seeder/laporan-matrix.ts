@@ -47,8 +47,8 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Rekap Naskah',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat laporan rekap naskah', resource: 'laporan' },
-                { action: 'export', label: 'Export', description: 'Button Export Laporan Rekap Naskah', resource: 'laporan' },
+                { action: 'read-rekap-naskah', label: 'Read', description: 'Melihat laporan rekap naskah', resource: 'laporan' },
+                { action: 'export-rekap-naskah', label: 'Export', description: 'Button Export Rekap Naskah', resource: 'laporan' },
               ],
             },
           ],
@@ -70,8 +70,8 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Detail Naskah',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat laporan detail naskah', resource: 'laporan' },
-                { action: 'export', label: 'Export', description: 'Button Export Laporan Detail Naskah', resource: 'laporan' },
+                { action: 'read-detail-naskah', label: 'Read', description: 'Melihat laporan detail naskah', resource: 'laporan' },
+                { action: 'export-detail-naskah', label: 'Export', description: 'Button Export Detail Naskah', resource: 'laporan' },
               ],
             },
           ],
@@ -93,8 +93,8 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Naskah Masuk',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat laporan naskah masuk', resource: 'laporan' },
-                { action: 'export', label: 'Export', description: 'Button Export Laporan Naskah Masuk', resource: 'laporan' },
+                { action: 'read-naskah-masuk', label: 'Read', description: 'Melihat laporan naskah masuk', resource: 'laporan' },
+                { action: 'export-naskah-masuk', label: 'Export', description: 'Button Export Naskah Masuk', resource: 'laporan' },
               ],
             },
           ],
