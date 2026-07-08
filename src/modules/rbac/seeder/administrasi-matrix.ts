@@ -141,10 +141,9 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Penomoran',
               permissions: [
-                { action: 'read-penomoran', label: 'Read', description: 'Melihat daftar Penomoran', resource: 'penomoran' },
+                { action: 'read-penomoran', label: 'Read', description: 'Melihat halaman Penomoran', resource: 'penomoran' },
                 { action: 'create-penomoran', label: 'Create', description: 'Button Tambah Penomoran', resource: 'penomoran' },
                 { action: 'export-penomoran', label: 'Export', description: 'Button Export Penomoran', resource: 'penomoran' },
-                { action: 'report', label: 'Report', description: 'Melihat laporan rekapitulasi penomoran', resource: 'penomoran' },
               ],
             },
           ],
