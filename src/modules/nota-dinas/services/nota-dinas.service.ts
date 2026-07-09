@@ -2043,8 +2043,8 @@ export class NotaDinasService {
         if (naskahRef) {
           // Map jenis naskah ke ref_jenis yang valid (ND, SDI, SDE, DI, KA)
           const validRefJenis = ['ND', 'SDI', 'SDE', 'DI', 'KA'];
-          const refJenis = validRefJenis.includes(naskahRef.jenis || '') 
-            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA') 
+          const refJenis = validRefJenis.includes(naskahRef.jenis || '')
+            ? (naskahRef.jenis as 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA')
             : 'ND';
 
           const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
@@ -2056,6 +2056,19 @@ export class NotaDinasService {
             ref_perihal: naskahRef.perihal,
           });
           await queryRunner.manager.save(referensi);
+
+          // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
+          // the original naskah, so the lanjut action buttons disable in
+          // kotak-masuk and prevent creating a second follow-up (double-send).
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            {
+              idNaskah: dto.id_referensi_naskah,
+              position: String(dto.pengirim),
+              sirkuler: 'penerima',
+            },
+            { tindakLanjut: 1 },
+          );
         }
       }
 
