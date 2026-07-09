@@ -1,0 +1,235 @@
+import {
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { v4 as uuidv4 } from 'uuid';
+import { NASKAH_UMUM_TEMPLATES } from './naskah-umum-templates';
+import { SendDto, TemplateSchema, PreviewDto } from '../dto/naskah-umum.dto';
+import { StorageService } from '../../storage/services/storage.service';
+import { DocxFillerService } from './docx-filler.service';
+import { NaskahUmumTempEntity } from '../../onlyoffice/entities/naskah-umum-temp.entity';
+import { NaskahEntity } from '../../../shared/entities/naskah.entity';
+import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
+import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
+import { OnlyOfficeService } from '../../onlyoffice/services/onlyoffice.service';
+import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
+import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
+
+@Injectable()
+export class NaskahUmumService {
+  constructor(
+    private readonly storage: StorageService,
+    private readonly filler: DocxFillerService,
+    @InjectRepository(NaskahUmumTempEntity)
+    private readonly tempRepo: Repository<NaskahUmumTempEntity>,
+    private readonly onlyOffice: OnlyOfficeService,
+    private readonly nomorSurat: NomorSuratService,
+    private readonly pdfQrEmbed: PdfQrEmbedService,
+    private readonly config: ConfigService,
+    private readonly dataSource: DataSource,
+  ) {
+    const appPublicUrl = this.config.get<string>('APP_PUBLIC_URL');
+    if (!appPublicUrl) {
+      throw new Error('Missing required environment variable: APP_PUBLIC_URL');
+    }
+  }
+
+  getTemplateSchema(jenis: string): TemplateSchema | null {
+    return NASKAH_UMUM_TEMPLATES[jenis] ?? null;
+  }
+
+  async getTempStatus(tempId: string): Promise<'preview' | 'saved' | 'sent' | null> {
+    const temp = await this.tempRepo.findOne({ where: { id: tempId } });
+    return temp?.status ?? null;
+  }
+
+  async createPreview(
+    jenis: string,
+    fields: Record<string, string | string[]>,
+    userId: string,
+  ): Promise<{ tempId: string; s3Key: string }> {
+    const schema = this.getTemplateSchema(jenis);
+    if (!schema) throw new BadRequestException(`Jenis ${jenis} belum didukung`);
+
+    // 1. Fetch template docx from S3
+    const templateBuffer = await this.storage.getFile(schema.templateS3Key);
+
+    // 2. Fill placeholders; keep nomor empty until finalize
+    const fillData: Record<string, string | string[]> = { ...fields };
+    fillData.nomor = fillData.nomor ?? '';
+    const filled = this.filler.fill(templateBuffer, fillData);
+
+    // 3. Upload filled temp to S3; use the returned key (StorageService builds it)
+    const tempId = uuidv4();
+    const uploadResult = await this.storage.uploadBuffer(
+      filled,
+      `${tempId}.docx`,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'naskah-umum-temp',
+    );
+
+    // 4. Create temp record
+    const temp = this.tempRepo.create({
+      id: tempId,
+      jenis,
+      fieldsJson: JSON.stringify(fields),
+      s3Key: uploadResult.key,
+      status: 'preview',
+      createdBy: userId,
+    });
+    await this.tempRepo.save(temp);
+
+    return { tempId, s3Key: uploadResult.key };
+  }
+
+  async finalizeSend(
+    dto: SendDto,
+    userId: string,
+    _persnum?: number,
+  ): Promise<{ id: string; nomor: string; status: string; final_pdf: string }> {
+    const temp = await this.tempRepo.findOne({ where: { id: dto.tempId } });
+    if (!temp) {
+      throw new BadRequestException(`Temp naskah ${dto.tempId} tidak ditemukan`);
+    }
+    if (temp.status !== 'saved' || !temp.s3KeySaved) {
+      throw new BadRequestException(
+        `Naskah belum disimpan dari editor. Buka editor lalu Simpan dulu.`,
+      );
+    }
+
+    const schema = this.getTemplateSchema(temp.jenis);
+    if (!schema) {
+      throw new BadRequestException(`Jenis ${temp.jenis} belum didukung`);
+    }
+
+    const fields = JSON.parse(temp.fieldsJson) as Record<string, any>;
+
+    // 1. Re-fill saved docx with generated nomor
+    const savedDocx = await this.storage.getFile(temp.s3KeySaved);
+    const nomorResult = await this.nomorSurat.generateNomor({
+      jenis: temp.jenis as any,
+      positionText: fields.dari ?? '',
+      areaText: 'Pusat',
+      tanggal: new Date(),
+      klasifikasi: fields.klasifikasi ?? dto.klasifikasi,
+    });
+    const nomor = nomorResult.nomor;
+
+    const finalDocx = this.filler.fill(savedDocx, { ...fields, nomor });
+
+    // 2. Upload final docx
+    const finalDocxUpload = await this.storage.uploadBuffer(
+      finalDocx,
+      `${dto.tempId}.docx`,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'naskah-umum-final',
+    );
+
+    // 3. Convert DOCX to PDF
+    const pdfBuffer = await this.onlyOffice.convertToPdf(finalDocxUpload.key);
+
+    // 4. Embed QR code
+    const appPublicUrl = this.config.get<string>('APP_PUBLIC_URL');
+    const naskahId = uuidv4();
+    const qrData = {
+      signature_id: naskahId,
+      document_number: nomor,
+      signed_at: new Date().toISOString(),
+      signer_name: fields.namapengirim ?? '',
+      signer_jabatan: fields.dari ?? '',
+      document_type: temp.jenis,
+      verification_url: `${appPublicUrl}/validasi/${naskahId}`,
+    };
+    const qrResult = await this.pdfQrEmbed.embedQRCodeToPdf(pdfBuffer, qrData);
+    if (!qrResult.success) {
+      throw new BadRequestException(
+        `Gagal menyematkan QR code: ${qrResult.message}`,
+      );
+    }
+
+    // 5. Upload signed PDF
+    const finalPdfUpload = await this.storage.uploadBuffer(
+      qrResult.pdfBuffer,
+      `${dto.tempId}.pdf`,
+      'application/pdf',
+      'naskah-umum-final',
+    );
+    const finalPdfUrl = await this.storage.getFileUrl(finalPdfUpload.key, 3600);
+
+    // 6. Create naskah + sirkulasi atomically
+    const newStatus = dto.sign_option === 'digsig' ? 'final_tte' : 'final';
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const naskah = queryRunner.manager.create(NaskahEntity, {
+        id: naskahId,
+        jenis: temp.jenis as any,
+        nomor,
+        tanggal: new Date(),
+        perihal: fields.perihal ?? '',
+        konten: '',
+        final_pdf: finalPdfUrl,
+        status: newStatus,
+        signOption: dto.sign_option,
+        klasifikasi: fields.klasifikasi ?? dto.klasifikasi,
+        sifat: fields.sifat || dto.sifat || 'biasa',
+      });
+      await queryRunner.manager.save(naskah);
+
+      const pengirim = queryRunner.manager.create(NaskahSirkulasi, {
+        id: uuidv4(),
+        idNaskah: naskahId,
+        sirkuler: 'pengirim',
+        positionText: fields.dari ?? '',
+        namaSirkuler: fields.namapengirim ?? '',
+      });
+      await queryRunner.manager.save(pengirim);
+
+      for (const posId of dto.penerima ?? []) {
+        const penerima = queryRunner.manager.create(NaskahSirkulasi, {
+          id: uuidv4(),
+          idNaskah: naskahId,
+          sirkuler: 'penerima',
+          position: String(posId),
+        });
+        await queryRunner.manager.save(penerima);
+      }
+
+      for (const posId of dto.tembusan ?? []) {
+        const tembusan = queryRunner.manager.create(NaskahSirkulasi, {
+          id: uuidv4(),
+          idNaskah: naskahId,
+          sirkuler: 'tembusan',
+          position: String(posId),
+        });
+        await queryRunner.manager.save(tembusan);
+      }
+
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await queryRunner.manager.update(
+          NaskahLampiranEntity,
+          { id: In(dto.lampiran_temp_ids), is_temporary: 1 },
+          { id_naskah: naskahId, is_temporary: 0, temp_folder_id: null },
+        );
+      }
+
+      temp.status = 'sent';
+      await queryRunner.manager.save(NaskahUmumTempEntity, temp);
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+
+    return { id: naskahId, nomor, status: newStatus, final_pdf: finalPdfUrl };
+  }
+}

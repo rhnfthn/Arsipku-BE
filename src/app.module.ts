@@ -68,6 +68,8 @@ import { MailServiceModule } from './modules/mail-service/mail-service.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AiModule } from './modules/ai/ai.module';
+import { OnlyOfficeModule } from './modules/onlyoffice/onlyoffice.module';
+import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
 
 @Module({
   imports: [
@@ -169,6 +171,8 @@ import { AiModule } from './modules/ai/ai.module';
     RbacModule,
     RealtimeModule,
     AiModule,
+    OnlyOfficeModule,
+    NaskahUmumModule,
   ],
   controllers: [AppController],
   providers: [
