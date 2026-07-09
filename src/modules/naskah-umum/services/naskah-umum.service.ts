@@ -31,10 +31,11 @@ export class NaskahUmumService {
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
   ) {
-    const appPublicUrl = this.config.get<string>('APP_PUBLIC_URL');
-    if (!appPublicUrl) {
-      throw new Error('Missing required environment variable: APP_PUBLIC_URL');
-    }
+    // Kill switch: OnlyOffice feature = ONLYOFFICE_ENABLED=false (default).
+    // Don't throw at bootstrap. APP_PUBLIC_URL checked lazily in methods
+    // (only when OnlyOffice is enabled + user calls preview/finalize).
+    // This allows BE to boot without OnlyOffice env on servers where
+    // OnlyOffice Docker isn't deployed yet.
   }
 
   getTemplateSchema(jenis: string): TemplateSchema | null {
@@ -51,6 +52,16 @@ export class NaskahUmumService {
     fields: Record<string, string | string[]>,
     userId: string,
   ): Promise<{ tempId: string; s3Key: string }> {
+    // Lazy check: OnlyOffice must be enabled + APP_PUBLIC_URL set
+    if (!this.onlyOffice.isEnabled()) {
+      throw new BadRequestException(
+        'OnlyOffice feature is disabled. Set ONLYOFFICE_ENABLED=true and configure OnlyOffice Document Server.',
+      );
+    }
+    const appPublicUrl = this.config.get<string>('APP_PUBLIC_URL');
+    if (!appPublicUrl) {
+      throw new BadRequestException('Missing required environment variable: APP_PUBLIC_URL');
+    }
     const schema = this.getTemplateSchema(jenis);
     if (!schema) throw new BadRequestException(`Jenis ${jenis} belum didukung`);
 
