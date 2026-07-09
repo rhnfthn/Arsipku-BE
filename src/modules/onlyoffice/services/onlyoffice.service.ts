@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import * as jwt from 'jsonwebtoken';
@@ -8,6 +8,7 @@ import { StorageService } from '../../storage/services/storage.service';
 
 @Injectable()
 export class OnlyOfficeService {
+  private readonly enabled: boolean;
   private readonly ooUrl: string;
   private readonly jwtSecret: string;
   private readonly publicBaseUrl: string;
@@ -17,17 +18,30 @@ export class OnlyOfficeService {
     private readonly http: HttpService,
     private readonly storage: StorageService,
   ) {
-    const ooUrl = this.config.get<string>('ONLYOFFICE_URL');
-    const jwtSecret = this.config.get<string>('ONLYOFFICE_JWT_SECRET');
-    if (!ooUrl) {
-      throw new Error('Missing required environment variable: ONLYOFFICE_URL');
-    }
-    if (!jwtSecret) {
-      throw new Error('Missing required environment variable: ONLYOFFICE_JWT_SECRET');
-    }
-    this.ooUrl = ooUrl;
-    this.jwtSecret = jwtSecret;
+    // Kill switch: ONLYOFFICE_ENABLED=false (default) → feature off, gak throw.
+    // ONLYOFFICE_ENABLED=true → feature on, methods lazy-throw kalau URL/SECRET missing.
+    this.enabled = this.config.get<string>('ONLYOFFICE_ENABLED') === 'true';
+    this.ooUrl = this.config.get<string>('ONLYOFFICE_URL') || '';
+    this.jwtSecret = this.config.get<string>('ONLYOFFICE_JWT_SECRET') || '';
     this.publicBaseUrl = this.config.get<string>('APP_PUBLIC_URL') || '';
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  private ensureEnabled(): void {
+    if (!this.enabled) {
+      throw new BadRequestException(
+        'OnlyOffice feature is disabled. Set ONLYOFFICE_ENABLED=true and configure ONLYOFFICE_URL + ONLYOFFICE_JWT_SECRET to enable.',
+      );
+    }
+    if (!this.ooUrl) {
+      throw new BadRequestException('Missing required environment variable: ONLYOFFICE_URL');
+    }
+    if (!this.jwtSecret) {
+      throw new BadRequestException('Missing required environment variable: ONLYOFFICE_JWT_SECRET');
+    }
   }
 
   getOnlyOfficeUrl(): string {
@@ -35,12 +49,14 @@ export class OnlyOfficeService {
   }
 
   signJwt(payload: object): string {
+    this.ensureEnabled();
     return jwt.sign(payload as object, this.jwtSecret, { algorithm: 'HS256' });
   }
 
   buildStorageDocumentUrl(s3Key: string): string {
+    this.ensureEnabled();
     if (!this.publicBaseUrl) {
-      throw new Error('Missing required environment variable: APP_PUBLIC_URL');
+      throw new BadRequestException('Missing required environment variable: APP_PUBLIC_URL');
     }
     const token = this.signJwt({
       purpose: 'onlyoffice-storage-document',
@@ -59,6 +75,7 @@ export class OnlyOfficeService {
     userName: string;
     mode: 'edit' | 'view';
   }): EditorConfig {
+    this.ensureEnabled();
     const isEdit = opts.mode === 'edit';
     const base = {
       documentType: 'word' as const,
@@ -90,6 +107,7 @@ export class OnlyOfficeService {
    * always reachable from inside the document-server container.
    */
   async convertToPdf(s3Key: string): Promise<Buffer> {
+    this.ensureEnabled();
     const fileUrl = this.buildStorageDocumentUrl(s3Key);
     const payload = {
       async: false,
