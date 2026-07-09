@@ -1447,6 +1447,19 @@ export class DisposisiService {
           naskahReferensi.ref_nomor = naskahRef.nomor || null;
           naskahReferensi.ref_perihal = naskahRef.perihal || null;
           await queryRunner.manager.save(naskahReferensi);
+
+          // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
+          // the original naskah → disables lanjut buttons in kotak-masuk
+          // (prevents double follow-up / double-send).
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            {
+              idNaskah: dto.id_referensi_naskah,
+              position: String(dto.pengirim_position_id),
+              sirkuler: 'penerima',
+            },
+            { tindakLanjut: 1 },
+          );
         }
       }
 
@@ -1894,6 +1907,19 @@ export class DisposisiService {
           naskahReferensi.ref_nomor = naskahRef.nomor || null;
           naskahReferensi.ref_perihal = naskahRef.perihal || null;
           await queryRunner.manager.save(naskahReferensi);
+
+          // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
+          // the original naskah → disables lanjut buttons in kotak-masuk
+          // (prevents double follow-up / double-send).
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            {
+              idNaskah: dto.id_referensi_naskah,
+              position: String(dto.pengirim_position_id),
+              sirkuler: 'penerima',
+            },
+            { tindakLanjut: 1 },
+          );
         }
       }
 
@@ -3574,23 +3600,25 @@ export class DisposisiService {
     await this.assertUserHasAccessToNaskah(naskahId, userPosition);
 
     // ============================================================
-    // BUILD FULL CHAIN / RANGKAIAN
+    // BUILD ANCESTOR CHAIN (scoped: root -> naskah yang dilihat)
+    // Hanya jalur ancestor (viewed -> parent -> ... -> root). Jangan traverse
+    // forward ke downstream — anti bocor riwayat dispo orang lain ke viewer.
     // ============================================================
 
-    // STEP 1: Trace backward to find root
-    let rootNaskahId = naskahId;
-    let currentId = naskahId;
-    const visitedIds = new Set<string>([currentId]);
+    // STEP 1: Trace backward, kumpulkan chain [viewed, parent, ..., root]
+    const chainIds: string[] = [];
+    const visitedIds = new Set<string>();
+    let currentId: string | null = naskahId;
 
-    while (true) {
+    while (currentId && !visitedIds.has(currentId)) {
+      visitedIds.add(currentId);
+      chainIds.push(currentId);
+
       const referensi = await this.naskahReferensiRepository.findOne({
         where: { id_naskah: currentId },
       });
 
-      if (!referensi || !referensi.ref_nomor) {
-        rootNaskahId = currentId;
-        break;
-      }
+      if (!referensi || !referensi.ref_nomor) break;
 
       const parentNaskah = await this.naskahRepository.findOne({
         where: {
@@ -3599,18 +3627,42 @@ export class DisposisiService {
         },
       });
 
-      if (!parentNaskah || visitedIds.has(parentNaskah.id)) {
-        rootNaskahId = currentId;
-        break;
-      }
-
-      visitedIds.add(parentNaskah.id);
+      if (!parentNaskah) break;
       currentId = parentNaskah.id;
     }
 
-    // STEP 2: Build flow from root forward
+    // STEP 1b: Forward-traverse dari viewed — ikut forward MILIK USER SENDIRI
+    // (pengirim == userPosition), berhenti di forward orang lain. Agar kotak-masuk
+    // user tetap lihat tindak-lanjut/forward-nya sendiri tanpa bocor downstream
+    // orang lain (D3, D4, ...).
+    const ownForwards: string[] = [];
+    const forwardOwnChain = async (parentId: string) => {
+      const parent = await this.naskahRepository.findOne({
+        where: { id: parentId },
+      });
+      if (!parent || !parent.nomor) return;
+
+      const children = await this.naskahReferensiRepository.find({
+        where: { ref_nomor: parent.nomor },
+      });
+
+      for (const child of children) {
+        if (!child.id_naskah || chainIds.includes(child.id_naskah) || ownForwards.includes(child.id_naskah)) continue;
+
+        const pengirim = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: child.id_naskah, sirkuler: 'pengirim' },
+        });
+        if (!pengirim || String(pengirim.position) !== String(userPosition)) continue;
+
+        ownForwards.push(child.id_naskah);
+        await forwardOwnChain(child.id_naskah);
+      }
+    };
+
+    await forwardOwnChain(naskahId);
+
+    // STEP 2: Build flow dari ancestor chain
     const flow: any[] = [];
-    const naskahIdToLevel = new Map<string, number>();
 
     // Helper function to build node data for flow
     const buildFlowNode = async (
@@ -3746,47 +3798,19 @@ export class DisposisiService {
       };
     };
 
-    // Build root node
-    const rootNaskah = await this.naskahRepository.findOne({
-      where: { id: rootNaskahId },
-    });
+    // Build flow dari ancestor chain: chainIds = [viewed, parent, ..., root]
+    // reverse -> [root, ..., viewed]; lalu append own forwards (downstream user sendiri).
+    // level = index (root=0, viewed=highest, own forwards di atas viewed).
+    const orderedIds = [...chainIds].reverse().concat(ownForwards);
 
-    if (rootNaskah) {
-      const rootNode = await buildFlowNode(rootNaskah, 0);
-      flow.push(rootNode);
-      naskahIdToLevel.set(rootNaskahId, 0);
+    for (let i = 0; i < orderedIds.length; i++) {
+      const naskahData = await this.naskahRepository.findOne({
+        where: { id: orderedIds[i] },
+      });
+      if (!naskahData) continue;
 
-      // STEP 3: Recursively find all forwards
-      const findAllForwards = async (parentNaskah: NaskahEntity, parentLevel: number) => {
-        if (!parentNaskah.nomor) return;
-
-        const allReferensi = await this.naskahReferensiRepository
-          .createQueryBuilder('ref')
-          .where('ref.ref_nomor = :nomor', { nomor: parentNaskah.nomor })
-          .andWhere('ref.ref_jenis = :jenis', { jenis: 'DI' })
-          .getMany();
-
-        for (const ref of allReferensi) {
-          if (!ref.id_naskah || naskahIdToLevel.has(ref.id_naskah)) {
-            continue;
-          }
-
-          const childNaskah = await this.naskahRepository.findOne({
-            where: { id: ref.id_naskah, jenis: 'DI' },
-          });
-
-          if (childNaskah) {
-            const childLevel = parentLevel + 1;
-            const childNode = await buildFlowNode(childNaskah, childLevel);
-            flow.push(childNode);
-            naskahIdToLevel.set(childNaskah.id, childLevel);
-
-            await findAllForwards(childNaskah, childLevel);
-          }
-        }
-      };
-
-      await findAllForwards(rootNaskah, 0);
+      const node = await buildFlowNode(naskahData, i);
+      flow.push(node);
     }
 
     // Sort flow by level DESCENDING (terbaru di atas, awal di bawah)
