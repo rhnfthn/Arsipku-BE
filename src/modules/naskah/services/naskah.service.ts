@@ -656,6 +656,28 @@ export class NaskahService {
       await calculateLevel(naskahId);
     }
 
+    // STEP 2b: Include konsep (jenis 'K') yang menempel pada naskah asli via
+    // id_naskah_asli. K tidak ter-link via NaskahReferensi sehingga tidak
+    // ter-traversal di STEP 1 — tanpa ini riwayat konsep hilang dari chain
+    // naskah (pengirim/signer hanya lihat disposisi). Level K = level asli.
+    const asliIdsForKonsep = [...allNaskahInChain];
+    for (const asliId of asliIdsForKonsep) {
+      const asliNaskah = await this.naskahRepository.findOne({
+        where: { id: asliId },
+        select: { id: true, jenis: true } as any,
+      });
+      if (!asliNaskah || asliNaskah.jenis === 'K') continue;
+      const konsepKs = await this.naskahRepository.find({
+        where: { id_naskah_asli: asliId, jenis: 'K' as any },
+        select: { id: true } as any,
+      });
+      const asliLevel = naskahIdToLevel.get(asliId) ?? 0;
+      for (const k of konsepKs) {
+        if (!allNaskahInChain.has(k.id)) allNaskahInChain.add(k.id);
+        if (!naskahIdToLevel.has(k.id)) naskahIdToLevel.set(k.id, asliLevel);
+      }
+    }
+
     // STEP 3: Build flow dengan level yang sudah dihitung
     const flow: any[] = [];
     
@@ -880,13 +902,14 @@ export class NaskahService {
       };
     };
 
-    // Build nodes untuk semua naskah dalam chain (exclude jenis 'K' / konsep)
+    // Build nodes untuk semua naskah dalam chain (termasuk konsep 'K' yang
+    // menempel pada naskah asli — lihat STEP 2b — agar riwayat konsep tampil).
     for (const naskahIdInChain of allNaskahInChain) {
       const naskahData = await this.naskahRepository.findOne({
         where: { id: naskahIdInChain },
       });
-      
-      if (naskahData && naskahData.jenis !== 'K') {
+
+      if (naskahData) {
         const level = naskahIdToLevel.get(naskahIdInChain) || 0;
         const node = await buildFlowNode(naskahData, level);
         flow.push(node);
