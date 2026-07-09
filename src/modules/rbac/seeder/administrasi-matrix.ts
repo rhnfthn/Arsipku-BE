@@ -119,35 +119,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
             },
           ],
         },
-        {
-          key: 'verifikasi',
-          label: 'Verifikasi',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Verifikasi',
-              permissions: [
-                { action: 'read-verifikasi', label: 'Read', description: 'Melihat daftar Verifikasi', resource: 'penomoran' },
-                { action: 'export-verifikasi', label: 'Export', description: 'Button Export Verifikasi', resource: 'penomoran' },
-              ],
-            },
-          ],
-        },
-        {
-          key: 'penomoran-daftar',
-          label: 'Penomoran',
-          fiturs: [
-            {
-              key: 'halaman',
-              label: 'Halaman Penomoran',
-              permissions: [
-                { action: 'read-penomoran', label: 'Read', description: 'Melihat halaman Penomoran', resource: 'penomoran' },
-                { action: 'create-penomoran', label: 'Create', description: 'Button Tambah Penomoran', resource: 'penomoran' },
-                { action: 'export-penomoran', label: 'Export', description: 'Button Export Penomoran', resource: 'penomoran' },
-              ],
-            },
-          ],
-        },
       ],
     },
     // ============================================================
