@@ -7,6 +7,7 @@ import { ResourceEntity } from '../entities/resource.entity';
 import { PermissionEntity } from '../entities/permission.entity';
 import { RolePermissionEntity } from '../entities/role-permission.entity';
 import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
+import { utamaResources } from './utama-matrix';
 
 // Load .env dari root arsipku-be
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -231,6 +232,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'update', description: 'Mengedit FAQ' },
       { action: 'delete', description: 'Menghapus FAQ' },
       { action: 'export', description: 'Button Export FAQ' },
+      { action: 'manage', description: 'Kelola FAQ (CRUD)' },
     ],
   },
   {
@@ -389,7 +391,8 @@ const resourcesWithPermissions: ResourceDef[] = [
     description: 'Layanan Email — Kirim Email & Log Email',
     permissions: [
       { action: 'create', description: 'Kirim Email' },
-      { action: 'read', description: 'Melihat halaman Layanan Email / Log Email' },
+      { action: 'read', description: 'Melihat halaman Kirim Email' },
+      { action: 'read-log', description: 'Melihat halaman Log Email' },
     ],
   },
   {
@@ -423,16 +426,23 @@ const resourcesWithPermissions: ResourceDef[] = [
 // USER: create naskah + view arsip + request penomoran
 // ============================================================
 
+// Build permissions from resourcesWithPermissions
+const basePermissions = resourcesWithPermissions.flatMap((r) =>
+  r.permissions.map((p) => `${r.name}.${p.action}`),
+);
+
+// Build utama matrix permissions from utamaResources
+const utamaPermissions = utamaResources.flatMap((r) =>
+  r.permissions.map((p) => `${r.name}.${p.action}`),
+);
+
+// All permissions: base + utama (for all roles)
+const allPermissions = [...basePermissions, ...utamaPermissions];
+
 const rolePermissionAssignments: Record<string, string[]> = {
-  SUPERADMIN: resourcesWithPermissions.flatMap((r) =>
-    r.permissions.map((p) => `${r.name}.${p.action}`),
-  ),
-  ADMIN: resourcesWithPermissions.flatMap((r) =>
-    r.permissions.map((p) => `${r.name}.${p.action}`),
-  ),
-  USER: resourcesWithPermissions.flatMap((r) =>
-    r.permissions.map((p) => `${r.name}.${p.action}`),
-  ),
+  SUPERADMIN: allPermissions,
+  ADMIN: allPermissions,
+  USER: allPermissions,
 };
 
 const roleDescriptions: Record<RoleName, string> = {
@@ -523,6 +533,43 @@ async function main() {
     }
   }
   console.log(`✅ ${resourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`);
+
+  // 2b. Upsert Utama matrix resources (utama.beranda, utama.tulis.nota-dinas, etc.)
+  //     These are used by the RBAC matrix editor UI and frontend useFeatureAccess.ts
+  for (const rDef of utamaResources) {
+    let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
+    if (!resource) {
+      resource = resourceRepo.create({
+        id: uuidv4(),
+        name: rDef.name,
+        description: rDef.description,
+      });
+    } else {
+      resource.description = rDef.description;
+    }
+    await resourceRepo.save(resource);
+
+    for (const pDef of rDef.permissions) {
+      const permName = `${rDef.name}.${pDef.action}`;
+      let perm = await permRepo.findOne({ where: { name: permName } });
+      if (!perm) {
+        perm = permRepo.create({
+          id: uuidv4(),
+          name: permName,
+          description: pDef.description,
+          action: pDef.action,
+          resourceId: resource.id,
+        });
+      } else {
+        perm.description = pDef.description;
+        perm.action = pDef.action;
+        perm.resourceId = resource.id;
+      }
+      await permRepo.save(perm);
+      permIdByName.set(permName, perm.id);
+    }
+  }
+  console.log(`✅ ${utamaResources.length} Utama matrix resources added (total permissions: ${permIdByName.size})`);
 
   // 3. Assign permissions to roles (replace per role)
   for (const [roleName, permNames] of Object.entries(rolePermissionAssignments)) {
