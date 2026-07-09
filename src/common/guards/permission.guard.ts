@@ -21,7 +21,7 @@ import { PermissionCacheService } from './permission-cache.service';
  * - Jika endpoint TIDAK punya @RequirePermission -> allow (endpoint terbuka bagi yang login)
  * - SUPERADMIN juga dicek permission-nya via DB (no bypass — Opsi C hybrid)
  * - Cek permission user dari DB live (via RbacService.buildActiveRoleAndPermissions)
- *   dengan cache in-memory (TTL 30 detik) untuk mitigasi performance cost.
+ *   dengan cache in-memory (TTL 1 detik) — invalidateAll dipanggil saat save matrix.
  *
  * Didaftarkan sebagai APP_GUARD global berurutan SETELAH JwtAuthGuard.
  *
