@@ -254,6 +254,28 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
+    // ============================================================
+    // 6. Konfigurasi Sistem
+    // ============================================================
+    {
+      key: 'konfigurasi',
+      label: 'Konfigurasi Sistem',
+      subMenus: [
+        {
+          key: 'konfigurasi',
+          label: 'Konfigurasi Sistem',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Konfigurasi',
+              permissions: [
+                { action: 'read', label: 'Read', description: 'Melihat konfigurasi sistem', resource: 'konfigurasi' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 
