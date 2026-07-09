@@ -377,6 +377,11 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
@@ -911,6 +916,11 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
@@ -1290,6 +1300,11 @@ export class NaskahSirkulasiService {
     }
 
     // Filter by tindak lanjut
+    // Default: show all (received naskah stays in kotak-masuk even after the user
+    // forwarded/tindak-lanjut'd it — it's still a received item / history; the
+    // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
+    // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
+    // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
       summaryWhereClause += ` AND s.tindak_lanjut = 1`;
