@@ -103,7 +103,7 @@ export class DraftListPenerimaDto {
 export class DraftListItemDto {
   id_naskah: string;
   id_sirkulasi: string | null;
-  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
+  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K' | 'UND';
   jenis_text: string;
   penanda_konsep: boolean;
   konseptor_position_id: number | null;
@@ -183,7 +183,7 @@ export class DraftDetailPetunjukDto {
 
 export class DraftDetailDataDto {
   id_naskah: string;
-  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
+  jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K' | 'UND';
   jenis_text: string;
   nomor?: string;
   tanggal: Date;
