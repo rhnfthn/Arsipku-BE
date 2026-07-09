@@ -106,7 +106,7 @@ import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         migrationsRun: true,
-        synchronize: true, // auto-create tables for new entities
+        synchronize: false,
         timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
         extra: {
           maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
