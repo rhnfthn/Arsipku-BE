@@ -45,7 +45,6 @@ export class SentItemForCombinedDto extends SentMessageItemDto {
     is_favorit?: boolean;
     is_arsip?: boolean;
     is_note?: boolean;
-    note_text?: string | null;
 }
 
 export class InboxSentResponseDto {
