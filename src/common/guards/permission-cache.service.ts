@@ -7,8 +7,8 @@ import { Injectable, Logger } from '@nestjs/common';
  * - PermissionGuard: baca cache untuk cek permission (fallback ke DB via RbacService)
  * - RbacService: invalidate cache setelah assign/remove role atau edit permission
  *
- * Bug B1 fix: cache TTL 30 detik → perubahan permission efektif maksimal 30 detik
- * setelah superadmin edit (vs 24 jam sebelumnya karena JWT stateless).
+ * Bug B1 fix: cache TTL 1 detik (safety net) → perubahan permission real-time.
+ * invalidateAll() dipanggil saat superadmin save matrix → cache langsung clear.
  *
  * Cache ini bersifat per-instance (in-memory). Jika backend di-scale ke multiple
  * instance, pertimbangkan migrasi ke Redis cache.
@@ -16,7 +16,7 @@ import { Injectable, Logger } from '@nestjs/common';
 @Injectable()
 export class PermissionCacheService {
   private readonly logger = new Logger(PermissionCacheService.name);
-  private readonly CACHE_TTL_MS = 30_000; // 30 detik
+  private readonly CACHE_TTL_MS = 1_000; // 1 detik (safety net — invalidateAll sudah clear cache saat save)
   private readonly cache = new Map<
     number,
     { permissions: { resource: string; actions: string[] }[]; expiresAt: number }
