@@ -11,11 +11,11 @@ export class NaskahEntity {
   id: string;
 
   @Column('enum', {
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'UND'],
     comment:
-      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif',
+      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, UND=Surat Undangan (Naskah Umum)',
   })
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'UND';
 
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;

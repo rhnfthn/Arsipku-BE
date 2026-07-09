@@ -1232,6 +1232,19 @@ export class SuratDinasEksternalService {
             ref_perihal: naskahRef.perihal || null,
           });
           await queryRunner.manager.save(referensi);
+
+          // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
+          // the original naskah → disables lanjut buttons in kotak-masuk
+          // (prevents double follow-up / double-send).
+          await queryRunner.manager.update(
+            NaskahSirkulasi,
+            {
+              idNaskah: dto.id_referensi_naskah,
+              position: String(dto.pengirim),
+              sirkuler: 'penerima',
+            },
+            { tindakLanjut: 1 },
+          );
         }
       }
 
