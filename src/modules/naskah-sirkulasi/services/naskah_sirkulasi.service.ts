@@ -1106,6 +1106,7 @@ export class NaskahSirkulasiService {
     // Build response items
     const items: TertundaItemDto[] = rows.map((row: any) => ({
       id_naskah: row.id_naskah,
+      id_sirkulasi: row.id_sirkulasi,
       jenis: row.jenis,
       jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
       nomor: row.nomor || null,
@@ -1114,6 +1115,12 @@ export class NaskahSirkulasiService {
       sifat: row.sifat || 'biasa',
       status: 'pending' as const,
       lampiran: lampiranMap.get(row.id_naskah) || 0,
+      favorit: !!row.flag_favorit,
+      note: !!row.flag_note,
+      note_text: row.note_text || null,
+      arsip: !!row.flag_arsip,
+      is_locked: !!row.is_locked,
+      is_tindak_lanjut: !!row.tindak_lanjut,
       pengirim: {
         position_id: row.pengirim_position_id || '',
         position_text: row.pengirim_position_text || '',
@@ -1840,6 +1847,7 @@ export class NaskahSirkulasiService {
         },
         favorit: !!row.flag_favorit,
         note: !!row.flag_note,
+        note_text: row.note_text || null,
         arsip: !!row.flag_arsip,
         is_tindak_lanjut: !!row.tindak_lanjut,
         is_locked: !!row.is_locked,

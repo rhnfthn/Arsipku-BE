@@ -172,6 +172,7 @@ export class SentMessageItemDto {
   };
   favorit: boolean;
   note: boolean;
+  note_text: string | null;
   arsip: boolean;
   is_tindak_lanjut?: boolean;
   is_locked?: boolean;
