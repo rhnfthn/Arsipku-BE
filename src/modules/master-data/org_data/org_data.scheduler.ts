@@ -91,7 +91,11 @@ export class OrgDataScheduler {
   }
 
   async syncOrgData() {
-    const tgl = new Date().toISOString().split('T')[0];
+    // Bug fix: toISOString() converts to UTC. Server TZ=Asia/Jakarta (UTC+7).
+    // At 6 AM local, UTC is 11 PM previous day → wrong date.
+    // Use local date components instead.
+    const now = new Date();
+    const tgl = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const [ooData, oaData, osData, oscData, spData, odData] = await Promise.all([
       this.relationOoService.findManyRelation(tgl),
