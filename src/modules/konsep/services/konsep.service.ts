@@ -11,6 +11,7 @@ import {
   DataSource,
   In,
   IsNull,
+  Not,
   QueryRunner,
   EntityManager,
 } from 'typeorm';
@@ -1718,6 +1719,28 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiPenerima);
 
       // ==========================================
+      // 4b. COPY REFERENSI KE DISPOSISI DARI ROOT K
+      // ==========================================
+      // Forwarded K tidak dapat NaskahReferensi otomatis (hanya createKonsep
+      // yang simpan referensi). Tanpa referensi, getDetailWithChain(K forward)
+      // tidak bisa trace ke disposisi → chain riwayat hilang. Copy referensi
+      // root K agar K baru tetap ter-link ke disposisi.
+      const rootRef = await queryRunner.manager.findOne(NaskahReferensiEntity, {
+        where: { id_naskah: In(konsepIds), ref_nomor: Not(IsNull()) },
+      });
+      if (rootRef) {
+        const refCopy = new NaskahReferensiEntity();
+        refCopy.id = uuidv4();
+        refCopy.id_naskah = newNaskahKonsepId;
+        refCopy.ref_jenis = rootRef.ref_jenis;
+        refCopy.ref_nomor = rootRef.ref_nomor;
+        refCopy.ref_tanggal = rootRef.ref_tanggal;
+        refCopy.ref_perihal = rootRef.ref_perihal;
+        refCopy.ref_pengirim = rootRef.ref_pengirim ?? null;
+        await queryRunner.manager.save(refCopy);
+      }
+
+      // ==========================================
       // 5. UPDATE NASKAH ASLI IF CHANGES PROVIDED
       // ==========================================
       const naskahAsli = await queryRunner.manager.findOne(NaskahEntity, {
@@ -2529,6 +2552,27 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiPenerima);
 
       // ==========================================
+      // 5b. COPY REFERENSI KE DISPOSISI DARI ROOT K
+      // ==========================================
+      // Reject K tidak dapat NaskahReferensi otomatis. Copy referensi root K
+      // agar getDetailWithChain(K reject) bisa trace ke disposisi (chain
+      // riwayat tidak hilang).
+      const rootRefReject = await queryRunner.manager.findOne(NaskahReferensiEntity, {
+        where: { id_naskah: In(konsepIds), ref_nomor: Not(IsNull()) },
+      });
+      if (rootRefReject) {
+        const refCopyReject = new NaskahReferensiEntity();
+        refCopyReject.id = uuidv4();
+        refCopyReject.id_naskah = newNaskahKonsepId;
+        refCopyReject.ref_jenis = rootRefReject.ref_jenis;
+        refCopyReject.ref_nomor = rootRefReject.ref_nomor;
+        refCopyReject.ref_tanggal = rootRefReject.ref_tanggal;
+        refCopyReject.ref_perihal = rootRefReject.ref_perihal;
+        refCopyReject.ref_pengirim = rootRefReject.ref_pengirim ?? null;
+        await queryRunner.manager.save(refCopyReject);
+      }
+
+      // ==========================================
       // 6. SAVE RIWAYAT (aksi='reject')
       // ==========================================
       const nextUrutan = latestRiwayat.urutan + 1;
@@ -2969,6 +3013,18 @@ export class KonsepService {
           .orderBy('kr.urutan', 'ASC')
           .getMany();
       }
+
+      // ponytail: anti-bocor downstream — batasi riwayat konsep hanya yg melibatkan
+      // user saat ini (sebagai pengirim/from atau penerima/to). Forward setelah user
+      // kirim (downstream orang lain: user3→user4, dst) di-cut, tak muncul di
+      // kotak-masuk/terkirim user. riwayat finalize (toPositionId null) tetap masuk
+      // jika user adalah from (finalizer).
+      const userPosStr = String(userPosition);
+      riwayatList = riwayatList.filter(
+        (r) =>
+          String(r.fromPositionId ?? '') === userPosStr ||
+          String(r.toPositionId ?? '') === userPosStr,
+      );
 
       // 4. Find the first K naskah (parent = null) for disposisi referensi
       let firstNaskahKId = naskahKonsep.id;

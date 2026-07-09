@@ -261,8 +261,11 @@ export class DashboardService {
         .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
         .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
+        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', { isKonsep: false, konsepJenis: 'K' })
         .andWhere('n.status IN (:...statuses)', { statuses })
+        // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
+        .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
         .getCount(),
 
       // Surat Sudah Ditindaklanjuti
@@ -273,8 +276,11 @@ export class DashboardService {
         .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
         .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
+        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', { isKonsep: false, konsepJenis: 'K' })
         .andWhere('n.status IN (:...statuses)', { statuses })
+        // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
+        .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
         .getCount(),
     ]);
 
