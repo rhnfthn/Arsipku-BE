@@ -200,7 +200,7 @@ export class RbacController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')
   async assignPermissions(@Param('id') id: string, @Body() dto: AssignPermissionDto) {
-    await this.rbacService.assignPermissionsToRole(id, dto.permissionIds);
+    await this.rbacService.assignPermissionsToRole(id, dto.permissionIds, dto.matrixPermissionIds);
     return { success: true, message: 'Permissions assigned to role' };
   }
 
