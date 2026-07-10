@@ -29,7 +29,7 @@ export class TemplateSuratController {
    * - content: string (optional) - HTML content
    */
   @Post()
-  @RequirePermission('master-data', 'create')
+  @RequirePermission('naskah-dinas', 'create')
   async create(@Body() dto: CreateTemplateSuratDto): Promise<TemplateSuratItemResponseDto> {
     try {
       const created = await this.templateSuratService.create(dto);
@@ -76,7 +76,7 @@ export class TemplateSuratController {
    * - content: string (optional) - HTML content
    */
   @Put(':id')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('naskah-dinas', 'update')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateTemplateSuratDto,
@@ -86,7 +86,7 @@ export class TemplateSuratController {
   }
 
   @Delete(':id')
-  @RequirePermission('master-data', 'delete')
+  @RequirePermission('naskah-dinas', 'delete')
   async remove(@Param('id') id: string): Promise<TemplateSuratActionResponseDto> {
     await this.templateSuratService.remove(id);
     return { success: true, message: 'Template Surat removed successfully' };

@@ -41,6 +41,23 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
       label: 'TTD Digital',
       subMenus: [
         {
+          key: 'verifikasi-dokumen',
+          label: 'Verifikasi Dokumen',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Verifikasi Dokumen',
+              permissions: [
+                { action: 'read-verifikasi-dokumen', label: 'Read', description: 'Melihat halaman Verifikasi Dokumen', resource: 'digsig' },
+                { action: 'create-verifikasi-dokumen', label: 'Create', description: 'Button Tambah Dokumen', resource: 'digsig' },
+                { action: 'read-verifikasi-dokumen-lihat', label: 'Read', description: 'Button Lihat Dokumen (Verifikasi)', resource: 'digsig' },
+                { action: 'read-verifikasi-dokumen-detail', label: 'Read', description: 'Button Show Detail Dokumen', resource: 'digsig' },
+                { action: 'update-verifikasi-dokumen', label: 'Update', description: 'Button Edit Dokumen', resource: 'digsig' },
+              ],
+            },
+          ],
+        },
+        {
           key: 'penandatanganan',
           label: 'Penandatanganan',
           fiturs: [
@@ -53,6 +70,33 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
                 { action: 'read-penandatanganan-lihat', label: 'Read', description: 'Button Lihat Dokumen (Penandatanganan)', resource: 'digsig' },
                 { action: 'create-penandatanganan-ttd', label: 'Create', description: 'Button Tanda Tangan', resource: 'digsig' },
                 { action: 'create-penandatanganan-tolak', label: 'Create', description: 'Button Tolak', resource: 'digsig' },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'cek-dokumen',
+          label: 'Cek Dokumen',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Cek Dokumen',
+              permissions: [
+                { action: 'read-cek-dokumen', label: 'Read', description: 'Melihat halaman Cek Dokumen', resource: 'digsig' },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'log-disdig',
+          label: 'Log Disdig',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Log Disdig',
+              permissions: [
+                { action: 'read-log-disdig', label: 'Read', description: 'Melihat halaman Log Disdig', resource: 'digsig' },
+                { action: 'create-log-disdig-alert', label: 'Create', description: 'Button Aktifkan Alert Gangguan', resource: 'digsig' },
               ],
             },
           ],
