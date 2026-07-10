@@ -83,6 +83,7 @@ export class TertundaQueryDto {
  */
 export class TertundaItemDto {
   id_naskah: string;
+  id_sirkulasi: string;
   jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA';
   jenis_label: string;
   nomor: string | null;
@@ -91,6 +92,12 @@ export class TertundaItemDto {
   sifat: string;
   status: 'pending';
   lampiran: number;
+  favorit: boolean;
+  note: boolean;
+  note_text: string | null;
+  arsip: boolean;
+  is_locked: boolean;
+  is_tindak_lanjut: boolean;
   pengirim: {
     position_id: string;
     position_text: string;
