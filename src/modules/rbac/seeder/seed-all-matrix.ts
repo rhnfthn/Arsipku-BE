@@ -203,11 +203,8 @@ const rbacManagementResources: { name: string; description: string; permissions:
     name: 'template',
     description: 'Template (legacy resource)',
     permissions: [
-      { action: 'create', description: 'Button Tambah Template' },
       { action: 'read', description: 'Melihat Template' },
       { action: 'read-download', description: 'Button Download Template' },
-      { action: 'update', description: 'Button Edit Template' },
-      { action: 'delete', description: 'Button Delete Template' },
     ],
   },
   {
