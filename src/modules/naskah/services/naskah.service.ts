@@ -657,9 +657,9 @@ export class NaskahService {
     }
 
     // STEP 2b: Include konsep (jenis 'K') yang menempel pada naskah asli via
-    // id_naskah_asli. K tidak ter-link via NaskahReferensi sehingga tidak
-    // ter-traversal di STEP 1 — tanpa ini riwayat konsep hilang dari chain
-    // naskah (pengirim/signer hanya lihat disposisi). Level K = level asli.
+    // id_naskah_asli — HANYA jika viewer adalah pengirim naskah asli.
+    // Penerima/tembusan TIDAK boleh melihat riwayat konsep (draft workflow),
+    // mereka hanya melihat naskah final yang dikirim ke mereka.
     const asliIdsForKonsep = [...allNaskahInChain];
     for (const asliId of asliIdsForKonsep) {
       const asliNaskah = await this.naskahRepository.findOne({
@@ -667,6 +667,18 @@ export class NaskahService {
         select: { id: true, jenis: true } as any,
       });
       if (!asliNaskah || asliNaskah.jenis === 'K') continue;
+
+      // Check: hanya pengirim naskah asli yang boleh lihat riwayat konsep
+      const isPengirimOfAsli = await this.naskahSirkulasiRepository.findOne({
+        where: {
+          idNaskah: asliId,
+          sirkuler: 'pengirim',
+          position: String(userPosition),
+        },
+        select: { id: true },
+      });
+      if (!isPengirimOfAsli) continue;
+
       const konsepKs = await this.naskahRepository.find({
         where: { id_naskah_asli: asliId, jenis: 'K' as any },
         select: { id: true } as any,
