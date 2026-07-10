@@ -74,9 +74,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               label: 'Halaman Titelatur Inggris',
               permissions: [
                 { action: 'read', label: 'Read', description: 'Melihat halaman Titelatur', resource: 'titelatur' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Titelatur', resource: 'titelatur' },
-                { action: 'update', label: 'Update', description: 'Button Edit Titelatur', resource: 'titelatur' },
-                { action: 'delete', label: 'Delete', description: 'Button Delete Titelatur', resource: 'titelatur' },
               ],
             },
           ],
