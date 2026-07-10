@@ -124,7 +124,8 @@ export class GeneratePdfNodinService {
     
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
-    const namaLengkap = body.namaLengkap || body.penandatangan || '';
+    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const namaLengkap = toTitleCase(body.namaLengkap || body.penandatangan || '');
     const namaTempat = body.nama_tempat || body.namaTempat || 'Tangerang';
     
     // Dynamic header info dari sub_area_alamat
