@@ -346,9 +346,19 @@ export class NomorService {
   async createNomorRequest(
     dto: CreateNomorRequestDto,
   ): Promise<CreateNomorRequestResponseDto> {
-    // Ambil data org_data berdasarkan tanggal
+    // Ambil data org_data berdasarkan tanggal, fallback ke latest
     const tglFormatted = this.formatDate(dto.tanggal);
-    const orgDataRecord = await this.orgDataService.findOrg(tglFormatted);
+    let orgDataRecord;
+    try {
+      orgDataRecord = await this.orgDataService.findOrg(tglFormatted);
+    } catch {
+      orgDataRecord = await this.orgDataService.findLatestOrg();
+    }
+    if (!orgDataRecord) {
+      throw new NotFoundException(
+        `Data org_data tidak ditemukan untuk tanggal ${tglFormatted} maupun data terbaru`
+      );
+    }
     
     // Parse position_json dan cari position_id
     const positionJson = orgDataRecord.position_json;

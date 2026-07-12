@@ -340,10 +340,7 @@ const resourcesWithPermissions: ResourceDef[] = [
     name: 'titelatur',
     description: 'Manajemen Titelatur Inggris',
     permissions: [
-      { action: 'create', description: 'Button Tambah Titelatur Inggris' },
       { action: 'read', description: 'Melihat halaman Titelatur Inggris' },
-      { action: 'update', description: 'Button Edit Titelatur Inggris' },
-      { action: 'delete', description: 'Button Delete Titelatur Inggris' },
     ],
   },
   {
@@ -399,11 +396,8 @@ const resourcesWithPermissions: ResourceDef[] = [
     name: 'template',
     description: 'Template (manajemen template surat)',
     permissions: [
-      { action: 'create', description: 'Button Tambah Template' },
-      { action: 'read', description: 'Melihat halaman Template / Download Template' },
-      { action: 'read-download', description: 'Button Action Download Template' },
-      { action: 'update', description: 'Button Action Edit Template' },
-      { action: 'delete', description: 'Button Action Delete Template' },
+      { action: 'read', description: 'Melihat halaman Template' },
+      { action: 'read-download', description: 'Button Download Template' },
     ],
   },
   {
