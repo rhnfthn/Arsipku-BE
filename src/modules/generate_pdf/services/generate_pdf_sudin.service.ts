@@ -211,7 +211,8 @@ export class GeneratePdfSudinService {
     const tanggalFormatted = `${namaTempat}, ${tanggal}`;
     
     const positionText = body.positionText || '';
-    const namaLengkap = body.namaLengkap || '';
+    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const namaLengkap = toTitleCase(body.namaLengkap || '');
     const perihal = body.perihal || '';
     const sifat = sifatToEnglish(body.sifat || 'Biasa');
     const lampiranText = body.lampiran === '-' ? '-' : (body.lampiran || '-');
@@ -628,7 +629,8 @@ export class GeneratePdfSudinService {
     console.log('[GeneratePdfSudin] tanggalFormatted:', tanggalFormatted);
     // Position and name from JWT user data (passed from controller)
     const positionText = body.positionText || '';
-    const namaLengkap = body.namaLengkap || '';
+    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const namaLengkap = toTitleCase(body.namaLengkap || '');
     const perihal = body.perihal || '';
     const sifat = body.sifat || 'Biasa';
     const lampiranText = body.lampiran || '-';
