@@ -1489,6 +1489,7 @@ export class DisposisiService {
 
       // PHASE 6: Insert ke tabel NASKAH_SIRKULASI - penerima (per recipient)
       const penerimaResponses: DisposisiSirkulasiInfoDto[] = [];
+      const pendingNotifications: Array<() => Promise<any>> = [];
       for (let i = 0; i < penerimaDataList.length; i++) {
         const penerima = penerimaDataList[i];
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
@@ -1520,32 +1521,21 @@ export class DisposisiService {
           continue;
         }
 
-        // Send notification to penerima (for final disposisi, not draft)
-        console.log('='.repeat(60));
-        console.log('[Disposisi] 🔔 TRIGGERING NOTIFICATION for penerima');
-        console.log('[Disposisi] positionId:', String(penerima.position));
-        console.log('[Disposisi] userPersnum:', penerima.persnum_person);
-        console.log('[Disposisi] naskahId:', naskahId);
-        console.log('[Disposisi] sirkulasiId:', penerimaSirkulasi.id);
-        console.log('[Disposisi] perihal:', naskah.perihal || dto.perihal);
-        console.log('='.repeat(60));
-        
-        this.notificationService.createDisposisiNotification({
-          positionId: String(penerima.position),
-          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: penerimaSirkulasi.id,
-          nomor: naskah.nomor || undefined,
-          perihal: naskah.perihal || dto.perihal,
-          instruksi: dto.disposisi || dto.catatan || naskah.perihal || dto.perihal,
-          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
-          pengirimPosition: pengirimData.position_text,
-        }).then(result => {
-          console.log('[Disposisi] ✅ Notification SUCCESS for penerima. ID:', result?.id);
-        }).catch(err => {
-          console.error('[Disposisi] ❌ Failed to send notification to penerima:', err.message);
-          console.error('[Disposisi] ❌ Stack:', err.stack);
-        });
+        // Queue notification to penerima (sent AFTER commit)
+        const posId = String(penerima.position);
+        const persnum = penerima.persnum_person ? Number(penerima.persnum_person) : undefined;
+        const sirkId = penerimaSirkulasi.id;
+        const perihal = naskah.perihal || dto.perihal;
+        const instruksi = dto.disposisi || dto.catatan || naskah.perihal || dto.perihal;
+        const pengirimName = pengirimData.persnum_person_text || pengirimData.position_text;
+        const pengirimPos = pengirimData.position_text;
+        pendingNotifications.push(() =>
+          this.notificationService.createDisposisiNotification({
+            positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
+            nomor: naskah.nomor || undefined, perihal, instruksi,
+            pengirim: pengirimName, pengirimPosition: pengirimPos,
+          }).catch(err => console.error('[DI] ❌ Notification failed:', err.message)),
+        );
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
@@ -1752,6 +1742,11 @@ export class DisposisiService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
+      for (const send of pendingNotifications) {
+        send().catch(() => {});
+      }
 
       // Sync to Meilisearch (non-blocking, after successful commit)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });

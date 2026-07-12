@@ -1229,6 +1229,7 @@ export class KajianService {
 
       // Insert sirkulasi - penerima
       const penerimaResponses: SirkulasiInfoDto[] = [];
+      const pendingNotifications: Array<() => Promise<any>> = [];
       for (const penerima of penerimaList) {
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
@@ -1252,25 +1253,19 @@ export class KajianService {
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
-        // Send notification to penerima (skip for pending/TTD basah)
+        // Queue notification to penerima (sent AFTER commit)
         if (!isPending) {
-          console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for penerima: position=${penerima.position}, persnum=${penerima.persnum_person}`);
-          this.notificationService.createNaskahMasukNotification({
-            positionId: String(penerima.position),
-            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-            naskahId,
-            sirkulasiId: penerimaSirkulasi.id,
-            jenis: 'KA',
-            nomor: generatedNomor.nomor,
-            perihal: dto.perihal,
-            pengirim: pengirim.persnum_person_text || pengirim.position_text,
-            pengirimPosition: pengirim.position_text,
-            isTembusan: false,
-          }).then(notif => {
-            console.log(`[KA:Signing] ✅ Notification created for penerima ${penerima.position}:`, notif ? notif.id : 'null');
-          }).catch(err => {
-            console.error(`[KA:Signing] ❌ Failed to create notification for penerima ${penerima.position}:`, err.message);
-          });
+          const posId = String(penerima.position);
+          const persnum = penerima.persnum_person ? Number(penerima.persnum_person) : undefined;
+          const sirkId = penerimaSirkulasi.id;
+          pendingNotifications.push(() =>
+            this.notificationService.createNaskahMasukNotification({
+              positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
+              jenis: 'KA', nomor: generatedNomor.nomor, perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text, isTembusan: false,
+            }).catch(err => console.error('[KA] ❌ Notification failed:', err.message)),
+          );
         }
       }
 
@@ -1299,25 +1294,19 @@ export class KajianService {
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan (skip for pending/TTD basah)
+        // Queue notification to tembusan (sent AFTER commit)
         if (!isPending) {
-          console.log(`[KA:Signing] 🔔 TRIGGERING NOTIFICATION for tembusan: position=${tembusan.position}, persnum=${tembusan.persnum_person}`);
-          this.notificationService.createNaskahMasukNotification({
-            positionId: String(tembusan.position),
-            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-            naskahId,
-            sirkulasiId: tembusanSirkulasi.id,
-            jenis: 'KA',
-            nomor: generatedNomor.nomor,
-            perihal: dto.perihal,
-            pengirim: pengirim.persnum_person_text || pengirim.position_text,
-            pengirimPosition: pengirim.position_text,
-            isTembusan: true,
-          }).then(notif => {
-            console.log(`[KA:Signing] ✅ Notification created for tembusan ${tembusan.position}:`, notif ? notif.id : 'null');
-          }).catch(err => {
-            console.error(`[KA:Signing] ❌ Failed to create notification for tembusan ${tembusan.position}:`, err.message);
-          });
+          const posId = String(tembusan.position);
+          const persnum = tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined;
+          const sirkId = tembusanSirkulasi.id;
+          pendingNotifications.push(() =>
+            this.notificationService.createNaskahMasukNotification({
+              positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
+              jenis: 'KA', nomor: generatedNomor.nomor, perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text, isTembusan: true,
+            }).catch(err => console.error('[KA] ❌ Tembusan notification failed:', err.message)),
+          );
         }
       }
 
@@ -1548,6 +1537,11 @@ export class KajianService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
+      for (const send of pendingNotifications) {
+        send().catch(() => {});
+      }
 
       // Get lampiran with signed URLs
       const lampiranResponses = await this.getLampiranFilesWithUrls(naskahId);
