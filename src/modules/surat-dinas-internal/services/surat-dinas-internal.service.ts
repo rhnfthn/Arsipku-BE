@@ -35,6 +35,7 @@ import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
@@ -78,6 +79,7 @@ export class SuratDinasInternalService {
     private readonly pdfQrEmbedService: PdfQrEmbedService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly konsepService: KonsepService,
   ) { }
@@ -1577,15 +1579,10 @@ export class SuratDinasInternalService {
 
           // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
           // the original naskah → disables lanjut buttons in kotak-masuk
-          // (prevents double follow-up / double-send).
-          await queryRunner.manager.update(
-            NaskahSirkulasi,
-            {
-              idNaskah: dto.id_referensi_naskah,
-              position: String(dto.pengirim),
-              sirkuler: 'penerima',
-            },
-            { tindakLanjut: 1 },
+          await this.naskahSirkulasiService.markTindakLanjut(
+            dto.id_referensi_naskah,
+            String(dto.pengirim),
+            queryRunner.manager,
           );
         }
       }
@@ -1971,6 +1968,13 @@ export class SuratDinasInternalService {
             ref_perihal: naskahRef.perihal || null,
           });
           await queryRunner.manager.save(referensi);
+
+          // Mark tindak_lanjut=1 on the original naskah
+          await this.naskahSirkulasiService.markTindakLanjut(
+            dto.id_referensi_naskah,
+            String(dto.pengirim),
+            queryRunner.manager,
+          );
         }
       }
 
@@ -4197,9 +4201,9 @@ export class SuratDinasInternalService {
 
       // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
       if (sirkulasiPenerima) {
-        await queryRunner.manager.update(NaskahSirkulasi,
-          { id: sirkulasiPenerima.id },
-          { tindakLanjut: 1 },
+        await this.naskahSirkulasiService.markTindakLanjutById(
+          sirkulasiPenerima.id,
+          queryRunner.manager,
         );
       }
 

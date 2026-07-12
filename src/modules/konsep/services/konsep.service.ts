@@ -37,6 +37,7 @@ import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_al
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities';
+import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -108,6 +109,7 @@ export class KonsepService {
     private subAreaAlamatService: SubAreaAlamatService,
     private grupPenerimaService: GrupPenerimaService,
     private notificationService: NotificationService,
+    private naskahSirkulasiService: NaskahSirkulasiService,
     private dataSource: DataSource,
   ) {}
 
@@ -660,24 +662,8 @@ export class KonsepService {
     naskahId: string | null | undefined,
     positionId: number | string | null | undefined,
   ): Promise<void> {
-    if (
-      !naskahId ||
-      positionId === null ||
-      positionId === undefined ||
-      positionId === ''
-    ) {
-      return;
-    }
-
-    await manager.update(
-      NaskahSirkulasi,
-      {
-        idNaskah: naskahId,
-        position: String(positionId),
-        sirkuler: In(['penerima', 'tembusan']),
-      },
-      { tindakLanjut: 1 },
-    );
+    if (!naskahId || positionId === null || positionId === undefined || positionId === '') return;
+    await this.naskahSirkulasiService.markTindakLanjut(naskahId, String(positionId), manager);
   }
 
   private async getPositionData(): Promise<PositionData[]> {
