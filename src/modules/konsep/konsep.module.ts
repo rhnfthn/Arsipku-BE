@@ -21,6 +21,7 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
+import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
     DigsigModule,
     SubAreaAlamatModule,
     GrupPenerimaModule,
+    NaskahSirkulasiModule,
   ],
   controllers: [KonsepController],
   providers: [KonsepService],

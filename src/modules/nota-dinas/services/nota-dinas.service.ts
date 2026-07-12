@@ -51,6 +51,7 @@ import { formatSignatureData, generateSignatureId } from '../../../common/helper
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 
@@ -89,6 +90,7 @@ export class NotaDinasService {
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly konsepService: KonsepService,
   ) { }
@@ -2043,14 +2045,10 @@ export class NotaDinasService {
           // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
           // the original naskah, so the lanjut action buttons disable in
           // kotak-masuk and prevent creating a second follow-up (double-send).
-          await queryRunner.manager.update(
-            NaskahSirkulasi,
-            {
-              idNaskah: dto.id_referensi_naskah,
-              position: String(dto.pengirim),
-              sirkuler: 'penerima',
-            },
-            { tindakLanjut: 1 },
+          await this.naskahSirkulasiService.markTindakLanjut(
+            dto.id_referensi_naskah,
+            String(dto.pengirim),
+            queryRunner.manager,
           );
         }
       }
