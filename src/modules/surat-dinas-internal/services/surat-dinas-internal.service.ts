@@ -1968,6 +1968,13 @@ export class SuratDinasInternalService {
             ref_perihal: naskahRef.perihal || null,
           });
           await queryRunner.manager.save(referensi);
+
+          // Mark tindak_lanjut=1 on the original naskah
+          await this.naskahSirkulasiService.markTindakLanjut(
+            dto.id_referensi_naskah,
+            String(dto.pengirim),
+            queryRunner.manager,
+          );
         }
       }
 
