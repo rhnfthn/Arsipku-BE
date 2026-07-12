@@ -284,6 +284,27 @@ export class NaskahSirkulasiService {
       this.realtimeEmitService.emitInboxCount(String(dto.position_id), count);
     } catch {}
 
+    // Emit tracking update ke PENGIRIM (supaya terkirim page realtime update)
+    try {
+      const pengirimSirkulasi = await this.naskahSirkulasiRepo.findOne({
+        where: { idNaskah: dto.id_naskah, sirkuler: 'pengirim' },
+        select: { position: true },
+      });
+      if (pengirimSirkulasi?.position) {
+        this.realtimeEmitService.emitTrackingUpdate(
+          String(pengirimSirkulasi.position),
+          {
+            naskahId: dto.id_naskah,
+            sirkulasiId: sirkulasi.id,
+            positionId: String(dto.position_id),
+            status_baca: 'terbaca',
+            read_time: now.toISOString(),
+            is_tindak_lanjut: Boolean(sirkulasi.tindakLanjut),
+          },
+        );
+      }
+    } catch {}
+
     return {
       success: true,
       message: 'Status pesan berhasil diupdate menjadi terbaca',
@@ -297,6 +318,107 @@ export class NaskahSirkulasiService {
         read_user: readUser,
       },
     };
+  }
+
+  // ============================================================
+  // MARK TINDAK LANJUT - Centralized
+  // ============================================================
+
+  /**
+   * Centralized method: mark tindak_lanjut=1 on a sirkulasi record
+   * and emit tracking:update to the pengirim.
+   *
+   * @param naskahId - The naskah whose sirkulasi to update
+   * @param positionId - The position that performed tindak lanjut
+   * @param manager - Optional EntityManager for use inside transactions
+   */
+  async markTindakLanjut(
+    naskahId: string,
+    positionId: string | number,
+    manager?: any,
+  ): Promise<void> {
+    if (!naskahId || !positionId) return;
+
+    const repo = manager
+      ? manager.getRepository(NaskahSirkulasi)
+      : this.naskahSirkulasiRepo;
+
+    // Update tindak_lanjut=1 on the recipient's sirkulasi
+    await repo.update(
+      {
+        idNaskah: naskahId,
+        position: String(positionId),
+        sirkuler: In(['penerima', 'tembusan']),
+      },
+      { tindakLanjut: 1 },
+    );
+
+    // Emit tracking update to pengirim (fire-and-forget)
+    try {
+      const pengirimSirk = await repo.findOne({
+        where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+        select: { position: true },
+      });
+      if (pengirimSirk?.position) {
+        this.realtimeEmitService.emitTrackingUpdate(
+          String(pengirimSirk.position),
+          {
+            naskahId,
+            sirkulasiId: '',
+            positionId: String(positionId),
+            status_baca: 'terbaca',
+            read_time: null,
+            is_tindak_lanjut: true,
+          },
+        );
+      }
+    } catch {}
+  }
+
+  /**
+   * Mark tindak_lanjut=1 by sirkulasi record ID
+   * (for cases where we already have the sirkulasi record).
+   */
+  async markTindakLanjutById(
+    sirkulasiId: string,
+    manager?: any,
+  ): Promise<void> {
+    if (!sirkulasiId) return;
+
+    const repo = manager
+      ? manager.getRepository(NaskahSirkulasi)
+      : this.naskahSirkulasiRepo;
+
+    const sirkulasi = await repo.findOne({
+      where: { id: sirkulasiId },
+      select: { id: true, idNaskah: true, position: true },
+    });
+    if (!sirkulasi) return;
+
+    await repo.update(sirkulasiId, { tindakLanjut: 1 });
+
+    // Emit tracking update to pengirim
+    try {
+      if (sirkulasi.idNaskah) {
+        const pengirimSirk = await repo.findOne({
+          where: { idNaskah: sirkulasi.idNaskah, sirkuler: 'pengirim' },
+          select: { position: true },
+        });
+        if (pengirimSirk?.position) {
+          this.realtimeEmitService.emitTrackingUpdate(
+            String(pengirimSirk.position),
+            {
+              naskahId: sirkulasi.idNaskah,
+              sirkulasiId: sirkulasi.id,
+              positionId: String(sirkulasi.position),
+              status_baca: 'terbaca',
+              read_time: null,
+              is_tindak_lanjut: true,
+            },
+          );
+        }
+      }
+    } catch {}
   }
 
   // ============================================================

@@ -150,4 +150,26 @@ export class RealtimeEmitService {
       );
     }
   }
+
+  // ──────────────────────────────────────────────
+  // Tracking update (read status / tindak lanjut)
+  // ──────────────────────────────────────────────
+
+  /**
+   * Emit tracking update ke pengirim saat penerima membaca atau tindak lanjut.
+   */
+  emitTrackingUpdate(pengirimPositionId: string, payload: {
+    naskahId: string;
+    sirkulasiId: string;
+    positionId: string;
+    status_baca: string;
+    read_time: string | null;
+    is_tindak_lanjut: boolean;
+  }) {
+    try {
+      this.gateway.emitTrackingUpdate(pengirimPositionId, payload);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitTrackingUpdate] failed: ${err?.message}`);
+    }
+  }
 }
