@@ -121,7 +121,8 @@ export class GeneratePdfService {
     
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || "Direktur Teknik";
-    const namaLengkap = body.namaLengkap || body.penandatangan || "";
+    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const namaLengkap = toTitleCase(body.namaLengkap || body.penandatangan || "");
 
     const header = `
       <table width='100%' border='0' style='border-collapse:collapse; font-family: "Times New Roman", Times, serif;' cellpadding='2'>
