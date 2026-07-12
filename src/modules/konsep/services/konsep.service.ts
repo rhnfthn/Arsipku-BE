@@ -3857,7 +3857,7 @@ export class KonsepService {
         english: false, // SDI menggunakan format Bahasa Indonesia
       };
     } else {
-      // SDE - Surat Dinas Eksternal (Bahasa Inggris)
+      // SDE - Surat Dinas Eksternal
       return {
         html: htmlContent,
         filename: `konsep-surat-dinas-eksternal-${Date.now()}.pdf`,
@@ -3881,7 +3881,7 @@ export class KonsepService {
         headerAlamat: body.header_alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
-        english: true, // SDE menggunakan format Bahasa Inggris
+        english: body.english === true || body.english === '1' || body.english === 'true', // Gunakan flag dari frontend
       };
     }
   }
@@ -4284,7 +4284,7 @@ export class KonsepService {
           nomor: naskahAsli.nomor || '',
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
-          english: true, // SDE menggunakan format Bahasa Inggris
+          english: (naskahAsli as any).english === true || (naskahAsli as any).english === 1 || (naskahAsli as any).english === '1', // Gunakan flag dari naskah asli
           // Dynamic header info dari sub_area_alamat
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,

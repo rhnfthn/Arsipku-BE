@@ -1253,26 +1253,26 @@ export class SuratDinasEksternalService {
       await queryRunner.manager.save(pengirimSirkulasi);
 
       // PHASE 6.1: Insert sirkulasi - tembusan (if any) with urutan
+      const pendingNotifications: Array<() => Promise<any>> = [];
       if (tembusanList && tembusanList.length > 0) {
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
           const tembusanSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'tembusan', tembusan, isDraft, i);
           await queryRunner.manager.save(tembusanSirkulasi);
 
-          // Send notification to tembusan internal (only for final naskah, not draft)
+          // Queue notification to tembusan (sent AFTER commit)
           if (!isDraft) {
-            this.notificationService.createNaskahMasukNotification({
-              positionId: String(tembusan.position),
-              userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-              naskahId,
-              sirkulasiId: tembusanSirkulasi.id,
-              jenis: 'SDE',
-              nomor: nomorSurat,
-              perihal: dto.perihal,
-              pengirim: pengirim.persnum_person_text || pengirim.position_text,
-              pengirimPosition: pengirim.position_text,
-              isTembusan: true,
-            }).catch(err => console.error('[SuratDinasEksternal] Failed to send notification to tembusan:', err));
+            const posId = String(tembusan.position);
+            const persnum = tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined;
+            const sirkId = tembusanSirkulasi.id;
+            pendingNotifications.push(() =>
+              this.notificationService.createNaskahMasukNotification({
+                positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
+                jenis: 'SDE', nomor: nomorSurat, perihal: dto.perihal,
+                pengirim: pengirim.persnum_person_text || pengirim.position_text,
+                pengirimPosition: pengirim.position_text, isTembusan: true,
+              }).catch(err => console.error('[SDE] ❌ Tembusan notification failed:', err.message)),
+            );
           }
         }
       }
@@ -1432,6 +1432,11 @@ export class SuratDinasEksternalService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
+      for (const send of pendingNotifications) {
+        send().catch(() => {});
+      }
 
       // Sync to Meilisearch (non-blocking, after successful commit)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });

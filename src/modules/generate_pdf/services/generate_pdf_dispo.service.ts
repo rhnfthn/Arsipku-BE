@@ -106,7 +106,8 @@ export class GeneratePdfDispoService {
 
     const normalizedSifat = normalizeSifat(body.sifat);
     const selectedSifatLabel = sifatLabelMap[normalizedSifat] || 'Biasa';
-    const penandatangan = body.penandatangan || '';
+    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const penandatangan = toTitleCase(body.penandatangan || '');
     
     // Indonesian month names
     const monthNamesId = [

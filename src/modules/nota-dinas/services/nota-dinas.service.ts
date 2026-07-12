@@ -1516,6 +1516,7 @@ export class NotaDinasService {
 
       // PHASE 9: Insert sirkulasi - penerima with urutan
       const penerimaResponses: SirkulasiInfoDto[] = [];
+      const pendingNotifications: Array<() => Promise<any>> = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
         const penerimaSirkulasi = this.createSirkulasiFromOrgData(
@@ -1529,37 +1530,25 @@ export class NotaDinasService {
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
 
-        // Send notification to penerima (only for final naskah, not draft)
+        // Queue notification to penerima (sent AFTER commit to avoid stale data)
         if (!isDraft) {
-          console.log('='.repeat(60));
-          console.log('[NotaDinas] 🔔 TRIGGERING NOTIFICATION for penerima');
-          console.log('[NotaDinas] isDraft:', isDraft);
-          console.log('[NotaDinas] positionId:', String(penerima.position));
-          console.log('[NotaDinas] userPersnum:', penerima.persnum_person);
-          console.log('[NotaDinas] naskahId:', naskahId);
-          console.log('[NotaDinas] sirkulasiId:', penerimaSirkulasi.id);
-          console.log('[NotaDinas] perihal:', dto.perihal);
-          console.log('='.repeat(60));
-          
-          this.notificationService.createNaskahMasukNotification({
-            positionId: String(penerima.position),
-            userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-            naskahId,
-            sirkulasiId: penerimaSirkulasi.id,
-            jenis: 'ND',
-            nomor: nomorSurat,
-            perihal: dto.perihal,
-            pengirim: pengirim.persnum_person_text || pengirim.position_text,
-            pengirimPosition: pengirim.position_text,
-            isTembusan: false,
-          }).then(result => {
-            console.log('[NotaDinas] ✅ Notification SUCCESS for penerima. ID:', result?.id);
-          }).catch(err => {
-            console.error('[NotaDinas] ❌ Failed to send notification to penerima:', err.message);
-            console.error('[NotaDinas] ❌ Stack:', err.stack);
-          });
-        } else {
-          console.log('[NotaDinas] ⏭️ SKIPPING notification - isDraft:', isDraft);
+          const posId = String(penerima.position);
+          const persnum = penerima.persnum_person ? Number(penerima.persnum_person) : undefined;
+          const sirkId = penerimaSirkulasi.id;
+          pendingNotifications.push(() =>
+            this.notificationService.createNaskahMasukNotification({
+              positionId: posId,
+              userPersnum: persnum,
+              naskahId,
+              sirkulasiId: sirkId,
+              jenis: 'ND',
+              nomor: nomorSurat,
+              perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text,
+              isTembusan: false,
+            }).catch(err => console.error('[NotaDinas] ❌ Notification failed:', err.message)),
+          );
         }
       }
 
@@ -1578,36 +1567,25 @@ export class NotaDinasService {
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
 
-        // Send notification to tembusan (only for final naskah, not draft)
+        // Queue notification to tembusan (sent AFTER commit)
         if (!isDraft) {
-          console.log('='.repeat(60));
-          console.log('[NotaDinas] 🔔 TRIGGERING NOTIFICATION for tembusan');
-          console.log('[NotaDinas] isDraft:', isDraft);
-          console.log('[NotaDinas] positionId:', String(tembusan.position));
-          console.log('[NotaDinas] userPersnum:', tembusan.persnum_person);
-          console.log('[NotaDinas] naskahId:', naskahId);
-          console.log('[NotaDinas] sirkulasiId:', tembusanSirkulasi.id);
-          console.log('='.repeat(60));
-          
-          this.notificationService.createNaskahMasukNotification({
-            positionId: String(tembusan.position),
-            userPersnum: tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined,
-            naskahId,
-            sirkulasiId: tembusanSirkulasi.id,
-            jenis: 'ND',
-            nomor: nomorSurat,
-            perihal: dto.perihal,
-            pengirim: pengirim.persnum_person_text || pengirim.position_text,
-            pengirimPosition: pengirim.position_text,
-            isTembusan: true,
-          }).then(result => {
-            console.log('[NotaDinas] ✅ Notification SUCCESS for tembusan. ID:', result?.id);
-          }).catch(err => {
-            console.error('[NotaDinas] ❌ Failed to send notification to tembusan:', err.message);
-            console.error('[NotaDinas] ❌ Stack:', err.stack);
-          });
-        } else {
-          console.log('[NotaDinas] ⏭️ SKIPPING tembusan notification - isDraft:', isDraft);
+          const posId = String(tembusan.position);
+          const persnum = tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined;
+          const sirkId = tembusanSirkulasi.id;
+          pendingNotifications.push(() =>
+            this.notificationService.createNaskahMasukNotification({
+              positionId: posId,
+              userPersnum: persnum,
+              naskahId,
+              sirkulasiId: sirkId,
+              jenis: 'ND',
+              nomor: nomorSurat,
+              perihal: dto.perihal,
+              pengirim: pengirim.persnum_person_text || pengirim.position_text,
+              pengirimPosition: pengirim.position_text,
+              isTembusan: true,
+            }).catch(err => console.error('[NotaDinas] ❌ Tembusan notification failed:', err.message)),
+          );
         }
       }
 
@@ -1749,6 +1727,11 @@ export class NotaDinasService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
+      for (const send of pendingNotifications) {
+        send().catch(() => {});
+      }
 
       // Sync to Meilisearch (non-blocking, after successful commit)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
