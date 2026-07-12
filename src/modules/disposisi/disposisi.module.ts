@@ -34,6 +34,7 @@ import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SearchModule } from '../search/search.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { DigsigModule } from '../digsig/digsig.module';
     GeneratePdfModule,
     SearchModule,
     DigsigModule,
+    NaskahSirkulasiModule,
   ],
   controllers: [DisposisiController],
   providers: [DisposisiService, NomorSuratService],

@@ -257,4 +257,14 @@ export class RealtimeGateway
     if (!this.server) return;
     this.server.emit('naskah-dinas:verifikator-count', { waiting });
   }
+
+  /**
+   * Emit tracking update (read/follow-up status change) ke pengirim.
+   */
+  emitTrackingUpdate(pengirimPositionId: string, payload: any) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${pengirimPositionId}`)
+      .emit('tracking:update', payload);
+  }
 }
