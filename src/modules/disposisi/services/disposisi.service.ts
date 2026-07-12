@@ -57,6 +57,7 @@ import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
+import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { NotificationType } from '../../notification/entities';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
@@ -152,6 +153,7 @@ export class DisposisiService {
     private readonly notificationService: NotificationService,
     private readonly qrCodeService: QRCodeService,
     private readonly digsigService: DigsigService,
+    private readonly naskahSirkulasiService: NaskahSirkulasiService,
   ) { }
 
   private async validateDigsigPassphrase(params: {
@@ -1450,15 +1452,10 @@ export class DisposisiService {
 
           // Mark tindak_lanjut=1 on the user's (pengirim) penerima sirkulasi of
           // the original naskah → disables lanjut buttons in kotak-masuk
-          // (prevents double follow-up / double-send).
-          await queryRunner.manager.update(
-            NaskahSirkulasi,
-            {
-              idNaskah: dto.id_referensi_naskah,
-              position: String(dto.pengirim_position_id),
-              sirkuler: 'penerima',
-            },
-            { tindakLanjut: 1 },
+          await this.naskahSirkulasiService.markTindakLanjut(
+            dto.id_referensi_naskah,
+            String(dto.pengirim_position_id),
+            queryRunner.manager,
           );
         }
       }
@@ -3496,9 +3493,9 @@ export class DisposisiService {
 
       // Auto mark tindak_lanjut = 1 pada sirkulasi penerima yang melakukan forward
       if (sirkulasiPenerima) {
-        await queryRunner.manager.update(NaskahSirkulasi,
-          { id: sirkulasiPenerima.id },
-          { tindakLanjut: 1 },
+        await this.naskahSirkulasiService.markTindakLanjutById(
+          sirkulasiPenerima.id,
+          queryRunner.manager,
         );
       }
 

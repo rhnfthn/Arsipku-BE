@@ -21,6 +21,7 @@ import { DigsigModule } from '../digsig/digsig.module';
 import { SearchModule } from '../search/search.module';
 import { MailServiceModule } from '../mail-service/mail-service.module';
 import { KonsepModule } from '../konsep/konsep.module';
+import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { KonsepModule } from '../konsep/konsep.module';
     SearchModule,
     MailServiceModule,
     KonsepModule,
+    NaskahSirkulasiModule,
   ],
   controllers: [SuratDinasEksternalController],
   providers: [SuratDinasEksternalService, NomorSuratService],
