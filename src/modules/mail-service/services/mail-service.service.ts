@@ -102,8 +102,13 @@ export class MailServiceService {
   /**
    * Ambil log email dengan pagination
    */
-  async getLogs(page: number = 1, limit: number = 20, status?: string) {
+  async getLogs(page: number = 1, limit: number = 20, status?: string, senderPersnum?: number) {
+    if (senderPersnum === undefined || senderPersnum === null) {
+      throw new BadRequestException('Sender persnum tidak tersedia untuk filter log');
+    }
+
     const qb = this.mailLogRepository.createQueryBuilder('log')
+      .where('log.sender_persnum = :senderPersnum', { senderPersnum: String(senderPersnum) })
       .orderBy('log.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
