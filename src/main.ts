@@ -6,11 +6,14 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter, AllExceptionsFilter } from './common/filters';
 import { TransformResponseInterceptor } from './common/interceptors';
+import * as express from 'express';
 
 async function bootstrap() {
   const PORT = Number(process.env.PORT) || 3000;
   console.log(`Running Server on PORT : ${PORT}`);
   const app = await NestFactory.create(AppModule);
+  app.use(express.json({ limit: '25mb' }))
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }))
 
   // WebSocket adapter (Socket.IO) untuk NotificationGateway
   app.useWebSocketAdapter(new IoAdapter(app));
