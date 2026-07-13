@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, HttpStatus, HttpException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, HttpStatus, HttpException, UnauthorizedException } from '@nestjs/common';
 import { MailServiceService } from '../services';
 import { SendMailDto } from '../dto';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
@@ -18,11 +18,16 @@ export class MailServiceController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @CurrentUser() user?: JwtPayload,
   ) {
     try {
+      if (!user || !user.persnum) {
+        throw new UnauthorizedException('User context tidak tersedia');
+      }
+
       const p = page ? parseInt(page, 10) : 1;
       const l = limit ? parseInt(limit, 10) : 20;
-      return await this.mailService.getLogs(p, l, status);
+      return await this.mailService.getLogs(p, l, status, user.persnum);
     } catch (err) {
       if (err instanceof HttpException) throw err;
       throw new HttpException(
