@@ -417,8 +417,9 @@ export class PersonService {
     });
 
     // Get org data to enrich person data with position information
-    const orgData = await this.orgDataService.findAll();
-    const latestOrgData = orgData.length > 0 ? orgData[0] : null;
+    // Use findLatestOrg() (cached, limit 1) instead of findAll() to avoid
+    // loading all org_data records which can be very large and cause timeouts
+    const latestOrgData = await this.orgDataService.findLatestOrg();
 
     if (!latestOrgData || !latestOrgData.position_json) {
       // Return empty array or paginated response if org data is not available
