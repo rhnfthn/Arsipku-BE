@@ -13,7 +13,8 @@ describe('AiService.generateDraft', () => {
     config = {
       get: (k: string) => (k === 'AI_OLLAMA_MODEL' ? 'qwen3:4b' : undefined),
     };
-    service = new AiService(ollama, log, config);
+    const userAiConfig = { getApiKey: jest.fn().mockResolvedValue(null) };
+    service = new AiService(ollama, log, config, userAiConfig as any);
   });
 
   it('parses structured JSON content into DraftResult HTML and logs success', async () => {

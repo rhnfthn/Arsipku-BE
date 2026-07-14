@@ -5,6 +5,7 @@ import { GenerateDraftDto } from '../dto/generate-draft.dto';
 import { buildPrompt, DraftInput } from './prompt.builder';
 import { OllamaService } from './ollama.service';
 import { AiLogService } from './ai-log.service';
+import { UserAiConfigService } from './user-ai-config.service';
 
 export interface DraftResult {
   draftHtml: string;
@@ -27,6 +28,7 @@ export class AiService {
     private readonly ollama: OllamaService,
     private readonly logService: AiLogService,
     private readonly config: ConfigService,
+    private readonly userAiConfigService: UserAiConfigService,
   ) {}
 
   async generateDraft(
@@ -44,7 +46,8 @@ export class AiService {
 
     try {
       const prompt = buildPrompt(dto.naskahType, input);
-      const raw = await this.ollama.generate(prompt);
+      const userKey = await this.userAiConfigService.getApiKey(persnum);
+      const raw = await this.ollama.generate(prompt, userKey ?? undefined);
       if (!raw.trim()) {
         throw new Error('AI response kosong');
       }
