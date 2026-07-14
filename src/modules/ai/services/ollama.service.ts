@@ -10,7 +10,7 @@ export class OllamaService {
     private readonly config: ConfigService,
   ) {}
 
-  async generate(prompt: string): Promise<string> {
+  async generate(prompt: string, apiKeyOverride?: string): Promise<string> {
     const url = this.config.get<string>('AI_OLLAMA_URL');
     const model = this.config.get<string>('AI_OLLAMA_MODEL');
     if (!url) throw new Error('AI_OLLAMA_URL tidak dikonfigurasi');
@@ -20,7 +20,11 @@ export class OllamaService {
     const temperature = Number(this.config.get('AI_OLLAMA_TEMPERATURE') ?? 0.2);
     const num_ctx = Number(this.config.get('AI_OLLAMA_NUM_CTX') ?? 2048);
     const timeout = Number(this.config.get('AI_REQUEST_TIMEOUT_MS') ?? 60000);
-    const apiKey = this.config.get<string>('AI_OLLAMA_API_KEY') ?? '';
+    // Per-user key wins; empty/undefined falls back to server env key.
+    const apiKey =
+      (apiKeyOverride && apiKeyOverride.trim()) ||
+      this.config.get<string>('AI_OLLAMA_API_KEY') ||
+      '';
     const responseFormat = this.config.get<string>('AI_OLLAMA_FORMAT');
 
     const headers: Record<string, string> = {};
