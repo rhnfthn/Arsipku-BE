@@ -1418,19 +1418,11 @@ export class NomorService {
     // Fallback: If position_json is empty or position not found, try latest org_data
     if (positionJsonData.length === 0) {
       try {
-        const allOrgData = await this.orgDataService.findAll();
-        if (allOrgData.length > 0) {
-          const latestOrgData = allOrgData.sort((a, b) => {
-            const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-            const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-            return dateB - dateA;
-          })[0];
-          
-          if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-            positionJsonData = latestOrgData.position_json;
-            usingLatestFallback = true;
-            console.log('Using latest org_data as fallback, date:', latestOrgData.tgl);
-          }
+        const latestOrgData = await this.orgDataService.findLatestOrg();
+        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+          positionJsonData = latestOrgData.position_json;
+          usingLatestFallback = true;
+          console.log('Using latest org_data as fallback, date:', latestOrgData.tgl);
         }
       } catch (error) {
         console.log('Could not fetch latest org_data');
@@ -1569,17 +1561,9 @@ export class NomorService {
         } catch (error) {
           // Fallback to latest org_data if date not found
           try {
-            const allOrgData = await this.orgDataService.findAll();
-            if (allOrgData.length > 0) {
-              const latestOrgData = allOrgData.sort((a, b) => {
-                const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-                const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-                return dateB - dateA;
-              })[0];
-              
-              if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-                positionJsonData = latestOrgData.position_json;
-              }
+            const latestOrgData = await this.orgDataService.findLatestOrg();
+            if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+              positionJsonData = latestOrgData.position_json;
             }
           } catch (err) {
             console.log('Could not fetch org_data');
@@ -1645,19 +1629,12 @@ export class NomorService {
     }
 
     // Get latest org_data untuk extract position details
+    // Use findLatestOrg() (cached, limit 1) instead of findAll() to avoid timeout
     let positionJsonData: any[] = [];
     try {
-      const allOrgData = await this.orgDataService.findAll();
-      if (allOrgData.length > 0) {
-        const latestOrgData = allOrgData.sort((a, b) => {
-          const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-          const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-          return dateB - dateA;
-        })[0];
-        
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-          positionJsonData = latestOrgData.position_json;
-        }
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+        positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
       console.log('Could not fetch position data from org_data');
@@ -2327,17 +2304,9 @@ export class NomorService {
         } catch (error) {
           // Fallback to latest org_data if date not found
           try {
-            const allOrgData = await this.orgDataService.findAll();
-            if (allOrgData.length > 0) {
-              const latestOrgData = allOrgData.sort((a, b) => {
-                const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-                const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-                return dateB - dateA;
-              })[0];
-              
-              if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-                positionJsonData = latestOrgData.position_json;
-              }
+            const latestOrgData = await this.orgDataService.findLatestOrg();
+            if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+              positionJsonData = latestOrgData.position_json;
             }
           } catch (err) {
             console.log('Could not fetch org_data for single approve');
@@ -2628,17 +2597,9 @@ export class NomorService {
             } catch (error) {
               // Fallback to latest org_data if date not found
               try {
-                const allOrgData = await this.orgDataService.findAll();
-                if (allOrgData.length > 0) {
-                  const latestOrgData = allOrgData.sort((a, b) => {
-                    const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-                    const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-                    return dateB - dateA;
-                  })[0];
-                  
-                  if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
-                    positionJsonData = latestOrgData.position_json;
-                  }
+                const latestOrgData = await this.orgDataService.findLatestOrg();
+                if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+                  positionJsonData = latestOrgData.position_json;
                 }
               } catch (err) {
                 console.log('Could not fetch org_data for bulk approve');
@@ -3603,17 +3564,9 @@ export class NomorService {
         }
       } catch (error) {
         // Fallback to latest org_data
-        const allOrgData = await this.orgDataService.findAll();
-        if (allOrgData.length > 0) {
-          const latestOrgData = allOrgData.sort((a, b) => {
-            const dateA = a.tgl ? new Date(a.tgl).getTime() : 0;
-            const dateB = b.tgl ? new Date(b.tgl).getTime() : 0;
-            return dateB - dateA;
-          })[0];
-          
-          if (latestOrgData?.position_json) {
-            positionJsonData = latestOrgData.position_json;
-          }
+        const latestOrgData = await this.orgDataService.findLatestOrg();
+        if (latestOrgData?.position_json) {
+          positionJsonData = latestOrgData.position_json;
         }
       }
 
