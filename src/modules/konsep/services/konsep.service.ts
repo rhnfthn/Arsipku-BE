@@ -4840,9 +4840,9 @@ export class KonsepService {
           where: { id_naskah: naskah.id },
         });
 
-        // Format waktu
+        // Format waktu — gunakan getHours/getMinutes (local time, TZ=Asia/Jakarta)
         const tanggal = new Date(naskah.tanggal);
-        const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
+        const waktuLocal = `${String(tanggal.getHours()).padStart(2, '0')}:${String(tanggal.getMinutes()).padStart(2, '0')}`;
 
         return {
           id_draft: naskah.id,
@@ -4853,7 +4853,7 @@ export class KonsepService {
           sifat: naskah.sifat || 'biasa',
           klasifikasi_text: naskah.klasifikasi_text || null,
           tanggal: naskah.tanggal,
-          waktu: waktuUTC,
+          waktu: waktuLocal,
           penerima_count: penerimaCount,
           lampiran_count: lampiranCount,
         };
