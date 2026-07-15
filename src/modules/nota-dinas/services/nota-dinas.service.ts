@@ -1261,6 +1261,10 @@ export class NotaDinasService {
       penerima: body.penerima ? parseArray(body.penerima) : undefined,
       tembusan: body.tembusan ? parseArray(body.tembusan) : undefined,
 
+      // Grup Penerima
+      penerima_grup: body.penerima_grup ? parseStringArray(body.penerima_grup) : undefined,
+      tembusan_grup: body.tembusan_grup ? parseStringArray(body.tembusan_grup) : undefined,
+
       kop_logo: body.kop_logo,
       kop_nama: body.kop_nama,
       alamat_perusahaan: body.alamat_perusahaan,
@@ -3219,6 +3223,7 @@ export class NotaDinasService {
       if (dto.final_pdf !== undefined)
         naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
+      if (dto.tgl !== undefined) naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
         await queryRunner.manager.update(
@@ -3269,10 +3274,13 @@ export class NotaDinasService {
           }
         }
 
-        // Validate penerima
+        // Validate penerima — expand grup jika ada
         let penerimaList: OrgDataPositionDto[] = [];
-        if (dto.penerima !== undefined) {
-          for (const posId of dto.penerima) {
+        if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
+          const expandedPenerimaIds = await this.expandGrupPenerima(
+            dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim ?? pengirimPosition?.position),
+          );
+          for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find(
               (x) => Number(x.position) === Number(posId),
             );
@@ -3307,10 +3315,13 @@ export class NotaDinasService {
           }
         }
 
-        // Validate tembusan - if not provided, tembusan will be EMPTY (destroyed)
+        // Validate tembusan — expand grup jika ada, jika tidak provided akan EMPTY
         let tembusanList: OrgDataPositionDto[] = [];
-        if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
-          for (const posId of dto.tembusan) {
+        if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
+          const expandedTembusanIds = await this.expandGrupPenerima(
+            dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim ?? pengirimPosition?.position),
+          );
+          for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find(
               (x) => Number(x.position) === Number(posId),
             );

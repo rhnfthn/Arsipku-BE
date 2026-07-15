@@ -571,7 +571,9 @@ export class DraftService {
             ? new Date(pengirimSirkulasi.createdAt)
             : new Date(naskah.tanggal);
 
-        const waktuUTC = `${String(tanggal.getUTCHours()).padStart(2, '0')}:${String(tanggal.getUTCMinutes()).padStart(2, '0')}`;
+        // Gunakan getHours/getMinutes (local time, sesuai TZ=Asia/Jakarta di Dockerfile)
+        // bukan getUTCHours/getUTCMinutes yang menghasilkan waktu UTC
+        const waktuLocal = `${String(tanggal.getHours()).padStart(2, '0')}:${String(tanggal.getMinutes()).padStart(2, '0')}`;
 
         const isDraftKonsep =
           ['ND', 'SDI', 'SDE'].includes(naskah.jenis) && naskah.nomor === '-';
@@ -597,7 +599,7 @@ export class DraftService {
           penerima_count: penerima.length,
           isi_pesan: naskah.perihal || naskah.konten?.substring(0, 100) || '-',
           tanggal: tanggal,
-          waktu: waktuUTC,
+          waktu: waktuLocal,
           labels: labelsMap.get(naskah.id) || [],
         });
       }
