@@ -477,17 +477,15 @@ export class SuratDinasEksternalService {
     console.log(`[SDE moveTemporaryLampiranToFinal] Found ${tempLampiran.length} temporary lampiran`);
 
     if (tempLampiran.length === 0) {
-      // Debug: Check if lampiran exists at all (without is_temporary filter)
-      const allLampiran = await this.naskahLampiranRepository.find({
+      // Kemungkinan lampiran sudah difinalisasi (is_temporary=0) dari save sebelumnya.
+      // Cek apakah ID-nya ada di database (sudah final) — kalau ya, skip saja.
+      const existingLampiran = await this.naskahLampiranRepository.find({
         where: { id: In(lampiranIds) },
       });
-      console.log(`[SDE moveTemporaryLampiranToFinal] Lampiran tanpa filter is_temporary:`, allLampiran.map(l => ({
-        id: l.id,
-        is_temporary: l.is_temporary,
-        file_name: l.file_name,
-        jenis: l.jenis,
-      })));
-
+      if (existingLampiran.length > 0) {
+        console.log(`[SDE moveTemporaryLampiranToFinal] ${existingLampiran.length} lampiran sudah final, skip.`);
+        return;
+      }
       throw new NotFoundException('Lampiran temporary tidak ditemukan');
     }
 
@@ -2279,6 +2277,7 @@ export class SuratDinasEksternalService {
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
       if (dto.tanda_tangan !== undefined) naskahUpdateData.tandaTangan = dto.tanda_tangan;
+      if (dto.tgl !== undefined) naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
         await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
@@ -2366,6 +2365,15 @@ export class SuratDinasEksternalService {
           });
           await queryRunner.manager.save(lampiran);
         }
+      }
+
+      // PHASE 7b: Handle lampiran_temp_ids - move temporary lampiran to final
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'surat-dinas-eksternal/lampiran',
+        );
       }
 
       // Commit transaction
