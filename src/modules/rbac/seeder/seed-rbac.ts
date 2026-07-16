@@ -302,6 +302,10 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'delete-jenis', description: 'Button Delete Jenis' },
       { action: 'export-jenis', description: 'Button Export Jenis' },
       { action: 'read-jenis-detail', description: 'Button Detail Jenis' },
+      { action: 'read-grup-penerima', description: 'Halaman Grup Penerima' },
+      { action: 'create-grup-penerima', description: 'Button Tambah Grup Penerima' },
+      { action: 'update-grup-penerima', description: 'Button Edit Grup Penerima' },
+      { action: 'delete-grup-penerima', description: 'Button Delete Grup Penerima' },
     ],
   },
   {
