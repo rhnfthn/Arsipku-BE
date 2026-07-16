@@ -31,7 +31,7 @@ export class TemplateController {
    * - file: File (optional) - Template file
    */
   @Post()
-  @RequirePermission('master-data', 'create')
+  @RequirePermission('master-data', 'create-template')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -73,7 +73,7 @@ export class TemplateController {
    * - file: File (optional) - New template file
    */
   @Put(':id')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('master-data', 'update-template')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -91,7 +91,7 @@ export class TemplateController {
   }
 
   @Delete(':id')
-  @RequirePermission('master-data', 'delete')
+  @RequirePermission('master-data', 'delete-template')
   async remove(@Param('id') id: string): Promise<TemplateActionResponseDto> {
     await this.templateService.remove(id);
     return { success: true, message: 'Template removed successfully' };
