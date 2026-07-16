@@ -2379,6 +2379,32 @@ export class NotaDinasService {
     }
 
     if (naskah.status !== 'draf') {
+      // Naskah konsep yang sudah difinalize via /KONSEP/finalize (path finalisasi page)
+      // sudah berstatus final & terkirim (is_konsep=0 + notif penerima).
+      // send-draft (path tulis ND edit) jangan tolak — return success idempotent
+      // agar FE tidak error saat double-path. Hanya untuk naskah asli konsep
+      // (punya id_naskah_konsep).
+      const idKonsep = (naskah as any).id_naskah_konsep as string | null;
+      if (
+        (naskah.status === 'final' || naskah.status === 'final_tte') &&
+        idKonsep
+      ) {
+        const tgl =
+          naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal || '').split('T')[0];
+        return {
+          success: true,
+          data: {
+            id: naskahId,
+            jenis: 'ND',
+            nomor: naskah.nomor || '',
+            tanggal: tgl,
+            status: naskah.status,
+          } as any,
+          message: 'Naskah sudah final dan terkirim via konsep workflow',
+        };
+      }
       throw new BadRequestException(
         `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
       );
