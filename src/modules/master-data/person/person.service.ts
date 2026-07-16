@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { AssignPositionDto } from './dto/assign-position.dto';
@@ -9,9 +13,84 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { OrgDataService } from '../org_data/org_data.service';
-import { PersonWithPositionDto } from './dto/person-with-position.dto';
 import { OmPosition } from '../position/entities/om-position.entity';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+
+/** Raw row shape from person createQueryBuilder getRawMany() */
+interface PersonRawRow {
+  person_persnum: number;
+  person_name: string;
+}
+
+/** Raw row shape from findAll() with leftJoin to om_relation_sp */
+interface PersonWithPositionRawRow {
+  position_text: string | null;
+}
+
+/** Raw row shape from findByPosition() raw SQL query */
+export interface PersonByPositionRow {
+  id: string;
+  persnum: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  id_relation_sp: string;
+  position: number;
+  position_name: string;
+  [key: string]: unknown;
+}
+
+/** Raw row shape from findByOrganization() raw SQL query */
+export interface PersonByOrganizationRow {
+  persnum: number;
+  name: string;
+  position: number;
+  position_name: string;
+  organization_name: string;
+  [key: string]: unknown;
+}
+
+/** Raw row shape from findOneWithDetails() raw SQL query */
+export interface PersonWithDetailsRow {
+  persnum: number;
+  name: string;
+  position: number;
+  position_name: string;
+  position_description: string;
+  company: number;
+  company_name: string;
+  organization: number;
+  organization_name: string;
+  area_code: string;
+  area_name: string;
+  sub_area_code: string;
+  sub_area_name: string;
+  [key: string]: unknown;
+}
+
+/** Shape of each entry in org_data.position_json */
+interface PositionJsonEntry {
+  chief?: number;
+  area?: string;
+  persnum?: number;
+  persnum_person?: number;
+  persnum_person_text?: string;
+  nama?: string;
+  position?: number;
+  position_text?: string;
+  sub_area?: number | null;
+  sub_area_text?: string | null;
+}
+
+/** Flattened person-with-position data stored in the positionMap */
+export interface PositionMapValue {
+  persnum: number;
+  nama: string | null;
+  position: number | undefined;
+  position_text: string | undefined;
+  sub_area: number | null;
+  sub_area_text: string | null;
+}
 
 @Injectable()
 export class PersonService {
@@ -28,7 +107,9 @@ export class PersonService {
   ) {}
 
   private getScopedAreaCode(user?: JwtPayload): string | undefined {
-    const areaCode = String(user?.area || '').trim().toUpperCase();
+    const areaCode = String(user?.area || '')
+      .trim()
+      .toUpperCase();
 
     if (!areaCode) {
       return undefined;
@@ -38,19 +119,19 @@ export class PersonService {
   }
 
   async findAll(search?: string, page = 1, limit = 10) {
-    const qb = this.cRepo.createQueryBuilder('person')
+    const qb = this.cRepo
+      .createQueryBuilder('person')
       .leftJoin(
         'om_relation_sp',
         'rsp',
         'rsp.relation_persnum = person.persnum',
-      )
-      .addSelect('rsp.position_text', 'position_text');
+      );
 
     if (search) {
-      qb.andWhere(
-        '(person.name LIKE :search OR person.persnum = :persnum)',
-        { search: `%${search}%`, persnum: Number(search) || 0 },
-      );
+      qb.andWhere('(person.name LIKE :search OR person.persnum = :persnum)', {
+        search: `%${search}%`,
+        persnum: Number(search) || 0,
+      });
     }
 
     const total = await qb.getCount();
@@ -61,10 +142,13 @@ export class PersonService {
 
     const raw = await qb.getRawAndEntities();
 
-    const data = raw.entities.map((entity, i) => ({
-      ...entity,
-      position_text: raw.raw[i]?.position_text ?? null,
-    }));
+    const data = raw.entities.map((entity, i) => {
+      const rawRow = raw.raw[i] as PersonWithPositionRawRow | undefined;
+      return {
+        ...entity,
+        position_text: rawRow?.position_text ?? null,
+      };
+    });
 
     return {
       data,
@@ -75,12 +159,15 @@ export class PersonService {
     };
   }
 
-  async suggestion(search?: string): Promise<{ persnum: number; name: string }[]> {
+  async suggestion(
+    search?: string,
+  ): Promise<{ persnum: number; name: string }[]> {
     if (!search || search.length < 3) {
       return [];
     }
 
-    const qb = this.cRepo.createQueryBuilder('person')
+    const qb = this.cRepo
+      .createQueryBuilder('person')
       .select(['person.persnum', 'person.name'])
       .where(
         '(person.name LIKE :search OR CAST(person.persnum AS CHAR) LIKE :search)',
@@ -89,8 +176,11 @@ export class PersonService {
       .orderBy('person.name', 'ASC')
       .limit(10);
 
-    const rows = await qb.getRawMany();
-    return rows.map((r) => ({ persnum: r.person_persnum, name: r.person_name }));
+    const rows: PersonRawRow[] = await qb.getRawMany();
+    return rows.map((r) => ({
+      persnum: r.person_persnum,
+      name: r.person_name,
+    }));
   }
 
   async findAllNamePersnum(): Promise<{ persnum: number; name: string }[]> {
@@ -100,7 +190,7 @@ export class PersonService {
       .where('person.persnum IS NOT NULL')
       .orderBy('person.name', 'ASC')
       .getRawMany()
-      .then((rows) =>
+      .then((rows: PersonRawRow[]) =>
         rows.map((r) => ({ persnum: r.person_persnum, name: r.person_name })),
       );
   }
@@ -128,8 +218,8 @@ export class PersonService {
     }
 
     query += ` ORDER BY p.name ASC`;
-    
-    const results = await this.cRepo.query(query, params);
+
+    const results: Person[] = await this.cRepo.query(query, params);
     return results;
   }
 
@@ -157,8 +247,11 @@ export class PersonService {
     }
 
     query += ` ORDER BY p.name ASC`;
-    
-    const results = await this.cRepo.query(query, params);
+
+    const results: PersonByPositionRow[] = await this.cRepo.query(
+      query,
+      params,
+    );
     return results;
   }
 
@@ -177,8 +270,11 @@ export class PersonService {
       WHERE rsp.company = ? AND org.organization = ?
       ORDER BY p.name ASC
     `;
-    
-    const results = await this.cRepo.query(query, [companyId, organizationId]);
+
+    const results: PersonByOrganizationRow[] = await this.cRepo.query(query, [
+      companyId,
+      organizationId,
+    ]);
     return results;
   }
 
@@ -222,13 +318,15 @@ export class PersonService {
       WHERE p.persnum = ?
       LIMIT 1
     `;
-    
-    const results = await this.cRepo.query(query, [persnum]);
-    
+
+    const results: PersonWithDetailsRow[] = await this.cRepo.query(query, [
+      persnum,
+    ]);
+
     if (!results || results.length === 0) {
       throw new NotFoundException(`Person with persnum ${persnum} not found`);
     }
-    
+
     return results[0];
   }
 
@@ -256,7 +354,7 @@ export class PersonService {
 
     if (existing) {
       throw new BadRequestException(
-        `Person with persnum ${dto.persnum} already exists`
+        `Person with persnum ${dto.persnum} already exists`,
       );
     }
 
@@ -272,7 +370,7 @@ export class PersonService {
           company: dto.company,
         },
       });
-      
+
       const relationSp = this.relationSpRepo.create({
         company: dto.company,
         position: dto.position,
@@ -291,7 +389,7 @@ export class PersonService {
 
   async update(id: string, dto: UpdatePersonDto): Promise<Person> {
     const person = await this.findOne(id);
-    
+
     if (person.persnum === null) {
       throw new BadRequestException('Person has invalid data');
     }
@@ -322,9 +420,9 @@ export class PersonService {
             company: dto.company,
           },
         });
-        
+
         const positionText = positionData?.shortText || dto.positionText;
-        
+
         // Update or create relation
         if (existingRelation) {
           existingRelation.company = dto.company;
@@ -356,7 +454,7 @@ export class PersonService {
 
   async remove(id: string): Promise<{ message: string }> {
     const person = await this.findOne(id);
-    
+
     if (person.persnum === null) {
       throw new BadRequestException('Person has invalid data');
     }
@@ -438,10 +536,12 @@ export class PersonService {
     // Create a map of persnum -> position data for fast lookup
     // Only include positions with chief=1 (managerial)
     // Using position_json which is already flattened and contains sub_area_text
-    const positionMap = new Map<number, any>();
+    const positionMap = new Map<number, PositionMapValue>();
 
-    const positionJsonData = Array.isArray(latestOrgData.position_json) 
-      ? latestOrgData.position_json 
+    const positionJsonData: PositionJsonEntry[] = Array.isArray(
+      latestOrgData.position_json,
+    )
+      ? (latestOrgData.position_json as PositionJsonEntry[])
       : [];
 
     for (const position of positionJsonData) {
@@ -451,7 +551,9 @@ export class PersonService {
       }
 
       if (scopedAreaCode) {
-        const positionAreaCode = String(position.area || '').trim().toUpperCase();
+        const positionAreaCode = String(position.area || '')
+          .trim()
+          .toUpperCase();
         if (positionAreaCode !== scopedAreaCode) {
           continue;
         }
@@ -462,20 +564,20 @@ export class PersonService {
       if (persnum) {
         positionMap.set(Number(persnum), {
           persnum: persnum,
-          nama: position.persnum_person_text ?? position.nama,
+          nama: position.persnum_person_text ?? position.nama ?? null,
           position: position.position,
           position_text: position.position_text,
-          sub_area: position.sub_area || null,
-          sub_area_text: position.sub_area_text || null,
+          sub_area: position.sub_area ?? null,
+          sub_area_text: position.sub_area_text ?? null,
         });
       }
     }
 
     // Map persons to DTOs with position data
-    let filtered = persons
+    let filtered: PositionMapValue[] = persons
       .filter((person) => person.persnum && positionMap.has(person.persnum))
       .map((person) => {
-        const posData = positionMap.get(person.persnum!);
+        const posData = positionMap.get(person.persnum!)!;
         return {
           persnum: posData.persnum,
           nama: posData.nama,
@@ -491,7 +593,7 @@ export class PersonService {
       const searchLower = search.toLowerCase();
       filtered = filtered.filter(
         (item) =>
-          item.nama.toLowerCase().includes(searchLower) ||
+          (item.nama ?? '').toLowerCase().includes(searchLower) ||
           item.persnum.toString().includes(search),
       );
     }
@@ -518,7 +620,7 @@ export class PersonService {
    * Assign additional position to existing person
    * Creates new om_relation_sp record without modifying pa_personal
    * Allows one person to have multiple positions (e.g., in different companies)
-   * 
+   *
    * @param dto - Position assignment data
    * @returns Created RelationSp record
    */
@@ -534,7 +636,7 @@ export class PersonService {
 
     if (!person) {
       throw new NotFoundException(
-        `Person with persnum ${dto.persnum} not found. Please create the person first.`
+        `Person with persnum ${dto.persnum} not found. Please create the person first.`,
       );
     }
 
@@ -549,7 +651,7 @@ export class PersonService {
 
     if (existingRelation) {
       throw new BadRequestException(
-        `Position ${dto.position} in company ${dto.company} is already assigned to person ${dto.persnum}`
+        `Position ${dto.position} in company ${dto.company} is already assigned to person ${dto.persnum}`,
       );
     }
 
@@ -562,9 +664,10 @@ export class PersonService {
           company: dto.company,
         },
       });
-      
+
       if (positionData) {
-        positionText = positionData.shortText || positionData.longText || undefined;
+        positionText =
+          positionData.shortText || positionData.longText || undefined;
       }
     }
 
@@ -592,7 +695,7 @@ export class PersonService {
   /**
    * Update existing position assignment
    * Modifies om_relation_sp record by id
-   * 
+   *
    * @param id - RelationSp record id
    * @param dto - Update data
    * @returns Updated RelationSp record
@@ -612,7 +715,7 @@ export class PersonService {
 
     if (!relationSp) {
       throw new NotFoundException(
-        `Position assignment with ID ${id} not found`
+        `Position assignment with ID ${id} not found`,
       );
     }
 
@@ -625,9 +728,10 @@ export class PersonService {
           company: relationSp.company || undefined,
         },
       });
-      
+
       if (positionData) {
-        dto.positionText = positionData.shortText || positionData.longText || undefined;
+        dto.positionText =
+          positionData.shortText || positionData.longText || undefined;
       }
     }
 
@@ -658,7 +762,7 @@ export class PersonService {
   /**
    * Delete existing position assignment
    * Removes om_relation_sp record by id
-   * 
+   *
    * @param id - RelationSp record id
    * @returns Success message
    */
@@ -673,13 +777,14 @@ export class PersonService {
 
     if (!relationSp) {
       throw new NotFoundException(
-        `Position assignment with ID ${id} not found`
+        `Position assignment with ID ${id} not found`,
       );
     }
 
     // Store info for response message before deletion
     const personName = relationSp.relation_persnum_text || 'person';
-    const positionInfo = relationSp.position_text || `Position ${relationSp.position}`;
+    const positionInfo =
+      relationSp.position_text || `Position ${relationSp.position}`;
 
     // 2. Delete the record
     await this.relationSpRepo.remove(relationSp);
@@ -693,7 +798,7 @@ export class PersonService {
   /**
    * Get all position assignments for a person
    * Returns all positions across all companies for a specific persnum
-   * 
+   *
    * @param persnum - Person's persnum
    * @returns List of position assignments
    */
@@ -719,9 +824,7 @@ export class PersonService {
     });
 
     if (!person) {
-      throw new NotFoundException(
-        `Person with persnum ${persnum} not found`
-      );
+      throw new NotFoundException(`Person with persnum ${persnum} not found`);
     }
 
     // 2. Get all position assignments
@@ -738,11 +841,11 @@ export class PersonService {
     const todayStr = localDate.toISOString().split('T')[0];
 
     // 4. Format response
-    const positions = relations.map(rel => {
+    const positions = relations.map((rel) => {
       const startDate = new Date(rel.startDate || '2025-01-01');
       const endDate = new Date(rel.endDate || '9999-12-31');
       const today = new Date(todayStr);
-      
+
       startDate.setHours(0, 0, 0, 0);
       endDate.setHours(0, 0, 0, 0);
       today.setHours(0, 0, 0, 0);
