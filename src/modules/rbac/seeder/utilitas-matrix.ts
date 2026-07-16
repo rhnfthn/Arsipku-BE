@@ -181,6 +181,9 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
               permissions: [
                 { action: 'read', label: 'Read', description: 'Melihat halaman Template', resource: 'template' },
                 { action: 'read-download', label: 'Read', description: 'Button Download Template', resource: 'template' },
+                { action: 'create', label: 'Create', description: 'Button Tambah Template', resource: 'template' },
+                { action: 'update', label: 'Update', description: 'Button Edit Template', resource: 'template' },
+                { action: 'delete', label: 'Delete', description: 'Button Delete Template', resource: 'template' },
               ],
             },
           ],
