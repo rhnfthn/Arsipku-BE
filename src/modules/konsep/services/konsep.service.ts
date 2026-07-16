@@ -119,11 +119,12 @@ export class KonsepService {
     jenis: 'ND' | 'SDI' | 'SDE';
     toPos: PositionData;
     fromPos: PositionData;
-    aksi: 'create' | 'forward' | 'reject';
+    aksi: 'create' | 'forward' | 'turunkan' | 'reject';
     sirkulasiId: string;
     catatan?: string | null;
   }) {
     const isReject = params.aksi === 'reject';
+    const isTurunkan = params.aksi === 'turunkan';
     await this.notificationService
       .createNotification({
         positionId: String(params.toPos.position),
@@ -133,7 +134,11 @@ export class KonsepService {
         type: isReject
           ? NotificationType.KONSEP_DITOLAK
           : NotificationType.KONSEP_DISETUJUI,
-        title: isReject ? 'Konsep dikembalikan' : 'Konsep masuk',
+        title: isReject
+          ? 'Konsep dikembalikan'
+          : isTurunkan
+            ? 'Konsep diturunkan untuk diperbaiki'
+            : 'Konsep masuk',
         body:
           params.catatan ||
           `${params.fromPos.position_text || params.fromPos.persnum_person_text || 'Pengirim'} mengirim konsep`,
@@ -1368,6 +1373,7 @@ export class KonsepService {
     return {
       from_position_id: Number(body.from_position_id),
       to_position_id: Number(body.to_position_id),
+      is_turunkan: ['true', '1', 'yes'].includes(String(body.is_turunkan ?? '').toLowerCase()),
       perihal: body.perihal,
       konten: body.konten,
       klasifikasi: body.klasifikasi,
@@ -1826,14 +1832,19 @@ export class KonsepService {
       // 6. GENERATE PDF SNAPSHOT & SAVE RIWAYAT
       // ==========================================
       const nextUrutan = latestRiwayat.urutan + 1;
+      // aksi: 'turunkan' (delegasi ke bawahan) atau 'forward' (naik ke atasan)
+      const aksiLabel: 'forward' | 'turunkan' = dto.is_turunkan
+        ? 'turunkan'
+        : 'forward';
+      console.log('[forwardKonsep] is_turunkan:', dto.is_turunkan, '→ aksiLabel:', aksiLabel, 'from:', dto.from_position_id, 'to:', dto.to_position_id);
 
-      // Generate PDF snapshot untuk state 'forward'
+      // Generate PDF snapshot untuk state forward/turunkan
       let pdfSnapshotUrl: string | null = null;
       if (naskahAsli) {
         pdfSnapshotUrl = await this.generateAndUploadPdfSnapshot(
           naskahAsli,
           naskahAsli.jenis as 'ND' | 'SDI' | 'SDE',
-          'forward',
+          aksiLabel,
           nextUrutan,
           queryRunner,
         );
@@ -1850,7 +1861,7 @@ export class KonsepService {
         dto.to_position_id,
         toPos.position_text,
         toPos.persnum_person_text,
-        'forward',
+        aksiLabel,
         dto.catatan || null,
         fromPos.persnum_person,
         pdfSnapshotUrl,
@@ -1870,7 +1881,7 @@ export class KonsepService {
         jenis: (naskahAsli?.jenis || 'ND') as 'ND' | 'SDI' | 'SDE',
         toPos,
         fromPos,
-        aksi: 'forward',
+        aksi: aksiLabel,
         sirkulasiId: sirkulasiPenerima.id,
         catatan: dto.catatan || null,
       }).catch(() => {});
@@ -3000,6 +3011,10 @@ export class KonsepService {
           .getMany();
       }
 
+      // Simpan riwayat lengkap (unfiltered) untuk response frontend
+      // agar bisa mencari pembuat konsep asli (untuk fitur turunkan)
+      const allRiwayat = [...riwayatList];
+
       // ponytail: anti-bocor downstream — batasi riwayat konsep hanya yg melibatkan
       // user saat ini (sebagai pengirim/from atau penerima/to). Forward setelah user
       // kirim (downstream orang lain: user3→user4, dst) di-cut, tak muncul di
@@ -3467,6 +3482,17 @@ export class KonsepService {
         success: true,
         message: 'Detail konsep berhasil diambil',
         data: flow,
+        riwayat: allRiwayat.map((r) => ({
+          id: r.id,
+          id_naskah_konsep: r.idNaskahKonsep,
+          urutan: r.urutan,
+          aksi: r.aksi,
+          fromPositionId: r.fromPositionId,
+          toPositionId: r.toPositionId,
+          catatan: r.catatan,
+          createdBy: r.createdBy,
+          createdAt: r.createdAt,
+        })),
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -4347,7 +4373,7 @@ export class KonsepService {
     toPositionId: number | null,
     toPositionText: string | null,
     toNama: string | null,
-    aksi: 'create' | 'forward' | 'approve' | 'reject' | 'revisi' | 'finalize',
+    aksi: 'create' | 'forward' | 'turunkan' | 'approve' | 'reject' | 'revisi' | 'finalize',
     catatan: string | null,
     createdBy: string | null,
     pdfSnapshot: string | null = null,
