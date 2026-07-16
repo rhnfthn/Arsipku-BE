@@ -12,7 +12,7 @@ export class GrupPenerimaController {
   constructor(private readonly grupPenerimaService: GrupPenerimaService) {}
 
   @Post()
-  @RequirePermission('master-data', 'create')
+  @RequirePermission('master-data', 'create-grup-penerima')
   create(@Body() createGrupPenerimaDto: CreateGrupPenerimaDto) {
     return this.grupPenerimaService.create(createGrupPenerimaDto);
   }
@@ -52,19 +52,19 @@ export class GrupPenerimaController {
   }
 
   @Put(':id')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('master-data', 'update-grup-penerima')
   update(@Param('id') id: string, @Body() updateGrupPenerimaDto: UpdateGrupPenerimaDto) {
     return this.grupPenerimaService.update(id, updateGrupPenerimaDto);
   }
 
   @Put(':id/toggle-aktif')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('master-data', 'update-grup-penerima')
   toggleAktif(@Param('id') id: string) {
     return this.grupPenerimaService.toggleAktif(id);
   }
 
   @Delete(':id')
-  @RequirePermission('master-data', 'delete')
+  @RequirePermission('master-data', 'delete-grup-penerima')
   remove(@Param('id') id: string) {
     return this.grupPenerimaService.remove(id);
   }
@@ -72,7 +72,7 @@ export class GrupPenerimaController {
   // ===== Member Management =====
 
   @Post(':id/members')
-  @RequirePermission('master-data', 'create')
+  @RequirePermission('master-data', 'create-grup-penerima')
   addMember(@Param('id') id: string, @Body() createDetailDto: CreateGrupPenerimaDetailDto) {
     return this.grupPenerimaService.addMember(id, createDetailDto);
   }
@@ -97,13 +97,13 @@ export class GrupPenerimaController {
   }
 
   @Put('members/:detailId')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('master-data', 'update-grup-penerima')
   updateMember(@Param('detailId') detailId: string, @Body() updateDetailDto: UpdateGrupPenerimaDetailDto) {
     return this.grupPenerimaService.updateMember(detailId, updateDetailDto);
   }
 
   @Delete(':id/members/:detailId')
-  @RequirePermission('master-data', 'delete')
+  @RequirePermission('master-data', 'delete-grup-penerima')
   removeMember(@Param('detailId') detailId: string) {
     return this.grupPenerimaService.removeMember(detailId);
   }
