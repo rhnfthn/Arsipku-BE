@@ -302,6 +302,15 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'delete-jenis', description: 'Button Delete Jenis' },
       { action: 'export-jenis', description: 'Button Export Jenis' },
       { action: 'read-jenis-detail', description: 'Button Detail Jenis' },
+      { action: 'read-grup-penerima', description: 'Halaman Grup Penerima' },
+      { action: 'create-grup-penerima', description: 'Button Tambah Grup Penerima' },
+      { action: 'update-grup-penerima', description: 'Button Edit Grup Penerima' },
+      { action: 'delete-grup-penerima', description: 'Button Delete Grup Penerima' },
+      { action: 'read-template', description: 'Halaman Template' },
+      { action: 'create-template', description: 'Button Tambah Template' },
+      { action: 'update-template', description: 'Button Edit Template' },
+      { action: 'delete-template', description: 'Button Delete Template' },
+      { action: 'read-download-template', description: 'Button Download Template' },
     ],
   },
   {
@@ -399,6 +408,9 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'read', description: 'Melihat halaman Template' },
       { action: 'read-download', description: 'Button Download Template' },
+      { action: 'create', description: 'Button Tambah Template' },
+      { action: 'update', description: 'Button Edit Template' },
+      { action: 'delete', description: 'Button Delete Template' },
     ],
   },
   {
@@ -434,10 +446,15 @@ const utamaPermissions = utamaResources.flatMap((r) =>
 // All permissions: base + utama (for all roles)
 const allPermissions = [...basePermissions, ...utamaPermissions];
 
+// User permissions: all except template CRUD (create/update/delete)
+const userPermissions = allPermissions.filter(
+  (p) => !['template.create', 'template.update', 'template.delete'].includes(p),
+);
+
 const rolePermissionAssignments: Record<string, string[]> = {
   SUPERADMIN: allPermissions,
   ADMIN: allPermissions,
-  USER: allPermissions,
+  USER: userPermissions,
 };
 
 const roleDescriptions: Record<RoleName, string> = {
