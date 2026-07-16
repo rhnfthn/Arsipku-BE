@@ -680,6 +680,16 @@ export class SuratDinasInternalService {
     });
 
     if (tempLampiran.length === 0) {
+      // Kemungkinan lampiran sudah difinalisasi (is_temporary=0) dari save sebelumnya.
+      // Cek apakah ID-nya ada di database (sudah final) — kalau ya, skip saja.
+      const existingLampiran = await this.naskahLampiranRepository.find({
+        where: { id: In(lampiranIds) },
+      });
+      if (existingLampiran.length > 0) {
+        // Lampiran sudah final, tidak perlu diproses ulang
+        console.log(`[SDI moveTemporaryLampiranToFinal] ${existingLampiran.length} lampiran sudah final, skip.`);
+        return;
+      }
       throw new NotFoundException('Lampiran temporary tidak ditemukan');
     }
 
@@ -3060,6 +3070,7 @@ export class SuratDinasInternalService {
       if (dto.final_pdf !== undefined) naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
       if (dto.tanda_tangan !== undefined) naskahUpdateData.tandaTangan = dto.tanda_tangan;
+      if (dto.tgl !== undefined) naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
         await queryRunner.manager.update(NaskahEntity, { id: naskahId }, naskahUpdateData);
@@ -3092,10 +3103,13 @@ export class SuratDinasInternalService {
 
         // Note: Validation sub_area/area sudah dilakukan di FE dari get-recipient endpoint
 
-        // Validate penerima - check exists and is managerial
+        // Validate penerima - expand grup jika ada, check exists and is managerial
         let penerimaList: SdiOrgDataPositionDto[] = [];
-        if (dto.penerima !== undefined) {
-          for (const posId of dto.penerima) {
+        if (dto.penerima !== undefined || dto.penerima_grup !== undefined) {
+          const expandedPenerimaIds = await this.expandGrupPenerima(
+            dto.penerima, dto.penerima_grup, tanggal, Number(dto.pengirim ?? pengirimPosition?.position),
+          );
+          for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find((x) => Number(x.position) === Number(posId));
             if (!penerima) {
               throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -3108,7 +3122,6 @@ export class SuratDinasInternalService {
               );
             }
 
-            // Note: sub_area/area validation removed - FE already validates from get-recipient
             penerimaList.push(penerima);
           }
         } else {
@@ -3122,10 +3135,13 @@ export class SuratDinasInternalService {
           }
         }
 
-        // Validate tembusan - check exists and is managerial
+        // Validate tembusan - expand grup jika ada, check exists and is managerial
         let tembusanList: SdiOrgDataPositionDto[] = [];
-        if (dto.tembusan !== undefined && dto.tembusan.length > 0) {
-          for (const posId of dto.tembusan) {
+        if (dto.tembusan !== undefined || dto.tembusan_grup !== undefined) {
+          const expandedTembusanIds = await this.expandGrupPenerima(
+            dto.tembusan, dto.tembusan_grup, tanggal, Number(dto.pengirim ?? pengirimPosition?.position),
+          );
+          for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find((x) => Number(x.position) === Number(posId));
             if (!tembusan) {
               throw new NotFoundException(`Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`);
@@ -3138,7 +3154,6 @@ export class SuratDinasInternalService {
               );
             }
 
-            // Note: sub_area/area validation removed - FE already validates from get-recipient
             tembusanList.push(tembusan);
           }
         }
@@ -3189,6 +3204,15 @@ export class SuratDinasInternalService {
           });
           await queryRunner.manager.save(lampiran);
         }
+      }
+
+      // PHASE 6b: Handle lampiran_temp_ids - move temporary lampiran to final
+      if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+        await this.moveTemporaryLampiranToFinal(
+          dto.lampiran_temp_ids,
+          naskahId,
+          'surat-dinas-internal/lampiran',
+        );
       }
 
       // Commit transaction
