@@ -2544,6 +2544,29 @@ export class SuratDinasEksternalService {
     }
 
     if (naskah.status !== 'draf') {
+      // Naskah konsep yang sudah difinalize via /KONSEP/finalize sudah final & terkirim.
+      // send-draft return success idempotent (hanya untuk naskah asli konsep).
+      const idKonsep = (naskah as any).id_naskah_konsep as string | null;
+      if (
+        (naskah.status === 'final' || naskah.status === 'final_tte') &&
+        idKonsep
+      ) {
+        const tgl =
+          naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal || '').split('T')[0];
+        return {
+          success: true,
+          data: {
+            id: naskahId,
+            jenis: 'SDE',
+            nomor: naskah.nomor || '',
+            tanggal: tgl,
+            status: naskah.status,
+            message: 'Naskah sudah final dan terkirim via konsep workflow',
+          } as any,
+        };
+      }
       throw new BadRequestException(`Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`);
     }
 
