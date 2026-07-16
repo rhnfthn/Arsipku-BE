@@ -446,10 +446,15 @@ const utamaPermissions = utamaResources.flatMap((r) =>
 // All permissions: base + utama (for all roles)
 const allPermissions = [...basePermissions, ...utamaPermissions];
 
+// User permissions: all except template CRUD (create/update/delete)
+const userPermissions = allPermissions.filter(
+  (p) => !['template.create', 'template.update', 'template.delete'].includes(p),
+);
+
 const rolePermissionAssignments: Record<string, string[]> = {
   SUPERADMIN: allPermissions,
   ADMIN: allPermissions,
-  USER: allPermissions,
+  USER: userPermissions,
 };
 
 const roleDescriptions: Record<RoleName, string> = {
