@@ -306,6 +306,11 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-grup-penerima', description: 'Button Tambah Grup Penerima' },
       { action: 'update-grup-penerima', description: 'Button Edit Grup Penerima' },
       { action: 'delete-grup-penerima', description: 'Button Delete Grup Penerima' },
+      { action: 'read-template', description: 'Halaman Template' },
+      { action: 'create-template', description: 'Button Tambah Template' },
+      { action: 'update-template', description: 'Button Edit Template' },
+      { action: 'delete-template', description: 'Button Delete Template' },
+      { action: 'read-download-template', description: 'Button Download Template' },
     ],
   },
   {
@@ -403,6 +408,9 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'read', description: 'Melihat halaman Template' },
       { action: 'read-download', description: 'Button Download Template' },
+      { action: 'create', description: 'Button Tambah Template' },
+      { action: 'update', description: 'Button Edit Template' },
+      { action: 'delete', description: 'Button Delete Template' },
     ],
   },
   {
