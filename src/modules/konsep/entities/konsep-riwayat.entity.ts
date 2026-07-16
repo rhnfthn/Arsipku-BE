@@ -36,9 +36,9 @@ export class KonsepRiwayatEntity {
 
   @Column({
     type: 'enum',
-    enum: ['create', 'forward', 'approve', 'reject', 'revisi', 'finalize'],
+    enum: ['create', 'forward', 'turunkan', 'approve', 'reject', 'revisi', 'finalize'],
   })
-  aksi: 'create' | 'forward' | 'approve' | 'reject' | 'revisi' | 'finalize';
+  aksi: 'create' | 'forward' | 'turunkan' | 'approve' | 'reject' | 'revisi' | 'finalize';
 
   @Column({ type: 'text', nullable: true })
   catatan: string | null;

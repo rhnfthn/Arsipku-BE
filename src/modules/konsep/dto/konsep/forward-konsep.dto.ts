@@ -1,10 +1,10 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsEnum, IsArray, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsEnum, IsArray, ValidateNested, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { LampiranDto } from './create-konsep.dto';
 
 /**
  * DTO untuk forward konsep ke atasan
- * 
+ *
  * Penerima konsep bisa meneruskan (forward) ke atasannya lagi
  * User dapat mengubah value sebelum forward
  */
@@ -18,6 +18,17 @@ export class ForwardKonsepDto {
   @IsNotEmpty()
   @IsNumber()
   to_position_id: number; // Atasan berikutnya (tujuan forward)
+
+  // ============ TURUNKAN (delegasi ke bawahan) ============
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'boolean') return value;
+    return ['true', '1', 'yes'].includes(String(value).toLowerCase());
+  })
+  is_turunkan?: boolean; // true = turunkan ke bawahan (aksi='turunkan'), false/undefined = forward ke atasan (aksi='forward')
 
   // ============ KONTEN NASKAH (bisa diubah) ============
 
