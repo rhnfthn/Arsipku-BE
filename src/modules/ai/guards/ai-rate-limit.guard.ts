@@ -1,6 +1,12 @@
-import { Injectable, CanActivate, ExecutionContext, HttpException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  HttpException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiLogService } from '../services/ai-log.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class AiRateLimitGuard implements CanActivate {
@@ -10,8 +16,8 @@ export class AiRateLimitGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
-    const persnum = request.user?.persnum;
+    const request = context.switchToHttp().getRequest<{ user?: JwtPayload }>();
+    const persnum: number | undefined = request.user?.persnum;
     if (!persnum) return true; // JwtAuthGuard (global) will reject unauthenticated
 
     const limit = Number(this.config.get('AI_RATE_LIMIT_DAILY') ?? 10);
