@@ -636,8 +636,15 @@ export class NaskahService {
     // id_naskah_asli — HANYA jika viewer adalah pengirim naskah asli.
     // Penerima/tembusan TIDAK boleh melihat riwayat konsep (draft workflow),
     // mereka hanya melihat naskah final yang dikirim ke mereka.
+    // ponytail: leak konsep ke forward — konsep drafts HANYA tampil saat viewer
+    // buka naskah_asli itu sendiri (asliId === naskahId), bukan saat buka
+    // forward/anak turunannya. Sebelumnya loop iterasi SEMUA naskah di chain,
+    // sehingga konsep drafts si asli bocor ke riwayat forward turunannya
+    // (viewer = pengirim asli + penerima forward → konsep muncul di riwayat
+    // forward). Konsep drafts = riwayat si asli, bukan riwayat forward.
     const asliIdsForKonsep = [...allNaskahInChain];
     for (const asliId of asliIdsForKonsep) {
+      if (asliId !== naskahId) continue; // hanya naskah yang sedang dilihat
       const asliNaskah = await this.naskahRepository.findOne({
         where: { id: asliId },
         select: { id: true, jenis: true } as any,

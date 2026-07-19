@@ -3092,6 +3092,17 @@ export class KonsepService {
           where: { idNaskah: disposisiNaskah.id, sirkuler: 'tembusan' },
           order: { createdAt: 'ASC' },
         });
+
+        // ponytail: anti-bocor DI chain (opsi B) — hanya tampilkan DI yang
+        // viewer terlibat (pengirim/penerima/tembusan). DI atasnya yang viewer
+        // tidak terlibat di-skip, konsisten dengan filter K node (from/to ==
+        // user). Sebelumnya seluruh rantai disposisi (trigger DI sampai root)
+        // tampil ke viewer konsep → bocor DI orang lain.
+        const isViewerInDI =
+          String(pengirimDI?.position ?? '') === userPosStr ||
+          penerimaDI.some((p) => String(p.position ?? '') === userPosStr) ||
+          tembusanDI.some((t) => String(t.position ?? '') === userPosStr);
+        if (!isViewerInDI) continue;
         const penerimaGrupInfoDI =
           await this.grupPenerimaService.getGrupInfoForResponse([
             ...new Set(
