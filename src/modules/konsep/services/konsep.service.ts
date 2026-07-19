@@ -3015,6 +3015,18 @@ export class KonsepService {
       // agar bisa mencari pembuat konsep asli (untuk fitur turunkan)
       const allRiwayat = [...riwayatList];
 
+      // ponytail: leak X konsep — batasi trail K workflow (flow) ke urutan <=
+      // node yang dilihat (viewed). Tampil history yang membentuk titik ini
+      // (ancestor/origin); aksi SETELAHnya (downstream, termasuk forward user
+      // sendiri) hide dari flow = urusan terkirim. Inbox (view node terima) =
+      // trail sampai situ; terkirim (view node kirim) = trail + kirim user.
+      // Konsisten dengan naskah umum (keep ancestor, hide downstream
+      // own-forward). Node DI chain + naskah_asli (KN) tetap utuh = konteks.
+      const viewedRiwayat = allRiwayat.find(
+        (r) => r.idNaskahKonsep === naskahKonsep.id,
+      );
+      const viewedUrutan = viewedRiwayat?.urutan ?? Number.MAX_SAFE_INTEGER;
+
       // ponytail: anti-bocor downstream — batasi riwayat konsep hanya yg melibatkan
       // user saat ini (sebagai pengirim/from atau penerima/to). Forward setelah user
       // kirim (downstream orang lain: user3→user4, dst) di-cut, tak muncul di
@@ -3023,8 +3035,9 @@ export class KonsepService {
       const userPosStr = String(userPosition);
       riwayatList = riwayatList.filter(
         (r) =>
-          String(r.fromPositionId ?? '') === userPosStr ||
-          String(r.toPositionId ?? '') === userPosStr,
+          (String(r.fromPositionId ?? '') === userPosStr ||
+            String(r.toPositionId ?? '') === userPosStr) &&
+          Number(r.urutan) <= viewedUrutan,
       );
 
       // 4. Find the first K naskah (parent = null) for disposisi referensi
@@ -3482,17 +3495,28 @@ export class KonsepService {
         success: true,
         message: 'Detail konsep berhasil diambil',
         data: flow,
-        riwayat: allRiwayat.map((r) => ({
-          id: r.id,
-          id_naskah_konsep: r.idNaskahKonsep,
-          urutan: r.urutan,
-          aksi: r.aksi,
-          fromPositionId: r.fromPositionId,
-          toPositionId: r.toPositionId,
-          catatan: r.catatan,
-          createdBy: r.createdBy,
-          createdAt: r.createdAt,
-        })),
+        // ponytail: anti-bocor — filter riwayat ke langkah yang melibatkan user
+        // (from/to == user), sama seperti filter flow di atas. Sebelumnya kirim
+        // allRiwayat mentah → semua langkah workflow (termasuk downstream orang
+        // lain) bocor ke viewer. Fitur turunkan (kotak-masuk/[id].vue) cari
+        // entri toPositionId == user → tetap lolos filter ini.
+        riwayat: allRiwayat
+          .filter(
+            (r) =>
+              String(r.fromPositionId ?? '') === userPosStr ||
+              String(r.toPositionId ?? '') === userPosStr,
+          )
+          .map((r) => ({
+            id: r.id,
+            id_naskah_konsep: r.idNaskahKonsep,
+            urutan: r.urutan,
+            aksi: r.aksi,
+            fromPositionId: r.fromPositionId,
+            toPositionId: r.toPositionId,
+            catatan: r.catatan,
+            createdBy: r.createdBy,
+            createdAt: r.createdAt,
+          })),
       };
     } catch (error) {
       if (error instanceof HttpException) {
