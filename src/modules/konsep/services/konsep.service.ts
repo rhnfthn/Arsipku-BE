@@ -3293,6 +3293,12 @@ export class KonsepService {
         });
         const naskahRef = riwayatNaskahK || naskahKonsep;
 
+        // ponytail: user_sirkulasi per K node — untuk flag tindak_lanjut/favorit/
+        // lock/note per riwayat konsep. FE getDetailFlagState baca ini per node.
+        const userSirkulasiK = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: naskahRef.id, position: String(userPosition) },
+        });
+
         // Default: use current riwayat snapshot if available.
         let finalPdfSnapshot = riwayat.pdfSnapshot;
         let finalPdfSnapshotUrl = riwayat.pdfSnapshot
@@ -3425,6 +3431,20 @@ export class KonsepService {
           level: konsepLevel, // Selalu di atas disposisi chain
           created_at: riwayat.createdAt,
           updated_at: null,
+
+          // user_sirkulasi per K node — flag tindak_lanjut/favorit/lock/note
+          // untuk riwayat konsep. Shape sama kayak getDetailWithChain.
+          user_sirkulasi: userSirkulasiK
+            ? {
+                id_sirkulasi: userSirkulasiK.id,
+                is_favorit: !!userSirkulasiK.flagFavorit,
+                is_arsip: !!userSirkulasiK.flagArsip,
+                is_note: !!userSirkulasiK.flagNote,
+                note_text: userSirkulasiK.noteText || null,
+                is_tindak_lanjut: !!userSirkulasiK.tindakLanjut,
+                is_locked: !!userSirkulasiK.isLocked,
+              }
+            : null,
         });
       }
 
