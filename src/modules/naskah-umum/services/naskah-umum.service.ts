@@ -17,6 +17,7 @@ import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.e
 import { OnlyOfficeService } from '../../onlyoffice/services/onlyoffice.service';
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
+import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 
 @Injectable()
 export class NaskahUmumService {
@@ -30,6 +31,7 @@ export class NaskahUmumService {
     private readonly pdfQrEmbed: PdfQrEmbedService,
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly grupPenerimaService: GrupPenerimaService,
   ) {
     // Kill switch: OnlyOffice feature = ONLYOFFICE_ENABLED=false (default).
     // Don't throw at bootstrap. APP_PUBLIC_URL checked lazily in methods
@@ -202,7 +204,38 @@ export class NaskahUmumService {
       });
       await queryRunner.manager.save(pengirim);
 
+      // ── Expand grup penerima ke individual position IDs ────────────────────
+      const penerimaPositionIds = new Set<number>();
       for (const posId of dto.penerima ?? []) {
+        penerimaPositionIds.add(Number(posId));
+      }
+      if (dto.penerima_grup && dto.penerima_grup.length > 0) {
+        for (const grupId of dto.penerima_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId);
+            grupPositions.forEach((pos) => penerimaPositionIds.add(Number(pos.position)));
+          } catch (error) {
+            console.warn(`[NU:finalizeSend] Failed to expand penerima grup ${grupId}:`, error.message);
+          }
+        }
+      }
+
+      const tembusanPositionIds = new Set<number>();
+      for (const posId of dto.tembusan ?? []) {
+        tembusanPositionIds.add(Number(posId));
+      }
+      if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
+        for (const grupId of dto.tembusan_grup) {
+          try {
+            const grupPositions = await this.grupPenerimaService.expandGrupToPositions(grupId);
+            grupPositions.forEach((pos) => tembusanPositionIds.add(Number(pos.position)));
+          } catch (error) {
+            console.warn(`[NU:finalizeSend] Failed to expand tembusan grup ${grupId}:`, error.message);
+          }
+        }
+      }
+
+      for (const posId of penerimaPositionIds) {
         const penerima = queryRunner.manager.create(NaskahSirkulasi, {
           id: uuidv4(),
           idNaskah: naskahId,
@@ -212,7 +245,7 @@ export class NaskahUmumService {
         await queryRunner.manager.save(penerima);
       }
 
-      for (const posId of dto.tembusan ?? []) {
+      for (const posId of tembusanPositionIds) {
         const tembusan = queryRunner.manager.create(NaskahSirkulasi, {
           id: uuidv4(),
           idNaskah: naskahId,
