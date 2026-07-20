@@ -121,6 +121,15 @@ export class ForwardSuratDinasEksternalDto {
   @IsString()
   nama_lengkap?: string;
 
+  // Garis Kewenangan (a.n.)
+  @IsOptional()
+  @IsString()
+  atas_nama?: string;
+
+  @IsOptional()
+  @IsNumber()
+  atas_nama_position_id?: number;
+
   @IsOptional()
   @IsBoolean()
   english?: boolean;

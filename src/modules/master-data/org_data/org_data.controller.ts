@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
 import { RelationOoService } from '../relation_oo/relation_oo.service';
 import { RelationOaService } from '../relation_oa/relation_oa.service';
 import { RelationOsService } from '../relation_os/relation_os.service';
@@ -228,6 +228,20 @@ export class OrgDataController {
   @Get('pengirim/managerial')
   async getAllManagerialPositions(@Query() query: OrgFilterQueryDto) {
     return this.orgBuildService.getAllManagerialPositions(query.tgl);
+  }
+
+  /**
+   * GET /org-data/atasnama/:positionId
+   * Get atasan (pejabat pemberi kuasa) untuk positionId — chief=1 di
+   * direktorat + company yang sama, exclude signer. Untuk dropdown
+   * "atas nama" (Garis Kewenangan a.n.) di form create SDE.
+   */
+  @Get('atasnama/:positionId')
+  async getAtasanByPosition(
+    @Param('positionId') positionId: string,
+    @Query() query: OrgFilterQueryDto,
+  ) {
+    return this.orgBuildService.getAtasanByPosition(Number(positionId), query.tgl);
   }
 
   @Get()

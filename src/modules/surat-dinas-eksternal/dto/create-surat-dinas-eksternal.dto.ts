@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsArray, IsOptional, IsString, IsBoolean, IsEnum, ArrayMinSize, Matches } from 'class-validator';
+import { IsNotEmpty, IsArray, IsOptional, IsString, IsBoolean, IsEnum, ArrayMinSize, Matches, IsNumber } from 'class-validator';
 
 // Enum untuk sifat surat
 export enum SifatSurat {
@@ -120,6 +120,19 @@ export class CreateSuratDinasEksternalDto {
   @IsOptional()
   @IsString()
   nama_lengkap?: string;
+
+  // ============================================
+  // GARIS KEWENANGAN (a.n.) — Optional
+  // ============================================
+  // atas_nama: label pemberi kuasa, e.g. "Direktur Utama" atau "Direksi".
+  // atas_nama_position_id: position id pemberi kuasa untuk auto-tembusan (null untuk Dirut → "Direksi").
+  @IsOptional()
+  @IsString()
+  atas_nama?: string;
+
+  @IsOptional()
+  @IsNumber()
+  atas_nama_position_id?: number;
 
   // ============================================
   // TEMBUSAN (Optional for SDE)

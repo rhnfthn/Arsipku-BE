@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Delete, Param, ParseIntPipe, Query, Body, HttpException, HttpStatus, UseGuards, UseInterceptors, Res, UploadedFiles } from '@nestjs/common';
 import type { Response } from 'express';
-import { AnyFilesInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { v4 as uuidv4 } from 'uuid';
 import { SuratDinasEksternalService } from '../services/surat-dinas-eksternal.service';
 import { SdeRecipientResponseDto, GetSdeRecipientQueryDto, SdeOrgDataPositionDto } from '../dto/sde-recipient-response.dto';
@@ -566,18 +566,32 @@ export class SuratDinasEksternalController {
   @UseGuards(JwtAuthGuard)
   @Put('send-draft/:id')
   @RequirePermission('naskah-dinas', 'create')
-  @UseInterceptors(AnyFilesInterceptor())
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'lampiran_files', maxCount: 10 },
+        { name: 'final_pdf', maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB per file
+        },
+      },
+    ),
+  )
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files?: Express.Multer.File[],
+    @UploadedFiles() files?: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
     @CurrentUser() user?: any,
   ): Promise<SdeSendMessageResponseDto> {
     try {
       // For finalize, upload temp lampiran if files provided
-      if (files && files.length > 0) {
+      // IMPORTANT: only upload lampiran_files, NOT final_pdf (preview PDF without nomor/ttd)
+      const lampiranFiles = files?.lampiran_files;
+      if (lampiranFiles && lampiranFiles.length > 0) {
         const lampiranTempIds = await this.sdeService.uploadTemporaryLampiran(
-          files,
+          lampiranFiles,
           id,
           'SDE',
         );
@@ -806,6 +820,7 @@ export class SuratDinasEksternalController {
         body.lampiran || '-',
         headerInfo || undefined,
         body.english === true || body.english === 'true',
+        body.atas_nama || '',
       );
 
       res.set({
@@ -979,6 +994,7 @@ export class SuratDinasEksternalController {
         body.lampiran || '-',
         headerInfo || undefined,
         body.english === true || body.english === 'true',
+        body.atas_nama || '',
       );
 
       res.set({
