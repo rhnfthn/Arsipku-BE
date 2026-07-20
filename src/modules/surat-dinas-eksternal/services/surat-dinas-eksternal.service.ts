@@ -309,6 +309,7 @@ export class SuratDinasEksternalService {
     lampiran: string = '-',
     headerInfo?: { kantor: string; gedung: string; alamat: string },
     english: boolean = false,
+    atasNama: string = '',
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -335,6 +336,7 @@ export class SuratDinasEksternalService {
         tanggal: tanggal,
         positionText: namaJabatan,
         namaLengkap: namaLengkap,
+        atasNama: atasNama || null,
         tembusan: tembusan,
         perihal: perihal,
         sifat: sifat,
@@ -1167,6 +1169,17 @@ export class SuratDinasEksternalService {
       }
     }
 
+    // Garis Kewenangan (a.n.): pemberi kuasa auto-tembusan (force, tidak bisa hapus).
+    // Hanya untuk non-Dirut (atas_nama_position_id diisi). Dirut "a.n Direksi" tidak CC.
+    if (dto.atas_nama_position_id) {
+      const atasNamaPos = barisData.find(
+        (x) => Number(x.position) === Number(dto.atas_nama_position_id),
+      );
+      if (atasNamaPos && !tembusanList.some((t) => Number(t.position) === Number(dto.atas_nama_position_id))) {
+        tembusanList.push(atasNamaPos);
+      }
+    }
+
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1208,6 +1221,9 @@ export class SuratDinasEksternalService {
         status: status,
         signOption: dto.sign_option || null,
         english: dto.english || false,
+        // Garis Kewenangan (a.n.) — label pemberi kuasa untuk template signature.
+        atasNama: dto.atas_nama || null,
+        atasNamaPositionId: dto.atas_nama_position_id ? String(dto.atas_nama_position_id) : null,
       });
       await queryRunner.manager.save(naskah);
 
@@ -1368,6 +1384,8 @@ export class SuratDinasEksternalService {
             }),
             positionText: dto.nama_jabatan || pengirim.position_text,
             namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
+            // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
+            atasNama: dto.atas_nama || null,
             tembusan: tembusanNames, // Include tembusan in PDF (same as preview-pdf)
             perihal: dto.perihal,
             sifat: dto.sifat || 'Biasa',
@@ -1813,6 +1831,8 @@ export class SuratDinasEksternalService {
           }),
           positionText: finalPositionText,
           namaLengkap: finalNamaLengkap,
+          // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
+          atasNama: dto.atas_nama || null,
           nama_tempat: dynamicNamaTempat,
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,
@@ -2096,6 +2116,10 @@ export class SuratDinasEksternalService {
       nama_jabatan: body.nama_jabatan,
       tanda_tangan: body.tanda_tangan,
       nama_lengkap: body.nama_lengkap,
+
+      // Garis Kewenangan (a.n.)
+      atas_nama: body.atas_nama || undefined,
+      atas_nama_position_id: body.atas_nama_position_id ? Number(body.atas_nama_position_id) : undefined,
 
       // Lampiran
       lampiran: body.lampiran,
@@ -3543,6 +3567,9 @@ export class SuratDinasEksternalService {
         nama_jabatan: pengirimSirkulasi?.positionText || null,
         tanda_tangan: naskah.tandaTangan || null,
         nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
+        // Garis Kewenangan (a.n.) — label pemberi kuasa (null = tanpa a.n.)
+        atas_nama: naskah.atasNama || null,
+        atas_nama_position_id: naskah.atasNamaPositionId || null,
 
         // Sirkulasi
         pengirim: {

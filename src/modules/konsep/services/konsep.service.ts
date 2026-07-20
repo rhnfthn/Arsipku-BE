@@ -28,6 +28,7 @@ import { NomorEntity } from '../../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
+import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
@@ -101,6 +102,8 @@ export class KonsepService {
     private nomorRequestDetailRepository: Repository<NomorRequestDetailEntity>,
     @InjectRepository(JenisEntity)
     private jenisRepository: Repository<JenisEntity>,
+    @InjectRepository(EksternalEntity)
+    private eksternalRepository: Repository<EksternalEntity>,
     private orgDataService: OrgDataService,
     private storageService: StorageService,
     private generatePdfNodinService: GeneratePdfNodinService,
@@ -302,6 +305,9 @@ export class KonsepService {
         // Was 'final' which blocked send-draft guard ("Naskah sudah berstatus final").
         status: 'draf',
         id_naskah_konsep: naskahKonsepId, // Link to konsep workflow
+        // Garis Kewenangan (a.n.) — khusus SDE. Label pemberi kuasa untuk template.
+        atasNama: dto.atas_nama || null,
+        atasNamaPositionId: dto.atas_nama_position_id ? String(dto.atas_nama_position_id) : null,
       });
       await queryRunner.manager.save(naskahAsli);
 
@@ -459,6 +465,19 @@ export class KonsepService {
         await queryRunner.manager.save(sirkulasiPenerima);
       }
 
+      // SDE: penerima eksternal (array of eksternal.id) — createSirkulasiFromEksternal.
+      // Sebelumnya tidak di-handle → naskah_asli penerima sirkulasi kosong →
+      // getKonsepDetail return penerima=[] → pre-fill form kosong saat lanjut konsep.
+      if (dto.penerima_eksternal && dto.penerima_eksternal.length > 0) {
+        const eksternalList = await this.eksternalRepository.find({
+          where: { id: In(dto.penerima_eksternal) },
+        });
+        for (let i = 0; i < eksternalList.length; i++) {
+          const sirkulasi = this.createSirkulasiFromEksternal(naskahAsliId, eksternalList[i], true, i);
+          await queryRunner.manager.save(sirkulasi);
+        }
+      }
+
       // Tembusan naskah final (expand individual + grup, only for ND/SDI)
       const expandedTembusanIds = await this.expandGrupPenerima(
         dto.tembusan_position_ids,
@@ -496,6 +515,16 @@ export class KonsepService {
         sirkulasiTembusan.namaSirkuler = dto.tembusan;
         sirkulasiTembusan.isKonsep = 1;
         await queryRunner.manager.save(sirkulasiTembusan);
+      }
+
+      // Garis Kewenangan (a.n.): pemberi kuasa auto-tembusan (force, non-Dirut).
+      // Hanya untuk SDE. Dirut "a.n Direksi" tidak CC (atas_nama_position_id null).
+      if (dto.atas_nama_position_id && !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))) {
+        const atasNamaPos = this.findByPosition(barisData, Number(dto.atas_nama_position_id));
+        if (atasNamaPos) {
+          const sirkulasiAtasNama = this.createSirkulasi(naskahAsliId, 'tembusan', atasNamaPos, true);
+          await queryRunner.manager.save(sirkulasiAtasNama);
+        }
       }
 
       // ==========================================
@@ -659,6 +688,40 @@ export class KonsepService {
     sirkulasi.isKonsep = isKonsep ? 1 : 0;
     sirkulasi.isDraft = false;
     sirkulasi.idGrupPenerima = grupPenerimaId || null;
+    return sirkulasi;
+  }
+
+  // ponytail: createSirkulasiFromEksternal — untuk SDE penerima eksternal.
+  // Mirror SDE service: position=null, idSirkuler=eksternal.id, positionStatus='ext'.
+  private createSirkulasiFromEksternal(
+    naskahId: string,
+    eksternal: EksternalEntity,
+    isKonsep: boolean = false,
+    urutan: number = 0,
+  ): NaskahSirkulasi {
+    const sirkulasi = new NaskahSirkulasi();
+    sirkulasi.id = uuidv4();
+    sirkulasi.idNaskah = naskahId;
+    sirkulasi.sirkuler = 'penerima';
+    sirkulasi.company = null;
+    sirkulasi.companyText = eksternal.nama;
+    sirkulasi.area = null;
+    sirkulasi.areaText = null;
+    sirkulasi.subArea = null;
+    sirkulasi.subAreaText = null;
+    sirkulasi.organization = null;
+    sirkulasi.organizationText = eksternal.nama;
+    sirkulasi.position = null;
+    sirkulasi.positionText = null;
+    sirkulasi.positionStatus = 'ext';
+    sirkulasi.idSirkuler = eksternal.id;
+    sirkulasi.namaSirkuler = eksternal.nama;
+    sirkulasi.alamat = eksternal.alamat || null;
+    sirkulasi.telepon = eksternal.telepon || null;
+    sirkulasi.email = eksternal.email || null;
+    sirkulasi.isKonsep = isKonsep ? 1 : 0;
+    sirkulasi.isDraft = false;
+    sirkulasi.urutan = urutan;
     return sirkulasi;
   }
 
@@ -1304,6 +1367,14 @@ export class KonsepService {
       penerima_position_ids: body.penerima_position_ids
         ? parseNumberArray(body.penerima_position_ids)
         : undefined,
+      // SDE: penerima eksternal (array of eksternal.id). FE kirim di field 'penerima_ids'.
+      penerima_eksternal: body.penerima_ids
+        ? parseStringArray(body.penerima_ids)
+        : body.penerima
+          ? parseStringArray(body.penerima)
+          : body.penerima_eksternal
+            ? parseStringArray(body.penerima_eksternal)
+            : undefined,
       tembusan_position_ids: body.tembusan_position_ids
         ? parseNumberArray(body.tembusan_position_ids)
         : undefined,
@@ -1322,6 +1393,9 @@ export class KonsepService {
       tembusan: body.tembusan,
       tgl: body.tgl,
       tanda_tangan: body.tanda_tangan,
+      // Garis Kewenangan (a.n.)
+      atas_nama: body.atas_nama || undefined,
+      atas_nama_position_id: body.atas_nama_position_id ? Number(body.atas_nama_position_id) : undefined,
     };
   }
 
@@ -1390,6 +1464,14 @@ export class KonsepService {
       penerima_position_ids: body.penerima_position_ids
         ? parseNumberArray(body.penerima_position_ids)
         : undefined,
+      // SDE: penerima eksternal (array of eksternal.id). FE kirim di field 'penerima_ids'.
+      penerima_eksternal: body.penerima_ids
+        ? parseStringArray(body.penerima_ids)
+        : body.penerima
+          ? parseStringArray(body.penerima)
+          : body.penerima_eksternal
+            ? parseStringArray(body.penerima_eksternal)
+            : undefined,
       tembusan_position_ids: body.tembusan_position_ids
         ? parseNumberArray(body.tembusan_position_ids)
         : undefined,
@@ -1460,6 +1542,14 @@ export class KonsepService {
       penerima_position_ids: body.penerima_position_ids
         ? parseNumberArray(body.penerima_position_ids)
         : undefined,
+      // SDE: penerima eksternal (array of eksternal.id). FE kirim di field 'penerima_ids'.
+      penerima_eksternal: body.penerima_ids
+        ? parseStringArray(body.penerima_ids)
+        : body.penerima
+          ? parseStringArray(body.penerima)
+          : body.penerima_eksternal
+            ? parseStringArray(body.penerima_eksternal)
+            : undefined,
       tembusan_position_ids: body.tembusan_position_ids
         ? parseNumberArray(body.tembusan_position_ids)
         : undefined,
@@ -3364,6 +3454,7 @@ export class KonsepService {
                 : null,
               penerima: penerimaAsliList.map((p) => ({
                 position_id: p.position || '',
+                id_sirkuler: p.idSirkuler || null,
                 position_text: p.positionText || '',
                 organization_text: p.organizationText || '',
                 nama: p.namaSirkuler || null,
@@ -3372,6 +3463,7 @@ export class KonsepService {
               })),
               tembusan: tembusanAsliList.map((t) => ({
                 position_id: t.position || '',
+                id_sirkuler: t.idSirkuler || null,
                 position_text: t.positionText || '',
                 organization_text: t.organizationText || '',
                 nama: t.namaSirkuler || null,
@@ -3467,6 +3559,9 @@ export class KonsepService {
           sifat: naskahAsli.sifat,
           klasifikasi: naskahAsli.klasifikasi,
           klasifikasi_text: naskahAsli.klasifikasi_text,
+          // Garis Kewenangan (a.n.) — label pemberi kuasa (null = tanpa a.n.)
+          atas_nama: naskahAsli.atasNama || null,
+          atas_nama_position_id: naskahAsli.atasNamaPositionId || null,
           status: naskahAsli.status,
           lampiran: naskahAsli.lampiran,
 
@@ -3481,6 +3576,7 @@ export class KonsepService {
 
           penerima: penerimaAsliList.map((p) => ({
             position_id: p.position || '',
+            id_sirkuler: p.idSirkuler || null,
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
             nama: p.namaSirkuler || null,
@@ -3489,12 +3585,16 @@ export class KonsepService {
           })),
           tembusan: tembusanAsliList.map((t) => ({
             position_id: t.position || '',
+            id_sirkuler: t.idSirkuler || null,
             position_text: t.positionText || '',
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
           })),
           penerima_grup: penerimaGrupInfo,
           tembusan_grup: tembusanGrupInfo,
+
+          // penerima_ids (external ids) — untuk restore form tertuju SDE.
+          penerima_ids: penerimaAsliList.map((p) => p.idSirkuler).filter(Boolean) as string[],
 
           lampiran_files: lampiranAsliFiles,
           jumlah_lampiran: lampiranAsliList.length,
@@ -3949,6 +4049,8 @@ export class KonsepService {
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
         english: body.english === true || body.english === '1' || body.english === 'true', // Gunakan flag dari frontend
+        // Garis Kewenangan (a.n.) — label pemberi kuasa.
+        atasNama: body.atas_nama || null,
       };
     }
   }
@@ -4352,6 +4454,8 @@ export class KonsepService {
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
           english: (naskahAsli as any).english === true || (naskahAsli as any).english === 1 || (naskahAsli as any).english === '1', // Gunakan flag dari naskah asli
+          // Garis Kewenangan (a.n.) — label pemberi kuasa dari naskah asli.
+          atasNama: (naskahAsli as any).atasNama || null,
           // Dynamic header info dari sub_area_alamat
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,

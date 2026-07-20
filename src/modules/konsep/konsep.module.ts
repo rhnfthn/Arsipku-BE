@@ -15,6 +15,7 @@ import { NomorEntity } from '../nomor/entities/nomor.entity';
 import { NomorRequestEntity } from '../nomor/entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../nomor/entities/nomor-request-detail.entity';
 import { JenisEntity } from '../nomor/entities/jenis.entity';
+import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { OrgDataModule } from 'src/modules/master-data/org_data/org_data.module';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
@@ -39,6 +40,7 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
       NomorRequestEntity,
       NomorRequestDetailEntity,
       JenisEntity,
+      EksternalEntity,
     ]),
     OrgDataModule,
     StorageModule,

@@ -92,6 +92,12 @@ export class FinalizeKonsepDto {
   @IsNumber({}, { each: true })
   penerima_position_ids?: number[]; // Penerima akhir surat
 
+  // Penerima eksternal (khusus SDE) — array of eksternal.id (UUID string).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  penerima_eksternal?: string[];
+
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
