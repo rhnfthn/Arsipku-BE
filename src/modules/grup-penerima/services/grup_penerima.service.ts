@@ -26,44 +26,24 @@ export class GrupPenerimaService {
   ) {}
 
   async create(createGrupPenerimaDto: CreateGrupPenerimaDto): Promise<GrupPenerimaEntity> {
-    // Jika urutan tidak dikirim, ambil urutan terakhir + 1
-    let urutan = createGrupPenerimaDto.urutan;
-    if (urutan === undefined || urutan === null) {
-      const lastGrup = await this.grupPenerimaRepository
-        .createQueryBuilder('grup_penerima')
-        .where('grup_penerima.company = :company', { company: createGrupPenerimaDto.company })
-        .andWhere('grup_penerima.area = :area', { area: createGrupPenerimaDto.area })
-        .orderBy('grup_penerima.urutan', 'DESC')
-        .getOne();
-
-      urutan = lastGrup?.urutan ? lastGrup.urutan + 1 : 1;
-    }
-
     const grupPenerima = this.grupPenerimaRepository.create({
       id: uuidv4(),
       ...createGrupPenerimaDto,
-      urutan,
     });
 
     return await this.grupPenerimaRepository.save(grupPenerima);
   }
 
-  async findAll(company?: string, area?: string): Promise<GrupPenerimaEntity[]> {
+  async findAll(company?: string): Promise<GrupPenerimaEntity[]> {
     const query = this.grupPenerimaRepository.createQueryBuilder('grup_penerima');
 
     if (company) {
       query.where('grup_penerima.company = :company', { company });
     }
 
-    if (area) {
-      query.andWhere('grup_penerima.area = :area', { area });
-    }
-
     return await query
-      .andWhere('grup_penerima.aktif = :aktif', { aktif: true })
       .leftJoinAndSelect('grup_penerima.details', 'details')
-      .orderBy('grup_penerima.urutan', 'ASC')
-      .addOrderBy('grup_penerima.nama', 'ASC')
+      .orderBy('grup_penerima.nama', 'ASC')
       .getMany();
   }
 
@@ -80,18 +60,16 @@ export class GrupPenerimaService {
   /**
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
-   * @param area - Filter by area
    * @param tgl - Optional date for org_data lookup (default: today)
    * @param jenis - Optional naskah type filter: 'ND' or 'SDI'
    */
   async findAllWithPositionDetail(
     company?: string,
-    area?: string,
     tgl?: string,
     jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list
-    let grupList = await this.findAll(company, area);
+    let grupList = await this.findAll(company);
 
     // Filter by jenis if provided
     if (jenis) {
@@ -126,11 +104,8 @@ export class GrupPenerimaService {
     return grupList.map((grup) => ({
       id: grup.id,
       company: grup.company,
-      area: grup.area,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
-      deskripsi_english: grup.deskripsi_english,
-      urutan: grup.urutan,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);
@@ -176,11 +151,8 @@ export class GrupPenerimaService {
     return {
       id: grup.id,
       company: grup.company,
-      area: grup.area,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
-      deskripsi_english: grup.deskripsi_english,
-      urutan: grup.urutan,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);

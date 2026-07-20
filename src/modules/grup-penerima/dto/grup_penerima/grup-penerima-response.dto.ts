@@ -51,11 +51,8 @@ export class GrupPenerimaDetailResponseDto {
 export class GrupPenerimaResponseDto {
   id: string;
   company: string;
-  area: string;
   nama: string;
   deskripsi: string | null;
-  deskripsi_english: string | null;
-  urutan: number;
   aktif: boolean;
   details: GrupPenerimaDetailResponseDto[];
 }
@@ -65,7 +62,6 @@ export class GrupPenerimaResponseDto {
  */
 export class GetGrupPenerimaQueryDto {
   company?: string;
-  area?: string;
   tgl?: string; // Format: YYYY-MM-DD, untuk lookup org_data
   jenis?: string; // ND = Directors + EVP, SDI = GM
 }

@@ -22,24 +22,22 @@ export class GrupPenerimaController {
    * Get all grup penerima with enriched position detail from org_data
    * 
    * @param company - Filter by company
-   * @param area - Filter by area
    * @param tgl - Optional date for org_data lookup (format: YYYY-MM-DD, default: today)
    * @param jenis - Optional filter by naskah type: 'ND' (Directors + EVP) or 'SDI' (GM)
    * 
    * @example
-   * GET /persuratan/grup-penerima?company=10000&area=A000
-   * GET /persuratan/grup-penerima?company=10000&area=A000&tgl=2026-02-05
-   * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=ND
-   * GET /persuratan/grup-penerima?company=10000&area=A000&jenis=SDI
+   * GET /persuratan/grup-penerima?company=10000
+   * GET /persuratan/grup-penerima?company=10000&tgl=2026-02-05
+   * GET /persuratan/grup-penerima?company=10000&jenis=ND
+   * GET /persuratan/grup-penerima?company=10000&jenis=SDI
    */
   @Get()
   findAll(
     @Query('company') company?: string,
-    @Query('area') area?: string,
     @Query('tgl') tgl?: string,
     @Query('jenis') jenis?: string,
   ) {
-    return this.grupPenerimaService.findAllWithPositionDetail(company, area, tgl, jenis);
+    return this.grupPenerimaService.findAllWithPositionDetail(company, tgl, jenis);
   }
 
   /**
