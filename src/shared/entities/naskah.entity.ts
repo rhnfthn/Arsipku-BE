@@ -86,6 +86,15 @@ export class NaskahEntity {
   @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
   createdByPosition: string | null;
 
+  // Garis Kewenangan (a.n.) — label pemberi kuasa di template signature.
+  // Dipakai SDE (e.g. "Direktur Utama" atau "Direksi"). Null = tidak pakai a.n.
+  @Column('varchar', { name: 'atas_nama', length: 150, nullable: true })
+  atasNama: string | null;
+
+  // Position id pemberi kuasa (untuk auto-tembusan + restore form). Null untuk Dirut ("Direksi").
+  @Column('varchar', { name: 'atas_nama_position_id', length: 50, nullable: true })
+  atasNamaPositionId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

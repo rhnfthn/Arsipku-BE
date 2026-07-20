@@ -187,6 +187,76 @@ export class OrgDataService {
   }
 
   /**
+   * Get atasan (pejabat pemberi kuasa) untuk sebuah positionId — atasan di
+   * direktorat + company SAMA dengan signer (untuk Garis Kewenangan a.n. SDE).
+   * Return chief=1 (managerial) di direktorat yang sama, exclude signer sendiri.
+   * Di-sort by level ascending (level lebih rendah = lebih senior di atas).
+   * FE pakai untuk dropdown "atas nama" di form create SDE.
+   */
+  async getAtasanByPosition(
+    positionId: number,
+    tgl?: string,
+  ): Promise<{ success: boolean; data: any[]; total: number; tanggal: string }> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    const orgData = await this.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: any[] = orgData.position_json;
+    const signer = barisData.find((x) => Number(x.position) === Number(positionId));
+    if (!signer) {
+      throw new NotFoundException(
+        `Position ${positionId} tidak ditemukan dalam org_data tanggal ${tanggal}.`,
+      );
+    }
+
+    const signerDir = Number(signer.direktorat_id ?? null);
+    const signerCompany = Number(signer.company ?? null);
+    const isSignerDirut = /direktur\s+utama/i.test(signer.position_text || '');
+    // ponytail: signer Direktur (BOD non-Utama) → a.n. + auto-CC = Direktur Utama
+    // (company level), BUKAN bawahan di direktorat sendiri. Sebelumnya filter
+    // direktorat-same return bawahan (BOD-1) untuk signer Direktur.
+    const isSignerDirektur = String(signer.bod_tag || '').toUpperCase() === 'BOD' && !isSignerDirut;
+
+    if (isSignerDirektur) {
+      const dirut = barisData.find(
+        (x) =>
+          Number(x.company ?? null) === signerCompany &&
+          /direktur\s+utama/i.test(x.position_text || ''),
+      );
+      return {
+        success: true,
+        data: dirut ? [dirut] : [],
+        total: dirut ? 1 : 0,
+        tanggal,
+      };
+    }
+
+    // Signer EVP/bawah → atasan chief=1 di direktorat+company sama, exclude self.
+    // Sort by level ascending (level lebih rendah = lebih senior di atas).
+    const atasan = barisData
+      .filter(
+        (x) =>
+          Number(x.position) !== Number(positionId) &&
+          x.chief === 1 &&
+          Number(x.direktorat_id ?? null) === signerDir &&
+          Number(x.company ?? null) === signerCompany,
+      )
+      .sort((a, b) => Number(a.level ?? 99) - Number(b.level ?? 99));
+
+    return {
+      success: true,
+      data: atasan,
+      total: atasan.length,
+      tanggal,
+    };
+  }
+
+  /**
    * Find user by persnum from organization_json
    * Used for SSO authentication
    *

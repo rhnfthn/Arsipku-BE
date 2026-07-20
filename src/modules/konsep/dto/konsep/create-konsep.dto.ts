@@ -100,6 +100,17 @@ export class CreateKonsepDto {
   @IsString()
   nama_lengkap?: string;
 
+  // ============ GARIS KEWENANGAN (a.n.) — khusus SDE ============
+  // atas_nama: label pemberi kuasa (e.g. "Direktur Utama" atau "Direksi").
+  // atas_nama_position_id: position id pemberi kuasa untuk auto-tembusan (null untuk Dirut → "Direksi").
+  @IsOptional()
+  @IsString()
+  atas_nama?: string;
+
+  @IsOptional()
+  @IsNumber()
+  atas_nama_position_id?: number;
+
   // ============ LAMPIRAN ============
 
   @IsOptional()
@@ -119,6 +130,12 @@ export class CreateKonsepDto {
   @IsArray()
   @IsNumber({}, { each: true })
   penerima_position_ids?: number[]; // Penerima akhir surat (berbeda dengan to_position_id yang adalah penerima konsep)
+
+  // Penerima eksternal (khusus SDE) — array of eksternal.id (UUID string).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  penerima_eksternal?: string[];
 
   @IsOptional()
   @IsArray()
