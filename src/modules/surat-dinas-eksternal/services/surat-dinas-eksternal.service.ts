@@ -1223,6 +1223,7 @@ export class SuratDinasEksternalService {
         english: dto.english || false,
         // Garis Kewenangan (a.n.) — label pemberi kuasa untuk template signature.
         atasNama: dto.atas_nama || null,
+        atasNamaPositionId: dto.atas_nama_position_id ? String(dto.atas_nama_position_id) : null,
       });
       await queryRunner.manager.save(naskah);
 
@@ -3568,6 +3569,7 @@ export class SuratDinasEksternalService {
         nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
         // Garis Kewenangan (a.n.) — label pemberi kuasa (null = tanpa a.n.)
         atas_nama: naskah.atasNama || null,
+        atas_nama_position_id: naskah.atasNamaPositionId || null,
 
         // Sirkulasi
         pengirim: {
