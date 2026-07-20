@@ -93,4 +93,9 @@ export class NaskahEntity {
 
   @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
   createdByPosition: string | null;
+
+  // Garis Kewenangan (a.n.) — label pemberi kuasa di template signature.
+  // Dipakai SDE. Null untuk naskah yang tidak pakai a.n.
+  @Column('varchar', { name: 'atas_nama', length: 150, nullable: true })
+  atasNama: string | null;
 }

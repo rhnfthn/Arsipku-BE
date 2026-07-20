@@ -806,6 +806,7 @@ export class SuratDinasEksternalController {
         body.lampiran || '-',
         headerInfo || undefined,
         body.english === true || body.english === 'true',
+        body.atas_nama || '',
       );
 
       res.set({
@@ -979,6 +980,7 @@ export class SuratDinasEksternalController {
         body.lampiran || '-',
         headerInfo || undefined,
         body.english === true || body.english === 'true',
+        body.atas_nama || '',
       );
 
       res.set({
