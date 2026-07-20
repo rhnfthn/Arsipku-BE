@@ -249,6 +249,21 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
             },
           ],
         },
+        {
+          key: 'grup-penerima',
+          label: 'Grup Penerima',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Grup Penerima',
+              permissions: [
+                { action: 'read-grup-penerima', label: 'Read', description: 'Halaman Grup Penerima', resource: 'master-data' },
+                { action: 'create-grup-penerima', label: 'Create', description: 'Button Tambah Grup Penerima', resource: 'master-data' },
+                { action: 'update-grup-penerima', label: 'Update', description: 'Button Edit Grup Penerima', resource: 'master-data' },
+                { action: 'delete-grup-penerima', label: 'Delete', description: 'Button Delete Grup Penerima', resource: 'master-data' },                { action: 'read-grup-penerima-detail', label: 'Read', description: 'Button Detail Grup Penerima', resource: 'master-data' },              ],
+            },
+          ],
+        },
       ],
     },
     // ============================================================
