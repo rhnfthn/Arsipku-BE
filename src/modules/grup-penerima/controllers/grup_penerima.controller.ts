@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Delete,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { GrupPenerimaService } from '../services/grup_penerima.service';
 import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
@@ -20,11 +29,11 @@ export class GrupPenerimaController {
   /**
    * GET /persuratan/grup-penerima
    * Get all grup penerima with enriched position detail from org_data
-   * 
+   *
    * @param company - Filter by company
    * @param tgl - Optional date for org_data lookup (format: YYYY-MM-DD, default: today)
    * @param jenis - Optional filter by naskah type: 'ND' (Directors + EVP) or 'SDI' (GM)
-   * 
+   *
    * @example
    * GET /persuratan/grup-penerima?company=10000
    * GET /persuratan/grup-penerima?company=10000&tgl=2026-02-05
@@ -37,7 +46,11 @@ export class GrupPenerimaController {
     @Query('tgl') tgl?: string,
     @Query('jenis') jenis?: string,
   ) {
-    return this.grupPenerimaService.findAllWithPositionDetail(company, tgl, jenis);
+    return this.grupPenerimaService.findAllWithPositionDetail(
+      company,
+      tgl,
+      jenis,
+    );
   }
 
   /**
@@ -51,7 +64,10 @@ export class GrupPenerimaController {
 
   @Put(':id')
   @RequirePermission('master-data', 'update-grup-penerima')
-  update(@Param('id') id: string, @Body() updateGrupPenerimaDto: UpdateGrupPenerimaDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateGrupPenerimaDto: UpdateGrupPenerimaDto,
+  ) {
     return this.grupPenerimaService.update(id, updateGrupPenerimaDto);
   }
 
@@ -71,7 +87,10 @@ export class GrupPenerimaController {
 
   @Post(':id/members')
   @RequirePermission('master-data', 'create-grup-penerima')
-  addMember(@Param('id') id: string, @Body() createDetailDto: CreateGrupPenerimaDetailDto) {
+  addMember(
+    @Param('id') id: string,
+    @Body() createDetailDto: CreateGrupPenerimaDetailDto,
+  ) {
     return this.grupPenerimaService.addMember(id, createDetailDto);
   }
 
@@ -96,7 +115,10 @@ export class GrupPenerimaController {
 
   @Put('members/:detailId')
   @RequirePermission('master-data', 'update-grup-penerima')
-  updateMember(@Param('detailId') detailId: string, @Body() updateDetailDto: UpdateGrupPenerimaDetailDto) {
+  updateMember(
+    @Param('detailId') detailId: string,
+    @Body() updateDetailDto: UpdateGrupPenerimaDetailDto,
+  ) {
     return this.grupPenerimaService.updateMember(detailId, updateDetailDto);
   }
 
