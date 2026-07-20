@@ -585,37 +585,13 @@ export class NaskahService {
 
     await traceBackwardOnly(naskahId);
 
-    // STEP 1b: Forward-traverse dari naskah yang dilihat — ikut forward MILIK
-    // USER SENDIRI (pengirim == userPosition) saja, berhenti di forward orang
-    // lain. Ini agar kotak-masuk user tetap melihat tindak-lanjut/forward-nya
-    // sendiri, tanpa membocorkan downstream orang lain (D3, D4, ...).
-    const forwardOwnChain = async (parentId: string) => {
-      const parent = await this.naskahRepository.findOne({
-        where: { id: parentId },
-      });
-      if (!parent || !parent.nomor) return;
-
-      const children = await this.naskahReferensiRepository.find({
-        where: { ref_nomor: parent.nomor },
-      });
-
-      for (const child of children) {
-        if (!child.id_naskah || allNaskahInChain.has(child.id_naskah)) continue;
-
-        // Hanya ikut child yang pengirimnya == user saat ini
-        const pengirim = await this.naskahSirkulasiRepository.findOne({
-          where: { idNaskah: child.id_naskah, sirkuler: 'pengirim' },
-        });
-        if (!pengirim || String(pengirim.position) !== String(userPosition)) continue;
-
-        allNaskahInChain.add(child.id_naskah);
-        allReferensiMap.set(child.id_naskah, child);
-        await forwardOwnChain(child.id_naskah);
-      }
-    };
-
-    await forwardOwnChain(naskahId);
-    
+    // ponytail: leak X — forward MILIK USER (naskah yang user kirim) TIDAK
+    // dimasukkan ke chain. Sebelumnya forwardOwnChain ikut naskah child yang
+    // pengirimnya == user, sehingga naskah yang user kirim muncul di detail
+    // naskah yang user terima (kotak masuk). Naskah kirim user = item terkirim,
+    // bukan bagian riwayat inbox. Indikator "sudah tindak lanjut" tetap dari
+    // flag is_tindak_lanjut pada user_sirkulasi (bukan dari node chain).
+    // Downstream orang lain tetap tidak ikut (tidak pernah di-traverse).
     // STEP 2: Calculate level untuk setiap naskah berdasarkan kedalaman referensi
     // Level = depth dari referenced parent (0 jika tidak ada referensi)
     const naskahIdToLevel = new Map<string, number>();
@@ -660,8 +636,15 @@ export class NaskahService {
     // id_naskah_asli — HANYA jika viewer adalah pengirim naskah asli.
     // Penerima/tembusan TIDAK boleh melihat riwayat konsep (draft workflow),
     // mereka hanya melihat naskah final yang dikirim ke mereka.
+    // ponytail: leak konsep ke forward — konsep drafts HANYA tampil saat viewer
+    // buka naskah_asli itu sendiri (asliId === naskahId), bukan saat buka
+    // forward/anak turunannya. Sebelumnya loop iterasi SEMUA naskah di chain,
+    // sehingga konsep drafts si asli bocor ke riwayat forward turunannya
+    // (viewer = pengirim asli + penerima forward → konsep muncul di riwayat
+    // forward). Konsep drafts = riwayat si asli, bukan riwayat forward.
     const asliIdsForKonsep = [...allNaskahInChain];
     for (const asliId of asliIdsForKonsep) {
+      if (asliId !== naskahId) continue; // hanya naskah yang sedang dilihat
       const asliNaskah = await this.naskahRepository.findOne({
         where: { id: asliId },
         select: { id: true, jenis: true } as any,
@@ -723,6 +706,18 @@ export class NaskahService {
         },
         order: { createdAt: 'ASC' },
       });
+
+      // ponytail: leak Y — naskah tanpa penerima & tembusan (belum dikirim ke
+      // siapa pun) tidak should jadi node riwayat. Pengecualian: naskah yang
+      // sedang dilihat (naskahId) tetap tampil walau kosong, karena itu subjek
+      // yang user buka.
+      if (
+        penerimaList.length === 0 &&
+        tembusanList.length === 0 &&
+        naskahData.id !== naskahId
+      ) {
+        return null;
+      }
 
       // Get lampiran files
       const lampiranFiles = await this.naskahLampiranRepository.find({
@@ -924,7 +919,7 @@ export class NaskahService {
       if (naskahData) {
         const level = naskahIdToLevel.get(naskahIdInChain) || 0;
         const node = await buildFlowNode(naskahData, level);
-        flow.push(node);
+        if (node) flow.push(node);
       }
     }
 

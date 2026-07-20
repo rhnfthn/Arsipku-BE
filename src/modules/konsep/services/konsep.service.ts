@@ -3015,6 +3015,18 @@ export class KonsepService {
       // agar bisa mencari pembuat konsep asli (untuk fitur turunkan)
       const allRiwayat = [...riwayatList];
 
+      // ponytail: leak X konsep — batasi trail K workflow (flow) ke urutan <=
+      // node yang dilihat (viewed). Tampil history yang membentuk titik ini
+      // (ancestor/origin); aksi SETELAHnya (downstream, termasuk forward user
+      // sendiri) hide dari flow = urusan terkirim. Inbox (view node terima) =
+      // trail sampai situ; terkirim (view node kirim) = trail + kirim user.
+      // Konsisten dengan naskah umum (keep ancestor, hide downstream
+      // own-forward). Node DI chain + naskah_asli (KN) tetap utuh = konteks.
+      const viewedRiwayat = allRiwayat.find(
+        (r) => r.idNaskahKonsep === naskahKonsep.id,
+      );
+      const viewedUrutan = viewedRiwayat?.urutan ?? Number.MAX_SAFE_INTEGER;
+
       // ponytail: anti-bocor downstream — batasi riwayat konsep hanya yg melibatkan
       // user saat ini (sebagai pengirim/from atau penerima/to). Forward setelah user
       // kirim (downstream orang lain: user3→user4, dst) di-cut, tak muncul di
@@ -3023,8 +3035,9 @@ export class KonsepService {
       const userPosStr = String(userPosition);
       riwayatList = riwayatList.filter(
         (r) =>
-          String(r.fromPositionId ?? '') === userPosStr ||
-          String(r.toPositionId ?? '') === userPosStr,
+          (String(r.fromPositionId ?? '') === userPosStr ||
+            String(r.toPositionId ?? '') === userPosStr) &&
+          Number(r.urutan) <= viewedUrutan,
       );
 
       // 4. Find the first K naskah (parent = null) for disposisi referensi
@@ -3079,6 +3092,17 @@ export class KonsepService {
           where: { idNaskah: disposisiNaskah.id, sirkuler: 'tembusan' },
           order: { createdAt: 'ASC' },
         });
+
+        // ponytail: anti-bocor DI chain (opsi B) — hanya tampilkan DI yang
+        // viewer terlibat (pengirim/penerima/tembusan). DI atasnya yang viewer
+        // tidak terlibat di-skip, konsisten dengan filter K node (from/to ==
+        // user). Sebelumnya seluruh rantai disposisi (trigger DI sampai root)
+        // tampil ke viewer konsep → bocor DI orang lain.
+        const isViewerInDI =
+          String(pengirimDI?.position ?? '') === userPosStr ||
+          penerimaDI.some((p) => String(p.position ?? '') === userPosStr) ||
+          tembusanDI.some((t) => String(t.position ?? '') === userPosStr);
+        if (!isViewerInDI) continue;
         const penerimaGrupInfoDI =
           await this.grupPenerimaService.getGrupInfoForResponse([
             ...new Set(
@@ -3269,6 +3293,12 @@ export class KonsepService {
         });
         const naskahRef = riwayatNaskahK || naskahKonsep;
 
+        // ponytail: user_sirkulasi per K node — untuk flag tindak_lanjut/favorit/
+        // lock/note per riwayat konsep. FE getDetailFlagState baca ini per node.
+        const userSirkulasiK = await this.naskahSirkulasiRepository.findOne({
+          where: { idNaskah: naskahRef.id, position: String(userPosition) },
+        });
+
         // Default: use current riwayat snapshot if available.
         let finalPdfSnapshot = riwayat.pdfSnapshot;
         let finalPdfSnapshotUrl = riwayat.pdfSnapshot
@@ -3401,6 +3431,20 @@ export class KonsepService {
           level: konsepLevel, // Selalu di atas disposisi chain
           created_at: riwayat.createdAt,
           updated_at: null,
+
+          // user_sirkulasi per K node — flag tindak_lanjut/favorit/lock/note
+          // untuk riwayat konsep. Shape sama kayak getDetailWithChain.
+          user_sirkulasi: userSirkulasiK
+            ? {
+                id_sirkulasi: userSirkulasiK.id,
+                is_favorit: !!userSirkulasiK.flagFavorit,
+                is_arsip: !!userSirkulasiK.flagArsip,
+                is_note: !!userSirkulasiK.flagNote,
+                note_text: userSirkulasiK.noteText || null,
+                is_tindak_lanjut: !!userSirkulasiK.tindakLanjut,
+                is_locked: !!userSirkulasiK.isLocked,
+              }
+            : null,
         });
       }
 
@@ -3482,17 +3526,28 @@ export class KonsepService {
         success: true,
         message: 'Detail konsep berhasil diambil',
         data: flow,
-        riwayat: allRiwayat.map((r) => ({
-          id: r.id,
-          id_naskah_konsep: r.idNaskahKonsep,
-          urutan: r.urutan,
-          aksi: r.aksi,
-          fromPositionId: r.fromPositionId,
-          toPositionId: r.toPositionId,
-          catatan: r.catatan,
-          createdBy: r.createdBy,
-          createdAt: r.createdAt,
-        })),
+        // ponytail: anti-bocor — filter riwayat ke langkah yang melibatkan user
+        // (from/to == user), sama seperti filter flow di atas. Sebelumnya kirim
+        // allRiwayat mentah → semua langkah workflow (termasuk downstream orang
+        // lain) bocor ke viewer. Fitur turunkan (kotak-masuk/[id].vue) cari
+        // entri toPositionId == user → tetap lolos filter ini.
+        riwayat: allRiwayat
+          .filter(
+            (r) =>
+              String(r.fromPositionId ?? '') === userPosStr ||
+              String(r.toPositionId ?? '') === userPosStr,
+          )
+          .map((r) => ({
+            id: r.id,
+            id_naskah_konsep: r.idNaskahKonsep,
+            urutan: r.urutan,
+            aksi: r.aksi,
+            fromPositionId: r.fromPositionId,
+            toPositionId: r.toPositionId,
+            catatan: r.catatan,
+            createdBy: r.createdBy,
+            createdAt: r.createdAt,
+          })),
       };
     } catch (error) {
       if (error instanceof HttpException) {
