@@ -9,20 +9,11 @@ export class GrupPenerimaEntity {
   @Column({ type: 'varchar', length: 50 })
   company: string;
 
-  @Column({ type: 'varchar', length: 50 })
-  area: string;
-
   @Column({ type: 'varchar', length: 150 })
   nama: string;
 
   @Column({ type: 'text', nullable: true })
   deskripsi: string;
-
-  @Column({ type: 'text', nullable: true })
-  deskripsi_english: string;
-
-  @Column({ type: 'int', nullable: true })
-  urutan: number;
 
   @Column({ type: 'boolean', default: true })
   aktif: boolean;
