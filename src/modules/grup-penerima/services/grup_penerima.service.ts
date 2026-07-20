@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -25,45 +29,28 @@ export class GrupPenerimaService {
     private orgDataService: OrgDataService,
   ) {}
 
-  async create(createGrupPenerimaDto: CreateGrupPenerimaDto): Promise<GrupPenerimaEntity> {
-    // Jika urutan tidak dikirim, ambil urutan terakhir + 1
-    let urutan = createGrupPenerimaDto.urutan;
-    if (urutan === undefined || urutan === null) {
-      const lastGrup = await this.grupPenerimaRepository
-        .createQueryBuilder('grup_penerima')
-        .where('grup_penerima.company = :company', { company: createGrupPenerimaDto.company })
-        .andWhere('grup_penerima.area = :area', { area: createGrupPenerimaDto.area })
-        .orderBy('grup_penerima.urutan', 'DESC')
-        .getOne();
-
-      urutan = lastGrup?.urutan ? lastGrup.urutan + 1 : 1;
-    }
-
+  async create(
+    createGrupPenerimaDto: CreateGrupPenerimaDto,
+  ): Promise<GrupPenerimaEntity> {
     const grupPenerima = this.grupPenerimaRepository.create({
       id: uuidv4(),
       ...createGrupPenerimaDto,
-      urutan,
     });
 
     return await this.grupPenerimaRepository.save(grupPenerima);
   }
 
-  async findAll(company?: string, area?: string): Promise<GrupPenerimaEntity[]> {
-    const query = this.grupPenerimaRepository.createQueryBuilder('grup_penerima');
+  async findAll(company?: string): Promise<GrupPenerimaEntity[]> {
+    const query =
+      this.grupPenerimaRepository.createQueryBuilder('grup_penerima');
 
     if (company) {
       query.where('grup_penerima.company = :company', { company });
     }
 
-    if (area) {
-      query.andWhere('grup_penerima.area = :area', { area });
-    }
-
     return await query
-      .andWhere('grup_penerima.aktif = :aktif', { aktif: true })
       .leftJoinAndSelect('grup_penerima.details', 'details')
-      .orderBy('grup_penerima.urutan', 'ASC')
-      .addOrderBy('grup_penerima.nama', 'ASC')
+      .orderBy('grup_penerima.nama', 'ASC')
       .getMany();
   }
 
@@ -80,22 +67,21 @@ export class GrupPenerimaService {
   /**
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
-   * @param area - Filter by area
    * @param tgl - Optional date for org_data lookup (default: today)
    * @param jenis - Optional naskah type filter: 'ND' or 'SDI'
    */
   async findAllWithPositionDetail(
     company?: string,
-    area?: string,
     tgl?: string,
     jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list
-    let grupList = await this.findAll(company, area);
+    let grupList = await this.findAll(company);
 
     // Filter by jenis if provided
     if (jenis) {
-      const allowedNames = GrupPenerimaService.JENIS_GRUP_FILTER[jenis.toUpperCase()];
+      const allowedNames =
+        GrupPenerimaService.JENIS_GRUP_FILTER[jenis.toUpperCase()];
       if (allowedNames) {
         grupList = grupList.filter((g) => allowedNames.includes(g.nama));
       }
@@ -119,18 +105,17 @@ export class GrupPenerimaService {
       }
     } catch (error) {
       // If org_data not found, continue without enrichment
-      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan. Returning without position detail.`);
+      console.warn(
+        `[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan. Returning without position detail.`,
+      );
     }
 
     // Enrich grup penerima with position detail
     return grupList.map((grup) => ({
       id: grup.id,
       company: grup.company,
-      area: grup.area,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
-      deskripsi_english: grup.deskripsi_english,
-      urutan: grup.urutan,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);
@@ -170,17 +155,16 @@ export class GrupPenerimaService {
         });
       }
     } catch (error) {
-      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`);
+      console.warn(
+        `[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`,
+      );
     }
 
     return {
       id: grup.id,
       company: grup.company,
-      area: grup.area,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
-      deskripsi_english: grup.deskripsi_english,
-      urutan: grup.urutan,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);
@@ -220,7 +204,9 @@ export class GrupPenerimaService {
         });
       }
     } catch (error) {
-      console.warn(`[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`);
+      console.warn(
+        `[GrupPenerimaService] org_data untuk tanggal ${tanggal} tidak ditemukan.`,
+      );
     }
 
     return members.map((detail) => {
@@ -292,7 +278,7 @@ export class GrupPenerimaService {
    */
   static mapGrupNameToDisplayName(nama: string): string {
     const mapping: Record<string, string> = {
-      'Directors': 'Para Direktur',
+      Directors: 'Para Direktur',
       '(EVP) Executive Vice President': 'Para EVP',
       '(GM) General Manager': 'Para GM',
     };
@@ -327,10 +313,13 @@ export class GrupPenerimaService {
     const displayNameItems: { name: string; inputIndex: number }[] = [];
 
     const getDisplayPriority = (name: string): number => {
-      const normalized = String(name || '').toLowerCase().trim();
+      const normalized = String(name || '')
+        .toLowerCase()
+        .trim();
 
       // Wajib: Direksi selalu di atas, lalu EVP.
-      if (normalized === 'para direksi' || normalized === 'para direktur') return 1;
+      if (normalized === 'para direksi' || normalized === 'para direktur')
+        return 1;
       if (normalized === 'para evp') return 2;
 
       // Kelompok lain tetap setelah prioritas utama.
@@ -344,12 +333,16 @@ export class GrupPenerimaService {
         const name = await this.getGrupDisplayName(grupId);
         displayNameItems.push({ name, inputIndex: i });
       } catch (error) {
-        console.warn(`[GrupPenerimaService] Failed to get display name for grup ${grupId}:`, error.message);
+        console.warn(
+          `[GrupPenerimaService] Failed to get display name for grup ${grupId}:`,
+          error.message,
+        );
       }
     }
 
     displayNameItems.sort((a, b) => {
-      const priorityDiff = getDisplayPriority(a.name) - getDisplayPriority(b.name);
+      const priorityDiff =
+        getDisplayPriority(a.name) - getDisplayPriority(b.name);
       if (priorityDiff !== 0) return priorityDiff;
 
       // Stabil untuk prioritas yang sama: ikuti urutan input (urutan klik/user).
@@ -383,7 +376,10 @@ export class GrupPenerimaService {
           });
         }
       } catch (error) {
-        console.warn(`[GrupPenerimaService] Failed to get info for grup ${grupId}:`, error.message);
+        console.warn(
+          `[GrupPenerimaService] Failed to get info for grup ${grupId}:`,
+          error.message,
+        );
       }
     }
     return result;
@@ -395,7 +391,9 @@ export class GrupPenerimaService {
    * @param grupIds - Array of grup penerima UUIDs
    * @returns Map where key = position ID (number), value = grup UUID (string)
    */
-  async buildPositionToGrupMap(grupIds: string[]): Promise<Map<number, string>> {
+  async buildPositionToGrupMap(
+    grupIds: string[],
+  ): Promise<Map<number, string>> {
     const map = new Map<number, string>();
     for (const grupId of grupIds) {
       try {
@@ -404,7 +402,10 @@ export class GrupPenerimaService {
           map.set(Number(member.position), grupId);
         }
       } catch (error) {
-        console.warn(`[GrupPenerimaService] Failed to get members for grup ${grupId}:`, error.message);
+        console.warn(
+          `[GrupPenerimaService] Failed to get members for grup ${grupId}:`,
+          error.message,
+        );
       }
     }
     return map;
