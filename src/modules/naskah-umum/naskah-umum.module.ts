@@ -10,6 +10,7 @@ import { DigsigModule } from '../digsig/digsig.module';
 import { NaskahUmumTempEntity } from '../onlyoffice/entities';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
+import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
     StorageModule,
     OnlyOfficeModule,
     DigsigModule,
+    GrupPenerimaModule,
   ],
   controllers: [NaskahUmumController],
   providers: [NaskahUmumService, DocxFillerService, NomorSuratService],

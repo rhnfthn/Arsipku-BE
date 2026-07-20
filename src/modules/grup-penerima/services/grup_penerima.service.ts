@@ -55,37 +55,18 @@ export class GrupPenerimaService {
   }
 
   /**
-   * Grup names allowed per jenis naskah.
-   * ND  → Directors, (EVP) Executive Vice President
-   * SDI → (GM) General Manager
-   */
-  private static readonly JENIS_GRUP_FILTER: Record<string, string[]> = {
-    ND: ['Para Direksi', 'Para EVP'],
-    SDI: ['Para GM'],
-  };
-
-  /**
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
    * @param tgl - Optional date for org_data lookup (default: today)
-   * @param jenis - Optional naskah type filter: 'ND' or 'SDI'
+   * @param jenis - Optional naskah type (kept for API compatibility, no longer filters by name)
    */
   async findAllWithPositionDetail(
     company?: string,
     tgl?: string,
     jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
-    // Get grup penerima list
+    // Get grup penerima list (all groups, no filtering)
     let grupList = await this.findAll(company);
-
-    // Filter by jenis if provided
-    if (jenis) {
-      const allowedNames =
-        GrupPenerimaService.JENIS_GRUP_FILTER[jenis.toUpperCase()];
-      if (allowedNames) {
-        grupList = grupList.filter((g) => allowedNames.includes(g.nama));
-      }
-    }
 
     if (grupList.length === 0) {
       return [];
@@ -440,7 +421,15 @@ export class GrupPenerimaService {
   }
 
   async toggleAktif(id: string): Promise<GrupPenerimaEntity> {
-    const grupPenerima = await this.findOne(id);
+    // Load entity TANPA relasi details untuk menghindari cascade side-effect
+    const grupPenerima = await this.grupPenerimaRepository.findOne({
+      where: { id },
+    });
+
+    if (!grupPenerima) {
+      throw new NotFoundException('Grup penerima tidak ditemukan');
+    }
+
     grupPenerima.aktif = !grupPenerima.aktif;
     return await this.grupPenerimaRepository.save(grupPenerima);
   }
