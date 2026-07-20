@@ -98,4 +98,8 @@ export class NaskahEntity {
   // Dipakai SDE. Null untuk naskah yang tidak pakai a.n.
   @Column('varchar', { name: 'atas_nama', length: 150, nullable: true })
   atasNama: string | null;
+
+  // Position id pemberi kuasa (untuk auto-tembusan + restore form). Null untuk Dirut.
+  @Column('varchar', { name: 'atas_nama_position_id', length: 50, nullable: true })
+  atasNamaPositionId: string | null;
 }

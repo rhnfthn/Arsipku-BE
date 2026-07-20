@@ -91,6 +91,10 @@ export class NaskahEntity {
   @Column('varchar', { name: 'atas_nama', length: 150, nullable: true })
   atasNama: string | null;
 
+  // Position id pemberi kuasa (untuk auto-tembusan + restore form). Null untuk Dirut ("Direksi").
+  @Column('varchar', { name: 'atas_nama_position_id', length: 50, nullable: true })
+  atasNamaPositionId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
