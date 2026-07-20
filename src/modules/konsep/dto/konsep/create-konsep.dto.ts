@@ -100,6 +100,17 @@ export class CreateKonsepDto {
   @IsString()
   nama_lengkap?: string;
 
+  // ============ GARIS KEWENANGAN (a.n.) — khusus SDE ============
+  // atas_nama: label pemberi kuasa (e.g. "Direktur Utama" atau "Direksi").
+  // atas_nama_position_id: position id pemberi kuasa untuk auto-tembusan (null untuk Dirut → "Direksi").
+  @IsOptional()
+  @IsString()
+  atas_nama?: string;
+
+  @IsOptional()
+  @IsNumber()
+  atas_nama_position_id?: number;
+
   // ============ LAMPIRAN ============
 
   @IsOptional()

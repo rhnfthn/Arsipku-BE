@@ -20,6 +20,8 @@ interface SdiPdfOptions {
   nomor?: string;
   nama_tempat?: string;
   nama_jabatan?: string;
+  // Garis Kewenangan (a.n.) — label pemberi kuasa. Null = tanpa a.n.
+  atasNama?: string | null;
   // Dynamic header info dari sub_area_alamat
   headerKantor?: string;
   headerGedung?: string;
@@ -213,6 +215,7 @@ export class GeneratePdfSudinService {
     const positionText = body.positionText || '';
     const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     const namaLengkap = toTitleCase(body.namaLengkap || '');
+    const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
     const sifat = sifatToEnglish(body.sifat || 'Biasa');
     const lampiranText = body.lampiran === '-' ? '-' : (body.lampiran || '-');
@@ -381,7 +384,7 @@ export class GeneratePdfSudinService {
         <tbody>
           <tr>
             <td style="width:50%;text-align:center;">
-              ${positionText}<br>
+              ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
@@ -631,6 +634,7 @@ export class GeneratePdfSudinService {
     const positionText = body.positionText || '';
     const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     const namaLengkap = toTitleCase(body.namaLengkap || '');
+    const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
     const sifat = body.sifat || 'Biasa';
     const lampiranText = body.lampiran || '-';
@@ -798,7 +802,7 @@ export class GeneratePdfSudinService {
         <tbody>
           <tr>
             <td style="width:50%;text-align:center;">
-              ${positionText}<br>
+              ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>

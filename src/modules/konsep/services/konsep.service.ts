@@ -302,6 +302,8 @@ export class KonsepService {
         // Was 'final' which blocked send-draft guard ("Naskah sudah berstatus final").
         status: 'draf',
         id_naskah_konsep: naskahKonsepId, // Link to konsep workflow
+        // Garis Kewenangan (a.n.) — khusus SDE. Label pemberi kuasa untuk template.
+        atasNama: dto.atas_nama || null,
       });
       await queryRunner.manager.save(naskahAsli);
 
@@ -496,6 +498,16 @@ export class KonsepService {
         sirkulasiTembusan.namaSirkuler = dto.tembusan;
         sirkulasiTembusan.isKonsep = 1;
         await queryRunner.manager.save(sirkulasiTembusan);
+      }
+
+      // Garis Kewenangan (a.n.): pemberi kuasa auto-tembusan (force, non-Dirut).
+      // Hanya untuk SDE. Dirut "a.n Direksi" tidak CC (atas_nama_position_id null).
+      if (dto.atas_nama_position_id && !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))) {
+        const atasNamaPos = this.findByPosition(barisData, Number(dto.atas_nama_position_id));
+        if (atasNamaPos) {
+          const sirkulasiAtasNama = this.createSirkulasi(naskahAsliId, 'tembusan', atasNamaPos, true);
+          await queryRunner.manager.save(sirkulasiAtasNama);
+        }
       }
 
       // ==========================================
@@ -3949,6 +3961,8 @@ export class KonsepService {
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
         english: body.english === true || body.english === '1' || body.english === 'true', // Gunakan flag dari frontend
+        // Garis Kewenangan (a.n.) — label pemberi kuasa.
+        atasNama: body.atas_nama || null,
       };
     }
   }
@@ -4352,6 +4366,8 @@ export class KonsepService {
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
           english: (naskahAsli as any).english === true || (naskahAsli as any).english === 1 || (naskahAsli as any).english === '1', // Gunakan flag dari naskah asli
+          // Garis Kewenangan (a.n.) — label pemberi kuasa dari naskah asli.
+          atasNama: (naskahAsli as any).atasNama || null,
           // Dynamic header info dari sub_area_alamat
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,
