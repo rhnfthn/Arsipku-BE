@@ -47,11 +47,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Delegasi',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat daftar delegasi', resource: 'delegasi' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Delegasi', resource: 'delegasi' },
-                { action: 'update', label: 'Update', description: 'Button Edit Delegasi', resource: 'delegasi' },
-                { action: 'delete', label: 'Delete', description: 'Button Delete Delegasi', resource: 'delegasi' },
-                { action: 'export', label: 'Export', description: 'Button Export Delegasi', resource: 'delegasi' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat daftar delegasi',
+                  resource: 'delegasi',
+                },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Button Tambah Delegasi',
+                  resource: 'delegasi',
+                },
+                {
+                  action: 'update',
+                  label: 'Update',
+                  description: 'Button Edit Delegasi',
+                  resource: 'delegasi',
+                },
+                {
+                  action: 'delete',
+                  label: 'Delete',
+                  description: 'Button Delete Delegasi',
+                  resource: 'delegasi',
+                },
+                {
+                  action: 'export',
+                  label: 'Export',
+                  description: 'Button Export Delegasi',
+                  resource: 'delegasi',
+                },
               ],
             },
           ],
@@ -73,7 +98,12 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Titelatur Inggris',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat halaman Titelatur', resource: 'titelatur' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat halaman Titelatur',
+                  resource: 'titelatur',
+                },
               ],
             },
           ],
@@ -95,9 +125,24 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Usulan',
               permissions: [
-                { action: 'read-usulan', label: 'Read', description: 'Melihat daftar Usulan', resource: 'penomoran' },
-                { action: 'create-usulan', label: 'Create', description: 'Button Tambah Usulan', resource: 'penomoran' },
-                { action: 'export-usulan', label: 'Export', description: 'Button Export Usulan', resource: 'penomoran' },
+                {
+                  action: 'read-usulan',
+                  label: 'Read',
+                  description: 'Melihat daftar Usulan',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'create-usulan',
+                  label: 'Create',
+                  description: 'Button Tambah Usulan',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'export-usulan',
+                  label: 'Export',
+                  description: 'Button Export Usulan',
+                  resource: 'penomoran',
+                },
               ],
             },
           ],
@@ -110,8 +155,18 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Persetujuan',
               permissions: [
-                { action: 'read-persetujuan', label: 'Read', description: 'Melihat daftar Persetujuan', resource: 'penomoran' },
-                { action: 'export-persetujuan', label: 'Export', description: 'Button Export Persetujuan', resource: 'penomoran' },
+                {
+                  action: 'read-persetujuan',
+                  label: 'Read',
+                  description: 'Melihat daftar Persetujuan',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'export-persetujuan',
+                  label: 'Export',
+                  description: 'Button Export Persetujuan',
+                  resource: 'penomoran',
+                },
               ],
             },
           ],
@@ -124,8 +179,18 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Verifikasi',
               permissions: [
-                { action: 'read-verifikasi', label: 'Read', description: 'Melihat daftar Verifikasi', resource: 'penomoran' },
-                { action: 'export-verifikasi', label: 'Export', description: 'Button Export Verifikasi', resource: 'penomoran' },
+                {
+                  action: 'read-verifikasi',
+                  label: 'Read',
+                  description: 'Melihat daftar Verifikasi',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'export-verifikasi',
+                  label: 'Export',
+                  description: 'Button Export Verifikasi',
+                  resource: 'penomoran',
+                },
               ],
             },
           ],
@@ -138,9 +203,24 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Penomoran',
               permissions: [
-                { action: 'read-penomoran', label: 'Read', description: 'Melihat halaman Penomoran', resource: 'penomoran' },
-                { action: 'create-penomoran', label: 'Create', description: 'Button Tambah Penomoran', resource: 'penomoran' },
-                { action: 'export-penomoran', label: 'Export', description: 'Button Export Penomoran', resource: 'penomoran' },
+                {
+                  action: 'read-penomoran',
+                  label: 'Read',
+                  description: 'Melihat halaman Penomoran',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'create-penomoran',
+                  label: 'Create',
+                  description: 'Button Tambah Penomoran',
+                  resource: 'penomoran',
+                },
+                {
+                  action: 'export-penomoran',
+                  label: 'Export',
+                  description: 'Button Export Penomoran',
+                  resource: 'penomoran',
+                },
               ],
             },
           ],
@@ -162,11 +242,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Naskah Masuk',
               permissions: [
-                { action: 'create', label: 'Create', description: 'Button Tambah Naskah Masuk', resource: 'naskah-masuk' },
-                { action: 'read-verifikasi', label: 'Read', description: 'Halaman Verifikasi Naskah', resource: 'naskah-masuk' },
-                { action: 'read-verifikasi-detail', label: 'Read', description: 'Button Show Detail Naskah', resource: 'naskah-masuk' },
-                { action: 'update-verifikasi', label: 'Update', description: 'Button Action Edit Naskah', resource: 'naskah-masuk' },
-                { action: 'export', label: 'Export', description: 'Button Export Naskah Masuk', resource: 'naskah-masuk' },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Button Tambah Naskah Masuk',
+                  resource: 'naskah-masuk',
+                },
+                {
+                  action: 'read-verifikasi',
+                  label: 'Read',
+                  description: 'Halaman Verifikasi Naskah',
+                  resource: 'naskah-masuk',
+                },
+                {
+                  action: 'read-verifikasi-detail',
+                  label: 'Read',
+                  description: 'Button Show Detail Naskah',
+                  resource: 'naskah-masuk',
+                },
+                {
+                  action: 'update-verifikasi',
+                  label: 'Update',
+                  description: 'Button Action Edit Naskah',
+                  resource: 'naskah-masuk',
+                },
+                {
+                  action: 'export',
+                  label: 'Export',
+                  description: 'Button Export Naskah Masuk',
+                  resource: 'naskah-masuk',
+                },
               ],
             },
           ],
@@ -188,11 +293,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Tertuju',
               permissions: [
-                { action: 'read-tertuju', label: 'Read', description: 'Halaman Tertuju', resource: 'master-data' },
-                { action: 'create-tertuju', label: 'Create', description: 'Button Tambah Tertuju', resource: 'master-data' },
-                { action: 'update-tertuju', label: 'Update', description: 'Button Edit Tertuju', resource: 'master-data' },
-                { action: 'delete-tertuju', label: 'Delete', description: 'Button Hapus Tertuju', resource: 'master-data' },
-                { action: 'export-tertuju', label: 'Export', description: 'Button Export Tertuju', resource: 'master-data' },
+                {
+                  action: 'read-tertuju',
+                  label: 'Read',
+                  description: 'Halaman Tertuju',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'create-tertuju',
+                  label: 'Create',
+                  description: 'Button Tambah Tertuju',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'update-tertuju',
+                  label: 'Update',
+                  description: 'Button Edit Tertuju',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'delete-tertuju',
+                  label: 'Delete',
+                  description: 'Button Hapus Tertuju',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'export-tertuju',
+                  label: 'Export',
+                  description: 'Button Export Tertuju',
+                  resource: 'master-data',
+                },
               ],
             },
           ],
@@ -205,11 +335,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Perusahaan',
               permissions: [
-                { action: 'read-perusahaan', label: 'Read', description: 'Halaman Perusahaan', resource: 'master-data' },
-                { action: 'read-perusahaan-area', label: 'Read', description: 'Button Action Area Perusahaan', resource: 'master-data' },
-                { action: 'create-perusahaan', label: 'Create', description: 'Button Tambah Perusahaan', resource: 'master-data' },
-                { action: 'update-perusahaan', label: 'Update', description: 'Button Edit Perusahaan', resource: 'master-data' },
-                { action: 'delete-perusahaan', label: 'Delete', description: 'Button Delete Perusahaan', resource: 'master-data' },
+                {
+                  action: 'read-perusahaan',
+                  label: 'Read',
+                  description: 'Halaman Perusahaan',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'read-perusahaan-area',
+                  label: 'Read',
+                  description: 'Button Action Area Perusahaan',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'create-perusahaan',
+                  label: 'Create',
+                  description: 'Button Tambah Perusahaan',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'update-perusahaan',
+                  label: 'Update',
+                  description: 'Button Edit Perusahaan',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'delete-perusahaan',
+                  label: 'Delete',
+                  description: 'Button Delete Perusahaan',
+                  resource: 'master-data',
+                },
               ],
             },
           ],
@@ -222,11 +377,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Klasifikasi',
               permissions: [
-                { action: 'read-klasifikasi', label: 'Read', description: 'Halaman Klasifikasi', resource: 'master-data' },
-                { action: 'create-klasifikasi', label: 'Create', description: 'Button Tambah Klasifikasi', resource: 'master-data' },
-                { action: 'update-klasifikasi', label: 'Update', description: 'Button Edit Klasifikasi', resource: 'master-data' },
-                { action: 'delete-klasifikasi', label: 'Delete', description: 'Button Delete Klasifikasi', resource: 'master-data' },
-                { action: 'export-klasifikasi', label: 'Export', description: 'Button Export Klasifikasi', resource: 'master-data' },
+                {
+                  action: 'read-klasifikasi',
+                  label: 'Read',
+                  description: 'Halaman Klasifikasi',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'create-klasifikasi',
+                  label: 'Create',
+                  description: 'Button Tambah Klasifikasi',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'update-klasifikasi',
+                  label: 'Update',
+                  description: 'Button Edit Klasifikasi',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'delete-klasifikasi',
+                  label: 'Delete',
+                  description: 'Button Delete Klasifikasi',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'export-klasifikasi',
+                  label: 'Export',
+                  description: 'Button Export Klasifikasi',
+                  resource: 'master-data',
+                },
               ],
             },
           ],
@@ -239,12 +419,42 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Jenis',
               permissions: [
-                { action: 'read-jenis', label: 'Read', description: 'Halaman Jenis', resource: 'master-data' },
-                { action: 'read-jenis-detail', label: 'Read', description: 'Button Detail Jenis', resource: 'master-data' },
-                { action: 'create-jenis', label: 'Create', description: 'Button Tambah Jenis', resource: 'master-data' },
-                { action: 'update-jenis', label: 'Update', description: 'Button Edit Jenis', resource: 'master-data' },
-                { action: 'delete-jenis', label: 'Delete', description: 'Button Delete Jenis', resource: 'master-data' },
-                { action: 'export-jenis', label: 'Export', description: 'Button Export Jenis', resource: 'master-data' },
+                {
+                  action: 'read-jenis',
+                  label: 'Read',
+                  description: 'Halaman Jenis',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'read-jenis-detail',
+                  label: 'Read',
+                  description: 'Button Detail Jenis',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'create-jenis',
+                  label: 'Create',
+                  description: 'Button Tambah Jenis',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'update-jenis',
+                  label: 'Update',
+                  description: 'Button Edit Jenis',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'delete-jenis',
+                  label: 'Delete',
+                  description: 'Button Delete Jenis',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'export-jenis',
+                  label: 'Export',
+                  description: 'Button Export Jenis',
+                  resource: 'master-data',
+                },
               ],
             },
           ],
@@ -257,10 +467,37 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Grup Penerima',
               permissions: [
-                { action: 'read-grup-penerima', label: 'Read', description: 'Halaman Grup Penerima', resource: 'master-data' },
-                { action: 'create-grup-penerima', label: 'Create', description: 'Button Tambah Grup Penerima', resource: 'master-data' },
-                { action: 'update-grup-penerima', label: 'Update', description: 'Button Edit Grup Penerima', resource: 'master-data' },
-                { action: 'delete-grup-penerima', label: 'Delete', description: 'Button Delete Grup Penerima', resource: 'master-data' },                { action: 'read-grup-penerima-detail', label: 'Read', description: 'Button Detail Grup Penerima', resource: 'master-data' },              ],
+                {
+                  action: 'read-grup-penerima',
+                  label: 'Read',
+                  description: 'Halaman Grup Penerima',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'create-grup-penerima',
+                  label: 'Create',
+                  description: 'Button Tambah Grup Penerima',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'update-grup-penerima',
+                  label: 'Update',
+                  description: 'Button Edit Grup Penerima',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'delete-grup-penerima',
+                  label: 'Delete',
+                  description: 'Button Delete Grup Penerima',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'read-grup-penerima-detail',
+                  label: 'Read',
+                  description: 'Button Detail Grup Penerima',
+                  resource: 'master-data',
+                },
+              ],
             },
           ],
         },
@@ -281,7 +518,12 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Konfigurasi',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat konfigurasi sistem', resource: 'konfigurasi' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat konfigurasi sistem',
+                  resource: 'konfigurasi',
+                },
               ],
             },
           ],
@@ -298,18 +540,27 @@ export interface AdministrasiResourceDef {
   permissions: { action: string; description: string }[];
 }
 
-function flattenAdministrasiMatrix(halaman: AdministrasiMatrixHalaman): AdministrasiResourceDef[] {
+function flattenAdministrasiMatrix(
+  halaman: AdministrasiMatrixHalaman,
+): AdministrasiResourceDef[] {
   const map = new Map<string, AdministrasiResourceDef>();
   for (const menu of halaman.menus) {
     for (const sub of menu.subMenus) {
       for (const fitur of sub.fiturs) {
         for (const perm of fitur.permissions) {
           if (!map.has(perm.resource)) {
-            map.set(perm.resource, { name: perm.resource, description: perm.resource, permissions: [] });
+            map.set(perm.resource, {
+              name: perm.resource,
+              description: perm.resource,
+              permissions: [],
+            });
           }
           const res = map.get(perm.resource)!;
           if (!res.permissions.some((p) => p.action === perm.action)) {
-            res.permissions.push({ action: perm.action, description: perm.description });
+            res.permissions.push({
+              action: perm.action,
+              description: perm.description,
+            });
           }
         }
       }
@@ -318,8 +569,10 @@ function flattenAdministrasiMatrix(halaman: AdministrasiMatrixHalaman): Administ
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export const administrasiResources = flattenAdministrasiMatrix(administrasiMatrix);
+export const administrasiResources =
+  flattenAdministrasiMatrix(administrasiMatrix);
 
-export const administrasiSuperAdminPermissions: string[] = administrasiResources.flatMap((r) =>
-  r.permissions.map((p) => `${r.name}:${p.action}`),
-);
+export const administrasiSuperAdminPermissions: string[] =
+  administrasiResources.flatMap((r) =>
+    r.permissions.map((p) => `${r.name}:${p.action}`),
+  );
