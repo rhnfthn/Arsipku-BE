@@ -14,6 +14,7 @@ import {
   AirNavTokenResponse,
   AirNavRefreshResponse,
 } from '../interfaces/jwt-payload.interface';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 @Injectable()
 export class AuthService {
@@ -576,32 +577,52 @@ export class AuthService {
     // Fetch fresh NIK dan noWa dari HR API
     const personalData = await this.fetchUserPersonalData(payload.persnum, ssoRefresh.accessToken);
 
-    const newPayload: JwtPayload = {
-      persnum: orgData.persnum,
-      nama: orgData.nama || '',
-      role: role as 'user' | 'admin' | 'superadmin',
-      activeRole: rbacCtx.activeRole ?? undefined,
-      activePermissions: rbacCtx.activePermissions,
-      roles: rbacCtx.roles,
+    // Preserve delegation context across refresh (spec D5). When the decoded token
+    // has an active delegated actor, carry position_status + delegator_persnum +
+    // the delegated org-scope fields forward; refresh RBAC fresh by the delegate's
+    // own persnum so the SUPERADMIN bypass stays tied to the delegate (spec D4).
+    const { exp: _oldExp, iat: _oldIat, ...delegatedCtx } = payload as any;
+    const delegatedStatuses: string[] = [
+      PositionStatus.PT, PositionStatus.PH, PositionStatus.PS,
+      PositionStatus.VI, PositionStatus.SE,
+    ];
+    const isDelegated =
+      !!payload.position_status &&
+      delegatedStatuses.includes(payload.position_status as string);
 
-      company: orgData.company?.toString() || '',
-      companyText: orgData.companyText || '',
-      area: orgData.area || '',
-      areaText: orgData.areaText || '',
-      subArea: orgData.subArea?.toString() || '',
-      subAreaText: orgData.subAreaText || '',
-      organization: orgData.organization?.toString() || '',
-      organizationText: orgData.organizationText || '',
-      position: orgData.position?.toString() || '',
-      positionText: orgData.positionText || '',
-      bodTag: orgData.bodTag || '',
-      abbreviation: orgData.abbreviation || '',
-      atasan_langsung: orgData.atasan_langsung || null,
-      
-      // Personal data dari HR API
-      nik: personalData.nik || undefined,
-      noWa: personalData.noWa || undefined,
-    };
+    const newPayload: JwtPayload = isDelegated
+      ? {
+          ...delegatedCtx, // position_status, delegator_persnum, delegated org scope, persnum, nama, bodTag, abbreviation, atasan_langsung
+          role: role as 'user' | 'admin' | 'superadmin',
+          activeRole: rbacCtx.activeRole ?? undefined,
+          activePermissions: rbacCtx.activePermissions,
+          roles: rbacCtx.roles,
+          nik: personalData.nik || undefined,
+          noWa: personalData.noWa || undefined,
+        }
+      : {
+          persnum: orgData.persnum,
+          nama: orgData.nama || '',
+          role: role as 'user' | 'admin' | 'superadmin',
+          activeRole: rbacCtx.activeRole ?? undefined,
+          activePermissions: rbacCtx.activePermissions,
+          roles: rbacCtx.roles,
+          company: orgData.company?.toString() || '',
+          companyText: orgData.companyText || '',
+          area: orgData.area || '',
+          areaText: orgData.areaText || '',
+          subArea: orgData.subArea?.toString() || '',
+          subAreaText: orgData.subAreaText || '',
+          organization: orgData.organization?.toString() || '',
+          organizationText: orgData.organizationText || '',
+          position: orgData.position?.toString() || '',
+          positionText: orgData.positionText || '',
+          bodTag: orgData.bodTag || '',
+          abbreviation: orgData.abbreviation || '',
+          atasan_langsung: orgData.atasan_langsung || null,
+          nik: personalData.nik || undefined,
+          noWa: personalData.noWa || undefined,
+        };
 
     // ================================================================
     // 5. Generate new JWT
@@ -636,8 +657,8 @@ export class AuthService {
    */
   async switchRole(
     currentUser: JwtPayload,
-    delegasi: { 
-      as_position: string; 
+    delegasi: {
+      as_position: string;
       as_position_text: string;
       as_organization: string;
       as_organization_text: string;
@@ -648,6 +669,7 @@ export class AuthService {
       company: string;
       company_text: string;
       position_status: string;
+      persnum?: string; // delegator's persnum (DelegasiEntity.persnum is varchar)
     } | null,
   ): Promise<{
     message: string;
@@ -674,6 +696,9 @@ export class AuthService {
         subAreaText: delegasi.as_sub_area_text,
         company: delegasi.company,
         companyText: delegasi.company_text,
+        // Delegasi context for PermissionGuard.
+        position_status: (delegasi.position_status as PositionStatus) ?? null,
+        delegator_persnum: delegasi.persnum ? Number(delegasi.persnum) : null,
         // Keep original persnum and nama
         // Role tetap sama
       };
@@ -701,6 +726,9 @@ export class AuthService {
         bodTag: orgData.bodTag || '',
         abbreviation: orgData.abbreviation || '',
         atasan_langsung: orgData.atasan_langsung || null,
+        // Clear delegation context on reset.
+        position_status: null,
+        delegator_persnum: null,
       };
     }
 
