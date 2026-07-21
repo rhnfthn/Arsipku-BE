@@ -3624,51 +3624,15 @@ export class SuratDinasEksternalService {
     const pdfBuffer = await this.storageService.getFile(naskah.final_pdf);
     const pdfBase64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
 
-    // Build lampiran array
+    // Build lampiran array — HANYA final_pdf (sudah merge dengan lampiran).
+    // ponytail: final_pdf SDE sudah di-merge dengan lampiran saat generate.
+    // Kalau lampiran terpisah juga di-attach → duplikat di email penerima.
     const lampiran: any[] = [
       {
         filename: `${naskah.nomor || naskah.perihal || 'Surat'}.pdf`.replace(/[/\\?%*:|"<>]/g, '_'),
         filebase64: pdfBase64,
       },
     ];
-
-    // Ambil lampiran tambahan dari S3 jika ada
-    if (dto.lampiran_ids && dto.lampiran_ids.length > 0) {
-      const lampiranFiles = await this.naskahLampiranRepository.find({
-        where: { id: In(dto.lampiran_ids), id_naskah: naskahId },
-      });
-      for (const l of lampiranFiles) {
-        if (l.file_pdf) {
-          try {
-            const buf = await this.storageService.getFile(l.file_pdf);
-            lampiran.push({
-              filename: l.file_name || `lampiran-${l.id}.pdf`,
-              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
-            });
-          } catch (err) {
-            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
-          }
-        }
-      }
-    } else {
-      // Default: ambil semua lampiran
-      const allLampiran = await this.naskahLampiranRepository.find({
-        where: { id_naskah: naskahId },
-      });
-      for (const l of allLampiran) {
-        if (l.file_pdf) {
-          try {
-            const buf = await this.storageService.getFile(l.file_pdf);
-            lampiran.push({
-              filename: l.file_name || `lampiran-${l.id}.pdf`,
-              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
-            });
-          } catch (err) {
-            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
-          }
-        }
-      }
-    }
 
     // Build email payload
     const emailPayload = {
@@ -3726,51 +3690,15 @@ export class SuratDinasEksternalService {
     const pdfBuffer = await this.storageService.getFile(naskah.final_pdf);
     const pdfBase64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
 
-    // Build lampiran array
+    // Build lampiran array — HANYA final_pdf (sudah merge dengan lampiran).
+    // ponytail: final_pdf SDE sudah di-merge dengan lampiran saat generate.
+    // Kalau lampiran terpisah juga di-attach → duplikat di email penerima.
     const lampiran: any[] = [
       {
         filename: `${naskah.nomor || naskah.perihal || 'Surat'}.pdf`.replace(/[/\\?%*:|"<>]/g, '_'),
         filebase64: pdfBase64,
       },
     ];
-
-    // Ambil lampiran tambahan dari S3 jika ada
-    if (dto.lampiran_ids && dto.lampiran_ids.length > 0) {
-      const lampiranFiles = await this.naskahLampiranRepository.find({
-        where: { id: In(dto.lampiran_ids), id_naskah: naskahId },
-      });
-      for (const l of lampiranFiles) {
-        if (l.file_pdf) {
-          try {
-            const buf = await this.storageService.getFile(l.file_pdf);
-            lampiran.push({
-              filename: l.file_name || `lampiran-${l.id}.pdf`,
-              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
-            });
-          } catch (err) {
-            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
-          }
-        }
-      }
-    } else {
-      // Default: ambil semua lampiran
-      const allLampiran = await this.naskahLampiranRepository.find({
-        where: { id_naskah: naskahId },
-      });
-      for (const l of allLampiran) {
-        if (l.file_pdf) {
-          try {
-            const buf = await this.storageService.getFile(l.file_pdf);
-            lampiran.push({
-              filename: l.file_name || `lampiran-${l.id}.pdf`,
-              filebase64: `data:application/pdf;base64,${buf.toString('base64')}`,
-            });
-          } catch (err) {
-            console.warn(`Failed to fetch lampiran ${l.id}:`, err.message);
-          }
-        }
-      }
-    }
 
     // Build email payload
     const emailPayload = {
