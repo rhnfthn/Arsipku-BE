@@ -47,6 +47,7 @@ import {
   ForwardDisposisiResponseDto,
 } from '../dto/forward-disposisi.dto';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 @Controller('DI')
 export class DisposisiController {
@@ -995,6 +996,18 @@ export class DisposisiController {
         });
       }
 
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      // body.pengirim dipakai service sebagai label header. Saat send,
+      // pengirim di-overwrite jadi position ID — itu urusan sirkulasi (B-2b), bukan PDF.
+      const basePositionText = user?.positionText ?? body.pengirim ?? '';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.penandatangan || '',
+      );
+      body.pengirim = basePositionText;         // header PDF: plain delegator jabatan
+      body.penandatangan = _pf.namaSirkuler;    // delegate name (saat delegated)
+
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
         if (!dateInput) return '';
@@ -1053,7 +1066,7 @@ export class DisposisiController {
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = ensureArray(dto.tertuju);
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
+        return typeof value === 'number' ||
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
@@ -1062,7 +1075,7 @@ export class DisposisiController {
       }
 
       // Check if pengirim is position_id and convert to name
-      let pengirimName = dto.pengirim || user?.positionText || '';
+      let pengirimName = body.pengirim || user?.positionText || '';
       if (pengirimName && isPositionId(pengirimName)) {
         const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
         pengirimName = converted[0] || pengirimName;
@@ -1201,6 +1214,18 @@ export class DisposisiController {
         });
       }
 
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      // body.pengirim dipakai service sebagai label header. Saat send,
+      // pengirim di-overwrite jadi position ID — itu urusan sirkulasi (B-2b), bukan PDF.
+      const basePositionText = user?.positionText ?? body.pengirim ?? '';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.penandatangan || '',
+      );
+      body.pengirim = basePositionText;         // header PDF: plain delegator jabatan
+      body.penandatangan = _pf.namaSirkuler;    // delegate name (saat delegated)
+
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
         if (!dateInput) return '';
@@ -1253,7 +1278,7 @@ export class DisposisiController {
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
+        return typeof value === 'number' ||
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
@@ -1262,7 +1287,7 @@ export class DisposisiController {
       }
 
       // Check if pengirim is position_id and convert to name
-      let pengirimName = dto.pengirim || user?.positionText || '';
+      let pengirimName = body.pengirim || user?.positionText || '';
       if (pengirimName && isPositionId(pengirimName)) {
         const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
         pengirimName = converted[0] || pengirimName;

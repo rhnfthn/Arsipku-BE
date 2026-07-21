@@ -15,6 +15,7 @@ import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 @UseGuards(JwtAuthGuard)
 @Controller('ND')
@@ -704,30 +705,33 @@ export class NotaDinasController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      // Format "Dari" - hanya position_text
-      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
-      const dariFormatted = positionText;
-      
-      // Get actual person name from org_data (persnum_person_text)
-      // user.nama from JWT may be empty, so query org_data for accurate name
       // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
       const positionIdToUse = body.pengirim || user?.position;
-      
+
       const personName = await this.notaDinasService.getPersonNameByPosition(
         positionIdToUse,
         dto.tgl,
       );
-      
-      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
+
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      const basePositionText = user?.positionText || dto.dari || 'Direktur Teknik';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+      );
+      const positionText = _pf.positionText;
+      const dariFormatted = basePositionText;
+      const namaLengkap = _pf.namaSirkuler;
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
-      
+
       // Check if tertuju/tembusan are position_ids and convert to names
       // FE sends form-data, so values are strings. Check if string is numeric (position_id)
       const isPositionId = (value: any): boolean => {
         // Check if it's a number OR a numeric string (from form-data)
-        return typeof value === 'number' || 
+        return typeof value === 'number' ||
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
@@ -954,21 +958,24 @@ export class NotaDinasController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      // Format "Dari" - hanya position_text
-      const positionText = dto.dari || user?.positionText || 'Direktur Teknik';
-      const dariFormatted = positionText;
-      
-      // Get actual person name from org_data (persnum_person_text)
-      // user.nama from JWT may be empty, so query org_data for accurate name
       // Prioritize body.pengirim (position_id from frontend) if provided, else use user.position from JWT
       const positionIdToUse = body.pengirim || user?.position;
-      
+
       const personName = await this.notaDinasService.getPersonNameByPosition(
         positionIdToUse,
         body.tgl || dto.tgl,
       );
-      
-      const namaLengkap = body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '';
+
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      const basePositionText = user?.positionText || dto.dari || 'Direktur Teknik';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+      );
+      const positionText = _pf.positionText;
+      const dariFormatted = basePositionText;
+      const namaLengkap = _pf.namaSirkuler;
 
       // Support both 'penerima' and 'tertuju' field names from frontend
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -976,7 +983,7 @@ export class NotaDinasController {
       // Check if tertuju/tembusan are position_ids and convert to names
       // FE sends form-data, so values are strings. Check if string is numeric (position_id)
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' || 
+        return typeof value === 'number' ||
                (typeof value === 'string' && /^\d+$/.test(value));
       };
 
