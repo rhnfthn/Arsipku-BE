@@ -1,3 +1,5 @@
+import { PositionStatus } from '../../../common/enums/position-status.enum';
+
 export interface ActivePermission {
   resource: string;
   actions: string[];
@@ -16,6 +18,9 @@ export interface JwtPayload {
   activeRole?: ActiveRoleInfo | null;
   activePermissions?: ActivePermission[];
   roles?: ActiveRoleInfo[];
+  // Delegation actor fields (populated during switchRole / PT/PH/PS/VI/SE)
+  position_status?: PositionStatus | null;
+  delegator_persnum?: number | null;
 
   // Organization data from org_data
   company: string;
