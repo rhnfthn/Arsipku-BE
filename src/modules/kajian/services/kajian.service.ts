@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, In, DataSource } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
@@ -772,16 +773,33 @@ export class KajianService {
     };
   }
 
+  /**
+   * Build pengirim sirkulasi fields honoring delegation actor from DTO.
+   */
+  private pengirimSirkulasiFields(
+    dto: any,
+    pengirimData: any,
+  ): { positionStatus: string; positionText: string; namaSirkuler: string } {
+    const actorUser = dto?.actor_position_status
+      ? { position_status: dto.actor_position_status, nama: dto.actor_nama }
+      : undefined;
+    return delegatedPengirimFields(
+      actorUser ?? { position_status: null, nama: '' },
+      pengirimData?.position_text ?? '',
+      pengirimData?.persnum_person_text ?? '',
+    );
+  }
+
   // ============================================================
   // SEND MESSAGE - Kirim Kajian
   // ============================================================
 
   /**
    * Send Kajian
-   * 
+   *
    * Kajian (KA): Korespondensi dari fungsional/staf ke ATASAN
    * dalam Sub Area yang sama (atasan langsung/tidak langsung)
-   * 
+   *
    * @param dto - DTO dengan data kajian termasuk sign_option dan passphrase
    * @param persnum - Persnum user untuk BSrE (optional, required for digsig)
    */
@@ -893,6 +911,7 @@ export class KajianService {
       await queryRunner.manager.save(naskah);
 
       // Insert sirkulasi - pengirim
+      const _pf = this.pengirimSirkulasiFields(dto, pengirimData);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -906,10 +925,10 @@ export class KajianService {
         organization: String(pengirimData.organization_id),
         organizationText: pengirimData.organization_text,
         position: String(pengirimData.position),
-        positionText: pengirimData.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
-        namaSirkuler: pengirimData.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: false,
       });
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -1206,6 +1225,7 @@ export class KajianService {
       // PHASE 6: Insert sirkulasi - pengirim
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
       const isPending = status === 'pending';
+      const _pf = this.pengirimSirkulasiFields(dto, pengirim);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1219,10 +1239,10 @@ export class KajianService {
         organization: String(pengirim.organization_id),
         organizationText: pengirim.organization_text,
         position: String(pengirim.position),
-        positionText: pengirim.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirim.persnum_person ? String(pengirim.persnum_person) : '',
-        namaSirkuler: pengirim.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: isPending,
       });
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -1648,6 +1668,7 @@ export class KajianService {
       await queryRunner.manager.save(naskah);
 
       // Insert sirkulasi - pengirim (isDraft = true)
+      const _pf = this.pengirimSirkulasiFields(dto, pengirimData);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1661,10 +1682,10 @@ export class KajianService {
         organization: String(pengirimData.organization_id),
         organizationText: pengirimData.organization_text,
         position: String(pengirimData.position),
-        positionText: pengirimData.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
-        namaSirkuler: pengirimData.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: true,
       });
       await queryRunner.manager.save(pengirimSirkulasi);
