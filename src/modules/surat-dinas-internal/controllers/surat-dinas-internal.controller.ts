@@ -38,6 +38,7 @@ import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 @Controller('SDI')
 export class SuratDinasInternalController {
@@ -711,15 +712,19 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token
-      // Get actual person name from org_data (persnum_person_text)
-      // user.nama from JWT may be empty, so query org_data for accurate name
-      const namaJabatan = user?.positionText || '';
+      // Get actual person name from org_data (persnum_person_text) — fallback saat YBS.
       const personName = await this.suratDinasInternalService.getPersonNameByPosition(
         user?.position,
         body.tgl,
       );
-      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      const _pf = delegatedPengirimFields(
+        user,
+        user?.positionText ?? '',
+        body.nama_lengkap || personName || user?.nama || '',
+      );
+      const namaJabatan = _pf.positionText;
+      const namaLengkap = _pf.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
       const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
@@ -936,15 +941,19 @@ export class SuratDinasInternalController {
         }
       }
 
-      // Use user's position and name from JWT token
-      // Get actual person name from org_data (persnum_person_text)
-      // user.nama from JWT may be empty, so query org_data for accurate name
-      const namaJabatan = user?.positionText || '';
+      // Get actual person name from org_data (persnum_person_text) — fallback saat YBS.
       const personName = await this.suratDinasInternalService.getPersonNameByPosition(
         user?.position,
         body.tgl,
       );
-      const namaLengkap = body.nama_lengkap || personName || user?.nama || '';
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      const _pf = delegatedPengirimFields(
+        user,
+        user?.positionText ?? '',
+        body.nama_lengkap || personName || user?.nama || '',
+      );
+      const namaJabatan = _pf.positionText;
+      const namaLengkap = _pf.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
       const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
