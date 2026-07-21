@@ -146,12 +146,31 @@ export class CreateKajianDto {
   @IsOptional()
   @IsString()
   passphrase?: string;
+
+  // Actor delegasi context — di-set oleh controller dari @CurrentUser (Spec B-2b).
+  // Dipakai service untuk render pengirim sirkulasi (prefix actor + nama delegate).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
 }
 
 /**
  * DTO untuk Finalize Draft Kajian
  */
 export class FinalizeDraftDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   @IsOptional()
   pengirim?: number;
 
@@ -248,6 +267,15 @@ export class FinalizeDraftDto {
  * DTO untuk Update Draft Kajian
  */
 export class UpdateDraftDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   @IsOptional()
   pengirim?: number;
 

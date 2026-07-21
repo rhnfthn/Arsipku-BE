@@ -22,6 +22,15 @@ export enum SignOption {
  * Format flat - semua field dalam satu level
  */
 export class CreateNotaDinasDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   // ============================================
   // SIRKULASI
   // ============================================
@@ -206,6 +215,15 @@ export class CreateNotaDinasDto {
  * Status akan berubah dari draf ke final/final_tte dan isDraft jadi false
  */
 export class FinalizeDraftDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   // ============================================
   // SIRKULASI
   // ============================================
@@ -368,6 +386,15 @@ export class FinalizeDraftDto {
  * Semua field optional karena bisa partial update
  */
 export class UpdateDraftDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   // ============================================
   // SIRKULASI
   // ============================================
