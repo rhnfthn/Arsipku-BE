@@ -11,6 +11,7 @@ import {
   RequiredPermission,
 } from '../decorators/require-permission.decorator';
 import { RoleName } from '../enums/role-name.enum';
+import { PositionStatus } from '../../common/enums/position-status.enum';
 import type { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { RbacService } from '../../modules/rbac/services/rbac.service';
 import { PermissionCacheService } from './permission-cache.service';
@@ -32,6 +33,43 @@ import { PermissionCacheService } from './permission-cache.service';
 @Injectable()
 export class PermissionGuard implements CanActivate {
   private readonly logger = new Logger(PermissionGuard.name);
+  private readonly VIEW_ONLY_STATUSES = new Set<string>([PositionStatus.VI, PositionStatus.SE]);
+  private readonly DELEGATED_ACTORS = new Set<string>([
+    PositionStatus.PT, PositionStatus.PH, PositionStatus.PS, PositionStatus.VI, PositionStatus.SE,
+  ]);
+
+  private effectivePersnum(user: JwtPayload): number {
+    const isDelegated = !!user.position_status && this.DELEGATED_ACTORS.has(user.position_status as string);
+    return isDelegated && user.delegator_persnum ? user.delegator_persnum : user.persnum;
+  }
+
+  private stripToReadOnly(perms: { resource: string; actions: string[] }[]): { resource: string; actions: string[] }[] {
+    // Copy — never mutate cached entries.
+    return perms
+      .map((p) => ({ resource: p.resource, actions: p.actions.filter((a) => a === 'read' || a === 'read-detail') }))
+      .filter((p) => p.actions.length > 0);
+  }
+
+  private readonly WRITE_METHODS = new Set<string>(['POST', 'PUT', 'PATCH', 'DELETE']);
+  private readonly VIEW_ONLY_WRITE_ALLOW_PREFIX = ['/auth', '/notification', '/fcm', '/short-url'];
+  private readonly VIEW_ONLY_WRITE_ALLOW_EXACT = ['/delegasi/switch-role'];
+
+  private isAllowListedForViewer(path: string): boolean {
+    const p = path.split('?')[0];
+    if (this.VIEW_ONLY_WRITE_ALLOW_EXACT.includes(p)) return true;
+    return this.VIEW_ONLY_WRITE_ALLOW_PREFIX.some((prefix) => p === prefix || p.startsWith(prefix + '/'));
+  }
+
+  private blockViewerWrite(user: JwtPayload | undefined, req: { method?: string; url?: string }): void {
+    if (!user) return;
+    const ps = user.position_status as string | undefined;
+    if (!ps || !this.VIEW_ONLY_STATUSES.has(ps)) return;
+    if (!req.method || !this.WRITE_METHODS.has(req.method)) return;
+    if (this.isAllowListedForViewer(req.url || '')) return;
+    throw new ForbiddenException(
+      'Akses lihat saja (read-only): tidak dapat melakukan aksi tulis dalam delegasi ini.',
+    );
+  }
 
   constructor(
     private readonly reflector: Reflector,
@@ -40,6 +78,11 @@ export class PermissionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 🛡️ VI/SE method-block — BEFORE the un-guarded early-return so it covers
+    // endpoints without @RequirePermission too.
+    const req = context.switchToHttp().getRequest<{ user?: JwtPayload; method?: string; url?: string }>();
+    this.blockViewerWrite(req.user, req);
+
     const permission = this.reflector.get<RequiredPermission>(
       PERMISSION_KEY,
       context.getHandler(),
@@ -66,29 +109,47 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    // Ambil persnum dari JWT
-    const persnum: number | undefined = user.persnum;
+    // Ambil persnum EFEKTIF dari JWT (delegasi sadar).
+    // The `delegasi` resource is the delegation CONTROL PLANE (switch/reset/manage
+    // delegations) — always authorized by the delegate's OWN perms, never the
+    // delegator's, and never VI/SE-stripped. Otherwise a delegated user could not
+    // switch back to their original role (locked into the delegation).
+    const isDelegasiResource = permission.resource === 'delegasi';
+    const persnum: number = isDelegasiResource ? user.persnum : this.effectivePersnum(user);
     if (!persnum || typeof persnum !== 'number') {
       throw new ForbiddenException('Invalid user identity (no persnum)');
     }
 
-    // Ambil permission live dari DB (dengan cache)
-    // Fallback ke JWT activePermissions jika DB query gagal (graceful degradation)
-    const activePermissions = await this.getLivePermissions(
-      persnum,
-      Array.isArray(user.activePermissions)
-        ? user.activePermissions
-        : undefined,
-    );
+    // Ambil permission live dari DB (dengan cache).
+    // Delegated actors on business resources: fail-closed (no JWT fallback).
+    // delegasi control plane (own persnum): use the delegate's own JWT fallback.
+    const isDelegatedActor =
+      !!user.position_status && this.DELEGATED_ACTORS.has(user.position_status as string);
+    const jwtFallback =
+      isDelegatedActor && !isDelegasiResource
+        ? undefined
+        : Array.isArray(user.activePermissions)
+          ? user.activePermissions
+          : undefined;
+    const activePermissions = await this.getLivePermissions(persnum, jwtFallback);
 
-    if (!activePermissions || activePermissions.length === 0) {
+    // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
+    // resources, NOT the delegasi control plane (so switch/reset still works).
+    const isViewOnly =
+      !isDelegasiResource &&
+      !!user.position_status &&
+      this.VIEW_ONLY_STATUSES.has(user.position_status as string);
+    const effectivePermissions = isViewOnly
+      ? this.stripToReadOnly(activePermissions ?? [])
+      : (activePermissions ?? []);
+
+    if (!effectivePermissions || effectivePermissions.length === 0) {
       throw new ForbiddenException('User has no permissions assigned');
     }
 
-    const hasPermission = activePermissions.some(
+    const hasPermission = effectivePermissions.some(
       (p: { resource: string; actions: string[] }) =>
-        p.resource === permission.resource &&
-        p.actions.includes(permission.action),
+        p.resource === permission.resource && p.actions.includes(permission.action),
     );
 
     if (!hasPermission) {

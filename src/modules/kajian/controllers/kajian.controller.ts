@@ -33,6 +33,7 @@ import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
 import { UserLevels, Public, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 @Controller('KA')
 export class KajianController {
@@ -450,21 +451,21 @@ export class KajianController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      const positionText = dto.dari || user?.positionText || 'Staf';
-      const dariFormatted = positionText;
-
       const positionIdToUse = body.pengirim || user?.position;
       const personName = await this.kajianService.getPersonNameByPosition(
         positionIdToUse,
         dto.tgl,
       );
-      const namaLengkap =
-        body.nama_lengkap ||
-        dto.nama_lengkap ||
-        dto.penandatangan ||
-        personName ||
-        user?.nama ||
-        '';
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      const basePositionText = user?.positionText || dto.dari || 'Staf';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+      );
+      const positionText = _pf.positionText;
+      const dariFormatted = basePositionText;
+      const namaLengkap = _pf.namaSirkuler;
 
       let tertujuArray = dto.tertuju || dto.penerima || [];
       const isPositionId = (value: any): boolean => {
@@ -669,21 +670,24 @@ export class KajianController {
         formattedDate = `${namaTempat}, ${tanggalInput}`;
       }
 
-      const positionText = dto.dari || user?.positionText || 'Staf';
-      const dariFormatted = positionText;
-
       const positionIdToUse = body.pengirim || user?.position;
       const personName = await this.kajianService.getPersonNameByPosition(
         positionIdToUse,
         body.tgl || dto.tgl,
       );
-      const namaLengkap =
-        body.nama_lengkap ||
-        dto.nama_lengkap ||
-        dto.penandatangan ||
-        personName ||
-        user?.nama ||
-        '';
+      // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
+      // FIX: sebelumnya signer fallback ke personName (delegator) karena FE kirim
+      // `namaLengkap` (camelCase) tapi BE baca `nama_lengkap` (snake_case). Sekarang
+      // BE pakai user.nama (delegate) langsung via helper saat delegated.
+      const basePositionText = user?.positionText || dto.dari || 'Staf';
+      const _pf = delegatedPengirimFields(
+        user,
+        basePositionText,
+        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+      );
+      const positionText = _pf.positionText;   // signer: "PT. EVP of PMO" (prefixed)
+      const dariFormatted = basePositionText;   // "Dari:": plain delegator jabatan (no prefix)
+      const namaLengkap = _pf.namaSirkuler;
 
       let tertujuArray = dto.tertuju || dto.penerima || [];
       const isPositionId = (value: any): boolean => {
