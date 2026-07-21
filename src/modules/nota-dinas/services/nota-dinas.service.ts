@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
@@ -1327,7 +1328,14 @@ export class NotaDinasService {
     isDraft: boolean = false,
     urutan: number = 0,
     grupPenerimaId?: string,
+    actorUser?: { position_status?: string | null; nama?: string } | null,
   ): NaskahSirkulasi {
+    // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
+    const _pf = delegatedPengirimFields(
+      actorUser ?? { position_status: null, nama: '' },
+      pos.position_text ?? '',
+      pos.persnum_person_text ?? pos.position_text ?? '',
+    );
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
@@ -1341,12 +1349,10 @@ export class NotaDinasService {
       organization: String(pos.organization_id),
       organizationText: pos.organization_text,
       position: String(pos.position),
-      positionText: pos.position_text,
-      positionStatus: 'ybs',
-      // Ensure idSirkuler and namaSirkuleri are always populated.
-      // Prefer persnum_person/persnum_person_text, fallback to position/position_text if persnum/nama are missing.
+      positionText: _pf.positionText,
+      positionStatus: _pf.positionStatus.toLowerCase() as any,
       idSirkuler: String(pos.persnum_person ?? pos.position ?? ''),
-      namaSirkuler: pos.persnum_person_text ?? pos.position_text ?? '',
+      namaSirkuler: _pf.namaSirkuler,
       isDraft: isDraft,
       urutan: urutan,
       idGrupPenerima: grupPenerimaId || null,
@@ -1517,6 +1523,8 @@ export class NotaDinasService {
         pengirim,
         isDraft,
         0,
+        undefined,
+        dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined,
       );
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1950,7 +1958,7 @@ export class NotaDinasService {
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
       const isPending = status === 'pending';
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0, undefined, dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       const penerimaResponses: SirkulasiInfoDto[] = [];
@@ -2675,6 +2683,8 @@ export class NotaDinasService {
             fullPengirimPosition,
             isPending,
             0,
+            undefined,
+            dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined,
           );
           await queryRunner.manager.save(pengirimSirkulasi);
           // Note: NdEntity.dari tidak lagi digunakan - data dari naskah_sirkulasi
@@ -3382,6 +3392,8 @@ export class NotaDinasService {
             pengirimPosition,
             true,
             0,
+            undefined,
+            dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined,
           );
           await queryRunner.manager.save(pengirimSirkulasi);
           // Note: NdEntity.dari tidak lagi digunakan - data dari naskah_sirkulasi
