@@ -1782,12 +1782,6 @@ export class NaskahSirkulasiService {
           row.id_naskah,
         ]);
 
-        console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
-        console.log(
-          '🔍 SDE Debug - Penerima count:',
-          penerimaRows?.length || 0,
-        );
-
         if (penerimaRows && penerimaRows.length > 0) {
           // For each penerima, try to enrich with data from eksternal table
           for (const p of penerimaRows) {
