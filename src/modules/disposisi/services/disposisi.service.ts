@@ -60,6 +60,7 @@ import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { NotificationType } from '../../notification/entities';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
 
@@ -155,6 +156,20 @@ export class DisposisiService {
     private readonly digsigService: DigsigService,
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
   ) { }
+
+  private pengirimSirkulasiFields(
+    dto: any,
+    pengirimData: any,
+  ): { positionStatus: string; positionText: string; namaSirkuler: string } {
+    const actorUser = (dto as any)?.actor_position_status
+      ? { position_status: (dto as any).actor_position_status, nama: (dto as any).actor_nama }
+      : undefined;
+    return delegatedPengirimFields(
+      actorUser ?? { position_status: null, nama: '' },
+      pengirimData?.position_text ?? '',
+      pengirimData?.persnum_person_text ?? '',
+    );
+  }
 
   private async validateDigsigPassphrase(params: {
     persnum: number;
@@ -1461,6 +1476,7 @@ export class DisposisiService {
       }
 
       // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim
+      const _pf = this.pengirimSirkulasiFields(dto, pengirimData);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1474,12 +1490,12 @@ export class DisposisiService {
         organization: String(pengirimData.organization_id),
         organizationText: pengirimData.organization_text,
         position: String(pengirimData.position),
-        positionText: pengirimData.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirimData.persnum_person
           ? String(pengirimData.persnum_person)
           : '',
-        namaSirkuler: pengirimData.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: isPending, // ttd_basah stays pending/tertunda
       });
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -1916,6 +1932,7 @@ export class DisposisiService {
       }
 
       // PHASE 5: Insert ke tabel NASKAH_SIRKULASI - pengirim (dengan isDraft = true)
+      const _pf = this.pengirimSirkulasiFields(dto, pengirimData);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -1929,12 +1946,12 @@ export class DisposisiService {
         organization: String(pengirimData.organization_id),
         organizationText: pengirimData.organization_text,
         position: String(pengirimData.position),
-        positionText: pengirimData.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirimData.persnum_person
           ? String(pengirimData.persnum_person)
           : '',
-        namaSirkuler: pengirimData.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: true, // saveDraft = draft
       });
       await queryRunner.manager.save(pengirimSirkulasi);
@@ -3204,6 +3221,7 @@ export class DisposisiService {
       await queryRunner.manager.save(naskahReferensi);
 
       // PHASE 7: Insert sirkulasi pengirim
+      const _pf = this.pengirimSirkulasiFields(dto, pengirimData);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -3217,12 +3235,12 @@ export class DisposisiService {
         organization: String(pengirimData.organization_id),
         organizationText: pengirimData.organization_text,
         position: String(pengirimData.position),
-        positionText: pengirimData.position_text,
-        positionStatus: 'ybs',
+        positionText: _pf.positionText,
+        positionStatus: _pf.positionStatus.toLowerCase() as any,
         idSirkuler: pengirimData.persnum_person
           ? String(pengirimData.persnum_person)
           : '',
-        namaSirkuler: pengirimData.persnum_person_text || '',
+        namaSirkuler: _pf.namaSirkuler,
         isDraft: false,
       });
       await queryRunner.manager.save(pengirimSirkulasi);

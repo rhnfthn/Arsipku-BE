@@ -274,6 +274,9 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
+      body.actor_position_status = user?.position_status ?? null;
+      body.actor_nama = user?.nama ?? '';
+
       return await this.disposisiService.sendMessage(
         body as CreateDisposisiDto,
         user?.persnum ? Number(user.persnum) : undefined,
@@ -401,6 +404,8 @@ export class DisposisiController {
 
       body.pengirim_position_id = parseInt(user.position, 10);
       body.pengirim = String(user.position);
+      body.actor_position_status = user?.position_status ?? null;
+      body.actor_nama = user?.nama ?? '';
 
       return await this.disposisiService.saveDraft(body as CreateDisposisiDto);
     } catch (error) {
@@ -633,6 +638,9 @@ export class DisposisiController {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
 
+      body.actor_position_status = user?.position_status ?? null;
+      body.actor_nama = user?.nama ?? '';
+
       return await this.disposisiService.sendDraft(
         id,
         body as SendDraftDisposisiDto,
@@ -771,6 +779,9 @@ export class DisposisiController {
       if (body.is_priority !== undefined) {
         body.is_priority = body.is_priority === 'true' || body.is_priority === true;
       }
+
+      body.actor_position_status = user?.position_status ?? null;
+      body.actor_nama = user?.nama ?? '';
 
       return await this.disposisiService.updateDraft(
         id,
@@ -930,6 +941,9 @@ export class DisposisiController {
 
       console.log('[forward] Parsed body:', JSON.stringify(body, null, 2));
 
+      // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
+      body.actor_position_status = user?.position_status ?? null;
+      body.actor_nama = user?.nama ?? '';
       return await this.disposisiService.forwardDisposisi(body as ForwardDisposisiDto);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
