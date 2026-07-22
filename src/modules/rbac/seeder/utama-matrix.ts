@@ -434,7 +434,10 @@ function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
           }
           const res = map.get(perm.resource)!;
           if (!res.permissions.some((p) => p.action === perm.action)) {
-            res.permissions.push({ action: perm.action, description: perm.description });
+            res.permissions.push({
+              action: perm.action,
+              description: perm.description,
+            });
           }
         }
       }
@@ -446,6 +449,6 @@ function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
 export const utamaResources = flattenMatrix(utamaMatrix);
 
 // Super Admin default assignments: semua permission Utama aktif
-export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap((r) =>
-  r.permissions.map((p) => `${r.name}:${p.action}`),
+export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap(
+  (r) => r.permissions.map((p) => `${r.name}:${p.action}`),
 );
