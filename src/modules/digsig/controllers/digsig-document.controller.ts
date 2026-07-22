@@ -29,6 +29,7 @@ import {
 import { DigsigDocumentEntity } from '../entities/digsig-document.entity';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
+import { computeEffectivePersnum } from '../../../common/helpers/delegasi-rendering.helper';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from '../../storage/services/storage.service';
 import { JenisService } from '../../jenis/services/jenis.service';
@@ -178,7 +179,7 @@ export class DigsigDocumentController {
   ): Promise<DigsigDocumentPaginatedResponseDto> {
     return this.documentService.findAll({
       ...filter,
-      createdBy: user.persnum,
+      createdBy: computeEffectivePersnum(user),
     });
   }
 
