@@ -12,6 +12,7 @@ import {
 } from '../decorators/require-permission.decorator';
 import { RoleName } from '../enums/role-name.enum';
 import { PositionStatus } from '../../common/enums/position-status.enum';
+import { computeEffectivePersnum, isDelegatedActor } from '../../common/helpers/delegasi-rendering.helper';
 import type { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { RbacService } from '../../modules/rbac/services/rbac.service';
 import { PermissionCacheService } from './permission-cache.service';
@@ -34,14 +35,6 @@ import { PermissionCacheService } from './permission-cache.service';
 export class PermissionGuard implements CanActivate {
   private readonly logger = new Logger(PermissionGuard.name);
   private readonly VIEW_ONLY_STATUSES = new Set<string>([PositionStatus.VI, PositionStatus.SE]);
-  private readonly DELEGATED_ACTORS = new Set<string>([
-    PositionStatus.PT, PositionStatus.PH, PositionStatus.PS, PositionStatus.VI, PositionStatus.SE,
-  ]);
-
-  private effectivePersnum(user: JwtPayload): number {
-    const isDelegated = !!user.position_status && this.DELEGATED_ACTORS.has(user.position_status as string);
-    return isDelegated && user.delegator_persnum ? user.delegator_persnum : user.persnum;
-  }
 
   private stripToReadOnly(perms: { resource: string; actions: string[] }[]): { resource: string; actions: string[] }[] {
     // Copy — never mutate cached entries.
@@ -115,7 +108,7 @@ export class PermissionGuard implements CanActivate {
     // delegator's, and never VI/SE-stripped. Otherwise a delegated user could not
     // switch back to their original role (locked into the delegation).
     const isDelegasiResource = permission.resource === 'delegasi';
-    const persnum: number = isDelegasiResource ? user.persnum : this.effectivePersnum(user);
+    const persnum: number = isDelegasiResource ? user.persnum : computeEffectivePersnum(user);
     if (!persnum || typeof persnum !== 'number') {
       throw new ForbiddenException('Invalid user identity (no persnum)');
     }
@@ -123,10 +116,9 @@ export class PermissionGuard implements CanActivate {
     // Ambil permission live dari DB (dengan cache).
     // Delegated actors on business resources: fail-closed (no JWT fallback).
     // delegasi control plane (own persnum): use the delegate's own JWT fallback.
-    const isDelegatedActor =
-      !!user.position_status && this.DELEGATED_ACTORS.has(user.position_status as string);
+    const isActorDelegated = isDelegatedActor(user);
     const jwtFallback =
-      isDelegatedActor && !isDelegasiResource
+      isActorDelegated && !isDelegasiResource
         ? undefined
         : Array.isArray(user.activePermissions)
           ? user.activePermissions

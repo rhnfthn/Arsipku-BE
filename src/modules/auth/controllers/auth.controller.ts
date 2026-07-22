@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtService } from '@nestjs/jwt';
+import { computeEffectivePersnum } from '../../../common/helpers/delegasi-rendering.helper';
 import type { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
@@ -457,17 +458,21 @@ export class AuthController {
       throw new UnauthorizedException('User identity missing');
     }
 
-    this.permissionCache.invalidate(user.persnum);
+    // Use effectivePersnum (delegator's when delegated) so the refreshed perms
+    // match the delegation. Shared helper — same logic as the PermissionGuard.
+    const effPersnum = computeEffectivePersnum(user);
 
-    const ctx = await this.rbacService.buildActiveRoleAndPermissions(user.persnum);
+    this.permissionCache.invalidate(effPersnum);
+
+    const ctx = await this.rbacService.buildActiveRoleAndPermissions(effPersnum);
 
     const { exp, iat, ...base } = user as any;
     const newPayload: JwtPayload = {
       ...base,
-      activeRole: ctx.activeRole ?? null,
+      // activeRole/role/roles stay the delegate's own (D4 — bypass not inherited).
+      // activePermissions = effective (delegator's when delegated) so the FE Tulis
+      // menu shows the delegator's naskah types.
       activePermissions: ctx.activePermissions,
-      role: ctx.role,
-      roles: ctx.roles,
     };
 
     const expiresIn =
