@@ -15,6 +15,7 @@ import {
   AirNavRefreshResponse,
 } from '../interfaces/jwt-payload.interface';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
+import { isDelegatedActor } from '../../../common/helpers/delegasi-rendering.helper';
 
 @Injectable()
 export class AuthService {
@@ -582,20 +583,26 @@ export class AuthService {
     // the delegated org-scope fields forward; refresh RBAC fresh by the delegate's
     // own persnum so the SUPERADMIN bypass stays tied to the delegate (spec D4).
     const { exp: _oldExp, iat: _oldIat, ...delegatedCtx } = payload as any;
-    const delegatedStatuses: string[] = [
-      PositionStatus.PT, PositionStatus.PH, PositionStatus.PS,
-      PositionStatus.VI, PositionStatus.SE,
-    ];
-    const isDelegated =
-      !!payload.position_status &&
-      delegatedStatuses.includes(payload.position_status as string);
+    const isDelegated = isDelegatedActor(payload);
+
+    // activePermissions = delegator's when delegated (FE Tulis menu shows the
+    // delegator's naskah types); activeRole/role/roles stay the delegate's own (D4).
+    let effectiveActivePermissions = rbacCtx.activePermissions;
+    if (isDelegated && payload.delegator_persnum) {
+      try {
+        const delegatorRbac = await this.buildRbacContext(payload.delegator_persnum);
+        effectiveActivePermissions = delegatorRbac.activePermissions;
+      } catch (e) {
+        console.warn('[AuthService] refreshWithSession: failed to resolve delegator RBAC, keeping delegate perms:', e instanceof Error ? e.message : String(e));
+      }
+    }
 
     const newPayload: JwtPayload = isDelegated
       ? {
           ...delegatedCtx, // position_status, delegator_persnum, delegated org scope, persnum, nama, bodTag, abbreviation, atasan_langsung
           role: role as 'user' | 'admin' | 'superadmin',
           activeRole: rbacCtx.activeRole ?? undefined,
-          activePermissions: rbacCtx.activePermissions,
+          activePermissions: effectiveActivePermissions,
           roles: rbacCtx.roles,
           nik: personalData.nik || undefined,
           noWa: personalData.noWa || undefined,
@@ -655,6 +662,40 @@ export class AuthService {
    * @param delegasi - Delegation info if switching to delegated role, or null to reset to original
    * @returns New JWT token with updated position data
    */
+  /**
+   * Resolve the delegator's context (activePermissions + bodTag/abbreviation/atasan_langsung)
+   * from RBAC + org_data. Falls back to the delegate's own values on lookup failure.
+   * Used by switchRole so the FE Tulis menu + tulis-access middleware reflect the delegator.
+   */
+  private async resolveDelegatorContext(
+    delegatorPersnum: string | undefined,
+    base: { activePermissions?: any[]; bodTag?: string; abbreviation?: string; atasan_langsung?: any },
+  ): Promise<{ activePermissions: any[]; bodTag: string; abbreviation: string; atasan_langsung: any }> {
+    let activePermissions = base.activePermissions ?? [];
+    let bodTag = base.bodTag ?? '';
+    let abbreviation = base.abbreviation ?? '';
+    let atasan_langsung = base.atasan_langsung ?? null;
+    if (delegatorPersnum) {
+      try {
+        const rbac = await this.buildRbacContext(Number(delegatorPersnum));
+        activePermissions = rbac.activePermissions ?? [];
+      } catch (e) {
+        console.warn('[AuthService] resolveDelegatorContext: RBAC failed, keeping delegate:', e instanceof Error ? e.message : String(e));
+      }
+      try {
+        const org = await this.orgDataService.findByPersnum(Number(delegatorPersnum));
+        if (org) {
+          bodTag = org.bodTag || base.bodTag;
+          abbreviation = org.abbreviation || base.abbreviation;
+          atasan_langsung = org.atasan_langsung ?? base.atasan_langsung;
+        }
+      } catch (e) {
+        console.warn('[AuthService] resolveDelegatorContext: org_data failed, keeping delegate:', e instanceof Error ? e.message : String(e));
+      }
+    }
+    return { activePermissions, bodTag, abbreviation, atasan_langsung };
+  }
+
   async switchRole(
     currentUser: JwtPayload,
     delegasi: {
@@ -682,6 +723,11 @@ export class AuthService {
     let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
 
     if (delegasi) {
+      // Resolve delegator's RBAC permissions so the FE Tulis menu (hasPermission)
+      // Resolve delegator's context (activePermissions + bodTag + abbreviation + atasan_langsung)
+      // so the FE Tulis menu (bodTag filter) + hasPermission (activePermissions) reflect the delegator.
+      const ctx = await this.resolveDelegatorContext(delegasi.persnum, basePayload);
+
       // Switch to delegated role
       newPayload = {
         ...basePayload,
@@ -699,8 +745,12 @@ export class AuthService {
         // Delegasi context for PermissionGuard.
         position_status: (delegasi.position_status as PositionStatus) ?? null,
         delegator_persnum: delegasi.persnum ? Number(delegasi.persnum) : null,
-        // Keep original persnum and nama
-        // Role tetap sama
+        // Delegator's context (activePermissions + bodTag + abbreviation + atasan_langsung).
+        // activeRole/role = delegate's own (D4 — bypass not inherited).
+        activePermissions: ctx.activePermissions,
+        bodTag: ctx.bodTag,
+        abbreviation: ctx.abbreviation,
+        atasan_langsung: ctx.atasan_langsung,
       };
     } else {
       // Reset to original role - fetch from org_data
