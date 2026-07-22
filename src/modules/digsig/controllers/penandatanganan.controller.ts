@@ -22,6 +22,7 @@ import {
 } from '../dto/penandatanganan.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
+import { computeEffectivePersnum } from '../../../common/helpers/delegasi-rendering.helper';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -45,7 +46,7 @@ export class PenandatangananController {
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterPenandatangananDto,
   ): Promise<PenandatangananPaginatedResponseDto> {
-    return this.penandatangananService.getMySigningList(user.persnum, filter);
+    return this.penandatangananService.getMySigningList(computeEffectivePersnum(user), filter);
   }
 
   /**
@@ -63,7 +64,7 @@ export class PenandatangananController {
     totalRejected: number;
     total: number;
   }> {
-    return this.penandatangananService.getSigningSummary(user.persnum);
+    return this.penandatangananService.getSigningSummary(computeEffectivePersnum(user));
   }
 
   /**
@@ -77,7 +78,7 @@ export class PenandatangananController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<PenandatangananDetailDto> {
-    return this.penandatangananService.getSigningDetail(id, user.persnum);
+    return this.penandatangananService.getSigningDetail(id, computeEffectivePersnum(user));
   }
 
   /**
@@ -115,7 +116,7 @@ export class PenandatangananController {
   ): Promise<RejectResultDto> {
     return this.penandatangananService.rejectDocument(
       id,
-      user.persnum,
+      computeEffectivePersnum(user),
       dto,
       user.nama,
     );
