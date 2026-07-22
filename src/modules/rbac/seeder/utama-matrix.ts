@@ -90,6 +90,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.nota-dinas',
+                },
+              ],
+            },
           ],
         },
         {
@@ -138,6 +150,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.surat-dinas-internal',
+                },
+              ],
+            },
           ],
         },
         {
@@ -162,6 +186,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.surat-dinas-eksternal',
+                },
+              ],
+            },
           ],
         },
         {
@@ -182,6 +218,18 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'create',
                   label: 'Create',
                   description: 'Button Pratinjau',
+                  resource: 'utama.tulis.kajian',
+                },
+              ],
+            },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
                   resource: 'utama.tulis.kajian',
                 },
               ],

@@ -55,6 +55,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -77,6 +78,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -90,6 +92,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -102,6 +105,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-draft', description: 'Button Draft' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
