@@ -1457,6 +1457,16 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
+    "name": "utama.tulis.kajian.button-generate-ai",
+    "description": "utama.tulis.kajian.button-generate-ai",
+    "permissions": [
+      {
+        "action": "generate-ai",
+        "description": "Button Generate AI - Create"
+      }
+    ]
+  },
+  {
     "name": "utama.tulis.kajian.halaman-kajian",
     "description": "utama.tulis.kajian.halaman-kajian",
     "permissions": [
@@ -1503,6 +1513,16 @@ export const rbacResourcesWithPermissions = [
       {
         "action": "read",
         "description": "Halaman Naskah Lainnya - Read"
+      }
+    ]
+  },
+  {
+    "name": "utama.tulis.nota-dinas.button-generate-ai",
+    "description": "utama.tulis.nota-dinas.button-generate-ai",
+    "permissions": [
+      {
+        "action": "generate-ai",
+        "description": "Button Generate AI - Create"
       }
     ]
   },
@@ -1581,6 +1601,16 @@ export const rbacResourcesWithPermissions = [
     ]
   },
   {
+    "name": "utama.tulis.surat-dinas-eksternal.button-generate-ai",
+    "description": "utama.tulis.surat-dinas-eksternal.button-generate-ai",
+    "permissions": [
+      {
+        "action": "generate-ai",
+        "description": "Button Generate AI - Create"
+      }
+    ]
+  },
+  {
     "name": "utama.tulis.surat-dinas-eksternal.button-pilih-template",
     "description": "utama.tulis.surat-dinas-eksternal.button-pilih-template",
     "permissions": [
@@ -1627,6 +1657,16 @@ export const rbacResourcesWithPermissions = [
       {
         "action": "read",
         "description": "Halaman Surat Dinas Eksternal - Read"
+      }
+    ]
+  },
+  {
+    "name": "utama.tulis.surat-dinas-internal.button-generate-ai",
+    "description": "utama.tulis.surat-dinas-internal.button-generate-ai",
+    "permissions": [
+      {
+        "action": "generate-ai",
+        "description": "Button Generate AI - Create"
       }
     ]
   },
@@ -3985,6 +4025,17 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                 ]
               },
               {
+                "key": "button-generate-ai",
+                "label": "Button Generate AI",
+                "permissions": [
+                  {
+                    "action": "generate-ai",
+                    "label": "Create",
+                    "resource": "utama.tulis.kajian.button-generate-ai"
+                  }
+                ]
+              },
+              {
                 "key": "halaman-kajian",
                 "label": "Halaman Kajian",
                 "permissions": [
@@ -4112,6 +4163,17 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                 ]
               },
               {
+                "key": "button-generate-ai",
+                "label": "Button Generate AI",
+                "permissions": [
+                  {
+                    "action": "generate-ai",
+                    "label": "Create",
+                    "resource": "utama.tulis.nota-dinas.button-generate-ai"
+                  }
+                ]
+              },
+              {
                 "key": "halaman-nota-dinas",
                 "label": "Halaman Nota Dinas",
                 "permissions": [
@@ -4184,6 +4246,17 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                 ]
               },
               {
+                "key": "button-generate-ai",
+                "label": "Button Generate AI",
+                "permissions": [
+                  {
+                    "action": "generate-ai",
+                    "label": "Create",
+                    "resource": "utama.tulis.surat-dinas-eksternal.button-generate-ai"
+                  }
+                ]
+              },
+              {
                 "key": "halaman-surat-dinas-eksternal",
                 "label": "Halaman Surat Dinas Eksternal",
                 "permissions": [
@@ -4252,6 +4325,17 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                     "action": "read",
                     "label": "Read",
                     "resource": "utama.tulis.surat-dinas-internal.button-template-saya"
+                  }
+                ]
+              },
+              {
+                "key": "button-generate-ai",
+                "label": "Button Generate AI",
+                "permissions": [
+                  {
+                    "action": "generate-ai",
+                    "label": "Create",
+                    "resource": "utama.tulis.surat-dinas-internal.button-generate-ai"
                   }
                 ]
               },
@@ -4981,6 +5065,7 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "utama.terkirim.halaman-terkirim:read",
     "utama.tertunda.detail-halaman-tertunda:read",
     "utama.tertunda.halaman-tertunda:read",
+    "utama.tulis.kajian.button-generate-ai:generate-ai",
     "utama.tulis.kajian.button-kirim:create",
     "utama.tulis.kajian.button-pilih-template:read",
     "utama.tulis.kajian.button-pratinjau:read",
@@ -5138,6 +5223,7 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "utama.tulis.disposisi.button-kirim:create",
     "utama.tulis.disposisi.button-pratinjau:create",
     "utama.tulis.disposisi.halaman-disposisi:read",
+    "utama.tulis.nota-dinas.button-generate-ai:generate-ai",
     "utama.tulis.nota-dinas.button-kirim:create",
     "utama.tulis.nota-dinas.button-pilih-template:read",
     "utama.tulis.nota-dinas.button-pratinjau:create",
@@ -5145,6 +5231,7 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "utama.tulis.nota-dinas.button-template-saya:read",
     "utama.tulis.nota-dinas.halaman-nota-dinas:read",
     "utama.tulis.nota-dinas.upload-lampiran:create",
+    "utama.tulis.surat-dinas-internal.button-generate-ai:generate-ai",
     "utama.tulis.surat-dinas-internal.button-kirim:create",
     "utama.tulis.surat-dinas-internal.button-pilih-template:read",
     "utama.tulis.surat-dinas-internal.button-pratinjau:read",
@@ -5193,6 +5280,7 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "utama.tertunda.halaman-tertunda:read",
     "utama.tulis.disposisi.button-pratinjau:read",
     "utama.tulis.disposisi.halaman-disposisi:read",
+    "utama.tulis.kajian.button-generate-ai:generate-ai",
     "utama.tulis.kajian.button-pilih-template:read",
     "utama.tulis.kajian.button-pratinjau:read",
     "utama.tulis.kajian.button-simpan-template-saya:create",
@@ -5202,16 +5290,19 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     "utama.tulis.naskah-lainnya.button-pratinjau:read",
     "utama.tulis.naskah-lainnya.button-simpan-draft:create",
     "utama.tulis.naskah-lainnya.halaman-naskah-lainnya:read",
+    "utama.tulis.nota-dinas.button-generate-ai:generate-ai",
     "utama.tulis.nota-dinas.button-pilih-template:read",
     "utama.tulis.nota-dinas.button-pratinjau:read",
     "utama.tulis.nota-dinas.button-simpan-template-saya:create",
     "utama.tulis.nota-dinas.button-template-saya:read",
     "utama.tulis.nota-dinas.halaman-nota-dinas:read",
+    "utama.tulis.surat-dinas-eksternal.button-generate-ai:generate-ai",
     "utama.tulis.surat-dinas-eksternal.button-pilih-template:read",
     "utama.tulis.surat-dinas-eksternal.button-pratinjau:read",
     "utama.tulis.surat-dinas-eksternal.button-simpan-template-saya:create",
     "utama.tulis.surat-dinas-eksternal.button-template-saya:read",
     "utama.tulis.surat-dinas-eksternal.halaman-surat-dinas-eksternal:read",
+    "utama.tulis.surat-dinas-internal.button-generate-ai:generate-ai",
     "utama.tulis.surat-dinas-internal.button-pilih-template:read",
     "utama.tulis.surat-dinas-internal.button-pratinjau:read",
     "utama.tulis.surat-dinas-internal.button-simpan-template-saya:create",
