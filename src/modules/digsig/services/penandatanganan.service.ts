@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DigsigDocumentEntity } from '../entities/digsig-document.entity';
 import { DigsigDocumentSignerEntity } from '../entities/digsig-document-signer.entity';
+import { computeEffectivePersnum } from '../../../common/helpers/delegasi-rendering.helper';
 import { DigsigService } from './digsig.service';
 import { DigsigLogService } from './digsig-log.service';
 import { StorageService } from '../../storage/services/storage.service';
@@ -232,7 +233,7 @@ export class PenandatangananService {
     dto: SignWithPassphraseDto,
     user: JwtPayload,
   ): Promise<SigningResultDto> {
-    const persnum = user.persnum;
+    const persnum = computeEffectivePersnum(user);
     const userName = user.nama;
     
     // Validasi NIK dari JWT payload
