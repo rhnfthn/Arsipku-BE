@@ -55,6 +55,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -77,6 +78,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -90,6 +92,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-upload', description: 'Upload Lampiran' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -98,10 +101,14 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'read-page', description: 'Melihat halaman Kajian' },
       { action: 'read-template', description: 'Button Pilih Template Kajian' },
-      { action: 'read-template-saya', description: 'Button Template Saya Kajian' },
+      {
+        action: 'read-template-saya',
+        description: 'Button Template Saya Kajian',
+      },
       { action: 'create-preview', description: 'Button Pratinjau' },
       { action: 'create-draft', description: 'Button Draft' },
       { action: 'create-send', description: 'Button Kirim' },
+      { action: 'generate-ai', description: 'Button Generate AI Draft' },
     ],
   },
   {
@@ -123,11 +130,17 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'read-detail', description: 'Melihat detail Kotak Masuk' },
       { action: 'read-unduh', description: 'Unduh lampiran Kotak Masuk' },
       { action: 'read-lanjut-nd', description: 'Lanjutkan sebagai Nota Dinas' },
-      { action: 'read-lanjut-disposisi', description: 'Lanjutkan sebagai Disposisi' },
+      {
+        action: 'read-lanjut-disposisi',
+        description: 'Lanjutkan sebagai Disposisi',
+      },
       { action: 'read-lanjut-sdi', description: 'Lanjutkan sebagai SDI' },
       { action: 'read-lanjut-sde', description: 'Lanjutkan sebagai SDE' },
       { action: 'read-lanjut-kajian', description: 'Lanjutkan sebagai Kajian' },
-      { action: 'read-lanjut-nl', description: 'Lanjutkan sebagai Naskah Lainnya' },
+      {
+        action: 'read-lanjut-nl',
+        description: 'Lanjutkan sebagai Naskah Lainnya',
+      },
       { action: 'create-balas', description: 'Button Balas Surat' },
       { action: 'create-teruskan', description: 'Button Teruskan' },
       { action: 'update-arsip', description: 'Button Arsipkan' },
@@ -138,7 +151,10 @@ const resourcesWithPermissions: ResourceDef[] = [
     description: 'Halaman Surat Terkirim — daftar & detail',
     permissions: [
       { action: 'read-page', description: 'Melihat daftar Surat Terkirim' },
-      { action: 'read-filter', description: 'Pencarian & filter Surat Terkirim' },
+      {
+        action: 'read-filter',
+        description: 'Pencarian & filter Surat Terkirim',
+      },
       { action: 'read-detail', description: 'Melihat detail Surat Terkirim' },
       { action: 'read-unduh', description: 'Unduh lampiran Surat Terkirim' },
       { action: 'create-email', description: 'Kirim ulang via email' },
@@ -179,7 +195,8 @@ const resourcesWithPermissions: ResourceDef[] = [
   },
   {
     name: 'penomoran',
-    description: 'Permintaan & verifikasi penomoran naskah dinas (Usulan, Persetujuan, Verifikasi, Penomoran)',
+    description:
+      'Permintaan & verifikasi penomoran naskah dinas (Usulan, Persetujuan, Verifikasi, Penomoran)',
     permissions: [
       { action: 'read-usulan', description: 'Melihat daftar Usulan' },
       { action: 'read-persetujuan', description: 'Melihat daftar Persetujuan' },
@@ -189,7 +206,10 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-penomoran', description: 'Button Tambah Penomoran' },
       { action: 'verify', description: 'Approve/Reject usulan di Verifikasi' },
       { action: 'export-usulan', description: 'Button Export Usulan' },
-      { action: 'export-persetujuan', description: 'Button Export Persetujuan' },
+      {
+        action: 'export-persetujuan',
+        description: 'Button Export Persetujuan',
+      },
       { action: 'export-verifikasi', description: 'Button Export Verifikasi' },
       { action: 'export-penomoran', description: 'Button Export Penomoran' },
     ],
@@ -210,8 +230,14 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'request', description: 'Mengajukan akses PYB/Ketua Tim' },
       { action: 'read', description: 'Melihat daftar pengajuan' },
-      { action: 'verify', description: 'Verifikasi pengajuan (2 tingkat di bawah Direksi)' },
-      { action: 'approve', description: 'Approval final (Sub Unit Document Management)' },
+      {
+        action: 'verify',
+        description: 'Verifikasi pengajuan (2 tingkat di bawah Direksi)',
+      },
+      {
+        action: 'approve',
+        description: 'Approval final (Sub Unit Document Management)',
+      },
     ],
   },
   {
@@ -251,8 +277,14 @@ const resourcesWithPermissions: ResourceDef[] = [
     name: 'role',
     description: 'Manajemen role & permission (RBAC admin)',
     permissions: [
-      { action: 'read', description: 'Melihat daftar role / permission / resource / user role' },
-      { action: 'create', description: 'Membuat role baru / Tambah Role ke User' },
+      {
+        action: 'read',
+        description: 'Melihat daftar role / permission / resource / user role',
+      },
+      {
+        action: 'create',
+        description: 'Membuat role baru / Tambah Role ke User',
+      },
       { action: 'update', description: 'Update role / Edit Role' },
       { action: 'delete', description: 'Hapus role' },
       { action: 'assign-permission', description: 'Assign permission ke role' },
@@ -267,7 +299,9 @@ const resourcesWithPermissions: ResourceDef[] = [
   {
     name: 'smart-search',
     description: 'Fitur pencarian naskah dinas',
-    permissions: [{ action: 'search', description: 'Menggunakan fitur smart search' }],
+    permissions: [
+      { action: 'search', description: 'Menggunakan fitur smart search' },
+    ],
   },
   {
     name: 'dashboard',
@@ -279,23 +313,42 @@ const resourcesWithPermissions: ResourceDef[] = [
   },
   {
     name: 'master-data',
-    description: 'Manajemen master data (jenis, klasifikasi, perusahaan, organization, area, person, tertuju eksternal, template, grup penerima)',
+    description:
+      'Manajemen master data (jenis, klasifikasi, perusahaan, organization, area, person, tertuju eksternal, template, grup penerima)',
     permissions: [
       { action: 'read-tertuju', description: 'Halaman Tertuju' },
-      { action: 'create-tertuju', description: 'Button Tambah Tertuju Eksternal' },
-      { action: 'update-tertuju', description: 'Button Edit Tertuju Eksternal' },
+      {
+        action: 'create-tertuju',
+        description: 'Button Tambah Tertuju Eksternal',
+      },
+      {
+        action: 'update-tertuju',
+        description: 'Button Edit Tertuju Eksternal',
+      },
       { action: 'delete-tertuju', description: 'Button Hapus Data Tertuju' },
       { action: 'export-tertuju', description: 'Button Export Tertuju' },
       { action: 'read-perusahaan', description: 'Halaman Perusahaan' },
       { action: 'create-perusahaan', description: 'Button Tambah Perusahaan' },
       { action: 'update-perusahaan', description: 'Button Edit Perusahaan' },
       { action: 'delete-perusahaan', description: 'Button Delete Perusahaan' },
-      { action: 'read-perusahaan-area', description: 'Button Action Area Perusahaan' },
+      {
+        action: 'read-perusahaan-area',
+        description: 'Button Action Area Perusahaan',
+      },
       { action: 'read-klasifikasi', description: 'Halaman Klasifikasi' },
-      { action: 'create-klasifikasi', description: 'Button Tambah Klasifikasi' },
+      {
+        action: 'create-klasifikasi',
+        description: 'Button Tambah Klasifikasi',
+      },
       { action: 'update-klasifikasi', description: 'Button Edit Klasifikasi' },
-      { action: 'delete-klasifikasi', description: 'Button Delete Klasifikasi' },
-      { action: 'export-klasifikasi', description: 'Button Export Klasifikasi' },
+      {
+        action: 'delete-klasifikasi',
+        description: 'Button Delete Klasifikasi',
+      },
+      {
+        action: 'export-klasifikasi',
+        description: 'Button Export Klasifikasi',
+      },
       { action: 'read-jenis', description: 'Halaman Jenis' },
       { action: 'create-jenis', description: 'Button Tambah Jenis' },
       { action: 'update-jenis', description: 'Button Edit Jenis' },
@@ -303,33 +356,56 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'export-jenis', description: 'Button Export Jenis' },
       { action: 'read-jenis-detail', description: 'Button Detail Jenis' },
       { action: 'read-grup-penerima', description: 'Halaman Grup Penerima' },
-      { action: 'create-grup-penerima', description: 'Button Tambah Grup Penerima' },
-      { action: 'update-grup-penerima', description: 'Button Edit Grup Penerima' },
-      { action: 'delete-grup-penerima', description: 'Button Delete Grup Penerima' },
+      {
+        action: 'create-grup-penerima',
+        description: 'Button Tambah Grup Penerima',
+      },
+      {
+        action: 'update-grup-penerima',
+        description: 'Button Edit Grup Penerima',
+      },
+      {
+        action: 'delete-grup-penerima',
+        description: 'Button Delete Grup Penerima',
+      },
       { action: 'read-template', description: 'Halaman Template' },
       { action: 'create-template', description: 'Button Tambah Template' },
       { action: 'update-template', description: 'Button Edit Template' },
       { action: 'delete-template', description: 'Button Delete Template' },
-      { action: 'read-download-template', description: 'Button Download Template' },
+      {
+        action: 'read-download-template',
+        description: 'Button Download Template',
+      },
     ],
   },
   {
     name: 'laporan',
-    description: 'Laporan Rekap Naskah, Detail Naskah, Naskah Masuk, Surat, SLA',
+    description:
+      'Laporan Rekap Naskah, Detail Naskah, Naskah Masuk, Surat, SLA',
     permissions: [
       { action: 'read', description: 'Melihat halaman Laporan' },
       { action: 'export', description: 'Button Cetak/Export Laporan' },
       { action: 'read-rekap-naskah', description: 'Halaman Rekap Naskah' },
-      { action: 'export-rekap-naskah', description: 'Button Export Rekap Naskah' },
+      {
+        action: 'export-rekap-naskah',
+        description: 'Button Export Rekap Naskah',
+      },
       { action: 'read-detail-naskah', description: 'Halaman Detail Naskah' },
-      { action: 'export-detail-naskah', description: 'Button Export Detail Naskah' },
+      {
+        action: 'export-detail-naskah',
+        description: 'Button Export Detail Naskah',
+      },
       { action: 'read-naskah-masuk', description: 'Halaman Naskah Masuk' },
-      { action: 'export-naskah-masuk', description: 'Button Export Naskah Masuk' },
+      {
+        action: 'export-naskah-masuk',
+        description: 'Button Export Naskah Masuk',
+      },
     ],
   },
   {
     name: 'konfigurasi',
-    description: 'Konfigurasi sistem (announcement banner, digsig config, bsre alert)',
+    description:
+      'Konfigurasi sistem (announcement banner, digsig config, bsre alert)',
     permissions: [
       { action: 'read', description: 'Melihat konfigurasi' },
       { action: 'update', description: 'Update konfigurasi' },
@@ -359,28 +435,59 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'create', description: 'Button Tambah Naskah Masuk' },
       { action: 'read-verifikasi', description: 'Halaman Verifikasi Naskah' },
-      { action: 'read-verifikasi-detail', description: 'Button Show Detail Naskah' },
+      {
+        action: 'read-verifikasi-detail',
+        description: 'Button Show Detail Naskah',
+      },
       { action: 'update-verifikasi', description: 'Button Action Edit Naskah' },
       { action: 'export', description: 'Button Export Naskah Masuk' },
     ],
   },
   {
     name: 'digsig',
-    description: 'TTD Digital — Verifikasi Dokumen, Penandatanganan, Cek Dokumen, Log Disdig',
+    description:
+      'TTD Digital — Verifikasi Dokumen, Penandatanganan, Cek Dokumen, Log Disdig',
     permissions: [
-      { action: 'read-verifikasi-dokumen', description: 'Halaman Verifikasi Dokumen' },
-      { action: 'read-verifikasi-dokumen-detail', description: 'Button Show Detail Dokumen' },
-      { action: 'read-verifikasi-dokumen-lihat', description: 'Button Lihat Dokumen (Verifikasi)' },
-      { action: 'create-verifikasi-dokumen', description: 'Button Tambah Dokumen' },
-      { action: 'update-verifikasi-dokumen', description: 'Button Edit Dokumen' },
-      { action: 'read-penandatanganan', description: 'Halaman Penandatanganan' },
-      { action: 'read-penandatanganan-lihat', description: 'Button Lihat Dokumen (Penandatanganan)' },
-      { action: 'read-penandatanganan-detail', description: 'Button Show Detail Dokumen (Penandatanganan)' },
+      {
+        action: 'read-verifikasi-dokumen',
+        description: 'Halaman Verifikasi Dokumen',
+      },
+      {
+        action: 'read-verifikasi-dokumen-detail',
+        description: 'Button Show Detail Dokumen',
+      },
+      {
+        action: 'read-verifikasi-dokumen-lihat',
+        description: 'Button Lihat Dokumen (Verifikasi)',
+      },
+      {
+        action: 'create-verifikasi-dokumen',
+        description: 'Button Tambah Dokumen',
+      },
+      {
+        action: 'update-verifikasi-dokumen',
+        description: 'Button Edit Dokumen',
+      },
+      {
+        action: 'read-penandatanganan',
+        description: 'Halaman Penandatanganan',
+      },
+      {
+        action: 'read-penandatanganan-lihat',
+        description: 'Button Lihat Dokumen (Penandatanganan)',
+      },
+      {
+        action: 'read-penandatanganan-detail',
+        description: 'Button Show Detail Dokumen (Penandatanganan)',
+      },
       { action: 'create-penandatanganan-ttd', description: 'Button TTD' },
       { action: 'create-penandatanganan-tolak', description: 'Button Tolak' },
       { action: 'read-cek-dokumen', description: 'Halaman Cek Dokumen' },
       { action: 'read-log-disdig', description: 'Halaman Log Disdig' },
-      { action: 'create-log-disdig-alert', description: 'Button aktifkan alert gangguan' },
+      {
+        action: 'create-log-disdig-alert',
+        description: 'Button aktifkan alert gangguan',
+      },
     ],
   },
   {
@@ -460,7 +567,8 @@ const rolePermissionAssignments: Record<string, string[]> = {
 const roleDescriptions: Record<RoleName, string> = {
   [RoleName.SUPERADMIN]: 'Akses penuh seluruh aspek sistem + manajemen RBAC',
   [RoleName.ADMIN]: 'Operasional: Admin TU, User Managerial',
-  [RoleName.USER]: 'User biasa: penciptaan naskah, viewing arsip, pengajuan penomoran',
+  [RoleName.USER]:
+    'User biasa: penciptaan naskah, viewing arsip, pengajuan penomoran',
 };
 
 // ============================================================
@@ -476,7 +584,13 @@ function buildDataSource(): DataSource {
     username: env.DB_USER || 'root',
     password: env.DB_PASS || '',
     database: env.DB_NAME || 'arsipku',
-    entities: [RoleEntity, ResourceEntity, PermissionEntity, RolePermissionEntity, RbacUserRoleEntity],
+    entities: [
+      RoleEntity,
+      ResourceEntity,
+      PermissionEntity,
+      RolePermissionEntity,
+      RbacUserRoleEntity,
+    ],
     synchronize: false,
     timezone: '+07:00',
   });
@@ -544,7 +658,9 @@ async function main() {
       permIdByName.set(permName, perm.id);
     }
   }
-  console.log(`✅ ${resourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`);
+  console.log(
+    `✅ ${resourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`,
+  );
 
   // 2b. Upsert Utama matrix resources (utama.beranda, utama.tulis.nota-dinas, etc.)
   //     These are used by the RBAC matrix editor UI and frontend useFeatureAccess.ts
@@ -581,10 +697,14 @@ async function main() {
       permIdByName.set(permName, perm.id);
     }
   }
-  console.log(`✅ ${utamaResources.length} Utama matrix resources added (total permissions: ${permIdByName.size})`);
+  console.log(
+    `✅ ${utamaResources.length} Utama matrix resources added (total permissions: ${permIdByName.size})`,
+  );
 
   // 3. Assign permissions to roles (replace per role)
-  for (const [roleName, permNames] of Object.entries(rolePermissionAssignments)) {
+  for (const [roleName, permNames] of Object.entries(
+    rolePermissionAssignments,
+  )) {
     const role = roles[roleName];
     if (!role) continue;
     await rpRepo.delete({ roleId: role.id });
@@ -601,7 +721,13 @@ async function main() {
 
   // 4. Cleanup legacy resources & permissions yang sudah tidak dipakai
   //    (resource 'helpdesk' & 'sekretaris' sudah diganti/dihapus dari seeder).
-  const legacyResourceNames = ['helpdesk', 'sekretaris', 'arsip-inaktif', 'pemusnahan', 'surat-keluar-eksternal'];
+  const legacyResourceNames = [
+    'helpdesk',
+    'sekretaris',
+    'arsip-inaktif',
+    'pemusnahan',
+    'surat-keluar-eksternal',
+  ];
   // Permission lama yang sudah dihapus dari seeder (fitur tidak ada)
   const legacyPermissionNames = [
     'arsip-aktif.borrow',
@@ -632,16 +758,22 @@ async function main() {
     console.log(`🧹 Legacy permission '${permName}' removed`);
   }
   for (const legacyName of legacyResourceNames) {
-    const legacyResource = await resourceRepo.findOne({ where: { name: legacyName } });
+    const legacyResource = await resourceRepo.findOne({
+      where: { name: legacyName },
+    });
     if (!legacyResource) continue;
     // Hapus semua role_permission yang menunjuk ke permission dari resource ini
-    const legacyPerms = await permRepo.find({ where: { resourceId: legacyResource.id } });
+    const legacyPerms = await permRepo.find({
+      where: { resourceId: legacyResource.id },
+    });
     for (const lp of legacyPerms) {
       await rpRepo.delete({ permissionId: lp.id });
       await permRepo.delete(lp.id);
     }
     await resourceRepo.delete(legacyResource.id);
-    console.log(`🧹 Legacy resource '${legacyName}' + ${legacyPerms.length} permissions removed`);
+    console.log(
+      `🧹 Legacy resource '${legacyName}' + ${legacyPerms.length} permissions removed`,
+    );
   }
 
   await dataSource.destroy();
