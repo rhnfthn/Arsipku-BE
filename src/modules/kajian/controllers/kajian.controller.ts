@@ -136,9 +136,12 @@ export class KajianController {
   async saveDraft(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.kajianService.parseFormDataToDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.kajianService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -192,6 +195,8 @@ export class KajianController {
       console.log('[KA Controller] Extracted persnum:', persnum);
 
       const dto = await this.kajianService.parseFormDataToDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
 
       return await this.kajianService.sendMessage(dto, persnum);
@@ -227,9 +232,12 @@ export class KajianController {
     @Param('id') id: string,
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.kajianService.parseFormDataToUpdateDraftDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.kajianService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -283,6 +291,8 @@ export class KajianController {
       console.log('[KA Controller] Extracted persnum:', persnum);
 
       const dto = await this.kajianService.parseFormDataToFinalizeDraftDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
 
       return await this.kajianService.finalizeDraft(id, dto, persnum);

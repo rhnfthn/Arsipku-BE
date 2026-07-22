@@ -25,6 +25,15 @@ import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
  * 3. Saat forward, ref_nomor otomatis dari naskah yang diterima User B
  */
 export class ForwardDisposisiDto {
+  // Actor delegasi context — di-set controller dari @CurrentUser (Spec B-2b).
+  @IsOptional()
+  @IsString()
+  actor_position_status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actor_nama?: string;
+
   // ID Naskah Disposisi yang diterima (WAJIB)
   // Ini adalah id_naskah dari disposisi yang diterima user sebelumnya
   @IsNotEmpty({ message: 'ID Naskah yang diterima harus diisi' })
