@@ -13,8 +13,19 @@ import { AiRequestLog } from './entities/ai-request-log.entity';
 import { UserAiConfig } from './entities/user-ai-config.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AiRequestLog, UserAiConfig]), HttpModule, ConfigModule, RbacModule],
+  imports: [
+    TypeOrmModule.forFeature([AiRequestLog, UserAiConfig]),
+    HttpModule,
+    ConfigModule,
+    RbacModule,
+  ],
   controllers: [AiController],
-  providers: [AiService, OllamaService, AiLogService, UserAiConfigService, AiRateLimitGuard],
+  providers: [
+    AiService,
+    OllamaService,
+    AiLogService,
+    UserAiConfigService,
+    AiRateLimitGuard,
+  ],
 })
 export class AiModule {}
