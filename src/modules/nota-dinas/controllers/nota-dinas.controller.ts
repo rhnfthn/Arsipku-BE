@@ -253,9 +253,12 @@ export class NotaDinasController {
   async saveDraft(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.notaDinasService.parseFormDataToDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.notaDinasService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -336,7 +339,9 @@ export class NotaDinasController {
     try {
       // Parse form-data to DTO
       const dto = await this.notaDinasService.parseFormDataToDto(body, files);
-      
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
+
       // Extract persnum from JWT user (required for digital signature)
       const persnum = user?.persnum;
       
@@ -414,9 +419,12 @@ export class NotaDinasController {
     @Param('id') id: string,
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.notaDinasService.parseFormDataToUpdateDraftDto(body, files);
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.notaDinasService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -495,7 +503,9 @@ export class NotaDinasController {
 
       // Parse form-data to DTO
       const dto = await this.notaDinasService.parseFormDataToFinalizeDraftDto(body, files);
-      
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
+
       return await this.notaDinasService.finalizeDraft(id, dto, persnum);
     } catch (error) {
       if (error instanceof HttpException) {

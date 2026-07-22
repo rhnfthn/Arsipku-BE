@@ -240,6 +240,10 @@ export class SuratDinasInternalController {
         files,
       );
 
+      // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
+
       // Extract persnum from JWT user (required for digital signature)
       const persnum = user?.persnum;
       
@@ -348,12 +352,16 @@ export class SuratDinasInternalController {
   async saveDraft(
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto = await this.suratDinasInternalService.parseFormDataToDto(
         body,
         files,
       );
+      // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.suratDinasInternalService.saveDraft(dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -401,6 +409,7 @@ export class SuratDinasInternalController {
     @Param('id') id: string,
     @Body() body: any,
     @UploadedFiles() files: { lampiran_files?: Express.Multer.File[] },
+    @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
       const dto =
@@ -408,6 +417,9 @@ export class SuratDinasInternalController {
           body,
           files,
         );
+      // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
       return await this.suratDinasInternalService.updateDraft(id, dto);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -511,6 +523,10 @@ export class SuratDinasInternalController {
           body,
           files,
         );
+
+      // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
+      dto.actor_position_status = user?.position_status ?? null;
+      dto.actor_nama = user?.nama ?? '';
 
       // Get persnum from JWT for digital signature
       const persnum = user?.persnum;

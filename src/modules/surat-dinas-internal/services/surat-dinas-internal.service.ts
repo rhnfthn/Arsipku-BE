@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../../shared/entities/naskah_referensi.entity';
@@ -1088,7 +1089,14 @@ export class SuratDinasInternalService {
     isDraft: boolean = false,
     urutan: number = 0,
     grupPenerimaId?: string,
+    actorUser?: { position_status?: string | null; nama?: string } | null,
   ): NaskahSirkulasi {
+    // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
+    const _pf = delegatedPengirimFields(
+      actorUser ?? { position_status: null, nama: '' },
+      pos.position_text ?? '',
+      (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+    );
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
@@ -1102,13 +1110,12 @@ export class SuratDinasInternalService {
       organization: String(pos.organization_id),
       organizationText: pos.organization_text,
       position: String(pos.position),
-      positionText: pos.position_text,
-      positionStatus: 'ybs',
-      // Ensure idSirkuler and namaSirkuler are always populated.
-      // Prefer persnum_person/persnum_person_text, then persnum/nama, then fallback to position/position_text
-      // Use persnum_person if available (employee in the position), otherwise fall back to persnum or position
+      positionText: _pf.positionText,
+      // naskah_sirkulasi.positionStatus is a lowercase enum ('ybs'|'pt'|...);
+      // the helper returns the canonical uppercase PositionStatus — lowercase here.
+      positionStatus: _pf.positionStatus.toLowerCase() as any,
       idSirkuler: String((pos as any).persnum_person ?? pos.persnum ?? pos.position ?? ''),
-      namaSirkuler: (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+      namaSirkuler: _pf.namaSirkuler,
       isDraft: isDraft,
       urutan: urutan,
       idGrupPenerima: grupPenerimaId || null,
@@ -1598,7 +1605,7 @@ export class SuratDinasInternalService {
       }
 
       // PHASE 8: Insert sirkulasi - pengirim
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0);
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isDraft, 0, undefined, dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       // PHASE 9: Insert sirkulasi - penerima with urutan
@@ -1991,7 +1998,7 @@ export class SuratDinasInternalService {
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
       const isPending = status === 'pending';
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0);
+      const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirim, isPending, 0, undefined, dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined);
       await queryRunner.manager.save(pengirimSirkulasi);
 
       const penerimaResponses: SirkulasiInfoDto[] = [];
@@ -2630,7 +2637,7 @@ export class SuratDinasInternalService {
         // Re-insert pengirim (isDraft stays true for pending/TTD basah)
         const isPending = newStatus === 'pending';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, isPending, 0);
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', fullPengirimPosition, isPending, 0, undefined, dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined);
           await queryRunner.manager.save(pengirimSirkulasi);
         }
 
@@ -3187,7 +3194,7 @@ export class SuratDinasInternalService {
 
         // Re-insert pengirim with is_draft = true
         if (pengirimPosition) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, true, 0);
+          const pengirimSirkulasi = this.createSirkulasiFromOrgData(naskahId, 'pengirim', pengirimPosition, true, 0, undefined, dto.actor_position_status ? { position_status: dto.actor_position_status, nama: dto.actor_nama } : undefined);
           await queryRunner.manager.save(pengirimSirkulasi);
         }
 
