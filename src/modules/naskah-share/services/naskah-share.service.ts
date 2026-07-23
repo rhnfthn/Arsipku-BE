@@ -23,6 +23,7 @@ import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { Person } from '../../master-data/person/entities/person.entity';
 import { NotificationService } from '../../notification/services/notification.service';
 import { NotificationType } from '../../notification/entities/notification.entity';
+import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
@@ -44,6 +45,7 @@ export class NaskahShareService {
     private readonly personRepo: Repository<Person>,
     private readonly orgDataService: OrgDataService,
     private readonly notificationService: NotificationService,
+    private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -514,6 +516,16 @@ export class NaskahShareService {
       this.logger.warn(`⚠️ Failed to send open notification to pemberi: ${err?.message}`);
     }
 
+    // Resolve PDF URL from storage
+    let pdfUrl: string | null = null;
+    if (naskah?.final_pdf) {
+      try {
+        pdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+      } catch (err: any) {
+        this.logger.warn(`⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`);
+      }
+    }
+
     return {
       success: true,
       message: 'Naskah berhasil dibuka',
@@ -528,7 +540,7 @@ export class NaskahShareService {
           positionText: share.pemberiPositionText,
         },
         sharedAt: share.createdAt,
-        viewerUrl: `/korespondensi/kotak-masuk/${share.naskahId}`,
+        pdfUrl,
       },
     };
   }
