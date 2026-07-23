@@ -9,6 +9,7 @@ import { RolePermissionEntity } from '../entities/role-permission.entity';
 import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
 import { utamaResources } from './utama-matrix';
 import { utilitasResources } from './utilitas-matrix';
+import { shareResources } from './share-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -384,6 +385,7 @@ async function main() {
   const allResources = [
     ...utamaResources,
     ...utilitasResources,
+    ...shareResources,
     ...rbacManagementResources,
   ];
 
