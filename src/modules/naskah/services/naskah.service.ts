@@ -519,15 +519,30 @@ export class NaskahService {
    */
   async getDetailWithChain(naskahId: string, userPosition: string): Promise<any> {
     // Fetch user's sirkulasi record once — reuse for access check & flag extraction
-    const userSirkulasi = await this.naskahSirkulasiRepository.findOne({
+    let userSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: {
         idNaskah: naskahId,
         position: String(userPosition),
       },
     });
 
+    // Jika tidak ada sirkulasi, cek apakah user adalah penerima share
     if (!userSirkulasi) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+      const [shareRows] = await this.dataSource.query(
+        `SELECT nsr.id, nsr.status, nsr.opened_at
+         FROM naskah_share_recipient nsr
+         JOIN naskah_share ns ON ns.id = nsr.share_id
+         WHERE ns.naskah_id = ? AND nsr.recipient_id = ? AND ns.status = 'AKTIF'
+         LIMIT 1`,
+        [naskahId, String(userPosition)],
+      );
+
+      if (!shareRows || shareRows.length === 0) {
+        throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+      }
+
+      // Shared users can view but don't have full sirkulasi flags
+      userSirkulasi = null as NaskahSirkulasi | null;
     }
 
     // Get naskah data
@@ -936,15 +951,17 @@ export class NaskahService {
       success: true,
       message: 'Berhasil mengambil detail naskah dengan rangkaian lengkap',
       data: flow,
-      user_sirkulasi: {
-        id_sirkulasi: userSirkulasi.id,
-        is_favorit: !!userSirkulasi.flagFavorit,
-        is_arsip: !!userSirkulasi.flagArsip,
-        is_note: !!userSirkulasi.flagNote,
-        note_text: userSirkulasi.noteText || null,
-        is_tindak_lanjut: !!userSirkulasi.tindakLanjut,
-        is_locked: !!userSirkulasi.isLocked,
-      },
+      user_sirkulasi: userSirkulasi
+        ? {
+            id_sirkulasi: userSirkulasi.id,
+            is_favorit: !!userSirkulasi.flagFavorit,
+            is_arsip: !!userSirkulasi.flagArsip,
+            is_note: !!userSirkulasi.flagNote,
+            note_text: userSirkulasi.noteText || null,
+            is_tindak_lanjut: !!userSirkulasi.tindakLanjut,
+            is_locked: !!userSirkulasi.isLocked,
+          }
+        : null,
     };
   }
 
@@ -961,7 +978,18 @@ export class NaskahService {
     });
 
     if (!access) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+      // Cek juga apakah user adalah penerima share
+      const [shareRows] = await this.dataSource.query(
+        `SELECT 1 FROM naskah_share_recipient nsr
+         JOIN naskah_share ns ON ns.id = nsr.share_id
+         WHERE ns.naskah_id = ? AND nsr.recipient_id = ? AND ns.status = 'AKTIF'
+         LIMIT 1`,
+        [naskahId, String(userPosition)],
+      );
+
+      if (!shareRows || shareRows.length === 0) {
+        throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+      }
     }
   }
 }
