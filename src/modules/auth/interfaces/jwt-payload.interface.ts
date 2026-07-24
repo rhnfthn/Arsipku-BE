@@ -54,11 +54,11 @@ export interface JwtPayload {
     isChief: boolean;
     bodTag: string | null;
   } | null;
-  
+
   // Personal data from HR API (fetched during login)
-  nik?: string;  // NIK/KTP 16 digit untuk BSrE
+  nik?: string; // NIK/KTP 16 digit untuk BSrE
   noWa?: string; // Nomor WhatsApp dengan prefix +62
-  
+
   // Standard JWT fields
   iat?: number;
   exp?: number;

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -22,12 +26,18 @@ export class TemplateService {
    * 1. Multipart form-data (file parameter)
    * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
    */
-  async create(dto: CreateTemplateDto, file?: Express.Multer.File): Promise<TemplateEntity> {
+  async create(
+    dto: CreateTemplateDto,
+    file?: Express.Multer.File,
+  ): Promise<TemplateEntity> {
     let fileKey: string | null = null;
 
     if (file) {
       // Upload via multipart form-data
-      const uploadResult = await this.storageService.uploadFile(file, 'templates');
+      const uploadResult = await this.storageService.uploadFile(
+        file,
+        'templates',
+      );
       fileKey = uploadResult.key;
     } else if (dto.file_base64 && dto.file_name) {
       // Upload via JSON dengan base64
@@ -61,7 +71,10 @@ export class TemplateService {
       try {
         fileUrl = await this.storageService.getFileUrl(entity.file);
       } catch (error) {
-        console.warn(`Failed to get signed URL for ${entity.file}:`, error.message);
+        console.warn(
+          `Failed to get signed URL for ${entity.file}:`,
+          error.message,
+        );
       }
     }
 
@@ -101,13 +114,20 @@ export class TemplateService {
    * 1. Multipart form-data (file parameter)
    * 2. Raw JSON dengan base64 (dto.file_base64, dto.file_name, dto.file_mimetype)
    */
-  async update(id: string, dto: UpdateTemplateDto, file?: Express.Multer.File): Promise<TemplateEntity> {
+  async update(
+    id: string,
+    dto: UpdateTemplateDto,
+    file?: Express.Multer.File,
+  ): Promise<TemplateEntity> {
     const t = await this.findOne(id);
     const oldFileKey = t.file;
 
     // Jika ada file upload baru via multipart
     if (file) {
-      const uploadResult = await this.storageService.uploadFile(file, 'templates');
+      const uploadResult = await this.storageService.uploadFile(
+        file,
+        'templates',
+      );
       t.file = uploadResult.key;
 
       // Hapus file lama dari storage
@@ -115,7 +135,10 @@ export class TemplateService {
         try {
           await this.storageService.deleteFile(oldFileKey);
         } catch (error) {
-          console.warn(`Failed to delete old file ${oldFileKey}:`, error.message);
+          console.warn(
+            `Failed to delete old file ${oldFileKey}:`,
+            error.message,
+          );
         }
       }
     } else if (dto.file_base64 && dto.file_name) {
@@ -135,7 +158,10 @@ export class TemplateService {
         try {
           await this.storageService.deleteFile(oldFileKey);
         } catch (error) {
-          console.warn(`Failed to delete old file ${oldFileKey}:`, error.message);
+          console.warn(
+            `Failed to delete old file ${oldFileKey}:`,
+            error.message,
+          );
         }
       }
     }
@@ -153,7 +179,7 @@ export class TemplateService {
    */
   async remove(id: string): Promise<void> {
     const t = await this.findOne(id);
-    
+
     // Hapus file dari storage
     if (t.file) {
       try {

@@ -27,6 +27,10 @@ export class NaskahLampiranEntity {
   @Column({ type: 'char', length: 36, nullable: true })
   temp_folder_id: string | null;
 
-  @Column({ type: 'timestamp', nullable: true, default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   created_at: Date;
 }

@@ -74,21 +74,38 @@ export class GlobalSearchService {
     } = dto;
 
     // Check if we need to join with sirkulasi table (for from/to/area filters)
-    const needsSirkulasiJoin = !!(from || to || areaFrom || subAreaFrom || organizationFrom);
+    const needsSirkulasiJoin = !!(
+      from ||
+      to ||
+      areaFrom ||
+      subAreaFrom ||
+      organizationFrom
+    );
 
     // Build query
     const queryBuilder = this.naskahRepository.createQueryBuilder('naskah');
-    
+
     // Only join sirkulasi if needed for filtering (from/to/area)
     if (needsSirkulasiJoin) {
-      queryBuilder.leftJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.id_naskah = naskah.id');
+      queryBuilder.leftJoin(
+        'naskah_sirkulasi',
+        'sirkulasi',
+        'sirkulasi.id_naskah = naskah.id',
+      );
     }
 
     // Track applied filters
     const appliedFilters: string[] = [];
 
     // Debug: log scope value
-    console.log('[SEARCH] scope:', scope, 'userPosition:', userPosition, 'userPersnum:', userPersnum);
+    console.log(
+      '[SEARCH] scope:',
+      scope,
+      'userPosition:',
+      userPosition,
+      'userPersnum:',
+      userPersnum,
+    );
 
     // === FILTER DEFAULT: HANYA NASKAH YANG USER TERLIBAT ===
     // User hanya bisa melihat naskah dimana dia sebagai pengirim, penerima, atau tembusan
@@ -97,7 +114,9 @@ export class GlobalSearchService {
     // Inbox filter: is_draft=0 AND is_konsep=0 AND status IN ('final', 'final_tte')
     // Search filter: include all sirkulasi roles but exclude draft/konsep entries
     if (!scope || scope === 'all') {
-      console.log('[SEARCH] Using default filter (all user naskah by position, exclude draft/konsep)');
+      console.log(
+        '[SEARCH] Using default filter (all user naskah by position, exclude draft/konsep)',
+      );
       queryBuilder.andWhere(
         `EXISTS (
           SELECT 1 FROM naskah_sirkulasi ns_user 
@@ -112,7 +131,9 @@ export class GlobalSearchService {
       queryBuilder.andWhere('naskah.status IN (:...finalStatuses)', {
         finalStatuses: ['final', 'final_tte'],
       });
-      appliedFilters.push('filter: semua naskah user (final only, exclude draft/konsep)');
+      appliedFilters.push(
+        'filter: semua naskah user (final only, exclude draft/konsep)',
+      );
     }
 
     // === KEYWORD SEARCH (global) ===
@@ -121,7 +142,9 @@ export class GlobalSearchService {
         new Brackets((qb) => {
           qb.where('naskah.perihal LIKE :keyword', { keyword: `%${keyword}%` })
             .orWhere('naskah.nomor LIKE :keyword', { keyword: `%${keyword}%` })
-            .orWhere('naskah.klasifikasi LIKE :keyword', { keyword: `%${keyword}%` });
+            .orWhere('naskah.klasifikasi LIKE :keyword', {
+              keyword: `%${keyword}%`,
+            });
         }),
       );
       appliedFilters.push(`keyword: ${keyword}`);
@@ -220,8 +243,12 @@ export class GlobalSearchService {
       queryBuilder.andWhere(
         new Brackets((qb) => {
           qb.where('sirkulasi.nama_sirkuler LIKE :from', { from: `%${from}%` })
-            .orWhere('sirkulasi.position_text LIKE :from', { from: `%${from}%` })
-            .orWhere('sirkulasi.organization_text LIKE :from', { from: `%${from}%` });
+            .orWhere('sirkulasi.position_text LIKE :from', {
+              from: `%${from}%`,
+            })
+            .orWhere('sirkulasi.organization_text LIKE :from', {
+              from: `%${from}%`,
+            });
         }),
       );
       queryBuilder.andWhere('sirkulasi.sirkuler = :sirkulerPengirim', {
@@ -356,9 +383,12 @@ export class GlobalSearchService {
     }
 
     if (organizationFrom) {
-      queryBuilder.andWhere('sirkulasi.organization_text LIKE :organizationFrom', {
-        organizationFrom: `%${organizationFrom}%`,
-      });
+      queryBuilder.andWhere(
+        'sirkulasi.organization_text LIKE :organizationFrom',
+        {
+          organizationFrom: `%${organizationFrom}%`,
+        },
+      );
       appliedFilters.push(`organizationFrom: ${organizationFrom}`);
     }
 
@@ -375,7 +405,7 @@ export class GlobalSearchService {
     // Clone query builder untuk count (tanpa pagination)
     const countQuery = queryBuilder.clone();
     let total: number;
-    
+
     if (needsSirkulasiJoin) {
       // Jika ada JOIN, gunakan COUNT DISTINCT untuk akurasi
       const countResult = await countQuery
@@ -494,7 +524,7 @@ export class GlobalSearchService {
   ): Promise<SearchResultItemDto[]> {
     // Get all naskah IDs
     const naskahIds = results.map((n) => n.id);
-    
+
     if (naskahIds.length === 0) {
       return [];
     }
@@ -517,7 +547,7 @@ export class GlobalSearchService {
 
     return results.map((naskah) => {
       const sirkulasi = sirkulasiByNaskah.get(naskah.id) || [];
-      
+
       // Get pengirim from sirkulasi (sirkuler = 'pengirim')
       const pengirimSirkulasi = sirkulasi.find(
         (s) => s.sirkuler === 'pengirim',
@@ -540,13 +570,15 @@ export class GlobalSearchService {
       const userSirkulasiRecords = sirkulasi.filter(
         (s) => s.position === userPosition,
       );
-      
+
       // Get user's roles (pengirim, penerima, tembusan)
       type RoleType = 'pengirim' | 'penerima' | 'tembusan';
       const validRoles: RoleType[] = ['pengirim', 'penerima', 'tembusan'];
       const userRoles: RoleType[] = userSirkulasiRecords
         .map((s) => s.sirkuler)
-        .filter((role): role is RoleType => validRoles.includes(role as RoleType));
+        .filter((role): role is RoleType =>
+          validRoles.includes(role as RoleType),
+        );
 
       // Get user's main sirkulasi record for flags
       const userMainSirkulasi = userSirkulasiRecords[0];
@@ -567,7 +599,9 @@ export class GlobalSearchService {
       }
 
       // Determine flags from user's sirkulasi record
-      const isRead = userMainSirkulasi?.sendReadTime !== null && userMainSirkulasi?.sendReadTime !== undefined;
+      const isRead =
+        userMainSirkulasi?.sendReadTime !== null &&
+        userMainSirkulasi?.sendReadTime !== undefined;
       const isArchived = userMainSirkulasi?.flagArsip === 1;
       const isFavorite = userMainSirkulasi?.flagFavorit === 1;
 
@@ -655,8 +689,10 @@ export class GlobalSearchService {
     // Search by nama or jabatan (position_text)
     queryBuilder.andWhere(
       new Brackets((qb) => {
-        qb.where('sirkulasi.nama_sirkuler LIKE :q', { q: `%${q}%` })
-          .orWhere('sirkulasi.position_text LIKE :q', { q: `%${q}%` });
+        qb.where('sirkulasi.nama_sirkuler LIKE :q', { q: `%${q}%` }).orWhere(
+          'sirkulasi.position_text LIKE :q',
+          { q: `%${q}%` },
+        );
       }),
     );
 

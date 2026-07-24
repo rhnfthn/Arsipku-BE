@@ -1,4 +1,10 @@
-import { Injectable, UnauthorizedException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -54,9 +60,15 @@ export class AuthService {
         role: ctx.role,
       };
     } catch (e) {
-      console.warn('[AuthService] RBAC context failed, fallback to legacy user_role:', e?.message);
+      console.warn(
+        '[AuthService] RBAC context failed, fallback to legacy user_role:',
+        e?.message,
+      );
       const userRole = await this.userRoleRepo.findOne({ where: { persnum } });
-      const role = (userRole?.role || 'user') as 'user' | 'admin' | 'superadmin';
+      const role = (userRole?.role || 'user') as
+        | 'user'
+        | 'admin'
+        | 'superadmin';
       return { activeRole: null, activePermissions: [], roles: [], role };
     }
   }
@@ -67,10 +79,13 @@ export class AuthService {
    * @param accessToken - AirNav access token untuk authorization
    * @returns NIK 16 digit atau null jika tidak ditemukan
    */
-  private async fetchNikFromHrApi(persnum: number, accessToken: string): Promise<string | null> {
+  private async fetchNikFromHrApi(
+    persnum: number,
+    accessToken: string,
+  ): Promise<string | null> {
     try {
       console.log(`[AuthService] Fetching NIK for persnum: ${persnum}`);
-      
+
       const response = await firstValueFrom(
         this.httpService.get(
           `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${persnum}`,
@@ -83,16 +98,18 @@ export class AuthService {
           },
         ),
       );
-      
+
       const data = response.data?.data ?? [];
       // subType '01' = KTP
       const filterktp = data.find((x: any) => x.subType === '01');
-      
+
       if (filterktp) {
-        console.log(`[AuthService] NIK found: ${filterktp.number.substring(0, 4)}****`);
+        console.log(
+          `[AuthService] NIK found: ${filterktp.number.substring(0, 4)}****`,
+        );
         return filterktp.number;
       }
-      
+
       console.log('[AuthService] NIK not found in HR API');
       return null;
     } catch (error: any) {
@@ -113,10 +130,10 @@ export class AuthService {
     accessToken: string,
   ): Promise<{ nik: string | null; noWa: string | null }> {
     console.log(`[AuthService] Fetching personal data for persnum: ${persnum}`);
-    
+
     // Fetch NIK dari HR API (sama dengan /digsig/ktp)
     const nik = await this.fetchNikFromHrApi(persnum, accessToken);
-    
+
     // noWa tidak di-fetch karena data kosong/tidak tersedia
     // Field tetap ada untuk compatibility
     return { nik, noWa: null };
@@ -151,7 +168,7 @@ export class AuthService {
         {
           username,
           password,
-          redirect_uri: "http://localhost:3000/autharsipku",
+          redirect_uri: 'http://localhost:3000/autharsipku',
         },
         {
           headers: {
@@ -185,7 +202,12 @@ export class AuthService {
     }
 
     // Extract data dari response AirNav
-    const { id, accessToken: access_token, refreshToken: refresh_token, expireToken: expired_token } = airnavResponse;
+    const {
+      id,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      expireToken: expired_token,
+    } = airnavResponse;
     console.log(access_token);
     const persnum = Number(id);
 
@@ -223,8 +245,16 @@ export class AuthService {
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
     // ================================================================
-    const personalData = await this.fetchUserPersonalData(persnum, access_token);
-    console.log('[AuthService] Personal data fetched - NIK:', personalData.nik ? 'found' : 'not found', ', noWa:', personalData.noWa ? 'found' : 'not found');
+    const personalData = await this.fetchUserPersonalData(
+      persnum,
+      access_token,
+    );
+    console.log(
+      '[AuthService] Personal data fetched - NIK:',
+      personalData.nik ? 'found' : 'not found',
+      ', noWa:',
+      personalData.noWa ? 'found' : 'not found',
+    );
 
     // ================================================================
     // 5. Build JWT payload
@@ -232,7 +262,7 @@ export class AuthService {
     const payload: JwtPayload = {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
-      role: role as 'user' | 'admin' | 'superadmin',
+      role: role,
       activeRole: rbacCtx.activeRole ?? undefined,
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
@@ -250,7 +280,7 @@ export class AuthService {
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
       atasan_langsung: orgData.atasan_langsung || null,
-      
+
       // Personal data dari HR API
       nik: personalData.nik || undefined,
       noWa: personalData.noWa || undefined,
@@ -272,7 +302,7 @@ export class AuthService {
     // ================================================================
     const idPosition = orgData.position ? Number(orgData.position) : undefined;
     console.log('[AuthService] Creating session with id_position:', idPosition);
-    
+
     const session = await this.sessionService.createSession(persnum, {
       airnavAccessToken: access_token,
       airnavRefreshToken: refresh_token,
@@ -392,8 +422,16 @@ export class AuthService {
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
     // ================================================================
-    const personalData = await this.fetchUserPersonalData(persnum, ssoResponse.data.access_token);
-    console.log('[AuthService] Personal data fetched - NIK:', personalData.nik ? 'found' : 'not found', ', noWa:', personalData.noWa ? 'found' : 'not found');
+    const personalData = await this.fetchUserPersonalData(
+      persnum,
+      ssoResponse.data.access_token,
+    );
+    console.log(
+      '[AuthService] Personal data fetched - NIK:',
+      personalData.nik ? 'found' : 'not found',
+      ', noWa:',
+      personalData.noWa ? 'found' : 'not found',
+    );
 
     // ================================================================
     // 5. Build JWT payload
@@ -401,7 +439,7 @@ export class AuthService {
     const payload: JwtPayload = {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
-      role: role as 'user' | 'admin' | 'superadmin',
+      role: role,
       activeRole: rbacCtx.activeRole ?? undefined,
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
@@ -419,7 +457,7 @@ export class AuthService {
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
       atasan_langsung: orgData.atasan_langsung || null,
-      
+
       // Personal data dari HR API
       nik: personalData.nik || undefined,
       noWa: personalData.noWa || undefined,
@@ -437,7 +475,11 @@ export class AuthService {
       expiresIn: expiresIn > 0 ? expiresIn : 86400, // fallback 24 jam
     });
 
-    console.log('[AuthService] JWT generated, expires in:', expiresIn, 'seconds');
+    console.log(
+      '[AuthService] JWT generated, expires in:',
+      expiresIn,
+      'seconds',
+    );
 
     // ================================================================
     // 7. Save session
@@ -445,7 +487,7 @@ export class AuthService {
     console.log('[AuthService] Creating session...');
     const idPosition = orgData.position ? Number(orgData.position) : undefined;
     console.log('[AuthService] id_position value:', idPosition);
-    
+
     const session = await this.sessionService.createSession(persnum, {
       airnavAccessToken: ssoResponse.data.access_token,
       airnavRefreshToken: ssoResponse.data.refresh_token,
@@ -484,7 +526,7 @@ export class AuthService {
   }> {
     console.log('[AuthService] ===== Refresh Token Started =====');
     console.log('[AuthService] Session ID:', sessionId);
-    
+
     // Cleanup expired sessions
     await this.sessionService.deleteExpiredSessions();
 
@@ -512,7 +554,10 @@ export class AuthService {
     console.log('[AuthService] Refreshing AirNav token...');
     console.log('[AuthService] Refresh URL:', refreshUrl);
     console.log('[AuthService] Refresh token:', session.airnavRefreshToken);
-    console.log('[AuthService] Access token (first 50 chars):', session.airnavAccessToken?.substring(0, 50));
+    console.log(
+      '[AuthService] Access token (first 50 chars):',
+      session.airnavAccessToken?.substring(0, 50),
+    );
 
     let ssoRefresh: AirNavRefreshResponse;
     try {
@@ -529,10 +574,13 @@ export class AuthService {
 
       const res = await firstValueFrom(req);
       ssoRefresh = res.data;
-      
+
       console.log('[AuthService] AirNav refresh success');
     } catch (err) {
-      console.error('[AuthService] Failed to refresh AirNav token:', err.message);
+      console.error(
+        '[AuthService] Failed to refresh AirNav token:',
+        err.message,
+      );
       throw new UnauthorizedException('Failed to refresh SSO token');
     }
 
@@ -541,7 +589,7 @@ export class AuthService {
     // ================================================================
     console.log('[AuthService] Updating session in database...');
     console.log('[AuthService] New expire time:', ssoRefresh.expireToken);
-    
+
     await this.sessionService.updateSession(sessionId, {
       airnavAccessToken: ssoRefresh.accessToken,
       airnavRefreshToken: ssoRefresh.refreshToken,
@@ -576,7 +624,10 @@ export class AuthService {
     const role = rbacCtx.role || legacyRole;
 
     // Fetch fresh NIK dan noWa dari HR API
-    const personalData = await this.fetchUserPersonalData(payload.persnum, ssoRefresh.accessToken);
+    const personalData = await this.fetchUserPersonalData(
+      payload.persnum,
+      ssoRefresh.accessToken,
+    );
 
     // Preserve delegation context across refresh (spec D5). When the decoded token
     // has an active delegated actor, carry position_status + delegator_persnum +
@@ -590,17 +641,22 @@ export class AuthService {
     let effectiveActivePermissions = rbacCtx.activePermissions;
     if (isDelegated && payload.delegator_persnum) {
       try {
-        const delegatorRbac = await this.buildRbacContext(payload.delegator_persnum);
+        const delegatorRbac = await this.buildRbacContext(
+          payload.delegator_persnum,
+        );
         effectiveActivePermissions = delegatorRbac.activePermissions;
       } catch (e) {
-        console.warn('[AuthService] refreshWithSession: failed to resolve delegator RBAC, keeping delegate perms:', e instanceof Error ? e.message : String(e));
+        console.warn(
+          '[AuthService] refreshWithSession: failed to resolve delegator RBAC, keeping delegate perms:',
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
 
     const newPayload: JwtPayload = isDelegated
       ? {
           ...delegatedCtx, // position_status, delegator_persnum, delegated org scope, persnum, nama, bodTag, abbreviation, atasan_langsung
-          role: role as 'user' | 'admin' | 'superadmin',
+          role: role,
           activeRole: rbacCtx.activeRole ?? undefined,
           activePermissions: effectiveActivePermissions,
           roles: rbacCtx.roles,
@@ -610,7 +666,7 @@ export class AuthService {
       : {
           persnum: orgData.persnum,
           nama: orgData.nama || '',
-          role: role as 'user' | 'admin' | 'superadmin',
+          role: role,
           activeRole: rbacCtx.activeRole ?? undefined,
           activePermissions: rbacCtx.activePermissions,
           roles: rbacCtx.roles,
@@ -669,8 +725,18 @@ export class AuthService {
    */
   private async resolveDelegatorContext(
     delegatorPersnum: string | undefined,
-    base: { activePermissions?: any[]; bodTag?: string; abbreviation?: string; atasan_langsung?: any },
-  ): Promise<{ activePermissions: any[]; bodTag: string; abbreviation: string; atasan_langsung: any }> {
+    base: {
+      activePermissions?: any[];
+      bodTag?: string;
+      abbreviation?: string;
+      atasan_langsung?: any;
+    },
+  ): Promise<{
+    activePermissions: any[];
+    bodTag: string;
+    abbreviation: string;
+    atasan_langsung: any;
+  }> {
     let activePermissions = base.activePermissions ?? [];
     let bodTag = base.bodTag ?? '';
     let abbreviation = base.abbreviation ?? '';
@@ -680,17 +746,25 @@ export class AuthService {
         const rbac = await this.buildRbacContext(Number(delegatorPersnum));
         activePermissions = rbac.activePermissions ?? [];
       } catch (e) {
-        console.warn('[AuthService] resolveDelegatorContext: RBAC failed, keeping delegate:', e instanceof Error ? e.message : String(e));
+        console.warn(
+          '[AuthService] resolveDelegatorContext: RBAC failed, keeping delegate:',
+          e instanceof Error ? e.message : String(e),
+        );
       }
       try {
-        const org = await this.orgDataService.findByPersnum(Number(delegatorPersnum));
+        const org = await this.orgDataService.findByPersnum(
+          Number(delegatorPersnum),
+        );
         if (org) {
           bodTag = org.bodTag || base.bodTag;
           abbreviation = org.abbreviation || base.abbreviation;
           atasan_langsung = org.atasan_langsung ?? base.atasan_langsung;
         }
       } catch (e) {
-        console.warn('[AuthService] resolveDelegatorContext: org_data failed, keeping delegate:', e instanceof Error ? e.message : String(e));
+        console.warn(
+          '[AuthService] resolveDelegatorContext: org_data failed, keeping delegate:',
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
     return { activePermissions, bodTag, abbreviation, atasan_langsung };
@@ -719,14 +793,17 @@ export class AuthService {
   }> {
     // Remove exp and iat from current user payload to avoid conflict with new token
     const { exp, iat, ...basePayload } = currentUser;
-    
+
     let newPayload: Omit<JwtPayload, 'exp' | 'iat'>;
 
     if (delegasi) {
       // Resolve delegator's RBAC permissions so the FE Tulis menu (hasPermission)
       // Resolve delegator's context (activePermissions + bodTag + abbreviation + atasan_langsung)
       // so the FE Tulis menu (bodTag filter) + hasPermission (activePermissions) reflect the delegator.
-      const ctx = await this.resolveDelegatorContext(delegasi.persnum, basePayload);
+      const ctx = await this.resolveDelegatorContext(
+        delegasi.persnum,
+        basePayload,
+      );
 
       // Switch to delegated role
       newPayload = {
@@ -754,8 +831,10 @@ export class AuthService {
       };
     } else {
       // Reset to original role - fetch from org_data
-      const orgData = await this.orgDataService.findByPersnum(basePayload.persnum);
-      
+      const orgData = await this.orgDataService.findByPersnum(
+        basePayload.persnum,
+      );
+
       if (!orgData) {
         throw new UnauthorizedException('User data not found in org_data');
       }
@@ -783,7 +862,7 @@ export class AuthService {
     }
 
     // Generate new JWT with same expiry as current token
-    const expiresIn = exp 
+    const expiresIn = exp
       ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
       : 86400; // default 24 hours
 
@@ -792,8 +871,8 @@ export class AuthService {
     });
 
     return {
-      message: delegasi 
-        ? `Berhasil switch ke role ${delegasi.as_position_text}` 
+      message: delegasi
+        ? `Berhasil switch ke role ${delegasi.as_position_text}`
         : 'Berhasil kembali ke role asli',
       accessToken: newJwt,
       user: newPayload as JwtPayload,
@@ -833,7 +912,7 @@ export class AuthService {
 
     // Remove exp and iat from current user payload to avoid conflict with new token
     const { exp, iat, ...basePayload } = currentUser;
-    
+
     // Build new payload with switched company data
     const newPayload: Omit<JwtPayload, 'exp' | 'iat'> = {
       ...basePayload,
@@ -853,11 +932,14 @@ export class AuthService {
       // Keep original persnum, nama, and role
     };
 
-    console.log('[AuthService] Switching company to:', companySwitchData.companyText);
+    console.log(
+      '[AuthService] Switching company to:',
+      companySwitchData.companyText,
+    );
     console.log('[AuthService] New position:', companySwitchData.positionText);
 
     // Generate new JWT with same expiry as current token
-    const expiresIn = exp 
+    const expiresIn = exp
       ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600) // min 1 hour
       : 86400; // default 24 hours
 

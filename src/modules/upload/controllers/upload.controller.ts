@@ -13,7 +13,10 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { StorageService, UploadResult } from '../../storage/services/storage.service';
+import {
+  StorageService,
+  UploadResult,
+} from '../../storage/services/storage.service';
 import { RequirePermission } from '../../../common/decorators';
 
 @Controller('upload')
@@ -137,7 +140,8 @@ export class UploadController {
     @Param('key') key: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { buffer, contentType } = await this.storageService.getFileWithMetadata(key);
+    const { buffer, contentType } =
+      await this.storageService.getFileWithMetadata(key);
 
     // Extract filename from key
     const filename = key.split('/').pop() || 'download';

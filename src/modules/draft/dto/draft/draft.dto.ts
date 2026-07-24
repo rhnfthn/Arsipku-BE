@@ -16,7 +16,9 @@ import { Type, Transform } from 'class-transformer';
 // ============================================================
 export class GetDraftListQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA', 'K'], { message: 'Jenis harus ND, DI, SDI, SDE, KA, atau K' })
+  @IsEnum(['ND', 'DI', 'SDI', 'SDE', 'KA', 'K'], {
+    message: 'Jenis harus ND, DI, SDI, SDE, KA, atau K',
+  })
   jenis?: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K';
 
   @IsOptional()
@@ -54,11 +56,17 @@ export class GetDraftListQueryDto {
 
   // Date Range Filter
   @IsOptional()
-  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   start_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
-  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   end_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
@@ -68,7 +76,10 @@ export class GetDraftListQueryDto {
     const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
     return normalized;
   })
-  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], {
+    message:
+      'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua',
+  })
   preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
@@ -76,7 +87,9 @@ export class GetDraftListQueryDto {
     if (!value) return value;
     return String(value).toLowerCase().trim();
   })
-  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  @IsEnum(['terbaru', 'terlama'], {
+    message: 'Sort tidak valid. Gunakan: terbaru atau terlama',
+  })
   sort?: 'terbaru' | 'terlama';
 
   @IsOptional()
@@ -191,7 +204,7 @@ export class DraftDetailDataDto {
   perihal?: string;
   konten?: string;
   status: 'draf' | 'pending' | 'final' | 'final_tte';
-  
+
   // Pengirim
   pengirim: {
     position_id: number;
@@ -283,7 +296,10 @@ export class BulkDeleteDraftDto {
 
   @IsNotEmpty({ message: 'Daftar ID naskah harus diisi' })
   @IsArray({ message: 'Daftar ID naskah harus berupa array' })
-  @IsUUID('4', { each: true, message: 'Setiap ID naskah harus berupa UUID valid' })
+  @IsUUID('4', {
+    each: true,
+    message: 'Setiap ID naskah harus berupa UUID valid',
+  })
   naskah_ids: string[];
 }
 

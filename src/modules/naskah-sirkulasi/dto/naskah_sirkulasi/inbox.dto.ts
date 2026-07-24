@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsOptional, IsString, IsEnum, IsNumber, IsBoolean, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsNumber,
+  IsBoolean,
+  IsDateString,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -6,7 +14,9 @@ import { Type, Transform } from 'class-transformer';
  */
 export class InboxQueryDto {
   @IsOptional()
-  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], { message: 'Jenis naskah tidak valid' })
+  @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], {
+    message: 'Jenis naskah tidak valid',
+  })
   jenis?: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K';
 
   @IsOptional()
@@ -19,7 +29,9 @@ export class InboxQueryDto {
   favorite?: boolean;
 
   @IsOptional()
-  @IsEnum(['sudah_tinjut', 'belum_tinjut'], { message: 'Status tindak lanjut tidak valid' })
+  @IsEnum(['sudah_tinjut', 'belum_tinjut'], {
+    message: 'Status tindak lanjut tidak valid',
+  })
   tinjut?: 'sudah_tinjut' | 'belum_tinjut';
 
   @IsOptional()
@@ -44,11 +56,17 @@ export class InboxQueryDto {
 
   // Date Range Filter
   @IsOptional()
-  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   start_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
-  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   end_date?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
@@ -58,7 +76,10 @@ export class InboxQueryDto {
     const normalized = String(value).toLowerCase().trim().replace(/\s+/g, '_');
     return normalized;
   })
-  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], { message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua' })
+  @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], {
+    message:
+      'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua',
+  })
   preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
   @IsOptional()
@@ -66,7 +87,9 @@ export class InboxQueryDto {
     if (!value) return value;
     return String(value).toLowerCase().trim();
   })
-  @IsEnum(['terbaru', 'terlama'], { message: 'Sort tidak valid. Gunakan: terbaru atau terlama' })
+  @IsEnum(['terbaru', 'terlama'], {
+    message: 'Sort tidak valid. Gunakan: terbaru atau terlama',
+  })
   sort?: 'terbaru' | 'terlama';
 
   @IsOptional()

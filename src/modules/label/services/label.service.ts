@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -99,7 +104,7 @@ export class LabelService {
     // Validasi parent label jika ada
     if (createLabelDto.idParent) {
       const parentLabel = await this.labelRepository.findOne({
-        where: { 
+        where: {
           id: createLabelDto.idParent,
           positionId,
           isActive: true,
@@ -126,7 +131,9 @@ export class LabelService {
 
     // Emit label counts refresh ke position room
     try {
-      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      const counts = await this.countNaskahPerLabel(positionId).catch(
+        () => ({}),
+      );
       this.realtimeEmitService.emitLabelCounts(positionId, counts);
     } catch {}
 
@@ -139,7 +146,7 @@ export class LabelService {
    */
   async findAll(positionId: string): Promise<LabelEntity[]> {
     const labels = await this.labelRepository.find({
-      where: { 
+      where: {
         positionId,
         isActive: true,
       },
@@ -158,7 +165,7 @@ export class LabelService {
    */
   async findAllFlat(positionId: string): Promise<LabelEntity[]> {
     return this.labelRepository.find({
-      where: { 
+      where: {
         positionId,
         isActive: true,
       },
@@ -174,7 +181,7 @@ export class LabelService {
    */
   async findOne(id: string, positionId: string): Promise<LabelEntity> {
     const label = await this.labelRepository.findOne({
-      where: { 
+      where: {
         id,
         positionId,
         isActive: true,
@@ -202,12 +209,14 @@ export class LabelService {
     // Validasi parent label jika diubah
     if (updateLabelDto.idParent !== undefined) {
       if (updateLabelDto.idParent === id) {
-        throw new BadRequestException('Label tidak bisa menjadi parent dari dirinya sendiri');
+        throw new BadRequestException(
+          'Label tidak bisa menjadi parent dari dirinya sendiri',
+        );
       }
 
       if (updateLabelDto.idParent) {
         const parentLabel = await this.labelRepository.findOne({
-          where: { 
+          where: {
             id: updateLabelDto.idParent,
             positionId,
             isActive: true,
@@ -225,7 +234,9 @@ export class LabelService {
         );
 
         if (isCircular) {
-          throw new BadRequestException('Tidak bisa membuat circular reference pada label');
+          throw new BadRequestException(
+            'Tidak bisa membuat circular reference pada label',
+          );
         }
       }
     }
@@ -235,7 +246,9 @@ export class LabelService {
 
     // Emit label counts refresh ke position room
     try {
-      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      const counts = await this.countNaskahPerLabel(positionId).catch(
+        () => ({}),
+      );
       this.realtimeEmitService.emitLabelCounts(positionId, counts);
     } catch {}
 
@@ -267,7 +280,9 @@ export class LabelService {
 
     // Emit label counts refresh ke position room
     try {
-      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      const counts = await this.countNaskahPerLabel(positionId).catch(
+        () => ({}),
+      );
       this.realtimeEmitService.emitLabelCounts(positionId, counts);
     } catch {}
   }
@@ -302,7 +317,9 @@ export class LabelService {
       });
 
       if (!label) {
-        throw new NotFoundException(`Label dengan ID ${labelId} tidak ditemukan`);
+        throw new NotFoundException(
+          `Label dengan ID ${labelId} tidak ditemukan`,
+        );
       }
 
       // Check if already exists
@@ -333,7 +350,9 @@ export class LabelService {
 
     // Emit label counts refresh ke position room
     try {
-      const counts = await this.countNaskahPerLabel(positionId).catch(() => ({}));
+      const counts = await this.countNaskahPerLabel(positionId).catch(
+        () => ({}),
+      );
       this.realtimeEmitService.emitLabelCounts(positionId, counts);
     } catch {}
 
@@ -429,7 +448,9 @@ export class LabelService {
       };
     }
 
-    const naskahIds = Array.from(new Set(naskahLabels.map((nl) => nl.naskahId)));
+    const naskahIds = Array.from(
+      new Set(naskahLabels.map((nl) => nl.naskahId)),
+    );
 
     // Get naskah details with pengirim info
     const selectQuery = `
@@ -457,7 +478,10 @@ export class LabelService {
       WHERE n.id IN (${naskahIds.map(() => '?').join(',')})
       ORDER BY n.tanggal ${sortDirection}, n.id ${sortDirection}
     `;
-    const rows = await this.dataSource.query(selectQuery, [labelId, ...naskahIds]);
+    const rows = await this.dataSource.query(selectQuery, [
+      labelId,
+      ...naskahIds,
+    ]);
 
     // Get penerima for each naskah
     const penerimaMap = new Map<string, any[]>();
@@ -476,7 +500,10 @@ export class LabelService {
       AND sirkuler IN ('penerima', 'tembusan')
       ORDER BY id
     `;
-    const penerimaRows = await this.dataSource.query(penerimaDanTembusanQuery, naskahIds);
+    const penerimaRows = await this.dataSource.query(
+      penerimaDanTembusanQuery,
+      naskahIds,
+    );
 
     // Group by id_naskah
     penerimaRows.forEach((row: any) => {
@@ -544,7 +571,10 @@ export class LabelService {
       AND position = ?
       AND sirkuler IN ('pengirim', 'penerima', 'tembusan')
     `;
-    const flagsRows = await this.dataSource.query(positionSirkulasiQuery, [...naskahIds, positionId]);
+    const flagsRows = await this.dataSource.query(positionSirkulasiQuery, [
+      ...naskahIds,
+      positionId,
+    ]);
 
     flagsRows.forEach((row: any) => {
       if (!positionSirkulasiMap.has(row.id_naskah)) {
@@ -565,7 +595,8 @@ export class LabelService {
       const allSirkulasi = [...penerima, ...tembusan];
       const source = row.naskah_source || 'inbox';
       const positionContext = positionSirkulasiMap.get(row.id_naskah) || {};
-      const sourceContext = source === 'sent' ? positionContext.pengirim : positionContext.inbox;
+      const sourceContext =
+        source === 'sent' ? positionContext.pengirim : positionContext.inbox;
 
       const favorit = sourceContext?.flag_favorit === 1;
       const note = sourceContext?.flag_note === 1;
@@ -573,17 +604,25 @@ export class LabelService {
       const isTindakLanjut = sourceContext?.tindak_lanjut === 1;
       const isLocked = sourceContext?.is_locked === 1;
 
-      const inboxStatusBaca = positionContext.inbox?.send_read_time ? 'terbaca' : 'belum_terbaca';
-      const sentHasTerbaca = row.jenis === 'SDE'
-        ? true
-        : allSirkulasi.some((p: any) => p.status_baca === 'terbaca');
-      const sentHasBelumTerbaca = row.jenis === 'SDE'
-        ? true
-        : allSirkulasi.some((p: any) => p.status_baca === 'belum_terbaca');
+      const inboxStatusBaca = positionContext.inbox?.send_read_time
+        ? 'terbaca'
+        : 'belum_terbaca';
+      const sentHasTerbaca =
+        row.jenis === 'SDE'
+          ? true
+          : allSirkulasi.some((p: any) => p.status_baca === 'terbaca');
+      const sentHasBelumTerbaca =
+        row.jenis === 'SDE'
+          ? true
+          : allSirkulasi.some((p: any) => p.status_baca === 'belum_terbaca');
 
       // Calculate summary_baca
-      const terbaca = penerima.filter((p: any) => p.status_baca === 'terbaca').length;
-      const belumTerbaca = penerima.filter((p: any) => p.status_baca === 'belum_terbaca').length;
+      const terbaca = penerima.filter(
+        (p: any) => p.status_baca === 'terbaca',
+      ).length;
+      const belumTerbaca = penerima.filter(
+        (p: any) => p.status_baca === 'belum_terbaca',
+      ).length;
 
       // Get lampiran count (use existing value or 0)
       const lampiranCount = typeof row.lampiran === 'number' ? row.lampiran : 0;
@@ -605,54 +644,65 @@ export class LabelService {
         matchesStatusBaca:
           !query.status_baca ||
           (source === 'sent'
-            ? (query.status_baca === 'terbaca' ? sentHasTerbaca : sentHasBelumTerbaca)
+            ? query.status_baca === 'terbaca'
+              ? sentHasTerbaca
+              : sentHasBelumTerbaca
             : inboxStatusBaca === query.status_baca),
         unreadForSummary:
           source === 'sent'
             ? sentHasBelumTerbaca
             : inboxStatusBaca === 'belum_terbaca',
-        sortDate: row.pengirim_created_at || sourceContext?.created_at || row.created_at || row.tanggal,
+        sortDate:
+          row.pengirim_created_at ||
+          sourceContext?.created_at ||
+          row.created_at ||
+          row.tanggal,
         localDate: (() => {
-          const baseDate = new Date(row.pengirim_created_at || sourceContext?.created_at || row.created_at || row.tanggal);
+          const baseDate = new Date(
+            row.pengirim_created_at ||
+              sourceContext?.created_at ||
+              row.created_at ||
+              row.tanggal,
+          );
           if (Number.isNaN(baseDate.getTime())) return null;
           const localDate = new Date(baseDate.getTime() + 7 * 60 * 60 * 1000);
           return localDate.toISOString().split('T')[0];
         })(),
         response: {
-        id_naskah: row.id_naskah,
-        jenis: row.jenis,
-        jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
-        asal_draft: asalDraft,
-        is_draft_konsep: isDraftKonsep,
-        nomor: row.nomor,
-        tanggal: row.tanggal,
-        perihal: row.perihal,
-        sifat: row.sifat,
-        status: row.status,
-        lampiran: lampiranCount,
-        pengirim: {
-          position_id: row.pengirim_position_id || '',
-          position_text: row.pengirim_position_text || '',
-          organization_text: row.pengirim_organization_text || '',
-          nama: row.pengirim_nama || '',
-        },
-        penerima,
-        tembusan,
-        summary_baca: {
-          total: allSirkulasi.length,
-          terbaca,
-          belum_terbaca: belumTerbaca,
-        },
-        favorit,
-        note,
-        arsip,
-        is_tindak_lanjut: isTindakLanjut,
-        is_locked: isLocked,
-        is_priority: row.jenis === 'DI' ? !!row.is_priority : undefined,
-        labels: labelsMap.get(row.id_naskah) || [],
-        source,
-        created_at: row.created_at,
-        updated_at: null,
+          id_naskah: row.id_naskah,
+          jenis: row.jenis,
+          jenis_label: JENIS_LABELS[row.jenis] || row.jenis,
+          asal_draft: asalDraft,
+          is_draft_konsep: isDraftKonsep,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          perihal: row.perihal,
+          sifat: row.sifat,
+          status: row.status,
+          lampiran: lampiranCount,
+          pengirim: {
+            position_id: row.pengirim_position_id || '',
+            position_text: row.pengirim_position_text || '',
+            organization_text: row.pengirim_organization_text || '',
+            nama: row.pengirim_nama || '',
+          },
+          penerima,
+          tembusan,
+          summary_baca: {
+            total: allSirkulasi.length,
+            terbaca,
+            belum_terbaca: belumTerbaca,
+          },
+          favorit,
+          note,
+          arsip,
+          is_tindak_lanjut: isTindakLanjut,
+          is_locked: isLocked,
+          is_priority: row.jenis === 'DI' ? !!row.is_priority : undefined,
+          labels: labelsMap.get(row.id_naskah) || [],
+          source,
+          created_at: row.created_at,
+          updated_at: null,
         },
       };
     });
@@ -668,8 +718,12 @@ export class LabelService {
             item.response.pengirim?.nama,
             item.response.pengirim?.position_text,
             item.response.pengirim?.organization_text,
-            ...(item.response.penerima || []).map((p: any) => `${p.nama || ''} ${p.position_text || ''}`),
-            ...(item.response.tembusan || []).map((p: any) => `${p.nama || ''} ${p.position_text || ''}`),
+            ...(item.response.penerima || []).map(
+              (p: any) => `${p.nama || ''} ${p.position_text || ''}`,
+            ),
+            ...(item.response.tembusan || []).map(
+              (p: any) => `${p.nama || ''} ${p.position_text || ''}`,
+            ),
           ]
             .filter(Boolean)
             .join(' ')
@@ -720,10 +774,16 @@ export class LabelService {
           return false;
         }
 
-        if (dateRange.startDate && (!item.localDate || item.localDate < dateRange.startDate)) {
+        if (
+          dateRange.startDate &&
+          (!item.localDate || item.localDate < dateRange.startDate)
+        ) {
           return false;
         }
-        if (dateRange.endDate && (!item.localDate || item.localDate > dateRange.endDate)) {
+        if (
+          dateRange.endDate &&
+          (!item.localDate || item.localDate > dateRange.endDate)
+        ) {
           return false;
         }
 
@@ -742,7 +802,9 @@ export class LabelService {
 
     const summary = {
       total_semua: baseFilteredItems.length,
-      total_belum_dibaca: baseFilteredItems.filter((item: any) => item.unreadForSummary).length,
+      total_belum_dibaca: baseFilteredItems.filter(
+        (item: any) => item.unreadForSummary,
+      ).length,
       total_per_jenis: {
         ND: 0,
         SDI: 0,
@@ -790,7 +852,9 @@ export class LabelService {
    * Menghitung jumlah naskah per label
    * Only counts naskah that actually exist in the naskah table
    */
-  async countNaskahPerLabel(positionId: string): Promise<Record<string, number>> {
+  async countNaskahPerLabel(
+    positionId: string,
+  ): Promise<Record<string, number>> {
     const labels = await this.findAllFlat(positionId);
     const counts: Record<string, number> = {};
 
@@ -841,7 +905,7 @@ export class LabelService {
     labels.forEach((label) => {
       const node = labelMap.get(label.id);
       if (!node) return;
-      
+
       if (label.idParent) {
         const parent = labelMap.get(label.idParent);
         if (parent) {

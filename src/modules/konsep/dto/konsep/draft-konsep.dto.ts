@@ -371,11 +371,17 @@ export class GetDraftKonsepListQueryDto {
   search?: string; // Search by perihal
 
   @IsOptional()
-  @IsDateString({}, { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format start_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   start_date?: string;
 
   @IsOptional()
-  @IsDateString({}, { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'Format end_date tidak valid (gunakan YYYY-MM-DD)' },
+  )
   end_date?: string;
 
   @IsOptional()
@@ -385,7 +391,8 @@ export class GetDraftKonsepListQueryDto {
     return normalized;
   })
   @IsEnum(['7_hari', '30_hari', '60_hari', '1_tahun', 'semua'], {
-    message: 'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua',
+    message:
+      'Preset tidak valid. Gunakan: 7_hari, 30_hari, 60_hari, 1_tahun, atau semua',
   })
   preset?: '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
@@ -477,7 +484,7 @@ export class DraftKonsepDetailDataDto {
   id_draft: string;
   jenis: 'ND' | 'SDI' | 'SDE';
   jenis_text: string;
-  
+
   // Pengirim konsep
   from_position_id: number;
   from_position_text: string;
@@ -504,7 +511,7 @@ export class DraftKonsepDetailDataDto {
     nama: string | null;
     organization_text: string | null;
   };
-  
+
   // Penerima naskah final
   penerima?: Array<{
     position_id: number;

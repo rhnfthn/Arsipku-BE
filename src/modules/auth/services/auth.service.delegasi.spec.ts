@@ -15,37 +15,62 @@ describe('AuthService.switchRole — delegation context in JWT', () => {
     role: 'user' as const,
     activeRole: { id: 'u', name: 'USER' },
     activePermissions: [{ resource: 'naskah-dinas', actions: ['read'] }],
-    company: '1', companyText: 'C', area: 'A', areaText: 'A',
-    subArea: '1', subAreaText: 'SA', organization: '1', organizationText: 'O',
-    position: '1', positionText: 'Staff', bodTag: '', abbreviation: '',
+    company: '1',
+    companyText: 'C',
+    area: 'A',
+    areaText: 'A',
+    subArea: '1',
+    subAreaText: 'SA',
+    organization: '1',
+    organizationText: 'O',
+    position: '1',
+    positionText: 'Staff',
+    bodTag: '',
+    abbreviation: '',
   };
 
   beforeEach(() => {
     jwtService = { signAsync: jest.fn(async () => 'jwt-mock') };
     orgDataService = {
       findByPersnum: jest.fn(async () => ({
-        company: 1, companyText: 'C', area: 'A', areaText: 'A', subArea: 1, subAreaText: 'SA',
-        organization: 1, organizationText: 'O', position: 1, positionText: 'Staff',
-        bodTag: '', abbreviation: '', atasan_langsung: null,
+        company: 1,
+        companyText: 'C',
+        area: 'A',
+        areaText: 'A',
+        subArea: 1,
+        subAreaText: 'SA',
+        organization: 1,
+        organizationText: 'O',
+        position: 1,
+        positionText: 'Staff',
+        bodTag: '',
+        abbreviation: '',
+        atasan_langsung: null,
       })),
     };
     authService = new AuthService(
       jwtService as JwtService,
-      {} as any,           // httpService
+      {} as any, // httpService
       {} as ConfigService, // configService
-      {} as any,           // sessionService
-      orgDataService as any,
-      {} as any,           // userRoleRepo
-      {} as any,           // rbacService
+      {} as any, // sessionService
+      orgDataService,
+      {} as any, // userRoleRepo
+      {} as any, // rbacService
     );
   });
 
   it('delegation switch: payload carries position_status + delegator_persnum', async () => {
     const delegasi = {
-      as_position: '50000001', as_position_text: 'EVP of PMO',
-      as_organization: '9', as_organization_text: 'PMO',
-      as_area: 'A', as_area_text: 'A', as_sub_area: '1', as_sub_area_text: 'SA',
-      company: '1', company_text: 'C',
+      as_position: '50000001',
+      as_position_text: 'EVP of PMO',
+      as_organization: '9',
+      as_organization_text: 'PMO',
+      as_area: 'A',
+      as_area_text: 'A',
+      as_sub_area: '1',
+      as_sub_area_text: 'SA',
+      company: '1',
+      company_text: 'C',
       position_status: PositionStatus.PT,
       persnum: '777', // delegator's persnum (string in DB)
     } as any;
@@ -160,12 +185,12 @@ describe('AuthService.refreshWithSession — delegation context preservation', (
 
     authService = new AuthService(
       jwtService as JwtService,
-      httpService as any,
+      httpService,
       configService as ConfigService,
-      sessionService as any,
-      orgDataService as any,
-      userRoleRepo as any,
-      rbacService as any,
+      sessionService,
+      orgDataService,
+      userRoleRepo,
+      rbacService,
     );
   });
 

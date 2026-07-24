@@ -16,7 +16,7 @@ import { NaskahEntity } from '../entities/naskah.entity';
 const JABATAN_MAPPING: Record<string, string> = {
   // By position text (case insensitive partial match)
   'direktur utama': 'U',
-  'dirut': 'U',
+  dirut: 'U',
   'direktur sdm': 'P',
   'dir sdm': 'P',
   'dir. sdm': 'P',
@@ -201,7 +201,8 @@ export class NomorSuratService {
   async generateNomorDisposisi(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, positionAbbreviation, areaText, tanggal } = params;
+    const { jenis, positionText, positionAbbreviation, areaText, tanggal } =
+      params;
 
     // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
     const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
@@ -240,7 +241,8 @@ export class NomorSuratService {
   async generateNomorNotaDinas(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, positionAbbreviation, tanggal, klasifikasi } = params;
+    const { jenis, positionText, positionAbbreviation, tanggal, klasifikasi } =
+      params;
 
     // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
     const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
@@ -279,7 +281,14 @@ export class NomorSuratService {
   async generateNomorSuratDinasInternal(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, positionAbbreviation, areaText, tanggal, klasifikasi } = params;
+    const {
+      jenis,
+      positionText,
+      positionAbbreviation,
+      areaText,
+      tanggal,
+      klasifikasi,
+    } = params;
 
     // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
     const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);
@@ -320,7 +329,14 @@ export class NomorSuratService {
   async generateNomorSuratDinasEksternal(
     params: GenerateNomorParams,
   ): Promise<GeneratedNomor> {
-    const { jenis, positionText, positionAbbreviation, areaText, tanggal, klasifikasi } = params;
+    const {
+      jenis,
+      positionText,
+      positionAbbreviation,
+      areaText,
+      tanggal,
+      klasifikasi,
+    } = params;
 
     // Gunakan positionAbbreviation dari org_data, fallback ke getKodeJabatan jika tidak ada
     const jabatan = positionAbbreviation || this.getKodeJabatan(positionText);

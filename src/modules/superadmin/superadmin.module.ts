@@ -9,11 +9,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      UserRoleEntity,
-      UserRoleHistoryEntity,
-      Person,
-    ]),
+    TypeOrmModule.forFeature([UserRoleEntity, UserRoleHistoryEntity, Person]),
     OrgDataModule,
   ],
   controllers: [AdminController],

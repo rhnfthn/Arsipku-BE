@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { USER_LEVELS_KEY } from '../decorators/user-levels.decorator';
 import { UserLevel, getUserLevel } from '../enums/user-level.enum';
@@ -11,10 +16,10 @@ export class UserLevelGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     // Get required user levels from decorator
-    const requiredLevels = this.reflector.getAllAndOverride<UserLevel[]>(USER_LEVELS_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const requiredLevels = this.reflector.getAllAndOverride<UserLevel[]>(
+      USER_LEVELS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     // If no levels specified, allow access
     if (!requiredLevels || requiredLevels.length === 0) {
@@ -29,8 +34,13 @@ export class UserLevelGuard implements CanActivate {
     }
 
     // Admin and superadmin bypass user level check
-    const activeRoleName = normalizeRoleName(user?.activeRole?.name ?? user?.role);
-    if (activeRoleName === RoleName.ADMIN || activeRoleName === RoleName.SUPERADMIN) {
+    const activeRoleName = normalizeRoleName(
+      user?.activeRole?.name ?? user?.role,
+    );
+    if (
+      activeRoleName === RoleName.ADMIN ||
+      activeRoleName === RoleName.SUPERADMIN
+    ) {
       return true;
     }
 

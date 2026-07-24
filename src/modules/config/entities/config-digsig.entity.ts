@@ -77,7 +77,11 @@ export class ConfigDigsig {
   })
   ttdBasah: boolean;
 
-  @Column('varchar', { length: 255, nullable: true, comment: 'Deskripsi pengaturan' })
+  @Column('varchar', {
+    length: 255,
+    nullable: true,
+    comment: 'Deskripsi pengaturan',
+  })
   description: string;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })

@@ -15,9 +15,9 @@ export enum UserLevel {
  */
 export const BOD_TAG_MAPPING = {
   // Direksi
-  'BOD': UserLevel.DIREKSI,
+  BOD: UserLevel.DIREKSI,
   'BOD-1': UserLevel.DIREKSI,
-  
+
   // Managerial
   'BOD-2': UserLevel.MANAGERIAL,
   'BOD-3': UserLevel.MANAGERIAL,
@@ -31,7 +31,7 @@ export function getUserLevel(bodTag: string, isChief: boolean): UserLevel {
   if (bodTag && BOD_TAG_MAPPING[bodTag]) {
     return BOD_TAG_MAPPING[bodTag];
   }
-  
+
   // Default to non-managerial
   return UserLevel.NON_MANAGERIAL;
 }

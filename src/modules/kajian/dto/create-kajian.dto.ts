@@ -133,14 +133,18 @@ export class CreateKajianDto {
   // ============================================
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string;
 
   // ============================================
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -248,14 +252,18 @@ export class FinalizeDraftDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string;
 
   // ============================================
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -349,6 +357,8 @@ export class UpdateDraftDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string;
 }

@@ -10,7 +10,10 @@ import {
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ConfigDigsig, ConfigMessage]), OrgDataModule],
+  imports: [
+    TypeOrmModule.forFeature([ConfigDigsig, ConfigMessage]),
+    OrgDataModule,
+  ],
   controllers: [
     AdminConfigDigsigController,
     AdminConfigMessageController,
@@ -28,9 +31,14 @@ export class ConfigAdminModule implements OnModuleInit {
   async onModuleInit() {
     try {
       await this.configDigsigService.initDefaults();
-      console.log('✅ ConfigAdminModule initialized with default digsig config');
+      console.log(
+        '✅ ConfigAdminModule initialized with default digsig config',
+      );
     } catch (error) {
-      console.warn('⚠️ Could not initialize default digsig config:', error.message);
+      console.warn(
+        '⚠️ Could not initialize default digsig config:',
+        error.message,
+      );
     }
   }
 }

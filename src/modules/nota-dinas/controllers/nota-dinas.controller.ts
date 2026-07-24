@@ -1,18 +1,50 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, HttpException, HttpStatus, Query, UseGuards, UseInterceptors, UploadedFiles, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Body,
+  Param,
+  ParseIntPipe,
+  HttpException,
+  HttpStatus,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFiles,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
-import { FileFieldsInterceptor, FilesInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FilesInterceptor,
+  AnyFilesInterceptor,
+} from '@nestjs/platform-express';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
-import { NotaDinasRecipientResponseDto, GetRecipientQueryDto, OrgDataPositionDto } from '../dto/nota-dinas-recipient-response.dto';
-import { CreateNotaDinasDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-nota-dinas.dto';
+import {
+  NotaDinasRecipientResponseDto,
+  GetRecipientQueryDto,
+  OrgDataPositionDto,
+} from '../dto/nota-dinas-recipient-response.dto';
+import {
+  CreateNotaDinasDto,
+  FinalizeDraftDto,
+  UpdateDraftDto,
+} from '../dto/create-nota-dinas.dto';
 import { GeneratePdfDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-message-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message.dto';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
+import {
+  UserLevels,
+  CurrentUser,
+  RequirePermission,
+} from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
@@ -56,8 +88,13 @@ export class NotaDinasController {
   ): Promise<NotaDinasRecipientResponseDto> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
-      return await this.notaDinasService.getNotaDinasRecipients(positionId, query.tgl);
+      const positionId = query.pengirim
+        ? parseInt(query.pengirim, 10)
+        : parseInt(user.position, 10);
+      return await this.notaDinasService.getNotaDinasRecipients(
+        positionId,
+        query.tgl,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -99,7 +136,9 @@ export class NotaDinasController {
   ): Promise<OrgDataPositionDto[]> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      const positionId = query.pengirim
+        ? parseInt(query.pengirim, 10)
+        : parseInt(user.position, 10);
       return await this.notaDinasService.getSenderKonsep(positionId, query.tgl);
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -238,17 +277,11 @@ export class NotaDinasController {
   @Post('save-draft')
   @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'lampiran_files', maxCount: 10 },
-        
-      ],
-      {
-        limits: {
-          fileSize: 50 * 1024 * 1024, // 50MB per file
-        },
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
       },
-    ),
+    }),
   )
   async saveDraft(
     @Body() body: any,
@@ -333,7 +366,11 @@ export class NotaDinasController {
   )
   async sendMessage(
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
     @CurrentUser() user: any, // Get logged-in user info
   ): Promise<SendMessageResponseDto> {
     try {
@@ -344,7 +381,7 @@ export class NotaDinasController {
 
       // Extract persnum from JWT user (required for digital signature)
       const persnum = user?.persnum;
-      
+
       console.log('[ND Controller] sendMessage called with:', {
         sign_option: dto.sign_option,
         persnum: persnum,
@@ -404,16 +441,11 @@ export class NotaDinasController {
   @Patch('update-draft/:id')
   @RequirePermission('naskah-dinas', 'update')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'lampiran_files', maxCount: 10 },
-      ],
-      {
-        limits: {
-          fileSize: 50 * 1024 * 1024, // 50MB per file
-        },
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
       },
-    ),
+    }),
   )
   async updateDraft(
     @Param('id') id: string,
@@ -422,7 +454,10 @@ export class NotaDinasController {
     @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.notaDinasService.parseFormDataToUpdateDraftDto(body, files);
+      const dto = await this.notaDinasService.parseFormDataToUpdateDraftDto(
+        body,
+        files,
+      );
       dto.actor_position_status = user?.position_status ?? null;
       dto.actor_nama = user?.nama ?? '';
       return await this.notaDinasService.updateDraft(id, dto);
@@ -487,13 +522,17 @@ export class NotaDinasController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
     @CurrentUser() user?: any,
   ): Promise<SendMessageResponseDto> {
     try {
       // Extract persnum from JWT user for BSrE signing
       const persnum = user?.persnum;
-      
+
       console.log('[ND Controller] sendDraft called with:', {
         id,
         sign_option: body.sign_option,
@@ -502,7 +541,10 @@ export class NotaDinasController {
       });
 
       // Parse form-data to DTO
-      const dto = await this.notaDinasService.parseFormDataToFinalizeDraftDto(body, files);
+      const dto = await this.notaDinasService.parseFormDataToFinalizeDraftDto(
+        body,
+        files,
+      );
       dto.actor_position_status = user?.position_status ?? null;
       dto.actor_nama = user?.nama ?? '';
 
@@ -604,11 +646,11 @@ export class NotaDinasController {
    * Generate preview PDF Nota Dinas untuk di-lihat sebelum dikirim
    * PDF di-generate tanpa save ke database
    * User bisa kembali edit dan preview ulang
-   * 
+   *
    * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan, lampiran_temp_ids
    * @param user - Current user dari JWT token
    * @param res - Express Response untuk send PDF
-   * 
+   *
    * Body parameters:
    * - htmlContent: string (required)
    * - tertuju/penerima: string[] (optional)
@@ -681,12 +723,17 @@ export class NotaDinasController {
 
       // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
       const namaTempat = dto.nama_tempat || 'Tangerang';
-      const tanggalInput = dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
-      
+      const tanggalInput =
+        dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
+
       let formattedDate = '';
       try {
         // Check if already formatted (contains month name in Indonesian)
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+        if (
+          /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+            tanggalInput,
+          )
+        ) {
           // Already formatted, just add nama_tempat if not exists
           if (tanggalInput.includes(',')) {
             formattedDate = tanggalInput;
@@ -697,13 +744,13 @@ export class NotaDinasController {
           // Parse as date (supports: YYYY-MM-DD, DD/MM/YYYY, ISO format, etc)
           // Add 'T00:00:00' to ensure correct parsing in local timezone
           const dateObj = new Date(tanggalInput + 'T00:00:00');
-          
+
           if (!isNaN(dateObj.getTime())) {
-            const formatted = dateObj.toLocaleDateString('id-ID', { 
-              year: 'numeric', 
-              month: 'long', 
+            const formatted = dateObj.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
               day: 'numeric',
-              timeZone: 'Asia/Jakarta'
+              timeZone: 'Asia/Jakarta',
             });
             formattedDate = `${namaTempat}, ${formatted}`;
           } else {
@@ -724,11 +771,17 @@ export class NotaDinasController {
       );
 
       // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
-      const basePositionText = user?.positionText || dto.dari || 'Direktur Teknik';
+      const basePositionText =
+        user?.positionText || dto.dari || 'Direktur Teknik';
       const _pf = delegatedPengirimFields(
         user,
         basePositionText,
-        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+        body.nama_lengkap ||
+          dto.nama_lengkap ||
+          dto.penandatangan ||
+          personName ||
+          user?.nama ||
+          '',
       );
       const positionText = _pf.positionText;
       const dariFormatted = basePositionText;
@@ -741,19 +794,23 @@ export class NotaDinasController {
       // FE sends form-data, so values are strings. Check if string is numeric (position_id)
       const isPositionId = (value: any): boolean => {
         // Check if it's a number OR a numeric string (from form-data)
-        return typeof value === 'number' ||
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
+        const tertujuNames =
+          await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
       if (dto.penerima_grup && dto.penerima_grup.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
         tertujuArray = [...grupDisplayNames, ...tertujuArray];
       }
 
@@ -761,13 +818,15 @@ export class NotaDinasController {
 
       // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
+        const tembusanNames =
+          await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
 
       // Add grup tembusan display names — grup appears BEFORE individuals
       if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
         tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
@@ -801,21 +860,28 @@ export class NotaDinasController {
       // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
       if (headerInfo?.kota) {
         try {
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+          if (
+            /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+              tanggalInput,
+            )
+          ) {
             if (tanggalInput.includes(',')) {
               // Replace existing city name with dynamic one
-              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+              formattedDate = tanggalInput.replace(
+                /^[^,]+,/,
+                `${dynamicNamaTempat},`,
+              );
             } else {
               formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
             }
           } else {
             const dateObj = new Date(tanggalInput + 'T00:00:00');
             if (!isNaN(dateObj.getTime())) {
-              const formatted = dateObj.toLocaleDateString('id-ID', { 
-                year: 'numeric', 
-                month: 'long', 
+              const formatted = dateObj.toLocaleDateString('id-ID', {
+                year: 'numeric',
+                month: 'long',
                 day: 'numeric',
-                timeZone: 'Asia/Jakarta'
+                timeZone: 'Asia/Jakarta',
               });
               formattedDate = `${dynamicNamaTempat}, ${formatted}`;
             }
@@ -849,9 +915,10 @@ export class NotaDinasController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ error: 'Failed to generate preview', detail: error instanceof Error ? error.message : String(error) });
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate preview',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -861,16 +928,16 @@ export class NotaDinasController {
    * Penandatangan otomatis diambil dari profile user yang login
    * Format "Dari": nama (abbreviation) position_text
    * Lampiran files akan di-merge ke dalam PDF dengan page terpisah
-   * 
+   *
    * @param body - GeneratePdfDto dengan htmlContent, tertuju, perihal, tanggal, tembusan
    * @param user - Current user dari JWT token (untuk nama, abbreviation, positionText)
    * @param lampiranFiles - Optional files untuk di-merge ke PDF (file-field: lampiran_files)
    * @param res - Express Response untuk send PDF file
    */
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileFieldsInterceptor([
-    { name: 'lampiran_files', maxCount: 10 },
-  ]))
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }]),
+  )
   @Post('generate-pdf')
   @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
@@ -917,7 +984,10 @@ export class NotaDinasController {
       }
 
       try {
-        assertDateNotInFuture(body.tgl || dto.tgl || dto.tanggal, 'Tanggal naskah');
+        assertDateNotInFuture(
+          body.tgl || dto.tgl || dto.tanggal,
+          'Tanggal naskah',
+        );
       } catch (error) {
         return res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
@@ -929,35 +999,46 @@ export class NotaDinasController {
 
       // Format tanggal dengan nama tempat (Tangerang, 19 Desember 2024)
       const namaTempat = body.nama_tempat || dto.nama_tempat || 'Tangerang';
-      const tanggalInput = body.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
-      
+      const tanggalInput =
+        body.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
+
       let formattedDate = '';
       try {
         // Check if already formatted (contains month name)
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
-          formattedDate = tanggalInput.includes(',') ? tanggalInput : `${namaTempat}, ${tanggalInput}`;
+        if (
+          /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+            tanggalInput,
+          )
+        ) {
+          formattedDate = tanggalInput.includes(',')
+            ? tanggalInput
+            : `${namaTempat}, ${tanggalInput}`;
         } else {
           // Parse date: supports YYYY-MM-DD, DD/MM/YYYY, etc
           let dateObj: Date;
-          
+
           if (/^\d{4}-\d{2}-\d{2}$/.test(tanggalInput)) {
             // YYYY-MM-DD format
             dateObj = new Date(tanggalInput + 'T00:00:00');
           } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggalInput)) {
             // DD/MM/YYYY format
             const [day, month, year] = tanggalInput.split('/');
-            dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            dateObj = new Date(
+              parseInt(year),
+              parseInt(month) - 1,
+              parseInt(day),
+            );
           } else {
             // Try default parsing
             dateObj = new Date(tanggalInput);
           }
-          
+
           if (!isNaN(dateObj.getTime())) {
-            const formatted = dateObj.toLocaleDateString('id-ID', { 
-              year: 'numeric', 
-              month: 'long', 
+            const formatted = dateObj.toLocaleDateString('id-ID', {
+              year: 'numeric',
+              month: 'long',
               day: 'numeric',
-              timeZone: 'Asia/Jakarta'
+              timeZone: 'Asia/Jakarta',
             });
             formattedDate = `${namaTempat}, ${formatted}`;
           } else {
@@ -977,11 +1058,17 @@ export class NotaDinasController {
       );
 
       // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
-      const basePositionText = user?.positionText || dto.dari || 'Direktur Teknik';
+      const basePositionText =
+        user?.positionText || dto.dari || 'Direktur Teknik';
       const _pf = delegatedPengirimFields(
         user,
         basePositionText,
-        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+        body.nama_lengkap ||
+          dto.nama_lengkap ||
+          dto.penandatangan ||
+          personName ||
+          user?.nama ||
+          '',
       );
       const positionText = _pf.positionText;
       const dariFormatted = basePositionText;
@@ -993,19 +1080,23 @@ export class NotaDinasController {
       // Check if tertuju/tembusan are position_ids and convert to names
       // FE sends form-data, so values are strings. Check if string is numeric (position_id)
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' ||
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       // Convert individual penerima position IDs to names
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        const tertujuNames = await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
+        const tertujuNames =
+          await this.notaDinasService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       // Add grup penerima display names (e.g., "Para Direktur") — grup appears BEFORE individuals
       if (dto.penerima_grup && dto.penerima_grup.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(dto.penerima_grup);
         tertujuArray = [...grupDisplayNames, ...tertujuArray];
       }
 
@@ -1013,13 +1104,15 @@ export class NotaDinasController {
 
       // Convert individual tembusan position IDs to names
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        const tembusanNames = await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
+        const tembusanNames =
+          await this.notaDinasService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
 
       // Add grup tembusan display names — grup appears BEFORE individuals
       if (dto.tembusan_grup && dto.tembusan_grup.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(dto.tembusan_grup);
         tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
@@ -1039,21 +1132,28 @@ export class NotaDinasController {
       // Re-format tanggal dengan dynamic nama_tempat dari sub_area_alamat
       if (headerInfo?.kota) {
         try {
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+          if (
+            /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+              tanggalInput,
+            )
+          ) {
             if (tanggalInput.includes(',')) {
               // Replace existing city name with dynamic one
-              formattedDate = tanggalInput.replace(/^[^,]+,/, `${dynamicNamaTempat},`);
+              formattedDate = tanggalInput.replace(
+                /^[^,]+,/,
+                `${dynamicNamaTempat},`,
+              );
             } else {
               formattedDate = `${dynamicNamaTempat}, ${tanggalInput}`;
             }
           } else {
             const dateObj = new Date(tanggalInput + 'T00:00:00');
             if (!isNaN(dateObj.getTime())) {
-              const formatted = dateObj.toLocaleDateString('id-ID', { 
-                year: 'numeric', 
-                month: 'long', 
+              const formatted = dateObj.toLocaleDateString('id-ID', {
+                year: 'numeric',
+                month: 'long',
                 day: 'numeric',
-                timeZone: 'Asia/Jakarta'
+                timeZone: 'Asia/Jakarta',
               });
               formattedDate = `${dynamicNamaTempat}, ${formatted}`;
             }
@@ -1086,9 +1186,10 @@ export class NotaDinasController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate PDF',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

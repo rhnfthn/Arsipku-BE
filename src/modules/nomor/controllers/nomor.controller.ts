@@ -86,10 +86,7 @@ export class NomorController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('nomor-request/pending-approval')
-  async getPendingApproval(
-    @CurrentUser() user: any,
-    @Query() query: any,
-  ) {
+  async getPendingApproval(@CurrentUser() user: any, @Query() query: any) {
     try {
       const positionId = parseInt(user?.position, 10);
       if (isNaN(positionId)) {
@@ -102,7 +99,11 @@ export class NomorController {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Failed to get pending approval', error: error.message },
+        {
+          success: false,
+          message: 'Failed to get pending approval',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -128,7 +129,10 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getNomorRequestByPosition(positionIdNum, query);
+      return await this.nomorService.getNomorRequestByPosition(
+        positionIdNum,
+        query,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -149,7 +153,9 @@ export class NomorController {
    * Admin melihat semua usulan nomor
    */
   @Get('admin/nomor-request')
-  async getAdminNomorRequest(@Query() query: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(
+    @Query() query: GetNomorQueryDto,
+  ): Promise<GetAdminNomorRequestResponseDto> {
     try {
       return await this.nomorService.getAdminNomorRequest(query);
     } catch (error) {
@@ -187,7 +193,11 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminNomorRequestByPosition(positionId, query, user);
+      return await this.nomorService.getAdminNomorRequestByPosition(
+        positionId,
+        query,
+        user,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -248,7 +258,10 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminCountNomorRequest(positionIdNum, user);
+      return await this.nomorService.getAdminCountNomorRequest(
+        positionIdNum,
+        user,
+      );
     } catch (error) {
       throw new HttpException(
         {
@@ -280,7 +293,9 @@ export class NomorController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return await this.nomorService.getAdminCountNomorRequestByPosition(positionIdNum);
+      return await this.nomorService.getAdminCountNomorRequestByPosition(
+        positionIdNum,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -350,11 +365,11 @@ export class NomorController {
    * POST /nomor-request/:id/booking
    * User/Admin memproses usulan dan create booking dengan file upload
    * Mendukung multiple file upload via FormData
-   * 
+   *
    * FormData fields:
    * - file: binary files (optional, bisa multiple)
    * - jumlah: number (optional, gunakan jika tidak ada file)
-   * 
+   *
    * Query parameters:
    * - folder: path folder untuk menyimpan file (default: 'nomor')
    * - action: 'append' (default) untuk tambah file, 'replace' untuk replace semua file booking
@@ -373,7 +388,7 @@ export class NomorController {
       const dto: BookingNomorRequestDto = {
         jumlah: body?.jumlah ? parseInt(body.jumlah) : undefined,
       };
-      
+
       return await this.nomorService.bookingNomorRequest(
         id,
         dto,
@@ -448,10 +463,10 @@ export class NomorController {
   /**
    * PATCH /admin/nomor-request-detail/:id/file
    * Admin update file lampiran di detail tertentu (hanya status booking)
-   * 
+   *
    * FormData fields:
    * - file: binary file (required, single file)
-   * 
+   *
    * Query parameters:
    * - folder: path folder untuk menyimpan file (default: 'nomor')
    */
@@ -497,10 +512,10 @@ export class NomorController {
    * POST /admin/nomor-request-detail/:detail_id/file
    * Admin upload file final untuk nomor dengan status terpakai
    * Upload file akan mengubah status menjadi terpakai_final
-   * 
+   *
    * FormData fields:
    * - file: binary file (required, single file)
-   * 
+   *
    * Query parameters:
    * - folder: path folder untuk menyimpan file (default: 'nomor')
    */
@@ -598,9 +613,7 @@ export class NomorController {
    * Admin mengubah status detail menjadi hangus
    */
   @Post('admin/nomor-request-detail/:detail_id/hangus')
-  async setStatusHangus(
-    @Param('detail_id') detailId: string,
-  ): Promise<any> {
+  async setStatusHangus(@Param('detail_id') detailId: string): Promise<any> {
     try {
       return await this.nomorService.setStatusHangus(detailId);
     } catch (error) {
@@ -771,7 +784,9 @@ export class NomorController {
    * Get semua nomor dengan filter tahun (admin view)
    */
   @Get('admin/nomor')
-  async getAdminNomor(@Query() query: GetNomorQueryDto): Promise<GetNomorResponseDto> {
+  async getAdminNomor(
+    @Query() query: GetNomorQueryDto,
+  ): Promise<GetNomorResponseDto> {
     try {
       return await this.nomorService.getNomor(query);
     } catch (error) {
@@ -791,7 +806,9 @@ export class NomorController {
    * Get nomor by id (where id is id_request)
    */
   @Get('nomor/:id')
-  async getNomorById(@Param('id') id: string): Promise<GetNomorByIdResponseDto> {
+  async getNomorById(
+    @Param('id') id: string,
+  ): Promise<GetNomorByIdResponseDto> {
     try {
       return await this.nomorService.getNomorById(id);
     } catch (error) {
@@ -840,10 +857,7 @@ export class NomorController {
    */
   @UseGuards(JwtAuthGuard)
   @Post('nomor-request/:id/reject-penandatangan')
-  async rejectPenandatangan(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  async rejectPenandatangan(@Param('id') id: string, @CurrentUser() user: any) {
     try {
       const positionId = parseInt(user?.position, 10);
       if (isNaN(positionId)) {
@@ -864,7 +878,7 @@ export class NomorController {
 
   /**
    * POST /nomor-request/approve-penandatangan-bulk
-    * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
+   * Penandatangan menyetujui banyak detail sekaligus (draft -> booking)
    */
   @UseGuards(JwtAuthGuard)
   @Post('nomor-request/approve-penandatangan-bulk')

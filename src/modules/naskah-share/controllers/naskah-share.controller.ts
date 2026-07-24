@@ -38,7 +38,11 @@ export class NaskahShareController {
       if (error instanceof HttpException) throw error;
       this.logger.error('[NaskahShareController] createShare error:', error);
       throw new HttpException(
-        { success: false, message: 'Gagal membagikan naskah', error: error.message },
+        {
+          success: false,
+          message: 'Gagal membagikan naskah',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -59,7 +63,11 @@ export class NaskahShareController {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Gagal mengambil data share', error: error.message },
+        {
+          success: false,
+          message: 'Gagal mengambil data share',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -101,7 +109,11 @@ export class NaskahShareController {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Gagal mengambil detail share', error: error.message },
+        {
+          success: false,
+          message: 'Gagal mengambil detail share',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -120,12 +132,24 @@ export class NaskahShareController {
     @Query('reason') reason?: string,
   ) {
     try {
-      return await this.shareService.revokeRecipient(user, shareId, recipientId, reason);
+      return await this.shareService.revokeRecipient(
+        user,
+        shareId,
+        recipientId,
+        reason,
+      );
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      this.logger.error('[NaskahShareController] revokeRecipient error:', error);
+      this.logger.error(
+        '[NaskahShareController] revokeRecipient error:',
+        error,
+      );
       throw new HttpException(
-        { success: false, message: 'Gagal mencabut akses penerima', error: error.message },
+        {
+          success: false,
+          message: 'Gagal mencabut akses penerima',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -147,7 +171,11 @@ export class NaskahShareController {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Gagal mencabut akses share', error: error.message },
+        {
+          success: false,
+          message: 'Gagal mencabut akses share',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -159,16 +187,17 @@ export class NaskahShareController {
    */
   @Post(':id/open')
   @RequirePermission('naskah-share', 'open')
-  async openNaskah(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-  ) {
+  async openNaskah(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     try {
       return await this.shareService.openNaskah(user, id);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Gagal membuka naskah', error: error.message },
+        {
+          success: false,
+          message: 'Gagal membuka naskah',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -180,16 +209,17 @@ export class NaskahShareController {
    */
   @Patch(':id/read')
   @RequirePermission('naskah-share', 'read')
-  async markAsRead(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-  ) {
+  async markAsRead(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     try {
       return await this.shareService.markAsRead(user, id);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
-        { success: false, message: 'Gagal menandai sudah dibaca', error: error.message },
+        {
+          success: false,
+          message: 'Gagal menandai sudah dibaca',
+          error: error.message,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

@@ -28,7 +28,9 @@ export class AreasubController {
    * @example GET /areasub/company/1
    */
   @Get('company/:companyId')
-  findByCompany(@Param('companyId', ParseIntPipe) companyId: number): Promise<any[]> {
+  findByCompany(
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ): Promise<any[]> {
     return this.subAreaService.findByCompany(companyId);
   }
 

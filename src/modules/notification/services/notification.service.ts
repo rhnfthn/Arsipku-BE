@@ -8,7 +8,11 @@ import {
   NaskahMasukNotificationData,
   DisposisiNotificationData,
 } from '../entities';
-import { CreateNotificationDto, NotificationQueryDto, CreateNaskahMasukNotificationDto } from '../dto';
+import {
+  CreateNotificationDto,
+  NotificationQueryDto,
+  CreateNaskahMasukNotificationDto,
+} from '../dto';
 import { FcmService } from '../../fcm/services';
 import { NotificationGateway } from '../gateways';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
@@ -71,7 +75,7 @@ export class NotificationService {
     this.logger.log('📥 [createNotification] CALLED');
     this.logger.log(`📥 DTO: ${JSON.stringify(dto, null, 2)}`);
     this.logger.log(`📥 sendPush: ${sendPush}`);
-    
+
     try {
       const notification = this.notificationRepository.create({
         id: uuidv4(),
@@ -84,14 +88,20 @@ export class NotificationService {
         isRead: false,
       });
 
-      this.logger.log(`📝 [createNotification] Created entity: ${JSON.stringify(notification, null, 2)}`);
+      this.logger.log(
+        `📝 [createNotification] Created entity: ${JSON.stringify(notification, null, 2)}`,
+      );
 
       const saved = await this.notificationRepository.save(notification);
-      this.logger.log(`✅ [createNotification] SAVED to database! ID: ${saved.id}`);
+      this.logger.log(
+        `✅ [createNotification] SAVED to database! ID: ${saved.id}`,
+      );
 
       // Send push notification if userPersnum is provided
       if (sendPush && dto.userPersnum) {
-        this.logger.log(`📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`);
+        this.logger.log(
+          `📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`,
+        );
         // Include notificationId in data payload so mobile can dedup
         // across FCM and WebSocket sources.
         const dataWithId = {
@@ -106,7 +116,9 @@ export class NotificationService {
         );
         this.logger.log(`✅ [createNotification] Push notification sent`);
       } else {
-        this.logger.log(`⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`);
+        this.logger.log(
+          `⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`,
+        );
       }
 
       // Emit realtime via WebSocket
@@ -124,7 +136,9 @@ export class NotificationService {
         );
         await this.emitInboxCountIfNeeded(saved);
       } catch (err: any) {
-        this.logger.warn(`⚠️ [createNotification] WS emit failed: ${err?.message}`);
+        this.logger.warn(
+          `⚠️ [createNotification] WS emit failed: ${err?.message}`,
+        );
       }
 
       return saved;
@@ -149,12 +163,16 @@ export class NotificationService {
 
     try {
       const jenisLabel = this.getJenisLabel(dto.jenis);
-      const type = dto.isTembusan ? NotificationType.NASKAH_TEMBUSAN : NotificationType.NASKAH_MASUK;
+      const type = dto.isTembusan
+        ? NotificationType.NASKAH_TEMBUSAN
+        : NotificationType.NASKAH_MASUK;
       const title = `${dto.pengirimPosition}`;
-      
+
       const body = `${dto.perihal}`;
 
-      this.logger.log(`🔔 [createNaskahMasukNotification] jenisLabel: ${jenisLabel}`);
+      this.logger.log(
+        `🔔 [createNaskahMasukNotification] jenisLabel: ${jenisLabel}`,
+      );
       this.logger.log(`🔔 [createNaskahMasukNotification] type: ${type}`);
       this.logger.log(`🔔 [createNaskahMasukNotification] title: ${title}`);
       this.logger.log(`🔔 [createNaskahMasukNotification] body: ${body}`);
@@ -170,7 +188,9 @@ export class NotificationService {
         action: 'OPEN_INBOX_DETAIL',
       };
 
-      this.logger.log(`🔔 [createNaskahMasukNotification] data: ${JSON.stringify(data, null, 2)}`);
+      this.logger.log(
+        `🔔 [createNaskahMasukNotification] data: ${JSON.stringify(data, null, 2)}`,
+      );
 
       const result = await this.createNotification(
         {
@@ -184,11 +204,17 @@ export class NotificationService {
         sendPush,
       );
 
-      this.logger.log(`✅ [createNaskahMasukNotification] SUCCESS! Notification ID: ${result.id}`);
+      this.logger.log(
+        `✅ [createNaskahMasukNotification] SUCCESS! Notification ID: ${result.id}`,
+      );
       return result;
     } catch (error) {
-      this.logger.error(`❌ [createNaskahMasukNotification] ERROR: ${error.message}`);
-      this.logger.error(`❌ [createNaskahMasukNotification] Stack: ${error.stack}`);
+      this.logger.error(
+        `❌ [createNaskahMasukNotification] ERROR: ${error.message}`,
+      );
+      this.logger.error(
+        `❌ [createNaskahMasukNotification] Stack: ${error.stack}`,
+      );
       throw error;
     }
   }
@@ -216,7 +242,8 @@ export class NotificationService {
   ): Promise<NotificationEntity> {
     const type = dto.type || NotificationType.DISPOSISI;
     const isDone = type === NotificationType.DISPOSISI_SELESAI;
-    const title = dto.title || (isDone ? 'Disposisi selesai' : 'Disposisi masuk');
+    const title =
+      dto.title || (isDone ? 'Disposisi selesai' : 'Disposisi masuk');
     const body = dto.body || dto.perihal || dto.instruksi || '-';
 
     const data: DisposisiNotificationData & Record<string, any> = {
@@ -319,9 +346,17 @@ export class NotificationService {
 
     // Emit realtime
     try {
-      this.notificationGateway.emitRead(saved.positionId, saved.userPersnum, saved.id);
+      this.notificationGateway.emitRead(
+        saved.positionId,
+        saved.userPersnum,
+        saved.id,
+      );
       const unread = await this.getUnreadCount(saved.positionId);
-      this.notificationGateway.emitUnreadCount(saved.positionId, saved.userPersnum, unread);
+      this.notificationGateway.emitUnreadCount(
+        saved.positionId,
+        saved.userPersnum,
+        unread,
+      );
     } catch (err: any) {
       this.logger.warn(`⚠️ [markAsRead] WS emit failed: ${err?.message}`);
     }
@@ -374,7 +409,9 @@ export class NotificationService {
       const unread = await this.getUnreadCount(positionId);
       this.notificationGateway.emitUnreadCount(positionId, null, unread);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`,
+      );
     }
 
     return notifications.length;
@@ -422,7 +459,9 @@ export class NotificationService {
         const unread = await this.getUnreadCount(positionId);
         this.notificationGateway.emitUnreadCount(positionId, null, unread);
       } catch (err: any) {
-        this.logger.warn(`⚠️ [deleteNotification] WS emit failed: ${err?.message}`);
+        this.logger.warn(
+          `⚠️ [deleteNotification] WS emit failed: ${err?.message}`,
+        );
       }
     }
 
@@ -437,7 +476,7 @@ export class NotificationService {
     type?: NotificationType,
   ): Promise<number> {
     const criteria: any = { positionId };
-    
+
     if (type) {
       criteria.type = type;
     }
@@ -467,7 +506,9 @@ export class NotificationService {
   /**
    * Convert data object to string values for FCM
    */
-  private convertDataToString(data?: Record<string, any>): Record<string, string> {
+  private convertDataToString(
+    data?: Record<string, any>,
+  ): Record<string, string> {
     if (!data) return {};
 
     const result: Record<string, string> = {};

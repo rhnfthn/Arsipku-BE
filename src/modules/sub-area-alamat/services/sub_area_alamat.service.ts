@@ -13,7 +13,9 @@ export class SubAreaAlamatService {
     private subAreaAlamatRepository: Repository<SubAreaAlamatEntity>,
   ) {}
 
-  async create(createSubAreaAlamatDto: CreateSubAreaAlamatDto): Promise<SubAreaAlamatEntity> {
+  async create(
+    createSubAreaAlamatDto: CreateSubAreaAlamatDto,
+  ): Promise<SubAreaAlamatEntity> {
     const subAreaAlamat = this.subAreaAlamatRepository.create({
       id: uuidv4(),
       ...createSubAreaAlamatDto,
@@ -22,8 +24,12 @@ export class SubAreaAlamatService {
     return await this.subAreaAlamatRepository.save(subAreaAlamat);
   }
 
-  async findAll(company?: string, area?: string): Promise<SubAreaAlamatEntity[]> {
-    const query = this.subAreaAlamatRepository.createQueryBuilder('sub_area_alamat');
+  async findAll(
+    company?: string,
+    area?: string,
+  ): Promise<SubAreaAlamatEntity[]> {
+    const query =
+      this.subAreaAlamatRepository.createQueryBuilder('sub_area_alamat');
 
     if (company) {
       query.where('sub_area_alamat.company = :company', { company });
@@ -93,7 +99,12 @@ export class SubAreaAlamatService {
     area: string,
     subArea: string,
     tanggal?: Date,
-  ): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+  ): Promise<{
+    kantor: string;
+    gedung: string;
+    alamat: string;
+    kota: string;
+  } | null> {
     const queryDate = tanggal || new Date();
 
     const subAreaAlamat = await this.subAreaAlamatRepository
@@ -102,7 +113,9 @@ export class SubAreaAlamatService {
       .andWhere('saa.area = :area', { area })
       .andWhere('saa.sub_area = :subArea', { subArea })
       .andWhere('saa.start_date <= :queryDate', { queryDate })
-      .andWhere('(saa.end_date IS NULL OR saa.end_date >= :queryDate)', { queryDate })
+      .andWhere('(saa.end_date IS NULL OR saa.end_date >= :queryDate)', {
+        queryDate,
+      })
       .orderBy('saa.start_date', 'DESC')
       .getOne();
 

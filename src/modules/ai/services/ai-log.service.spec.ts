@@ -25,7 +25,10 @@ describe('AiLogService', () => {
   });
 
   it('log() redacts sensitive keys in request_body_redacted', async () => {
-    await service.log({ persnum: 1, request_body_redacted: '{"api_key":"secret","brief":"x"}' });
+    await service.log({
+      persnum: 1,
+      request_body_redacted: '{"api_key":"secret","brief":"x"}',
+    });
     const arg = repo.insert.mock.calls[0][0];
     expect(arg.request_body_redacted).toContain('[REDACTED]');
     expect(arg.request_body_redacted).not.toContain('secret');

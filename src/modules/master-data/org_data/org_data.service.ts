@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateOrgDatumDto } from './dto/create-org_datum.dto';
 import { UpdateOrgDatumDto } from './dto/update-org_datum.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -73,7 +77,11 @@ export class OrgDataService {
     return { message: `Area ${id} deleted successfully` };
   }
 
-  async createOrUpdate(tgl: string, organization_json: any, position_json: any) {
+  async createOrUpdate(
+    tgl: string,
+    organization_json: any,
+    position_json: any,
+  ) {
     if (!tgl) {
       throw new BadRequestException('Tanggal (tgl) is required');
     }
@@ -109,7 +117,9 @@ export class OrgDataService {
     const cached = this.orgByDateCache.get(tgl);
     if (cached && cached.expires > now) {
       if (!cached.data) {
-        throw new NotFoundException(`Data untuk tanggal ${tgl} tidak ditemukan`);
+        throw new NotFoundException(
+          `Data untuk tanggal ${tgl} tidak ditemukan`,
+        );
       }
       return cached.data;
     }
@@ -154,13 +164,16 @@ export class OrgDataService {
   /**
    * Get all managerial positions (chief=1) from org_data
    * Returns all positions without any relational filters
-   * 
+   *
    * @param tgl - Optional date (default: today)
    * @returns Array of all managerial positions
    */
-  async getAllManagerialPositions(
-    tgl?: string,
-  ): Promise<{ success: boolean; data: any[]; total: number; tanggal: string }> {
+  async getAllManagerialPositions(tgl?: string): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+    tanggal: string;
+  }> {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
@@ -196,7 +209,12 @@ export class OrgDataService {
   async getAtasanByPosition(
     positionId: number,
     tgl?: string,
-  ): Promise<{ success: boolean; data: any[]; total: number; tanggal: string }> {
+  ): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+    tanggal: string;
+  }> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
     const orgData = await this.findOrg(tanggal);
 
@@ -207,7 +225,9 @@ export class OrgDataService {
     }
 
     const barisData: any[] = orgData.position_json;
-    const signer = barisData.find((x) => Number(x.position) === Number(positionId));
+    const signer = barisData.find(
+      (x) => Number(x.position) === Number(positionId),
+    );
     if (!signer) {
       throw new NotFoundException(
         `Position ${positionId} tidak ditemukan dalam org_data tanggal ${tanggal}.`,
@@ -220,7 +240,8 @@ export class OrgDataService {
     // ponytail: signer Direktur (BOD non-Utama) → a.n. + auto-CC = Direktur Utama
     // (company level), BUKAN bawahan di direktorat sendiri. Sebelumnya filter
     // direktorat-same return bawahan (BOD-1) untuk signer Direktur.
-    const isSignerDirektur = String(signer.bod_tag || '').toUpperCase() === 'BOD' && !isSignerDirut;
+    const isSignerDirektur =
+      String(signer.bod_tag || '').toUpperCase() === 'BOD' && !isSignerDirut;
 
     if (isSignerDirektur) {
       const dirut = barisData.find(
@@ -312,25 +333,36 @@ export class OrgDataService {
       // Recursive function to search user in nested structure
       const searchPersnum = parseInt(String(persnum));
 
-      const findUserInOrg = (orgs: any[], parentOrg: any | null = null): any | null => {
+      const findUserInOrg = (
+        orgs: any[],
+        parentOrg: any | null = null,
+      ): any | null => {
         for (const org of orgs) {
           if (org.positions && Array.isArray(org.positions)) {
             for (const position of org.positions) {
               if (position.person && position.person.persnum) {
-                const positionPersnum = parseInt(String(position.person.persnum));
+                const positionPersnum = parseInt(
+                  String(position.person.persnum),
+                );
 
                 if (positionPersnum === searchPersnum) {
                   const userData = mapPositionWithOrg(org, position);
 
                   // Atasan langsung: position di organization parent (1 level di atas)
                   let atasanLangsung: any = null;
-                  if (parentOrg?.positions && Array.isArray(parentOrg.positions)) {
+                  if (
+                    parentOrg?.positions &&
+                    Array.isArray(parentOrg.positions)
+                  ) {
                     const parentChief = parentOrg.positions.find(
                       (p: any) => p?.person?.persnum && p?.chief === 1,
                     );
 
                     if (parentChief) {
-                      atasanLangsung = mapPositionWithOrg(parentOrg, parentChief);
+                      atasanLangsung = mapPositionWithOrg(
+                        parentOrg,
+                        parentChief,
+                      );
                     }
                   }
 

@@ -27,12 +27,12 @@ export class EksternalService {
       if (!latestOrgData?.position_json) return null;
 
       const positionJson = latestOrgData.position_json;
-      
+
       if (!Array.isArray(positionJson)) return null;
 
       // Find position data by position field (id_position in DB matches position field in JSON)
       const positionData = positionJson.find(
-        (pos) => Number(pos.position) === Number(idPosition)
+        (pos) => Number(pos.position) === Number(idPosition),
       );
 
       // Return persnum_person_text as nama pembuat
@@ -47,7 +47,9 @@ export class EksternalService {
    * Build a single position-id → nama lookup Map dari position_json sekali,
    * dipakai supaya findAll tidak N+1 saat memetakan banyak item.
    */
-  private async buildNamaPembuatMap(idPositions: string[]): Promise<Map<number, string | null>> {
+  private async buildNamaPembuatMap(
+    idPositions: string[],
+  ): Promise<Map<number, string | null>> {
     const map = new Map<number, string | null>();
     const ids = idPositions.filter(Boolean);
     if (ids.length === 0) return map;
@@ -66,7 +68,9 @@ export class EksternalService {
     return map;
   }
 
-  async create(createEksternalDto: CreateEksternalDto): Promise<EksternalEntity> {
+  async create(
+    createEksternalDto: CreateEksternalDto,
+  ): Promise<EksternalEntity> {
     const eksternal = this.eksternalRepository.create({
       id: uuidv4(),
       ...createEksternalDto,
@@ -118,7 +122,7 @@ export class EksternalService {
     }
 
     // Add nama_pembuat
-    const nama_pembuat = eksternal.id_position_pembuat 
+    const nama_pembuat = eksternal.id_position_pembuat
       ? await this.getNamaPembuat(eksternal.id_position_pembuat)
       : null;
 
@@ -128,9 +132,12 @@ export class EksternalService {
     };
   }
 
-  async update(id: string, updateEksternalDto: UpdateEksternalDto): Promise<any> {
+  async update(
+    id: string,
+    updateEksternalDto: UpdateEksternalDto,
+  ): Promise<any> {
     const eksternalData = await this.findOne(id);
-    
+
     // Remove nama_pembuat from findOne result as it's computed
     const { nama_pembuat, ...eksternal } = eksternalData;
 
@@ -138,7 +145,7 @@ export class EksternalService {
     const updated = await this.eksternalRepository.save(eksternal);
 
     // Add nama_pembuat to response
-    const nama_pembuat_updated = updated.id_position_pembuat 
+    const nama_pembuat_updated = updated.id_position_pembuat
       ? await this.getNamaPembuat(updated.id_position_pembuat)
       : null;
 
@@ -150,24 +157,24 @@ export class EksternalService {
 
   async remove(id: string): Promise<void> {
     const eksternalData = await this.findOne(id);
-    
+
     // Remove nama_pembuat from findOne result
     const { nama_pembuat, ...eksternal } = eksternalData;
-    
+
     await this.eksternalRepository.remove(eksternal as EksternalEntity);
   }
 
   async toggleAktif(id: string): Promise<any> {
     const eksternalData = await this.findOne(id);
-    
+
     // Remove nama_pembuat from findOne result
     const { nama_pembuat, ...eksternal } = eksternalData;
-    
+
     eksternal.aktif = !eksternal.aktif;
     const updated = await this.eksternalRepository.save(eksternal);
 
     // Add nama_pembuat to response
-    const nama_pembuat_updated = updated.id_position_pembuat 
+    const nama_pembuat_updated = updated.id_position_pembuat
       ? await this.getNamaPembuat(updated.id_position_pembuat)
       : null;
 

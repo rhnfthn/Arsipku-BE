@@ -47,7 +47,12 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman FAQ',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat FAQ', resource: 'faq' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat FAQ',
+                  resource: 'faq',
+                },
               ],
             },
           ],
@@ -69,11 +74,36 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Manajemen FAQ',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Halaman Manajemen FAQ', resource: 'faq' },
-                { action: 'create', label: 'Create', description: 'Button Tambah FAQ', resource: 'faq' },
-                { action: 'update', label: 'Update', description: 'Button Edit FAQ', resource: 'faq' },
-                { action: 'delete', label: 'Delete', description: 'Button Hapus FAQ', resource: 'faq' },
-                { action: 'export', label: 'Export', description: 'Button Export FAQ', resource: 'faq' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Halaman Manajemen FAQ',
+                  resource: 'faq',
+                },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Button Tambah FAQ',
+                  resource: 'faq',
+                },
+                {
+                  action: 'update',
+                  label: 'Update',
+                  description: 'Button Edit FAQ',
+                  resource: 'faq',
+                },
+                {
+                  action: 'delete',
+                  label: 'Delete',
+                  description: 'Button Hapus FAQ',
+                  resource: 'faq',
+                },
+                {
+                  action: 'export',
+                  label: 'Export',
+                  description: 'Button Export FAQ',
+                  resource: 'faq',
+                },
               ],
             },
           ],
@@ -95,7 +125,12 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Pedoman',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Melihat pedoman', resource: 'pedoman' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat pedoman',
+                  resource: 'pedoman',
+                },
               ],
             },
           ],
@@ -117,10 +152,30 @@ export const faqMatrix: FaqMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Manajemen Pedoman',
               permissions: [
-                { action: 'read', label: 'Read', description: 'Halaman Manajemen Pedoman', resource: 'pedoman' },
-                { action: 'create', label: 'Create', description: 'Button Tambah Pedoman', resource: 'pedoman' },
-                { action: 'update', label: 'Update', description: 'Button Edit Pedoman', resource: 'pedoman' },
-                { action: 'delete', label: 'Delete', description: 'Button Delete Pedoman', resource: 'pedoman' },
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Halaman Manajemen Pedoman',
+                  resource: 'pedoman',
+                },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Button Tambah Pedoman',
+                  resource: 'pedoman',
+                },
+                {
+                  action: 'update',
+                  label: 'Update',
+                  description: 'Button Edit Pedoman',
+                  resource: 'pedoman',
+                },
+                {
+                  action: 'delete',
+                  label: 'Delete',
+                  description: 'Button Delete Pedoman',
+                  resource: 'pedoman',
+                },
               ],
             },
           ],
@@ -143,11 +198,18 @@ function flattenFaqMatrix(halaman: FaqMatrixHalaman): FaqResourceDef[] {
       for (const fitur of sub.fiturs) {
         for (const perm of fitur.permissions) {
           if (!map.has(perm.resource)) {
-            map.set(perm.resource, { name: perm.resource, description: perm.resource, permissions: [] });
+            map.set(perm.resource, {
+              name: perm.resource,
+              description: perm.resource,
+              permissions: [],
+            });
           }
           const res = map.get(perm.resource)!;
           if (!res.permissions.some((p) => p.action === perm.action)) {
-            res.permissions.push({ action: perm.action, description: perm.description });
+            res.permissions.push({
+              action: perm.action,
+              description: perm.description,
+            });
           }
         }
       }

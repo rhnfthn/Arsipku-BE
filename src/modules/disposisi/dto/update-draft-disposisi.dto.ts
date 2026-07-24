@@ -10,11 +10,7 @@ import {
   IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  SifatNaskah,
-  LampiranDto,
-  SignOption,
-} from './create-disposisi.dto';
+import { SifatNaskah, LampiranDto, SignOption } from './create-disposisi.dto';
 import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
 
 /**
@@ -31,7 +27,13 @@ export class UpdateDraftDisposisiDto {
   @IsOptional()
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima_position_ids?: number[];
 
   // Tanggal Disposisi
@@ -75,7 +77,7 @@ export class UpdateDraftDisposisiDto {
   disposisi?: string;
 
   // ============================================================
-  // CATATAN - Untuk checkbox "Lainnya" 
+  // CATATAN - Untuk checkbox "Lainnya"
   // Jika user klik checkbox "Lainnya", isi catatan masuk ke sini
   // Disimpan ke kolom "catatan" di tabel "di"
   // ============================================================
@@ -149,7 +151,9 @@ export class UpdateDraftDisposisiDto {
   is_priority?: boolean;
 
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()

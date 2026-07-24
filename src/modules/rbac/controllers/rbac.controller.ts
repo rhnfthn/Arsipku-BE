@@ -199,8 +199,15 @@ export class RbacController {
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')
-  async assignPermissions(@Param('id') id: string, @Body() dto: AssignPermissionDto) {
-    await this.rbacService.assignPermissionsToRole(id, dto.permissionIds, dto.matrixPermissionIds);
+  async assignPermissions(
+    @Param('id') id: string,
+    @Body() dto: AssignPermissionDto,
+  ) {
+    await this.rbacService.assignPermissionsToRole(
+      id,
+      dto.permissionIds,
+      dto.matrixPermissionIds,
+    );
     return { success: true, message: 'Permissions assigned to role' };
   }
 
@@ -214,7 +221,15 @@ export class RbacController {
   @Get('users')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('user', 'read')
-  async listUserRolesTable(@Query() query: { search?: string; roleName?: string; page?: string; limit?: string }) {
+  async listUserRolesTable(
+    @Query()
+    query: {
+      search?: string;
+      roleName?: string;
+      page?: string;
+      limit?: string;
+    },
+  ) {
     const result = await this.rbacService.findAllUserRoles({
       search: query.search,
       roleName: query.roleName,
@@ -239,7 +254,11 @@ export class RbacController {
   async getUserProfile(@Param('persnum', ParseIntPipe) persnum: number) {
     const profile = await this.rbacService.findUserProfile(persnum);
     if (!profile) {
-      return { success: false, data: null, message: `User dengan persnum ${persnum} tidak ditemukan` };
+      return {
+        success: false,
+        data: null,
+        message: `User dengan persnum ${persnum} tidak ditemukan`,
+      };
     }
     return { success: true, data: profile };
   }
@@ -326,11 +345,15 @@ export class RbacController {
 
   @Post('switch-role')
   @UseGuards(JwtAuthGuard)
-  async switchRole(@CurrentUser() user: JwtPayload, @Body() dto: SwitchRoleDto) {
+  async switchRole(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SwitchRoleDto,
+  ) {
     const allowed = (user.roles ?? []).some((r) => r.id === dto.roleId);
     if (!allowed) throw new ForbiddenException('You do not have this role');
 
-    const role: RoleEntity | null = await this.rbacService.getRoleWithPermissions(dto.roleId);
+    const role: RoleEntity | null =
+      await this.rbacService.getRoleWithPermissions(dto.roleId);
     if (!role) throw new ForbiddenException('Role not found');
 
     const activePermissions = this.rbacService.groupPermissionsByResource(
@@ -342,7 +365,7 @@ export class RbacController {
       ...base,
       activeRole: { id: role.id, name: role.name },
       activePermissions,
-      role: (role.name.toLowerCase() as 'user' | 'admin' | 'superadmin'),
+      role: role.name.toLowerCase() as 'user' | 'admin' | 'superadmin',
     };
 
     const expiresIn =
@@ -350,7 +373,9 @@ export class RbacController {
         ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600)
         : 86400;
 
-    const accessToken = await this.jwtService.signAsync(newPayload, { expiresIn });
+    const accessToken = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
 
     return {
       success: true,

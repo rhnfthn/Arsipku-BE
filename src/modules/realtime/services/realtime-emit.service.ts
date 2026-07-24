@@ -33,7 +33,9 @@ export class RealtimeEmitService {
     try {
       this.gateway.emitRealtimeSummary(positionId, payload);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [emitSummary] failed for ${positionId}: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [emitSummary] failed for ${positionId}: ${err?.message}`,
+      );
     }
   }
 
@@ -48,7 +50,9 @@ export class RealtimeEmitService {
     try {
       this.gateway.emitInboxCount(positionId, count);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [emitInboxCount] failed for ${positionId}: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [emitInboxCount] failed for ${positionId}: ${err?.message}`,
+      );
     }
   }
 
@@ -63,7 +67,9 @@ export class RealtimeEmitService {
     try {
       this.gateway.emitLabelCounts(positionId, counts);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [emitLabelCounts] failed for ${positionId}: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [emitLabelCounts] failed for ${positionId}: ${err?.message}`,
+      );
     }
   }
 
@@ -93,7 +99,9 @@ export class RealtimeEmitService {
     try {
       this.gateway.emitNomorCount(positionId, 'user', counts);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [emitNomorCountUser] failed for ${positionId}: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [emitNomorCountUser] failed for ${positionId}: ${err?.message}`,
+      );
     }
   }
 
@@ -104,7 +112,9 @@ export class RealtimeEmitService {
     try {
       this.gateway.emitNomorCountAdmin(counts);
     } catch (err: any) {
-      this.logger.warn(`⚠️ [emitNomorCountAdminBroadcast] failed: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ [emitNomorCountAdminBroadcast] failed: ${err?.message}`,
+      );
     }
   }
 
@@ -158,14 +168,17 @@ export class RealtimeEmitService {
   /**
    * Emit tracking update ke pengirim saat penerima membaca atau tindak lanjut.
    */
-  emitTrackingUpdate(pengirimPositionId: string, payload: {
-    naskahId: string;
-    sirkulasiId: string;
-    positionId: string;
-    status_baca: string;
-    read_time: string | null;
-    is_tindak_lanjut: boolean;
-  }) {
+  emitTrackingUpdate(
+    pengirimPositionId: string,
+    payload: {
+      naskahId: string;
+      sirkulasiId: string;
+      positionId: string;
+      status_baca: string;
+      read_time: string | null;
+      is_tindak_lanjut: boolean;
+    },
+  ) {
     try {
       this.gateway.emitTrackingUpdate(pengirimPositionId, payload);
     } catch (err: any) {

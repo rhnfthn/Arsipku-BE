@@ -1,4 +1,10 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  Index,
+} from 'typeorm';
 
 export enum RoleAction {
   ASSIGNED = 'assigned',

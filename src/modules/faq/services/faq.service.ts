@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -91,9 +96,7 @@ export class FaqService {
       message: kategoriId
         ? `Data FAQ berhasil diambil`
         : 'Data FAQ berhasil diambil',
-      data: faqs.map((faq) =>
-        this.toFaqData(faq, userVotesMap.get(faq.id)),
-      ),
+      data: faqs.map((faq) => this.toFaqData(faq, userVotesMap.get(faq.id))),
     };
   }
 
@@ -136,7 +139,9 @@ export class FaqService {
       where: { id: dto.kategoriId },
     });
     if (!kategori) {
-      throw new NotFoundException(`Kategori dengan ID ${dto.kategoriId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Kategori dengan ID ${dto.kategoriId} tidak ditemukan`,
+      );
     }
 
     const faq = this.faqRepository.create({
@@ -184,9 +189,13 @@ export class FaqService {
         if (!newUrls.includes(oldLampiran.url)) {
           try {
             await this.storageService.deleteFile(oldLampiran.url);
-            this.logger.log(`🗑️ File lampiran FAQ lama dihapus dari MinIO: ${oldLampiran.url}`);
+            this.logger.log(
+              `🗑️ File lampiran FAQ lama dihapus dari MinIO: ${oldLampiran.url}`,
+            );
           } catch (err: any) {
-            this.logger.warn(`⚠️ Gagal menghapus file lampiran FAQ lama: ${oldLampiran.url} - ${err.message}`);
+            this.logger.warn(
+              `⚠️ Gagal menghapus file lampiran FAQ lama: ${oldLampiran.url} - ${err.message}`,
+            );
           }
         }
       }
@@ -198,7 +207,9 @@ export class FaqService {
         where: { id: dto.kategoriId },
       });
       if (!kategori) {
-        throw new NotFoundException(`Kategori dengan ID ${dto.kategoriId} tidak ditemukan`);
+        throw new NotFoundException(
+          `Kategori dengan ID ${dto.kategoriId} tidak ditemukan`,
+        );
       }
       faq.kategoriId = dto.kategoriId;
       faq.kategoriEntity = kategori;
@@ -232,9 +243,13 @@ export class FaqService {
       for (const lampiran of faq.lampirans) {
         try {
           await this.storageService.deleteFile(lampiran.url);
-          this.logger.log(`🗑️ File lampiran FAQ dihapus dari MinIO: ${lampiran.url}`);
+          this.logger.log(
+            `🗑️ File lampiran FAQ dihapus dari MinIO: ${lampiran.url}`,
+          );
         } catch (err: any) {
-          this.logger.warn(`⚠️ Gagal menghapus file lampiran FAQ dari MinIO: ${lampiran.url} - ${err.message}`);
+          this.logger.warn(
+            `⚠️ Gagal menghapus file lampiran FAQ dari MinIO: ${lampiran.url} - ${err.message}`,
+          );
         }
       }
     }
@@ -323,7 +338,10 @@ export class FaqService {
   /**
    * Increment counter tidak_puas (per user)
    */
-  async incrementTidakPuas(id: string, userId: string): Promise<FaqResponseDto> {
+  async incrementTidakPuas(
+    id: string,
+    userId: string,
+  ): Promise<FaqResponseDto> {
     return this.handleVote(id, userId, 'tidak_puas');
   }
 }

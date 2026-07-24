@@ -82,9 +82,7 @@ export class PositionController {
    */
   @Post()
   @RequirePermission('master-data', 'create')
-  create(
-    @Body() data: CreatePositionDto,
-  ) {
+  create(@Body() data: CreatePositionDto) {
     return this.positionService.create(data);
   }
 
@@ -94,10 +92,7 @@ export class PositionController {
    */
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  update(
-    @Param('id') id: string,
-    @Body() data: UpdatePositionDto,
-  ) {
+  update(@Param('id') id: string, @Body() data: UpdatePositionDto) {
     return this.positionService.update(id, data);
   }
 

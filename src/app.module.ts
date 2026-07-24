@@ -197,7 +197,10 @@ export class AppModule implements OnModuleInit {
       await this.dataSource.query('SET GLOBAL max_allowed_packet = 268435456');
       console.log('✅ MySQL max_allowed_packet set to 256MB');
     } catch (error: any) {
-      console.warn('⚠️ Could not set max_allowed_packet (might need SUPER privilege):', error?.message);
+      console.warn(
+        '⚠️ Could not set max_allowed_packet (might need SUPER privilege):',
+        error?.message,
+      );
     }
   }
 }
