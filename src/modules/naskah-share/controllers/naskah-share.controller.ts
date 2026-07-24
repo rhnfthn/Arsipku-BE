@@ -108,8 +108,32 @@ export class NaskahShareController {
   }
 
   /**
+   * DELETE /naskah-share/:shareId/recipients/:recipientId
+   * Cabut akses satu penerima
+   */
+  @Delete(':shareId/recipients/:recipientId')
+  @RequirePermission('naskah-share', 'delete')
+  async revokeRecipient(
+    @CurrentUser() user: JwtPayload,
+    @Param('shareId') shareId: string,
+    @Param('recipientId') recipientId: string,
+    @Query('reason') reason?: string,
+  ) {
+    try {
+      return await this.shareService.revokeRecipient(user, shareId, recipientId, reason);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error('[NaskahShareController] revokeRecipient error:', error);
+      throw new HttpException(
+        { success: false, message: 'Gagal mencabut akses penerima', error: error.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * DELETE /naskah-share/:id
-   * Cabut akses share
+   * Cabut akses share (semua penerima)
    */
   @Delete(':id')
   @RequirePermission('naskah-share', 'delete')
