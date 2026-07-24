@@ -365,6 +365,97 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
+  // DELETE /naskah-share/:shareId/recipients/:recipientId
+  // Revoke single recipient
+  // ────────────────────────────────────────────────────────────────
+
+  async revokeRecipient(user: JwtPayload, shareId: string, recipientId: string, reason?: string) {
+    const share = await this.shareRepo.findOne({
+      where: { id: shareId },
+      relations: ['recipients'],
+    });
+    if (!share) throw new NotFoundException('Share tidak ditemukan');
+
+    if (share.pemberiId !== user.position)
+      throw new ForbiddenException('Hanya pemberi yang dapat mencabut akses');
+
+    if (share.status !== ShareStatus.AKTIF)
+      throw new BadRequestException('Share sudah dicabut sebelumnya');
+
+    const recipient = share.recipients.find((r) => r.recipientId === recipientId);
+    if (!recipient) throw new NotFoundException('Penerima tidak ditemukan dalam share ini');
+
+    if (recipient.status === RecipientStatus.DICABUT)
+      throw new BadRequestException('Akses penerima ini sudah dicabut sebelumnya');
+
+    // Revoke this recipient
+    recipient.status = RecipientStatus.DICABUT;
+    await this.recipientRepo.save(recipient);
+
+    // Check if all recipients revoked → mark share as DICABUT
+    const allRevoked = share.recipients.every(
+      (r) => r.id === recipient.id || r.status === RecipientStatus.DICABUT,
+    );
+    if (allRevoked) {
+      share.status = ShareStatus.DICABUT;
+      share.revokedAt = new Date();
+      share.revokedReason = reason || null;
+      await this.shareRepo.save(share);
+    }
+
+    // Audit log
+    const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
+    await this.logRepo.save(
+      this.logRepo.create({
+        id: uuidv4(),
+        shareId,
+        naskahId: share.naskahId,
+        aksi: ShareLogAksi.REVOKED,
+        actorPersnum: user.persnum,
+        actorNama: user.nama,
+        actorPositionText: user.positionText,
+        recipientPersnum: recipient.recipientPersnum,
+        recipientNama: recipient.recipientNama,
+        catatan: reason || null,
+      }),
+    );
+
+    // Notify revoked recipient
+    try {
+      await this.notificationService.createNotification(
+        {
+          positionId: recipient.recipientId,
+          userPersnum: recipient.recipientPersnum,
+          type: NotificationType.NASKAH_SHARE_DICABUT,
+          title: `Akses naskah telah dicabut oleh ${user.nama}`,
+          body: naskah?.perihal || reason || 'Akses Anda telah dicabut',
+          data: {
+            naskahId: share.naskahId,
+            shareId,
+            pemberiName: user.nama,
+            perihal: naskah?.perihal || '',
+            action: 'OPEN_SHARE',
+          },
+        },
+        true,
+      );
+    } catch (err: any) {
+      this.logger.warn(`⚠️ Failed to send revoke notification: ${err?.message}`);
+    }
+
+    return {
+      success: true,
+      message: `Akses ${recipient.recipientNama} berhasil dicabut`,
+      data: {
+        shareId,
+        recipientId,
+        recipientNama: recipient.recipientNama,
+        shareStatus: share.status,
+      },
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────
   // DELETE /naskah-share/:id — Revoke share
   // ────────────────────────────────────────────────────────────────
 
