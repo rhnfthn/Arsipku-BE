@@ -45,7 +45,7 @@ export class SessionService {
     });
 
     const saved = await this.sessionRepo.save(session);
-    
+
     console.log('[SessionService] Session saved:', {
       id: saved.id,
       userPersnum: saved.userPersnum,

@@ -71,13 +71,14 @@ export class CompanyService {
     const persons = await this.dataSource.query(personsQuery, [companyId]);
 
     // Build hierarchical structure
-    const organizationsWithDetails = organizations.map(org => {
+    const organizationsWithDetails = organizations.map((org) => {
       // Get positions for this organization (if you have org-position relation)
       // For now, including all positions in company
-      const orgPositions = positions.map(pos => {
+      const orgPositions = positions.map((pos) => {
         // Get persons for this position
         const posPersons = persons.filter(
-          (person: any) => person.position === pos.position && person.company === companyId
+          (person: any) =>
+            person.position === pos.position && person.company === companyId,
         );
 
         return {
@@ -109,7 +110,10 @@ export class CompanyService {
         startDate: org.startDate,
         endDate: org.endDate,
         positionsCount: orgPositions.length,
-        personsCount: orgPositions.reduce((sum, pos) => sum + pos.personsCount, 0),
+        personsCount: orgPositions.reduce(
+          (sum, pos) => sum + pos.personsCount,
+          0,
+        ),
         positions: orgPositions,
       };
     });

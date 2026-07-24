@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -57,7 +61,7 @@ export class NaskahService {
     private grupPenerimaService: GrupPenerimaService,
     private notificationService: NotificationService,
     private dataSource: DataSource,
-  ) { }
+  ) {}
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
     const naskah = new NaskahEntity();
@@ -67,7 +71,7 @@ export class NaskahService {
     const saved = await this.naskahRepository.save(naskah);
 
     // Sync to Meilisearch (non-blocking)
-    this.meilisearchSyncService.syncNaskah(saved.id).catch(() => { });
+    this.meilisearchSyncService.syncNaskah(saved.id).catch(() => {});
 
     return saved;
   }
@@ -124,7 +128,7 @@ export class NaskahService {
     const saved = await this.naskahRepository.save(naskah);
 
     // Sync to Meilisearch (non-blocking)
-    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+    this.meilisearchSyncService.syncNaskah(id).catch(() => {});
 
     return saved;
   }
@@ -134,7 +138,7 @@ export class NaskahService {
     await this.naskahRepository.remove(naskah);
 
     // Remove from Meilisearch (non-blocking)
-    this.meilisearchSyncService.deleteNaskah(id).catch(() => { });
+    this.meilisearchSyncService.deleteNaskah(id).catch(() => {});
   }
 
   async updateStatus(
@@ -146,14 +150,14 @@ export class NaskahService {
     const saved = await this.naskahRepository.save(naskah);
 
     // Sync to Meilisearch (non-blocking)
-    this.meilisearchSyncService.syncNaskah(id).catch(() => { });
+    this.meilisearchSyncService.syncNaskah(id).catch(() => {});
 
     return saved;
   }
 
   /**
    * Finalize Pending - Mengirim surat yang tertunda (TTD basah)
-   * 
+   *
    * Flow:
    * 1. Validasi naskah status = 'pending'
    * 2. Simpan file signed scan (jika ada)
@@ -164,8 +168,18 @@ export class NaskahService {
   async finalizePending(
     naskahId: string,
     file: Express.Multer.File,
-    user?: { persnum: number; nama: string; positionText: string; position?: string },
-  ): Promise<{ success: boolean; message: string; naskah_id: string; signed_file: string }> {
+    user?: {
+      persnum: number;
+      nama: string;
+      positionText: string;
+      position?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    message: string;
+    naskah_id: string;
+    signed_file: string;
+  }> {
     if (user?.position) {
       await this.assertUserHasAccessToNaskah(naskahId, user.position);
     }
@@ -175,7 +189,9 @@ export class NaskahService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'pending') {
@@ -185,7 +201,10 @@ export class NaskahService {
     }
 
     // Upload signed file to storage
-    const uploadResult = await this.storageService.uploadFile(file, 'signed-documents');
+    const uploadResult = await this.storageService.uploadFile(
+      file,
+      'signed-documents',
+    );
     const signedFileKey = uploadResult.key;
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -206,7 +225,11 @@ export class NaskahService {
         }),
       };
 
-      await queryRunner.manager.update(NaskahEntity, { id: naskahId }, updateData);
+      await queryRunner.manager.update(
+        NaskahEntity,
+        { id: naskahId },
+        updateData,
+      );
 
       // Update all sirkulasi: isDraft = false (now visible to penerima)
       await queryRunner.manager.update(
@@ -223,47 +246,65 @@ export class NaskahService {
       });
 
       const pengirim = allSirkulasi.find((s) => s.sirkuler === 'pengirim');
-      const penerimaList = allSirkulasi.filter((s) => s.sirkuler === 'penerima');
-      const tembusanList = allSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+      const penerimaList = allSirkulasi.filter(
+        (s) => s.sirkuler === 'penerima',
+      );
+      const tembusanList = allSirkulasi.filter(
+        (s) => s.sirkuler === 'tembusan',
+      );
 
       // Send notifications to penerima (non-blocking)
       for (const penerima of penerimaList) {
-        this.notificationService.createNaskahMasukNotification({
-          positionId: penerima.position || '',
-          userPersnum: penerima.idSirkuler ? Number(penerima.idSirkuler) || undefined : undefined,
-          naskahId,
-          sirkulasiId: penerima.id,
-          jenis: naskah.jenis || 'ND',
-          nomor: naskah.nomor || '',
-          perihal: naskah.perihal || '',
-          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
-          pengirimPosition: pengirim?.positionText || '',
-          isTembusan: false,
-        }).catch((err) => {
-          console.error(`[Naskah:FinalizePending] ❌ Failed notification penerima ${penerima.position}:`, err.message);
-        });
+        this.notificationService
+          .createNaskahMasukNotification({
+            positionId: penerima.position || '',
+            userPersnum: penerima.idSirkuler
+              ? Number(penerima.idSirkuler) || undefined
+              : undefined,
+            naskahId,
+            sirkulasiId: penerima.id,
+            jenis: naskah.jenis || 'ND',
+            nomor: naskah.nomor || '',
+            perihal: naskah.perihal || '',
+            pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+            pengirimPosition: pengirim?.positionText || '',
+            isTembusan: false,
+          })
+          .catch((err) => {
+            console.error(
+              `[Naskah:FinalizePending] ❌ Failed notification penerima ${penerima.position}:`,
+              err.message,
+            );
+          });
       }
 
       // Send notifications to tembusan (non-blocking)
       for (const tembusan of tembusanList) {
-        this.notificationService.createNaskahMasukNotification({
-          positionId: tembusan.position || '',
-          userPersnum: tembusan.idSirkuler ? Number(tembusan.idSirkuler) || undefined : undefined,
-          naskahId,
-          sirkulasiId: tembusan.id,
-          jenis: naskah.jenis || 'ND',
-          nomor: naskah.nomor || '',
-          perihal: naskah.perihal || '',
-          pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
-          pengirimPosition: pengirim?.positionText || '',
-          isTembusan: true,
-        }).catch((err) => {
-          console.error(`[Naskah:FinalizePending] ❌ Failed notification tembusan ${tembusan.position}:`, err.message);
-        });
+        this.notificationService
+          .createNaskahMasukNotification({
+            positionId: tembusan.position || '',
+            userPersnum: tembusan.idSirkuler
+              ? Number(tembusan.idSirkuler) || undefined
+              : undefined,
+            naskahId,
+            sirkulasiId: tembusan.id,
+            jenis: naskah.jenis || 'ND',
+            nomor: naskah.nomor || '',
+            perihal: naskah.perihal || '',
+            pengirim: pengirim?.namaSirkuler || pengirim?.positionText || '',
+            pengirimPosition: pengirim?.positionText || '',
+            isTembusan: true,
+          })
+          .catch((err) => {
+            console.error(
+              `[Naskah:FinalizePending] ❌ Failed notification tembusan ${tembusan.position}:`,
+              err.message,
+            );
+          });
       }
 
       // Sync to Meilisearch (non-blocking)
-      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
 
       return {
         success: true,
@@ -274,7 +315,7 @@ export class NaskahService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       // Cleanup uploaded file if transaction failed
-      this.storageService.deleteFile(signedFileKey).catch(() => { });
+      this.storageService.deleteFile(signedFileKey).catch(() => {});
       throw error;
     } finally {
       await queryRunner.release();
@@ -283,7 +324,7 @@ export class NaskahService {
 
   /**
    * Get Detail Naskah - Global untuk semua jenis naskah
-   * 
+   *
    * Mengambil semua data terkait naskah:
    * - Data utama dari tabel naskah
    * - Sirkulasi (pengirim, penerima, tembusan)
@@ -303,7 +344,9 @@ export class NaskahService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${naskahId} tidak ditemukan`,
+      );
     }
 
     // 2. Get sirkulasi (pengirim, penerima, tembusan)
@@ -316,16 +359,22 @@ export class NaskahService {
     const tembusan = sirkulasiList.filter((s) => s.sirkuler === 'tembusan');
 
     // Extract unique grup penerima IDs from sirkulasi records
-    const penerimaGrupIds = [...new Set(
-      penerima.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
-    )];
-    const tembusanGrupIds = [...new Set(
-      tembusan.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
-    )];
+    const penerimaGrupIds = [
+      ...new Set(
+        penerima.filter((p) => p.idGrupPenerima).map((p) => p.idGrupPenerima!),
+      ),
+    ];
+    const tembusanGrupIds = [
+      ...new Set(
+        tembusan.filter((t) => t.idGrupPenerima).map((t) => t.idGrupPenerima!),
+      ),
+    ];
 
     // Enrich grup penerima with nama and position_ids
-    const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
-    const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+    const penerimaGrupInfo =
+      await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+    const tembusanGrupInfo =
+      await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
 
     // 3. Get lampiran files
     const lampiranList = await this.naskahLampiranRepository.find({
@@ -488,10 +537,16 @@ export class NaskahService {
     // Count naskah dengan status 'draf' dari sirkulasi pengirim dengan position tertentu
     const count = await this.naskahRepository
       .createQueryBuilder('naskah')
-      .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
+      .innerJoin(
+        'naskah_sirkulasi',
+        'sirkulasi',
+        'sirkulasi.idNaskah = naskah.id',
+      )
       .where('naskah.status = :status', { status: 'draf' })
       .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-      .andWhere('sirkulasi.position = :position', { position: String(positionId) })
+      .andWhere('sirkulasi.position = :position', {
+        position: String(positionId),
+      })
       .getCount();
 
     return {
@@ -506,18 +561,21 @@ export class NaskahService {
 
   /**
    * Get Detail Naskah dengan Rangkaian Referensi Lengkap
-   * 
+   *
    * Menampilkan chain lengkap naskah dari awal sampai akhir:
    * - Root naskah (awal)
    * - Semua forward/disposisi turunan
    * - Support semua jenis: ND, SDI, SDE, DI, KA
-   * 
+   *
    * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
-   * 
+   *
    * @param naskahId - ID naskah (bisa dari level mana saja)
    * @returns Full chain dengan detail setiap naskah
    */
-  async getDetailWithChain(naskahId: string, userPosition: string): Promise<any> {
+  async getDetailWithChain(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<any> {
     // Fetch user's sirkulasi record once — reuse for access check & flag extraction
     let userSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: {
@@ -610,18 +668,18 @@ export class NaskahService {
     // STEP 2: Calculate level untuk setiap naskah berdasarkan kedalaman referensi
     // Level = depth dari referenced parent (0 jika tidak ada referensi)
     const naskahIdToLevel = new Map<string, number>();
-    
+
     const calculateLevel = async (naskahIdParam: string): Promise<number> => {
       if (naskahIdToLevel.has(naskahIdParam)) {
         return naskahIdToLevel.get(naskahIdParam)!;
       }
-      
+
       const referensi = allReferensiMap.get(naskahIdParam);
       if (!referensi || !referensi.ref_nomor) {
         naskahIdToLevel.set(naskahIdParam, 0);
         return 0;
       }
-      
+
       // Find parent
       const whereClause: any = { nomor: referensi.ref_nomor };
       if (referensi.ref_jenis) {
@@ -630,18 +688,18 @@ export class NaskahService {
       const parentNaskah = await this.naskahRepository.findOne({
         where: whereClause,
       });
-      
+
       if (!parentNaskah) {
         naskahIdToLevel.set(naskahIdParam, 0);
         return 0;
       }
-      
+
       const parentLevel = await calculateLevel(parentNaskah.id);
       const currentLevel = parentLevel + 1;
       naskahIdToLevel.set(naskahIdParam, currentLevel);
       return currentLevel;
     };
-    
+
     // Calculate level untuk semua naskah dalam chain
     for (const naskahId of allNaskahInChain) {
       await calculateLevel(naskahId);
@@ -690,7 +748,7 @@ export class NaskahService {
 
     // STEP 3: Build flow dengan level yang sudah dihitung
     const flow: any[] = [];
-    
+
     // Helper function to build node data for flow
     const buildFlowNode = async (
       naskahData: NaskahEntity,
@@ -769,7 +827,9 @@ export class NaskahService {
         // ND: Get data from naskah_sirkulasi (pengirim) and naskah
         if (pengirimSirkulasi) {
           // Build kepada_yth from penerima list
-          const kepadaYth = penerimaList.map(p => p.positionText || '').join('; ');
+          const kepadaYth = penerimaList
+            .map((p) => p.positionText || '')
+            .join('; ');
           jenisSpecificData = {
             kepada_yth: kepadaYth,
             nama_tempat: naskahData.tempat || null,
@@ -782,17 +842,25 @@ export class NaskahService {
         // SDI/SDE: Get data from naskah_sirkulasi (pengirim and penerima) and naskah
         if (pengirimSirkulasi) {
           // Build kepada_yth from penerima list
-          const kepadaYth = naskahData.jenis === 'SDI'
-            ? penerimaList.map(p => `${p.positionText} - ${p.organizationText}`).join('; ')
-            : penerimaList.map(p => p.namaSirkuler || '').join('; ');
+          const kepadaYth =
+            naskahData.jenis === 'SDI'
+              ? penerimaList
+                  .map((p) => `${p.positionText} - ${p.organizationText}`)
+                  .join('; ')
+              : penerimaList.map((p) => p.namaSirkuler || '').join('; ');
 
           // For SDE, get tujuan and alamat from first penerima (if external)
-          const firstPenerima = penerimaList.length > 0 ? penerimaList[0] : null;
+          const firstPenerima =
+            penerimaList.length > 0 ? penerimaList[0] : null;
 
           jenisSpecificData = {
             kepada_yth: kepadaYth,
-            tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.namaSirkuler || null) : null,
-            alamat_tujuan: naskahData.jenis === 'SDE' ? (firstPenerima?.alamat || null) : null,
+            tujuan:
+              naskahData.jenis === 'SDE'
+                ? firstPenerima?.namaSirkuler || null
+                : null,
+            alamat_tujuan:
+              naskahData.jenis === 'SDE' ? firstPenerima?.alamat || null : null,
             nama_tempat: naskahData.tempat || null,
             nama_jabatan: pengirimSirkulasi.positionText || null,
             nama_lengkap: pengirimSirkulasi.namaSirkuler || null,
@@ -810,25 +878,35 @@ export class NaskahService {
         : null;
 
       // Extract unique grup penerima IDs
-      const penerimaGrupIds = [...new Set(
-        penerimaList.filter(p => p.idGrupPenerima).map(p => p.idGrupPenerima!),
-      )];
-      const tembusanGrupIds = [...new Set(
-        tembusanList.filter(t => t.idGrupPenerima).map(t => t.idGrupPenerima!),
-      )];
+      const penerimaGrupIds = [
+        ...new Set(
+          penerimaList
+            .filter((p) => p.idGrupPenerima)
+            .map((p) => p.idGrupPenerima!),
+        ),
+      ];
+      const tembusanGrupIds = [
+        ...new Set(
+          tembusanList
+            .filter((t) => t.idGrupPenerima)
+            .map((t) => t.idGrupPenerima!),
+        ),
+      ];
 
       // Enrich grup penerima with nama and position_ids
-      const penerimaGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
-      const tembusanGrupInfo = await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
+      const penerimaGrupInfo =
+        await this.grupPenerimaService.getGrupInfoForResponse(penerimaGrupIds);
+      const tembusanGrupInfo =
+        await this.grupPenerimaService.getGrupInfoForResponse(tembusanGrupIds);
 
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-          position_id: pengirimSirkulasi.position || '',
-          position_text: pengirimSirkulasi.positionText || '',
-          organization_text: pengirimSirkulasi.organizationText || '',
-          nama: pengirimSirkulasi.namaSirkuler || null,
-        }
+            position_id: pengirimSirkulasi.position || '',
+            position_text: pengirimSirkulasi.positionText || '',
+            organization_text: pengirimSirkulasi.organizationText || '',
+            nama: pengirimSirkulasi.namaSirkuler || null,
+          }
         : null;
 
       // Build penerima list with read status
@@ -868,12 +946,12 @@ export class NaskahService {
       // Build referensi info
       const referensiInfo = referensiData
         ? {
-          ref_jenis: referensiData.ref_jenis,
-          ref_pengirim: referensiData.ref_pengirim,
-          ref_tanggal: referensiData.ref_tanggal,
-          ref_nomor: referensiData.ref_nomor,
-          ref_perihal: referensiData.ref_perihal,
-        }
+            ref_jenis: referensiData.ref_jenis,
+            ref_pengirim: referensiData.ref_pengirim,
+            ref_tanggal: referensiData.ref_tanggal,
+            ref_nomor: referensiData.ref_nomor,
+            ref_perihal: referensiData.ref_perihal,
+          }
         : null;
 
       return {
@@ -917,7 +995,7 @@ export class NaskahService {
 
         // Level
         level,
-        
+
         // Timestamps - format WIB string agar FE tampil langsung tanpa konversi
         created_at: formatWibDateTime(pengirimSirkulasi?.createdAt) || null,
         updated_at: formatWibDateTime(pengirimSirkulasi?.updatedAt) || null,
@@ -993,4 +1071,3 @@ export class NaskahService {
     }
   }
 }
-

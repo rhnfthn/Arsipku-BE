@@ -36,7 +36,7 @@ export interface UploadTemporaryLampiranResponseDto {
 /**
  * Global Upload Temporary Controller
  * Endpoint: POST /upload-temporary dan DELETE /file-temporary/:id
- * 
+ *
  * Digunakan untuk semua jenis naskah (ND, SDI, SDE, DI, dll)
  * Files akan disimpan sementara dengan is_temporary=1
  */
@@ -60,7 +60,7 @@ export class UploadTemporaryController {
    * - lampiran_files: file[] (multiple PDF files)
    *
    * @returns UploadTemporaryLampiranResponseDto
-   * 
+   *
    * Response:
    * {
    *   success: true,
@@ -218,7 +218,8 @@ export class UploadTemporaryController {
             {
               success: false,
               statusCode: HttpStatus.BAD_REQUEST,
-              message: 'Tidak dapat menghapus lampiran dari naskah yang sudah final',
+              message:
+                'Tidak dapat menghapus lampiran dari naskah yang sudah final',
             },
             HttpStatus.BAD_REQUEST,
           );
@@ -300,7 +301,7 @@ export class UploadTemporaryController {
       // Determine content type based on file extension
       const extension = lampiran.file_name.split('.').pop()?.toLowerCase();
       let contentType = 'application/octet-stream';
-      
+
       if (extension === 'pdf') {
         contentType = 'application/pdf';
       } else if (['jpg', 'jpeg'].includes(extension || '')) {

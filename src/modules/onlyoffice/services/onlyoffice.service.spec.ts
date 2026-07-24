@@ -18,11 +18,12 @@ describe('OnlyOfficeService', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: (k: string) => ({
-              ONLYOFFICE_URL: 'http://oo:80',
-              ONLYOFFICE_JWT_SECRET: secret,
-              APP_PUBLIC_URL: 'http://be:3000',
-            }[k]),
+            get: (k: string) =>
+              ({
+                ONLYOFFICE_URL: 'http://oo:80',
+                ONLYOFFICE_JWT_SECRET: secret,
+                APP_PUBLIC_URL: 'http://be:3000',
+              })[k],
           },
         },
         {
@@ -50,7 +51,10 @@ describe('OnlyOfficeService', () => {
           OnlyOfficeService,
           {
             provide: ConfigService,
-            useValue: { get: (k: string) => (k === 'ONLYOFFICE_JWT_SECRET' ? secret : undefined) },
+            useValue: {
+              get: (k: string) =>
+                k === 'ONLYOFFICE_JWT_SECRET' ? secret : undefined,
+            },
           },
           { provide: HttpService, useValue: {} },
           { provide: StorageService, useValue: {} },
@@ -66,13 +70,18 @@ describe('OnlyOfficeService', () => {
           OnlyOfficeService,
           {
             provide: ConfigService,
-            useValue: { get: (k: string) => (k === 'ONLYOFFICE_URL' ? 'http://oo:80' : undefined) },
+            useValue: {
+              get: (k: string) =>
+                k === 'ONLYOFFICE_URL' ? 'http://oo:80' : undefined,
+            },
           },
           { provide: HttpService, useValue: {} },
           { provide: StorageService, useValue: {} },
         ],
       }).compile(),
-    ).rejects.toThrow('Missing required environment variable: ONLYOFFICE_JWT_SECRET');
+    ).rejects.toThrow(
+      'Missing required environment variable: ONLYOFFICE_JWT_SECRET',
+    );
   });
 
   it('getOnlyOfficeUrl returns configured url', () => {
@@ -100,12 +109,16 @@ describe('OnlyOfficeService', () => {
     expect(cfg.documentType).toBe('word');
     expect(cfg.document.key).toBe('k1');
     expect(cfg.document.url).toBe('http://be:3000/doc.docx');
-    expect(cfg.editorConfig.callbackUrl).toBe('http://be:3000/onlyoffice/callback/t1');
+    expect(cfg.editorConfig.callbackUrl).toBe(
+      'http://be:3000/onlyoffice/callback/t1',
+    );
     expect(cfg.editorConfig.mode).toBe('edit');
     expect(typeof cfg.token).toBe('string');
-    const decoded = jwt.verify(cfg.token as string, secret) as any;
+    const decoded = jwt.verify(cfg.token, secret) as any;
     expect(decoded.document.key).toBe('k1');
-    expect(decoded.editorConfig.callbackUrl).toBe('http://be:3000/onlyoffice/callback/t1');
+    expect(decoded.editorConfig.callbackUrl).toBe(
+      'http://be:3000/onlyoffice/callback/t1',
+    );
   });
 
   describe('convertToPdf', () => {
@@ -113,7 +126,9 @@ describe('OnlyOfficeService', () => {
       const http = moduleRef.get(HttpService);
       http.post = jest
         .fn()
-        .mockReturnValueOnce(of({ data: { endConvert: true, url: 'http://oo/pdf' } }));
+        .mockReturnValueOnce(
+          of({ data: { endConvert: true, url: 'http://oo/pdf' } }),
+        );
       http.get = jest
         .fn()
         .mockReturnValueOnce(of({ data: Buffer.from('PDF') }));
@@ -126,7 +141,9 @@ describe('OnlyOfficeService', () => {
           async: false,
           filetype: 'docx',
           outputtype: 'pdf',
-          url: expect.stringMatching(/^http:\/\/be:3000\/onlyoffice\/storage-document\?token=/),
+          url: expect.stringMatching(
+            /^http:\/\/be:3000\/onlyoffice\/storage-document\?token=/,
+          ),
           token: expect.any(String),
         }),
         expect.any(Object),

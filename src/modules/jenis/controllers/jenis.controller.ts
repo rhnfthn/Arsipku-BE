@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseInterceptors, UploadedFile } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JenisService } from '../services/jenis.service';
 import { JenisResponseDto } from '../dto/jenis.dto';
@@ -17,11 +27,13 @@ export class JenisController {
   @Get()
   async findAll(): Promise<any> {
     const result = await this.jenisService.findAll();
-    
+
     // Add file URLs to response
     const dataWithUrls = await Promise.all(
       result.data.map(async (item) => {
-        const fileUrl = item.jenis ? await this.jenisService.getFileUrl(item.jenis) : null;
+        const fileUrl = item.jenis
+          ? await this.jenisService.getFileUrl(item.jenis)
+          : null;
         return {
           ...item,
           file_url: fileUrl,
@@ -79,8 +91,10 @@ export class JenisController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const jenis = await this.jenisService.create(dto, file);
-    const fileUrl = jenis.fileName ? await this.jenisService.getFileUrl(jenis.fileName) : null;
-    
+    const fileUrl = jenis.fileName
+      ? await this.jenisService.getFileUrl(jenis.fileName)
+      : null;
+
     return {
       success: true,
       message: 'Jenis berhasil dibuat',
@@ -103,8 +117,10 @@ export class JenisController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
-    const fileUrl = jenis.fileName ? await this.jenisService.getFileUrl(jenis.fileName) : null;
-    
+    const fileUrl = jenis.fileName
+      ? await this.jenisService.getFileUrl(jenis.fileName)
+      : null;
+
     return {
       success: true,
       data: {
@@ -144,8 +160,10 @@ export class JenisController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const jenis = await this.jenisService.update(id, dto, file);
-    const fileUrl = jenis.fileName ? await this.jenisService.getFileUrl(jenis.fileName) : null;
-    
+    const fileUrl = jenis.fileName
+      ? await this.jenisService.getFileUrl(jenis.fileName)
+      : null;
+
     return {
       success: true,
       message: 'Jenis berhasil diupdate',

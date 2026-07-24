@@ -33,7 +33,8 @@ export class CreateRelationSpDto {
   @IsString()
   @MaxLength(200)
   @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'relation_position_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
+    message:
+      'relation_position_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
   })
   position_text: string;
 

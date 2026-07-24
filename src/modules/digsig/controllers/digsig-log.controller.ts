@@ -36,7 +36,7 @@ export class DigsigLogController {
   /**
    * GET /digsig/log
    * Get all digsig logs with filtering and pagination
-   * 
+   *
    * Query params:
    * - userPersnum: Filter by user persnum
    * - userName: Filter by user name (partial match)
@@ -121,7 +121,11 @@ export class DigsigLogController {
       user.nama,
       dto.message,
     );
-    return { success: true, message: 'Alert gangguan BSrE berhasil diaktifkan', data };
+    return {
+      success: true,
+      message: 'Alert gangguan BSrE berhasil diaktifkan',
+      data,
+    };
   }
 
   /**
@@ -132,14 +136,16 @@ export class DigsigLogController {
   @Post('bsre-alert/deactivate')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('konfigurasi', 'update')
-  async deactivateBsreAlert(
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async deactivateBsreAlert(@CurrentUser() user: JwtPayload) {
     const data = await this.bsreAlertService.deactivateAlert(
       user.persnum,
       user.nama,
     );
-    return { success: true, message: 'Alert gangguan BSrE berhasil dinonaktifkan', data };
+    return {
+      success: true,
+      message: 'Alert gangguan BSrE berhasil dinonaktifkan',
+      data,
+    };
   }
 
   /**

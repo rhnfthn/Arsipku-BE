@@ -6,7 +6,13 @@ import {
   HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, DataSource, In } from 'typeorm';
+import {
+  Repository,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  DataSource,
+  In,
+} from 'typeorm';
 import { RelationSp } from '../../master-data/relation_sp/entities/relation_sp.entity';
 import { RelationOsc } from '../../master-data/relation_osc/entities/relation_osc.entity';
 import { RelationOa } from '../../master-data/relation_oa/entities/relation_oa.entity';
@@ -155,14 +161,17 @@ export class DisposisiService {
     private readonly qrCodeService: QRCodeService,
     private readonly digsigService: DigsigService,
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
-  ) { }
+  ) {}
 
   private pengirimSirkulasiFields(
     dto: any,
     pengirimData: any,
   ): { positionStatus: string; positionText: string; namaSirkuler: string } {
-    const actorUser = (dto as any)?.actor_position_status
-      ? { position_status: (dto as any).actor_position_status, nama: (dto as any).actor_nama }
+    const actorUser = dto?.actor_position_status
+      ? {
+          position_status: dto.actor_position_status,
+          nama: dto.actor_nama,
+        }
       : undefined;
     return delegatedPengirimFields(
       actorUser ?? { position_status: null, nama: '' },
@@ -195,7 +204,9 @@ export class DisposisiService {
     );
 
     try {
-      const userData = await this.digsigService.getUserDataForBsre(String(params.persnum));
+      const userData = await this.digsigService.getUserDataForBsre(
+        String(params.persnum),
+      );
 
       await this.digsigService.hitDigsigEndpoint(
         {
@@ -257,7 +268,7 @@ export class DisposisiService {
   /**
    * Convert position IDs ke nama jabatan
    * Digunakan untuk mengubah [70016743, 70016751] menjadi ["VP IT", "Manager HR"]
-   * 
+   *
    * @param positionIds - Array of position IDs (string or number)
    * @param tanggal - Optional tanggal untuk lookup org data
    * @returns Array of position text names
@@ -284,7 +295,7 @@ export class DisposisiService {
 
     if (!orgData || !orgData.position_json) {
       console.warn(`[convertPositionIdsToNames] Org data not found for ${tgl}`);
-      return positionIds.map(id => String(id)); // Fallback to IDs as strings
+      return positionIds.map((id) => String(id)); // Fallback to IDs as strings
     }
 
     const barisData: PositionData[] = orgData.position_json;
@@ -292,7 +303,7 @@ export class DisposisiService {
 
     for (const posId of positionIds) {
       const numericId = typeof posId === 'string' ? parseInt(posId, 10) : posId;
-      const position = barisData.find(p => p.position === numericId);
+      const position = barisData.find((p) => p.position === numericId);
 
       if (position) {
         // Return position_text with organization_text
@@ -316,8 +327,18 @@ export class DisposisiService {
    */
   private getBulanRomawi(bulan: number): string {
     const mapping: Record<number, string> = {
-      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
-      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+      1: 'I',
+      2: 'II',
+      3: 'III',
+      4: 'IV',
+      5: 'V',
+      6: 'VI',
+      7: 'VII',
+      8: 'VIII',
+      9: 'IX',
+      10: 'X',
+      11: 'XI',
+      12: 'XII',
     };
     return mapping[bulan] || 'I';
   }
@@ -338,7 +359,7 @@ export class DisposisiService {
    * Menggunakan format dari tabel jenis dan update counter di tabel nomor
    * Auto-insert ke nomor_request dan nomor_request_detail dengan status 'terpakai'
    * DI menggunakan position-based counter (sama seperti ND)
-   * 
+   *
    * @param pengirim - Data pengirim dari org_data/position_json
    * @param perihal - Perihal disposisi
    * @param tanggal - Tanggal disposisi
@@ -427,8 +448,8 @@ export class DisposisiService {
     nomorBaru = nomorBaru
       .replace(/\/\s+/g, '/') // Hapus spasi setelah slash
       .replace(/\s+\//g, '/') // Hapus spasi sebelum slash
-      .replace(/\/\//g, '/')  // Hapus double slash
-      .trim();                 // Trim spasi di awal/akhir
+      .replace(/\/\//g, '/') // Hapus double slash
+      .trim(); // Trim spasi di awal/akhir
 
     // 6. Insert nomor_request_detail dengan status 'terpakai_final' (langsung dari disposisi)
     const detailId = uuidv4();
@@ -479,7 +500,7 @@ export class DisposisiService {
    * Generate PDF dari HTML content untuk Disposisi
    * Menggunakan Puppeteer di backend untuk render HTML
    * Support temporary lampiran system dan field dinamis dari form
-   * 
+   *
    * @param htmlContent - Konten catatan (HTML atau base64)
    * @param penerima - Array penerima/tertuju
    * @param disposisi - Array checkbox disposisi yang dipilih
@@ -511,16 +532,22 @@ export class DisposisiService {
   ): Promise<Buffer> {
     try {
       // Format tanggal default jika tidak disediakan
-      const tanggal = options?.tanggalDisposisi || new Date().toLocaleDateString('id-ID', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
+      const tanggal =
+        options?.tanggalDisposisi ||
+        new Date().toLocaleDateString('id-ID', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
 
       // Auto-check "Lainnya" if catatan is filled
-      let finalDisposisi = [...disposisi];
-      if (options?.catatan && options.catatan.trim().length > 0 && !finalDisposisi.includes('Lainnya')) {
+      const finalDisposisi = [...disposisi];
+      if (
+        options?.catatan &&
+        options.catatan.trim().length > 0 &&
+        !finalDisposisi.includes('Lainnya')
+      ) {
         finalDisposisi.push('Lainnya');
       }
 
@@ -551,7 +578,8 @@ export class DisposisiService {
 
       // If lampiran temp IDs provided, fetch and merge with main PDF
       if (lampiranTempIds && lampiranTempIds.length > 0) {
-        const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
+        const lampiranFiles =
+          await this.getTemporaryLampiranFiles(lampiranTempIds);
         if (lampiranFiles && lampiranFiles.length > 0) {
           pdfBuffer = await this.mergePdfWithTemporaryFiles(
             pdfBuffer,
@@ -566,15 +594,15 @@ export class DisposisiService {
         error instanceof Error
           ? `${error.name}: ${error.message || 'Unknown error'}`
           : typeof error === 'string'
-          ? error
-          : JSON.stringify(error);
+            ? error
+            : JSON.stringify(error);
       throw new BadRequestException(`Gagal generate PDF: ${detail}`);
     }
   }
 
   /**
    * Get lampiran files from storage (both temporary and final)
-   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft) 
+   * Query by lampiran IDs - supports both is_temporary=1 (before save-draft)
    * and is_temporary=0 (after save-draft)
    */
   private async getTemporaryLampiranFiles(tempIds: string[]): Promise<any[]> {
@@ -922,12 +950,12 @@ export class DisposisiService {
     const bod1: OrgDataPosition[] =
       current.bod_tag === 'BOD'
         ? allData.filter(
-          (x) =>
-            x.sub_area === current.sub_area &&
-            x.chief === 1 &&
-            x.direktorat_id !== current.direktorat_id &&
-            x.bod_tag === 'BOD-1',
-        )
+            (x) =>
+              x.sub_area === current.sub_area &&
+              x.chief === 1 &&
+              x.direktorat_id !== current.direktorat_id &&
+              x.bod_tag === 'BOD-1',
+          )
         : [];
 
     /* 3️⃣ MERGE + DEDUP */
@@ -995,9 +1023,7 @@ export class DisposisiService {
     );
     if (!current) return [];
 
-    const barisFilter = barisData.filter(
-      (x) => x.area === current.area,
-    );
+    const barisFilter = barisData.filter((x) => x.area === current.area);
 
     const currentLevel = Number(current.level);
     const bodTag = current.bod_tag;
@@ -1014,11 +1040,11 @@ export class DisposisiService {
       const gm =
         current.bod_tag === 'BOD'
           ? barisData.filter(
-            (x) =>
-              x.chief === 1 &&
-              x.area !== current.area &&
-              x.bod_tag === 'BOD-1',
-          )
+              (x) =>
+                x.chief === 1 &&
+                x.area !== current.area &&
+                x.bod_tag === 'BOD-1',
+            )
           : [];
       return [...children, ...gm];
     }
@@ -1135,7 +1161,7 @@ export class DisposisiService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-        `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
+          `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
       );
     }
   }
@@ -1378,15 +1404,19 @@ export class DisposisiService {
         pengirimData,
         dto.perihal,
         tanggalDisposisi,
-        queryRunner
+        queryRunner,
       );
 
       if (dto.sign_option === SignOption.DIGSIG) {
         if (!persnum) {
-          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+          throw new BadRequestException(
+            'Persnum diperlukan untuk tanda tangan digital (digsig)',
+          );
         }
         if (!dto.passphrase || !dto.passphrase.trim()) {
-          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+          throw new BadRequestException(
+            'Passphrase diperlukan untuk tanda tangan digital (digsig)',
+          );
         }
 
         await this.validateDigsigPassphrase({
@@ -1424,7 +1454,7 @@ export class DisposisiService {
       // Bisa dari 2 sumber:
       // 1. id_naskah_sebelumnya: disposisi lanjutan dari DI sebelumnya
       // 2. id_referensi_naskah: disposisi pertama dari jenis naskah lain (ND, SDI, SDE, K, dll)
-      
+
       if (dto.id_naskah_sebelumnya) {
         // Referensi ke disposisi sebelumnya
         const naskahSebelumnya = await this.naskahRepository.findOne({
@@ -1536,18 +1566,32 @@ export class DisposisiService {
 
         // Queue notification to penerima (sent AFTER commit)
         const posId = String(penerima.position);
-        const persnum = penerima.persnum_person ? Number(penerima.persnum_person) : undefined;
+        const persnum = penerima.persnum_person
+          ? Number(penerima.persnum_person)
+          : undefined;
         const sirkId = penerimaSirkulasi.id;
         const perihal = naskah.perihal || dto.perihal;
-        const instruksi = dto.disposisi || dto.catatan || naskah.perihal || dto.perihal;
-        const pengirimName = pengirimData.persnum_person_text || pengirimData.position_text;
+        const instruksi =
+          dto.disposisi || dto.catatan || naskah.perihal || dto.perihal;
+        const pengirimName =
+          pengirimData.persnum_person_text || pengirimData.position_text;
         const pengirimPos = pengirimData.position_text;
         pendingNotifications.push(() =>
-          this.notificationService.createDisposisiNotification({
-            positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
-            nomor: naskah.nomor || undefined, perihal, instruksi,
-            pengirim: pengirimName, pengirimPosition: pengirimPos,
-          }).catch(err => console.error('[DI] ❌ Notification failed:', err.message)),
+          this.notificationService
+            .createDisposisiNotification({
+              positionId: posId,
+              userPersnum: persnum,
+              naskahId,
+              sirkulasiId: sirkId,
+              nomor: naskah.nomor || undefined,
+              perihal,
+              instruksi,
+              pengirim: pengirimName,
+              pengirimPosition: pengirimPos,
+            })
+            .catch((err) =>
+              console.error('[DI] ❌ Notification failed:', err.message),
+            ),
         );
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -1644,12 +1688,19 @@ export class DisposisiService {
             disposisiArray = dto.disposisi;
           } else if (typeof dto.disposisi === 'string') {
             // Split by newline and filter empty strings
-            disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+            disposisiArray = dto.disposisi
+              .split('\n')
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
           }
         }
 
         // Auto-check "Lainnya" if catatan is filled
-        if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+        if (
+          dto.catatan &&
+          dto.catatan.trim().length > 0 &&
+          !disposisiArray.includes('Lainnya')
+        ) {
           disposisiArray.push('Lainnya');
         }
         console.log('[DI sendMessage] disposisiArray:', disposisiArray);
@@ -1670,17 +1721,22 @@ export class DisposisiService {
 
         // Generate QR Code untuk sign_option qr_only atau digsig
         let qrCodeHtml = '';
-        if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+        if (
+          dto.sign_option === SignOption.QR_ONLY ||
+          dto.sign_option === SignOption.DIGSIG
+        ) {
           const signedAt = tanggalDisposisi.toISOString();
           const qrData = {
-            signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+            signature_id:
+              dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
             document_number: generatedNomor,
             signed_at: signedAt,
             signer_name: pengirimData.persnum_person_text || '',
             signer_jabatan: pengirimData.position_text,
             document_type: 'Disposisi Internal',
           };
-          const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+          const qrBase64 =
+            await this.qrCodeService.generateQRCodeBase64(qrData);
           qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
         }
 
@@ -1709,10 +1765,19 @@ export class DisposisiService {
 
         // Merge with lampiran if any
         if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          const lampiranFiles = await this.getTemporaryLampiranFiles(
+            dto.lampiran_temp_ids,
+          );
           if (lampiranFiles && lampiranFiles.length > 0) {
-            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-            console.log('[DI sendMessage] Merged with', lampiranFiles.length, 'lampiran files');
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(
+              pdfBuffer,
+              lampiranFiles,
+            );
+            console.log(
+              '[DI sendMessage] Merged with',
+              lampiranFiles.length,
+              'lampiran files',
+            );
           }
         }
 
@@ -1762,7 +1827,7 @@ export class DisposisiService {
       }
 
       // Sync to Meilisearch (non-blocking, after successful commit)
-      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
 
       // Build response
       return {
@@ -1875,7 +1940,7 @@ export class DisposisiService {
       // Bisa dari 2 sumber:
       // 1. id_naskah_sebelumnya: disposisi lanjutan dari DI sebelumnya
       // 2. id_referensi_naskah: disposisi pertama dari jenis naskah lain (ND, SDI, SDE, K, dll)
-      
+
       if (dto.id_naskah_sebelumnya) {
         // Referensi ke disposisi sebelumnya
         const naskahSebelumnya = await this.naskahRepository.findOne({
@@ -2387,7 +2452,8 @@ export class DisposisiService {
     );
 
     // Determine final state: draft, pending (ttd_basah), or final
-    const isPending = dto.action === 'kirim' && dto.sign_option === SignOption.TTD_BASAH;
+    const isPending =
+      dto.action === 'kirim' && dto.sign_option === SignOption.TTD_BASAH;
     const isDraft = dto.action !== 'kirim' || isPending;
 
     // Start transaction
@@ -2423,7 +2489,7 @@ export class DisposisiService {
             pengirimData,
             naskah.perihal || '',
             naskah.tanggal || new Date(),
-            queryRunner
+            queryRunner,
           );
           naskah.nomor = generatedNomor;
         }
@@ -2431,21 +2497,27 @@ export class DisposisiService {
         // Untuk draft, gunakan nomor yang diberikan (jika ada)
         naskah.nomor = dto.ref_nomor_surat;
       }
-      naskah.status = dto.action !== 'kirim' ? 'draf' : isPending ? 'pending' : 'final';
+      naskah.status =
+        dto.action !== 'kirim' ? 'draf' : isPending ? 'pending' : 'final';
 
       if (dto.action === 'kirim' && dto.sign_option === SignOption.DIGSIG) {
         if (!persnum) {
-          throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+          throw new BadRequestException(
+            'Persnum diperlukan untuk tanda tangan digital (digsig)',
+          );
         }
         if (!dto.passphrase || !dto.passphrase.trim()) {
-          throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+          throw new BadRequestException(
+            'Passphrase diperlukan untuk tanda tangan digital (digsig)',
+          );
         }
 
-        const nomorToValidate = naskah.nomor || dto.ref_nomor_surat || `DI-${Date.now()}`;
+        const nomorToValidate =
+          naskah.nomor || dto.ref_nomor_surat || `DI-${Date.now()}`;
         const tanggalToValidate = naskah.tanggal
-          ? (naskah.tanggal instanceof Date
+          ? naskah.tanggal instanceof Date
             ? naskah.tanggal.toISOString().split('T')[0]
-            : String(naskah.tanggal).split('T')[0])
+            : String(naskah.tanggal).split('T')[0]
           : new Date().toISOString().split('T')[0];
 
         await this.validateDigsigPassphrase({
@@ -2546,17 +2618,33 @@ export class DisposisiService {
 
           // Send notification to penerima (only when sending/finalizing, not draft)
           if (!isDraft && pengirimData) {
-            this.notificationService.createDisposisiNotification({
-              positionId: String(penerima.position),
-              userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-              naskahId,
-              sirkulasiId: penerimaSirkulasi.id,
-              nomor: naskah.nomor || undefined,
-              perihal: naskah.perihal || dto.perihal || '',
-              instruksi: dto.disposisi || dto.catatan || naskah.perihal || dto.perihal || '',
-              pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
-              pengirimPosition: pengirimData.position_text,
-            }).catch(err => console.error('[Disposisi:UpdateDraft] Failed to send notification to penerima:', err));
+            this.notificationService
+              .createDisposisiNotification({
+                positionId: String(penerima.position),
+                userPersnum: penerima.persnum_person
+                  ? Number(penerima.persnum_person)
+                  : undefined,
+                naskahId,
+                sirkulasiId: penerimaSirkulasi.id,
+                nomor: naskah.nomor || undefined,
+                perihal: naskah.perihal || dto.perihal || '',
+                instruksi:
+                  dto.disposisi ||
+                  dto.catatan ||
+                  naskah.perihal ||
+                  dto.perihal ||
+                  '',
+                pengirim:
+                  pengirimData.persnum_person_text ||
+                  pengirimData.position_text,
+                pengirimPosition: pengirimData.position_text,
+              })
+              .catch((err) =>
+                console.error(
+                  '[Disposisi:UpdateDraft] Failed to send notification to penerima:',
+                  err,
+                ),
+              );
           }
         }
 
@@ -2672,7 +2760,8 @@ export class DisposisiService {
           if (dto.disposisi !== undefined) existingDi.disposisi = dto.disposisi;
           if (dto.catatan !== undefined) existingDi.catatan = dto.catatan;
           if (dto.paraf !== undefined) existingDi.paraf = dto.paraf;
-          if (dto.is_priority !== undefined) existingDi.isPriority = dto.is_priority ? 1 : 0;
+          if (dto.is_priority !== undefined)
+            existingDi.isPriority = dto.is_priority ? 1 : 0;
 
           // Update juga dari dto lainnya jika ada
           if (dto.tanggal_disposisi)
@@ -2685,7 +2774,10 @@ export class DisposisiService {
           // Insert data baru
           // Build kepadaYth dari sirkulasi penerima yang sudah ada atau dari dto
           let kepadaYthNew = '';
-          if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
+          if (
+            dto.penerima_position_ids &&
+            dto.penerima_position_ids.length > 0
+          ) {
             // Build dari dto penerima_position_ids yang sudah divalidasi di PHASE 5
             const penerimaDataForDi: PositionData[] = [];
             for (const penerimaId of dto.penerima_position_ids) {
@@ -2702,10 +2794,13 @@ export class DisposisiService {
             }
           } else {
             // Fallback: ambil dari sirkulasi penerima yang sudah ada
-            const existingPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
-              where: { idNaskah: naskahId, sirkuler: 'penerima' },
-              order: { urutan: 'ASC' },
-            });
+            const existingPenerima = await queryRunner.manager.find(
+              NaskahSirkulasi,
+              {
+                where: { idNaskah: naskahId, sirkuler: 'penerima' },
+                order: { urutan: 'ASC' },
+              },
+            );
             if (existingPenerima.length > 0) {
               const kepadaYthListExisting = existingPenerima.map(
                 (p) => `${p.positionText} ${p.organizationText}`,
@@ -2742,24 +2837,35 @@ export class DisposisiService {
       // PHASE 8: Auto-generate PDF when draft is sent (action='kirim')
       if (dto.action === 'kirim') {
         try {
-          const currentPengirim = await queryRunner.manager.findOne(NaskahSirkulasi, {
-            where: { idNaskah: naskahId, sirkuler: 'pengirim' },
-          });
+          const currentPengirim = await queryRunner.manager.findOne(
+            NaskahSirkulasi,
+            {
+              where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+            },
+          );
 
-          const currentPenerima = await queryRunner.manager.find(NaskahSirkulasi, {
-            where: { idNaskah: naskahId, sirkuler: 'penerima' },
-            order: { urutan: 'ASC', createdAt: 'ASC' },
-          });
+          const currentPenerima = await queryRunner.manager.find(
+            NaskahSirkulasi,
+            {
+              where: { idNaskah: naskahId, sirkuler: 'penerima' },
+              order: { urutan: 'ASC', createdAt: 'ASC' },
+            },
+          );
 
           const currentDi = await queryRunner.manager.findOne(DiEntity, {
             where: { idNaskah: naskahId },
           });
 
-          const currentLampiran = await queryRunner.manager.find(NaskahLampiranEntity, {
-            where: { id_naskah: naskahId },
-          });
+          const currentLampiran = await queryRunner.manager.find(
+            NaskahLampiranEntity,
+            {
+              where: { id_naskah: naskahId },
+            },
+          );
 
-          const kepadaYthList = currentPenerima.map((p) => `${p.positionText} ${p.organizationText}`.trim());
+          const kepadaYthList = currentPenerima.map((p) =>
+            `${p.positionText} ${p.organizationText}`.trim(),
+          );
 
           // Parse disposisi text ke array checklist PDF
           let disposisiArray: string[] = [];
@@ -2767,22 +2873,31 @@ export class DisposisiService {
           if (Array.isArray(disposisiRaw)) {
             disposisiArray = disposisiRaw;
           } else if (typeof disposisiRaw === 'string') {
-            disposisiArray = disposisiRaw.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+            disposisiArray = disposisiRaw
+              .split('\n')
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
           }
 
           const catatanText = currentDi?.catatan || '';
-          if (catatanText.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+          if (
+            catatanText.trim().length > 0 &&
+            !disposisiArray.includes('Lainnya')
+          ) {
             disposisiArray.push('Lainnya');
           }
 
-          const tanggalNaskah = naskah.tanggal instanceof Date
-            ? naskah.tanggal
-            : naskah.tanggal
-              ? new Date(naskah.tanggal)
-              : new Date();
+          const tanggalNaskah =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal
+              : naskah.tanggal
+                ? new Date(naskah.tanggal)
+                : new Date();
 
-          const nomorDokumen = naskah.nomor || dto.ref_nomor_surat || `DI-${naskahId}`;
-          const refPengirim = currentPengirim?.positionText || pengirimData?.position_text || '';
+          const nomorDokumen =
+            naskah.nomor || dto.ref_nomor_surat || `DI-${naskahId}`;
+          const refPengirim =
+            currentPengirim?.positionText || pengirimData?.position_text || '';
           const refPerihal = naskah.perihal || dto.perihal || '';
           const refTanggal = tanggalNaskah.toLocaleDateString('id-ID', {
             year: 'numeric',
@@ -2791,16 +2906,27 @@ export class DisposisiService {
           });
 
           let qrCodeHtml = '';
-          if (dto.sign_option === SignOption.QR_ONLY || dto.sign_option === SignOption.DIGSIG) {
+          if (
+            dto.sign_option === SignOption.QR_ONLY ||
+            dto.sign_option === SignOption.DIGSIG
+          ) {
             const qrData = {
-              signature_id: dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
+              signature_id:
+                dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
               document_number: nomorDokumen,
               signed_at: tanggalNaskah.toISOString(),
-              signer_name: currentPengirim?.namaSirkuler || pengirimData?.persnum_person_text || '',
-              signer_jabatan: currentPengirim?.positionText || pengirimData?.position_text || '',
+              signer_name:
+                currentPengirim?.namaSirkuler ||
+                pengirimData?.persnum_person_text ||
+                '',
+              signer_jabatan:
+                currentPengirim?.positionText ||
+                pengirimData?.position_text ||
+                '',
               document_type: 'Disposisi Internal',
             };
-            const qrBase64 = await this.qrCodeService.generateQRCodeBase64(qrData);
+            const qrBase64 =
+              await this.qrCodeService.generateQRCodeBase64(qrData);
             qrCodeHtml = `<img src="${qrBase64}" style="width: 80px; height: 80px;" alt="QR Code" />`;
           }
 
@@ -2825,9 +2951,13 @@ export class DisposisiService {
           // Merge dengan lampiran yang sudah tersimpan di draft
           const lampiranIds = currentLampiran.map((l) => l.id);
           if (lampiranIds.length > 0) {
-            const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranIds);
+            const lampiranFiles =
+              await this.getTemporaryLampiranFiles(lampiranIds);
             if (lampiranFiles.length > 0) {
-              pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+              pdfBuffer = await this.mergePdfWithTemporaryFiles(
+                pdfBuffer,
+                lampiranFiles,
+              );
             }
           }
 
@@ -2951,21 +3081,23 @@ export class DisposisiService {
 
     return {
       success: true,
-      message: dto.action !== 'kirim'
-        ? 'Draft disposisi berhasil diupdate'
-        : isPending
-          ? 'Disposisi berhasil diupdate dan masuk tertunda'
-          : 'Disposisi berhasil diupdate dan dikirim',
+      message:
+        dto.action !== 'kirim'
+          ? 'Draft disposisi berhasil diupdate'
+          : isPending
+            ? 'Disposisi berhasil diupdate dan masuk tertunda'
+            : 'Disposisi berhasil diupdate dan dikirim',
       data: {
         id: naskahId,
         jenis: 'DI',
         nomor: updatedNaskah?.nomor || null,
         tanggal: tanggalStr,
-        status: dto.action !== 'kirim'
-          ? ('draf' as const)
-          : isPending
-            ? ('pending' as const)
-            : ('final' as const),
+        status:
+          dto.action !== 'kirim'
+            ? ('draf' as const)
+            : isPending
+              ? ('pending' as const)
+              : ('final' as const),
         sifat: updatedNaskah?.sifat || '',
         perihal: updatedNaskah?.perihal || '',
         pengirim: sirkulasiToResponse(pengirimDataResult),
@@ -3038,20 +3170,23 @@ export class DisposisiService {
           : 'Draft disposisi berhasil dikirim',
       data: result.data
         ? {
-          id: result.data.id,
-          jenis: result.data.jenis,
-          nomor: result.data.nomor || '',
-          tanggal: result.data.tanggal,
-          status: result.data.status === 'pending' ? ('pending' as const) : ('final' as const),
-          sifat: result.data.sifat,
-          perihal: result.data.perihal,
-          pengirim: result.data.pengirim,
-          penerima: result.data.penerima,
-          disposisi: result.data.disposisi,
-          catatan: result.data.catatan,
-          lampiran: result.data.lampiran,
-          id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
-        }
+            id: result.data.id,
+            jenis: result.data.jenis,
+            nomor: result.data.nomor || '',
+            tanggal: result.data.tanggal,
+            status:
+              result.data.status === 'pending'
+                ? ('pending' as const)
+                : ('final' as const),
+            sifat: result.data.sifat,
+            perihal: result.data.perihal,
+            pengirim: result.data.pengirim,
+            penerima: result.data.penerima,
+            disposisi: result.data.disposisi,
+            catatan: result.data.catatan,
+            lampiran: result.data.lampiran,
+            id_naskah_sebelumnya: result.data.id_naskah_sebelumnya,
+          }
         : undefined,
     };
   }
@@ -3110,7 +3245,7 @@ export class DisposisiService {
       if (!sirkulasiPenerima) {
         throw new ForbiddenException(
           `Position ${dto.pengirim_position_id} bukan penerima dari naskah ${dto.id_naskah_diterima}. ` +
-          `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
+            `Hanya penerima disposisi yang bisa meneruskan disposisi.`,
         );
       }
 
@@ -3176,15 +3311,17 @@ export class DisposisiService {
         pengirimData,
         perihal,
         tanggalDisposisi,
-        queryRunner
+        queryRunner,
       );
 
       // Calculate total lampiran count (from previous + new)
       let totalLampiranCount = 0;
       if (dto.copy_lampiran_from_previous !== false) {
-        const previousLampiranCount = await this.naskahLampiranRepository.count({
-          where: { id_naskah: dto.id_naskah_diterima },
-        });
+        const previousLampiranCount = await this.naskahLampiranRepository.count(
+          {
+            where: { id_naskah: dto.id_naskah_diterima },
+          },
+        );
         totalLampiranCount += previousLampiranCount;
       }
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
@@ -3203,7 +3340,8 @@ export class DisposisiService {
         perihal: perihal,
         konten: dto.disposisi || undefined,
         status: 'final',
-        lampiran: totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined,
+        lampiran:
+          totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined,
       });
 
       await queryRunner.manager.save(naskah);
@@ -3274,17 +3412,27 @@ export class DisposisiService {
         await queryRunner.manager.save(penerimaSirkulasi);
 
         // Send notification to penerima (for forwarded disposisi)
-        this.notificationService.createDisposisiNotification({
-          positionId: String(penerima.position),
-          userPersnum: penerima.persnum_person ? Number(penerima.persnum_person) : undefined,
-          naskahId,
-          sirkulasiId: penerimaSirkulasi.id,
-          nomor: generatedNomor,
-          perihal: perihal,
-          instruksi: dto.disposisi || dto.catatan || perihal,
-          pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
-          pengirimPosition: pengirimData.position_text,
-        }).catch(err => console.error('[Disposisi:Forward] Failed to send notification to penerima:', err));
+        this.notificationService
+          .createDisposisiNotification({
+            positionId: String(penerima.position),
+            userPersnum: penerima.persnum_person
+              ? Number(penerima.persnum_person)
+              : undefined,
+            naskahId,
+            sirkulasiId: penerimaSirkulasi.id,
+            nomor: generatedNomor,
+            perihal: perihal,
+            instruksi: dto.disposisi || dto.catatan || perihal,
+            pengirim:
+              pengirimData.persnum_person_text || pengirimData.position_text,
+            pengirimPosition: pengirimData.position_text,
+          })
+          .catch((err) =>
+            console.error(
+              '[Disposisi:Forward] Failed to send notification to penerima:',
+              err,
+            ),
+          );
 
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
       }
@@ -3305,7 +3453,9 @@ export class DisposisiService {
         });
 
         if (previousLampiran.length > 0) {
-          console.log(`[DI forward] Copying ${previousLampiran.length} lampiran from previous naskah`);
+          console.log(
+            `[DI forward] Copying ${previousLampiran.length} lampiran from previous naskah`,
+          );
 
           // Copy lampiran dengan ID baru tapi file_pdf sama (reference ke file yang sama)
           for (const prevLamp of previousLampiran) {
@@ -3331,7 +3481,9 @@ export class DisposisiService {
 
       // Option 2: Handle temporary lampiran TAMBAHAN (bisa dikombinasi dengan copy)
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        console.log(`[DI forward] Adding ${dto.lampiran_temp_ids.length} new lampiran from temporary`);
+        console.log(
+          `[DI forward] Adding ${dto.lampiran_temp_ids.length} new lampiran from temporary`,
+        );
 
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
@@ -3415,12 +3567,19 @@ export class DisposisiService {
           if (Array.isArray(dto.disposisi)) {
             disposisiArray = dto.disposisi;
           } else if (typeof dto.disposisi === 'string') {
-            disposisiArray = dto.disposisi.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+            disposisiArray = dto.disposisi
+              .split('\n')
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
           }
         }
 
         // Auto-check "Lainnya" if catatan is filled
-        if (dto.catatan && dto.catatan.trim().length > 0 && !disposisiArray.includes('Lainnya')) {
+        if (
+          dto.catatan &&
+          dto.catatan.trim().length > 0 &&
+          !disposisiArray.includes('Lainnya')
+        ) {
           disposisiArray.push('Lainnya');
         }
         console.log('[DI forward] disposisiArray:', disposisiArray);
@@ -3464,11 +3623,19 @@ export class DisposisiService {
         // Merge with lampiran if any (dari copy previous atau temporary baru)
         if (lampiranResponses.length > 0) {
           // Get all lampiran IDs
-          const allLampiranIds = lampiranResponses.map(l => l.id);
-          const lampiranFiles = await this.getTemporaryLampiranFiles(allLampiranIds);
+          const allLampiranIds = lampiranResponses.map((l) => l.id);
+          const lampiranFiles =
+            await this.getTemporaryLampiranFiles(allLampiranIds);
           if (lampiranFiles && lampiranFiles.length > 0) {
-            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
-            console.log('[DI forward] Merged with', lampiranFiles.length, 'lampiran files');
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(
+              pdfBuffer,
+              lampiranFiles,
+            );
+            console.log(
+              '[DI forward] Merged with',
+              lampiranFiles.length,
+              'lampiran files',
+            );
           }
         }
 
@@ -3532,21 +3699,28 @@ export class DisposisiService {
 
           return this.notificationService.createDisposisiNotification({
             positionId: String(previousPengirim.position),
-            userPersnum: previousPengirim.idSirkuler ? Number(previousPengirim.idSirkuler) : undefined,
+            userPersnum: previousPengirim.idSirkuler
+              ? Number(previousPengirim.idSirkuler)
+              : undefined,
             naskahId: dto.id_naskah_diterima,
             sirkulasiId: previousPengirim.id,
             disposisiId: naskahId,
             nomor: naskahDiterima.nomor || undefined,
             perihal: naskahDiterima.perihal || perihal,
-            instruksi: dto.disposisi || dto.catatan || 'Disposisi telah ditindaklanjuti',
-            pengirim: pengirimData.persnum_person_text || pengirimData.position_text,
+            instruksi:
+              dto.disposisi || dto.catatan || 'Disposisi telah ditindaklanjuti',
+            pengirim:
+              pengirimData.persnum_person_text || pengirimData.position_text,
             pengirimPosition: pengirimData.position_text,
             type: NotificationType.DISPOSISI_SELESAI,
             body: `${pengirimData.position_text} telah menindaklanjuti disposisi`,
           });
         })
         .catch((err) =>
-          console.error('[Disposisi:Forward] Failed to send selesai notification:', err),
+          console.error(
+            '[Disposisi:Forward] Failed to send selesai notification:',
+            err,
+          ),
         );
 
       // Build response
@@ -3591,7 +3765,10 @@ export class DisposisiService {
    * Mengembalikan flow lengkap disposisi dari awal sampai akhir
    * Urutan: Terbaru di atas (level tertinggi), awal di bawah (level 0)
    */
-  async getDisposisiDetail(naskahId: string, userPosition: string): Promise<any> {
+  async getDisposisiDetail(
+    naskahId: string,
+    userPosition: string,
+  ): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -3657,12 +3834,18 @@ export class DisposisiService {
       });
 
       for (const child of children) {
-        if (!child.id_naskah || chainIds.includes(child.id_naskah) || ownForwards.includes(child.id_naskah)) continue;
+        if (
+          !child.id_naskah ||
+          chainIds.includes(child.id_naskah) ||
+          ownForwards.includes(child.id_naskah)
+        )
+          continue;
 
         const pengirim = await this.naskahSirkulasiRepository.findOne({
           where: { idNaskah: child.id_naskah, sirkuler: 'pengirim' },
         });
-        if (!pengirim || String(pengirim.position) !== String(userPosition)) continue;
+        if (!pengirim || String(pengirim.position) !== String(userPosition))
+          continue;
 
         ownForwards.push(child.id_naskah);
         await forwardOwnChain(child.id_naskah);
@@ -3713,15 +3896,15 @@ export class DisposisiService {
 
       // Format tanggal
       const tanggalStr = naskahData.tanggal
-        ? (naskahData.tanggal instanceof Date
+        ? naskahData.tanggal instanceof Date
           ? naskahData.tanggal.toISOString().split('T')[0]
-          : String(naskahData.tanggal).split('T')[0])
+          : String(naskahData.tanggal).split('T')[0]
         : null;
 
       const tanggalAgendaStr = diData?.tanggalAgenda
-        ? (diData.tanggalAgenda instanceof Date
+        ? diData.tanggalAgenda instanceof Date
           ? diData.tanggalAgenda.toISOString().split('T')[0]
-          : String(diData.tanggalAgenda).split('T')[0])
+          : String(diData.tanggalAgenda).split('T')[0]
         : null;
 
       // Get final PDF URL
@@ -3732,11 +3915,11 @@ export class DisposisiService {
       // Build pengirim info
       const pengirimInfo = pengirimSirkulasi
         ? {
-          position_id: pengirimSirkulasi.position || '',
-          position_text: pengirimSirkulasi.positionText || '',
-          organization_text: pengirimSirkulasi.organizationText || '',
-          nama: pengirimSirkulasi.namaSirkuler || null,
-        }
+            position_id: pengirimSirkulasi.position || '',
+            position_text: pengirimSirkulasi.positionText || '',
+            organization_text: pengirimSirkulasi.organizationText || '',
+            nama: pengirimSirkulasi.namaSirkuler || null,
+          }
         : null;
 
       // Build penerima list with read status
@@ -3798,11 +3981,11 @@ export class DisposisiService {
         // PDF
         final_pdf: naskahData.final_pdf || null,
         final_pdf_url: finalPdfUrl,
-        
+
         // Metadata
         created_at: pengirimSirkulasi?.createdAt || null,
         updated_at: pengirimSirkulasi?.updatedAt || null,
-        
+
         // Level in chain
         level: level,
       };
@@ -3839,7 +4022,7 @@ export class DisposisiService {
   /**
    * Unset Priority Flag dari Disposisi
    * Update is_priority menjadi 0 (false)
-   * 
+   *
    * @param naskahId - ID Naskah Disposisi
    * @returns Respons dengan status update
    */
@@ -3881,7 +4064,9 @@ export class DisposisiService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new Error(`Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Gagal menghapus priority flag: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

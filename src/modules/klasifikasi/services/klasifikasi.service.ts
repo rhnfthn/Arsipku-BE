@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,7 +17,9 @@ export class KlasifikasiService {
     private klasifikasiRepository: Repository<KlasifikasiEntity>,
   ) {}
 
-  async create(createKlasifikasiDto: CreateKlasifikasiDto): Promise<KlasifikasiEntity> {
+  async create(
+    createKlasifikasiDto: CreateKlasifikasiDto,
+  ): Promise<KlasifikasiEntity> {
     // Check if klasifikasi already exists
     const existing = await this.klasifikasiRepository.findOne({
       where: {
@@ -52,9 +58,7 @@ export class KlasifikasiService {
       query.where('klasifikasi.company = :company', { company });
     }
 
-    return await query
-      .orderBy('klasifikasi.klasifikasi', 'ASC')
-      .getMany();
+    return await query.orderBy('klasifikasi.klasifikasi', 'ASC').getMany();
   }
 
   async findOne(id: string): Promise<KlasifikasiEntity> {
@@ -85,13 +89,18 @@ export class KlasifikasiService {
     return klasifikasi;
   }
 
-  async update(id: string, updateKlasifikasiDto: UpdateKlasifikasiDto): Promise<KlasifikasiEntity> {
+  async update(
+    id: string,
+    updateKlasifikasiDto: UpdateKlasifikasiDto,
+  ): Promise<KlasifikasiEntity> {
     const klasifikasi = await this.findOne(id);
 
     // Validate parent exists if id_parent is being updated
     if (updateKlasifikasiDto.id_parent !== undefined) {
       if (updateKlasifikasiDto.id_parent === id) {
-        throw new BadRequestException('Klasifikasi tidak bisa menjadi parent dari dirinya sendiri');
+        throw new BadRequestException(
+          'Klasifikasi tidak bisa menjadi parent dari dirinya sendiri',
+        );
       }
       if (updateKlasifikasiDto.id_parent) {
         const parent = await this.klasifikasiRepository.findOne({
@@ -104,30 +113,40 @@ export class KlasifikasiService {
     }
 
     // Manually assign fields
-    if (updateKlasifikasiDto.company !== undefined) klasifikasi.company = updateKlasifikasiDto.company;
-    if (updateKlasifikasiDto.klasifikasi !== undefined) klasifikasi.klasifikasi = updateKlasifikasiDto.klasifikasi;
-    if (updateKlasifikasiDto.klasifikasi_text !== undefined) klasifikasi.klasifikasi_text = updateKlasifikasiDto.klasifikasi_text;
-    if (updateKlasifikasiDto.deskripsi !== undefined) klasifikasi.deskripsi = updateKlasifikasiDto.deskripsi;
-    if (updateKlasifikasiDto.id_parent !== undefined) klasifikasi.id_parent = updateKlasifikasiDto.id_parent;
-    if (updateKlasifikasiDto.active !== undefined) klasifikasi.active = updateKlasifikasiDto.active;
+    if (updateKlasifikasiDto.company !== undefined)
+      klasifikasi.company = updateKlasifikasiDto.company;
+    if (updateKlasifikasiDto.klasifikasi !== undefined)
+      klasifikasi.klasifikasi = updateKlasifikasiDto.klasifikasi;
+    if (updateKlasifikasiDto.klasifikasi_text !== undefined)
+      klasifikasi.klasifikasi_text = updateKlasifikasiDto.klasifikasi_text;
+    if (updateKlasifikasiDto.deskripsi !== undefined)
+      klasifikasi.deskripsi = updateKlasifikasiDto.deskripsi;
+    if (updateKlasifikasiDto.id_parent !== undefined)
+      klasifikasi.id_parent = updateKlasifikasiDto.id_parent;
+    if (updateKlasifikasiDto.active !== undefined)
+      klasifikasi.active = updateKlasifikasiDto.active;
 
     return await this.klasifikasiRepository.save(klasifikasi);
   }
 
   async remove(id: string): Promise<{ message: string }> {
     const klasifikasi = await this.findOne(id);
-    
+
     // Check if has children
     const childrenCount = await this.klasifikasiRepository.count({
       where: { id_parent: id },
     });
 
     if (childrenCount > 0) {
-      throw new BadRequestException('Tidak dapat menghapus klasifikasi yang memiliki sub-klasifikasi');
+      throw new BadRequestException(
+        'Tidak dapat menghapus klasifikasi yang memiliki sub-klasifikasi',
+      );
     }
 
     await this.klasifikasiRepository.remove(klasifikasi);
-    return { message: `Klasifikasi ${klasifikasi.klasifikasi} berhasil dihapus` };
+    return {
+      message: `Klasifikasi ${klasifikasi.klasifikasi} berhasil dihapus`,
+    };
   }
 
   async toggleActive(id: string): Promise<KlasifikasiEntity> {

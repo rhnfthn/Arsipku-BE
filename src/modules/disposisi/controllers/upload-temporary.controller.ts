@@ -20,12 +20,12 @@ export class UploadTemporaryController {
    * POST /DI/upload-temporary
    * Upload lampiran ke temporary storage untuk Disposisi
    * Return temp_folder_id dan array of file IDs yang nanti digunakan di endpoint save-draft/send-message
-   * 
+   *
    * Files akan disimpan dengan:
    * - is_temporary = 1
    * - temp_folder_id = UUID yang sama untuk satu batch upload
    * - Belum ada id_naskah (masih null)
-   * 
+   *
    * Response format:
    * {
    *   "success": true,
@@ -37,7 +37,7 @@ export class UploadTemporaryController {
    *     ]
    *   }
    * }
-   * 
+   *
    * @param files - Array of files to upload (field name: 'files')
    * @returns UploadTemporaryLampiranResponseDto
    */

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -53,7 +57,9 @@ export class JenisService {
    * Get jenis by code
    */
   async findByCode(code: string): Promise<JenisEntity> {
-    const jenis = await this.jenisRepository.findOne({ where: { jenis: code } });
+    const jenis = await this.jenisRepository.findOne({
+      where: { jenis: code },
+    });
     if (!jenis) {
       throw new NotFoundException(`Jenis dengan kode ${code} tidak ditemukan`);
     }
@@ -63,7 +69,10 @@ export class JenisService {
   /**
    * Create jenis baru dengan optional file upload
    */
-  async create(dto: CreateJenisDto, file?: Express.Multer.File): Promise<JenisEntity> {
+  async create(
+    dto: CreateJenisDto,
+    file?: Express.Multer.File,
+  ): Promise<JenisEntity> {
     // Check if jenis code already exists
     const existing = await this.jenisRepository.findOne({
       where: { jenis: dto.jenis },
@@ -96,7 +105,11 @@ export class JenisService {
   /**
    * Update jenis dengan optional file upload
    */
-  async update(id: string, dto: UpdateJenisDto, file?: Express.Multer.File): Promise<JenisEntity> {
+  async update(
+    id: string,
+    dto: UpdateJenisDto,
+    file?: Express.Multer.File,
+  ): Promise<JenisEntity> {
     const jenis = await this.findOne(id);
     const oldFileName = jenis.fileName;
 
@@ -106,7 +119,9 @@ export class JenisService {
         where: { jenis: dto.jenis },
       });
       if (existing) {
-        throw new BadRequestException(`Jenis dengan kode ${dto.jenis} sudah ada`);
+        throw new BadRequestException(
+          `Jenis dengan kode ${dto.jenis} sudah ada`,
+        );
       }
     }
 
@@ -120,7 +135,10 @@ export class JenisService {
         try {
           await this.storageService.deleteFile(oldFileName);
         } catch (error) {
-          console.warn(`Failed to delete old file ${oldFileName}:`, error.message);
+          console.warn(
+            `Failed to delete old file ${oldFileName}:`,
+            error.message,
+          );
         }
       }
     }
@@ -129,7 +147,8 @@ export class JenisService {
     if (dto.jenis !== undefined) jenis.jenis = dto.jenis;
     if (dto.jenis_text !== undefined) jenis.jenisText = dto.jenis_text;
     if (dto.file_text !== undefined) jenis.fileText = dto.file_text;
-    if (dto.format_penomoran !== undefined) jenis.formatPenomoran = dto.format_penomoran;
+    if (dto.format_penomoran !== undefined)
+      jenis.formatPenomoran = dto.format_penomoran;
 
     return await this.jenisRepository.save(jenis);
   }
@@ -139,7 +158,7 @@ export class JenisService {
    */
   async remove(id: string): Promise<{ message: string }> {
     const jenis = await this.findOne(id);
-    
+
     // Delete file from storage if exists
     if (jenis.fileName) {
       try {

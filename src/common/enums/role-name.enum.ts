@@ -11,10 +11,13 @@ export enum RoleName {
  * - 'admin' -> 'ADMIN'
  * - 'user' -> 'USER'
  */
-export function normalizeRoleName(raw: string | undefined | null): string | undefined {
+export function normalizeRoleName(
+  raw: string | undefined | null,
+): string | undefined {
   if (!raw) return undefined;
   const upper = raw.toString().trim().toUpperCase();
-  if (upper === 'SUPERADMIN' || upper === 'SUPER_ADMIN') return RoleName.SUPERADMIN;
+  if (upper === 'SUPERADMIN' || upper === 'SUPER_ADMIN')
+    return RoleName.SUPERADMIN;
   if (upper === 'ADMIN') return RoleName.ADMIN;
   if (upper === 'USER') return RoleName.USER;
   return upper;

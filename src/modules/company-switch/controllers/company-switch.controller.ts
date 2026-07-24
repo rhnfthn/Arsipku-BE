@@ -7,7 +7,12 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { CompanySwitchService } from '../services/company-switch.service';
 import { AuthService } from '../../auth/services/auth.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -33,13 +38,14 @@ export class CompanySwitchController {
   /**
    * Get all available companies for the current user
    * Returns list of companies where user has active positions
-   * 
+   *
    * GET /company-switch/available-companies
    */
   @Get('available-companies')
   @ApiOperation({
     summary: 'Get available companies for switch',
-    description: 'Returns all companies where the current user has active positions (from om_relation_sp)',
+    description:
+      'Returns all companies where the current user has active positions (from om_relation_sp)',
   })
   @ApiResponse({ status: 200, type: AvailableCompaniesResponseDto })
   @RequirePermission('delegasi', 'read')
@@ -55,13 +61,14 @@ export class CompanySwitchController {
   /**
    * Check if user has multiple companies
    * Quick endpoint for UI to show/hide company switcher
-   * 
+   *
    * GET /company-switch/has-multiple
    */
   @Get('has-multiple')
   @ApiOperation({
     summary: 'Check if user has multiple companies',
-    description: 'Quick check for UI to determine if company switcher should be shown',
+    description:
+      'Quick check for UI to determine if company switcher should be shown',
   })
   @ApiResponse({
     status: 200,
@@ -74,13 +81,15 @@ export class CompanySwitchController {
   })
   @RequirePermission('delegasi', 'read')
   async hasMultipleCompanies(@CurrentUser() user: JwtPayload) {
-    const hasMultiple = await this.companySwitchService.hasMultipleCompanies(user.persnum);
+    const hasMultiple = await this.companySwitchService.hasMultipleCompanies(
+      user.persnum,
+    );
     return { hasMultiple };
   }
 
   /**
    * Get current active company info
-   * 
+   *
    * GET /company-switch/current
    */
   @Get('current')
@@ -122,14 +131,14 @@ export class CompanySwitchController {
 
   /**
    * Switch to a different company or reset to default
-   * 
+   *
    * POST /company-switch/switch
-   * 
+   *
    * Example payload to switch company:
    * { "relationSpId": "uuid-123" }
    * OR
    * { "company": "2000", "position": "60001234" }
-   * 
+   *
    * Example payload to reset to default:
    * { "resetToDefault": true }
    */
@@ -137,7 +146,8 @@ export class CompanySwitchController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Switch to a different company',
-    description: 'Generate new JWT with different company/position data, or reset to default company',
+    description:
+      'Generate new JWT with different company/position data, or reset to default company',
   })
   @ApiResponse({ status: 200, type: SwitchCompanyResponseDto })
   @RequirePermission('delegasi', 'create')
@@ -177,9 +187,9 @@ export class CompanySwitchController {
 
   /**
    * Reset to default company (shortcut endpoint)
-   * 
+   *
    * POST /company-switch/reset
-   * 
+   *
    * Resets user to their original/default company from om_relation_sp
    * This is a convenience endpoint - equivalent to POST /switch with { resetToDefault: true }
    */
@@ -187,7 +197,8 @@ export class CompanySwitchController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Reset to default company',
-    description: 'Reset user back to their original/default company and position from om_relation_sp',
+    description:
+      'Reset user back to their original/default company and position from om_relation_sp',
   })
   @ApiResponse({ status: 200, type: SwitchCompanyResponseDto })
   @RequirePermission('delegasi', 'create')
@@ -195,10 +206,14 @@ export class CompanySwitchController {
     @CurrentUser() user: JwtPayload,
   ): Promise<SwitchCompanyResponseDto> {
     // Get default company data from service (first om_relation_sp record)
-    const defaultCompanyData = await this.companySwitchService.getDefaultCompany(user.persnum);
-    
+    const defaultCompanyData =
+      await this.companySwitchService.getDefaultCompany(user.persnum);
+
     // Generate new JWT with default company data
-    const result = await this.authService.switchCompany(user, defaultCompanyData);
+    const result = await this.authService.switchCompany(
+      user,
+      defaultCompanyData,
+    );
 
     return {
       success: true,

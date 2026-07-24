@@ -1,14 +1,12 @@
 import {
   Injectable,
   Logger,
-  HttpException,
-  HttpStatus,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, Like } from 'typeorm';
+import { Repository, DataSource, Like } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahShareEntity } from '../entities/naskah-share.entity';
 import { NaskahShareRecipientEntity } from '../entities/naskah-share-recipient.entity';
@@ -16,7 +14,8 @@ import { NaskahShareLogEntity } from '../entities/naskah-share-log.entity';
 import { ShareStatus } from '../enums/share-status.enum';
 import { RecipientStatus } from '../enums/recipient-status.enum';
 import { ShareLogAksi } from '../enums/share-log-aksi.enum';
-import { CreateNaskahShareDto, NaskahShareQueryDto, RevokeShareDto } from '../dto';
+import { ShareAccessType } from '../enums/share-access-type.enum';
+import { CreateNaskahShareDto, NaskahShareQueryDto } from '../dto';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
@@ -55,7 +54,9 @@ export class NaskahShareService {
 
   async createShare(user: JwtPayload, dto: CreateNaskahShareDto) {
     // 1. Validasi naskah exists
-    const naskah = await this.naskahRepo.findOne({ where: { id: dto.naskahId } });
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: dto.naskahId },
+    });
     if (!naskah) {
       throw new NotFoundException('Naskah tidak ditemukan');
     }
@@ -67,14 +68,18 @@ export class NaskahShareService {
         position: user.position,
       },
     });
-    this.logger.log(`[createShare] Access check: naskahId=${dto.naskahId}, position=${user.position}, hasAccess=${!!hasAccess}`);
+    this.logger.log(
+      `[createShare] Access check: naskahId=${dto.naskahId}, position=${user.position}, hasAccess=${!!hasAccess}`,
+    );
     if (!hasAccess) {
       throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
     }
 
     // 3. Validasi penerima tidak include pemberi sendiri
     if (dto.recipientIds.includes(user.position)) {
-      throw new BadRequestException('Tidak dapat membagikan naskah kepada diri sendiri');
+      throw new BadRequestException(
+        'Tidak dapat membagikan naskah kepada diri sendiri',
+      );
     }
 
     // 4. Fetch data penerima dari org_data + person
@@ -91,7 +96,9 @@ export class NaskahShareService {
     const existingRecipientPositions = existingShares.flatMap((s) =>
       s.recipients.map((r) => r.recipientId),
     );
-    const duplicates = recipients.filter((r) => existingRecipientPositions.includes(r.id));
+    const duplicates = recipients.filter((r) =>
+      existingRecipientPositions.includes(r.id),
+    );
     if (duplicates.length > 0) {
       throw new BadRequestException(
         `${duplicates.map((d) => d.nama).join(', ')} sudah menerima share naskah ini`,
@@ -100,6 +107,13 @@ export class NaskahShareService {
 
     // 6. Create share + recipients + log dalam transaction
     const shareId = uuidv4();
+    const accessType =
+      (dto.accessType as ShareAccessType) || ShareAccessType.RENTANG_WAKTU;
+    let expiresAt: Date | null = null;
+    if (accessType === ShareAccessType.RENTANG_WAKTU && dto.durationDays) {
+      expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + dto.durationDays);
+    }
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -113,6 +127,12 @@ export class NaskahShareService {
         pemberiNama: user.nama,
         pemberiPositionText: user.positionText,
         catatan: dto.catatan || null,
+        accessType,
+        durationDays:
+          accessType === ShareAccessType.RENTANG_WAKTU
+            ? dto.durationDays || null
+            : null,
+        expiresAt,
         status: ShareStatus.AKTIF,
       });
       await queryRunner.manager.save(share);
@@ -157,7 +177,8 @@ export class NaskahShareService {
               userPersnum: recipient.persnum,
               type: NotificationType.NASKAH_SHARE_DITERIMA,
               title: `Anda mendapat akses naskah dari ${user.nama}`,
-              body: naskah.perihal || dto.catatan || 'Lihat detail di menu Berbagi',
+              body:
+                naskah.perihal || dto.catatan || 'Lihat detail di menu Berbagi',
               data: {
                 naskahId: dto.naskahId,
                 shareId,
@@ -169,7 +190,9 @@ export class NaskahShareService {
             true,
           );
         } catch (err: any) {
-          this.logger.warn(`⚠️ Failed to send share notification to ${recipient.nama}: ${err?.message}`);
+          this.logger.warn(
+            `⚠️ Failed to send share notification to ${recipient.nama}: ${err?.message}`,
+          );
         }
       }
 
@@ -182,6 +205,9 @@ export class NaskahShareService {
           naskahId: dto.naskahId,
           pemberiId: user.position,
           status: ShareStatus.AKTIF,
+          accessType,
+          durationDays: share.durationDays,
+          expiresAt: share.expiresAt,
           createdAt: new Date(),
           recipients: recipientEntities.map((r) => ({
             id: r.id,
@@ -210,7 +236,9 @@ export class NaskahShareService {
     const skip = (page - 1) * limit;
     const tab = query.tab || 'shared-by-me';
 
-    this.logger.log(`[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`);
+    this.logger.log(
+      `[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`,
+    );
 
     const qb = this.shareRepo
       .createQueryBuilder('share')
@@ -219,7 +247,9 @@ export class NaskahShareService {
     if (tab === 'shared-by-me') {
       qb.where('share.pemberiId = :positionId', { positionId: user.position });
     } else {
-      qb.where('recipients.recipientId = :positionId', { positionId: user.position });
+      qb.where('recipients.recipientId = :positionId', {
+        positionId: user.position,
+      });
     }
 
     if (query.status) {
@@ -230,9 +260,12 @@ export class NaskahShareService {
     qb.leftJoin(NaskahEntity, 'naskah', 'naskah.id = share.naskahId');
 
     if (query.search) {
-      qb.andWhere('(naskah.perihal LIKE :search OR naskah.nomor LIKE :search)', {
-        search: `%${query.search}%`,
-      });
+      qb.andWhere(
+        '(naskah.perihal LIKE :search OR naskah.nomor LIKE :search)',
+        {
+          search: `%${query.search}%`,
+        },
+      );
     }
 
     if (query.jenis) {
@@ -246,12 +279,20 @@ export class NaskahShareService {
     this.logger.debug(`[getShares] SQL: ${sql}`);
 
     const [shares, total] = await qb.getManyAndCount();
-    this.logger.log(`[getShares] Found ${shares.length} shares, total=${total}`);
+    this.logger.log(
+      `[getShares] Found ${shares.length} shares, total=${total}`,
+    );
 
     // Auto-mark as DIBACA when viewing shared-to-me tab (spec: BELUM_DIBACA → DIBACA saat melihat daftar)
     if (tab === 'shared-to-me') {
       const unreadShareIds = shares
-        .filter((s) => s.recipients.some((r) => r.recipientId === user.position && r.status === RecipientStatus.BELUM_DIBACA))
+        .filter((s) =>
+          s.recipients.some(
+            (r) =>
+              r.recipientId === user.position &&
+              r.status === RecipientStatus.BELUM_DIBACA,
+          ),
+        )
         .map((s) => s.id);
 
       if (unreadShareIds.length > 0) {
@@ -261,13 +302,18 @@ export class NaskahShareService {
           .set({ status: RecipientStatus.DIBACA })
           .where('share_id IN (:...shareIds)', { shareIds: unreadShareIds })
           .andWhere('recipient_id = :positionId', { positionId: user.position })
-          .andWhere('status = :oldStatus', { oldStatus: RecipientStatus.BELUM_DIBACA })
+          .andWhere('status = :oldStatus', {
+            oldStatus: RecipientStatus.BELUM_DIBACA,
+          })
           .execute();
 
         // Update in-memory for response
         for (const share of shares) {
           for (const r of share.recipients) {
-            if (r.recipientId === user.position && r.status === RecipientStatus.BELUM_DIBACA) {
+            if (
+              r.recipientId === user.position &&
+              r.status === RecipientStatus.BELUM_DIBACA
+            ) {
               r.status = RecipientStatus.DIBACA;
             }
           }
@@ -278,7 +324,25 @@ export class NaskahShareService {
     // Enrich with naskah data
     const enriched = await Promise.all(
       shares.map(async (share) => {
-        const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
+        const naskah = await this.naskahRepo.findOne({
+          where: { id: share.naskahId },
+        });
+
+        // Auto-expire: if RENTANG_WAKTU and expiresAt passed, mark as DICABUT
+        let currentStatus = share.status;
+        if (
+          share.accessType === ShareAccessType.RENTANG_WAKTU &&
+          share.expiresAt &&
+          new Date() > new Date(share.expiresAt) &&
+          share.status === ShareStatus.AKTIF
+        ) {
+          currentStatus = ShareStatus.DICABUT;
+          share.status = ShareStatus.DICABUT;
+          share.revokedAt = new Date(share.expiresAt);
+          share.revokedReason = 'Akses kedaluwarsa';
+          await this.shareRepo.save(share);
+        }
+
         return {
           id: share.id,
           naskahId: share.naskahId,
@@ -289,7 +353,10 @@ export class NaskahShareService {
           pemberiNama: share.pemberiNama,
           pemberiPositionText: share.pemberiPositionText,
           catatan: share.catatan,
-          status: share.status,
+          accessType: share.accessType,
+          durationDays: share.durationDays,
+          expiresAt: share.expiresAt,
+          status: currentStatus,
           createdAt: share.createdAt,
           recipients: share.recipients.map((r) => ({
             id: r.id,
@@ -328,12 +395,16 @@ export class NaskahShareService {
 
     // Only pemberi or recipient can view detail
     const isPemberi = share.pemberiId === user.position;
-    const isRecipient = share.recipients.some((r) => r.recipientId === user.position);
+    const isRecipient = share.recipients.some(
+      (r) => r.recipientId === user.position,
+    );
     if (!isPemberi && !isRecipient) {
       throw new ForbiddenException('Anda tidak memiliki akses ke share ini');
     }
 
-    const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
 
     return {
       success: true,
@@ -347,6 +418,9 @@ export class NaskahShareService {
         pemberiNama: share.pemberiNama,
         pemberiPositionText: share.pemberiPositionText,
         catatan: share.catatan,
+        accessType: share.accessType,
+        durationDays: share.durationDays,
+        expiresAt: share.expiresAt,
         status: share.status,
         revokedAt: share.revokedAt,
         revokedReason: share.revokedReason,
@@ -369,7 +443,12 @@ export class NaskahShareService {
   // Revoke single recipient
   // ────────────────────────────────────────────────────────────────
 
-  async revokeRecipient(user: JwtPayload, shareId: string, recipientId: string, reason?: string) {
+  async revokeRecipient(
+    user: JwtPayload,
+    shareId: string,
+    recipientId: string,
+    reason?: string,
+  ) {
     const share = await this.shareRepo.findOne({
       where: { id: shareId },
       relations: ['recipients'],
@@ -382,11 +461,16 @@ export class NaskahShareService {
     if (share.status !== ShareStatus.AKTIF)
       throw new BadRequestException('Share sudah dicabut sebelumnya');
 
-    const recipient = share.recipients.find((r) => r.recipientId === recipientId);
-    if (!recipient) throw new NotFoundException('Penerima tidak ditemukan dalam share ini');
+    const recipient = share.recipients.find(
+      (r) => r.recipientId === recipientId,
+    );
+    if (!recipient)
+      throw new NotFoundException('Penerima tidak ditemukan dalam share ini');
 
     if (recipient.status === RecipientStatus.DICABUT)
-      throw new BadRequestException('Akses penerima ini sudah dicabut sebelumnya');
+      throw new BadRequestException(
+        'Akses penerima ini sudah dicabut sebelumnya',
+      );
 
     // Revoke this recipient
     recipient.status = RecipientStatus.DICABUT;
@@ -404,7 +488,9 @@ export class NaskahShareService {
     }
 
     // Audit log
-    const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
     await this.logRepo.save(
       this.logRepo.create({
         id: uuidv4(),
@@ -440,7 +526,9 @@ export class NaskahShareService {
         true,
       );
     } catch (err: any) {
-      this.logger.warn(`⚠️ Failed to send revoke notification: ${err?.message}`);
+      this.logger.warn(
+        `⚠️ Failed to send revoke notification: ${err?.message}`,
+      );
     }
 
     return {
@@ -470,7 +558,9 @@ export class NaskahShareService {
 
     // Only pemberi can revoke
     if (share.pemberiId !== user.position) {
-      throw new ForbiddenException('Hanya pemberi yang dapat mencabut akses share');
+      throw new ForbiddenException(
+        'Hanya pemberi yang dapat mencabut akses share',
+      );
     }
 
     // Must be AKTIF
@@ -499,7 +589,9 @@ export class NaskahShareService {
     );
 
     // Fetch naskah data for notification
-    const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
 
     // Send notification to all recipients
     for (const recipient of share.recipients) {
@@ -522,7 +614,9 @@ export class NaskahShareService {
           true,
         );
       } catch (err: any) {
-        this.logger.warn(`⚠️ Failed to send revoke notification to ${recipient.recipientNama}: ${err?.message}`);
+        this.logger.warn(
+          `⚠️ Failed to send revoke notification to ${recipient.recipientNama}: ${err?.message}`,
+        );
       }
     }
 
@@ -557,54 +651,108 @@ export class NaskahShareService {
       throw new BadRequestException('Share tidak aktif atau sudah dicabut');
     }
 
-    // Find recipient record for current user
-    const recipientRecord = share.recipients.find((r) => r.recipientId === user.position);
-    if (!recipientRecord) {
-      throw new ForbiddenException('Anda bukan penerima share ini');
-    }
-
-    // Update recipient status
-    recipientRecord.status = RecipientStatus.DIBUKA;
-    recipientRecord.openedAt = new Date();
-    await this.recipientRepo.save(recipientRecord);
-
-    // Log audit trail
-    await this.logRepo.save(
-      this.logRepo.create({
-        id: uuidv4(),
-        shareId: id,
-        naskahId: share.naskahId,
-        aksi: ShareLogAksi.OPENED,
-        actorPersnum: user.persnum,
-        actorNama: user.nama,
-        actorPositionText: user.positionText,
-        recipientPersnum: share.pemberiPersnum,
-        recipientNama: share.pemberiNama,
-      }),
+    // Check if user is the sender (pemberi) or a recipient
+    const isPemberi = share.pemberiId === user.position;
+    const recipientRecord = share.recipients.find(
+      (r) => r.recipientId === user.position,
     );
 
-    // Send notification to pemberi
-    const naskah = await this.naskahRepo.findOne({ where: { id: share.naskahId } });
-    try {
-      await this.notificationService.createNotification(
-        {
-          positionId: share.pemberiId,
-          userPersnum: share.pemberiPersnum,
-          type: NotificationType.NASKAH_SHARE_DIBUKA,
-          title: `${user.nama} membuka naskah yang Anda bagikan`,
-          body: naskah?.perihal || '',
-          data: {
-            naskahId: share.naskahId,
-            shareId: id,
-            recipientName: user.nama,
-            perihal: naskah?.perihal || '',
-            action: 'OPEN_INBOX_DETAIL',
-          },
-        },
-        true,
+    if (!isPemberi && !recipientRecord) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke share ini');
+    }
+
+    // Check expiry for time-limited shares
+    if (share.accessType === ShareAccessType.RENTANG_WAKTU && share.expiresAt) {
+      if (new Date() > new Date(share.expiresAt)) {
+        throw new BadRequestException('Akses share sudah kedaluwarsa');
+      }
+    }
+
+    // Fetch naskah for PDF URL and notifications
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
+
+    // Update recipient status only if user is a recipient
+    if (recipientRecord) {
+      // View-once: check if already opened or auto-revoked
+      if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
+        if (
+          recipientRecord.status === RecipientStatus.DIBUKA ||
+          recipientRecord.status === RecipientStatus.DICABUT
+        ) {
+          throw new BadRequestException(
+            'Share ini hanya dapat dibuka sekali. Akses sudah ditutup.',
+          );
+        }
+      }
+
+      recipientRecord.status = RecipientStatus.DIBUKA;
+      recipientRecord.openedAt = new Date();
+      await this.recipientRepo.save(recipientRecord);
+
+      // View-once: auto-revoke access after first open
+      if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
+        recipientRecord.status = RecipientStatus.DICABUT;
+        await this.recipientRepo.save(recipientRecord);
+
+        // Check if all recipients are now DICABUT → close the entire share
+        const allRevoked = share.recipients.every(
+          (r) =>
+            r.id === recipientRecord.id || r.status === RecipientStatus.DICABUT,
+        );
+        if (allRevoked) {
+          share.status = ShareStatus.DICABUT;
+          share.revokedAt = new Date();
+          share.revokedReason =
+            'Semua penerima sudah menggunakan akses sekali lihat';
+          await this.shareRepo.save(share);
+        }
+
+        this.logger.log(
+          `[openNaskah] View-once: recipient ${user.nama} auto-revoked for share ${id}`,
+        );
+      }
+
+      // Log audit trail
+      await this.logRepo.save(
+        this.logRepo.create({
+          id: uuidv4(),
+          shareId: id,
+          naskahId: share.naskahId,
+          aksi: ShareLogAksi.OPENED,
+          actorPersnum: user.persnum,
+          actorNama: user.nama,
+          actorPositionText: user.positionText,
+          recipientPersnum: share.pemberiPersnum,
+          recipientNama: share.pemberiNama,
+        }),
       );
-    } catch (err: any) {
-      this.logger.warn(`⚠️ Failed to send open notification to pemberi: ${err?.message}`);
+
+      // Send notification to pemberi
+      try {
+        await this.notificationService.createNotification(
+          {
+            positionId: share.pemberiId,
+            userPersnum: share.pemberiPersnum,
+            type: NotificationType.NASKAH_SHARE_DIBUKA,
+            title: `${user.nama} membuka naskah yang Anda bagikan`,
+            body: naskah?.perihal || '',
+            data: {
+              naskahId: share.naskahId,
+              shareId: id,
+              recipientName: user.nama,
+              perihal: naskah?.perihal || '',
+              action: 'OPEN_INBOX_DETAIL',
+            },
+          },
+          true,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `⚠️ Failed to send open notification to pemberi: ${err?.message}`,
+        );
+      }
     }
 
     // Resolve PDF URL from storage
@@ -613,7 +761,9 @@ export class NaskahShareService {
       try {
         pdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
       } catch (err: any) {
-        this.logger.warn(`⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`);
+        this.logger.warn(
+          `⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`,
+        );
       }
     }
 
@@ -631,6 +781,8 @@ export class NaskahShareService {
           positionText: share.pemberiPositionText,
         },
         sharedAt: share.createdAt,
+        accessType: share.accessType,
+        expiresAt: share.expiresAt,
         pdfUrl,
       },
     };
@@ -649,7 +801,9 @@ export class NaskahShareService {
       throw new NotFoundException('Share tidak ditemukan');
     }
 
-    const recipientRecord = share.recipients.find((r) => r.recipientId === user.position);
+    const recipientRecord = share.recipients.find(
+      (r) => r.recipientId === user.position,
+    );
     if (!recipientRecord) {
       throw new ForbiddenException('Anda bukan penerima share ini');
     }
@@ -697,7 +851,9 @@ export class NaskahShareService {
 
     // Fetch org_data for position info
     const orgData = await this.orgDataService.findLatestOrg();
-    const persnums = persons.map((p) => p.persnum).filter((p): p is number => p != null);
+    const persnums = persons
+      .map((p) => p.persnum)
+      .filter((p): p is number => p != null);
 
     const positionInfoMap = new Map<
       number,
@@ -709,7 +865,7 @@ export class NaskahShareService {
     >();
 
     if (orgData?.position_json && Array.isArray(orgData.position_json)) {
-      for (const pos of orgData.position_json as any[]) {
+      for (const pos of orgData.position_json) {
         const pn = pos.persnum_person ?? pos.persnum;
         if (persnums.includes(pn)) {
           if (!positionInfoMap.has(pn)) {
@@ -746,9 +902,7 @@ export class NaskahShareService {
   // Helpers
   // ────────────────────────────────────────────────────────────────
 
-  private async fetchRecipientData(
-    recipientIds: string[],
-  ): Promise<
+  private async fetchRecipientData(recipientIds: string[]): Promise<
     Array<{
       id: string;
       persnum: number;
@@ -770,17 +924,25 @@ export class NaskahShareService {
       organizationText: string;
     }> = [];
 
-    this.logger.debug(`[fetchRecipientData] Looking for recipientIds: ${JSON.stringify(recipientIds)}`);
-    this.logger.debug(`[fetchRecipientData] Total position_json entries: ${(orgData.position_json as any[]).length}`);
+    this.logger.debug(
+      `[fetchRecipientData] Looking for recipientIds: ${JSON.stringify(recipientIds)}`,
+    );
+    this.logger.debug(
+      `[fetchRecipientData] Total position_json entries: ${orgData.position_json.length}`,
+    );
 
-    for (const pos of orgData.position_json as any[]) {
+    for (const pos of orgData.position_json) {
       const posId = String(pos.position || '');
       if (recipientIds.includes(posId)) {
-        this.logger.debug(`[fetchRecipientData] Matched position ${posId}, persnum_person=${pos.persnum_person}, persnum=${pos.persnum}`);
+        this.logger.debug(
+          `[fetchRecipientData] Matched position ${posId}, persnum_person=${pos.persnum_person}, persnum=${pos.persnum}`,
+        );
         // Find person by persnum
         const persnum = Number(pos.persnum_person ?? pos.persnum);
         if (!persnum || isNaN(persnum)) {
-          this.logger.warn(`[fetchRecipientData] Position ${posId} has no valid persnum, skipping`);
+          this.logger.warn(
+            `[fetchRecipientData] Position ${posId} has no valid persnum, skipping`,
+          );
           continue;
         }
         let person = await this.personRepo.findOne({
@@ -789,14 +951,18 @@ export class NaskahShareService {
 
         if (!person) {
           // Fallback: try without endDate filter
-          this.logger.debug(`[fetchRecipientData] Person not found with endDate filter, trying without. persnum=${persnum}`);
+          this.logger.debug(
+            `[fetchRecipientData] Person not found with endDate filter, trying without. persnum=${persnum}`,
+          );
           person = await this.personRepo.findOne({
             where: { persnum },
           });
         }
 
         if (person) {
-          this.logger.debug(`[fetchRecipientData] Found person: ${person.name} (persnum=${person.persnum})`);
+          this.logger.debug(
+            `[fetchRecipientData] Found person: ${person.name} (persnum=${person.persnum})`,
+          );
           results.push({
             id: posId,
             persnum,
@@ -805,12 +971,16 @@ export class NaskahShareService {
             organizationText: pos.organization_text || '',
           });
         } else {
-          this.logger.warn(`[fetchRecipientData] No person found for persnum=${persnum} (position ${posId})`);
+          this.logger.warn(
+            `[fetchRecipientData] No person found for persnum=${persnum} (position ${posId})`,
+          );
         }
       }
     }
 
-    this.logger.debug(`[fetchRecipientData] Returning ${results.length} results`);
+    this.logger.debug(
+      `[fetchRecipientData] Returning ${results.length} results`,
+    );
     return results;
   }
 }

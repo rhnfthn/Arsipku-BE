@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsEnum, IsArray, ValidateNested, IsBoolean } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsEnum,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { LampiranDto } from './create-konsep.dto';
 
@@ -118,8 +127,11 @@ export class ForwardKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })
@@ -132,8 +144,11 @@ export class ForwardKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })

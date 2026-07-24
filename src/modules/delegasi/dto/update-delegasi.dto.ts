@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsEnum, IsDateString, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  MaxLength,
+} from 'class-validator';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 export class UpdateDelegasiDto {

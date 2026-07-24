@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -71,7 +82,8 @@ export class OnlyOfficeController {
     res
       .status(HttpStatus.OK)
       .set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `inline; filename="${tempId}.docx"`,
         'Cache-Control': 'no-store',
       })
@@ -109,7 +121,8 @@ export class OnlyOfficeController {
     res
       .status(HttpStatus.OK)
       .set({
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': 'inline; filename="document.docx"',
         'Cache-Control': 'no-store',
       })
@@ -129,7 +142,8 @@ export class OnlyOfficeController {
   async handleCallback(
     @Param('tempId') tempId: string,
     @Req() req: any,
-    @Body() body: { status: number; key: string; url: string | null; token?: string },
+    @Body()
+    body: { status: number; key: string; url: string | null; token?: string },
   ): Promise<{ error: number }> {
     if (!this.verifyCallbackToken(req, body)) {
       console.error('[OnlyOffice callback] Invalid or missing callback token');
@@ -138,7 +152,10 @@ export class OnlyOfficeController {
 
     if (body.status === 2 && body.url) {
       if (!this.isOnlyOfficeUrl(body.url)) {
-        console.error('[OnlyOffice callback] Rejected callback URL (SSRF):', body.url);
+        console.error(
+          '[OnlyOffice callback] Rejected callback URL (SSRF):',
+          body.url,
+        );
         return { error: 1 };
       }
       try {
@@ -170,7 +187,10 @@ export class OnlyOfficeController {
   ): boolean {
     const token =
       body.token ||
-      (req.headers?.authorization as string | undefined)?.replace(/^Bearer\s+/i, '');
+      (req.headers?.authorization as string | undefined)?.replace(
+        /^Bearer\s+/i,
+        '',
+      );
     if (!token) return false;
     try {
       jwt.verify(token, this.ooServiceJwtSecret(), { algorithms: ['HS256'] });

@@ -1,7 +1,7 @@
 /**
  * Script: sync-schema
  * Jalankan: npx ts-node src/scripts/sync-schema.script.ts
- * 
+ *
  * Membuat tabel yang belum ada di DB berdasarkan entity TypeORM.
  * Menggunakan synchronize: true untuk entity yang terdaftar saja.
  */
@@ -29,7 +29,10 @@ async function main() {
   console.log('🔌 Connecting to database...');
   await dataSource.initialize();
   console.log('✅ Connected. Syncing schema (create missing tables)...');
-  console.log('   Entities:', dataSource.entityMetadatas.map((m) => m.tableName).join(', '));
+  console.log(
+    '   Entities:',
+    dataSource.entityMetadatas.map((m) => m.tableName).join(', '),
+  );
   console.log('🎉 Schema sync complete — missing tables created');
   await dataSource.destroy();
   console.log('🔌 Disconnected');

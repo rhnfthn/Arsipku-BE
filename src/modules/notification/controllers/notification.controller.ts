@@ -9,7 +9,12 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -42,8 +47,11 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
-    const result = await this.notificationService.getNotifications(positionId, query);
-    
+    const result = await this.notificationService.getNotifications(
+      positionId,
+      query,
+    );
+
     return {
       success: true,
       data: result.data,
@@ -56,7 +64,7 @@ export class NotificationController {
   async getUnreadCount(@CurrentUser() user: JwtPayload) {
     const positionId = this.getPositionId(user);
     const count = await this.notificationService.getUnreadCount(positionId);
-    
+
     return {
       success: true,
       data: { count },
@@ -66,13 +74,13 @@ export class NotificationController {
   @Patch(':id/read')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark notification as read' })
-  async markAsRead(
-    @Param('id') id: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async markAsRead(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     const positionId = this.getPositionId(user);
-    const notification = await this.notificationService.markAsRead(positionId, id);
-    
+    const notification = await this.notificationService.markAsRead(
+      positionId,
+      id,
+    );
+
     return {
       success: true,
       message: 'Notification marked as read',
@@ -88,7 +96,10 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
-    const count = await this.notificationService.markByNaskahAsRead(positionId, naskahId);
+    const count = await this.notificationService.markByNaskahAsRead(
+      positionId,
+      naskahId,
+    );
 
     return {
       success: true,
@@ -103,7 +114,7 @@ export class NotificationController {
   async markAllAsRead(@CurrentUser() user: JwtPayload) {
     const positionId = this.getPositionId(user);
     const count = await this.notificationService.markAllAsRead(positionId);
-    
+
     return {
       success: true,
       message: `${count} notifications marked as read`,
@@ -119,8 +130,11 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
-    const deleted = await this.notificationService.deleteNotification(positionId, id);
-    
+    const deleted = await this.notificationService.deleteNotification(
+      positionId,
+      id,
+    );
+
     return {
       success: deleted,
       message: deleted ? 'Notification deleted' : 'Notification not found',
@@ -136,8 +150,11 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
-    const count = await this.notificationService.clearAllNotifications(positionId, type);
-    
+    const count = await this.notificationService.clearAllNotifications(
+      positionId,
+      type,
+    );
+
     return {
       success: true,
       message: `${count} notifications deleted`,

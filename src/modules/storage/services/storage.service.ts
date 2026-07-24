@@ -140,8 +140,9 @@ export class StorageService implements OnModuleInit {
     }
     const allowedMimeTypes = {
       'application/pdf': ['.pdf'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/msword': ['.doc']
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        ['.docx'],
+      'application/msword': ['.doc'],
     };
 
     const ext = path.extname(file.originalname).toLowerCase();
@@ -242,7 +243,7 @@ export class StorageService implements OnModuleInit {
     // Determine content type based on file extension
     const extension = key.split('.').pop()?.toLowerCase();
     let contentType = 'application/octet-stream';
-    
+
     if (extension === 'pdf') {
       contentType = 'application/pdf';
     } else if (['jpg', 'jpeg'].includes(extension || '')) {

@@ -43,7 +43,7 @@ export class TemplateSuratService {
   }
 
   toDtoList(entities: TemplateSuratEntity[]): TemplateSuratDto[] {
-    return entities.map(e => this.toDto(e));
+    return entities.map((e) => this.toDto(e));
   }
 
   async findAll(name?: string): Promise<TemplateSuratEntity[]> {
@@ -59,9 +59,9 @@ export class TemplateSuratService {
   }
 
   async findByPosition(id_position: string): Promise<TemplateSuratEntity[]> {
-    return await this.templateSuratRepository.find({ 
+    return await this.templateSuratRepository.find({
       where: { id_position },
-      order: { create_at: 'DESC' }
+      order: { create_at: 'DESC' },
     });
   }
 
@@ -79,13 +79,16 @@ export class TemplateSuratService {
   /**
    * Update template surat
    */
-  async update(id: string, dto: UpdateTemplateSuratDto): Promise<TemplateSuratEntity> {
+  async update(
+    id: string,
+    dto: UpdateTemplateSuratDto,
+  ): Promise<TemplateSuratEntity> {
     const t = await this.findOne(id);
 
     if (dto.id_position !== undefined) {
       t.id_position = dto.id_position;
     }
-    
+
     if (dto.nama_template !== undefined) {
       t.nama_template = dto.nama_template;
     }

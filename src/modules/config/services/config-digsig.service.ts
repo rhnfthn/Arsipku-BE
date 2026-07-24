@@ -34,7 +34,9 @@ export class ConfigDigsigService {
     });
 
     if (!config) {
-      throw new NotFoundException(`Konfigurasi untuk jenis ${jenisNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Konfigurasi untuk jenis ${jenisNaskah} tidak ditemukan`,
+      );
     }
 
     return config;
@@ -64,16 +66,19 @@ export class ConfigDigsigService {
    */
   private async refreshCache(): Promise<void> {
     const configs = await this.configDigsigRepository.find();
-    
+
     this.cache.clear();
-    configs.forEach(config => {
+    configs.forEach((config) => {
       const modes: TtdMode[] = [];
       if (config.digsig) modes.push(TtdMode.DIGSIG);
       if (config.ttdQr) modes.push(TtdMode.TTD_QR);
       if (config.ttdBasah) modes.push(TtdMode.TTD_BASAH);
-      this.cache.set(config.jenisNaskah, modes.length > 0 ? modes : [TtdMode.DIGSIG]);
+      this.cache.set(
+        config.jenisNaskah,
+        modes.length > 0 ? modes : [TtdMode.DIGSIG],
+      );
     });
-    
+
     this.cacheExpiry = Date.now() + this.CACHE_TTL;
   }
 

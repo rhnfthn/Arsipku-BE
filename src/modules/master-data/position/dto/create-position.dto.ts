@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsUUID, MaxLength, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsInt,
+  IsUUID,
+  MaxLength,
+  IsBoolean,
+} from 'class-validator';
 
 export class CreatePositionDto {
   @IsUUID()

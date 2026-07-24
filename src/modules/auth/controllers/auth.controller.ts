@@ -1,4 +1,16 @@
-import { Controller, Post, Body, Get, Req, UseGuards, Query, Res, UnauthorizedException, BadRequestException, Redirect } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Req,
+  UseGuards,
+  Query,
+  Res,
+  UnauthorizedException,
+  BadRequestException,
+  Redirect,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -51,11 +63,9 @@ export class AuthController {
     // const encoded = Buffer.from(redirectUri, 'utf-8').toString('base64');
     const encoded = Buffer.from(redirectUri ?? '', 'utf-8').toString('base64');
 
-
     const finalUrl = `${baseUrl}/?redirect_uri=${encoded}`;
 
     return { url: finalUrl, statusCode: 302 };
-   
   }
 
   @Public()
@@ -67,16 +77,16 @@ export class AuthController {
   })
   ssoRedirectlocal() {
     const baseUrl = this.configService.get<string>('AIRNAV_BASE_URL');
-    const redirectUri = this.configService.get<string>('AIRNAV_CALLBACK_URL_LOCAL');
+    const redirectUri = this.configService.get<string>(
+      'AIRNAV_CALLBACK_URL_LOCAL',
+    );
 
     // const encoded = Buffer.from(redirectUri, 'utf-8').toString('base64');
     const encoded = Buffer.from(redirectUri ?? '', 'utf-8').toString('base64');
 
-
     const finalUrl = `${baseUrl}/?redirect_uri=${encoded}`;
 
     return { url: finalUrl, statusCode: 302 };
-   
   }
 
   /**
@@ -106,7 +116,8 @@ export class AuthController {
   @Get('autharsipku')
   @ApiOperation({
     summary: 'SSO Callback Endpoint',
-    description: 'Endpoint callback dari AirNav SSO setelah user berhasil login. Akan auto-verify token dan redirect ke frontend.',
+    description:
+      'Endpoint callback dari AirNav SSO setelah user berhasil login. Akan auto-verify token dan redirect ke frontend.',
   })
   async ssoCallback(
     @Query('token') token: string,
@@ -116,24 +127,33 @@ export class AuthController {
     try {
       if (!token) {
         // Redirect ke frontend dengan error
-        const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
-        return res.redirect(`${frontendUrl}/auth/error?message=Token tidak ditemukan`);
+        const frontendUrl =
+          this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+        return res.redirect(
+          `${frontendUrl}/auth/error?message=Token tidak ditemukan`,
+        );
       }
 
       const userAgent = req.headers['user-agent'];
       const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
 
       // Auto verify token dan create session
-      const result = await this.authService.loginWithSsoToken(token, userAgent, ip);
+      const result = await this.authService.loginWithSsoToken(
+        token,
+        userAgent,
+        ip,
+      );
 
       // Redirect ke frontend dengan JWT token
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+      const frontendUrl =
+        this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
       const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&sessionId=${result.sessionId}&expiredToken=${result.expiredToken}`;
-      
+
       return res.redirect(redirectUrl);
     } catch (error) {
       // Redirect ke frontend dengan error
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+      const frontendUrl =
+        this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
       const errorMessage = encodeURIComponent(error.message || 'Login gagal');
       return res.redirect(`${frontendUrl}/auth/error?message=${errorMessage}`);
     }
@@ -165,7 +185,12 @@ export class AuthController {
     const userAgent = req.headers['user-agent'];
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
 
-    return this.authService.loginWithCredentials(dto.username, dto.password, userAgent, ip);
+    return this.authService.loginWithCredentials(
+      dto.username,
+      dto.password,
+      userAgent,
+      ip,
+    );
   }
 
   /**
@@ -223,8 +248,12 @@ export class AuthController {
     const userAgent = req.headers['user-agent'];
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
 
-    const result = await this.authService.loginWithSsoToken(dto.token, userAgent, ip);
-    
+    const result = await this.authService.loginWithSsoToken(
+      dto.token,
+      userAgent,
+      ip,
+    );
+
     // Add abbreviation field (alias for bodTag)
     return result;
   }
@@ -240,10 +269,7 @@ export class AuthController {
     description:
       'Perpanjang session dan generate JWT baru menggunakan session ID.',
   })
-  async refreshToken(
-    @Body() dto: RefreshTokenDto,
-    @Req() req: Request,
-  ) {
+  async refreshToken(@Body() dto: RefreshTokenDto, @Req() req: Request) {
     const bearer = req.headers.authorization || '';
     const appToken = bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined;
 
@@ -251,7 +277,10 @@ export class AuthController {
       throw new UnauthorizedException('Authorization token required');
     }
 
-    const result = await this.authService.refreshWithSession(dto.sessionId, appToken);
+    const result = await this.authService.refreshWithSession(
+      dto.sessionId,
+      appToken,
+    );
 
     return {
       message: result.message,
@@ -322,7 +351,8 @@ export class AuthController {
   @Get('profile')
   @ApiOperation({
     summary: 'Get User Profile',
-    description: 'Ambil informasi user dari JWT token dan data alamat dari sub_area_alamat.',
+    description:
+      'Ambil informasi user dari JWT token dan data alamat dari sub_area_alamat.',
   })
   async getProfile(@CurrentUser() user: JwtPayload): Promise<{
     message: string;
@@ -366,8 +396,13 @@ export class AuthController {
     }>;
   }> {
     // Get alamat info from sub_area_alamat based on user context
-    let alamatInfo: { kantor: string; gedung: string; kota: string; alamat: string } | null = null;
-    
+    let alamatInfo: {
+      kantor: string;
+      gedung: string;
+      kota: string;
+      alamat: string;
+    } | null = null;
+
     try {
       if (user.company && user.area && user.subArea) {
         const result = await this.subAreaAlamatService.findAlamatByUserContext(
@@ -376,7 +411,7 @@ export class AuthController {
           user.subArea,
           new Date(), // current date for active record
         );
-        
+
         if (result) {
           alamatInfo = {
             kantor: result.kantor,
@@ -425,7 +460,9 @@ export class AuthController {
     }> = [];
     try {
       if (user.persnum) {
-        const result = await this.delegasiService.getAvailableRoles(String(user.persnum));
+        const result = await this.delegasiService.getAvailableRoles(
+          String(user.persnum),
+        );
         delegations = result.delegations;
       }
     } catch (error) {
@@ -451,7 +488,8 @@ export class AuthController {
   @Get('refresh-permissions')
   @ApiOperation({
     summary: 'Refresh permissions',
-    description: 'Re-query permission live dari DB dan return JWT baru dengan permission terbaru.',
+    description:
+      'Re-query permission live dari DB dan return JWT baru dengan permission terbaru.',
   })
   async refreshPermissions(@CurrentUser() user: JwtPayload) {
     if (!user.persnum) {
@@ -464,7 +502,8 @@ export class AuthController {
 
     this.permissionCache.invalidate(effPersnum);
 
-    const ctx = await this.rbacService.buildActiveRoleAndPermissions(effPersnum);
+    const ctx =
+      await this.rbacService.buildActiveRoleAndPermissions(effPersnum);
 
     const { exp, iat, ...base } = user as any;
     const newPayload: JwtPayload = {
@@ -480,7 +519,9 @@ export class AuthController {
         ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600)
         : 86400;
 
-    const accessToken = await this.jwtService.signAsync(newPayload, { expiresIn });
+    const accessToken = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
 
     return {
       success: true,

@@ -49,4 +49,4 @@ import { KonsepModule } from '../konsep/konsep.module';
   providers: [SuratDinasInternalService, NomorSuratService],
   exports: [SuratDinasInternalService],
 })
-export class SuratDinasInternalModule { }
+export class SuratDinasInternalModule {}

@@ -21,8 +21,14 @@ export class ShortUrlService {
   private tokenExpiresAt: number = 0;
 
   constructor(private readonly configService: ConfigService) {
-    this.baseUrl = this.configService.get<string>('SHORT_URL_BASE_URL', 'http://172.20.16.115:30001');
-    this.username = this.configService.get<string>('SHORT_URL_USERNAME', 'nazar');
+    this.baseUrl = this.configService.get<string>(
+      'SHORT_URL_BASE_URL',
+      'http://172.20.16.115:30001',
+    );
+    this.username = this.configService.get<string>(
+      'SHORT_URL_USERNAME',
+      'nazar',
+    );
     this.password = this.configService.get<string>('SHORT_URL_PASSWORD', '123');
   }
 
@@ -50,7 +56,8 @@ export class ShortUrlService {
       });
 
       const data = response.data;
-      const token: string = data?.token || data?.data?.token || data?.accessToken;
+      const token: string =
+        data?.token || data?.data?.token || data?.accessToken;
 
       if (!token) {
         throw new HttpException(
@@ -96,7 +103,9 @@ export class ShortUrlService {
   async getData(dto: ShortUrlDataDto): Promise<any> {
     try {
       const headers = await this.authHeaders();
-      const response = await axios.post(`${this.baseUrl}/uri/data`, dto, { headers });
+      const response = await axios.post(`${this.baseUrl}/uri/data`, dto, {
+        headers,
+      });
       return response.data;
     } catch (error) {
       this.handleAxiosError(error, 'getData');
@@ -109,7 +118,9 @@ export class ShortUrlService {
   async submitUrl(dto: ShortUrlSubmitDto): Promise<any> {
     try {
       const headers = await this.authHeaders();
-      const response = await axios.post(`${this.baseUrl}/uri`, dto, { headers });
+      const response = await axios.post(`${this.baseUrl}/uri`, dto, {
+        headers,
+      });
       return response.data;
     } catch (error) {
       this.handleAxiosError(error, 'submitUrl');
@@ -122,7 +133,9 @@ export class ShortUrlService {
   async getUrlById(dto: ShortUrlGetOneDto): Promise<any> {
     try {
       const headers = await this.authHeaders();
-      const response = await axios.post(`${this.baseUrl}/uri/getone`, dto, { headers });
+      const response = await axios.post(`${this.baseUrl}/uri/getone`, dto, {
+        headers,
+      });
       return response.data;
     } catch (error) {
       this.handleAxiosError(error, 'getUrlById');
@@ -165,13 +178,19 @@ export class ShortUrlService {
   private toUserFriendlyMessage(raw: string): string {
     const lower = raw.toLowerCase();
 
-    if (lower.includes('uniqalias') || (lower.includes('unique') && lower.includes('alias'))) {
+    if (
+      lower.includes('uniqalias') ||
+      (lower.includes('unique') && lower.includes('alias'))
+    ) {
       return 'Alamat sudah digunakan, silakan gunakan alamat lain';
     }
     if (lower.includes('unique constraint')) {
       return 'Data sudah ada, tidak boleh duplikat';
     }
-    if (lower.includes('record to update not found') || lower.includes('record to delete not found')) {
+    if (
+      lower.includes('record to update not found') ||
+      lower.includes('record to delete not found')
+    ) {
       return 'Data tidak ditemukan';
     }
     if (lower.includes('failed create')) {

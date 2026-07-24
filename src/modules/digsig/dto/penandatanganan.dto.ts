@@ -137,7 +137,7 @@ export interface PenandatangananDetailDto {
   klasifikasi: string | null;
   klasifikasiText: string | null;
   perihal: string | null;
-  
+
   // File info
   fileName: string | null;
   fileSize: number | null;
@@ -145,25 +145,25 @@ export interface PenandatangananDetailDto {
   filePreviewUrl: string | null;
   signedFileName: string | null;
   signedFilePreviewUrl: string | null;
-  
+
   // Status
   documentStatus: 'on_progress' | 'completed' | 'rejected' | 'cancelled';
   currentSignerOrder: number;
   totalSigners: number;
-  
+
   // Signers
   signers: SignerInfoDto[];
-  
+
   // My signing status
   mySignerInfo: SignerInfoDto | null;
   canSign: boolean;
   canReject: boolean;
-  
+
   // Creator info
   createdBy: number;
   createdByName: string | null;
   createdByPosition: string | null;
-  
+
   // Rejection info (if document was rejected)
   rejectionReason: string | null;
   rejectedBy: number | null;

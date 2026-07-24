@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { UpdatePositionDto } from './dto/update-position.dto';
 import { OmPosition } from './entities/om-position.entity';
@@ -34,7 +38,8 @@ export class PositionService {
    * @param search - Optional search query to filter positions by name
    */
   async findByCompany(companyId: number, search?: string) {
-    const queryBuilder = this.positionRepo.createQueryBuilder('pos')
+    const queryBuilder = this.positionRepo
+      .createQueryBuilder('pos')
       .where('pos.company = :companyId', { companyId })
       .orderBy('pos.position', 'ASC');
 
@@ -42,7 +47,7 @@ export class PositionService {
     if (search && search.trim()) {
       queryBuilder.andWhere(
         '(pos.shortText LIKE :search OR pos.longText LIKE :search OR pos.abbreviation LIKE :search)',
-        { search: `%${search.trim()}%` }
+        { search: `%${search.trim()}%` },
       );
     }
 
@@ -132,15 +137,15 @@ export class PositionService {
   async create(dto: CreatePositionDto): Promise<OmPosition> {
     // Check if position code already exists for this company
     const existing = await this.positionRepo.findOne({
-      where: { 
-        company: dto.company, 
-        position: dto.position 
+      where: {
+        company: dto.company,
+        position: dto.position,
       },
     });
 
     if (existing) {
       throw new BadRequestException(
-        `Position code ${dto.position} already exists for company ${dto.company}`
+        `Position code ${dto.position} already exists for company ${dto.company}`,
       );
     }
 
@@ -158,7 +163,7 @@ export class PositionService {
           company: dto.company,
         },
       });
-      
+
       const relationOs = this.relationOsRepo.create({
         company: dto.company,
         organization: dto.organization,
@@ -181,7 +186,7 @@ export class PositionService {
           company: dto.company,
         },
       });
-      
+
       const relationOsc = this.relationOscRepo.create({
         company: dto.company,
         organization: dto.organization,
@@ -199,26 +204,24 @@ export class PositionService {
     return savedPosition;
   }
 
-  async update(
-    id: string,
-    dto: UpdatePositionDto,
-  ): Promise<OmPosition> {
+  async update(id: string, dto: UpdatePositionDto): Promise<OmPosition> {
     const position = await this.findOne(id);
-    
+
     if (position.company === null || position.position === null) {
       throw new BadRequestException('Position has invalid data');
     }
-    
+
     // Manually assign fields from DTO
     if (dto.company !== undefined) position.company = dto.company;
     if (dto.position !== undefined) position.position = dto.position;
     if (dto.shortText !== undefined) position.shortText = dto.shortText;
     if (dto.longText !== undefined) position.longText = dto.longText;
-    if (dto.abbreviation !== undefined) position.abbreviation = dto.abbreviation;
+    if (dto.abbreviation !== undefined)
+      position.abbreviation = dto.abbreviation;
     if (dto.startDate !== undefined) position.startDate = dto.startDate;
     if (dto.endDate !== undefined) position.endDate = dto.endDate;
     if (dto.uname !== undefined) position.uname = dto.uname;
-    
+
     const updatedPosition = await this.positionRepo.save(position);
 
     // Handle organization relation (om_relation_os)
@@ -238,20 +241,23 @@ export class PositionService {
         }
       } else {
         // Auto-fetch organization_text from om_organization
-        const orgData = updatedPosition.company ? await this.organizationRepo.findOne({
-          where: {
-            organization: dto.organization,
-            company: updatedPosition.company,
-          },
-        }) : null;
-        
+        const orgData = updatedPosition.company
+          ? await this.organizationRepo.findOne({
+              where: {
+                organization: dto.organization,
+                company: updatedPosition.company,
+              },
+            })
+          : null;
+
         const orgText = orgData?.shortText || dto.organizationText || null;
-        
+
         // Update or create relation
         if (existingOs) {
           existingOs.organization = dto.organization;
           existingOs.organization_text = orgText;
-          existingOs.relation_position_text = dto.shortText || position.shortText;
+          existingOs.relation_position_text =
+            dto.shortText || position.shortText;
           existingOs.startDate = dto.startDate || position.startDate;
           existingOs.endDate = dto.endDate || position.endDate;
           existingOs.uname = dto.uname || null;
@@ -288,20 +294,23 @@ export class PositionService {
         }
       } else if (dto.organization) {
         // Auto-fetch organization_text from om_organization
-        const orgData = position.company ? await this.organizationRepo.findOne({
-          where: {
-            organization: dto.organization,
-            company: position.company,
-          },
-        }) : null;
-        
+        const orgData = position.company
+          ? await this.organizationRepo.findOne({
+              where: {
+                organization: dto.organization,
+                company: position.company,
+              },
+            })
+          : null;
+
         const orgText = orgData?.shortText || dto.organizationText || null;
-        
+
         // Update or create relation (requires organization)
         if (existingOsc) {
           existingOsc.organization = dto.organization;
           existingOsc.organization_text = orgText;
-          existingOsc.relation_position_text = dto.shortText || position.shortText;
+          existingOsc.relation_position_text =
+            dto.shortText || position.shortText;
           existingOsc.bod_tag = dto.bodTag;
           existingOsc.startDate = dto.startDate || position.startDate;
           existingOsc.endDate = dto.endDate || position.endDate;
@@ -323,13 +332,13 @@ export class PositionService {
         }
       }
     }
-    
+
     return updatedPosition;
   }
 
   async remove(id: string): Promise<{ message: string }> {
     const position = await this.findOne(id);
-    
+
     if (position.company === null || position.position === null) {
       throw new BadRequestException('Position has invalid data');
     }

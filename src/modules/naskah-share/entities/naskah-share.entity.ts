@@ -9,6 +9,7 @@ import {
 import { NaskahShareRecipientEntity } from './naskah-share-recipient.entity';
 import { NaskahShareLogEntity } from './naskah-share-log.entity';
 import { ShareStatus } from '../enums/share-status.enum';
+import { ShareAccessType } from '../enums/share-access-type.enum';
 
 @Entity('naskah_share')
 export class NaskahShareEntity {
@@ -27,11 +28,28 @@ export class NaskahShareEntity {
   @Column('varchar', { name: 'pemberi_nama', length: 150 })
   pemberiNama: string;
 
-  @Column('varchar', { name: 'pemberi_position_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'pemberi_position_text',
+    length: 150,
+    nullable: true,
+  })
   pemberiPositionText: string | null;
 
   @Column('varchar', { name: 'catatan', length: 500, nullable: true })
   catatan: string | null;
+
+  @Column('enum', {
+    enum: ShareAccessType,
+    name: 'access_type',
+    default: ShareAccessType.RENTANG_WAKTU,
+  })
+  accessType: ShareAccessType;
+
+  @Column('int', { name: 'duration_days', nullable: true })
+  durationDays: number | null;
+
+  @Column('timestamp', { name: 'expires_at', nullable: true })
+  expiresAt: Date | null;
 
   @Column('enum', { enum: ShareStatus, default: ShareStatus.AKTIF })
   status: ShareStatus;

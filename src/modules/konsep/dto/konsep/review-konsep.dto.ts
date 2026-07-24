@@ -1,4 +1,12 @@
-import { IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsNumber, IsNotEmpty } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsArray,
+  ValidateNested,
+  IsNumber,
+  IsNotEmpty,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { LampiranDto } from './create-konsep.dto';
 
@@ -112,8 +120,11 @@ export class FinalizeKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })
@@ -126,8 +137,11 @@ export class FinalizeKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })

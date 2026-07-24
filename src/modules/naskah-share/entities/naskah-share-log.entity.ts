@@ -29,7 +29,11 @@ export class NaskahShareLogEntity {
   @Column('varchar', { name: 'actor_nama', length: 150 })
   actorNama: string;
 
-  @Column('varchar', { name: 'actor_position_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'actor_position_text',
+    length: 150,
+    nullable: true,
+  })
   actorPositionText: string | null;
 
   @Column('int', { name: 'recipient_persnum', nullable: true })

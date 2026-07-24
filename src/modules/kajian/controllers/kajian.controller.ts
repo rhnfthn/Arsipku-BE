@@ -16,7 +16,10 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { FileFieldsInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  AnyFilesInterceptor,
+} from '@nestjs/platform-express';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { KajianService } from '../services/kajian.service';
@@ -25,12 +28,21 @@ import {
   GetRecipientQueryDto,
   OrgDataPositionDto,
 } from '../dto/kajian-recipient-response.dto';
-import { CreateKajianDto, FinalizeDraftDto, UpdateDraftDto } from '../dto/create-kajian.dto';
+import {
+  CreateKajianDto,
+  FinalizeDraftDto,
+  UpdateDraftDto,
+} from '../dto/create-kajian.dto';
 import { GeneratePdfKajianDto } from '../dto/generate-pdf.dto';
 import { SendMessageResponseDto } from '../dto/send-kajian-response.dto';
 import { GetSendMessageResponseDto } from '../dto/get-send-message-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, Public, CurrentUser, RequirePermission } from '../../../common/decorators';
+import {
+  UserLevels,
+  Public,
+  CurrentUser,
+  RequirePermission,
+} from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
@@ -42,7 +54,7 @@ export class KajianController {
   /**
    * GET /KA/get-recipient
    * Get eligible recipients for Kajian based on position ID
-   * 
+   *
    * Kajian Rules:
    * - Sender: Semua (Managerial, Fungsional, Staff)
    * - Recipients: ATASAN saja (langsung & tidak langsung) dalam Sub Area yang sama
@@ -68,7 +80,9 @@ export class KajianController {
   ): Promise<KajianRecipientResponseDto> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      const positionId = query.pengirim
+        ? parseInt(query.pengirim, 10)
+        : parseInt(user.position, 10);
       // Note: tgl param from query is available but not currently used
       return await this.kajianService.getKajianRecipients(positionId);
     } catch (error) {
@@ -128,10 +142,9 @@ export class KajianController {
   @Public()
   @Post('save-draft')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [{ name: 'lampiran_files', maxCount: 10 }],
-      { limits: { fileSize: 50 * 1024 * 1024 } },
-    ),
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
   )
   async saveDraft(
     @Body() body: any,
@@ -163,7 +176,7 @@ export class KajianController {
    * POST /KA/send-message
    * Send Kajian (langsung final tanpa draft)
    * Status: 'final' (tanpa tanda_tangan) atau 'final_tte' (dengan tanda_tangan)
-   * 
+   *
    * Digital Signature Options:
    * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
@@ -182,7 +195,11 @@ export class KajianController {
   )
   async sendMessage(
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
     @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
@@ -191,7 +208,8 @@ export class KajianController {
       console.log('[KA Controller] User from JWT:', user);
 
       // Extract persnum from JWT token
-      const persnum = user?.persnum || user?.personNumber || user?.persnum_person;
+      const persnum =
+        user?.persnum || user?.personNumber || user?.persnum_person;
       console.log('[KA Controller] Extracted persnum:', persnum);
 
       const dto = await this.kajianService.parseFormDataToDto(body, files);
@@ -223,10 +241,9 @@ export class KajianController {
   @Public()
   @Patch('update-draft/:id')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [{ name: 'lampiran_files', maxCount: 10 }],
-      { limits: { fileSize: 50 * 1024 * 1024 } },
-    ),
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }], {
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
   )
   async updateDraft(
     @Param('id') id: string,
@@ -235,7 +252,10 @@ export class KajianController {
     @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
-      const dto = await this.kajianService.parseFormDataToUpdateDraftDto(body, files);
+      const dto = await this.kajianService.parseFormDataToUpdateDraftDto(
+        body,
+        files,
+      );
       dto.actor_position_status = user?.position_status ?? null;
       dto.actor_nama = user?.nama ?? '';
       return await this.kajianService.updateDraft(id, dto);
@@ -258,7 +278,7 @@ export class KajianController {
   /**
    * PUT /KA/send-draft/:id
    * Finalize draft Kajian (update status dari draf ke final/final_tte)
-   * 
+   *
    * Digital Signature Options:
    * - sign_option: 'digsig' | 'qr_only' | 'ttd_basah'
    * - passphrase: Required for digsig
@@ -278,7 +298,11 @@ export class KajianController {
   async sendDraft(
     @Param('id') id: string,
     @Body() body: any,
-    @UploadedFiles() files: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    @UploadedFiles()
+    files: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
     @CurrentUser() user: any,
   ): Promise<SendMessageResponseDto> {
     try {
@@ -287,10 +311,14 @@ export class KajianController {
       console.log('[KA Controller] User from JWT:', user);
 
       // Extract persnum from JWT token
-      const persnum = user?.persnum || user?.personNumber || user?.persnum_person;
+      const persnum =
+        user?.persnum || user?.personNumber || user?.persnum_person;
       console.log('[KA Controller] Extracted persnum:', persnum);
 
-      const dto = await this.kajianService.parseFormDataToFinalizeDraftDto(body, files);
+      const dto = await this.kajianService.parseFormDataToFinalizeDraftDto(
+        body,
+        files,
+      );
       dto.actor_position_status = user?.position_status ?? null;
       dto.actor_nama = user?.nama ?? '';
       console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
@@ -408,7 +436,8 @@ export class KajianController {
         });
       }
 
-      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      const hasRecipient =
+        (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
       if (!hasRecipient) {
         return res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
@@ -431,7 +460,8 @@ export class KajianController {
 
       // Format tanggal dengan nama tempat
       const namaTempat = dto.nama_tempat || 'Tangerang';
-      const tanggalInput = dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
+      const tanggalInput =
+        dto.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
 
       let formattedDate = '';
       try {
@@ -471,7 +501,12 @@ export class KajianController {
       const _pf = delegatedPengirimFields(
         user,
         basePositionText,
-        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+        body.nama_lengkap ||
+          dto.nama_lengkap ||
+          dto.penandatangan ||
+          personName ||
+          user?.nama ||
+          '',
       );
       const positionText = _pf.positionText;
       const dariFormatted = basePositionText;
@@ -486,13 +521,15 @@ export class KajianController {
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        const tertujuNames = await this.kajianService.convertPositionIdsToNames(tertujuArray);
+        const tertujuNames =
+          await this.kajianService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        const tembusanNames = await this.kajianService.convertPositionIdsToNames(tembusanArray);
+        const tembusanNames =
+          await this.kajianService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
 
@@ -589,7 +626,9 @@ export class KajianController {
    * PDF polos tanpa merge lampiran
    */
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }]))
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'lampiran_files', maxCount: 10 }]),
+  )
   @Post('generate-pdf')
   @RequirePermission('naskah-dinas', 'read-detail')
   async generatePdf(
@@ -619,7 +658,8 @@ export class KajianController {
         });
       }
 
-      const hasRecipient = (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
+      const hasRecipient =
+        (dto.tertuju?.length || 0) > 0 || (dto.penerima?.length || 0) > 0;
       if (!hasRecipient) {
         return res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
@@ -630,7 +670,10 @@ export class KajianController {
       }
 
       try {
-        assertDateNotInFuture(body.tgl || dto.tgl || dto.tanggal, 'Tanggal naskah');
+        assertDateNotInFuture(
+          body.tgl || dto.tgl || dto.tanggal,
+          'Tanggal naskah',
+        );
       } catch (error) {
         return res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
@@ -641,7 +684,8 @@ export class KajianController {
       }
 
       const namaTempat = body.nama_tempat || dto.nama_tempat || 'Tangerang';
-      const tanggalInput = body.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
+      const tanggalInput =
+        body.tgl || dto.tanggal || new Date().toISOString().split('T')[0];
 
       let formattedDate = '';
       try {
@@ -659,7 +703,11 @@ export class KajianController {
             dateObj = new Date(tanggalInput + 'T00:00:00');
           } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tanggalInput)) {
             const [day, month, year] = tanggalInput.split('/');
-            dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            dateObj = new Date(
+              parseInt(year),
+              parseInt(month) - 1,
+              parseInt(day),
+            );
           } else {
             dateObj = new Date(tanggalInput);
           }
@@ -693,10 +741,15 @@ export class KajianController {
       const _pf = delegatedPengirimFields(
         user,
         basePositionText,
-        body.nama_lengkap || dto.nama_lengkap || dto.penandatangan || personName || user?.nama || '',
+        body.nama_lengkap ||
+          dto.nama_lengkap ||
+          dto.penandatangan ||
+          personName ||
+          user?.nama ||
+          '',
       );
-      const positionText = _pf.positionText;   // signer: "PT. EVP of PMO" (prefixed)
-      const dariFormatted = basePositionText;   // "Dari:": plain delegator jabatan (no prefix)
+      const positionText = _pf.positionText; // signer: "PT. EVP of PMO" (prefixed)
+      const dariFormatted = basePositionText; // "Dari:": plain delegator jabatan (no prefix)
       const namaLengkap = _pf.namaSirkuler;
 
       let tertujuArray = dto.tertuju || dto.penerima || [];
@@ -708,13 +761,15 @@ export class KajianController {
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        const tertujuNames = await this.kajianService.convertPositionIdsToNames(tertujuArray);
+        const tertujuNames =
+          await this.kajianService.convertPositionIdsToNames(tertujuArray);
         tertujuArray = tertujuNames;
       }
 
       let tembusanArray = dto.tembusan || [];
       if (tembusanArray.length > 0 && isPositionId(tembusanArray[0])) {
-        const tembusanNames = await this.kajianService.convertPositionIdsToNames(tembusanArray);
+        const tembusanNames =
+          await this.kajianService.convertPositionIdsToNames(tembusanArray);
         tembusanArray = tembusanNames;
       }
 

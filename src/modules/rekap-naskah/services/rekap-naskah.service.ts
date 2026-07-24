@@ -49,7 +49,9 @@ export class RekapNaskahService {
     query: RekapNaskahQueryDto,
     user: JwtPayload,
   ): Promise<RekapNaskahResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
+    const tahun = query.tahun
+      ? parseInt(query.tahun, 10)
+      : new Date().getFullYear();
     const area = this.getEffectiveAreaFilter(query.area, user);
     const position = query.position;
 
@@ -91,18 +93,18 @@ export class RekapNaskahService {
 
     for (const request of requests) {
       const jenis = request.jenis || 'Unknown';
-      
+
       // Process setiap detail dengan status-nya
       for (const detail of request.details || []) {
         const status = detail.status;
-        
+
         // Skip jika status tidak termasuk dalam validStatuses
         if (!status || !validStatuses.includes(status)) {
           continue;
         }
-        
+
         const mapKey = `${jenis}|${status}`;
-        
+
         if (!rekapMap.has(mapKey)) {
           rekapMap.set(mapKey, {
             jenis,
@@ -172,11 +174,16 @@ export class RekapNaskahService {
     }
 
     // Convert map to array dan sort by jenis, kemudian status (sesuai urutan: booking, terpakai, terpakai_final, hangus)
-    const statusOrder = { booking: 1, terpakai: 2, terpakai_final: 3, hangus: 4 };
+    const statusOrder = {
+      booking: 1,
+      terpakai: 2,
+      terpakai_final: 3,
+      hangus: 4,
+    };
     const rekap = Array.from(rekapMap.values()).sort((a, b) => {
       const jenisCompare = a.jenis.localeCompare(b.jenis);
       if (jenisCompare !== 0) return jenisCompare;
-      
+
       // Sort berdasarkan urutan status yang ditentukan
       const orderA = statusOrder[a.status] || 999;
       const orderB = statusOrder[b.status] || 999;
@@ -203,7 +210,9 @@ export class RekapNaskahService {
     query: DetailNaskahQueryDto,
     user: JwtPayload,
   ): Promise<DetailNaskahResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
+    const tahun = query.tahun
+      ? parseInt(query.tahun, 10)
+      : new Date().getFullYear();
     const area = this.getEffectiveAreaFilter(query.area, user);
     const jenis = query.jenis;
     const position = query.position;
@@ -211,7 +220,7 @@ export class RekapNaskahService {
 
     // Define valid status yang ditampilkan
     const validStatuses = ['booking', 'terpakai', 'terpakai_final', 'hangus'];
-    
+
     // Jika status diberikan, gunakan satu status; jika tidak, gunakan semua valid statuses
     const statusesToShow = query.status ? [query.status] : validStatuses;
 
@@ -221,30 +230,43 @@ export class RekapNaskahService {
       .where('1=1');
 
     // Filter berdasarkan tahun (default: tahun sekarang)
-    requestQueryBuilder = requestQueryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
+    requestQueryBuilder = requestQueryBuilder.andWhere(
+      'YEAR(req.tanggal) = :tahun',
+      { tahun },
+    );
 
     // Filter berdasarkan area jika ada
     if (area) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.area = :area', { area });
+      requestQueryBuilder = requestQueryBuilder.andWhere('req.area = :area', {
+        area,
+      });
     }
 
     // Filter berdasarkan jenis jika ada
     if (jenis) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.jenis = :jenis', { jenis });
+      requestQueryBuilder = requestQueryBuilder.andWhere('req.jenis = :jenis', {
+        jenis,
+      });
     }
 
     // Filter berdasarkan position jika ada
     if (position) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.position = :position', { position });
+      requestQueryBuilder = requestQueryBuilder.andWhere(
+        'req.position = :position',
+        { position },
+      );
     }
 
     // Search by perihal
     if (search) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.perihal LIKE :search', { search: `%${search}%` });
+      requestQueryBuilder = requestQueryBuilder.andWhere(
+        'req.perihal LIKE :search',
+        { search: `%${search}%` },
+      );
     }
 
     const requests = await requestQueryBuilder.getMany();
-    const requestIds = requests.map(r => r.id);
+    const requestIds = requests.map((r) => r.id);
 
     // Jika tidak ada request yang match, return empty dengan pagination
     if (requestIds.length === 0) {
@@ -265,11 +287,16 @@ export class RekapNaskahService {
     let detailQueryBuilder = this.nomorRequestDetailRepository
       .createQueryBuilder('detail')
       .where('detail.id_request IN (:...requestIds)', { requestIds })
-      .andWhere('detail.status IN (:...statuses)', { statuses: statusesToShow });
+      .andWhere('detail.status IN (:...statuses)', {
+        statuses: statusesToShow,
+      });
 
     // Search by nomor jika ada
     if (search) {
-      detailQueryBuilder = detailQueryBuilder.andWhere('detail.nomor LIKE :search', { search: `%${search}%` });
+      detailQueryBuilder = detailQueryBuilder.andWhere(
+        'detail.nomor LIKE :search',
+        { search: `%${search}%` },
+      );
     }
 
     // Get semua data tanpa pagination dulu untuk count
@@ -290,7 +317,10 @@ export class RekapNaskahService {
     let positionJsonData: any[] = [];
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+      if (
+        latestOrgData?.position_json &&
+        Array.isArray(latestOrgData.position_json)
+      ) {
         positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
@@ -305,7 +335,7 @@ export class RekapNaskahService {
 
     // Map request by id untuk lookup cepat
     const requestMap = new Map<string, NomorRequestEntity>();
-    requests.forEach(req => requestMap.set(req.id, req));
+    requests.forEach((req) => requestMap.set(req.id, req));
 
     // Apply pagination
     const page = query?.page || 1;
@@ -319,14 +349,18 @@ export class RekapNaskahService {
     const data: DetailNaskahData[] = await Promise.all(
       paginatedDetails.map(async (detail) => {
         // Lookup request dari map
-        const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
+        const request = detail.idRequest
+          ? requestMap.get(detail.idRequest) || null
+          : null;
 
         // Get jabatan dan lokasi dari penandatangan (Map lookup, no array.find)
         let jabatan: string | null = null;
         let lokasi: string | null = null;
 
         if (request?.idPositionPenandatangan) {
-          const positionData = positionLookupMap.get(Number(request.idPositionPenandatangan));
+          const positionData = positionLookupMap.get(
+            Number(request.idPositionPenandatangan),
+          );
 
           if (positionData) {
             jabatan = positionData.position_text || null;
@@ -355,7 +389,9 @@ export class RekapNaskahService {
           tanggal: request?.tanggal || new Date(),
           perihal: request?.perihal || null,
           jenis: request?.jenis || null,
-          jenis_text: request?.jenis ? jenisMap.get(request.jenis) || null : null,
+          jenis_text: request?.jenis
+            ? jenisMap.get(request.jenis) || null
+            : null,
           klasifikasi: request?.klasifikasi || null,
           jabatan,
           lokasi,
@@ -385,11 +421,11 @@ export class RekapNaskahService {
    */
   private extractAreaCode(area: string | null | undefined): string {
     if (!area) return '';
-    
+
     if (area.length >= 2) {
       return area.slice(-2);
     }
-    
+
     return area.padStart(2, '0');
   }
 
@@ -414,7 +450,9 @@ export class RekapNaskahService {
   }
 
   private isKantorPusatUser(user: JwtPayload): boolean {
-    const areaCode = String(user.area || '').trim().toUpperCase();
+    const areaCode = String(user.area || '')
+      .trim()
+      .toUpperCase();
     const areaText = String(user.areaText || '').toLowerCase();
 
     return (
@@ -433,7 +471,9 @@ export class RekapNaskahService {
     query: NaskahMasukQueryDto,
     user: JwtPayload,
   ): Promise<NaskahMasukResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
+    const tahun = query.tahun
+      ? parseInt(query.tahun, 10)
+      : new Date().getFullYear();
     const bulan = query.bulan ? parseInt(query.bulan, 10) : null;
     const area = this.getEffectiveAreaFilter(query.area, user);
     const jenis = query.jenis;
@@ -484,7 +524,7 @@ export class RekapNaskahService {
 
     for (const request of requests) {
       const jenisCode = request.jenis || 'Unknown';
-      
+
       // Process setiap detail
       for (const detail of request.details || []) {
         if (!rekapMap.has(jenisCode)) {
@@ -595,7 +635,9 @@ export class RekapNaskahService {
     query: DetailNaskahMasukQueryDto,
     user: JwtPayload,
   ): Promise<DetailNaskahMasukResponseDto> {
-    const tahun = query.tahun ? parseInt(query.tahun, 10) : new Date().getFullYear();
+    const tahun = query.tahun
+      ? parseInt(query.tahun, 10)
+      : new Date().getFullYear();
     const bulan = query.bulan ? parseInt(query.bulan, 10) : null;
     const area = this.getEffectiveAreaFilter(query.area, user);
     const jenis = query.jenis;
@@ -609,35 +651,51 @@ export class RekapNaskahService {
       .where('1=1');
 
     // Filter berdasarkan tahun (default: tahun sekarang)
-    requestQueryBuilder = requestQueryBuilder.andWhere('YEAR(req.tanggal) = :tahun', { tahun });
+    requestQueryBuilder = requestQueryBuilder.andWhere(
+      'YEAR(req.tanggal) = :tahun',
+      { tahun },
+    );
 
     // Filter berdasarkan bulan jika ada
     if (bulan && bulan >= 1 && bulan <= 12) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('MONTH(req.tanggal) = :bulan', { bulan });
+      requestQueryBuilder = requestQueryBuilder.andWhere(
+        'MONTH(req.tanggal) = :bulan',
+        { bulan },
+      );
     }
 
     // Filter berdasarkan area jika ada
     if (area) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.area = :area', { area });
+      requestQueryBuilder = requestQueryBuilder.andWhere('req.area = :area', {
+        area,
+      });
     }
 
     // Filter berdasarkan jenis jika ada
     if (jenis) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.jenis = :jenis', { jenis });
+      requestQueryBuilder = requestQueryBuilder.andWhere('req.jenis = :jenis', {
+        jenis,
+      });
     }
 
     // Filter berdasarkan klasifikasi jika ada
     if (klasifikasi) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.klasifikasi = :klasifikasi', { klasifikasi });
+      requestQueryBuilder = requestQueryBuilder.andWhere(
+        'req.klasifikasi = :klasifikasi',
+        { klasifikasi },
+      );
     }
 
     // Search by perihal
     if (search) {
-      requestQueryBuilder = requestQueryBuilder.andWhere('req.perihal LIKE :search', { search: `%${search}%` });
+      requestQueryBuilder = requestQueryBuilder.andWhere(
+        'req.perihal LIKE :search',
+        { search: `%${search}%` },
+      );
     }
 
     const requests = await requestQueryBuilder.getMany();
-    const requestIds = requests.map(r => r.id);
+    const requestIds = requests.map((r) => r.id);
 
     // Jika tidak ada request yang match, return empty dengan pagination
     if (requestIds.length === 0) {
@@ -661,12 +719,18 @@ export class RekapNaskahService {
 
     // Filter berdasarkan status jika ada
     if (status) {
-      detailQueryBuilder = detailQueryBuilder.andWhere('detail.status = :status', { status });
+      detailQueryBuilder = detailQueryBuilder.andWhere(
+        'detail.status = :status',
+        { status },
+      );
     }
 
     // Search by nomor jika ada
     if (search) {
-      detailQueryBuilder = detailQueryBuilder.andWhere('detail.nomor LIKE :search', { search: `%${search}%` });
+      detailQueryBuilder = detailQueryBuilder.andWhere(
+        'detail.nomor LIKE :search',
+        { search: `%${search}%` },
+      );
     }
 
     // Get semua data tanpa pagination dulu untuk count
@@ -687,7 +751,10 @@ export class RekapNaskahService {
     let positionJsonData: any[] = [];
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+      if (
+        latestOrgData?.position_json &&
+        Array.isArray(latestOrgData.position_json)
+      ) {
         positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
@@ -702,7 +769,7 @@ export class RekapNaskahService {
 
     // Map request by id untuk lookup cepat
     const requestMap = new Map<string, NomorRequestEntity>();
-    requests.forEach(req => requestMap.set(req.id, req));
+    requests.forEach((req) => requestMap.set(req.id, req));
 
     // Apply pagination
     const page = query?.page || 1;
@@ -716,14 +783,18 @@ export class RekapNaskahService {
     const data: DetailNaskahMasukData[] = await Promise.all(
       paginatedDetails.map(async (detail) => {
         // Lookup request dari map
-        const request = detail.idRequest ? requestMap.get(detail.idRequest) || null : null;
+        const request = detail.idRequest
+          ? requestMap.get(detail.idRequest) || null
+          : null;
 
         // Get jabatan dan lokasi dari penandatangan (Map lookup)
         let jabatan: string | null = null;
         let lokasi: string | null = null;
 
         if (request?.idPositionPenandatangan) {
-          const positionData = positionLookupMap.get(Number(request.idPositionPenandatangan));
+          const positionData = positionLookupMap.get(
+            Number(request.idPositionPenandatangan),
+          );
 
           if (positionData) {
             jabatan = positionData.position_text || null;
@@ -739,7 +810,9 @@ export class RekapNaskahService {
         return {
           id: detail.id,
           naskah: request?.jenis || null,
-          naskah_text: request?.jenis ? jenisMap.get(request.jenis) || null : null,
+          naskah_text: request?.jenis
+            ? jenisMap.get(request.jenis) || null
+            : null,
           nomor: detail.nomor,
           tanggal: request?.tanggal || new Date(),
           perihal: request?.perihal || null,

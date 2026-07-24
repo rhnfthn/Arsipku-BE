@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,7 +11,10 @@ import { FaqKategoriEntity } from '../entities/faq-kategori.entity';
 import { FaqEntity } from '../entities/faq.entity';
 import { CreateFaqKategoriDto } from '../dto/create-faq-kategori.dto';
 import { UpdateFaqKategoriDto } from '../dto/update-faq-kategori.dto';
-import { FaqKategoriData, FaqKategoriResponseDto } from '../dto/faq-kategori.dto';
+import {
+  FaqKategoriData,
+  FaqKategoriResponseDto,
+} from '../dto/faq-kategori.dto';
 
 @Injectable()
 export class FaqKategoriService {

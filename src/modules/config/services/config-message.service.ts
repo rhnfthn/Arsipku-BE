@@ -26,10 +26,13 @@ export class ConfigMessageService {
 
     const latestOrg = await this.orgDataService.findLatestOrg();
     const positions = Array.isArray(latestOrg?.position_json)
-      ? latestOrg!.position_json
+      ? latestOrg.position_json
       : [];
 
-    const recipients = new Map<string, { positionId: string; userPersnum?: number }>();
+    const recipients = new Map<
+      string,
+      { positionId: string; userPersnum?: number }
+    >();
     for (const position of positions) {
       if (!position?.position) continue;
       const positionId = String(position.position);
@@ -123,7 +126,10 @@ export class ConfigMessageService {
     this.invalidateCache();
 
     this.notifySystemMessage(saved).catch((error) =>
-      console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+      console.warn(
+        '[ConfigMessageService] Failed to send system notification:',
+        error?.message,
+      ),
     );
 
     return saved;
@@ -156,7 +162,10 @@ export class ConfigMessageService {
 
     if (saved.showBanner && (wasHidden || dto.show_banner === true)) {
       this.notifySystemMessage(saved).catch((error) =>
-        console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+        console.warn(
+          '[ConfigMessageService] Failed to send system notification:',
+          error?.message,
+        ),
       );
     }
 
@@ -169,7 +178,7 @@ export class ConfigMessageService {
   async toggleBanner(id: string, dto: ToggleBannerDto): Promise<ConfigMessage> {
     const message = await this.findOne(id);
     const wasHidden = !message.showBanner;
-    
+
     // Jika dto.show_banner undefined, toggle current state
     if (dto.show_banner !== undefined) {
       message.showBanner = dto.show_banner;
@@ -184,7 +193,10 @@ export class ConfigMessageService {
 
     if (saved.showBanner && wasHidden) {
       this.notifySystemMessage(saved).catch((error) =>
-        console.warn('[ConfigMessageService] Failed to send system notification:', error?.message),
+        console.warn(
+          '[ConfigMessageService] Failed to send system notification:',
+          error?.message,
+        ),
       );
     }
 

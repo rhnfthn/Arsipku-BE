@@ -27,13 +27,24 @@ export class NaskahShareRecipientEntity {
   @Column('varchar', { name: 'recipient_nama', length: 150 })
   recipientNama: string;
 
-  @Column('varchar', { name: 'recipient_position_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'recipient_position_text',
+    length: 150,
+    nullable: true,
+  })
   recipientPositionText: string | null;
 
-  @Column('varchar', { name: 'recipient_org_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'recipient_org_text',
+    length: 150,
+    nullable: true,
+  })
   recipientOrgText: string | null;
 
-  @Column('enum', { enum: RecipientStatus, default: RecipientStatus.BELUM_DIBACA })
+  @Column('enum', {
+    enum: RecipientStatus,
+    default: RecipientStatus.BELUM_DIBACA,
+  })
   status: RecipientStatus;
 
   @Column('timestamp', { name: 'opened_at', nullable: true })
@@ -45,7 +56,9 @@ export class NaskahShareRecipientEntity {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => NaskahShareEntity, (s) => s.recipients, { onDelete: 'CASCADE' })
+  @ManyToOne(() => NaskahShareEntity, (s) => s.recipients, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'share_id' })
   share: NaskahShareEntity;
 }

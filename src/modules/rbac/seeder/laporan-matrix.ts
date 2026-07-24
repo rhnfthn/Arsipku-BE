@@ -47,8 +47,18 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Rekap Naskah',
               permissions: [
-                { action: 'read-rekap-naskah', label: 'Read', description: 'Melihat laporan rekap naskah', resource: 'laporan' },
-                { action: 'export-rekap-naskah', label: 'Export', description: 'Button Export Rekap Naskah', resource: 'laporan' },
+                {
+                  action: 'read-rekap-naskah',
+                  label: 'Read',
+                  description: 'Melihat laporan rekap naskah',
+                  resource: 'laporan',
+                },
+                {
+                  action: 'export-rekap-naskah',
+                  label: 'Export',
+                  description: 'Button Export Rekap Naskah',
+                  resource: 'laporan',
+                },
               ],
             },
           ],
@@ -70,8 +80,18 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Detail Naskah',
               permissions: [
-                { action: 'read-detail-naskah', label: 'Read', description: 'Melihat laporan detail naskah', resource: 'laporan' },
-                { action: 'export-detail-naskah', label: 'Export', description: 'Button Export Detail Naskah', resource: 'laporan' },
+                {
+                  action: 'read-detail-naskah',
+                  label: 'Read',
+                  description: 'Melihat laporan detail naskah',
+                  resource: 'laporan',
+                },
+                {
+                  action: 'export-detail-naskah',
+                  label: 'Export',
+                  description: 'Button Export Detail Naskah',
+                  resource: 'laporan',
+                },
               ],
             },
           ],
@@ -93,8 +113,18 @@ export const laporanMatrix: LaporanMatrixHalaman = {
               key: 'halaman',
               label: 'Halaman Naskah Masuk',
               permissions: [
-                { action: 'read-naskah-masuk', label: 'Read', description: 'Melihat laporan naskah masuk', resource: 'laporan' },
-                { action: 'export-naskah-masuk', label: 'Export', description: 'Button Export Naskah Masuk', resource: 'laporan' },
+                {
+                  action: 'read-naskah-masuk',
+                  label: 'Read',
+                  description: 'Melihat laporan naskah masuk',
+                  resource: 'laporan',
+                },
+                {
+                  action: 'export-naskah-masuk',
+                  label: 'Export',
+                  description: 'Button Export Naskah Masuk',
+                  resource: 'laporan',
+                },
               ],
             },
           ],
@@ -110,18 +140,27 @@ export interface LaporanResourceDef {
   permissions: { action: string; description: string }[];
 }
 
-function flattenLaporanMatrix(halaman: LaporanMatrixHalaman): LaporanResourceDef[] {
+function flattenLaporanMatrix(
+  halaman: LaporanMatrixHalaman,
+): LaporanResourceDef[] {
   const map = new Map<string, LaporanResourceDef>();
   for (const menu of halaman.menus) {
     for (const sub of menu.subMenus) {
       for (const fitur of sub.fiturs) {
         for (const perm of fitur.permissions) {
           if (!map.has(perm.resource)) {
-            map.set(perm.resource, { name: perm.resource, description: perm.resource, permissions: [] });
+            map.set(perm.resource, {
+              name: perm.resource,
+              description: perm.resource,
+              permissions: [],
+            });
           }
           const res = map.get(perm.resource)!;
           if (!res.permissions.some((p) => p.action === perm.action)) {
-            res.permissions.push({ action: perm.action, description: perm.description });
+            res.permissions.push({
+              action: perm.action,
+              description: perm.description,
+            });
           }
         }
       }
@@ -132,6 +171,6 @@ function flattenLaporanMatrix(halaman: LaporanMatrixHalaman): LaporanResourceDef
 
 export const laporanResources = flattenLaporanMatrix(laporanMatrix);
 
-export const laporanSuperAdminPermissions: string[] = laporanResources.flatMap((r) =>
-  r.permissions.map((p) => `${r.name}:${p.action}`),
+export const laporanSuperAdminPermissions: string[] = laporanResources.flatMap(
+  (r) => r.permissions.map((p) => `${r.name}:${p.action}`),
 );
