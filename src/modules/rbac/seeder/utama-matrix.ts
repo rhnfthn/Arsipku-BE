@@ -90,6 +90,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.nota-dinas',
+                },
+              ],
+            },
           ],
         },
         {
@@ -138,6 +150,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.surat-dinas-internal',
+                },
+              ],
+            },
           ],
         },
         {
@@ -162,6 +186,18 @@ export const utamaMatrix: MatrixHalaman = {
                 },
               ],
             },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
+                  resource: 'utama.tulis.surat-dinas-eksternal',
+                },
+              ],
+            },
           ],
         },
         {
@@ -182,6 +218,18 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'create',
                   label: 'Create',
                   description: 'Button Pratinjau',
+                  resource: 'utama.tulis.kajian',
+                },
+              ],
+            },
+            {
+              key: 'button-generate-ai',
+              label: 'Button Generate AI',
+              permissions: [
+                {
+                  action: 'generate-ai',
+                  label: 'Create',
+                  description: 'Button Generate AI Draft',
                   resource: 'utama.tulis.kajian',
                 },
               ],
@@ -386,7 +434,10 @@ function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
           }
           const res = map.get(perm.resource)!;
           if (!res.permissions.some((p) => p.action === perm.action)) {
-            res.permissions.push({ action: perm.action, description: perm.description });
+            res.permissions.push({
+              action: perm.action,
+              description: perm.description,
+            });
           }
         }
       }
@@ -398,6 +449,6 @@ function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
 export const utamaResources = flattenMatrix(utamaMatrix);
 
 // Super Admin default assignments: semua permission Utama aktif
-export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap((r) =>
-  r.permissions.map((p) => `${r.name}:${p.action}`),
+export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap(
+  (r) => r.permissions.map((p) => `${r.name}:${p.action}`),
 );
