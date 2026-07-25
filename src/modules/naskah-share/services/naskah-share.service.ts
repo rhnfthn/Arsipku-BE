@@ -147,7 +147,7 @@ export class NaskahShareService {
           recipientNama: r.nama,
           recipientPositionText: r.positionText,
           recipientOrgText: r.organizationText,
-          status: RecipientStatus.BELUM_DIBACA,
+          status: RecipientStatus.TERKIRIM,
         }),
       );
       await queryRunner.manager.save(recipientEntities);
@@ -240,6 +240,55 @@ export class NaskahShareService {
       `[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`,
     );
 
+    // Auto-fix legacy data: migrate old enum values to new ones
+    // Share: DICABUT → BERAKHIR
+    await this.shareRepo
+      .createQueryBuilder()
+      .update()
+      .set({ status: ShareStatus.BERAKHIR })
+      .where('status = :legacy', { legacy: 'DICABUT' })
+      .execute()
+      .catch(() => {});
+
+    // Recipient: DICABUT → BERAKHIR, BELUM_DIBACA → TERKIRIM, DIBUKA → DIBACA
+    await this.recipientRepo
+      .createQueryBuilder()
+      .update()
+      .set({ status: RecipientStatus.BERAKHIR })
+      .where('status = :legacy', { legacy: 'DICABUT' })
+      .execute()
+      .catch(() => {});
+
+    await this.recipientRepo
+      .createQueryBuilder()
+      .update()
+      .set({ status: RecipientStatus.TERKIRIM })
+      .where('status = :legacy', { legacy: 'BELUM_DIBACA' })
+      .execute()
+      .catch(() => {});
+
+    await this.recipientRepo
+      .createQueryBuilder()
+      .update()
+      .set({ status: RecipientStatus.DIBACA })
+      .where('status = :legacy', { legacy: 'DIBUKA' })
+      .execute()
+      .catch(() => {});
+
+    // Auto-expire: mark expired shares as BERAKHIR BEFORE querying
+    await this.shareRepo
+      .createQueryBuilder()
+      .update()
+      .set({
+        status: ShareStatus.BERAKHIR,
+        revokedAt: new Date(),
+        revokedReason: 'Akses kedaluwarsa',
+      })
+      .where('status = :aktif', { aktif: ShareStatus.AKTIF })
+      .andWhere('expiresAt IS NOT NULL')
+      .andWhere('expiresAt < :now', { now: new Date() })
+      .execute();
+
     const qb = this.shareRepo
       .createQueryBuilder('share')
       .leftJoinAndSelect('share.recipients', 'recipients');
@@ -272,7 +321,7 @@ export class NaskahShareService {
       qb.andWhere('naskah.jenis = :jenis', { jenis: query.jenis });
     }
 
-    qb.orderBy('share.createdAt', 'DESC');
+    qb.orderBy('share.createdAt', query.sort === 'ASC' ? 'ASC' : 'DESC');
     qb.skip(skip).take(limit);
 
     const sql = qb.getQuery();
@@ -283,14 +332,16 @@ export class NaskahShareService {
       `[getShares] Found ${shares.length} shares, total=${total}`,
     );
 
-    // Auto-mark as DIBACA when viewing shared-to-me tab (spec: BELUM_DIBACA → DIBACA saat melihat daftar)
+    // Auto-mark as DIBACA when viewing shared-to-me tab
+    // BUT: skip SEKALI_LIHAT shares — those should only change to DIBACA when actually opened
     if (tab === 'shared-to-me') {
       const unreadShareIds = shares
         .filter((s) =>
+          s.accessType !== ShareAccessType.SEKALI_LIHAT &&
           s.recipients.some(
             (r) =>
               r.recipientId === user.position &&
-              r.status === RecipientStatus.BELUM_DIBACA,
+              r.status === RecipientStatus.TERKIRIM,
           ),
         )
         .map((s) => s.id);
@@ -303,16 +354,17 @@ export class NaskahShareService {
           .where('share_id IN (:...shareIds)', { shareIds: unreadShareIds })
           .andWhere('recipient_id = :positionId', { positionId: user.position })
           .andWhere('status = :oldStatus', {
-            oldStatus: RecipientStatus.BELUM_DIBACA,
+            oldStatus: RecipientStatus.TERKIRIM,
           })
           .execute();
 
         // Update in-memory for response
         for (const share of shares) {
+          if (share.accessType === ShareAccessType.SEKALI_LIHAT) continue;
           for (const r of share.recipients) {
             if (
               r.recipientId === user.position &&
-              r.status === RecipientStatus.BELUM_DIBACA
+              r.status === RecipientStatus.TERKIRIM
             ) {
               r.status = RecipientStatus.DIBACA;
             }
@@ -321,27 +373,23 @@ export class NaskahShareService {
       }
     }
 
+    // Batch-fetch naskah data to avoid N+1 queries
+    const naskahIds = [...new Set(shares.map((s) => s.naskahId))];
+    const naskahMap = new Map<string, NaskahEntity>();
+    if (naskahIds.length > 0) {
+      const naskahs = await this.naskahRepo
+        .createQueryBuilder('naskah')
+        .where('naskah.id IN (:...ids)', { ids: naskahIds })
+        .getMany();
+      for (const n of naskahs) {
+        naskahMap.set(n.id, n);
+      }
+    }
+
     // Enrich with naskah data
     const enriched = await Promise.all(
       shares.map(async (share) => {
-        const naskah = await this.naskahRepo.findOne({
-          where: { id: share.naskahId },
-        });
-
-        // Auto-expire: if RENTANG_WAKTU and expiresAt passed, mark as DICABUT
-        let currentStatus = share.status;
-        if (
-          share.accessType === ShareAccessType.RENTANG_WAKTU &&
-          share.expiresAt &&
-          new Date() > new Date(share.expiresAt) &&
-          share.status === ShareStatus.AKTIF
-        ) {
-          currentStatus = ShareStatus.DICABUT;
-          share.status = ShareStatus.DICABUT;
-          share.revokedAt = new Date(share.expiresAt);
-          share.revokedReason = 'Akses kedaluwarsa';
-          await this.shareRepo.save(share);
-        }
+        const naskah = naskahMap.get(share.naskahId);
 
         return {
           id: share.id,
@@ -356,7 +404,7 @@ export class NaskahShareService {
           accessType: share.accessType,
           durationDays: share.durationDays,
           expiresAt: share.expiresAt,
-          status: currentStatus,
+          status: share.status,
           createdAt: share.createdAt,
           recipients: share.recipients.map((r) => ({
             id: r.id,
@@ -391,6 +439,18 @@ export class NaskahShareService {
     });
     if (!share) {
       throw new NotFoundException('Share tidak ditemukan');
+    }
+
+    // Auto-expire check: if expired, update status to BERAKHIR
+    if (
+      share.status === ShareStatus.AKTIF &&
+      share.expiresAt &&
+      new Date() > new Date(share.expiresAt)
+    ) {
+      share.status = ShareStatus.BERAKHIR;
+      share.revokedAt = new Date(share.expiresAt);
+      share.revokedReason = 'Akses kedaluwarsa';
+      await this.shareRepo.save(share);
     }
 
     // Only pemberi or recipient can view detail
@@ -459,7 +519,7 @@ export class NaskahShareService {
       throw new ForbiddenException('Hanya pemberi yang dapat mencabut akses');
 
     if (share.status !== ShareStatus.AKTIF)
-      throw new BadRequestException('Share sudah dicabut sebelumnya');
+      throw new BadRequestException('Share sudah berakhir sebelumnya');
 
     const recipient = share.recipients.find(
       (r) => r.recipientId === recipientId,
@@ -467,21 +527,21 @@ export class NaskahShareService {
     if (!recipient)
       throw new NotFoundException('Penerima tidak ditemukan dalam share ini');
 
-    if (recipient.status === RecipientStatus.DICABUT)
+    if (recipient.status === RecipientStatus.BERAKHIR)
       throw new BadRequestException(
-        'Akses penerima ini sudah dicabut sebelumnya',
+        'Akses penerima ini sudah berakhir sebelumnya',
       );
 
     // Revoke this recipient
-    recipient.status = RecipientStatus.DICABUT;
+    recipient.status = RecipientStatus.BERAKHIR;
     await this.recipientRepo.save(recipient);
 
-    // Check if all recipients revoked → mark share as DICABUT
+    // Check if all recipients revoked → mark share as BERAKHIR
     const allRevoked = share.recipients.every(
-      (r) => r.id === recipient.id || r.status === RecipientStatus.DICABUT,
+      (r) => r.id === recipient.id || r.status === RecipientStatus.BERAKHIR,
     );
     if (allRevoked) {
-      share.status = ShareStatus.DICABUT;
+      share.status = ShareStatus.BERAKHIR;
       share.revokedAt = new Date();
       share.revokedReason = reason || null;
       await this.shareRepo.save(share);
@@ -513,8 +573,8 @@ export class NaskahShareService {
           positionId: recipient.recipientId,
           userPersnum: recipient.recipientPersnum,
           type: NotificationType.NASKAH_SHARE_DICABUT,
-          title: `Akses naskah telah dicabut oleh ${user.nama}`,
-          body: naskah?.perihal || reason || 'Akses Anda telah dicabut',
+          title: `Akses naskah telah berakhir oleh ${user.nama}`,
+          body: naskah?.perihal || reason || 'Akses Anda telah berakhir',
           data: {
             naskahId: share.naskahId,
             shareId,
@@ -533,7 +593,7 @@ export class NaskahShareService {
 
     return {
       success: true,
-      message: `Akses ${recipient.recipientNama} berhasil dicabut`,
+      message: `Akses ${recipient.recipientNama} berhasil diakhiri`,
       data: {
         shareId,
         recipientId,
@@ -565,11 +625,11 @@ export class NaskahShareService {
 
     // Must be AKTIF
     if (share.status !== ShareStatus.AKTIF) {
-      throw new BadRequestException('Share sudah dicabut sebelumnya');
+      throw new BadRequestException('Share sudah berakhir sebelumnya');
     }
 
     // Update share status
-    share.status = ShareStatus.DICABUT;
+    share.status = ShareStatus.BERAKHIR;
     share.revokedAt = new Date();
     share.revokedReason = reason || null;
     await this.shareRepo.save(share);
@@ -601,8 +661,8 @@ export class NaskahShareService {
             positionId: recipient.recipientId,
             userPersnum: recipient.recipientPersnum,
             type: NotificationType.NASKAH_SHARE_DICABUT,
-            title: `Akses naskah telah dicabut oleh ${user.nama}`,
-            body: naskah?.perihal || reason || 'Akses Anda telah dicabut',
+            title: `Akses naskah telah berakhir oleh ${user.nama}`,
+            body: naskah?.perihal || reason || 'Akses Anda telah berakhir',
             data: {
               naskahId: share.naskahId,
               shareId: id,
@@ -622,10 +682,10 @@ export class NaskahShareService {
 
     return {
       success: true,
-      message: 'Akses share berhasil dicabut',
+      message: 'Akses share berhasil diakhiri',
       data: {
         id: share.id,
-        status: ShareStatus.DICABUT,
+        status: ShareStatus.BERAKHIR,
         revokedAt: share.revokedAt,
         revokedReason: share.revokedReason,
         affectedRecipients: share.recipients.length,
@@ -646,11 +706,6 @@ export class NaskahShareService {
       throw new NotFoundException('Share tidak ditemukan');
     }
 
-    // Must be AKTIF
-    if (share.status !== ShareStatus.AKTIF) {
-      throw new BadRequestException('Share tidak aktif atau sudah dicabut');
-    }
-
     // Check if user is the sender (pemberi) or a recipient
     const isPemberi = share.pemberiId === user.position;
     const recipientRecord = share.recipients.find(
@@ -661,8 +716,13 @@ export class NaskahShareService {
       throw new ForbiddenException('Anda tidak memiliki akses ke share ini');
     }
 
-    // Check expiry for time-limited shares
-    if (share.accessType === ShareAccessType.RENTANG_WAKTU && share.expiresAt) {
+    // Must be AKTIF — but pemberi can always open (even if share is BERAKHIR)
+    if (share.status !== ShareStatus.AKTIF && !isPemberi) {
+      throw new BadRequestException('Share tidak aktif atau sudah berakhir');
+    }
+
+    // Check expiry for time-limited shares (pemberi always allowed)
+    if (!isPemberi && share.accessType === ShareAccessType.RENTANG_WAKTU && share.expiresAt) {
       if (new Date() > new Date(share.expiresAt)) {
         throw new BadRequestException('Akses share sudah kedaluwarsa');
       }
@@ -673,36 +733,60 @@ export class NaskahShareService {
       where: { id: share.naskahId },
     });
 
+    // Resolve PDF URL FIRST — before updating any status
+    let pdfUrl: string | null = null;
+    if (naskah?.final_pdf) {
+      try {
+        pdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+      } catch (err: any) {
+        this.logger.warn(
+          `⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`,
+        );
+      }
+    }
+
+    // If no PDF available, reject before changing status
+    if (!pdfUrl) {
+      throw new BadRequestException(
+        'Dokumen PDF tidak tersedia untuk naskah ini',
+      );
+    }
+
     // Update recipient status only if user is a recipient
     if (recipientRecord) {
-      // View-once: check if already opened or auto-revoked
+      // View-once: check if already opened or ended
       if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
         if (
-          recipientRecord.status === RecipientStatus.DIBUKA ||
-          recipientRecord.status === RecipientStatus.DICABUT
+          recipientRecord.status === RecipientStatus.DIBACA ||
+          recipientRecord.status === RecipientStatus.BERAKHIR
         ) {
           throw new BadRequestException(
-            'Share ini hanya dapat dibuka sekali. Akses sudah ditutup.',
+            'Share ini hanya dapat dibuka sekali. Akses sudah berakhir.',
           );
         }
       }
 
-      recipientRecord.status = RecipientStatus.DIBUKA;
+      recipientRecord.status = RecipientStatus.DIBACA;
       recipientRecord.openedAt = new Date();
       await this.recipientRepo.save(recipientRecord);
 
-      // View-once: auto-revoke access after first open
+      // View-once: auto-revoke access after first open — only THIS recipient ends
       if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
-        recipientRecord.status = RecipientStatus.DICABUT;
+        recipientRecord.status = RecipientStatus.BERAKHIR;
         await this.recipientRepo.save(recipientRecord);
 
-        // Check if all recipients are now DICABUT → close the entire share
+        // Update in-memory copy for the allRevoked check
+        const recipientInList = share.recipients.find(
+          (r) => r.id === recipientRecord.id,
+        );
+        if (recipientInList) recipientInList.status = RecipientStatus.BERAKHIR;
+
+        // Only close the entire share if ALL recipients have ended
         const allRevoked = share.recipients.every(
-          (r) =>
-            r.id === recipientRecord.id || r.status === RecipientStatus.DICABUT,
+          (r) => r.status === RecipientStatus.BERAKHIR,
         );
         if (allRevoked) {
-          share.status = ShareStatus.DICABUT;
+          share.status = ShareStatus.BERAKHIR;
           share.revokedAt = new Date();
           share.revokedReason =
             'Semua penerima sudah menggunakan akses sekali lihat';
@@ -755,18 +839,6 @@ export class NaskahShareService {
       }
     }
 
-    // Resolve PDF URL from storage
-    let pdfUrl: string | null = null;
-    if (naskah?.final_pdf) {
-      try {
-        pdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
-      } catch (err: any) {
-        this.logger.warn(
-          `⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`,
-        );
-      }
-    }
-
     return {
       success: true,
       message: 'Naskah berhasil dibuka',
@@ -808,8 +880,9 @@ export class NaskahShareService {
       throw new ForbiddenException('Anda bukan penerima share ini');
     }
 
-    // Only update if still BELUM_DIBACA
-    if (recipientRecord.status === RecipientStatus.BELUM_DIBACA) {
+    // Only update if still TERKIRIM
+    // Skip SEKALI_LIHAT — status should only change when actually opening the PDF
+    if (recipientRecord.status === RecipientStatus.TERKIRIM && share.accessType !== ShareAccessType.SEKALI_LIHAT) {
       recipientRecord.status = RecipientStatus.DIBACA;
       await this.recipientRepo.save(recipientRecord);
     }
