@@ -70,6 +70,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AiModule } from './modules/ai/ai.module';
 import { OnlyOfficeModule } from './modules/onlyoffice/onlyoffice.module';
 import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
+import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module';
 
 @Module({
   imports: [
@@ -173,6 +174,7 @@ import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
     AiModule,
     OnlyOfficeModule,
     NaskahUmumModule,
+    ArsipDinamisModule,
   ],
   controllers: [AppController],
   providers: [
