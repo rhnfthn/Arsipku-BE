@@ -43,7 +43,7 @@ export class NaskahShareRecipientEntity {
 
   @Column('enum', {
     enum: RecipientStatus,
-    default: RecipientStatus.BELUM_DIBACA,
+    default: RecipientStatus.TERKIRIM,
   })
   status: RecipientStatus;
 

@@ -31,10 +31,14 @@ export class NaskahShareQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsEnum(['AKTIF', 'DICABUT'])
+  @IsEnum(['AKTIF', 'BERAKHIR'])
   status?: string;
 
   @IsOptional()
   @IsString()
   jenis?: string;
+
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  sort?: 'ASC' | 'DESC';
 }
