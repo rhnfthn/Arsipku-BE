@@ -1,6 +1,5 @@
 export enum RecipientStatus {
-  BELUM_DIBACA = 'BELUM_DIBACA',
+  TERKIRIM = 'TERKIRIM',
   DIBACA = 'DIBACA',
-  DIBUKA = 'DIBUKA',
-  DICABUT = 'DICABUT',
+  BERAKHIR = 'BERAKHIR',
 }
