@@ -23,12 +23,12 @@ export class LampiranInfoDto {
 }
 
 export class SendMessageItemDto {
-  id: string;                          // ID naskah
-  jenis: string;                       // Jenis naskah (ND)
-  nomor: string;                       // Nomor surat
-  tanggal: string;                     // Tanggal surat
-  status: 'draf' | 'pending' | 'final' | 'final_tte';  // Status naskah
-  
+  id: string; // ID naskah
+  jenis: string; // Jenis naskah (ND)
+  nomor: string; // Nomor surat
+  tanggal: string; // Tanggal surat
+  status: 'draf' | 'pending' | 'final' | 'final_tte'; // Status naskah
+
   // Kop Naskah
   kop_logo: string | null;
   kop_nama: string | null;
@@ -61,8 +61,8 @@ export class SendMessageItemDto {
   tembusan: TembusanInfoDto[];
 
   // Lampiran
-  lampiran: string | null;              // Keterangan lampiran
-  lampiran_files: LampiranInfoDto[];    // List file lampiran
+  lampiran: string | null; // Keterangan lampiran
+  lampiran_files: LampiranInfoDto[]; // List file lampiran
 
   // Summary
   jumlahPenerima: number;

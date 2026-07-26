@@ -66,7 +66,7 @@ export class DelegasiController {
    * GET /delegasi/personil
    * Data diambil dari organization_build.position_json (org_data)
    * Menampilkan daftar orang beserta jabatan mereka saat ini
-   * 
+   *
    * Filter berdasarkan role:
    * - superadmin: filter by area dari user yang login
    * - admin: filter by sub_area dari user yang login
@@ -76,7 +76,7 @@ export class DelegasiController {
   @ApiOperation({ summary: 'Get list of personil for delegation' })
   @RequirePermission('delegasi', 'read')
   async getPersonil(
-    @Query('company') company?: string, 
+    @Query('company') company?: string,
     @Query('search') search?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
@@ -92,11 +92,11 @@ export class DelegasiController {
       }
 
       const positionJsonData = latestOrgData.position_json as any[];
-      
+
       // Filter hanya posisi yang memiliki persnum_person (ada orang yang menjabat)
       let personilList = positionJsonData
-        .filter(pos => pos.persnum_person && pos.persnum_person_text)
-        .map(pos => ({
+        .filter((pos) => pos.persnum_person && pos.persnum_person_text)
+        .map((pos) => ({
           persnum: String(pos.persnum_person),
           name: pos.persnum_person_text,
           // Jabatan saat ini untuk display
@@ -116,7 +116,9 @@ export class DelegasiController {
 
       // Filter by company if specified
       if (company) {
-        personilList = personilList.filter(p => String(p.company) === String(company));
+        personilList = personilList.filter(
+          (p) => String(p.company) === String(company),
+        );
       }
 
       // Filter berdasarkan role user yang login
@@ -124,12 +126,16 @@ export class DelegasiController {
         if (user.role === 'superadmin') {
           // Superadmin: filter by area dari user yang login
           if (user.area) {
-            personilList = personilList.filter(p => String(p.area) === String(user.area));
+            personilList = personilList.filter(
+              (p) => String(p.area) === String(user.area),
+            );
           }
         } else {
           // Admin & User: filter by sub_area dari user yang login
           if (user.subArea) {
-            personilList = personilList.filter(p => String(p.subArea) === String(user.subArea));
+            personilList = personilList.filter(
+              (p) => String(p.subArea) === String(user.subArea),
+            );
           }
         }
       }
@@ -137,20 +143,24 @@ export class DelegasiController {
       // Filter by search (name or position)
       if (search) {
         const searchLower = search.toLowerCase();
-        personilList = personilList.filter(p => 
-          p.name.toLowerCase().includes(searchLower) ||
-          p.currentPositionText?.toLowerCase().includes(searchLower)
+        personilList = personilList.filter(
+          (p) =>
+            p.name.toLowerCase().includes(searchLower) ||
+            p.currentPositionText?.toLowerCase().includes(searchLower),
         );
       }
 
       // Remove duplicates by persnum (satu orang bisa punya beberapa jabatan)
-      const uniquePersonil = personilList.reduce((acc, curr) => {
-        const existing = acc.find(p => p.persnum === curr.persnum);
-        if (!existing) {
-          acc.push(curr);
-        }
-        return acc;
-      }, [] as typeof personilList);
+      const uniquePersonil = personilList.reduce(
+        (acc, curr) => {
+          const existing = acc.find((p) => p.persnum === curr.persnum);
+          if (!existing) {
+            acc.push(curr);
+          }
+          return acc;
+        },
+        [] as typeof personilList,
+      );
 
       // Sort by name
       uniquePersonil.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -180,14 +190,16 @@ export class DelegasiController {
    * GET /delegasi/jabatan
    * Data diambil dari organization_build.position_json (org_data)
    * position_json berisi flat array dengan complete data (area, organization, dll)
-   * 
+   *
    * Filter berdasarkan role:
    * - superadmin: filter by area dari user yang login
    * - admin: filter by sub_area dari user yang login
    * - user: filter by sub_area dari user yang login
    */
   @Get('jabatan')
-  @ApiOperation({ summary: 'Get list of jabatan for delegation with area info' })
+  @ApiOperation({
+    summary: 'Get list of jabatan for delegation with area info',
+  })
   @RequirePermission('delegasi', 'read')
   async getJabatan(
     @Query('company') company?: string,
@@ -202,7 +214,7 @@ export class DelegasiController {
         const positions = await this.positionService.findAll();
         return {
           success: true,
-          data: positions.map(pos => ({
+          data: positions.map((pos) => ({
             id: String(pos.position),
             position: pos.position,
             shortText: pos.shortText,
@@ -216,7 +228,7 @@ export class DelegasiController {
 
       // position_json is a flat array with complete position data
       const positionJsonData = latestOrgData.position_json as any[];
-      let positionsList = positionJsonData.map(pos => ({
+      let positionsList = positionJsonData.map((pos) => ({
         id: String(pos.position),
         position: pos.position,
         shortText: pos.position_text,
@@ -239,14 +251,16 @@ export class DelegasiController {
         direktoratId: pos.direktorat_id,
         direktoratName: pos.direktorat_name,
         // Display text dengan sub_area sebagai pembeda
-        displayText: pos.sub_area_text 
+        displayText: pos.sub_area_text
           ? `${pos.position_text} - ${pos.sub_area_text}`
           : pos.position_text,
       }));
 
       // Filter by company if specified
       if (company) {
-        positionsList = positionsList.filter(pos => String(pos.company) === String(company));
+        positionsList = positionsList.filter(
+          (pos) => String(pos.company) === String(company),
+        );
       }
 
       // Filter berdasarkan role user yang login
@@ -254,18 +268,24 @@ export class DelegasiController {
         if (user.role === 'superadmin') {
           // Superadmin: filter by area dari user yang login
           if (user.area) {
-            positionsList = positionsList.filter(pos => String(pos.area) === String(user.area));
+            positionsList = positionsList.filter(
+              (pos) => String(pos.area) === String(user.area),
+            );
           }
         } else {
           // Admin & User: filter by sub_area dari user yang login
           if (user.subArea) {
-            positionsList = positionsList.filter(pos => String(pos.subArea) === String(user.subArea));
+            positionsList = positionsList.filter(
+              (pos) => String(pos.subArea) === String(user.subArea),
+            );
           }
         }
       }
 
       // Sort by longText
-      positionsList.sort((a, b) => (a.longText || '').localeCompare(b.longText || ''));
+      positionsList.sort((a, b) =>
+        (a.longText || '').localeCompare(b.longText || ''),
+      );
 
       return {
         success: true,
@@ -283,7 +303,7 @@ export class DelegasiController {
       const positions = await this.positionService.findAll();
       return {
         success: true,
-        data: positions.map(pos => ({
+        data: positions.map((pos) => ({
           id: String(pos.position),
           position: pos.position,
           shortText: pos.shortText,
@@ -334,18 +354,19 @@ export class DelegasiController {
   /**
    * Switch role to a delegated position or reset to original role
    * POST /delegasi/switch-role
-   * 
+   *
    * Example payload to switch to delegated role:
    * { "delegasiId": "uuid-123" }
-   * 
+   *
    * Example payload to reset to original role:
    * { "resetToOriginal": true }
    */
   @Post('switch-role')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Switch role to delegated position or reset to original',
-    description: 'Generate new JWT with delegated position data or reset to original role (YBS)',
+    description:
+      'Generate new JWT with delegated position data or reset to original role (YBS)',
   })
   @RequirePermission('delegasi', 'create')
   async switchRole(
@@ -406,7 +427,10 @@ export class DelegasiController {
     @Param('persnum') persnum: string,
     @Param('position') position: string,
   ) {
-    const hasActive = await this.delegasiService.hasActiveDelegation(persnum, position);
+    const hasActive = await this.delegasiService.hasActiveDelegation(
+      persnum,
+      position,
+    );
     return { hasActiveDelegation: hasActive };
   }
 
@@ -429,7 +453,10 @@ export class DelegasiController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new delegasi' })
   @RequirePermission('delegasi', 'create')
-  create(@Body() createDelegasiDto: CreateDelegasiDto, @CurrentUser() user: JwtPayload) {
+  create(
+    @Body() createDelegasiDto: CreateDelegasiDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.delegasiService.create(createDelegasiDto, user);
   }
 
@@ -440,7 +467,11 @@ export class DelegasiController {
   @Put(':id')
   @ApiOperation({ summary: 'Update delegasi' })
   @RequirePermission('delegasi', 'update')
-  update(@Param('id') id: string, @Body() updateDelegasiDto: UpdateDelegasiDto, @CurrentUser() user: JwtPayload) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDelegasiDto: UpdateDelegasiDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
     return this.delegasiService.update(id, updateDelegasiDto);
   }
 

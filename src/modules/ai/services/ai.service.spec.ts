@@ -64,15 +64,22 @@ describe('AiService.generateDraft', () => {
   });
 
   it('converts content array to HTML paragraphs', async () => {
-    ollama.generate.mockResolvedValue(JSON.stringify({
-      perihal: 'Kajian Ruang Server',
-      content: ['Latar Belakang: ...', 'Kesimpulan: ...'],
-    }));
-    const dto: GenerateDraftDto = { naskahType: NaskahTypeEnum.KAJIAN, brief: 'analisis x' };
+    ollama.generate.mockResolvedValue(
+      JSON.stringify({
+        perihal: 'Kajian Ruang Server',
+        content: ['Latar Belakang: ...', 'Kesimpulan: ...'],
+      }),
+    );
+    const dto: GenerateDraftDto = {
+      naskahType: NaskahTypeEnum.KAJIAN,
+      brief: 'analisis x',
+    };
     const res = await service.generateDraft(dto, 1);
     expect(res.raw).toBe(false);
     expect(res.draftPerihal).toBe('Kajian Ruang Server');
-    expect(res.draftHtml).toBe('<p>Latar Belakang: ...</p>\n<p>Kesimpulan: ...</p>');
+    expect(res.draftHtml).toBe(
+      '<p>Latar Belakang: ...</p>\n<p>Kesimpulan: ...</p>',
+    );
   });
 
   it('escapes structured content before rendering HTML', async () => {

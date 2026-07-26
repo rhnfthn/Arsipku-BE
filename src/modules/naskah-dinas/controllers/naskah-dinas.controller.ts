@@ -1,4 +1,4 @@
- import {
+import {
   Controller,
   Get,
   Post,
@@ -78,7 +78,8 @@ export class NaskahDinasController {
   ): Promise<NdSendMessageResponseDto> {
     try {
       // Parse form-data to DTO
-      const { dto, file: parsedFile } = await this.naskahDinasService.parseFormDataToCreateDto(body, file);
+      const { dto, file: parsedFile } =
+        await this.naskahDinasService.parseFormDataToCreateDto(body, file);
       return await this.naskahDinasService.sendMessage(dto, parsedFile);
     } catch (error) {
       if (error instanceof HttpException) {
@@ -254,7 +255,8 @@ export class NaskahDinasController {
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<NdGetDetailResponseDto> {
     try {
-      const { dto, file: parsedFile } = await this.naskahDinasService.parseFormDataToCreateDto(body, file);
+      const { dto, file: parsedFile } =
+        await this.naskahDinasService.parseFormDataToCreateDto(body, file);
       return await this.naskahDinasService.updateMessage(id, dto, parsedFile);
     } catch (error) {
       if (error instanceof HttpException) {

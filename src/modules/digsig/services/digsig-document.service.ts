@@ -1,4 +1,10 @@
-import { Injectable, HttpException, HttpStatus, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, Between, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -46,7 +52,10 @@ export class DigsigDocumentService {
       userPersnum: signer.persnum,
       type: NotificationType.DIGSIG_TANDA_TANGAN,
       title: 'Dokumen menunggu tanda tangan',
-      body: document.perihal || document.nomorDokumen || 'Ada dokumen yang perlu ditandatangani',
+      body:
+        document.perihal ||
+        document.nomorDokumen ||
+        'Ada dokumen yang perlu ditandatangani',
       data: {
         action: 'OPEN_DIGSIG_PENANDATANGANAN',
         requestId: document.id,
@@ -65,7 +74,9 @@ export class DigsigDocumentService {
     title: string,
     body: string,
   ) {
-    const userData = await this.orgDataService.findByPersnum(document.createdBy).catch(() => null);
+    const userData = await this.orgDataService
+      .findByPersnum(document.createdBy)
+      .catch(() => null);
     const positionId = userData?.position;
     if (!positionId) return;
 
@@ -126,7 +137,7 @@ export class DigsigDocumentService {
     if (dto.signers && dto.signers.length > 0) {
       for (let i = 0; i < dto.signers.length; i++) {
         const signerItem = dto.signers[i];
-        
+
         // Normalize signer item - could be number or object
         let signerPersnum: number;
         let providedNama: string | null = null;
@@ -159,7 +170,10 @@ export class DigsigDocumentService {
         if (!providedNama || !providedJabatan || !providedLokasi) {
           try {
             // Use creator's session to fetch signer's data
-            const userData = await this.fetchUserDataFromHR(signerPersnum, createdBy);
+            const userData = await this.fetchUserDataFromHR(
+              signerPersnum,
+              createdBy,
+            );
             signerData = {
               persnum: signerPersnum,
               nama: providedNama || userData.nama || null,
@@ -168,7 +182,10 @@ export class DigsigDocumentService {
               positionId: providedPositionId || userData.positionId || null,
             };
           } catch (error) {
-            console.warn(`Failed to fetch user data for persnum ${signerPersnum}:`, error.message);
+            console.warn(
+              `Failed to fetch user data for persnum ${signerPersnum}:`,
+              error.message,
+            );
             // Continue with provided data or null
           }
         }
@@ -193,7 +210,9 @@ export class DigsigDocumentService {
       created,
       created.signers?.find((signer) => signer.status === 'waiting'),
     ).catch((err) =>
-      console.warn(`[DigsigDocument] Failed to send signer notification: ${err?.message}`),
+      console.warn(
+        `[DigsigDocument] Failed to send signer notification: ${err?.message}`,
+      ),
     );
 
     return created;
@@ -219,7 +238,9 @@ export class DigsigDocumentService {
       const userData = await this.orgDataService.findByPersnum(targetPersnum);
 
       if (!userData) {
-        console.warn(`User with persnum ${targetPersnum} not found in org_data`);
+        console.warn(
+          `User with persnum ${targetPersnum} not found in org_data`,
+        );
         return {
           nama: `User ${targetPersnum}`,
           jabatan: '',
@@ -243,7 +264,10 @@ export class DigsigDocumentService {
         positionId: userData.position || null,
       };
     } catch (error) {
-      console.error(`Error fetching user data for persnum ${targetPersnum}:`, error.message);
+      console.error(
+        `Error fetching user data for persnum ${targetPersnum}:`,
+        error.message,
+      );
       // Return default values instead of throwing
       return {
         nama: `User ${targetPersnum}`,
@@ -260,7 +284,12 @@ export class DigsigDocumentService {
   async update(
     id: string,
     dto: UpdateDigsigDocumentDto,
-    file?: { path: string; name: string; size: number; mimeType: string } | null,
+    file?: {
+      path: string;
+      name: string;
+      size: number;
+      mimeType: string;
+    } | null,
   ): Promise<DigsigDocumentEntity> {
     const document = await this.findById(id);
 
@@ -270,17 +299,23 @@ export class DigsigDocumentService {
     });
 
     if (signedSigners > 0) {
-      throw new BadRequestException('Dokumen tidak bisa diedit karena sudah ada penandatangan');
+      throw new BadRequestException(
+        'Dokumen tidak bisa diedit karena sudah ada penandatangan',
+      );
     }
 
     // Update document fields
-    if (dto.tanggalDokumen) document.tanggalDokumen = new Date(dto.tanggalDokumen);
-    if (dto.klasifikasi !== undefined) document.klasifikasi = dto.klasifikasi || null;
-    if (dto.klasifikasiText !== undefined) document.klasifikasiText = dto.klasifikasiText || null;
+    if (dto.tanggalDokumen)
+      document.tanggalDokumen = new Date(dto.tanggalDokumen);
+    if (dto.klasifikasi !== undefined)
+      document.klasifikasi = dto.klasifikasi || null;
+    if (dto.klasifikasiText !== undefined)
+      document.klasifikasiText = dto.klasifikasiText || null;
     if (dto.jenisNaskah) document.jenisNaskah = dto.jenisNaskah;
     if (dto.nomorDokumen) document.nomorDokumen = dto.nomorDokumen;
     if (dto.perihal !== undefined) document.perihal = dto.perihal || null;
-    if (dto.visibleSign !== undefined) document.visibleSign = dto.visibleSign ? 1 : 0;
+    if (dto.visibleSign !== undefined)
+      document.visibleSign = dto.visibleSign ? 1 : 0;
 
     // Update file if provided
     if (file) {
@@ -306,7 +341,7 @@ export class DigsigDocumentService {
       // Create new signers (same logic as create)
       for (let i = 0; i < dto.signers.length; i++) {
         const signerItem = dto.signers[i];
-        
+
         // Normalize signer item - could be number or object
         let signerPersnum: number;
         let providedNama: string | null = null;
@@ -338,7 +373,10 @@ export class DigsigDocumentService {
 
         if (!providedNama || !providedJabatan || !providedLokasi) {
           try {
-            const userData = await this.fetchUserDataFromHR(signerPersnum, document.createdBy);
+            const userData = await this.fetchUserDataFromHR(
+              signerPersnum,
+              document.createdBy,
+            );
             signerData = {
               persnum: signerPersnum,
               nama: providedNama || userData.nama || null,
@@ -347,7 +385,10 @@ export class DigsigDocumentService {
               positionId: providedPositionId || userData.positionId || null,
             };
           } catch (error) {
-            console.warn(`Failed to fetch user data for persnum ${signerPersnum}:`, error.message);
+            console.warn(
+              `Failed to fetch user data for persnum ${signerPersnum}:`,
+              error.message,
+            );
           }
         }
 
@@ -400,7 +441,9 @@ export class DigsigDocumentService {
   /**
    * Find all documents with filtering
    */
-  async findAll(filter: FilterDigsigDocumentDto): Promise<DigsigDocumentPaginatedResponseDto> {
+  async findAll(
+    filter: FilterDigsigDocumentDto,
+  ): Promise<DigsigDocumentPaginatedResponseDto> {
     const page = filter.page || 1;
     const limit = filter.limit || 10;
     const skip = (page - 1) * limit;
@@ -417,30 +460,45 @@ export class DigsigDocumentService {
     }
 
     if (filter.jenisNaskah) {
-      queryBuilder.andWhere('doc.jenisNaskah = :jenisNaskah', { jenisNaskah: filter.jenisNaskah });
+      queryBuilder.andWhere('doc.jenisNaskah = :jenisNaskah', {
+        jenisNaskah: filter.jenisNaskah,
+      });
     }
 
     if (filter.klasifikasi) {
-      queryBuilder.andWhere('doc.klasifikasi = :klasifikasi', { klasifikasi: filter.klasifikasi });
+      queryBuilder.andWhere('doc.klasifikasi = :klasifikasi', {
+        klasifikasi: filter.klasifikasi,
+      });
     }
 
     if (filter.createdBy) {
-      queryBuilder.andWhere('doc.createdBy = :createdBy', { createdBy: filter.createdBy });
+      queryBuilder.andWhere('doc.createdBy = :createdBy', {
+        createdBy: filter.createdBy,
+      });
     }
 
     if (filter.signerPersnum) {
-      queryBuilder.andWhere('signers.persnum = :signerPersnum', { signerPersnum: filter.signerPersnum });
+      queryBuilder.andWhere('signers.persnum = :signerPersnum', {
+        signerPersnum: filter.signerPersnum,
+      });
     }
 
     if (filter.startDate && filter.endDate) {
-      queryBuilder.andWhere('doc.tanggalDokumen BETWEEN :startDate AND :endDate', {
+      queryBuilder.andWhere(
+        'doc.tanggalDokumen BETWEEN :startDate AND :endDate',
+        {
+          startDate: filter.startDate,
+          endDate: filter.endDate,
+        },
+      );
+    } else if (filter.startDate) {
+      queryBuilder.andWhere('doc.tanggalDokumen >= :startDate', {
         startDate: filter.startDate,
+      });
+    } else if (filter.endDate) {
+      queryBuilder.andWhere('doc.tanggalDokumen <= :endDate', {
         endDate: filter.endDate,
       });
-    } else if (filter.startDate) {
-      queryBuilder.andWhere('doc.tanggalDokumen >= :startDate', { startDate: filter.startDate });
-    } else if (filter.endDate) {
-      queryBuilder.andWhere('doc.tanggalDokumen <= :endDate', { endDate: filter.endDate });
     }
 
     if (filter.search) {
@@ -456,7 +514,7 @@ export class DigsigDocumentService {
       .getManyAndCount();
 
     return {
-      data: await Promise.all(documents.map(doc => this.toResponseDto(doc))),
+      data: await Promise.all(documents.map((doc) => this.toResponseDto(doc))),
       total,
       page,
       limit,
@@ -467,7 +525,10 @@ export class DigsigDocumentService {
   /**
    * Get documents pending signature for a user
    */
-  async getMyPendingSignatures(persnum: number, filter: FilterDigsigDocumentDto): Promise<DigsigDocumentPaginatedResponseDto> {
+  async getMyPendingSignatures(
+    persnum: number,
+    filter: FilterDigsigDocumentDto,
+  ): Promise<DigsigDocumentPaginatedResponseDto> {
     const page = filter.page || 1;
     const limit = filter.limit || 10;
     const skip = (page - 1) * limit;
@@ -488,7 +549,7 @@ export class DigsigDocumentService {
       .getManyAndCount();
 
     return {
-      data: await Promise.all(documents.map(doc => this.toResponseDto(doc))),
+      data: await Promise.all(documents.map((doc) => this.toResponseDto(doc))),
       total,
       page,
       limit,
@@ -507,42 +568,52 @@ export class DigsigDocumentService {
     const document = await this.findById(documentId);
 
     // Find signer
-    const signer = document.signers.find(s => s.persnum === persnum && s.status === 'waiting');
+    const signer = document.signers.find(
+      (s) => s.persnum === persnum && s.status === 'waiting',
+    );
     if (!signer) {
-      throw new BadRequestException('Anda tidak memiliki hak untuk menandatangani dokumen ini atau bukan giliran Anda');
+      throw new BadRequestException(
+        'Anda tidak memiliki hak untuk menandatangani dokumen ini atau bukan giliran Anda',
+      );
     }
 
     // Get user data for BSrE
-    const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
+    const userData = await this.digsigService.getUserDataForBsre(
+      persnum.toString(),
+    );
 
     // Safely convert tanggalDokumen to string (handle both Date and string)
     const tanggalRaw = document.tanggalDokumen as unknown;
-    const tanggalStr = tanggalRaw instanceof Date
-      ? tanggalRaw.toISOString().split('T')[0]
-      : typeof tanggalRaw === 'string'
-        ? tanggalRaw.split('T')[0]
-        : new Date(tanggalRaw as string | number).toISOString().split('T')[0];
+    const tanggalStr =
+      tanggalRaw instanceof Date
+        ? tanggalRaw.toISOString().split('T')[0]
+        : typeof tanggalRaw === 'string'
+          ? tanggalRaw.split('T')[0]
+          : new Date(tanggalRaw as string | number).toISOString().split('T')[0];
 
     try {
       // Hit BSrE API
-      const bsreResponse = await this.digsigService.hitDigsigEndpoint({
-        key: document.filePath!,
-        filename: document.fileName!,
-        nomorDokumen: document.nomorDokumen,
-        tanggalDokumen: tanggalStr,
-        klasifikasi: document.klasifikasi || 'Biasa',
-        jenisNaskah: document.jenisNaskah,
-        perihal: document.perihal || '',
-        nik: userData.nik,
-        passphrase: dto.passphrase,
-        path_dokumen: 'digsig-document/signed/',
-        no_wa: userData.no_wa,
-      }, {
-        userPersnum: persnum,
-        userName: signer.nama || undefined,
-        idNaskah: documentId,
-        jenisNaskah: document.jenisNaskah,
-      });
+      const bsreResponse = await this.digsigService.hitDigsigEndpoint(
+        {
+          key: document.filePath!,
+          filename: document.fileName!,
+          nomorDokumen: document.nomorDokumen,
+          tanggalDokumen: tanggalStr,
+          klasifikasi: document.klasifikasi || 'Biasa',
+          jenisNaskah: document.jenisNaskah,
+          perihal: document.perihal || '',
+          nik: userData.nik,
+          passphrase: dto.passphrase,
+          path_dokumen: 'digsig-document/signed/',
+          no_wa: userData.no_wa,
+        },
+        {
+          userPersnum: persnum,
+          userName: signer.nama || undefined,
+          idNaskah: documentId,
+          jenisNaskah: document.jenisNaskah,
+        },
+      );
 
       // Update signer status
       signer.status = 'signed';
@@ -562,22 +633,28 @@ export class DigsigDocumentService {
       }
 
       // Check if all signers have signed
-      const pendingSigners = document.signers.filter(s => s.status !== 'signed' && s.id !== signer.id);
-      
+      const pendingSigners = document.signers.filter(
+        (s) => s.status !== 'signed' && s.id !== signer.id,
+      );
+
       if (pendingSigners.length === 0) {
         // All signed - complete
         document.status = 'completed';
       } else {
         // Move to next signer
         document.currentSignerOrder = signer.urutan + 1;
-        
+
         // Set next signer to waiting
-        const nextSigner = document.signers.find(s => s.urutan === signer.urutan + 1);
+        const nextSigner = document.signers.find(
+          (s) => s.urutan === signer.urutan + 1,
+        );
         if (nextSigner) {
           nextSigner.status = 'waiting';
           await this.signerRepository.save(nextSigner);
           this.notifySigner(document, nextSigner).catch((err) =>
-            console.warn(`[DigsigDocument] Failed to send next signer notification: ${err?.message}`),
+            console.warn(
+              `[DigsigDocument] Failed to send next signer notification: ${err?.message}`,
+            ),
           );
         }
       }
@@ -589,14 +666,17 @@ export class DigsigDocumentService {
           document,
           NotificationType.DIGSIG_SELESAI,
           'Dokumen selesai ditandatangani',
-          document.perihal || document.nomorDokumen || 'Dokumen selesai ditandatangani',
+          document.perihal ||
+            document.nomorDokumen ||
+            'Dokumen selesai ditandatangani',
         ).catch((err) =>
-          console.warn(`[DigsigDocument] Failed to send completed notification: ${err?.message}`),
+          console.warn(
+            `[DigsigDocument] Failed to send completed notification: ${err?.message}`,
+          ),
         );
       }
 
       return this.findById(documentId);
-
     } catch (error) {
       throw new HttpException(
         error.response || { message: error.message },
@@ -616,9 +696,13 @@ export class DigsigDocumentService {
     const document = await this.findById(documentId);
 
     // Find signer
-    const signer = document.signers.find(s => s.persnum === persnum && s.status === 'waiting');
+    const signer = document.signers.find(
+      (s) => s.persnum === persnum && s.status === 'waiting',
+    );
     if (!signer) {
-      throw new BadRequestException('Anda tidak memiliki hak untuk menolak dokumen ini atau bukan giliran Anda');
+      throw new BadRequestException(
+        'Anda tidak memiliki hak untuk menolak dokumen ini atau bukan giliran Anda',
+      );
     }
 
     // Update signer
@@ -640,7 +724,9 @@ export class DigsigDocumentService {
       'Dokumen ditolak',
       dto.keterangan || document.perihal || 'Dokumen ditolak',
     ).catch((err) =>
-      console.warn(`[DigsigDocument] Failed to send rejected notification: ${err?.message}`),
+      console.warn(
+        `[DigsigDocument] Failed to send rejected notification: ${err?.message}`,
+      ),
     );
 
     // Log rejection
@@ -666,11 +752,15 @@ export class DigsigDocumentService {
     const document = await this.findById(documentId);
 
     if (document.createdBy !== createdBy) {
-      throw new BadRequestException('Hanya pembuat dokumen yang dapat membatalkan');
+      throw new BadRequestException(
+        'Hanya pembuat dokumen yang dapat membatalkan',
+      );
     }
 
     if (document.status === 'completed') {
-      throw new BadRequestException('Dokumen yang sudah selesai tidak dapat dibatalkan');
+      throw new BadRequestException(
+        'Dokumen yang sudah selesai tidak dapat dibatalkan',
+      );
     }
 
     // Check if any signatures
@@ -679,7 +769,9 @@ export class DigsigDocumentService {
     });
 
     if (signedCount > 0) {
-      throw new BadRequestException('Dokumen tidak dapat dibatalkan karena sudah ada tanda tangan');
+      throw new BadRequestException(
+        'Dokumen tidak dapat dibatalkan karena sudah ada tanda tangan',
+      );
     }
 
     document.status = 'cancelled';
@@ -703,14 +795,19 @@ export class DigsigDocumentService {
   /**
    * Convert entity to response DTO
    */
-  private async toResponseDto(doc: DigsigDocumentEntity): Promise<DigsigDocumentResponseDto> {
+  private async toResponseDto(
+    doc: DigsigDocumentEntity,
+  ): Promise<DigsigDocumentResponseDto> {
     // Generate preview URLs for files
     let filePreviewUrl: string | null = null;
     let signedFilePreviewUrl: string | null = null;
 
     if (doc.filePath) {
       try {
-        filePreviewUrl = await this.storageService.getPreviewUrl(doc.filePath, 3600); // 1 hour
+        filePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.filePath,
+          3600,
+        ); // 1 hour
       } catch (error) {
         // Ignore error, leave as null
       }
@@ -718,7 +815,10 @@ export class DigsigDocumentService {
 
     if (doc.signedFilePath) {
       try {
-        signedFilePreviewUrl = await this.storageService.getPreviewUrl(doc.signedFilePath, 3600);
+        signedFilePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.signedFilePath,
+          3600,
+        );
       } catch (error) {
         // Ignore error, leave as null
       }
@@ -747,7 +847,7 @@ export class DigsigDocumentService {
       createdByPosition: doc.createdByPosition,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      signers: (doc.signers || []).map(s => ({
+      signers: (doc.signers || []).map((s) => ({
         id: s.id,
         urutan: s.urutan,
         persnum: s.persnum,
@@ -787,20 +887,23 @@ export class DigsigDocumentService {
         return x.chief === 1 && x.area === userArea;
       });
 
-      console.log('[DigsigDocumentService] Found verifikator count:', verifikator.length);
+      console.log(
+        '[DigsigDocumentService] Found verifikator count:',
+        verifikator.length,
+      );
 
       // Map to return format
       const result = verifikator.map((v: any) => {
         // Build lokasi from subAreaText or areaText
         const lokasi = v.sub_area_text || v.area_text || '';
-        
+
         console.log('[DigsigDocumentService] Mapping verifikator:', {
           persnum: v.persnum_person,
           nama: v.persnum_person_text,
           position: v.position,
           jabatan: v.position_text,
         });
-        
+
         return {
           persnum: v.persnum_person || null,
           nama: v.persnum_person_text || null,

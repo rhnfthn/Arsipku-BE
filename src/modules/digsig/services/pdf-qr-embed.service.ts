@@ -40,7 +40,7 @@ export interface EmbedQRResult {
 
 /**
  * Service untuk embed QR Code ke PDF menggunakan pdf-lib
- * Best Practice: 
+ * Best Practice:
  * 1. Tidak regenerate template, hanya embed QR ke PDF yang sudah ada
  * 2. QR posisi dinamis berdasarkan TTD section
  * 3. Preserve lampiran yang sudah ter-merge
@@ -51,13 +51,13 @@ export class PdfQrEmbedService {
 
   /**
    * Embed QR Code ke PDF yang sudah ada
-   * 
+   *
    * Strategy:
    * 1. Load PDF yang sudah final (dengan lampiran ter-merge)
    * 2. Find TTD section position (halaman terakhir sebelum lampiran, atau halaman pertama)
    * 3. Embed QR code di posisi tengah TTD section
    * 4. Return modified PDF buffer
-   * 
+   *
    * @param pdfBuffer - Buffer PDF original
    * @param qrData - Data untuk generate QR code
    * @param config - Konfigurasi posisi QR (optional)
@@ -70,10 +70,10 @@ export class PdfQrEmbedService {
     try {
       // Default config
       const defaultConfig: QRPositionConfig = {
-        rightMargin: 100,    // ~1.4 inch dari kanan
-        bottomMargin: 150,   // ~2 inch dari bawah
-        qrSize: 70,          // ~1 inch QR size
-        pageIndex: 0,        // Halaman pertama (sebelum lampiran)
+        rightMargin: 100, // ~1.4 inch dari kanan
+        bottomMargin: 150, // ~2 inch dari bawah
+        qrSize: 70, // ~1 inch QR size
+        pageIndex: 0, // Halaman pertama (sebelum lampiran)
         useFixedPosition: false,
       };
 
@@ -93,12 +93,16 @@ export class PdfQrEmbedService {
 
       // 2. Determine target page (halaman utama surat, sebelum lampiran)
       // Biasanya halaman pertama untuk SDI, atau bisa dikonfigurasi
-      const targetPageIndex = Math.min(finalConfig.pageIndex || 0, pages.length - 1);
+      const targetPageIndex = Math.min(
+        finalConfig.pageIndex || 0,
+        pages.length - 1,
+      );
       const targetPage = pages[targetPageIndex];
       const { width: pageWidth, height: pageHeight } = targetPage.getSize();
 
       // 3. Generate QR Code PNG buffer
-      const qrPngBuffer = await this.qrCodeService.generateQRCodePngBuffer(qrData);
+      const qrPngBuffer =
+        await this.qrCodeService.generateQRCodePngBuffer(qrData);
       const qrImage = await pdfDoc.embedPng(qrPngBuffer);
 
       // 4. Calculate QR position
@@ -107,7 +111,11 @@ export class PdfQrEmbedService {
       let qrY: number;
       const qrSize = finalConfig.qrSize || 70;
 
-      if (finalConfig.useFixedPosition && finalConfig.fixedX !== undefined && finalConfig.fixedY !== undefined) {
+      if (
+        finalConfig.useFixedPosition &&
+        finalConfig.fixedX !== undefined &&
+        finalConfig.fixedY !== undefined
+      ) {
         // Gunakan posisi fixed
         qrX = finalConfig.fixedX;
         qrY = finalConfig.fixedY;
@@ -115,8 +123,8 @@ export class PdfQrEmbedService {
         // Kalkulasi posisi dinamis untuk TTD section
         // TTD section biasanya di kanan bawah, center horizontal di area kanan
         // Posisi X: sekitar 2/3 dari lebar halaman (center di area kanan)
-        qrX = (pageWidth * 2 / 3) - (qrSize / 2);
-        
+        qrX = (pageWidth * 2) / 3 - qrSize / 2;
+
         // Posisi Y: sekitar 120-180 points dari bawah (area TTD)
         // Adjust berdasarkan bottomMargin config
         qrY = finalConfig.bottomMargin || 150;
@@ -158,8 +166,8 @@ export class PdfQrEmbedService {
   /**
    * Embed QR Code dengan signature text ke PDF
    * Menambahkan text info signature di bawah QR code
-   * 
-   * @param pdfBuffer - Buffer PDF original  
+   *
+   * @param pdfBuffer - Buffer PDF original
    * @param qrData - Data untuk generate QR code
    * @param config - Konfigurasi posisi
    */
@@ -192,12 +200,16 @@ export class PdfQrEmbedService {
       }
 
       // 2. Get target page
-      const targetPageIndex = Math.min(finalConfig.pageIndex || 0, pages.length - 1);
+      const targetPageIndex = Math.min(
+        finalConfig.pageIndex || 0,
+        pages.length - 1,
+      );
       const targetPage = pages[targetPageIndex];
       const { width: pageWidth } = targetPage.getSize();
 
       // 3. Generate QR Code PNG buffer
-      const qrPngBuffer = await this.qrCodeService.generateQRCodePngBuffer(qrData);
+      const qrPngBuffer =
+        await this.qrCodeService.generateQRCodePngBuffer(qrData);
       const qrImage = await pdfDoc.embedPng(qrPngBuffer);
 
       // 4. Calculate position
@@ -205,12 +217,16 @@ export class PdfQrEmbedService {
       let qrX: number;
       let qrY: number;
 
-      if (finalConfig.useFixedPosition && finalConfig.fixedX !== undefined && finalConfig.fixedY !== undefined) {
+      if (
+        finalConfig.useFixedPosition &&
+        finalConfig.fixedX !== undefined &&
+        finalConfig.fixedY !== undefined
+      ) {
         qrX = finalConfig.fixedX;
         qrY = finalConfig.fixedY;
       } else {
         // Center di area TTD (kanan halaman)
-        qrX = (pageWidth * 2 / 3) - (qrSize / 2);
+        qrX = (pageWidth * 2) / 3 - qrSize / 2;
         qrY = finalConfig.bottomMargin || 150;
       }
 
@@ -289,7 +305,7 @@ export class PdfQrEmbedService {
     // - Horizontal: 2/3 dari kiri (center di area kanan)
     // - Vertical: sekitar 150-180 points dari bawah
     return {
-      x: (pageWidth * 2 / 3) - (qrSize / 2),
+      x: (pageWidth * 2) / 3 - qrSize / 2,
       y: 150, // Default 150 points dari bawah
     };
   }

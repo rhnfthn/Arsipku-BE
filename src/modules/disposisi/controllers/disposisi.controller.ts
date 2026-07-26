@@ -59,7 +59,7 @@ export class DisposisiController {
    *
    * Rules: Managerial ke managerial/fungsional/staf di bawahnya
    * (langsung/tidak langsung) dalam Company yang sama
-   * 
+   *
    * Barrier depth otomatis berdasarkan level pengirim:
    * - EVP (Level 0) → depth 3 (dapat kirim ke Level 1, 2, 3)
    * - VP (Level 1) → depth 2 (dapat kirim ke Level 2, 3)
@@ -88,7 +88,9 @@ export class DisposisiController {
   ): Promise<DisposisiRecipientResponseDto> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const position = pengirim ? parseInt(pengirim, 10) : parseInt(user.position, 10);
+      const position = pengirim
+        ? parseInt(pengirim, 10)
+        : parseInt(user.position, 10);
       if (isNaN(position)) {
         throw new BadRequestException('Invalid position');
       }
@@ -121,7 +123,7 @@ export class DisposisiController {
    * Deskripsi: Mengembalikan array flow disposisi lengkap dengan urutan:
    * - Paling atas = disposisi terbaru (level tertinggi)
    * - Paling bawah = disposisi awal (level 0 / root)
-   * 
+   *
    * Setiap item flow berisi:
    * - Data naskah (id, nomor, tanggal, perihal, status, sifat)
    * - Data DI (disposisi, catatan, kop, nomor agenda, dll)
@@ -144,7 +146,10 @@ export class DisposisiController {
     @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.getDisposisiDetail(id, String(user.position));
+      return await this.disposisiService.getDisposisiDetail(
+        id,
+        String(user.position),
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -191,14 +196,23 @@ export class DisposisiController {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
       if (body.pengirim) {
         body.pengirim_position_id = parseInt(body.pengirim, 10);
-        console.log('[send-message] Parsed pengirim to pengirim_position_id:', body.pengirim_position_id);
-      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+        console.log(
+          '[send-message] Parsed pengirim to pengirim_position_id:',
+          body.pengirim_position_id,
+        );
+      } else if (
+        body.pengirim_position_id &&
+        typeof body.pengirim_position_id === 'string'
+      ) {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
       body.pengirim_position_id = parseInt(user.position, 10);
       body.pengirim = String(user.position);
-      console.log('[send-message] Final pengirim_position_id:', body.pengirim_position_id);
+      console.log(
+        '[send-message] Final pengirim_position_id:',
+        body.pengirim_position_id,
+      );
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -214,18 +228,23 @@ export class DisposisiController {
       }
 
       // Parse penerima_position_ids if it's a string from form-data
-      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+      if (
+        body.penerima_position_ids &&
+        typeof body.penerima_position_ids === 'string'
+      ) {
         try {
           body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
         } catch {
-          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+          body.penerima_position_ids = [
+            parseInt(body.penerima_position_ids, 10),
+          ];
         }
       }
 
       // Ensure penerima_position_ids are numbers
       if (Array.isArray(body.penerima_position_ids)) {
-        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
-          typeof id === 'string' ? parseInt(id, 10) : id
+        body.penerima_position_ids = body.penerima_position_ids.map(
+          (id: any) => (typeof id === 'string' ? parseInt(id, 10) : id),
         );
       }
 
@@ -261,7 +280,10 @@ export class DisposisiController {
       }
 
       // Parse lampiran_temp_ids if it's a string from form-data
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+      if (
+        body.lampiran_temp_ids &&
+        typeof body.lampiran_temp_ids === 'string'
+      ) {
         try {
           body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
         } catch {
@@ -271,7 +293,8 @@ export class DisposisiController {
 
       // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
       if (body.is_priority !== undefined) {
-        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+        body.is_priority =
+          body.is_priority === 'true' || body.is_priority === true;
       }
 
       body.actor_position_status = user?.position_status ?? null;
@@ -324,7 +347,10 @@ export class DisposisiController {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
       if (body.pengirim && !body.pengirim_position_id) {
         body.pengirim_position_id = parseInt(body.pengirim, 10);
-      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+      } else if (
+        body.pengirim_position_id &&
+        typeof body.pengirim_position_id === 'string'
+      ) {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
@@ -342,18 +368,23 @@ export class DisposisiController {
       }
 
       // Parse penerima_position_ids if it's a string from form-data
-      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+      if (
+        body.penerima_position_ids &&
+        typeof body.penerima_position_ids === 'string'
+      ) {
         try {
           body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
         } catch {
-          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+          body.penerima_position_ids = [
+            parseInt(body.penerima_position_ids, 10),
+          ];
         }
       }
 
       // Ensure penerima_position_ids are numbers
       if (Array.isArray(body.penerima_position_ids)) {
-        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
-          typeof id === 'string' ? parseInt(id, 10) : id
+        body.penerima_position_ids = body.penerima_position_ids.map(
+          (id: any) => (typeof id === 'string' ? parseInt(id, 10) : id),
         );
       }
 
@@ -389,7 +420,10 @@ export class DisposisiController {
       }
 
       // Parse lampiran_temp_ids if it's a string from form-data
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+      if (
+        body.lampiran_temp_ids &&
+        typeof body.lampiran_temp_ids === 'string'
+      ) {
         try {
           body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
         } catch {
@@ -399,7 +433,8 @@ export class DisposisiController {
 
       // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
       if (body.is_priority !== undefined) {
-        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+        body.is_priority =
+          body.is_priority === 'true' || body.is_priority === true;
       }
 
       body.pengirim_position_id = parseInt(user.position, 10);
@@ -456,7 +491,9 @@ export class DisposisiController {
         throw new BadRequestException('position_id must be a valid number');
       }
       if (String(position) !== String(user.position)) {
-        throw new BadRequestException('position_id harus sesuai dengan user yang login');
+        throw new BadRequestException(
+          'position_id harus sesuai dengan user yang login',
+        );
       }
 
       return await this.disposisiService.getSendMessage(position);
@@ -557,7 +594,10 @@ export class DisposisiController {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
       if (body.pengirim && !body.pengirim_position_id) {
         body.pengirim_position_id = parseInt(body.pengirim, 10);
-      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+      } else if (
+        body.pengirim_position_id &&
+        typeof body.pengirim_position_id === 'string'
+      ) {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
@@ -578,18 +618,23 @@ export class DisposisiController {
       }
 
       // Parse penerima_position_ids if it's a string from form-data
-      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+      if (
+        body.penerima_position_ids &&
+        typeof body.penerima_position_ids === 'string'
+      ) {
         try {
           body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
         } catch {
-          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+          body.penerima_position_ids = [
+            parseInt(body.penerima_position_ids, 10),
+          ];
         }
       }
 
       // Ensure penerima_position_ids are numbers
       if (Array.isArray(body.penerima_position_ids)) {
-        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
-          typeof id === 'string' ? parseInt(id, 10) : id
+        body.penerima_position_ids = body.penerima_position_ids.map(
+          (id: any) => (typeof id === 'string' ? parseInt(id, 10) : id),
         );
       }
 
@@ -625,7 +670,10 @@ export class DisposisiController {
       }
 
       // Parse lampiran_temp_ids if it's a string from form-data
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+      if (
+        body.lampiran_temp_ids &&
+        typeof body.lampiran_temp_ids === 'string'
+      ) {
         try {
           body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
         } catch {
@@ -635,7 +683,8 @@ export class DisposisiController {
 
       // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
       if (body.is_priority !== undefined) {
-        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+        body.is_priority =
+          body.is_priority === 'true' || body.is_priority === true;
       }
 
       body.actor_position_status = user?.position_status ?? null;
@@ -699,7 +748,10 @@ export class DisposisiController {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
       if (body.pengirim && !body.pengirim_position_id) {
         body.pengirim_position_id = parseInt(body.pengirim, 10);
-      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+      } else if (
+        body.pengirim_position_id &&
+        typeof body.pengirim_position_id === 'string'
+      ) {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
@@ -720,18 +772,23 @@ export class DisposisiController {
       }
 
       // Parse penerima_position_ids if it's a string from form-data
-      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+      if (
+        body.penerima_position_ids &&
+        typeof body.penerima_position_ids === 'string'
+      ) {
         try {
           body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
         } catch {
-          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+          body.penerima_position_ids = [
+            parseInt(body.penerima_position_ids, 10),
+          ];
         }
       }
 
       // Ensure penerima_position_ids are numbers
       if (Array.isArray(body.penerima_position_ids)) {
-        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
-          typeof id === 'string' ? parseInt(id, 10) : id
+        body.penerima_position_ids = body.penerima_position_ids.map(
+          (id: any) => (typeof id === 'string' ? parseInt(id, 10) : id),
         );
       }
 
@@ -767,7 +824,10 @@ export class DisposisiController {
       }
 
       // Parse lampiran_temp_ids if it's a string from form-data
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+      if (
+        body.lampiran_temp_ids &&
+        typeof body.lampiran_temp_ids === 'string'
+      ) {
         try {
           body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
         } catch {
@@ -777,7 +837,8 @@ export class DisposisiController {
 
       // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
       if (body.is_priority !== undefined) {
-        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+        body.is_priority =
+          body.is_priority === 'true' || body.is_priority === true;
       }
 
       body.actor_position_status = user?.position_status ?? null;
@@ -849,13 +910,19 @@ export class DisposisiController {
       // Parse pengirim from form-data (bisa 'pengirim' atau 'pengirim_position_id')
       if (body.pengirim && !body.pengirim_position_id) {
         body.pengirim_position_id = parseInt(body.pengirim, 10);
-      } else if (body.pengirim_position_id && typeof body.pengirim_position_id === 'string') {
+      } else if (
+        body.pengirim_position_id &&
+        typeof body.pengirim_position_id === 'string'
+      ) {
         body.pengirim_position_id = parseInt(body.pengirim_position_id, 10);
       }
 
       body.pengirim_position_id = parseInt(user.position, 10);
       body.pengirim = String(user.position);
-      console.log('[forward] Parsed pengirim_position_id:', body.pengirim_position_id);
+      console.log(
+        '[forward] Parsed pengirim_position_id:',
+        body.pengirim_position_id,
+      );
 
       // Parse tertuju/penerima from form-data
       if (body.tertuju && !body.penerima_position_ids) {
@@ -871,18 +938,23 @@ export class DisposisiController {
       }
 
       // Parse penerima_position_ids if it's a string from form-data
-      if (body.penerima_position_ids && typeof body.penerima_position_ids === 'string') {
+      if (
+        body.penerima_position_ids &&
+        typeof body.penerima_position_ids === 'string'
+      ) {
         try {
           body.penerima_position_ids = JSON.parse(body.penerima_position_ids);
         } catch {
-          body.penerima_position_ids = [parseInt(body.penerima_position_ids, 10)];
+          body.penerima_position_ids = [
+            parseInt(body.penerima_position_ids, 10),
+          ];
         }
       }
 
       // Ensure penerima_position_ids are numbers
       if (Array.isArray(body.penerima_position_ids)) {
-        body.penerima_position_ids = body.penerima_position_ids.map((id: any) => 
-          typeof id === 'string' ? parseInt(id, 10) : id
+        body.penerima_position_ids = body.penerima_position_ids.map(
+          (id: any) => (typeof id === 'string' ? parseInt(id, 10) : id),
         );
       }
 
@@ -918,7 +990,10 @@ export class DisposisiController {
       }
 
       // Parse lampiran_temp_ids if it's a string from form-data
-      if (body.lampiran_temp_ids && typeof body.lampiran_temp_ids === 'string') {
+      if (
+        body.lampiran_temp_ids &&
+        typeof body.lampiran_temp_ids === 'string'
+      ) {
         try {
           body.lampiran_temp_ids = JSON.parse(body.lampiran_temp_ids);
         } catch {
@@ -927,16 +1002,23 @@ export class DisposisiController {
       }
 
       // Parse copy_lampiran_from_previous (default: true jika tidak ada lampiran baru)
-      if (body.copy_lampiran_from_previous === undefined || body.copy_lampiran_from_previous === null) {
+      if (
+        body.copy_lampiran_from_previous === undefined ||
+        body.copy_lampiran_from_previous === null
+      ) {
         // Default: copy lampiran dari naskah sebelumnya jika tidak ada lampiran baru
-        body.copy_lampiran_from_previous = !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
+        body.copy_lampiran_from_previous =
+          !body.lampiran_temp_ids || body.lampiran_temp_ids.length === 0;
       } else if (typeof body.copy_lampiran_from_previous === 'string') {
-        body.copy_lampiran_from_previous = body.copy_lampiran_from_previous === 'true' || body.copy_lampiran_from_previous === '1';
+        body.copy_lampiran_from_previous =
+          body.copy_lampiran_from_previous === 'true' ||
+          body.copy_lampiran_from_previous === '1';
       }
 
       // Parse is_priority from form-data (string 'true'/'false' to actual boolean)
       if (body.is_priority !== undefined) {
-        body.is_priority = body.is_priority === 'true' || body.is_priority === true;
+        body.is_priority =
+          body.is_priority === 'true' || body.is_priority === true;
       }
 
       console.log('[forward] Parsed body:', JSON.stringify(body, null, 2));
@@ -944,7 +1026,9 @@ export class DisposisiController {
       // Actor delegasi context untuk render pengirim sirkulasi (Spec B-2b).
       body.actor_position_status = user?.position_status ?? null;
       body.actor_nama = user?.nama ?? '';
-      return await this.disposisiService.forwardDisposisi(body as ForwardDisposisiDto);
+      return await this.disposisiService.forwardDisposisi(
+        body as ForwardDisposisiDto,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -969,7 +1053,7 @@ export class DisposisiController {
    * Generate preview PDF Disposisi untuk di-lihat sebelum dikirim
    * PDF di-generate tanpa save ke database
    * Support temporary lampiran system (lampiran_temp_ids)
-   * 
+   *
    * @param body - GeneratePdfDisposisiDto dengan semua field dinamis
    * @param user - Current user dari JWT token
    * @param res - Express Response untuk send PDF
@@ -988,12 +1072,10 @@ export class DisposisiController {
       const dto = plainToInstance(GeneratePdfDisposisiDto, body);
       const errors = await validate(dto);
       if (errors.length > 0) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ 
-            error: 'Validation failed', 
-            message: errors.map(e => Object.values(e.constraints || {})).flat() 
-          });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          error: 'Validation failed',
+          message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+        });
       }
 
       // htmlContent is now optional - use empty string as default for catatan section
@@ -1019,8 +1101,8 @@ export class DisposisiController {
         basePositionText,
         body.penandatangan || '',
       );
-      body.pengirim = basePositionText;         // header PDF: plain delegator jabatan
-      body.penandatangan = _pf.namaSirkuler;    // delegate name (saat delegated)
+      body.pengirim = basePositionText; // header PDF: plain delegator jabatan
+      body.penandatangan = _pf.namaSirkuler; // delegate name (saat delegated)
 
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
@@ -1040,11 +1122,24 @@ export class DisposisiController {
             const [day, month, year] = dateInput.split('/');
             return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
           }
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(dateInput)) {
+          if (
+            /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+              dateInput,
+            )
+          ) {
             const monthMap: { [key: string]: string } = {
-              'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
-              'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
-              'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+              januari: '01',
+              februari: '02',
+              maret: '03',
+              april: '04',
+              mei: '05',
+              juni: '06',
+              juli: '07',
+              agustus: '08',
+              september: '09',
+              oktober: '10',
+              november: '11',
+              desember: '12',
             };
             const match = dateInput.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
             if (match) {
@@ -1052,7 +1147,9 @@ export class DisposisiController {
             }
           }
           return dateInput;
-        } catch (e) { return dateInput; }
+        } catch (e) {
+          return dateInput;
+        }
       };
 
       // Format tanggal disposisi ke DD-MM-YYYY
@@ -1080,18 +1177,23 @@ export class DisposisiController {
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = ensureArray(dto.tertuju);
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' ||
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        tertujuArray = await this.disposisiService.convertPositionIdsToNames(tertujuArray);
+        tertujuArray =
+          await this.disposisiService.convertPositionIdsToNames(tertujuArray);
       }
 
       // Check if pengirim is position_id and convert to name
       let pengirimName = body.pengirim || user?.positionText || '';
       if (pengirimName && isPositionId(pengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
+        const converted = await this.disposisiService.convertPositionIdsToNames(
+          [pengirimName],
+        );
         pengirimName = converted[0] || pengirimName;
       }
 
@@ -1100,7 +1202,7 @@ export class DisposisiController {
       // - Tanggal: tanggal disposisi saat ini (formatted)
       // - Nomor: dari input form (ref_nomor)
       // - Perihal: dari input form (ref_perihal)
-      
+
       // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
       let refPengirimName = pengirimName;
       if (refPengirimName.includes(' - ')) {
@@ -1112,8 +1214,18 @@ export class DisposisiController {
         if (!dateStr) return '';
         try {
           const monthNames = [
-            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+            'Januari',
+            'Februari',
+            'Maret',
+            'April',
+            'Mei',
+            'Juni',
+            'Juli',
+            'Agustus',
+            'September',
+            'Oktober',
+            'November',
+            'Desember',
           ];
           // Parse DD-MM-YYYY format
           if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
@@ -1162,14 +1274,12 @@ export class DisposisiController {
         error instanceof Error
           ? `${error.name}: ${error.message || 'Unknown error'}`
           : typeof error === 'string'
-          ? error
-          : JSON.stringify(error);
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({
-          error: 'Failed to generate preview', 
-          detail,
-        });
+            ? error
+            : JSON.stringify(error);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate preview',
+        detail,
+      });
     }
   }
 
@@ -1187,7 +1297,7 @@ export class DisposisiController {
    * - disposisi: array checkbox yang dipilih
    * - lampiran_temp_ids: ID lampiran temporary
    * - final_pdf: flag untuk generate final atau preview
-   * 
+   *
    * @param body - GeneratePdfDisposisiDto
    * @param user - Current user dari JWT token
    * @param res - Express Response untuk send PDF file
@@ -1206,12 +1316,10 @@ export class DisposisiController {
       const dto = plainToInstance(GeneratePdfDisposisiDto, body);
       const errors = await validate(dto);
       if (errors.length > 0) {
-        return res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ 
-            error: 'Validation failed', 
-            message: errors.map(e => Object.values(e.constraints || {})).flat() 
-          });
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          error: 'Validation failed',
+          message: errors.map((e) => Object.values(e.constraints || {})).flat(),
+        });
       }
 
       // htmlContent is now optional - use empty string as default for catatan section
@@ -1237,8 +1345,8 @@ export class DisposisiController {
         basePositionText,
         body.penandatangan || '',
       );
-      body.pengirim = basePositionText;         // header PDF: plain delegator jabatan
-      body.penandatangan = _pf.namaSirkuler;    // delegate name (saat delegated)
+      body.pengirim = basePositionText; // header PDF: plain delegator jabatan
+      body.penandatangan = _pf.namaSirkuler; // delegate name (saat delegated)
 
       // Helper function untuk format tanggal ke DD-MM-YYYY
       const formatDateToDDMMYYYY = (dateInput: string): string => {
@@ -1258,11 +1366,24 @@ export class DisposisiController {
             const [day, month, year] = dateInput.split('/');
             return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
           }
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(dateInput)) {
+          if (
+            /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+              dateInput,
+            )
+          ) {
             const monthMap: { [key: string]: string } = {
-              'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
-              'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
-              'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+              januari: '01',
+              februari: '02',
+              maret: '03',
+              april: '04',
+              mei: '05',
+              juni: '06',
+              juli: '07',
+              agustus: '08',
+              september: '09',
+              oktober: '10',
+              november: '11',
+              desember: '12',
             };
             const match = dateInput.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
             if (match) {
@@ -1270,7 +1391,9 @@ export class DisposisiController {
             }
           }
           return dateInput;
-        } catch (e) { return dateInput; }
+        } catch (e) {
+          return dateInput;
+        }
       };
 
       // Format tanggal disposisi ke DD-MM-YYYY
@@ -1292,18 +1415,23 @@ export class DisposisiController {
       // Check if tertuju are position_ids and convert to names
       let tertujuArray = dto.tertuju || [];
       const isPositionId = (value: any): boolean => {
-        return typeof value === 'number' ||
-               (typeof value === 'string' && /^\d+$/.test(value));
+        return (
+          typeof value === 'number' ||
+          (typeof value === 'string' && /^\d+$/.test(value))
+        );
       };
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
-        tertujuArray = await this.disposisiService.convertPositionIdsToNames(tertujuArray);
+        tertujuArray =
+          await this.disposisiService.convertPositionIdsToNames(tertujuArray);
       }
 
       // Check if pengirim is position_id and convert to name
       let pengirimName = body.pengirim || user?.positionText || '';
       if (pengirimName && isPositionId(pengirimName)) {
-        const converted = await this.disposisiService.convertPositionIdsToNames([pengirimName]);
+        const converted = await this.disposisiService.convertPositionIdsToNames(
+          [pengirimName],
+        );
         pengirimName = converted[0] || pengirimName;
       }
 
@@ -1312,7 +1440,7 @@ export class DisposisiController {
       // - Tanggal: tanggal disposisi saat ini (formatted)
       // - Nomor: dari input form (ref_nomor)
       // - Perihal: dari input form (ref_perihal)
-      
+
       // Extract jabatan saja dari pengirimName (format bisa "Jabatan - Organisasi" atau "Jabatan")
       let refPengirimName = pengirimName;
       if (refPengirimName.includes(' - ')) {
@@ -1324,8 +1452,18 @@ export class DisposisiController {
         if (!dateStr) return '';
         try {
           const monthNames = [
-            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+            'Januari',
+            'Februari',
+            'Maret',
+            'April',
+            'Mei',
+            'Juni',
+            'Juli',
+            'Agustus',
+            'September',
+            'Oktober',
+            'November',
+            'Desember',
           ];
           // Parse DD-MM-YYYY format
           if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
@@ -1341,7 +1479,7 @@ export class DisposisiController {
       const refTanggal = formatDateToIndonesian(formattedDate);
 
       // Parse disposisi array (checkbox options)
-      let disposisiArray = dto.disposisi || [];
+      const disposisiArray = dto.disposisi || [];
       console.log('[generate-pdf] tertuju:', tertujuArray);
       console.log('[generate-pdf] disposisi:', disposisiArray);
       console.log('[generate-pdf] tanggalDisposisi:', formattedDate);
@@ -1374,9 +1512,10 @@ export class DisposisiController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({ error: 'Failed to generate PDF', detail: error instanceof Error ? error.message : String(error) });
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate PDF',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -1394,7 +1533,10 @@ export class DisposisiController {
     @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.disposisiService.unsetPriority(id, String(user.position));
+      return await this.disposisiService.unsetPriority(
+        id,
+        String(user.position),
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

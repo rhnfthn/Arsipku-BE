@@ -1,4 +1,7 @@
-import { EksternalRecipientDto, SdeOrgDataPositionDto } from './sde-recipient-response.dto';
+import {
+  EksternalRecipientDto,
+  SdeOrgDataPositionDto,
+} from './sde-recipient-response.dto';
 
 /**
  * Info pengirim dari org_data

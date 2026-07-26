@@ -45,7 +45,10 @@ export class GeneratePdfSudinService {
   }
 
   private isRecoverableBrowserError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const message =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
     return (
       message.includes('connection closed') ||
       message.includes('target closed') ||
@@ -70,11 +73,11 @@ export class GeneratePdfSudinService {
   private async _generatePdfInternal(body: SdiPdfOptions): Promise<Buffer> {
     // Check if English format is requested
     const isEnglish = body.english === true;
-    
+
     if (isEnglish) {
       return this._generatePdfEnglish(body);
     }
-    
+
     return this._generatePdfIndonesian(body);
   }
 
@@ -83,14 +86,14 @@ export class GeneratePdfSudinService {
    */
   private async _generatePdfEnglish(body: SdiPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
-    
+
     try {
       const possiblePaths = [
         path.resolve(__dirname, '../../../../public/logo_airnav.jpg'),
         path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
         path.join(__dirname, '../../../../public/logo_airnav.jpg'),
       ];
-      
+
       for (const logoPath of possiblePaths) {
         if (fs.existsSync(logoPath)) {
           logoBase64 = fs.readFileSync(logoPath, 'base64');
@@ -105,7 +108,7 @@ export class GeneratePdfSudinService {
     if (!htmlContent) {
       throw new Error('Missing required field: html or htmlContent');
     }
-    
+
     let decodedContent = '';
     try {
       if (htmlContent.includes('<') && htmlContent.includes('>')) {
@@ -125,19 +128,33 @@ export class GeneratePdfSudinService {
       if (!dateInput) return '';
       const trimmed = dateInput.trim();
       if (!trimmed) return '';
-      
+
       const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
       ];
-      
+
       try {
         let dateObj: Date | null = null;
-        
+
         // DD-MM-YYYY format
         if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('-');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
         // YYYY-MM-DD format
         else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -146,13 +163,31 @@ export class GeneratePdfSudinService {
         // DD/MM/YYYY format
         else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('/');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
         // Already has month name (Indonesian) - convert to English
-        else if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+        else if (
+          /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+            trimmed,
+          )
+        ) {
           const indonesianMonths: { [key: string]: number } = {
-            'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'mei': 4, 'juni': 5,
-            'juli': 6, 'agustus': 7, 'september': 8, 'oktober': 9, 'november': 10, 'desember': 11
+            januari: 0,
+            februari: 1,
+            maret: 2,
+            april: 3,
+            mei: 4,
+            juni: 5,
+            juli: 6,
+            agustus: 7,
+            september: 8,
+            oktober: 9,
+            november: 10,
+            desember: 11,
           };
           const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/i);
           if (match) {
@@ -166,17 +201,20 @@ export class GeneratePdfSudinService {
           }
           return trimmed;
         }
-        
+
         if (dateObj && !isNaN(dateObj.getTime())) {
           const month = monthNames[dateObj.getMonth()];
           const day = dateObj.getDate();
           const year = dateObj.getFullYear();
           return `${month} ${day}, ${year}`;
         }
-        
+
         return trimmed;
       } catch (e) {
-        console.error('[GeneratePdfSudin] Error formatting date to English:', e);
+        console.error(
+          '[GeneratePdfSudin] Error formatting date to English:',
+          e,
+        );
         return trimmed;
       }
     };
@@ -184,43 +222,57 @@ export class GeneratePdfSudinService {
     // Map sifat Indonesia ke English
     const sifatToEnglish = (sifat: string): string => {
       const mapping: { [key: string]: string } = {
-        'biasa': 'Regular',
-        'terbatas': 'Limited',
-        'rahasia': 'Confidential',
-        'sangat_rahasia': 'Top Secret',
+        biasa: 'Regular',
+        terbatas: 'Limited',
+        rahasia: 'Confidential',
+        sangat_rahasia: 'Top Secret',
         'sangat rahasia': 'Top Secret',
-        'terbuka': 'Open',
+        terbuka: 'Open',
       };
       return mapping[sifat?.toLowerCase()] || sifat || 'Regular';
     };
-    
+
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
-    
+
     let tanggalRaw = (body.tanggal || '').trim();
     if (!tanggalRaw) {
       const now = new Date();
       const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
       ];
       tanggalRaw = `${monthNames[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
     } else {
       tanggalRaw = formatDateToEnglish(tanggalRaw);
     }
-    
+
     const tanggal = tanggalRaw;
     const tanggalFormatted = `${namaTempat}, ${tanggal}`;
-    
+
     const positionText = body.positionText || '';
-    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const toTitleCase = (s: string) =>
+      s.replace(
+        /\b\w+/g,
+        (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+      );
     const namaLengkap = toTitleCase(body.namaLengkap || '');
     const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
     const sifat = sifatToEnglish(body.sifat || 'Biasa');
-    const lampiranText = body.lampiran === '-' ? '-' : (body.lampiran || '-');
+    const lampiranText = body.lampiran === '-' ? '-' : body.lampiran || '-';
     const nomor = body.nomor || '';
-    
+
     // Format penerima
     let penerimaArr: string[] = [];
     if (Array.isArray(body.penerima)) {
@@ -233,7 +285,7 @@ export class GeneratePdfSudinService {
         penerimaArr = body.penerima ? [body.penerima] : [];
       }
     }
-    
+
     // Format tembusan
     let tembusanArr: string[] = [];
     if (Array.isArray(body.tembusan)) {
@@ -251,20 +303,23 @@ export class GeneratePdfSudinService {
     const extractPositionText = (text: string): string => {
       if (!text) return '';
       const dashIndex = text.indexOf(' - ');
-      return dashIndex !== -1 ? text.substring(0, dashIndex).trim() : text.trim();
+      return dashIndex !== -1
+        ? text.substring(0, dashIndex).trim()
+        : text.trim();
     };
 
     const penerimaExceedsLimit = penerimaArr.length > 5;
     const tembusanExceedsLimit = tembusanArr.length > 5;
     const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
-    
+
     // Process penerima (English) - hanya tampilkan position_text (sebelum " - ")
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
       penerimaHtml = 'Please See Attached Address List<br>';
     } else {
       if (penerimaArr.length > 1) {
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
+        penerimaHtml =
+          "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${extractPositionText(item)}</li>`;
         });
@@ -273,14 +328,15 @@ export class GeneratePdfSudinService {
         penerimaHtml = extractPositionText(penerimaArr[0]) || '';
       }
     }
-    
+
     // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       tembusanHtml = 'Please See Attached Address List';
     } else {
       if (tembusanArr.length > 1) {
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+        tembusanHtml =
+          "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
         tembusanArr.forEach((item) => {
           tembusanHtml += `<li>${extractPositionText(item)}</li>`;
         });
@@ -306,7 +362,9 @@ export class GeneratePdfSudinService {
     // Dynamic header info
     const headerKantor = body.headerKantor || 'Head Office of Perum LPPNPI';
     const headerGedung = body.headerGedung || 'AirNav Indonesia Building';
-    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Phone : +62 21 55915000<br>www.airnavindonesia.co.id';
+    const headerAlamat =
+      body.headerAlamat ||
+      'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Phone : +62 21 55915000<br>www.airnavindonesia.co.id';
 
     // Header kop surat (English)
     const header = `
@@ -411,7 +469,8 @@ export class GeneratePdfSudinService {
       </style>
     `;
 
-    const konten = globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+    const konten =
+      globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
 
     // Generate address page if needed (English)
     let addressPageContent = '';
@@ -451,18 +510,26 @@ export class GeneratePdfSudinService {
             </tr>
           </table>
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
-            ${penerimaExceedsLimit ? `<tr>
+            ${
+              penerimaExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>TO :</b><br>
                 ${penerimaListHtml}
               </td>
-            </tr>` : ''}
-            ${tembusanExceedsLimit ? `<tr>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top;">
                 <b>COPY TO :</b><br>
                 ${tembusanListHtml}
               </td>
-            </tr>` : ''}
+            </tr>`
+                : ''
+            }
           </table>
         </div>
       `;
@@ -478,7 +545,11 @@ export class GeneratePdfSudinService {
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         const url = request.url();
-        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        ) {
           return request.continue();
         }
         return request.abort();
@@ -518,7 +589,7 @@ export class GeneratePdfSudinService {
    */
   private async _generatePdfIndonesian(body: SdiPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
-    
+
     try {
       // Try multiple possible paths
       const possiblePaths = [
@@ -526,7 +597,7 @@ export class GeneratePdfSudinService {
         path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
         path.join(__dirname, '../../../../public/logo_airnav.jpg'),
       ];
-      
+
       for (const logoPath of possiblePaths) {
         if (fs.existsSync(logoPath)) {
           logoBase64 = fs.readFileSync(logoPath, 'base64');
@@ -542,7 +613,7 @@ export class GeneratePdfSudinService {
     if (!htmlContent) {
       throw new Error('Missing required field: html or htmlContent');
     }
-    
+
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
@@ -568,24 +639,42 @@ export class GeneratePdfSudinService {
       if (!dateInput) return '';
       const trimmed = dateInput.trim();
       if (!trimmed) return '';
-      
+
       const monthNames = [
-        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
       ];
-      
+
       try {
         // Already in Indonesian format (e.g., "29 Desember 2025")
-        if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+        if (
+          /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+            trimmed,
+          )
+        ) {
           return trimmed; // Already formatted
         }
-        
+
         let dateObj: Date | null = null;
-        
+
         // DD-MM-YYYY format
         if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('-');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
         // YYYY-MM-DD format
         else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -594,33 +683,52 @@ export class GeneratePdfSudinService {
         // DD/MM/YYYY format
         else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('/');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
-        
+
         if (dateObj && !isNaN(dateObj.getTime())) {
           const day = dateObj.getDate();
           const month = monthNames[dateObj.getMonth()];
           const year = dateObj.getFullYear();
           return `${day} ${month} ${year}`;
         }
-        
+
         return trimmed;
       } catch (e) {
         console.error('[GeneratePdfSudin] Error formatting date:', e);
         return trimmed;
       }
     };
-    
+
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
     // Format tanggal ke format Indonesia (e.g., "29 Desember 2025")
     let tanggalRaw = (body.tanggal || '').trim();
-    console.log('[GeneratePdfSudin] Input tanggal:', body.tanggal, '| tanggalRaw before:', tanggalRaw);
+    console.log(
+      '[GeneratePdfSudin] Input tanggal:',
+      body.tanggal,
+      '| tanggalRaw before:',
+      tanggalRaw,
+    );
     if (!tanggalRaw) {
       const now = new Date();
       const monthNames = [
-        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
       ];
       tanggalRaw = `${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
     } else {
@@ -632,14 +740,18 @@ export class GeneratePdfSudinService {
     console.log('[GeneratePdfSudin] tanggalFormatted:', tanggalFormatted);
     // Position and name from JWT user data (passed from controller)
     const positionText = body.positionText || '';
-    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const toTitleCase = (s: string) =>
+      s.replace(
+        /\b\w+/g,
+        (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+      );
     const namaLengkap = toTitleCase(body.namaLengkap || '');
     const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
     const sifat = body.sifat || 'Biasa';
     const lampiranText = body.lampiran || '-';
     const nomor = body.nomor || '';
-    
+
     // Format penerima - ensure it's an array
     let penerimaArr: string[] = [];
     if (Array.isArray(body.penerima)) {
@@ -652,7 +764,7 @@ export class GeneratePdfSudinService {
         penerimaArr = body.penerima ? [body.penerima] : [];
       }
     }
-    
+
     // Format tembusan - ensure it's an array
     let tembusanArr: string[] = [];
     if (Array.isArray(body.tembusan)) {
@@ -670,7 +782,7 @@ export class GeneratePdfSudinService {
     const penerimaExceedsLimit = penerimaArr.length > 5;
     const tembusanExceedsLimit = tembusanArr.length > 5;
     const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
-    
+
     // Process penerima
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
@@ -679,7 +791,8 @@ export class GeneratePdfSudinService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (penerimaArr.length > 1) {
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
+        penerimaHtml =
+          "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${item}</li>`;
         });
@@ -688,7 +801,7 @@ export class GeneratePdfSudinService {
         penerimaHtml = penerimaArr[0] || '';
       }
     }
-    
+
     // Process tembusan
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
@@ -697,7 +810,8 @@ export class GeneratePdfSudinService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (tembusanArr.length > 1) {
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+        tembusanHtml =
+          "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
         tembusanArr.forEach((item) => {
           tembusanHtml += `<li>${item}</li>`;
         });
@@ -723,7 +837,9 @@ export class GeneratePdfSudinService {
     // Dynamic header info dari sub_area_alamat
     const headerKantor = body.headerKantor || 'Kantor Pusat Perum LPPNPI';
     const headerGedung = body.headerGedung || 'Gedung AirNav Indonesia';
-    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
+    const headerAlamat =
+      body.headerAlamat ||
+      'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
 
     // Header kop surat
     const header = `
@@ -829,7 +945,8 @@ export class GeneratePdfSudinService {
       </style>
     `;
 
-    const konten = globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+    const konten =
+      globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
 
     // Generate address page if needed (penerima or tembusan > 5)
     let addressPageContent = '';
@@ -868,18 +985,26 @@ export class GeneratePdfSudinService {
             </tr>
           </table>
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
-            ${penerimaExceedsLimit ? `<tr>
+            ${
+              penerimaExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>KEPADA YTH :</b><br>
                 ${penerimaListHtml}
               </td>
-            </tr>` : ''}
-            ${tembusanExceedsLimit ? `<tr>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top;">
                 <b>TEMBUSAN :</b><br>
                 ${tembusanListHtml}
               </td>
-            </tr>` : ''}
+            </tr>`
+                : ''
+            }
           </table>
         </div>
       `;
@@ -895,7 +1020,11 @@ export class GeneratePdfSudinService {
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         const url = request.url();
-        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        ) {
           return request.continue();
         }
         return request.abort();

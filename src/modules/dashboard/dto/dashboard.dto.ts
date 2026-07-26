@@ -7,25 +7,25 @@ export class DashboardSummaryDto {
   // Kotak Masuk
   total_pesan_masuk: number; // Total semua surat masuk
   pesan_baru: number; // Surat masuk yang belum dibaca (unread)
-  
+
   // Kotak Keluar
   surat_terkirim: number; // Total surat yang sudah dikirim
   draft_tersimpan: number; // Draft yang belum dikirim
-  
+
   // Disposisi
   disposisi_masuk: number; // Disposisi yang diterima
   disposisi_belum_dibaca: number; // Disposisi yang belum dibaca
   disposisi_high_priority: number; // Disposisi dengan flag priority
   disposisi_belum_tinjut: number; // Disposisi yang sudah dibaca tapi belum ditindaklanjuti
-  
+
   // Digital Signature
   digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user (status waiting)
   digsig_on_progress: number; // Total dokumen on_progress dimana user adalah salah satu signer
-  
+
   // Konsep (Draft Approval Workflow)
   konsep_masuk: number; // Konsep yang perlu direview
   konsep_belum_dibaca: number; // Konsep yang belum dibaca
-  
+
   // Flags & Actions
   surat_favorit: number; // Surat yang ditandai favorit
   surat_arsip: number; // Surat yang diarsipkan

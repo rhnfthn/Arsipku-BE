@@ -15,10 +15,10 @@ import { DisposisiSirkulasiInfoDto } from './send-disposisi-response.dto';
 
 /**
  * DTO untuk Forward Disposisi (Disposisi Lanjutan)
- * 
+ *
  * Digunakan ketika user yang sudah menerima disposisi ingin
  * meneruskan/mendisposisikan ke bawahannya.
- * 
+ *
  * Flow:
  * 1. User A kirim disposisi ke User B (disposisi pertama)
  * 2. User B menerima disposisi, lalu forward ke User C (disposisi lanjutan)
@@ -48,7 +48,13 @@ export class ForwardDisposisiDto {
   // Penerima - array of position_id bawahan (WAJIB)
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima_position_ids: number[];
 
   // Tanggal Disposisi (WAJIB)

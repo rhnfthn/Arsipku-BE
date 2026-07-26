@@ -13,7 +13,9 @@ import { ResourceEntity } from './resource.entity';
 import { RolePermissionEntity } from './role-permission.entity';
 
 @Entity('rbac_permission')
-@Index('idx_rbac_perm_resource_action', ['resourceId', 'action'], { unique: true })
+@Index('idx_rbac_perm_resource_action', ['resourceId', 'action'], {
+  unique: true,
+})
 @Index('idx_rbac_perm_name', ['name'], { unique: true })
 export class PermissionEntity {
   @PrimaryColumn('char', { length: 36 })
@@ -31,7 +33,9 @@ export class PermissionEntity {
   @Column({ name: 'resource_id', type: 'char', length: 36 })
   resourceId: string;
 
-  @ManyToOne(() => ResourceEntity, (r) => r.permissions, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ResourceEntity, (r) => r.permissions, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'resource_id' })
   resource: ResourceEntity;
 

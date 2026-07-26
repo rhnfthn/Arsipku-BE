@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
-import { 
-  DigsigController, 
-  DigsigLogController, 
-  DigsigDocumentController, 
-  CekDokumenController, 
-  PenandatangananController 
+import {
+  DigsigController,
+  DigsigLogController,
+  DigsigDocumentController,
+  CekDokumenController,
+  PenandatangananController,
 } from './controllers';
 import { DigsigService } from './services';
 import { DigsigLogService } from './services/digsig-log.service';
@@ -38,10 +38,10 @@ import { BsreAlertEntity } from './entities/bsre-alert.entity';
       maxRedirects: 5,
     }),
     TypeOrmModule.forFeature([
-      NdEntity, 
-      SdiSdeEntity, 
-      NaskahEntity, 
-      NaskahSirkulasi, 
+      NdEntity,
+      SdiSdeEntity,
+      NaskahEntity,
+      NaskahSirkulasi,
       Session,
       DigsigLogEntity,
       DigsigDocumentEntity,
@@ -55,30 +55,30 @@ import { BsreAlertEntity } from './entities/bsre-alert.entity';
     JenisModule,
   ],
   controllers: [
-    DigsigController, 
-    DigsigLogController, 
-    DigsigDocumentController, 
-    CekDokumenController, 
+    DigsigController,
+    DigsigLogController,
+    DigsigDocumentController,
+    CekDokumenController,
     PenandatangananController,
   ],
   providers: [
-    DigsigService, 
-    DigsigLogService, 
-    DigsigDocumentService, 
-    CekDokumenService, 
+    DigsigService,
+    DigsigLogService,
+    DigsigDocumentService,
+    CekDokumenService,
     PenandatangananService,
     BsreAlertService,
-    QRCodeService, 
+    QRCodeService,
     PdfQrEmbedService,
   ],
   exports: [
-    DigsigService, 
-    DigsigLogService, 
-    DigsigDocumentService, 
-    CekDokumenService, 
+    DigsigService,
+    DigsigLogService,
+    DigsigDocumentService,
+    CekDokumenService,
     PenandatangananService,
     BsreAlertService,
-    QRCodeService, 
+    QRCodeService,
     PdfQrEmbedService,
   ],
 })

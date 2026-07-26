@@ -40,9 +40,13 @@ export class FcmService implements OnModuleInit {
       }
 
       // Get configuration from environment
-      const serviceAccountPath = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT_PATH');
+      const serviceAccountPath = this.configService.get<string>(
+        'FIREBASE_SERVICE_ACCOUNT_PATH',
+      );
       const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
-      const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
+      const clientEmail = this.configService.get<string>(
+        'FIREBASE_CLIENT_EMAIL',
+      );
       const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
 
       // Option 1: Load from FIREBASE_SERVICE_ACCOUNT_PATH (JSON string or file path)
@@ -53,7 +57,9 @@ export class FcmService implements OnModuleInit {
           // Check if it's a JSON string (starts with '{')
           if (serviceAccountPath.trim().startsWith('{')) {
             // It's a JSON string - parse it directly
-            this.logger.log('Detected JSON string in FIREBASE_SERVICE_ACCOUNT_PATH');
+            this.logger.log(
+              'Detected JSON string in FIREBASE_SERVICE_ACCOUNT_PATH',
+            );
 
             let jsonString = serviceAccountPath;
 
@@ -66,11 +72,19 @@ export class FcmService implements OnModuleInit {
             serviceAccount = JSON.parse(jsonString);
 
             // Fix newlines in private_key (they come as literal \n from env vars)
-            if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string') {
-              serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+            if (
+              serviceAccount.private_key &&
+              typeof serviceAccount.private_key === 'string'
+            ) {
+              serviceAccount.private_key = serviceAccount.private_key.replace(
+                /\\n/g,
+                '\n',
+              );
             }
 
-            this.logger.log(`Firebase service account parsed from JSON: ${serviceAccount.client_email}`);
+            this.logger.log(
+              `Firebase service account parsed from JSON: ${serviceAccount.client_email}`,
+            );
           } else {
             // It's a file path - read from file
             const absolutePath = path.isAbsolute(serviceAccountPath)
@@ -80,12 +94,16 @@ export class FcmService implements OnModuleInit {
             this.logger.log(`Resolved file path: ${absolutePath}`);
 
             if (!fs.existsSync(absolutePath)) {
-              this.logger.warn(`Firebase service account file not found: ${absolutePath}`);
+              this.logger.warn(
+                `Firebase service account file not found: ${absolutePath}`,
+              );
               // Don't return, fall through to try other options
             } else {
               const serviceAccountJson = fs.readFileSync(absolutePath, 'utf8');
               serviceAccount = JSON.parse(serviceAccountJson);
-              this.logger.log(`Firebase service account loaded from file: ${serviceAccount.client_email}`);
+              this.logger.log(
+                `Firebase service account loaded from file: ${serviceAccount.client_email}`,
+              );
             }
           }
 
@@ -122,11 +140,15 @@ export class FcmService implements OnModuleInit {
           credential: admin.credential.applicationDefault(),
           projectId: projectId,
         });
-        this.logger.log('Firebase Admin SDK initialized with application default credentials');
+        this.logger.log(
+          'Firebase Admin SDK initialized with application default credentials',
+        );
         return;
       }
 
-      this.logger.warn('Firebase credentials not configured. Push notifications will be disabled.');
+      this.logger.warn(
+        'Firebase credentials not configured. Push notifications will be disabled.',
+      );
     } catch (error) {
       this.logger.error('Failed to initialize Firebase Admin SDK', error);
     }
@@ -149,7 +171,7 @@ export class FcmService implements OnModuleInit {
     const { token, deviceId, platform } = dto;
 
     // Check if token already exists for this user and device
-    let existingToken = await this.fcmTokenRepository.findOne({
+    const existingToken = await this.fcmTokenRepository.findOne({
       where: { userPersnum, deviceId },
     });
 
@@ -275,7 +297,10 @@ export class FcmService implements OnModuleInit {
     }
 
     const tokens = await this.fcmTokenRepository.find({
-      where: userPersnums.map((persnum) => ({ userPersnum: persnum, isActive: true })),
+      where: userPersnums.map((persnum) => ({
+        userPersnum: persnum,
+        isActive: true,
+      })),
     });
 
     if (tokens.length === 0) {

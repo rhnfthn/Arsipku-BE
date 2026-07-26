@@ -3,7 +3,9 @@
  * Output: "YYYY-MM-DD HH:mm:ss"
  * Berguna untuk response JSON agar FE bisa langsung tampilkan waktu WIB.
  */
-export const formatWibDateTime = (date: Date | string | null | undefined): string | null => {
+export const formatWibDateTime = (
+  date: Date | string | null | undefined,
+): string | null => {
   if (!date) return null;
   const d = typeof date === 'string' ? new Date(date) : date;
   if (isNaN(d.getTime())) return null;

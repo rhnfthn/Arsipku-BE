@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsString, IsInt, Min, IsOptional, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsInt,
+  Min,
+  IsOptional,
+  IsDateString,
+} from 'class-validator';
 
 /**
  * DTO untuk admin create nomor langsung (tanpa booking)

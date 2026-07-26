@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not, In } from 'typeorm';
 import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from 'src/modules/naskah/entities/naskah.entity';
-import { DigsigDocumentEntity, DigsigDocumentSignerEntity } from 'src/modules/digsig/entities';
+import {
+  DigsigDocumentEntity,
+  DigsigDocumentSignerEntity,
+} from 'src/modules/digsig/entities';
 import { KonsepEntity } from 'src/modules/konsep/entities/konsep.entity';
 import {
   DashboardResponseDto,
@@ -112,7 +115,10 @@ export class DashboardService {
    * @param positionId - position_id untuk query naskah sirkulasi
    * @param persnum - persnum dari JWT untuk query digsig (agar konsisten dengan penandatanganan)
    */
-  async getDashboardData(positionId: number, persnum?: number): Promise<DashboardResponseDto> {
+  async getDashboardData(
+    positionId: number,
+    persnum?: number,
+  ): Promise<DashboardResponseDto> {
     const positionIdStr = positionId.toString();
 
     // ==========================================
@@ -155,7 +161,9 @@ export class DashboardService {
         .where('ns.position = :positionId', { positionId: positionIdStr })
         .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', {
+          isKonsep: false,
+        })
         .andWhere('n.status IN (:...statuses)', { statuses })
         .getCount(),
 
@@ -167,7 +175,9 @@ export class DashboardService {
         .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
         .andWhere('ns.send_read_time IS NULL')
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
+        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', {
+          isKonsep: false,
+        })
         .andWhere('n.status IN (:...statuses)', { statuses })
         .getCount(),
 
@@ -262,7 +272,10 @@ export class DashboardService {
         .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
         // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
-        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', { isKonsep: false, konsepJenis: 'K' })
+        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', {
+          isKonsep: false,
+          konsepJenis: 'K',
+        })
         .andWhere('n.status IN (:...statuses)', { statuses })
         // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
         .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
@@ -277,7 +290,10 @@ export class DashboardService {
         .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
         .andWhere('ns.is_draft = :isDraft', { isDraft: false })
         // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
-        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', { isKonsep: false, konsepJenis: 'K' })
+        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', {
+          isKonsep: false,
+          konsepJenis: 'K',
+        })
         .andWhere('n.status IN (:...statuses)', { statuses })
         // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
         .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
@@ -359,10 +375,16 @@ export class DashboardService {
       )
       .leftJoin('di', 'di', 'n.id = di.id_naskah')
       .where('ns.position = :positionId', { positionId: positionIdStr })
-      .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues: ['penerima', 'tembusan'] })
+      .andWhere('ns.sirkuler IN (:...sirkulerValues)', {
+        sirkulerValues: ['penerima', 'tembusan'],
+      })
       .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', { isKonsep: false })
-      .andWhere('n.status IN (:...statuses)', { statuses: ['final', 'final_tte'] })
+      .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', {
+        isKonsep: false,
+      })
+      .andWhere('n.status IN (:...statuses)', {
+        statuses: ['final', 'final_tte'],
+      })
       .orderBy('COALESCE(pengirim.created_at, ns.created_at)', 'DESC')
       .addOrderBy('ns.id', 'DESC')
       .limit(10)
@@ -386,7 +408,11 @@ export class DashboardService {
         };
 
         // Add is_priority field hanya untuk disposisi (DI)
-        if (row.jenis === 'DI' && row.is_priority !== null && row.is_priority !== undefined) {
+        if (
+          row.jenis === 'DI' &&
+          row.is_priority !== null &&
+          row.is_priority !== undefined
+        ) {
           item.is_priority = row.is_priority === 1;
         }
 
@@ -419,8 +445,8 @@ export class DashboardService {
       .limit(5)
       .getRawMany();
 
-    const digsigMenungguTtdList: DigsigMenungguTtdItemDto[] = digsigMenungguRaw.map(
-      (row) => ({
+    const digsigMenungguTtdList: DigsigMenungguTtdItemDto[] =
+      digsigMenungguRaw.map((row) => ({
         id: row.id,
         id_document: row.id_document,
         nomor_dokumen: row.nomor_dokumen,
@@ -431,8 +457,7 @@ export class DashboardService {
         created_by_name: row.created_by_name,
         urutan: row.urutan,
         total_signers: row.total_signers,
-      }),
-    );
+      }));
 
     // ==========================================
     // 9. STATISTIK SURAT PER JENIS (GROUP BY — 2 query)
@@ -473,12 +498,14 @@ export class DashboardService {
       keluarPerJenisRaw.map((r) => [r.jenis, Number(r.jumlah)]),
     );
 
-    const statistikJenisSurat: StatistikJenisSuratDto[] = jenisArr.map((jenis) => ({
-      jenis,
-      jenis_label: JENIS_SURAT_LABELS[jenis] || jenis,
-      jumlah_masuk: masukMap.get(jenis) || 0,
-      jumlah_keluar: keluarMap.get(jenis) || 0,
-    }));
+    const statistikJenisSurat: StatistikJenisSuratDto[] = jenisArr.map(
+      (jenis) => ({
+        jenis,
+        jenis_label: JENIS_SURAT_LABELS[jenis] || jenis,
+        jumlah_masuk: masukMap.get(jenis) || 0,
+        jumlah_keluar: keluarMap.get(jenis) || 0,
+      }),
+    );
 
     // ==========================================
     // 10. STATISTIK SURAT (6 bulan terakhir) — GROUP BY (2 query)
@@ -486,8 +513,22 @@ export class DashboardService {
 
     const now = new Date();
     // Awal bulan 5 bulan lalu (rentang 6 bulan termasuk bulan ini)
-    const rangeStart = new Date(now.getFullYear(), now.getMonth() - 5, 1, 0, 0, 0);
-    const rangeEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const rangeStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 5,
+      1,
+      0,
+      0,
+      0,
+    );
+    const rangeEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
 
     const [masukPerBulanRaw, keluarPerBulanRaw] = await Promise.all([
       // Surat masuk per bulan

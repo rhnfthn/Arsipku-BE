@@ -62,7 +62,10 @@ describe('PermissionGuard', () => {
   // No user
   // ============================================================
   it('should throw ForbiddenException when no user in request', async () => {
-    const ctx = mockContext(null, { resource: 'naskah-dinas', action: 'create' });
+    const ctx = mockContext(null, {
+      resource: 'naskah-dinas',
+      action: 'create',
+    });
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
@@ -93,7 +96,10 @@ describe('PermissionGuard', () => {
   // No persnum
   // ============================================================
   it('should throw ForbiddenException when user has no persnum', async () => {
-    const ctx = mockContext({ role: 'admin' }, { resource: 'naskah-dinas', action: 'read' });
+    const ctx = mockContext(
+      { role: 'admin' },
+      { resource: 'naskah-dinas', action: 'read' },
+    );
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
@@ -101,7 +107,9 @@ describe('PermissionGuard', () => {
   // Cache hit
   // ============================================================
   it('should use cached permissions when available', async () => {
-    const cachedPerms = [{ resource: 'naskah-dinas', actions: ['read', 'create'] }];
+    const cachedPerms = [
+      { resource: 'naskah-dinas', actions: ['read', 'create'] },
+    ];
     permissionCache.get.mockReturnValue(cachedPerms);
 
     const ctx = mockContext(
@@ -121,7 +129,9 @@ describe('PermissionGuard', () => {
   it('should allow when user has required permission (DB query)', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
-      activePermissions: [{ resource: 'naskah-dinas', actions: ['read', 'create'] }],
+      activePermissions: [
+        { resource: 'naskah-dinas', actions: ['read', 'create'] },
+      ],
       activeRole: { id: 'r1', name: RoleName.ADMIN },
       roles: [{ id: 'r1', name: RoleName.ADMIN }],
       role: 'admin',
@@ -186,7 +196,9 @@ describe('PermissionGuard', () => {
   // ============================================================
   it('should fallback to JWT activePermissions when DB query fails', async () => {
     permissionCache.get.mockReturnValue(null);
-    rbacService.buildActiveRoleAndPermissions.mockRejectedValue(new Error('DB down'));
+    rbacService.buildActiveRoleAndPermissions.mockRejectedValue(
+      new Error('DB down'),
+    );
 
     const jwtPerms = [{ resource: 'naskah-dinas', actions: ['read'] }];
     const ctx = mockContext(
@@ -200,7 +212,9 @@ describe('PermissionGuard', () => {
 
   it('should throw when DB fails and JWT has no activePermissions', async () => {
     permissionCache.get.mockReturnValue(null);
-    rbacService.buildActiveRoleAndPermissions.mockRejectedValue(new Error('DB down'));
+    rbacService.buildActiveRoleAndPermissions.mockRejectedValue(
+      new Error('DB down'),
+    );
 
     const ctx = mockContext(
       { persnum: 123, role: 'user' }, // no activePermissions
@@ -217,7 +231,9 @@ describe('PermissionGuard', () => {
     // Pertama: user punya permission
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValueOnce({
-      activePermissions: [{ resource: 'naskah-dinas', actions: ['create', 'read'] }],
+      activePermissions: [
+        { resource: 'naskah-dinas', actions: ['create', 'read'] },
+      ],
       activeRole: { id: 'r1', name: RoleName.USER },
       roles: [{ id: 'r1', name: RoleName.USER }],
       role: 'user',
@@ -255,7 +271,12 @@ describe('PermissionGuard', () => {
   it('should allow ADMIN with master-data.create permission', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
-      activePermissions: [{ resource: 'master-data', actions: ['create', 'read', 'update', 'delete'] }],
+      activePermissions: [
+        {
+          resource: 'master-data',
+          actions: ['create', 'read', 'update', 'delete'],
+        },
+      ],
       activeRole: { id: 'r1', name: RoleName.ADMIN },
       roles: [{ id: 'r1', name: RoleName.ADMIN }],
       role: 'admin',
@@ -291,7 +312,9 @@ describe('PermissionGuard', () => {
   it('should allow ADMIN with konfigurasi.update permission', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
-      activePermissions: [{ resource: 'konfigurasi', actions: ['read', 'update'] }],
+      activePermissions: [
+        { resource: 'konfigurasi', actions: ['read', 'update'] },
+      ],
       activeRole: { id: 'r1', name: RoleName.ADMIN },
       roles: [{ id: 'r1', name: RoleName.ADMIN }],
       role: 'admin',

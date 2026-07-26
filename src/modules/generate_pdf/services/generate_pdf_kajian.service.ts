@@ -43,7 +43,7 @@ export class GeneratePdfKajianService {
 
   private async _generatePdfInternal(body: KajianPdfOptions): Promise<Buffer> {
     let logoBase64 = '';
-    
+
     try {
       // Try multiple possible paths
       const possiblePaths = [
@@ -51,7 +51,7 @@ export class GeneratePdfKajianService {
         path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
         path.join(__dirname, '../../../../public/logo_airnav.jpg'),
       ];
-      
+
       for (const logoPath of possiblePaths) {
         if (fs.existsSync(logoPath)) {
           logoBase64 = fs.readFileSync(logoPath, 'base64');
@@ -67,7 +67,7 @@ export class GeneratePdfKajianService {
     if (!htmlContent) {
       throw new Error('Missing required field: html or htmlContent');
     }
-    
+
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
@@ -87,35 +87,48 @@ export class GeneratePdfKajianService {
       // If base64 decode fails, assume it's plain text already
       decodedContent = htmlContent;
     }
-    
+
     const html = decodedContent;
-    
+
     // Support both 'penerima' (legacy) and 'tertuju' (new)
     const tertuju = body.tertuju || body.penerima || [];
     const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
     const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
-    
+
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
-    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-    const namaLengkap = toTitleCase(body.namaLengkap || body.penandatangan || '');
+    const toTitleCase = (s: string) =>
+      s.replace(
+        /\b\w+/g,
+        (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+      );
+    const namaLengkap = toTitleCase(
+      body.namaLengkap || body.penandatangan || '',
+    );
     const namaTempat = body.nama_tempat || body.namaTempat || 'Tangerang';
-    
+
     // Dynamic header info dari sub_area_alamat
     const headerKantor = body.headerKantor || 'Kantor Pusat Perum LPPNPI';
     const headerGedung = body.headerGedung || 'Gedung AirNav Indonesia';
-    const headerAlamat = body.headerAlamat || 'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
-    
+    const headerAlamat =
+      body.headerAlamat ||
+      'Jl. Ir. H. Juanda No. 1 Tangerang<br>Banten 15121 Indonesia<br>Telp : 021-55915000<br>www.airnavindonesia.co.id';
+
     // Get tanggal from body (prioritas: tgl > tanggal > today)
-    const tanggalInput = body.tgl || body.tanggal || new Date().toISOString().split('T')[0];
-    
+    const tanggalInput =
+      body.tgl || body.tanggal || new Date().toISOString().split('T')[0];
+
     // Format tanggal: "Tangerang, 19 Desember 2024"
     let tanggalFormatted = '';
     try {
       // Check if already formatted (contains month name in Indonesian)
-      if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(tanggalInput)) {
+      if (
+        /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+          tanggalInput,
+        )
+      ) {
         // Already formatted, just add nama_tempat if not exists
         if (tanggalInput.includes(',')) {
           tanggalFormatted = tanggalInput;
@@ -126,13 +139,13 @@ export class GeneratePdfKajianService {
         // Parse as date (supports: YYYY-MM-DD, DD/MM/YYYY, ISO format, etc)
         // Add 'T00:00:00' to ensure correct parsing in local timezone
         const dateObj = new Date(tanggalInput + 'T00:00:00');
-        
+
         if (!isNaN(dateObj.getTime())) {
-          const formatted = dateObj.toLocaleDateString('id-ID', { 
-            year: 'numeric', 
-            month: 'long', 
+          const formatted = dateObj.toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'long',
             day: 'numeric',
-            timeZone: 'Asia/Jakarta'
+            timeZone: 'Asia/Jakarta',
           });
           tanggalFormatted = `${namaTempat}, ${formatted}`;
         } else {
@@ -144,16 +157,16 @@ export class GeneratePdfKajianService {
       console.error('[generate_pdf_kajian] Error formatting date:', error);
       tanggalFormatted = `${namaTempat}, ${tanggalInput}`;
     }
-    
+
     // Convert to arrays jika belum
     const tertujuArray = Array.isArray(tertuju) ? tertuju : [];
     const tembusanArray = Array.isArray(tembusan) ? tembusan : [];
-    
+
     // Check masing-masing field terpisah
     const tertujuExceedsLimit = tertujuArray.length > 5;
     const tembusanExceedsLimit = tembusanArray.length > 5;
     const needsAddressPage = tertujuExceedsLimit || tembusanExceedsLimit;
-    
+
     // Process tertuju
     let penerimaHtml = '';
     if (tertujuExceedsLimit) {
@@ -162,7 +175,8 @@ export class GeneratePdfKajianService {
     } else {
       // <= 5 items, tampilkan semua normal
       if (tertujuArray.length > 1) {
-        penerimaHtml = "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
+        penerimaHtml =
+          "<ol style='margin-top:0px;margin-left:-20px;margin-bottom:0px;'>";
         tertujuArray.forEach((item) => {
           penerimaHtml += `<li>${item}</li>`;
         });
@@ -171,7 +185,7 @@ export class GeneratePdfKajianService {
         penerimaHtml = tertujuArray[0] || '';
       }
     }
-    
+
     // Process tembusan
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
@@ -286,11 +300,18 @@ export class GeneratePdfKajianService {
 
     // Wrap body content dengan margin
     const bodyContent = `<div class="body-content">${html}</div>`;
-    
+
     // Wrap ttd dengan margin top
     const ttdWrapped = `<div class="ttd-wrapper">${ttd}</div>`;
-    
-    const konten = globalStyle + header + header2 + header3 + bodyContent + ttdWrapped + tembusanKonten;
+
+    const konten =
+      globalStyle +
+      header +
+      header2 +
+      header3 +
+      bodyContent +
+      ttdWrapped +
+      tembusanKonten;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = '';
@@ -329,18 +350,26 @@ export class GeneratePdfKajianService {
             </tr>
           </table>
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
-            ${tertujuExceedsLimit ? `<tr>
+            ${
+              tertujuExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>KEPADA YTH :</b><br>
                 ${tertujuListHtml}
               </td>
-            </tr>` : ''}
-            ${tembusanExceedsLimit ? `<tr>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
               <td style="vertical-align:top;">
                 <b>TEMBUSAN :</b><br>
                 ${tembusanListHtml}
               </td>
-            </tr>` : ''}
+            </tr>`
+                : ''
+            }
           </table>
         </div>
       `;
@@ -356,7 +385,11 @@ export class GeneratePdfKajianService {
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         const url = request.url();
-        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) {
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        ) {
           return request.continue();
         }
         return request.abort();

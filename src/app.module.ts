@@ -71,6 +71,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { OnlyOfficeModule } from './modules/onlyoffice/onlyoffice.module';
 import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
 import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module';
+import { NaskahShareModule } from './modules/naskah-share/naskah-share.module';
 
 @Module({
   imports: [
@@ -109,9 +110,6 @@ import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module
         migrationsRun: true,
         synchronize: false,
         timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
-        extra: {
-          maxAllowedPacket: 268435456, // 256MB - untuk handle large org_data
-        },
       }),
     }),
     CompanyModule,
@@ -175,6 +173,7 @@ import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module
     OnlyOfficeModule,
     NaskahUmumModule,
     ArsipDinamisModule,
+    NaskahShareModule,
   ],
   controllers: [AppController],
   providers: [
@@ -197,8 +196,11 @@ export class AppModule implements OnModuleInit {
       // Set max_allowed_packet untuk handle large org_data (256MB)
       await this.dataSource.query('SET GLOBAL max_allowed_packet = 268435456');
       console.log('✅ MySQL max_allowed_packet set to 256MB');
-    } catch (error) {
-      console.warn('⚠️ Could not set max_allowed_packet (might need SUPER privilege):', error.message);
+    } catch (error: any) {
+      console.warn(
+        '⚠️ Could not set max_allowed_packet (might need SUPER privilege):',
+        error?.message,
+      );
     }
   }
 }

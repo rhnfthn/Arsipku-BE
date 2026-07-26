@@ -74,9 +74,13 @@ export class NotificationGateway
       (this.configService.get<string>('NOTIFICATION_WS_ENABLED') ?? 'true') !==
       'false';
     if (!enabled) {
-      this.logger.warn('⚠️ NotificationGateway DISABLED via NOTIFICATION_WS_ENABLED=false');
+      this.logger.warn(
+        '⚠️ NotificationGateway DISABLED via NOTIFICATION_WS_ENABLED=false',
+      );
     }
-    this.logger.log('✅ NotificationGateway initialized (namespace: /notifications)');
+    this.logger.log(
+      '✅ NotificationGateway initialized (namespace: /notifications)',
+    );
   }
 
   /**
@@ -86,8 +90,8 @@ export class NotificationGateway
   async handleConnection(client: Socket) {
     try {
       const enabled =
-        (this.configService.get<string>('NOTIFICATION_WS_ENABLED') ?? 'true') !==
-        'false';
+        (this.configService.get<string>('NOTIFICATION_WS_ENABLED') ??
+          'true') !== 'false';
       if (!enabled) {
         this.logger.warn(`Connection rejected (WS disabled): ${client.id}`);
         client.disconnect(true);
@@ -96,7 +100,7 @@ export class NotificationGateway
 
       const rawToken =
         (client.handshake.auth?.token as string | undefined) ||
-        (client.handshake.headers?.authorization as string | undefined);
+        client.handshake.headers?.authorization;
 
       if (!rawToken) {
         this.logger.warn(`Connection rejected (no token): ${client.id}`);
@@ -119,7 +123,7 @@ export class NotificationGateway
       }
 
       // Simpan payload di client.data untuk referensi
-      (client.data as any).user = payload;
+      client.data.user = payload;
 
       // Join room position & user
       const positionRoom = `position:${payload.position}`;
@@ -154,7 +158,7 @@ export class NotificationGateway
   }
 
   async handleDisconnect(client: Socket) {
-    const u = (client.data as any)?.user as JwtPayload | undefined;
+    const u = client.data?.user as JwtPayload | undefined;
     this.logger.log(
       `❎ Disconnected: ${client.id} ${
         u ? `position:${u.position} user:${u.persnum}` : ''
@@ -188,7 +192,9 @@ export class NotificationGateway
     this.server.to(positionRoom).emit('notification:new', notification);
 
     if (userPersnum != null) {
-      this.server.to(`user:${userPersnum}`).emit('notification:new', notification);
+      this.server
+        .to(`user:${userPersnum}`)
+        .emit('notification:new', notification);
     }
   }
 
@@ -203,7 +209,9 @@ export class NotificationGateway
     if (!this.server) return;
 
     const payload = { positionId, count };
-    this.server.to(`position:${positionId}`).emit('notification:count', payload);
+    this.server
+      .to(`position:${positionId}`)
+      .emit('notification:count', payload);
 
     if (userPersnum != null) {
       this.server.to(`user:${userPersnum}`).emit('notification:count', payload);
@@ -235,10 +243,14 @@ export class NotificationGateway
     if (!this.server) return;
 
     const payload = { positionId };
-    this.server.to(`position:${positionId}`).emit('notification:read-all', payload);
+    this.server
+      .to(`position:${positionId}`)
+      .emit('notification:read-all', payload);
 
     if (userPersnum != null) {
-      this.server.to(`user:${userPersnum}`).emit('notification:read-all', payload);
+      this.server
+        .to(`user:${userPersnum}`)
+        .emit('notification:read-all', payload);
     }
   }
 
@@ -253,10 +265,14 @@ export class NotificationGateway
     if (!this.server) return;
 
     const payload = { positionId, notificationId };
-    this.server.to(`position:${positionId}`).emit('notification:deleted', payload);
+    this.server
+      .to(`position:${positionId}`)
+      .emit('notification:deleted', payload);
 
     if (userPersnum != null) {
-      this.server.to(`user:${userPersnum}`).emit('notification:deleted', payload);
+      this.server
+        .to(`user:${userPersnum}`)
+        .emit('notification:deleted', payload);
     }
   }
 
@@ -264,10 +280,17 @@ export class NotificationGateway
    * Emit RBAC role change ke user tertentu (real-time role update tanpa relog).
    * Dipanggil saat superadmin assign/remove role ke user lain.
    */
-  emitRbacRoleChanged(persnum: number, data: { action: string; roleName?: string }) {
+  emitRbacRoleChanged(
+    persnum: number,
+    data: { action: string; roleName?: string },
+  ) {
     if (!this.server) return;
-    this.logger.log(`📢 Emit rbac:role-changed to user:${persnum} — ${data.action}`);
-    this.server.to(`user:${persnum}`).emit('rbac:role-changed', { persnum, ...data });
+    this.logger.log(
+      `📢 Emit rbac:role-changed to user:${persnum} — ${data.action}`,
+    );
+    this.server
+      .to(`user:${persnum}`)
+      .emit('rbac:role-changed', { persnum, ...data });
   }
 
   /**
@@ -277,7 +300,11 @@ export class NotificationGateway
   emitRbacPermissionChanged(roleName: string, data: { roleId: string }) {
     if (!this.server) return;
     const lowerRole = roleName.toLowerCase();
-    this.logger.log(`📢 Emit rbac:permission-changed to role:${lowerRole} — ${data.roleId}`);
-    this.server.to(`role:${lowerRole}`).emit('rbac:permission-changed', { roleName, ...data });
+    this.logger.log(
+      `📢 Emit rbac:permission-changed to role:${lowerRole} — ${data.roleId}`,
+    );
+    this.server
+      .to(`role:${lowerRole}`)
+      .emit('rbac:permission-changed', { roleName, ...data });
   }
 }

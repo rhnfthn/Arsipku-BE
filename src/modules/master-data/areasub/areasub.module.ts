@@ -6,10 +6,7 @@ import { OmAreaSub } from './entities/om-areasub.entity';
 import { SubAreaAlamatModule } from '../../sub-area-alamat/sub-area-alamat.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([OmAreaSub]),
-    SubAreaAlamatModule,
-  ],
+  imports: [TypeOrmModule.forFeature([OmAreaSub]), SubAreaAlamatModule],
   controllers: [AreasubController],
   providers: [AreasubService],
 })

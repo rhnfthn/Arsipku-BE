@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsEnum, IsDateString, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  MaxLength,
+} from 'class-validator';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -7,11 +13,17 @@ export class CreateDelegasiDto {
   @IsString()
   id?: string;
 
-  @ApiProperty({ example: '2026-01-15', description: 'REQUIRED: Tanggal mulai delegasi' })
+  @ApiProperty({
+    example: '2026-01-15',
+    description: 'REQUIRED: Tanggal mulai delegasi',
+  })
   @IsDateString()
   start_date: string;
 
-  @ApiProperty({ example: '2026-01-31', description: 'REQUIRED: Tanggal selesai delegasi' })
+  @ApiProperty({
+    example: '2026-01-31',
+    description: 'REQUIRED: Tanggal selesai delegasi',
+  })
   @IsDateString()
   end_date: string;
 
@@ -65,7 +77,10 @@ export class CreateDelegasiDto {
   @MaxLength(150)
   as_organization_text?: string;
 
-  @ApiProperty({ example: 'POS002', description: 'REQUIRED: Jabatan yang didelegasikan' })
+  @ApiProperty({
+    example: 'POS002',
+    description: 'REQUIRED: Jabatan yang didelegasikan',
+  })
   @IsString()
   @MaxLength(100)
   as_position: string;
@@ -89,7 +104,11 @@ export class CreateDelegasiDto {
   as_name?: string;
 
   // Position status (role type) - REQUIRED
-  @ApiProperty({ enum: PositionStatus, example: 'PT', description: 'REQUIRED: Status posisi (PT/PH/PS/VI/SE)' })
+  @ApiProperty({
+    enum: PositionStatus,
+    example: 'PT',
+    description: 'REQUIRED: Status posisi (PT/PH/PS/VI/SE)',
+  })
   @IsEnum(PositionStatus)
   position_status: PositionStatus;
 

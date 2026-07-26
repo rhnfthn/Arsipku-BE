@@ -10,7 +10,11 @@ import {
 } from 'typeorm';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 
-export type NaskahDinasVerifikatorStatus = 'pending' | 'waiting' | 'verified' | 'rejected';
+export type NaskahDinasVerifikatorStatus =
+  | 'pending'
+  | 'waiting'
+  | 'verified'
+  | 'rejected';
 
 @Entity('naskah_dinas_verifikator')
 @Index('idx_nd_verifikator_naskah', ['idNaskah'])
@@ -44,7 +48,12 @@ export class NaskahDinasVerifikatorEntity {
   @Column({ name: 'company', type: 'varchar', length: 50, nullable: true })
   company: string | null;
 
-  @Column({ name: 'company_text', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'company_text',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   companyText: string | null;
 
   @Column({ name: 'area', type: 'varchar', length: 50, nullable: true })
@@ -56,13 +65,23 @@ export class NaskahDinasVerifikatorEntity {
   @Column({ name: 'sub_area', type: 'varchar', length: 50, nullable: true })
   subArea: string | null;
 
-  @Column({ name: 'sub_area_text', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'sub_area_text',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   subAreaText: string | null;
 
   @Column({ name: 'organization', type: 'varchar', length: 50, nullable: true })
   organization: string | null;
 
-  @Column({ name: 'organization_text', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'organization_text',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   organizationText: string | null;
 
   @Column({

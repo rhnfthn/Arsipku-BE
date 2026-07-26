@@ -9,11 +9,13 @@ describe('DocxFillerService', () => {
     service = new DocxFillerService();
   });
 
-  async function createTemplateBuffer(paragraphs: Paragraph[]): Promise<Buffer> {
+  async function createTemplateBuffer(
+    paragraphs: Paragraph[],
+  ): Promise<Buffer> {
     const doc = new Document({
       sections: [{ children: paragraphs }],
     });
-    return (await Packer.toBuffer(doc)) as Buffer;
+    return await Packer.toBuffer(doc);
   }
 
   function readDocumentXml(buffer: Buffer): string {

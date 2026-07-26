@@ -36,13 +36,11 @@ describe('NaskahUmumService', () => {
   beforeEach(async () => {
     storage = {
       getFile: jest.fn().mockResolvedValue(Buffer.from('saved-docx')),
-      uploadBuffer: jest
-        .fn()
-        .mockResolvedValue({
-          key: 'naskah-umum-final/1234567890-final.docx',
-          url: 'http://s3/final.docx',
-          bucket: 'arsipku',
-        }),
+      uploadBuffer: jest.fn().mockResolvedValue({
+        key: 'naskah-umum-final/1234567890-final.docx',
+        url: 'http://s3/final.docx',
+        bucket: 'arsipku',
+      }),
       getFileUrl: jest.fn().mockResolvedValue('http://s3/final.pdf'),
     };
     filler = { fill: jest.fn().mockReturnValue(Buffer.from('filled-docx')) };
@@ -115,7 +113,10 @@ describe('NaskahUmumService', () => {
         { provide: PdfQrEmbedService, useValue: pdfQrEmbed },
         {
           provide: ConfigService,
-          useValue: { get: (k: string) => (k === 'APP_PUBLIC_URL' ? 'http://be:3000' : undefined) },
+          useValue: {
+            get: (k: string) =>
+              k === 'APP_PUBLIC_URL' ? 'http://be:3000' : undefined,
+          },
         },
         {
           provide: DataSource,
@@ -149,7 +150,9 @@ describe('NaskahUmumService', () => {
     it('returns the status of an existing temp record', async () => {
       const status = await service.getTempStatus('temp-id');
       expect(status).toBe('saved');
-      expect(tempRepo.findOne).toHaveBeenCalledWith({ where: { id: 'temp-id' } });
+      expect(tempRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'temp-id' },
+      });
     });
 
     it('returns null when temp record is not found', async () => {
@@ -200,9 +203,9 @@ describe('NaskahUmumService', () => {
     });
 
     it('throws BadRequestException for unknown jenis', async () => {
-      await expect(
-        service.createPreview('NOPE', {}, 'u1'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.createPreview('NOPE', {}, 'u1')).rejects.toThrow(
+        BadRequestException,
+      );
       expect(storage.getFile).not.toHaveBeenCalled();
       expect(filler.fill).not.toHaveBeenCalled();
       expect(storage.uploadBuffer).not.toHaveBeenCalled();
@@ -222,8 +225,12 @@ describe('NaskahUmumService', () => {
 
       const res = await service.finalizeSend(dto, 'u1');
 
-      expect(tempRepo.findOne).toHaveBeenCalledWith({ where: { id: 'temp-id' } });
-      expect(storage.getFile).toHaveBeenCalledWith('naskah-umum-temp/temp-id-saved.docx');
+      expect(tempRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'temp-id' },
+      });
+      expect(storage.getFile).toHaveBeenCalledWith(
+        'naskah-umum-temp/temp-id-saved.docx',
+      );
       expect(nomorSurat.generateNomor).toHaveBeenCalledWith(
         expect.objectContaining({
           jenis: 'UND',
@@ -342,7 +349,11 @@ describe('NaskahUmumService', () => {
       expect(queryRunner.manager.update).toHaveBeenCalledWith(
         NaskahLampiranEntity,
         expect.objectContaining({ id: expect.anything(), is_temporary: 1 }),
-        { id_naskah: expect.any(String), is_temporary: 0, temp_folder_id: null },
+        {
+          id_naskah: expect.any(String),
+          is_temporary: 0,
+          temp_folder_id: null,
+        },
       );
       expect(res).toEqual(
         expect.objectContaining({

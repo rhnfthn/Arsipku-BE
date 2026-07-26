@@ -22,12 +22,17 @@ import { LabelEntity, NaskahLabelEntity } from '../label/entities';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([NaskahEntity, NaskahSirkulasi, LabelEntity, NaskahLabelEntity]),
+    TypeOrmModule.forFeature([
+      NaskahEntity,
+      NaskahSirkulasi,
+      LabelEntity,
+      NaskahLabelEntity,
+    ]),
   ],
   controllers: [
-    GlobalSearchController,        // /search (SQL-based)
-    MeilisearchSearchController,// /search/v2 (Meilisearch-based)
-    SearchV3Controller,            // /search/v3 (SQL-based with advanced features)
+    GlobalSearchController, // /search (SQL-based)
+    MeilisearchSearchController, // /search/v2 (Meilisearch-based)
+    SearchV3Controller, // /search/v3 (SQL-based with advanced features)
   ],
   providers: [
     // SQL-based search
@@ -45,5 +50,4 @@ import { LabelEntity, NaskahLabelEntity } from '../label/entities';
     SearchV3Service,
   ],
 })
-export class SearchModule { }
-
+export class SearchModule {}

@@ -24,7 +24,7 @@ export class SendMessageDataDto {
   tembusan: SirkulasiInfoDto[];
   lampiran?: string; // Nama file lampiran dari temporary files
   final_pdf?: string; // Path to final PDF in storage
-  
+
   // Digital signature fields (NEW)
   sign_option?: 'digsig' | 'qr_only' | 'ttd_basah'; // Opsi TTD yang dipilih
   bsre_name_doc?: string | null; // name_doc dari BSrE untuk verifikasi (krusial!)

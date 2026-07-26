@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsArray, IsOptional, IsString, IsBoolean, IsEnum, ArrayMinSize, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsArray,
+  IsOptional,
+  IsString,
+  IsBoolean,
+  IsEnum,
+  ArrayMinSize,
+  Matches,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 // Enum untuk sifat surat
@@ -12,8 +21,8 @@ export enum SifatSurat {
 
 // Enum untuk opsi tanda tangan digital
 export enum SignOption {
-  DIGSIG = 'digsig',     // TTD Digital dengan BSrE + QR
-  QR_ONLY = 'qr_only',   // Hanya QR tanpa BSrE
+  DIGSIG = 'digsig', // TTD Digital dengan BSrE + QR
+  QR_ONLY = 'qr_only', // Hanya QR tanpa BSrE
   TTD_BASAH = 'ttd_basah', // TTD Basah (tanpa QR, space untuk tanda tangan manual)
 }
 
@@ -194,14 +203,18 @@ export class CreateNotaDinasDto {
   // ============================================
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string; // Tanggal untuk lookup org_data (default: hari ini)
 
   // ============================================
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu dari: digsig, qr_only, ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu dari: digsig, qr_only, ttd_basah',
+  })
   sign_option?: SignOption; // Opsi tanda tangan: digsig, qr_only, ttd_basah
 
   @IsOptional()
@@ -366,14 +379,18 @@ export class FinalizeDraftDto {
   // ============================================
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string;
 
   // ============================================
   // DIGITAL SIGNATURE OPTIONS
   // ============================================
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option must be one of: digsig, qr_only, ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option must be one of: digsig, qr_only, ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -536,6 +553,8 @@ export class UpdateDraftDto {
   // ============================================
   @IsOptional()
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'tgl must be in format YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tgl must be in format YYYY-MM-DD',
+  })
   tgl?: string;
 }

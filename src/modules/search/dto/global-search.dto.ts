@@ -1,16 +1,27 @@
-import { IsOptional, IsString, IsEnum, IsDateString, IsBoolean, IsNumber, IsArray, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsDateString,
+  IsBoolean,
+  IsNumber,
+  IsArray,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 /**
  * Jenis dokumen yang bisa dicari
  */
 export enum JenisNaskahEnum {
-  ND = 'ND',     // Nota Dinas
-  SDI = 'SDI',   // Surat Dinas Internal
-  SDE = 'SDE',   // Surat Dinas Eksternal
-  DI = 'DI',     // Disposisi Internal
-  KA = 'KA',     // Kajian
-  K = 'K',       // Konsep
+  ND = 'ND', // Nota Dinas
+  SDI = 'SDI', // Surat Dinas Internal
+  SDE = 'SDE', // Surat Dinas Eksternal
+  DI = 'DI', // Disposisi Internal
+  KA = 'KA', // Kajian
+  K = 'K', // Konsep
 }
 
 /**
@@ -78,15 +89,15 @@ export enum KategoriEnum {
  * Scope pencarian (All Mail di Gmail)
  */
 export enum SearchScopeEnum {
-  ALL = 'all',               // Semua naskah (termasuk archived)
-  INBOX = 'inbox',           // Naskah masuk (saya sebagai penerima) - exclude archived
-  SENT = 'sent',             // Naskah keluar (saya sebagai pengirim) - exclude archived
-  DRAFT = 'draft',           // Draft - exclude archived
-  ARCHIVED = 'archived',     // Arsip saja
-  FAVORITE = 'favorite',     // Favorit (bisa include archived)
-  ACTIVE = 'active',         // Naskah aktif (inbox + sent + draft) exclude archived
-  PRIORITY = 'priority',     // Disposisi prioritas (jenis=DI dan is_priority=1)
-  PENDING = 'pending',       // Naskah tertunda/menunggu TTD basah (status=pending)
+  ALL = 'all', // Semua naskah (termasuk archived)
+  INBOX = 'inbox', // Naskah masuk (saya sebagai penerima) - exclude archived
+  SENT = 'sent', // Naskah keluar (saya sebagai pengirim) - exclude archived
+  DRAFT = 'draft', // Draft - exclude archived
+  ARCHIVED = 'archived', // Arsip saja
+  FAVORITE = 'favorite', // Favorit (bisa include archived)
+  ACTIVE = 'active', // Naskah aktif (inbox + sent + draft) exclude archived
+  PRIORITY = 'priority', // Disposisi prioritas (jenis=DI dan is_priority=1)
+  PENDING = 'pending', // Naskah tertunda/menunggu TTD basah (status=pending)
 }
 
 /**
@@ -450,10 +461,10 @@ export class GlobalSearchDto {
  * Sumber/asal naskah untuk user
  */
 export enum NaskahSourceEnum {
-  INBOX = 'inbox',       // Naskah masuk (user sebagai penerima/tembusan)
-  SENT = 'sent',         // Naskah keluar (user sebagai pengirim)
-  DRAFT = 'draft',       // Draft naskah
-  CC = 'cc',             // Tembusan
+  INBOX = 'inbox', // Naskah masuk (user sebagai penerima/tembusan)
+  SENT = 'sent', // Naskah keluar (user sebagai pengirim)
+  DRAFT = 'draft', // Draft naskah
+  CC = 'cc', // Tembusan
 }
 
 /**

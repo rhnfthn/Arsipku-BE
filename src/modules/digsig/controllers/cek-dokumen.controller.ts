@@ -36,7 +36,7 @@ export class CekDokumenController {
   /**
    * POST /digsig/cek-dokumen/upload
    * Verifikasi dokumen dengan upload file PDF
-   * 
+   *
    * Request: multipart/form-data dengan field 'file' (PDF)
    */
   @Post('upload')
@@ -52,14 +52,21 @@ export class CekDokumenController {
       throw new BadRequestException('File PDF wajib diupload');
     }
 
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
-    return this.cekDokumenService.verifyByFile(file, user.persnum, user.nama, ipAddress);
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip;
+    return this.cekDokumenService.verifyByFile(
+      file,
+      user.persnum,
+      user.nama,
+      ipAddress,
+    );
   }
 
   /**
    * POST /digsig/cek-dokumen/signature-id
    * Verifikasi dokumen berdasarkan Signature ID
-   * 
+   *
    * Request Body: { signatureId: "xxx" }
    */
   @Post('signature-id')
@@ -70,8 +77,15 @@ export class CekDokumenController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
-    return this.cekDokumenService.verifyBySignatureId(dto.signatureId, user.persnum, user.nama, ipAddress);
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip;
+    return this.cekDokumenService.verifyBySignatureId(
+      dto.signatureId,
+      user.persnum,
+      user.nama,
+      ipAddress,
+    );
   }
 
   /**
@@ -86,14 +100,21 @@ export class CekDokumenController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
-    return this.cekDokumenService.verifyBySignatureId(signatureId, user.persnum, user.nama, ipAddress);
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip;
+    return this.cekDokumenService.verifyBySignatureId(
+      signatureId,
+      user.persnum,
+      user.nama,
+      ipAddress,
+    );
   }
 
   /**
    * POST /digsig/cek-dokumen/name-doc
    * Verifikasi dokumen berdasarkan nama dokumen (name_doc dari BSrE)
-   * 
+   *
    * Request Body: { nameDoc: "filename.pdf" }
    */
   @Post('name-doc')
@@ -104,7 +125,14 @@ export class CekDokumenController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<CekDokumenResponseDto> {
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
-    return this.cekDokumenService.verifyByNameDoc(dto.nameDoc, user.persnum, user.nama, ipAddress);
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip;
+    return this.cekDokumenService.verifyByNameDoc(
+      dto.nameDoc,
+      user.persnum,
+      user.nama,
+      ipAddress,
+    );
   }
 }

@@ -39,7 +39,8 @@ export class AssignPositionDto {
   position: number;
 
   @ApiPropertyOptional({
-    description: 'Position text/name (will be auto-fetched from om_position if not provided)',
+    description:
+      'Position text/name (will be auto-fetched from om_position if not provided)',
     example: 'Komisaris',
   })
   @IsString()

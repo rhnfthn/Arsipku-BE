@@ -47,4 +47,4 @@ import { KonsepModule } from '../konsep/konsep.module';
   providers: [NotaDinasService, NomorSuratService],
   exports: [NotaDinasService],
 })
-export class NotaDinasModule { }
+export class NotaDinasModule {}

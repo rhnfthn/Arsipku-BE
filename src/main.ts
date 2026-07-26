@@ -13,8 +13,8 @@ async function bootstrap() {
   console.log(`Running Server on PORT : ${PORT}`);
   // commit check: minor code comment inserted here
   const app = await NestFactory.create(AppModule);
-  app.use(express.json({ limit: '25mb' }))
-  app.use(express.urlencoded({ extended: true, limit: '25mb' }))
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // WebSocket adapter (Socket.IO) untuk NotificationGateway
   app.useWebSocketAdapter(new IoAdapter(app));

@@ -61,13 +61,23 @@ export class DigsigDocumentSignerEntity {
   @Column({ name: 'signed_at', type: 'datetime', nullable: true })
   signedAt: Date | null;
 
-  @Column({ name: 'signature_id', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'signature_id',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   signatureId: string | null;
 
   @Column({ name: 'bsre_doc_id', type: 'varchar', length: 100, nullable: true })
   bsreDocId: string | null;
 
-  @Column({ name: 'bsre_name_doc', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'bsre_name_doc',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   bsreNameDoc: string | null;
 
   // ======== Rejection ========

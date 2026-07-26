@@ -96,8 +96,10 @@ export class QRCodeService {
 
     // Load dan gambar logo di tengah
     if (this.logoBase64) {
-      const logoImage = await loadImage(`data:image/jpeg;base64,${this.logoBase64}`);
-      
+      const logoImage = await loadImage(
+        `data:image/jpeg;base64,${this.logoBase64}`,
+      );
+
       // Posisi logo di tengah
       const logoX = (qrSize - logoSize) / 2;
       const logoY = (qrSize - logoSize) / 2;
@@ -162,8 +164,10 @@ export class QRCodeService {
     // Load dan gambar logo di tengah jika ada
     if (this.logoBase64) {
       try {
-        const logoImage = await loadImage(`data:image/jpeg;base64,${this.logoBase64}`);
-        
+        const logoImage = await loadImage(
+          `data:image/jpeg;base64,${this.logoBase64}`,
+        );
+
         // Posisi logo di tengah
         const logoX = (qrSize - logoSize) / 2;
         const logoY = (qrSize - logoSize) / 2;
@@ -213,10 +217,7 @@ export class QRCodeService {
   /**
    * Generate HTML untuk section QR code pada PDF
    */
-  generateQRCodeHtml(
-    qrDataUrl: string,
-    data: QRCodeData,
-  ): string {
+  generateQRCodeHtml(qrDataUrl: string, data: QRCodeData): string {
     const signedDate = new Date(data.signed_at).toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'long',
@@ -271,7 +272,12 @@ export class QRCodeService {
     for (let i = 0; i < qrSize / boxSize; i++) {
       for (let j = 0; j < qrSize / boxSize; j++) {
         if ((i + j) % 3 === 0) {
-          ctx.fillRect(i * boxSize + 10, j * boxSize + 10, boxSize - 2, boxSize - 2);
+          ctx.fillRect(
+            i * boxSize + 10,
+            j * boxSize + 10,
+            boxSize - 2,
+            boxSize - 2,
+          );
         }
       }
     }
@@ -287,12 +293,17 @@ export class QRCodeService {
     if (this.logoBase64) {
       try {
         const logoSize = 50;
-        const logoImage = await loadImage(`data:image/jpeg;base64,${this.logoBase64}`);
+        const logoImage = await loadImage(
+          `data:image/jpeg;base64,${this.logoBase64}`,
+        );
         const logoX = (qrSize - logoSize) / 2;
         const logoY = (qrSize - logoSize) / 2 - 10;
         ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
       } catch (error) {
-        console.error('[QRCodeService] Failed to add logo to preview QR:', error);
+        console.error(
+          '[QRCodeService] Failed to add logo to preview QR:',
+          error,
+        );
       }
     }
 

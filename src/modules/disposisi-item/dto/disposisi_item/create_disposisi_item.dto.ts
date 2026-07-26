@@ -1,4 +1,10 @@
-import { IsString, IsInt, IsBoolean, IsOptional, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsInt,
+  IsBoolean,
+  IsOptional,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateDisposisiItemDto {
   @IsString()

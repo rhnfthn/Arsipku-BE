@@ -62,7 +62,11 @@ export class DigsigDocumentController {
     }
 
     // Validate file type
-    const allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const allowedMimes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
     if (!allowedMimes.includes(file.mimetype)) {
       throw new BadRequestException('File harus berformat PDF, DOC, atau DOCX');
     }
@@ -76,7 +80,7 @@ export class DigsigDocumentController {
     const timestamp = Date.now();
     const cleanFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${timestamp}-${cleanFileName}`;
-    
+
     const uploadResult = await this.storageService.uploadBuffer(
       file.buffer,
       fileName,
@@ -114,16 +118,29 @@ export class DigsigDocumentController {
     @UploadedFile() file: Express.Multer.File,
   ): Promise<DigsigDocumentEntity> {
     if (dto.id_document && dto.id_document !== id) {
-      throw new BadRequestException('id_document pada body harus sama dengan parameter :id');
+      throw new BadRequestException(
+        'id_document pada body harus sama dengan parameter :id',
+      );
     }
 
-    let fileInfo: { path: string; name: string; size: number; mimeType: string } | null = null;
+    let fileInfo: {
+      path: string;
+      name: string;
+      size: number;
+      mimeType: string;
+    } | null = null;
 
     if (file) {
       // Validate file type
-      const allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      const allowedMimes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ];
       if (!allowedMimes.includes(file.mimetype)) {
-        throw new BadRequestException('File harus berformat PDF, DOC, atau DOCX');
+        throw new BadRequestException(
+          'File harus berformat PDF, DOC, atau DOCX',
+        );
       }
 
       // Validate file size
@@ -134,7 +151,7 @@ export class DigsigDocumentController {
       const timestamp = Date.now();
       const cleanFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
       const fileName = `${timestamp}-${cleanFileName}`;
-      
+
       const uploadResult = await this.storageService.uploadBuffer(
         file.buffer,
         fileName,
@@ -206,7 +223,7 @@ export class DigsigDocumentController {
   @RequirePermission('naskah-dinas', 'read-detail')
   async getJenisNaskahOptions() {
     const result = await this.jenisService.findAll();
-    
+
     // Transform to match expected format
     const options = result.data.map((item) => ({
       value: item.jenis,
@@ -229,9 +246,7 @@ export class DigsigDocumentController {
   @Get('verifikator')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
-  async getVerifikator(
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async getVerifikator(@CurrentUser() user: JwtPayload) {
     return this.documentService.getVerifikator(user.area);
   }
 
@@ -244,16 +259,21 @@ export class DigsigDocumentController {
   @RequirePermission('naskah-dinas', 'read-detail')
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<DigsigDocumentEntity & { fileUrl?: string; signedFileUrl?: string }> {
+  ): Promise<
+    DigsigDocumentEntity & { fileUrl?: string; signedFileUrl?: string }
+  > {
     const document = await this.documentService.findById(id);
-    
+
     // Generate file URLs
     let fileUrl: string | undefined;
     let signedFileUrl: string | undefined;
 
     if (document.filePath) {
       try {
-        fileUrl = await this.storageService.getPreviewUrl(document.filePath, 3600);
+        fileUrl = await this.storageService.getPreviewUrl(
+          document.filePath,
+          3600,
+        );
       } catch (e) {
         console.warn('Failed to generate fileUrl:', e.message);
       }
@@ -261,7 +281,10 @@ export class DigsigDocumentController {
 
     if (document.signedFilePath) {
       try {
-        signedFileUrl = await this.storageService.getPreviewUrl(document.signedFilePath, 3600);
+        signedFileUrl = await this.storageService.getPreviewUrl(
+          document.signedFilePath,
+          3600,
+        );
       } catch (e) {
         console.warn('Failed to generate signedFileUrl:', e.message);
       }

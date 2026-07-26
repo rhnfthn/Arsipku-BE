@@ -16,11 +16,7 @@ import {
   SignResultResponse,
   SignInternalResultResponse,
 } from '../services';
-import {
-  SignInternalDto,
-  SignBsreDto,
-  CreateDigsigDto,
-} from '../dto';
+import { SignInternalDto, SignBsreDto, CreateDigsigDto } from '../dto';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -29,7 +25,10 @@ import { StorageService } from 'src/modules/storage/services/storage.service';
 @Controller('digsig')
 @UseGuards(JwtAuthGuard)
 export class DigsigController {
-  constructor(private readonly digsigService: DigsigService, private readonly storageService: StorageService) {}
+  constructor(
+    private readonly digsigService: DigsigService,
+    private readonly storageService: StorageService,
+  ) {}
 
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
@@ -40,7 +39,8 @@ export class DigsigController {
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('naskah-dinas', 'sign')
   async create(@Body() CreateDigsigDto: CreateDigsigDto) {
-    const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
+    const filename =
+      '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
     const keypathfile = `/nota-dinas/final/${filename}`;
     const digsig = await this.digsigService.hitDigsigEndpoint({
       key: keypathfile,
@@ -62,11 +62,12 @@ export class DigsigController {
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
   async verifai() {
-    const filename = '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135-1768806147569.pdf';
+    const filename =
+      '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135-1768806147569.pdf';
     const finalPdfPath = `/nota-dinas/digsig/${filename}`;
     const verify = this.digsigService.hitVerifyDigsig({
       filename: filename,
-      fileurl: finalPdfPath
+      fileurl: finalPdfPath,
     });
     return verify;
   }
@@ -93,7 +94,7 @@ export class DigsigController {
    * POST /digsig/bsre/surat-internal/:idNaskah
    * Tandatangani Surat Dinas Internal dengan BSrE
    * NIK dan no_wa diambil dari JWT payload (user profile)
-   * 
+   *
    * Request Body:
    * {
    *   "passphrase": "passphrase_bsre_user"

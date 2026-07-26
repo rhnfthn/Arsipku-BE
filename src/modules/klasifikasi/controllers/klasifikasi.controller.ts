@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Delete,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { KlasifikasiService } from '../services/klasifikasi.service';
 import { CreateKlasifikasiDto } from '../dto/klasifikasi/create_klasifikasi.dto';
 import { UpdateKlasifikasiDto } from '../dto/klasifikasi/update_klasifikasi.dto';
@@ -31,7 +40,10 @@ export class KlasifikasiController {
 
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  update(@Param('id') id: string, @Body() updateKlasifikasiDto: UpdateKlasifikasiDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateKlasifikasiDto: UpdateKlasifikasiDto,
+  ) {
     return this.klasifikasiService.update(id, updateKlasifikasiDto);
   }
 

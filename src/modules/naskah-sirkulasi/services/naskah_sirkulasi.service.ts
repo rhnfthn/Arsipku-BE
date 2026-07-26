@@ -169,8 +169,8 @@ export class NaskahSirkulasiService {
           String(saved.position),
         ).catch(() => null);
         const count =
-          inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
-            ? (inboxResult as any).data.count
+          inboxResult && typeof inboxResult?.data?.count === 'number'
+            ? inboxResult.data.count
             : 0;
         this.realtimeEmitService.emitInboxCount(String(saved.position), count);
       } catch {}
@@ -278,8 +278,8 @@ export class NaskahSirkulasiService {
         String(dto.position_id),
       ).catch(() => null);
       const count =
-        inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
-          ? (inboxResult as any).data.count
+        inboxResult && typeof inboxResult?.data?.count === 'number'
+          ? inboxResult.data.count
           : 0;
       this.realtimeEmitService.emitInboxCount(String(dto.position_id), count);
     } catch {}

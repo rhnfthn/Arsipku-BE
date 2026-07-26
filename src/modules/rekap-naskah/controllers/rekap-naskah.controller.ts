@@ -32,7 +32,7 @@ export class RekapNaskahController {
   /**
    * GET /rekap-naskah
    * Mendapatkan rekap jumlah naskah dinas per jenis per bulan
-   * 
+   *
    * Query Parameters:
    * - tahun: tahun rekap (default: tahun sekarang)
    * - area: filter berdasarkan area/lokasi (optional)
@@ -61,7 +61,7 @@ export class RekapNaskahController {
   /**
    * GET /rekap-naskah/detail
    * Mendapatkan detail list naskah dinas yang sudah valid (terpakai)
-   * 
+   *
    * Query Parameters:
    * - tahun: tahun filter (default: tahun sekarang)
    * - area: filter berdasarkan area/lokasi (optional)
@@ -95,7 +95,7 @@ export class RekapNaskahController {
    * GET /rekap-naskah/naskah-masuk
    * Mendapatkan rekap naskah masuk per jenis per bulan
    * Menampilkan semua data jenis naskah dari nomor_request_detail
-   * 
+   *
    * Query Parameters:
    * - tahun: tahun rekap (default: tahun sekarang)
    * - bulan: bulan rekap 1-12 (optional, jika tidak diisi tampilkan semua bulan)
@@ -125,7 +125,7 @@ export class RekapNaskahController {
   /**
    * GET /rekap-naskah/naskah-masuk/detail
    * Mendapatkan detail list naskah masuk
-   * 
+   *
    * Query Parameters:
    * - tahun: tahun filter (default: tahun sekarang)
    * - bulan: bulan filter 1-12 (optional)
