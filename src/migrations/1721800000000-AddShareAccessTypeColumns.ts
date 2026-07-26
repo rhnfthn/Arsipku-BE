@@ -45,12 +45,13 @@ export class AddShareAccessTypeColumns1721800000000
       `);
     }
 
-    // 4. Add DICABUT to naskah_share_recipient.status enum (idempotent)
+    // 4. Align naskah_share_recipient.status enum with new RecipientStatus values
+    //    (TERKIRIM, DIBACA, BERAKHIR) — idempotent
     await queryRunner.query(`
       ALTER TABLE \`naskah_share_recipient\`
         MODIFY COLUMN \`status\`
-          ENUM('BELUM_DIBACA', 'DIBACA', 'DIBUKA', 'DICABUT')
-          NOT NULL DEFAULT 'BELUM_DIBACA'
+          ENUM('TERKIRIM', 'DIBACA', 'BERAKHIR')
+          NOT NULL DEFAULT 'TERKIRIM'
     `);
   }
 
@@ -63,7 +64,7 @@ export class AddShareAccessTypeColumns1721800000000
         DROP COLUMN \`access_type\`
     `);
 
-    // 2. Remove DICABUT from recipient status enum
+    // 2. Revert recipient status enum to pre-share values
     await queryRunner.query(`
       ALTER TABLE \`naskah_share_recipient\`
         MODIFY COLUMN \`status\`
