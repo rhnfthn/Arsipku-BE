@@ -1,0 +1,1 @@
+export { UsulanAksesBerkasController } from './usulan-akses-berkas.controller';

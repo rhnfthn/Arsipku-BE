@@ -294,11 +294,15 @@ export class NaskahShareService {
       .leftJoinAndSelect('share.recipients', 'recipients');
 
     if (tab === 'shared-by-me') {
-      qb.where('share.pemberiId = :positionId', { positionId: user.position });
+      qb.where(
+        '(share.pemberiId = :positionId OR share.pemberiPersnum = :persnum)',
+        { positionId: user.position, persnum: user.persnum },
+      );
     } else {
-      qb.where('recipients.recipientId = :positionId', {
-        positionId: user.position,
-      });
+      qb.where(
+        '(recipients.recipientId = :positionId OR recipients.recipientPersnum = :persnum)',
+        { positionId: user.position, persnum: user.persnum },
+      );
     }
 
     if (query.status) {
@@ -340,7 +344,7 @@ export class NaskahShareService {
           s.accessType !== ShareAccessType.SEKALI_LIHAT &&
           s.recipients.some(
             (r) =>
-              r.recipientId === user.position &&
+              (r.recipientId === user.position || r.recipientPersnum === user.persnum) &&
               r.status === RecipientStatus.TERKIRIM,
           ),
         )
@@ -352,7 +356,10 @@ export class NaskahShareService {
           .update()
           .set({ status: RecipientStatus.DIBACA })
           .where('share_id IN (:...shareIds)', { shareIds: unreadShareIds })
-          .andWhere('recipient_id = :positionId', { positionId: user.position })
+          .andWhere(
+            '(recipient_id = :positionId OR recipient_persnum = :persnum)',
+            { positionId: user.position, persnum: user.persnum },
+          )
           .andWhere('status = :oldStatus', {
             oldStatus: RecipientStatus.TERKIRIM,
           })
@@ -363,7 +370,7 @@ export class NaskahShareService {
           if (share.accessType === ShareAccessType.SEKALI_LIHAT) continue;
           for (const r of share.recipients) {
             if (
-              r.recipientId === user.position &&
+              (r.recipientId === user.position || r.recipientPersnum === user.persnum) &&
               r.status === RecipientStatus.TERKIRIM
             ) {
               r.status = RecipientStatus.DIBACA;
@@ -454,9 +461,13 @@ export class NaskahShareService {
     }
 
     // Only pemberi or recipient can view detail
-    const isPemberi = share.pemberiId === user.position;
+    const isPemberi =
+      share.pemberiId === user.position ||
+      share.pemberiPersnum === user.persnum;
     const isRecipient = share.recipients.some(
-      (r) => r.recipientId === user.position,
+      (r) =>
+        r.recipientId === user.position ||
+        r.recipientPersnum === user.persnum,
     );
     if (!isPemberi && !isRecipient) {
       throw new ForbiddenException('Anda tidak memiliki akses ke share ini');
@@ -515,8 +526,12 @@ export class NaskahShareService {
     });
     if (!share) throw new NotFoundException('Share tidak ditemukan');
 
-    if (share.pemberiId !== user.position)
+    if (
+      share.pemberiId !== user.position &&
+      share.pemberiPersnum !== user.persnum
+    ) {
       throw new ForbiddenException('Hanya pemberi yang dapat mencabut akses');
+    }
 
     if (share.status !== ShareStatus.AKTIF)
       throw new BadRequestException('Share sudah berakhir sebelumnya');
@@ -617,7 +632,10 @@ export class NaskahShareService {
     }
 
     // Only pemberi can revoke
-    if (share.pemberiId !== user.position) {
+    if (
+      share.pemberiId !== user.position &&
+      share.pemberiPersnum !== user.persnum
+    ) {
       throw new ForbiddenException(
         'Hanya pemberi yang dapat mencabut akses share',
       );
@@ -707,9 +725,13 @@ export class NaskahShareService {
     }
 
     // Check if user is the sender (pemberi) or a recipient
-    const isPemberi = share.pemberiId === user.position;
+    const isPemberi =
+      share.pemberiId === user.position ||
+      share.pemberiPersnum === user.persnum;
     const recipientRecord = share.recipients.find(
-      (r) => r.recipientId === user.position,
+      (r) =>
+        r.recipientId === user.position ||
+        r.recipientPersnum === user.persnum,
     );
 
     if (!isPemberi && !recipientRecord) {
@@ -874,7 +896,9 @@ export class NaskahShareService {
     }
 
     const recipientRecord = share.recipients.find(
-      (r) => r.recipientId === user.position,
+      (r) =>
+        r.recipientId === user.position ||
+        r.recipientPersnum === user.persnum,
     );
     if (!recipientRecord) {
       throw new ForbiddenException('Anda bukan penerima share ini');

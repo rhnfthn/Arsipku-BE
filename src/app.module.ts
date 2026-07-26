@@ -72,6 +72,7 @@ import { OnlyOfficeModule } from './modules/onlyoffice/onlyoffice.module';
 import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
 import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module';
 import { NaskahShareModule } from './modules/naskah-share/naskah-share.module';
+import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-akses-berkas.module';
 
 @Module({
   imports: [
@@ -174,6 +175,8 @@ import { NaskahShareModule } from './modules/naskah-share/naskah-share.module';
     NaskahUmumModule,
     ArsipDinamisModule,
     NaskahShareModule,
+    // New module for usulan akses berkas
+    UsulanAksesBerkasModule,
   ],
   controllers: [AppController],
   providers: [
