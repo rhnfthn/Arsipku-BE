@@ -11,7 +11,9 @@ import {
 import { RoleEntity } from './role.entity';
 
 @Entity('rbac_user_role')
-@Index('idx_rbac_ur_user_role_unit', ['persnum', 'roleId', 'unitKerja'], { unique: true })
+@Index('idx_rbac_ur_user_role_unit', ['persnum', 'roleId', 'unitKerja'], {
+  unique: true,
+})
 export class RbacUserRoleEntity {
   @PrimaryColumn('char', { length: 36 })
   id: string;

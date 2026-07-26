@@ -42,15 +42,30 @@ export class RealtimeSummaryService {
       return { ...cached.data, cached: true };
     }
 
-    const [inboxCount, labelCounts, bsreAlert, verifikatorWaitingCount, nomorAdminCount, nomorUserCount] = await Promise.all([
+    const [
+      inboxCount,
+      labelCounts,
+      bsreAlert,
+      verifikatorWaitingCount,
+      nomorAdminCount,
+      nomorUserCount,
+    ] = await Promise.all([
       this.sirkulasiService.countUnreadInbox(positionId).catch(() => null),
       this.labelService.countNaskahPerLabel(positionId).catch(() => ({})),
       this.bsreAlertService.getAlertStatus().catch(() => null),
       persnum != null
-        ? this.verifikatorRepository.count({ where: { persnum, status: 'waiting' } }).catch(() => 0)
-        : this.verifikatorRepository.count({ where: { status: 'waiting' } }).catch(() => 0),
-      this.nomorService.getAdminCountNomorRequest(Number(positionId)).catch(() => null),
-      this.nomorService.getAdminCountNomorRequestByPosition(Number(positionId)).catch(() => null),
+        ? this.verifikatorRepository
+            .count({ where: { persnum, status: 'waiting' } })
+            .catch(() => 0)
+        : this.verifikatorRepository
+            .count({ where: { status: 'waiting' } })
+            .catch(() => 0),
+      this.nomorService
+        .getAdminCountNomorRequest(Number(positionId))
+        .catch(() => null),
+      this.nomorService
+        .getAdminCountNomorRequestByPosition(Number(positionId))
+        .catch(() => null),
     ]);
 
     const data = {

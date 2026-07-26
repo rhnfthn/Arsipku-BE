@@ -1,4 +1,10 @@
-import { IsString, IsArray, ArrayMinSize, IsEnum, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsArray,
+  ArrayMinSize,
+  IsEnum,
+  IsOptional,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class AddNaskahToLabelDto {

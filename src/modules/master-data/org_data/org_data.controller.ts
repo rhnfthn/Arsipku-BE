@@ -1,4 +1,10 @@
-import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { RelationOoService } from '../relation_oo/relation_oo.service';
 import { RelationOaService } from '../relation_oa/relation_oa.service';
 import { RelationOsService } from '../relation_os/relation_os.service';
@@ -70,7 +76,6 @@ type Departs = {
   organization: number;
   tipe: string;
 };
-
 
 @Controller('org-data')
 export class OrgDataController {
@@ -241,7 +246,10 @@ export class OrgDataController {
     @Param('positionId') positionId: string,
     @Query() query: OrgFilterQueryDto,
   ) {
-    return this.orgBuildService.getAtasanByPosition(Number(positionId), query.tgl);
+    return this.orgBuildService.getAtasanByPosition(
+      Number(positionId),
+      query.tgl,
+    );
   }
 
   @Get()
@@ -304,7 +312,7 @@ export class OrgDataController {
             position: pos.relation_position,
             position_text: pos.relation_position_text,
             // chief: chiefPositions.has(`${pos.company}-${pos.relation_position}`) ? 1 : 0,
-            chief: tbod!=='' ? 1 : 0,
+            chief: tbod !== '' ? 1 : 0,
             bod_tag: tbod,
             person: matchedPerson
               ? {
@@ -477,7 +485,9 @@ export class OrgDataController {
 
   private filterByPositionNodin(barisData, positionParam) {
     // cari item current
-    const current = barisData.find((x) => Number(x.position) === Number(positionParam));
+    const current = barisData.find(
+      (x) => Number(x.position) === Number(positionParam),
+    );
     if (!current) return [];
 
     const currentLevel = Number(current.level);
@@ -485,20 +495,33 @@ export class OrgDataController {
     // 1️⃣ Filter divisi terlebih dahulu
     let filtered;
     let downLevel;
-    if(current.departType===null){
-      filtered = barisData.filter((x) => Number(x.divisi_id) === Number(current.divisi_id) && x.chief===1 && x.sub_area===current.sub_area);
+    if (current.departType === null) {
+      filtered = barisData.filter(
+        (x) =>
+          Number(x.divisi_id) === Number(current.divisi_id) &&
+          x.chief === 1 &&
+          x.sub_area === current.sub_area,
+      );
       downLevel = [];
     } else {
-      filtered = barisData.filter((x) => x.chief===1 && x.sub_area===current.sub_area);
+      filtered = barisData.filter(
+        (x) => x.chief === 1 && x.sub_area === current.sub_area,
+      );
       downLevel = filtered.filter((x) => x.level === currentLevel + 1);
     }
 
     // 2️⃣ Ambil parent (1 level di atas)
-    const parentLevel = filtered.filter((x) => x.level === currentLevel - 1 && Number(x.organization_id) === Number(current.organization_parent));
+    const parentLevel = filtered.filter(
+      (x) =>
+        x.level === currentLevel - 1 &&
+        Number(x.organization_id) === Number(current.organization_parent),
+    );
 
     // 3️⃣ Ambil selevel (kecuali dirinya)
     const sameLevel = filtered.filter(
-      (x) => x.level === currentLevel && Number(x.position) !== Number(positionParam),
+      (x) =>
+        x.level === currentLevel &&
+        Number(x.position) !== Number(positionParam),
     );
 
     // gabungkan: parent → current → same level
@@ -508,23 +531,40 @@ export class OrgDataController {
 
   private filterByPositionSudin(barisData, positionParam) {
     // cari item current
-    const current = barisData.find((x) => Number(x.position) === Number(positionParam));
+    const current = barisData.find(
+      (x) => Number(x.position) === Number(positionParam),
+    );
     if (!current) return [];
 
-    const filtered = barisData.filter((x) => x.chief===1 && x.sub_area!==current.sub_area && x.departType==='DIVORCABANG');
+    const filtered = barisData.filter(
+      (x) =>
+        x.chief === 1 &&
+        x.sub_area !== current.sub_area &&
+        x.departType === 'DIVORCABANG',
+    );
     return filtered;
   }
 
   private filterByPositionDispo(barisData, positionParam) {
     // cari item current
-    const current = barisData.find((x) => Number(x.position) === Number(positionParam));
+    const current = barisData.find(
+      (x) => Number(x.position) === Number(positionParam),
+    );
     if (!current) return [];
 
     const currentLevel = Number(current.level);
-    const filtered = barisData.filter((x) => x.level === currentLevel + 1 && x.sub_area===current.sub_area && x.organization_parent===current.organization_id && x.chief===1);
+    const filtered = barisData.filter(
+      (x) =>
+        x.level === currentLevel + 1 &&
+        x.sub_area === current.sub_area &&
+        x.organization_parent === current.organization_id &&
+        x.chief === 1,
+    );
 
     // get staff
-    const staffFilter = barisData.filter((x) => x.chief===0 && Number(x.divisi_id)===Number(current.divisi_id));
+    const staffFilter = barisData.filter(
+      (x) => x.chief === 0 && Number(x.divisi_id) === Number(current.divisi_id),
+    );
     return [...filtered, ...staffFilter];
   }
 
@@ -563,14 +603,18 @@ export class OrgDataController {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
     const data = await this.orgBuildService.findOrg(tgl);
     const barisData = data.position_json;
-    if(query.position_id){
+    if (query.position_id) {
       const position_id = query.position_id;
-      const current = barisData.find((x) => Number(x.position) === Number(position_id));
+      const current = barisData.find(
+        (x) => Number(x.position) === Number(position_id),
+      );
       return current;
     }
-    if(query.persnum){
+    if (query.persnum) {
       const persnum = query.persnum;
-      const current = barisData.find((x) => Number(x.persnum_person) === Number(persnum));
+      const current = barisData.find(
+        (x) => Number(x.persnum_person) === Number(persnum),
+      );
       return current;
     }
     return;

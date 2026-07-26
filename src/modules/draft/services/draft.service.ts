@@ -237,7 +237,12 @@ export class DraftService {
     }
 
     // Calculate date range
-    const dateRange = this.getDateRangeFromQuery(startDate, endDate, preset, days);
+    const dateRange = this.getDateRangeFromQuery(
+      startDate,
+      endDate,
+      preset,
+      days,
+    );
 
     // Step 2: Build base query for naskah
     const baseQueryBuilder = this.naskahRepository
@@ -341,10 +346,14 @@ export class DraftService {
 
     // Apply date range filter
     if (dateRange.startDate) {
-      baseQueryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', { startDate: dateRange.startDate });
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) >= :startDate', {
+        startDate: dateRange.startDate,
+      });
     }
     if (dateRange.endDate) {
-      baseQueryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', { endDate: dateRange.endDate });
+      baseQueryBuilder.andWhere('DATE(naskah.tanggal) <= :endDate', {
+        endDate: dateRange.endDate,
+      });
     }
 
     if (priority === true) {
@@ -366,12 +375,30 @@ export class DraftService {
     const summaryRaw = await baseQueryBuilder
       .clone()
       .select('COUNT(*)', 'total_semua')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'ND' THEN 1 ELSE 0 END)`, 'total_nd')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDI' THEN 1 ELSE 0 END)`, 'total_sdi')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'SDE' THEN 1 ELSE 0 END)`, 'total_sde')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'DI' THEN 1 ELSE 0 END)`, 'total_di')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'KA' THEN 1 ELSE 0 END)`, 'total_ka')
-      .addSelect(`SUM(CASE WHEN naskah.jenis = 'K' THEN 1 ELSE 0 END)`, 'total_k')
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'ND' THEN 1 ELSE 0 END)`,
+        'total_nd',
+      )
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'SDI' THEN 1 ELSE 0 END)`,
+        'total_sdi',
+      )
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'SDE' THEN 1 ELSE 0 END)`,
+        'total_sde',
+      )
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'DI' THEN 1 ELSE 0 END)`,
+        'total_di',
+      )
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'KA' THEN 1 ELSE 0 END)`,
+        'total_ka',
+      )
+      .addSelect(
+        `SUM(CASE WHEN naskah.jenis = 'K' THEN 1 ELSE 0 END)`,
+        'total_k',
+      )
       .getRawOne();
 
     const summary = {
@@ -397,8 +424,8 @@ export class DraftService {
     const draftDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = naskah.id AND p.sirkuler = 'pengirim' AND p.position = :sortPosition LIMIT 1), naskah.tanggal)`;
     queryBuilder
       .setParameter('sortPosition', String(positionId))
-      .orderBy(draftDisplayCreatedAtExpr, sortDirection as 'ASC' | 'DESC')
-      .addOrderBy('naskah.id', sortDirection as 'ASC' | 'DESC');
+      .orderBy(draftDisplayCreatedAtExpr, sortDirection)
+      .addOrderBy('naskah.id', sortDirection);
 
     // Get total count for pagination + execute query in one round-trip
     const offset = (page - 1) * limit;
@@ -408,7 +435,7 @@ export class DraftService {
     const totalPages = Math.ceil(total / limit);
 
     // Get all naskah IDs untuk query labels
-    const naskahIds = naskahs.map(n => n.id);
+    const naskahIds = naskahs.map((n) => n.id);
     const labelsMap = new Map<string, string[]>();
 
     // Get labels for all naskah using repository approach
@@ -429,10 +456,11 @@ export class DraftService {
             labelsMap.set(nl.naskahId, []);
           }
 
-          const labelName = nl.label.parent?.nama && nl.label.parent.isActive
-            ? `${nl.label.parent.nama} > ${nl.label.nama}`
-            : nl.label.nama;
-          
+          const labelName =
+            nl.label.parent?.nama && nl.label.parent.isActive
+              ? `${nl.label.parent.nama} > ${nl.label.nama}`
+              : nl.label.nama;
+
           labelsMap.get(nl.naskahId)?.push(labelName);
         }
       } catch (error) {
@@ -449,7 +477,10 @@ export class DraftService {
     const orgPositionMap = new Map<number, string | null>();
     if (orgData?.position_json) {
       for (const pos of orgData.position_json as OrgPositionLite[]) {
-        orgPositionMap.set(Number(pos.position), pos.persnum_person_text || null);
+        orgPositionMap.set(
+          Number(pos.position),
+          pos.persnum_person_text || null,
+        );
       }
     }
 
@@ -465,7 +496,10 @@ export class DraftService {
           position: String(positionId),
         },
       });
-      const pengirimSirkMap = new Map<string, (typeof pengirimSirkulasiList)[number]>();
+      const pengirimSirkMap = new Map<
+        string,
+        (typeof pengirimSirkulasiList)[number]
+      >();
       for (const p of pengirimSirkulasiList) {
         if (p.idNaskah) pengirimSirkMap.set(p.idNaskah, p);
       }
@@ -488,7 +522,9 @@ export class DraftService {
       }
 
       // 3. Bulk fetch eksternal untuk SDE penerima
-      const sdeNaskahIds = naskahs.filter((n) => n.jenis === 'SDE').map((n) => n.id);
+      const sdeNaskahIds = naskahs
+        .filter((n) => n.jenis === 'SDE')
+        .map((n) => n.id);
       const eksternalIdSet = new Set<string>();
       for (const naskahId of sdeNaskahIds) {
         const list = penerimaByNaskah.get(naskahId) || [];
@@ -518,7 +554,9 @@ export class DraftService {
         if (naskah.jenis === 'SDE') {
           for (const p of penerimaList) {
             const eksternalId = p.idSirkuler || null;
-            const eksternalData = eksternalId ? eksternalMap.get(eksternalId) : null;
+            const eksternalData = eksternalId
+              ? eksternalMap.get(eksternalId)
+              : null;
 
             if (eksternalData) {
               penerima.push({
@@ -646,7 +684,9 @@ export class DraftService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
@@ -664,14 +704,14 @@ export class DraftService {
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${idNaskah}`);
+      throw new NotFoundException(
+        `Data pengirim tidak ditemukan untuk naskah ${idNaskah}`,
+      );
     }
 
     // Verify ownership
     if (String(pengirimSirkulasi.position) !== String(positionId)) {
-      throw new ForbiddenException(
-        `Anda tidak memiliki akses ke draft ini`,
-      );
+      throw new ForbiddenException(`Anda tidak memiliki akses ke draft ini`);
     }
 
     // Get penerima
@@ -726,9 +766,10 @@ export class DraftService {
               .map((t) => t.idGrupPenerima as string),
           ),
         );
-        tembusan_grup = await this.grupPenerimaService.getGrupInfoForResponse(
-          tembusanGrupIds,
-        );
+        tembusan_grup =
+          await this.grupPenerimaService.getGrupInfoForResponse(
+            tembusanGrupIds,
+          );
       }
     }
 
@@ -753,7 +794,10 @@ export class DraftService {
     let petunjuk_disposisi: DraftDetailPetunjukDto[] | undefined;
     if (naskah.jenis === 'DI' && naskah.konten) {
       try {
-        const kontenData = JSON.parse(naskah.konten) as Array<{ kode: string; catatan?: string }>;
+        const kontenData = JSON.parse(naskah.konten) as Array<{
+          kode: string;
+          catatan?: string;
+        }>;
         petunjuk_disposisi = kontenData.map((p) => ({
           kode: p.kode,
           label: PETUNJUK_LABEL_MAP[p.kode] || p.kode,
@@ -829,7 +873,9 @@ export class DraftService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
@@ -847,7 +893,9 @@ export class DraftService {
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${idNaskah}`);
+      throw new NotFoundException(
+        `Data pengirim tidak ditemukan untuk naskah ${idNaskah}`,
+      );
     }
 
     if (String(pengirimSirkulasi.position) !== String(positionId)) {
@@ -918,7 +966,9 @@ export class DraftService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'final') {
@@ -936,7 +986,9 @@ export class DraftService {
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${idNaskah}`);
+      throw new NotFoundException(
+        `Data pengirim tidak ditemukan untuk naskah ${idNaskah}`,
+      );
     }
 
     if (String(pengirimSirkulasi.position) !== String(positionId)) {
@@ -953,7 +1005,7 @@ export class DraftService {
     await this.naskahRepository.save(naskah);
 
     // Sync to Meilisearch (non-blocking)
-    this.meilisearchSyncService.syncNaskah(idNaskah).catch(() => { });
+    this.meilisearchSyncService.syncNaskah(idNaskah).catch(() => {});
 
     // Bust cache list draft user — naskah ini sudah pindah dari draf ke final_tte
     this.invalidateDraftListCache(positionId);
@@ -976,7 +1028,7 @@ export class DraftService {
   /**
    * Bulk delete draft naskah
    * Menghapus beberapa draft sekaligus berdasarkan array ID
-   * 
+   *
    * @param naskahIds - Array of naskah IDs to delete
    * @param positionId - Position ID untuk validasi ownership
    */
@@ -1054,7 +1106,7 @@ export class DraftService {
           totalDeleted++;
 
           // Remove from Meilisearch (non-blocking)
-          this.meilisearchSyncService.deleteNaskah(naskahId).catch(() => { });
+          this.meilisearchSyncService.deleteNaskah(naskahId).catch(() => {});
         } catch (error) {
           await queryRunner.rollbackTransaction();
           failedIds.push(naskahId);
@@ -1063,19 +1115,19 @@ export class DraftService {
         }
       } catch (error) {
         failedIds.push(naskahId);
-    // Bust cache list draft user — beberapa item sudah dihapus
-    if (totalDeleted > 0) {
-      this.invalidateDraftListCache(positionId);
-    }
-
+        // Bust cache list draft user — beberapa item sudah dihapus
+        if (totalDeleted > 0) {
+          this.invalidateDraftListCache(positionId);
+        }
       }
     }
 
     return {
       success: true,
-      message: totalDeleted > 0 
-        ? `Berhasil menghapus ${totalDeleted} draft` 
-        : 'Tidak ada draft yang berhasil dihapus',
+      message:
+        totalDeleted > 0
+          ? `Berhasil menghapus ${totalDeleted} draft`
+          : 'Tidak ada draft yang berhasil dihapus',
       data: {
         total_requested: naskahIds.length,
         total_deleted: totalDeleted,

@@ -13,7 +13,8 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
  */
 export class UpdateAssignPositionDto {
   @ApiPropertyOptional({
-    description: 'Position text/name (will be auto-fetched from om_position if not provided)',
+    description:
+      'Position text/name (will be auto-fetched from om_position if not provided)',
     example: 'Direktur Utama',
   })
   @IsString()

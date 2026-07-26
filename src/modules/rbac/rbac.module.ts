@@ -29,7 +29,9 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN') || '24h' },
+        signOptions: {
+          expiresIn: configService.get('JWT_EXPIRES_IN') || '24h',
+        },
       }),
       inject: [ConfigService],
     }),

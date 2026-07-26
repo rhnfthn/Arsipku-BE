@@ -2,7 +2,7 @@ export class TemplateSuratDto {
   id: string;
   id_position: string;
   nama_template: string;
-  content?: string | null;  // HTML content
+  content?: string | null; // HTML content
   create_at?: string;
   update_at?: string;
 }

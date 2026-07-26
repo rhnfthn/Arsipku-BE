@@ -48,16 +48,16 @@ export class PengirimInfoDto {
 }
 
 export class SendMessageItemDto {
-  id: string;                          // ID naskah
-  jenis?: string;                      // Jenis surat (SDI)
-  nomor: string;                       // Nomor surat
-  tanggal: string;                     // Tanggal surat
-  perihal: string;                     // Perihal surat
-  status: 'draf' | 'pending' | 'final' | 'final_tte';  // Status naskah
-  sifat: string;                       // Sifat surat (rahasia, biasa, dll)
-  klasifikasi: string;                 // Klasifikasi surat
-  klasifikasi_text?: string | null;    // Klasifikasi text
-  english?: boolean;                   // English flag
+  id: string; // ID naskah
+  jenis?: string; // Jenis surat (SDI)
+  nomor: string; // Nomor surat
+  tanggal: string; // Tanggal surat
+  perihal: string; // Perihal surat
+  status: 'draf' | 'pending' | 'final' | 'final_tte'; // Status naskah
+  sifat: string; // Sifat surat (rahasia, biasa, dll)
+  klasifikasi: string; // Klasifikasi surat
+  klasifikasi_text?: string | null; // Klasifikasi text
+  english?: boolean; // English flag
 
   // Kop Naskah (for draft-list)
   kop_logo?: string | null;
@@ -75,10 +75,10 @@ export class SendMessageItemDto {
 
   // Sirkulasi
   pengirim?: PengirimInfoDto;
-  penerima: PenerimaInfoDto[];         // List penerima dengan status baca
-  tembusan?: TembusanInfoDto[];        // List tembusan
-  jumlahPenerima: number;              // Total penerima
-  jumlahDibaca: number;                // Jumlah yang sudah membaca
+  penerima: PenerimaInfoDto[]; // List penerima dengan status baca
+  tembusan?: TembusanInfoDto[]; // List tembusan
+  jumlahPenerima: number; // Total penerima
+  jumlahDibaca: number; // Jumlah yang sudah membaca
 
   // Lampiran
   lampiran?: string | null;

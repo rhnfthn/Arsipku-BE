@@ -39,7 +39,10 @@ import {
   BulkArchiveSentResponseDto,
 } from '../dto/naskah_sirkulasi/toggle-flag.dto';
 import { CountUnreadInboxResponseDto } from '../dto/count-unread-inbox.dto';
-import { InboxSentResponseDto, InboxSentQueryDto } from '../dto/naskah_sirkulasi/inbox-sent.dto';
+import {
+  InboxSentResponseDto,
+  InboxSentQueryDto,
+} from '../dto/naskah_sirkulasi/inbox-sent.dto';
 import { NaskahSirkulasi } from '../entities/naskah_sirkulasi.entity';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators';
@@ -48,7 +51,7 @@ import { CurrentUser } from '../../../common/decorators';
 export class NaskahSirkulasiController {
   constructor(
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
-  ) { }
+  ) {}
 
   // ============================================================
   // GLOBAL: Update Read Status (harus di atas route :id)
@@ -195,9 +198,7 @@ export class NaskahSirkulasiController {
    */
   @UseGuards(JwtAuthGuard)
   @Get('tertunda-count')
-  async countTertunda(
-    @CurrentUser() user: any,
-  ): Promise<{ total: number }> {
+  async countTertunda(@CurrentUser() user: any): Promise<{ total: number }> {
     const positionId = user.position;
     return this.naskahSirkulasiService.countTertunda(positionId);
   }
@@ -297,15 +298,13 @@ export class NaskahSirkulasiController {
    * @example
    * Toggle: PATCH /naskah_sirkulasi/toggle-flag
    * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit" }
-   * 
+   *
    * Delete: PATCH /naskah_sirkulasi/toggle-flag
    * Body: { "id_sirkulasi": "uuid-xxx", "flag_type": "favorit", "action": "delete" }
    */
   @Patch('toggle-flag')
   @HttpCode(HttpStatus.OK)
-  async toggleFlag(
-    @Body() dto: ToggleFlagDto,
-  ): Promise<ToggleFlagResponseDto> {
+  async toggleFlag(@Body() dto: ToggleFlagDto): Promise<ToggleFlagResponseDto> {
     return this.naskahSirkulasiService.toggleFlag(
       dto.id_sirkulasi,
       dto.flag_type,
@@ -330,7 +329,7 @@ export class NaskahSirkulasiController {
    *
    * @example
    * POST /naskah_sirkulasi/sent/bulk-action
-   * Body: { 
+   * Body: {
    *   "position_id": 123,
    *   "naskah_ids": ["uuid-1", "uuid-2", "uuid-3"],
    *   "action": "archive" | "delete"

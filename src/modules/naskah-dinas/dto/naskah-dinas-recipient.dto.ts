@@ -50,7 +50,7 @@ export class EksternalSenderDto {
 
 /**
  * Response DTO for Naskah Dinas get-recipient
- * 
+ *
  * Menampilkan daftar recipients (penerima) dari org_data
  * - recipients: dari org_data (positionId internal) dengan chief=1
  */

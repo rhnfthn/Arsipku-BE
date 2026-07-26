@@ -16,7 +16,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
-import { TemplateListResponseDto, TemplateItemResponseDto, TemplateActionResponseDto } from '../dto/template-response.dto';
+import {
+  TemplateListResponseDto,
+  TemplateItemResponseDto,
+  TemplateActionResponseDto,
+} from '../dto/template-response.dto';
 import { RequirePermission } from '../../../common/decorators';
 
 @Controller('templates')
@@ -48,12 +52,17 @@ export class TemplateController {
       const mapped = await this.templateService.toDto(created);
       return { success: true, data: mapped };
     } catch (err) {
-      throw new HttpException({ success: false, message: err.message }, HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        { success: false, message: err.message },
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
   @Get()
-  async findAll(@Query('nama_template') nama_template?: string): Promise<TemplateListResponseDto> {
+  async findAll(
+    @Query('nama_template') nama_template?: string,
+  ): Promise<TemplateListResponseDto> {
     const list = await this.templateService.findAll(nama_template);
     const mapped = await this.templateService.toDtoList(list);
     return { success: true, total: mapped.length, data: mapped };

@@ -102,9 +102,7 @@ export class OrganizationController {
    */
   @Post()
   @RequirePermission('master-data', 'create')
-  create(
-    @Body() data: CreateOrganizationDto,
-  ) {
+  create(@Body() data: CreateOrganizationDto) {
     return this.organizationService.create(data);
   }
 
@@ -114,10 +112,7 @@ export class OrganizationController {
    */
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  update(
-    @Param('id') id: string,
-    @Body() data: UpdateOrganizationDto,
-  ) {
+  update(@Param('id') id: string, @Body() data: UpdateOrganizationDto) {
     return this.organizationService.update(id, data);
   }
 

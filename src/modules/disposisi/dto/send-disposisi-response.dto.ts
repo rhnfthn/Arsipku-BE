@@ -52,4 +52,3 @@ export class SendDisposisiErrorDto {
   message: string;
   errors?: string[];
 }
-

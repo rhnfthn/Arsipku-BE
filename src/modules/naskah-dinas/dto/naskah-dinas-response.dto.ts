@@ -1,4 +1,7 @@
-import { EksternalSenderDto, NdOrgDataPositionDto } from './naskah-dinas-recipient.dto';
+import {
+  EksternalSenderDto,
+  NdOrgDataPositionDto,
+} from './naskah-dinas-recipient.dto';
 
 /**
  * Info pengirim eksternal

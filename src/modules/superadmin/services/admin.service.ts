@@ -1,12 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { UserRoleEntity, UserRole } from '../entities/user-role.entity';
-import { UserRoleHistoryEntity, RoleAction } from '../entities/user-role-history.entity';
+import {
+  UserRoleHistoryEntity,
+  RoleAction,
+} from '../entities/user-role-history.entity';
 import { Person } from '../../master-data/person/entities/person.entity';
-import { SearchUsersDto, SearchUsersResponseDto, UserListItemDto } from '../dto/search-users.dto';
-import { AssignRoleDto, AssignRoleResponseDto, UpdateRoleResponseDto } from '../dto/assign-role.dto';
+import {
+  SearchUsersDto,
+  SearchUsersResponseDto,
+  UserListItemDto,
+} from '../dto/search-users.dto';
+import {
+  AssignRoleDto,
+  AssignRoleResponseDto,
+  UpdateRoleResponseDto,
+} from '../dto/assign-role.dto';
 import { RemoveRoleResponseDto } from '../dto/remove-role.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
@@ -34,7 +49,9 @@ export class AdminService {
     let persons: Person[] = [];
     if (query.search) {
       const searchTerm = `%${query.search}%`;
-      const persnumSearch = isNaN(Number(query.search)) ? null : Number(query.search);
+      const persnumSearch = isNaN(Number(query.search))
+        ? null
+        : Number(query.search);
 
       persons = await this.personRepo.find({
         where: persnumSearch
@@ -56,14 +73,21 @@ export class AdminService {
         order: { createdAt: 'DESC' },
       });
 
-      const persnums = allUserRoles.map((u) => u.persnum).filter((p): p is number => p != null);
+      const persnums = allUserRoles
+        .map((u) => u.persnum)
+        .filter((p): p is number => p != null);
       if (persnums.length === 0) {
         return {
           success: true,
           message: 'Berhasil mengambil data pengguna',
           data: {
             users: [],
-            summary: { total: 0, total_admin: 0, total_superadmin: 0, total_regular_users: 0 },
+            summary: {
+              total: 0,
+              total_admin: 0,
+              total_superadmin: 0,
+              total_regular_users: 0,
+            },
           },
         };
       }
@@ -79,13 +103,20 @@ export class AdminService {
         message: 'Berhasil mengambil data pengguna',
         data: {
           users: [],
-          summary: { total: 0, total_admin: 0, total_superadmin: 0, total_regular_users: 0 },
+          summary: {
+            total: 0,
+            total_admin: 0,
+            total_superadmin: 0,
+            total_regular_users: 0,
+          },
         },
       };
     }
 
     // Step 2: bulk fetch roles untuk semua persnum
-    const persnums = persons.map((p) => p.persnum).filter((p): p is number => p != null);
+    const persnums = persons
+      .map((p) => p.persnum)
+      .filter((p): p is number => p != null);
     const userRoles = await this.userRoleRepo.find({
       where: { persnum: In(persnums) },
     });
@@ -93,10 +124,13 @@ export class AdminService {
 
     // Step 3: build position info Map dari position_json sekali (no N+1)
     const orgData = await this.orgDataService.findLatestOrg();
-    const positionInfoMap = new Map<number, { bodTag: string | null; positionText: string | null }>();
+    const positionInfoMap = new Map<
+      number,
+      { bodTag: string | null; positionText: string | null }
+    >();
     if (orgData?.position_json && Array.isArray(orgData.position_json)) {
       const persnumSet = new Set(persnums);
-      for (const pos of orgData.position_json as any[]) {
+      for (const pos of orgData.position_json) {
         const pn = pos.persnum_person ?? pos.persnum;
         if (pn != null) {
           const pnNum = Number(pn);
@@ -137,7 +171,9 @@ export class AdminService {
     }
 
     const totalAdmin = users.filter((u) => u.role === UserRole.ADMIN).length;
-    const totalSuperadmin = users.filter((u) => u.role === UserRole.SUPERADMIN).length;
+    const totalSuperadmin = users.filter(
+      (u) => u.role === UserRole.SUPERADMIN,
+    ).length;
     const totalRegular = users.filter((u) => !u.role).length;
 
     return {
@@ -168,7 +204,9 @@ export class AdminService {
     });
 
     if (!person || !person.persnum) {
-      throw new NotFoundException(`User dengan persnum ${persnum} tidak ditemukan`);
+      throw new NotFoundException(
+        `User dengan persnum ${persnum} tidak ditemukan`,
+      );
     }
 
     // Get user role if exists
@@ -218,12 +256,16 @@ export class AdminService {
     });
 
     if (!person) {
-      throw new NotFoundException(`User dengan persnum ${persnum} tidak ditemukan`);
+      throw new NotFoundException(
+        `User dengan persnum ${persnum} tidak ditemukan`,
+      );
     }
 
     // Check if user is active
     if (person.endDate !== '9999-12-31') {
-      throw new BadRequestException(`User dengan persnum ${persnum} tidak aktif`);
+      throw new BadRequestException(
+        `User dengan persnum ${persnum} tidak aktif`,
+      );
     }
 
     // Fetch id_position from target user's org data
@@ -314,7 +356,9 @@ export class AdminService {
     });
 
     if (!userRole) {
-      throw new NotFoundException(`User dengan persnum ${persnum} tidak memiliki role untuk diubah`);
+      throw new NotFoundException(
+        `User dengan persnum ${persnum} tidak memiliki role untuk diubah`,
+      );
     }
 
     const previousRole = userRole.role;
@@ -369,7 +413,9 @@ export class AdminService {
     });
 
     if (!userRole) {
-      throw new NotFoundException(`User dengan persnum ${persnum} tidak memiliki role admin/superadmin`);
+      throw new NotFoundException(
+        `User dengan persnum ${persnum} tidak memiliki role admin/superadmin`,
+      );
     }
 
     const previousRole = userRole.role;

@@ -1,9 +1,4 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  CreateDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
 
 @Entity('konsep_riwayat')
 export class KonsepRiwayatEntity {
@@ -19,7 +14,12 @@ export class KonsepRiwayatEntity {
   @Column({ type: 'int', name: 'from_position_id' })
   fromPositionId: number;
 
-  @Column({ type: 'varchar', length: 255, nullable: true, name: 'from_position_text' })
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'from_position_text',
+  })
   fromPositionText: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'from_nama' })
@@ -28,7 +28,12 @@ export class KonsepRiwayatEntity {
   @Column({ type: 'int', nullable: true, name: 'to_position_id' })
   toPositionId: number | null;
 
-  @Column({ type: 'varchar', length: 255, nullable: true, name: 'to_position_text' })
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'to_position_text',
+  })
   toPositionText: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'to_nama' })
@@ -36,14 +41,34 @@ export class KonsepRiwayatEntity {
 
   @Column({
     type: 'enum',
-    enum: ['create', 'forward', 'turunkan', 'approve', 'reject', 'revisi', 'finalize'],
+    enum: [
+      'create',
+      'forward',
+      'turunkan',
+      'approve',
+      'reject',
+      'revisi',
+      'finalize',
+    ],
   })
-  aksi: 'create' | 'forward' | 'turunkan' | 'approve' | 'reject' | 'revisi' | 'finalize';
+  aksi:
+    | 'create'
+    | 'forward'
+    | 'turunkan'
+    | 'approve'
+    | 'reject'
+    | 'revisi'
+    | 'finalize';
 
   @Column({ type: 'text', nullable: true })
   catatan: string | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true, name: 'pdf_snapshot' })
+  @Column({
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+    name: 'pdf_snapshot',
+  })
   pdfSnapshot: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })

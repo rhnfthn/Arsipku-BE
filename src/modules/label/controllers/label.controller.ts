@@ -125,7 +125,11 @@ export class LabelController {
     @Body() updateLabelDto: UpdateLabelDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<LabelEntity> {
-    return this.labelService.update(id, updateLabelDto, this.getPositionId(user));
+    return this.labelService.update(
+      id,
+      updateLabelDto,
+      this.getPositionId(user),
+    );
   }
 
   /**
@@ -183,5 +187,4 @@ export class LabelController {
   ): Promise<LabelEntity[]> {
     return this.labelService.getLabelsForNaskah(naskahId);
   }
-
 }

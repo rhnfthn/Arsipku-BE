@@ -1,4 +1,13 @@
-import { Controller, Post, Get, Body, Query, HttpStatus, HttpException, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  HttpStatus,
+  HttpException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { MailServiceService } from '../services';
 import { SendMailDto } from '../dto';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
@@ -43,10 +52,7 @@ export class MailServiceController {
    */
   @Post('send')
   @RequirePermission('naskah-dinas', 'send-email')
-  async sendMail(
-    @Body() dto: SendMailDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async sendMail(@Body() dto: SendMailDto, @CurrentUser() user: JwtPayload) {
     try {
       const result = await this.mailService.sendMail(dto, user.persnum, {
         sender_persnum: String(user.persnum),
@@ -93,10 +99,7 @@ export class MailServiceController {
    */
   @Post('draft')
   @RequirePermission('naskah-dinas', 'create')
-  async saveDraft(
-    @Body() dto: SendMailDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async saveDraft(@Body() dto: SendMailDto, @CurrentUser() user: JwtPayload) {
     try {
       const result = await this.mailService.saveDraft(dto, user.persnum, {
         sender_persnum: String(user.persnum),

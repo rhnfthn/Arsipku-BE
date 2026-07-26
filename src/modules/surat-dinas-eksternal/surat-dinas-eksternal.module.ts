@@ -50,4 +50,4 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
   providers: [SuratDinasEksternalService, NomorSuratService],
   exports: [SuratDinasEksternalService],
 })
-export class SuratDinasEksternalModule { }
+export class SuratDinasEksternalModule {}

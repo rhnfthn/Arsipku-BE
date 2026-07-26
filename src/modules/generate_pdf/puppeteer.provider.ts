@@ -6,7 +6,8 @@ let browser: puppeteer.Browser | undefined;
 
 // Try to find Chrome/Chromium executable across common OS paths
 function findChromeExecutable(): string | undefined {
-  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
+  const envPath =
+    process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
   if (envPath && existsSync(envPath)) {
     return envPath;
   }

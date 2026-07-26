@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsNumber } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsArray,
+  ValidateNested,
+  IsNumber,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /**
@@ -20,13 +28,13 @@ export class LampiranDto {
 
 /**
  * DTO untuk membuat konsep baru
- * 
+ *
  * Konsep dibuat oleh bawahan untuk dikirim ke atasan
  * Atasan bisa forward ke atasannya lagi (mirip disposisi tapi arah ke atas)
  */
 export class CreateKonsepDto {
   // ============ WAJIB ============
-  
+
   @IsNotEmpty()
   @IsEnum(['ND', 'SDI', 'SDE'])
   jenis: 'ND' | 'SDI' | 'SDE';
@@ -151,8 +159,11 @@ export class CreateKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })
@@ -165,8 +176,11 @@ export class CreateKonsepDto {
     if (!value) return undefined;
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
-      try { return JSON.parse(value); }
-      catch { return [value]; }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [value];
+      }
     }
     return value;
   })

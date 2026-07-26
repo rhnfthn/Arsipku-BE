@@ -6,10 +6,7 @@ import { TemplateController } from './controllers/template.controller';
 import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([TemplateEntity]),
-    StorageModule,
-  ],
+  imports: [TypeOrmModule.forFeature([TemplateEntity]), StorageModule],
   providers: [TemplateService],
   controllers: [TemplateController],
   exports: [TemplateService],

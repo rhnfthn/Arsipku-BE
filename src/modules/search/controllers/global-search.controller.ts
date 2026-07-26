@@ -7,15 +7,21 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { GlobalSearchService } from '../services/global-search.service';
-import { GlobalSearchDto, GlobalSearchResponseDto } from '../dto/global-search.dto';
-import { SearchSuggestionDto, SearchSuggestionResponseDto } from '../dto/search-suggestion.dto';
+import {
+  GlobalSearchDto,
+  GlobalSearchResponseDto,
+} from '../dto/global-search.dto';
+import {
+  SearchSuggestionDto,
+  SearchSuggestionResponseDto,
+} from '../dto/search-suggestion.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
  * Controller untuk Global Search
- * 
+ *
  * Endpoints:
  * - GET /search - Pencarian global dengan berbagai filter
  * - GET /search/suggestions - Autocomplete suggestions
@@ -28,9 +34,9 @@ export class GlobalSearchController {
 
   /**
    * GET /search
-   * 
+   *
    * Pencarian global seperti Gmail Advanced Search
-   * 
+   *
    * Query params:
    * - keyword: Pencarian global di semua field
    * - perihal: Pencarian di perihal/subject

@@ -51,7 +51,13 @@ export class CreateDisposisiDto {
   // Penerima - array of position_id
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima_position_ids: number[];
 
   // Tanggal Disposisi
@@ -64,7 +70,7 @@ export class CreateDisposisiDto {
   @IsEnum(SifatNaskah, { message: 'Sifat naskah tidak valid' })
   sifat: SifatNaskah;
 
-  // Ref. Nomor Surat 
+  // Ref. Nomor Surat
   // OPSIONAL: Kosong/"-" untuk disposisi pertama
   // WAJIB: Untuk disposisi lanjutan, otomatis terisi dari nomor naskah disposisi sebelumnya
   @IsOptional()
@@ -107,7 +113,7 @@ export class CreateDisposisiDto {
   disposisi?: string;
 
   // ============================================================
-  // CATATAN - Untuk checkbox "Lainnya" 
+  // CATATAN - Untuk checkbox "Lainnya"
   // Jika user klik checkbox "Lainnya", isi catatan masuk ke sini
   // Disimpan ke kolom "catatan" di tabel "di"
   // ============================================================
@@ -179,7 +185,9 @@ export class CreateDisposisiDto {
   is_priority?: boolean;
 
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()
@@ -196,4 +204,3 @@ export class CreateDisposisiDto {
   @IsString()
   actor_nama?: string;
 }
-

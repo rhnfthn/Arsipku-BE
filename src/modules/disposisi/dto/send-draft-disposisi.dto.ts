@@ -28,7 +28,13 @@ export class SendDraftDisposisiDto {
   @IsOptional()
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima_position_ids?: number[];
 
   // Tanggal Disposisi
@@ -134,7 +140,9 @@ export class SendDraftDisposisiDto {
   is_priority?: boolean;
 
   @IsOptional()
-  @IsEnum(SignOption, { message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah' })
+  @IsEnum(SignOption, {
+    message: 'sign_option harus salah satu: digsig, qr_only, atau ttd_basah',
+  })
   sign_option?: SignOption;
 
   @IsOptional()

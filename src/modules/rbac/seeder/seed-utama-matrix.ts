@@ -20,7 +20,13 @@ function buildDataSource(): DataSource {
     username: env.DB_USER || 'root',
     password: env.DB_PASS || '',
     database: env.DB_NAME || 'arsipku',
-    entities: [RoleEntity, ResourceEntity, PermissionEntity, RolePermissionEntity, RbacUserRoleEntity],
+    entities: [
+      RoleEntity,
+      ResourceEntity,
+      PermissionEntity,
+      RolePermissionEntity,
+      RbacUserRoleEntity,
+    ],
     synchronize: false,
     timezone: '+07:00',
   });
@@ -70,10 +76,14 @@ async function main() {
       permIdByName.set(permName, perm.id);
     }
   }
-  console.log(`✅ Utama matrix: ${utamaResources.length} resources + ${permIdByName.size} permissions upserted`);
+  console.log(
+    `✅ Utama matrix: ${utamaResources.length} resources + ${permIdByName.size} permissions upserted`,
+  );
 
   // 2. Assign all Utama permissions to SUPERADMIN (additive)
-  const superadmin = await roleRepo.findOne({ where: { name: RoleName.SUPERADMIN } });
+  const superadmin = await roleRepo.findOne({
+    where: { name: RoleName.SUPERADMIN },
+  });
   if (!superadmin) {
     console.warn('⚠️ Role SUPERADMIN not found');
     await dataSource.destroy();
@@ -96,7 +106,9 @@ async function main() {
   if (toAdd.length > 0) {
     await rpRepo.save(toAdd);
   }
-  console.log(`✅ ${toAdd.length} Utama permissions assigned to SUPERADMIN (existing ${existing.length})`);
+  console.log(
+    `✅ ${toAdd.length} Utama permissions assigned to SUPERADMIN (existing ${existing.length})`,
+  );
 
   await dataSource.destroy();
   console.log('🎉 Utama matrix seed complete');

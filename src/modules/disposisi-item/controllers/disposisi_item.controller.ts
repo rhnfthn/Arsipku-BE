@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Delete,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { DisposisiItemService } from '../services/disposisi_item.service';
 import { CreateDisposisiItemDto } from '../dto/disposisi_item/create_disposisi_item.dto';
 import { UpdateDisposisiItemDto } from '../dto/disposisi_item/update_disposisi_item.dto';
@@ -26,7 +35,10 @@ export class DisposisiItemController {
 
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  update(@Param('id') id: string, @Body() updateDisposisiItemDto: UpdateDisposisiItemDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDisposisiItemDto: UpdateDisposisiItemDto,
+  ) {
     return this.disposisiItemService.update(id, updateDisposisiItemDto);
   }
 

@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Put, Delete, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Delete,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { SubAreaAlamatService } from '../services/sub_area_alamat.service';
 import { CreateSubAreaAlamatDto } from '../dto/sub_area_alamat/create_sub_area_alamat.dto';
 import { UpdateSubAreaAlamatDto } from '../dto/sub_area_alamat/update_sub_area_alamat.dto';
@@ -35,7 +44,10 @@ export class SubAreaAlamatController {
 
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  update(@Param('id') id: string, @Body() updateSubAreaAlamatDto: UpdateSubAreaAlamatDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateSubAreaAlamatDto: UpdateSubAreaAlamatDto,
+  ) {
     return this.subAreaAlamatService.update(id, updateSubAreaAlamatDto);
   }
 

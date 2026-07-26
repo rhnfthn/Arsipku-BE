@@ -19,16 +19,17 @@ export class PermissionCacheService {
   private readonly CACHE_TTL_MS = 1_000; // 1 detik (safety net — invalidateAll sudah clear cache saat save)
   private readonly cache = new Map<
     number,
-    { permissions: { resource: string; actions: string[] }[]; expiresAt: number }
+    {
+      permissions: { resource: string; actions: string[] }[];
+      expiresAt: number;
+    }
   >();
 
   /**
    * Ambil permission dari cache jika masih valid.
    * Return null jika cache miss/expired.
    */
-  get(
-    persnum: number,
-  ): { resource: string; actions: string[] }[] | null {
+  get(persnum: number): { resource: string; actions: string[] }[] | null {
     const cached = this.cache.get(persnum);
     if (!cached) return null;
     if (cached.expiresAt <= Date.now()) {
@@ -64,7 +65,9 @@ export class PermissionCacheService {
    * Dipanggil setelah edit permission role (karena dampak ke banyak user).
    */
   invalidateAll(): void {
-    this.logger.log('Invalidating all permission cache (role permission changed)');
+    this.logger.log(
+      'Invalidating all permission cache (role permission changed)',
+    );
     this.cache.clear();
   }
 
@@ -81,7 +84,9 @@ export class PermissionCacheService {
       }
     }
     if (removed > 0) {
-      this.logger.debug(`Cleaned up ${removed} expired permission cache entries`);
+      this.logger.debug(
+        `Cleaned up ${removed} expired permission cache entries`,
+      );
     }
   }
 

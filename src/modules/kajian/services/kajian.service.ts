@@ -6,7 +6,13 @@ import {
 } from '@nestjs/common';
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, In, DataSource } from 'typeorm';
+import {
+  Repository,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  In,
+  DataSource,
+} from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
 import { RelationSp } from 'src/modules/master-data/relation_sp/entities/relation_sp.entity';
 import { RelationOsc } from 'src/modules/master-data/relation_osc/entities/relation_osc.entity';
@@ -121,7 +127,7 @@ export class KajianService {
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
-  ) { }
+  ) {}
 
   // ============================================================
   // ORG_DATA INTEGRATION
@@ -152,7 +158,7 @@ export class KajianService {
   /**
    * Filter recipients for Kajian:
    * Rules: Hanya ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama
-   * 
+   *
    * Logic:
    * 1. Get sender's sub_area
    * 2. Find parent organizations (atasan hierarchy)
@@ -236,8 +242,13 @@ export class KajianService {
     pengirimPositionId: number,
     penerimaPositionIds: number[],
   ): void {
-    const validRecipients = this.filterByPositionKA(barisData, pengirimPositionId);
-    const validPositionIds = new Set(validRecipients.map((r) => Number(r.position)));
+    const validRecipients = this.filterByPositionKA(
+      barisData,
+      pengirimPositionId,
+    );
+    const validPositionIds = new Set(
+      validRecipients.map((r) => Number(r.position)),
+    );
 
     const invalidRecipients: number[] = [];
     for (const penerimaId of penerimaPositionIds) {
@@ -249,7 +260,7 @@ export class KajianService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-        `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
+          `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
       );
     }
   }
@@ -299,7 +310,7 @@ export class KajianService {
     if (allLampiran.length === 0) {
       throw new NotFoundException(
         `Lampiran tidak ditemukan. IDs yang dicari: ${lampiranIds.join(', ')}. ` +
-        `Pastikan lampiran sudah diupload via POST /upload-temporary dan ID yang dikirim benar.`,
+          `Pastikan lampiran sudah diupload via POST /upload-temporary dan ID yang dikirim benar.`,
       );
     }
 
@@ -340,9 +351,14 @@ export class KajianService {
   /**
    * Get lampiran files with signed URLs for response
    */
-  private async getLampiranFilesWithUrls(
-    naskahId: string,
-  ): Promise<Array<{ id: string; fileName: string; filePath: string; fileUrl: string | null }>> {
+  private async getLampiranFilesWithUrls(naskahId: string): Promise<
+    Array<{
+      id: string;
+      fileName: string;
+      filePath: string;
+      fileUrl: string | null;
+    }>
+  > {
     const lampiranFiles = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
@@ -354,7 +370,10 @@ export class KajianService {
           try {
             fileUrl = await this.storageService.getFileUrl(l.file_pdf);
           } catch (e) {
-            console.error(`[KajianService] Failed to get URL for lampiran ${l.id}:`, e);
+            console.error(
+              `[KajianService] Failed to get URL for lampiran ${l.id}:`,
+              e,
+            );
           }
         }
         return {
@@ -669,10 +688,12 @@ export class KajianService {
    * Kajian (KA): Korespondensi dari fungsional/staf ke ATASAN saja
    * dalam Sub Area yang sama (atasan langsung/tidak langsung)
    * TIDAK BISA ke sesama rekan atau setingkat
-   * 
+   *
    * @param positionId - Position ID pengirim (dari org_data)
    */
-  async getKajianRecipients(positionId: number): Promise<KajianRecipientResponseDto> {
+  async getKajianRecipients(
+    positionId: number,
+  ): Promise<KajianRecipientResponseDto> {
     // Get cached position data from org_data
     const barisData = await this.getPositionData();
 
@@ -803,19 +824,28 @@ export class KajianService {
    * @param dto - DTO dengan data kajian termasuk sign_option dan passphrase
    * @param persnum - Persnum user untuk BSrE (optional, required for digsig)
    */
-  async sendMessage(dto: CreateKajianDto, persnum?: number): Promise<SendMessageResponseDto> {
+  async sendMessage(
+    dto: CreateKajianDto,
+    persnum?: number,
+  ): Promise<SendMessageResponseDto> {
     // ============================================================
     // VALIDATE SIGNING OPTIONS
     // ============================================================
-    console.log(`[KA] sendMessage called with sign_option: ${dto.sign_option}, persnum: ${persnum}`);
+    console.log(
+      `[KA] sendMessage called with sign_option: ${dto.sign_option}, persnum: ${persnum}`,
+    );
 
     // If sign_option is digsig, we must have persnum and passphrase
     if (dto.sign_option === SignOption.DIGSIG) {
       if (!persnum) {
-        throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        throw new BadRequestException(
+          'Persnum diperlukan untuk tanda tangan digital (digsig)',
+        );
       }
       if (!dto.passphrase) {
-        throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        throw new BadRequestException(
+          'Passphrase diperlukan untuk tanda tangan digital (digsig)',
+        );
       }
     }
 
@@ -837,14 +867,16 @@ export class KajianService {
    * OLD sendMessage implementation (kept for reference)
    * Replaced by createKaWithSigning
    */
-  private async sendMessageLegacy(dto: CreateKajianDto): Promise<SendMessageResponseDto> {
+  private async sendMessageLegacy(
+    dto: CreateKajianDto,
+  ): Promise<SendMessageResponseDto> {
     // Declare variables outside try block for access after transaction
     let naskahId: string = '';
     let generatedNomor: { nomor: string } = { nomor: '' };
     let tanggalStr: string = '';
     let pengirimData: PositionData | undefined;
-    let penerimaResponses: SirkulasiInfoDto[] = [];
-    let tembusanResponses: SirkulasiInfoDto[] = [];
+    const penerimaResponses: SirkulasiInfoDto[] = [];
+    const tembusanResponses: SirkulasiInfoDto[] = [];
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -865,7 +897,10 @@ export class KajianService {
       // PHASE 2: Validate all penerima (using new DTO field: penerima)
       const penerimaDataList: PositionData[] = [];
       for (const penerimaPositionId of dto.penerima) {
-        const penerimaDataItem = this.findByPosition(barisData, penerimaPositionId);
+        const penerimaDataItem = this.findByPosition(
+          barisData,
+          penerimaPositionId,
+        );
         if (!penerimaDataItem) {
           throw new NotFoundException(
             `Penerima dengan position_id ${penerimaPositionId} tidak ditemukan`,
@@ -927,7 +962,9 @@ export class KajianService {
         position: String(pengirimData.position),
         positionText: _pf.positionText,
         positionStatus: _pf.positionStatus.toLowerCase() as any,
-        idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
+        idSirkuler: pengirimData.persnum_person
+          ? String(pengirimData.persnum_person)
+          : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: false,
       });
@@ -950,7 +987,9 @@ export class KajianService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
         });
@@ -971,14 +1010,18 @@ export class KajianService {
               companyText: tembusanData.company_name || 'PERUM LPPNPI',
               area: tembusanData.area || '',
               areaText: tembusanData.area_text || '',
-              subArea: tembusanData.sub_area ? String(tembusanData.sub_area) : '',
+              subArea: tembusanData.sub_area
+                ? String(tembusanData.sub_area)
+                : '',
               subAreaText: tembusanData.sub_area_text || '',
               organization: String(tembusanData.organization_id),
               organizationText: tembusanData.organization_text,
               position: String(tembusanData.position),
               positionText: tembusanData.position_text,
               positionStatus: 'ybs',
-              idSirkuler: tembusanData.persnum_person ? String(tembusanData.persnum_person) : '',
+              idSirkuler: tembusanData.persnum_person
+                ? String(tembusanData.persnum_person)
+                : '',
               namaSirkuler: tembusanData.persnum_person_text || '',
               isDraft: false,
             });
@@ -991,7 +1034,7 @@ export class KajianService {
       await queryRunner.commitTransaction();
 
       // Sync to Meilisearch (non-blocking, after successful commit)
-      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => { });
+      this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -1023,30 +1066,36 @@ export class KajianService {
         {
           company: pengirimData?.company ?? undefined,
           area: pengirimData?.area ?? undefined,
-          subArea: pengirimData?.sub_area != null ? String(pengirimData.sub_area) : undefined,
+          subArea:
+            pengirimData?.sub_area != null
+              ? String(pengirimData.sub_area)
+              : undefined,
         },
         tanggalStr,
       );
 
-      const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirimData?.sub_area_text || 'Tangerang';
+      const dynamicNamaTempat =
+        headerInfo?.kota ||
+        dto.nama_tempat ||
+        pengirimData?.sub_area_text ||
+        'Tangerang';
 
       // Format tanggal for PDF
       const tanggalKajian = new Date(tanggalStr);
-      const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString('id-ID', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })}`;
+      const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString(
+        'id-ID',
+        {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        },
+      )}`;
 
       // Build tertuju (penerima) list
-      const tertujuList = penerimaResponses.map(
-        (p) => p.position_text,
-      );
+      const tertujuList = penerimaResponses.map((p) => p.position_text);
 
       // Build tembusan list
-      const tembusanList = tembusanResponses.map(
-        (t) => t.position_text,
-      );
+      const tembusanList = tembusanResponses.map((t) => t.position_text);
 
       // Generate PDF with nomor surat
       let pdfBuffer = await this.generatePdfKajianService.generatePdf({
@@ -1056,10 +1105,10 @@ export class KajianService {
         tertuju: tertujuList,
         tembusan: tembusanList,
         perihal: dto.perihal,
-        dari: pengirimData!.position_text,
+        dari: pengirimData.position_text,
         tanggal: formattedTanggal,
-        positionText: dto.nama_jabatan || pengirimData!.position_text,
-        namaLengkap: dto.nama_lengkap || pengirimData!.persnum_person_text || '',
+        positionText: dto.nama_jabatan || pengirimData.position_text,
+        namaLengkap: dto.nama_lengkap || pengirimData.persnum_person_text || '',
         nama_tempat: dynamicNamaTempat,
         headerKantor: headerInfo?.kantor,
         headerGedung: headerInfo?.gedung,
@@ -1068,9 +1117,14 @@ export class KajianService {
 
       // Merge with lampiran if any
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+        const lampiranFiles = await this.getTemporaryLampiranFiles(
+          dto.lampiran_temp_ids,
+        );
         if (lampiranFiles && lampiranFiles.length > 0) {
-          pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+          pdfBuffer = await this.mergePdfWithTemporaryFiles(
+            pdfBuffer,
+            lampiranFiles,
+          );
         }
       }
 
@@ -1109,7 +1163,7 @@ export class KajianService {
         tanggal: tanggalStr,
         status: 'final',
         perihal: dto.perihal,
-        pengirim: this.toSirkulasiInfo(pengirimData!),
+        pengirim: this.toSirkulasiInfo(pengirimData),
         penerima: penerimaResponses,
         tembusan: tembusanResponses,
         final_pdf: finalPdfPath || null,
@@ -1126,19 +1180,19 @@ export class KajianService {
   /**
    * Create Kajian dengan Signing Flow
    * Sama seperti SDI/SDE - support DIGSIG, QR_ONLY, dan NONE
-   * 
+   *
    * Flow untuk DIGSIG:
    * 1. Generate QR Code dengan signature_id dan verification_url
    * 2. Embed QR ke template PDF (generatePdf dengan qrCodeHtml)
    * 3. Hit BSrE API untuk digital signature
    * 4. Build signature metadata (formatSignatureData)
    * 5. Upload final PDF ke MinIO
-   * 
+   *
    * Flow untuk QR_ONLY:
    * 1. Generate QR Code sederhana (tanpa signature_id verification)
    * 2. Embed QR ke template PDF
    * 3. Upload final PDF ke MinIO (tanpa BSrE)
-   * 
+   *
    * Flow untuk NONE:
    * 1. Generate PDF biasa tanpa QR
    * 2. Upload final PDF ke MinIO
@@ -1148,7 +1202,9 @@ export class KajianService {
     status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
   ): Promise<SendMessageResponseDto> {
-    console.log(`[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`);
+    console.log(
+      `[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`,
+    );
     assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
     // Use provided date or today
@@ -1160,7 +1216,9 @@ export class KajianService {
     // PHASE 1: Validate pengirim
     const pengirim = this.findByPosition(barisData, dto.pengirim);
     if (!pengirim) {
-      throw new NotFoundException(`Pengirim dengan position_id ${dto.pengirim} tidak ditemukan`);
+      throw new NotFoundException(
+        `Pengirim dengan position_id ${dto.pengirim} tidak ditemukan`,
+      );
     }
 
     // PHASE 2: Validate all penerima
@@ -1168,7 +1226,9 @@ export class KajianService {
     for (const posId of dto.penerima) {
       const penerima = this.findByPosition(barisData, posId);
       if (!penerima) {
-        throw new NotFoundException(`Penerima dengan position_id ${posId} tidak ditemukan`);
+        throw new NotFoundException(
+          `Penerima dengan position_id ${posId} tidak ditemukan`,
+        );
       }
       penerimaList.push(penerima);
     }
@@ -1179,7 +1239,9 @@ export class KajianService {
       for (const posId of dto.tembusan) {
         const tembusan = this.findByPosition(barisData, posId);
         if (!tembusan) {
-          throw new NotFoundException(`Tembusan dengan position_id ${posId} tidak ditemukan`);
+          throw new NotFoundException(
+            `Tembusan dengan position_id ${posId} tidak ditemukan`,
+          );
         }
         tembusanList.push(tembusan);
       }
@@ -1241,7 +1303,9 @@ export class KajianService {
         position: String(pengirim.position),
         positionText: _pf.positionText,
         positionStatus: _pf.positionStatus.toLowerCase() as any,
-        idSirkuler: pengirim.persnum_person ? String(pengirim.persnum_person) : '',
+        idSirkuler: pengirim.persnum_person
+          ? String(pengirim.persnum_person)
+          : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: isPending,
       });
@@ -1266,7 +1330,9 @@ export class KajianService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: isPending,
         });
@@ -1276,15 +1342,28 @@ export class KajianService {
         // Queue notification to penerima (sent AFTER commit)
         if (!isPending) {
           const posId = String(penerima.position);
-          const persnum = penerima.persnum_person ? Number(penerima.persnum_person) : undefined;
+          const persnum = penerima.persnum_person
+            ? Number(penerima.persnum_person)
+            : undefined;
           const sirkId = penerimaSirkulasi.id;
           pendingNotifications.push(() =>
-            this.notificationService.createNaskahMasukNotification({
-              positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
-              jenis: 'KA', nomor: generatedNomor.nomor, perihal: dto.perihal,
-              pengirim: pengirim.persnum_person_text || pengirim.position_text,
-              pengirimPosition: pengirim.position_text, isTembusan: false,
-            }).catch(err => console.error('[KA] ❌ Notification failed:', err.message)),
+            this.notificationService
+              .createNaskahMasukNotification({
+                positionId: posId,
+                userPersnum: persnum,
+                naskahId,
+                sirkulasiId: sirkId,
+                jenis: 'KA',
+                nomor: generatedNomor.nomor,
+                perihal: dto.perihal,
+                pengirim:
+                  pengirim.persnum_person_text || pengirim.position_text,
+                pengirimPosition: pengirim.position_text,
+                isTembusan: false,
+              })
+              .catch((err) =>
+                console.error('[KA] ❌ Notification failed:', err.message),
+              ),
           );
         }
       }
@@ -1307,7 +1386,9 @@ export class KajianService {
           position: String(tembusan.position),
           positionText: tembusan.position_text,
           positionStatus: 'ybs',
-          idSirkuler: tembusan.persnum_person ? String(tembusan.persnum_person) : '',
+          idSirkuler: tembusan.persnum_person
+            ? String(tembusan.persnum_person)
+            : '',
           namaSirkuler: tembusan.persnum_person_text || '',
           isDraft: isPending,
         });
@@ -1317,15 +1398,31 @@ export class KajianService {
         // Queue notification to tembusan (sent AFTER commit)
         if (!isPending) {
           const posId = String(tembusan.position);
-          const persnum = tembusan.persnum_person ? Number(tembusan.persnum_person) : undefined;
+          const persnum = tembusan.persnum_person
+            ? Number(tembusan.persnum_person)
+            : undefined;
           const sirkId = tembusanSirkulasi.id;
           pendingNotifications.push(() =>
-            this.notificationService.createNaskahMasukNotification({
-              positionId: posId, userPersnum: persnum, naskahId, sirkulasiId: sirkId,
-              jenis: 'KA', nomor: generatedNomor.nomor, perihal: dto.perihal,
-              pengirim: pengirim.persnum_person_text || pengirim.position_text,
-              pengirimPosition: pengirim.position_text, isTembusan: true,
-            }).catch(err => console.error('[KA] ❌ Tembusan notification failed:', err.message)),
+            this.notificationService
+              .createNaskahMasukNotification({
+                positionId: posId,
+                userPersnum: persnum,
+                naskahId,
+                sirkulasiId: sirkId,
+                jenis: 'KA',
+                nomor: generatedNomor.nomor,
+                perihal: dto.perihal,
+                pengirim:
+                  pengirim.persnum_person_text || pengirim.position_text,
+                pengirimPosition: pengirim.position_text,
+                isTembusan: true,
+              })
+              .catch((err) =>
+                console.error(
+                  '[KA] ❌ Tembusan notification failed:',
+                  err.message,
+                ),
+              ),
           );
         }
       }
@@ -1333,8 +1430,10 @@ export class KajianService {
       // PHASE 7: Handle lampiran
       let lampiranFileNames: string[] = [];
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
-        lampiranFileNames = lampiranFiles.map(f => f.fileName);
+        const lampiranFiles = await this.getTemporaryLampiranFiles(
+          dto.lampiran_temp_ids,
+        );
+        lampiranFileNames = lampiranFiles.map((f) => f.fileName);
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
@@ -1350,30 +1449,38 @@ export class KajianService {
 
       // Prepare signing data BEFORE generating PDF (untuk embed QR di template)
       const signerName = dto.nama_lengkap || pengirim.persnum_person_text || '';
-      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim())
-        ? dto.nama_jabatan
-        : pengirim.position_text;
+      const signerJabatan =
+        dto.nama_jabatan && dto.nama_jabatan.trim()
+          ? dto.nama_jabatan
+          : pengirim.position_text;
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
 
-      console.log(`[KA] Phase 8 - Preparing signing, sign_option: ${dto.sign_option}, persnum: ${persnum}`);
+      console.log(
+        `[KA] Phase 8 - Preparing signing, sign_option: ${dto.sign_option}, persnum: ${persnum}`,
+      );
 
       // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
-      if ((dto.sign_option === SignOption.DIGSIG && persnum) || dto.sign_option === SignOption.QR_ONLY) {
+      if (
+        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        dto.sign_option === SignOption.QR_ONLY
+      ) {
         signedAt = new Date().toISOString();
         signatureId = generateSignatureId();
         verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
         const qrData: QRCodeData = {
-          signature_id: dto.sign_option === SignOption.DIGSIG ? signatureId : '',
+          signature_id:
+            dto.sign_option === SignOption.DIGSIG ? signatureId : '',
           document_number: generatedNomor.nomor,
           signed_at: signedAt,
           signer_name: signerName,
           signer_jabatan: signerJabatan,
           document_type: 'Kajian',
-          verification_url: dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
+          verification_url:
+            dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
         };
 
         // Generate QR Code sebagai base64 HTML untuk template
@@ -1389,19 +1496,27 @@ export class KajianService {
           {
             company: pengirim.company ?? undefined,
             area: pengirim.area ?? undefined,
-            subArea: pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
+            subArea:
+              pengirim.sub_area != null ? String(pengirim.sub_area) : undefined,
           },
           tanggal,
         );
 
-        const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
+        const dynamicNamaTempat =
+          headerInfo?.kota ||
+          dto.nama_tempat ||
+          pengirim.sub_area_text ||
+          'Tangerang';
 
         // Format tanggal for PDF
-        const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString('id-ID', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        })}`;
+        const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString(
+          'id-ID',
+          {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          },
+        )}`;
 
         // Build tertuju (penerima) list
         const tertujuList = penerimaList.map((p) => p.position_text);
@@ -1410,7 +1525,9 @@ export class KajianService {
         const tembusanTextList = tembusanList.map((t) => t.position_text);
 
         // Generate PDF dengan QR code di template (jika ada)
-        console.log(`[KA] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`);
+        console.log(
+          `[KA] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`,
+        );
         pdfBuffer = await this.generatePdfKajianService.generatePdf({
           htmlContent: dto.konten || '',
           nomor: generatedNomor.nomor,
@@ -1433,21 +1550,35 @@ export class KajianService {
 
         // Merge with lampiran if any
         if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-          const lampiranFiles = await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids);
+          const lampiranFiles = await this.getTemporaryLampiranFiles(
+            dto.lampiran_temp_ids,
+          );
           if (lampiranFiles && lampiranFiles.length > 0) {
-            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(
+              pdfBuffer,
+              lampiranFiles,
+            );
             console.log(`[KA] Lampiran merged successfully`);
           }
         }
 
         // PHASE 9: Process BSrE signing (jika digsig) - QR sudah di template
         if (dto.sign_option === SignOption.DIGSIG && persnum) {
-          console.log(`[KA] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`);
+          console.log(
+            `[KA] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
+          );
 
           // 9a. Fetch NIK dan no_wa dari HR API via DigsigService
-          console.log(`[KA] Step 9a - Fetching user data for persnum: ${persnum}`);
-          const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
-          console.log(`[KA] Step 9a - Got userData:`, { nik: userData.nik, no_wa: userData.no_wa });
+          console.log(
+            `[KA] Step 9a - Fetching user data for persnum: ${persnum}`,
+          );
+          const userData = await this.digsigService.getUserDataForBsre(
+            persnum.toString(),
+          );
+          console.log(`[KA] Step 9a - Got userData:`, {
+            nik: userData.nik,
+            no_wa: userData.no_wa,
+          });
 
           // 9b. Upload PDF (dengan QR) ke temp untuk BSrE signing
           console.log(`[KA] Step 9b - Uploading temp PDF for BSrE`);
@@ -1463,28 +1594,37 @@ export class KajianService {
 
           // 9c. Hit BSrE API untuk digital signature
           console.log(`[KA] Step 9c - Hitting BSrE API`);
-          const bsreResponse = await this.digsigService.hitDigsigEndpoint({
-            key: tempUpload.key,
-            filename: tempFileName,
-            nomorDokumen: generatedNomor.nomor,
-            tanggalDokumen: tanggal,
-            klasifikasi: dto.klasifikasi || 'Biasa',
-            jenisNaskah: 'Kajian',
-            perihal: dto.perihal,
-            nik: userData.nik,
-            passphrase: dto.passphrase!,
-            path_dokumen: 'kajian/digsig/',
-            no_wa: userData.no_wa,
-          }, {
-            userPersnum: persnum,
-            userName: signerName || 'User',
-            idNaskah: naskahId,
-            jenisNaskah: 'KA',
-          });
-          console.log(`[KA] Step 9c - BSrE response:`, JSON.stringify(bsreResponse, null, 2));
+          const bsreResponse = await this.digsigService.hitDigsigEndpoint(
+            {
+              key: tempUpload.key,
+              filename: tempFileName,
+              nomorDokumen: generatedNomor.nomor,
+              tanggalDokumen: tanggal,
+              klasifikasi: dto.klasifikasi || 'Biasa',
+              jenisNaskah: 'Kajian',
+              perihal: dto.perihal,
+              nik: userData.nik,
+              passphrase: dto.passphrase!,
+              path_dokumen: 'kajian/digsig/',
+              no_wa: userData.no_wa,
+            },
+            {
+              userPersnum: persnum,
+              userName: signerName || 'User',
+              idNaskah: naskahId,
+              jenisNaskah: 'KA',
+            },
+          );
+          console.log(
+            `[KA] Step 9c - BSrE response:`,
+            JSON.stringify(bsreResponse, null, 2),
+          );
 
           // 9d. Extract name_doc from BSrE response
-          bsreNameDoc = bsreResponse?.name_doc?.[0] || bsreResponse?.data?.name_doc?.[0] || null;
+          bsreNameDoc =
+            bsreResponse?.name_doc?.[0] ||
+            bsreResponse?.data?.name_doc?.[0] ||
+            null;
           console.log(`[KA] Step 9d - BSrE name_doc: ${bsreNameDoc}`);
 
           // 9e. Build signature metadata
@@ -1514,17 +1654,23 @@ export class KajianService {
             console.log(`[KA] Step 9g - Downloading signed PDF from digsig/`);
             const digsigPath = `kajian/digsig/${bsreNameDoc}`;
             try {
-              const signedPdfBuffer = await this.storageService.getFile(digsigPath);
-              console.log(`[KA] Step 9g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+              const signedPdfBuffer =
+                await this.storageService.getFile(digsigPath);
+              console.log(
+                `[KA] Step 9g - Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`,
+              );
               // Replace pdfBuffer with signed version
               pdfBuffer = signedPdfBuffer;
             } catch (e) {
-              console.warn(`[KA] Step 9g - Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+              console.warn(
+                `[KA] Step 9g - Failed to download signed PDF from digsig/, will use original: ${e.message}`,
+              );
             }
           }
-
         } else if (dto.sign_option === SignOption.QR_ONLY) {
-          console.log(`[KA] QR_ONLY mode - QR already in template, no BSrE signing needed`);
+          console.log(
+            `[KA] QR_ONLY mode - QR already in template, no BSrE signing needed`,
+          );
           // signatureMetadata tetap null
         }
         // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
@@ -1547,11 +1693,10 @@ export class KajianService {
           { id: naskahId },
           { final_pdf: finalPdfPath },
         );
-
       } catch (error) {
         console.error('[KA] Error during PDF generation/signing:', error);
         throw new BadRequestException(
-          `Gagal proses PDF/signing: ${error.message || 'Unknown error'}`
+          `Gagal proses PDF/signing: ${error.message || 'Unknown error'}`,
         );
       }
 
@@ -1581,14 +1726,15 @@ export class KajianService {
           penerima: penerimaResponses,
           tembusan: tembusanResponses,
           final_pdf: finalPdfPath || null,
-          final_pdf_url: finalPdfPath ? await this.storageService.getFileUrl(finalPdfPath) : null,
+          final_pdf_url: finalPdfPath
+            ? await this.storageService.getFileUrl(finalPdfPath)
+            : null,
           lampiran_files: lampiranResponses,
           // Additional fields untuk digsig
           sign_option: dto.sign_option,
           bsre_name_doc: bsreNameDoc,
         } as any,
       };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -1611,8 +1757,8 @@ export class KajianService {
     let naskahId: string = '';
     let tanggalStr: string = '';
     let pengirimData: PositionData | undefined;
-    let penerimaResponses: SirkulasiInfoDto[] = [];
-    let tembusanResponses: SirkulasiInfoDto[] = [];
+    const penerimaResponses: SirkulasiInfoDto[] = [];
+    const tembusanResponses: SirkulasiInfoDto[] = [];
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1632,7 +1778,10 @@ export class KajianService {
       // Validate penerima (using new DTO field: penerima)
       const penerimaDataList: PositionData[] = [];
       for (const penerimaPositionId of dto.penerima) {
-        const penerimaDataItem = this.findByPosition(barisData, penerimaPositionId);
+        const penerimaDataItem = this.findByPosition(
+          barisData,
+          penerimaPositionId,
+        );
         if (!penerimaDataItem) {
           throw new NotFoundException(
             `Penerima dengan position_id ${penerimaPositionId} tidak ditemukan`,
@@ -1684,7 +1833,9 @@ export class KajianService {
         position: String(pengirimData.position),
         positionText: _pf.positionText,
         positionStatus: _pf.positionStatus.toLowerCase() as any,
-        idSirkuler: pengirimData.persnum_person ? String(pengirimData.persnum_person) : '',
+        idSirkuler: pengirimData.persnum_person
+          ? String(pengirimData.persnum_person)
+          : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: true,
       });
@@ -1707,7 +1858,9 @@ export class KajianService {
           position: String(penerima.position),
           positionText: penerima.position_text,
           positionStatus: 'ybs',
-          idSirkuler: penerima.persnum_person ? String(penerima.persnum_person) : '',
+          idSirkuler: penerima.persnum_person
+            ? String(penerima.persnum_person)
+            : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true,
         });
@@ -1728,14 +1881,18 @@ export class KajianService {
               companyText: tembusanData.company_name || 'PERUM LPPNPI',
               area: tembusanData.area || '',
               areaText: tembusanData.area_text || '',
-              subArea: tembusanData.sub_area ? String(tembusanData.sub_area) : '',
+              subArea: tembusanData.sub_area
+                ? String(tembusanData.sub_area)
+                : '',
               subAreaText: tembusanData.sub_area_text || '',
               organization: String(tembusanData.organization_id),
               organizationText: tembusanData.organization_text,
               position: String(tembusanData.position),
               positionText: tembusanData.position_text,
               positionStatus: 'ybs',
-              idSirkuler: tembusanData.persnum_person ? String(tembusanData.persnum_person) : '',
+              idSirkuler: tembusanData.persnum_person
+                ? String(tembusanData.persnum_person)
+                : '',
               namaSirkuler: tembusanData.persnum_person_text || '',
               isDraft: true,
             });
@@ -1780,7 +1937,7 @@ export class KajianService {
         tanggal: tanggalStr,
         status: 'draf',
         perihal: dto.perihal,
-        pengirim: this.toSirkulasiInfo(pengirimData!),
+        pengirim: this.toSirkulasiInfo(pengirimData),
         penerima: penerimaResponses,
         tembusan: tembusanResponses,
         final_pdf: dto.final_pdf || null,
@@ -1851,7 +2008,9 @@ export class KajianService {
     const result: SendMessageItemDto[] = [];
 
     for (const naskah of naskahList) {
-      const pengirimInfo = pengirimSirkulasi.find((s) => s.idNaskah === naskah.id);
+      const pengirimInfo = pengirimSirkulasi.find(
+        (s) => s.idNaskah === naskah.id,
+      );
 
       // Get penerima list with read status
       const penerimaList = await this.naskahSirkulasiRepository.find({
@@ -1875,7 +2034,9 @@ export class KajianService {
       });
 
       const pengirim = {
-        persnum: pengirimInfo?.idSirkuler ? parseInt(pengirimInfo.idSirkuler) : 0,
+        persnum: pengirimInfo?.idSirkuler
+          ? parseInt(pengirimInfo.idSirkuler)
+          : 0,
         nama: pengirimInfo?.namaSirkuler || '',
         positionText: pengirimInfo?.positionText || '',
         organizationText: pengirimInfo?.organizationText || '',
@@ -1886,7 +2047,7 @@ export class KajianService {
         nama: p.namaSirkuler || '',
         organizationText: p.organizationText || '',
         positionText: p.positionText || '',
-        status: (p.sendReadTime ? 'dibaca' : 'belum_dibaca') as 'dibaca' | 'belum_dibaca',
+        status: p.sendReadTime ? 'dibaca' : 'belum_dibaca',
         readTime: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
 
@@ -1902,7 +2063,9 @@ export class KajianService {
           id: l.id,
           fileName: l.file_name || '',
           filePath: l.file_pdf || '',
-          fileUrl: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+          fileUrl: l.file_pdf
+            ? await this.storageService.getFileUrl(l.file_pdf)
+            : null,
         })),
       );
 
@@ -1915,7 +2078,10 @@ export class KajianService {
         id: naskah.id,
         jenis: naskah.jenis,
         nomor: naskah.nomor || '',
-        tanggal: naskah.tanggal instanceof Date ? naskah.tanggal.toISOString().split('T')[0] : String(naskah.tanggal),
+        tanggal:
+          naskah.tanggal instanceof Date
+            ? naskah.tanggal.toISOString().split('T')[0]
+            : String(naskah.tanggal),
         status: naskah.status as 'draf' | 'final' | 'final_tte',
         kop_logo: null,
         kop_nama: null,
@@ -1969,7 +2135,9 @@ export class KajianService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
@@ -1995,11 +2163,16 @@ export class KajianService {
     });
 
     if (!pengirimSirkulasi) {
-      throw new NotFoundException(`Data pengirim tidak ditemukan untuk naskah ${naskahId}`);
+      throw new NotFoundException(
+        `Data pengirim tidak ditemukan untuk naskah ${naskahId}`,
+      );
     }
 
     // If pengirim provided in dto, validate ownership
-    if (dto.pengirim && String(pengirimSirkulasi.position) !== String(dto.pengirim)) {
+    if (
+      dto.pengirim &&
+      String(pengirimSirkulasi.position) !== String(dto.pengirim)
+    ) {
       throw new ForbiddenException(
         `Anda tidak memiliki akses untuk mengupdate naskah ini. Hanya pengirim asli yang bisa mengupdate.`,
       );
@@ -2012,7 +2185,8 @@ export class KajianService {
 
     try {
       // Get pengirim data
-      const pengirimPosId = dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
+      const pengirimPosId =
+        dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
       const pengirimData = this.findByPosition(barisData, pengirimPosId);
 
       // Update naskah fields
@@ -2021,7 +2195,8 @@ export class KajianService {
       if (dto.perihal) naskah.perihal = dto.perihal;
       if (dto.konten !== undefined) naskah.konten = dto.konten;
       if (dto.klasifikasi !== undefined) naskah.klasifikasi = dto.klasifikasi;
-      if (dto.klasifikasi_text !== undefined) naskah.klasifikasi_text = dto.klasifikasi_text;
+      if (dto.klasifikasi_text !== undefined)
+        naskah.klasifikasi_text = dto.klasifikasi_text;
       if (dto.lampiran !== undefined) naskah.lampiran = dto.lampiran;
 
       await queryRunner.manager.save(naskah);
@@ -2056,7 +2231,9 @@ export class KajianService {
             position: String(penerimaData.position),
             positionText: penerimaData.position_text,
             positionStatus: 'ybs',
-            idSirkuler: penerimaData.persnum_person ? String(penerimaData.persnum_person) : '',
+            idSirkuler: penerimaData.persnum_person
+              ? String(penerimaData.persnum_person)
+              : '',
             namaSirkuler: penerimaData.persnum_person_text || '',
             isDraft: true,
           });
@@ -2090,7 +2267,9 @@ export class KajianService {
             position: String(tembusanData.position),
             positionText: tembusanData.position_text,
             positionStatus: 'ybs',
-            idSirkuler: tembusanData.persnum_person ? String(tembusanData.persnum_person) : '',
+            idSirkuler: tembusanData.persnum_person
+              ? String(tembusanData.persnum_person)
+              : '',
             namaSirkuler: tembusanData.persnum_person_text || '',
             isDraft: true,
           });
@@ -2135,9 +2314,15 @@ export class KajianService {
       where: { id_naskah: naskahId },
     });
 
-    const pengirimSirk = updatedSirkulasi.find((s) => s.sirkuler === 'pengirim');
-    const penerimaSirk = updatedSirkulasi.filter((s) => s.sirkuler === 'penerima');
-    const tembusanSirk = updatedSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+    const pengirimSirk = updatedSirkulasi.find(
+      (s) => s.sirkuler === 'pengirim',
+    );
+    const penerimaSirk = updatedSirkulasi.filter(
+      (s) => s.sirkuler === 'penerima',
+    );
+    const tembusanSirk = updatedSirkulasi.filter(
+      (s) => s.sirkuler === 'tembusan',
+    );
 
     const sirkulasiToResponse = (s: NaskahSirkulasi): SirkulasiInfoDto => ({
       position: parseInt(s.position || '0', 10),
@@ -2166,9 +2351,9 @@ export class KajianService {
     };
 
     const tanggalStr = updatedNaskah?.tanggal
-      ? (updatedNaskah.tanggal instanceof Date
+      ? updatedNaskah.tanggal instanceof Date
         ? updatedNaskah.tanggal.toISOString().split('T')[0]
-        : String(updatedNaskah.tanggal).split('T')[0])
+        : String(updatedNaskah.tanggal).split('T')[0]
       : '';
 
     // Get lampiran with signed URLs
@@ -2189,7 +2374,9 @@ export class KajianService {
         tanggal: tanggalStr,
         status: updatedNaskah?.status || 'draf',
         perihal: updatedNaskah?.perihal || '',
-        pengirim: pengirimSirk ? sirkulasiToResponse(pengirimSirk) : defaultPengirim,
+        pengirim: pengirimSirk
+          ? sirkulasiToResponse(pengirimSirk)
+          : defaultPengirim,
         penerima: penerimaSirk.map(sirkulasiToResponse),
         tembusan: tembusanSirk.map(sirkulasiToResponse),
         final_pdf: updatedNaskah?.final_pdf || null,
@@ -2216,7 +2403,9 @@ export class KajianService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
@@ -2240,7 +2429,8 @@ export class KajianService {
         throw new NotFoundException(`Data pengirim tidak ditemukan`);
       }
 
-      const pengirimPosId = dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
+      const pengirimPosId =
+        dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
       const pengirimData = this.findByPosition(barisData, pengirimPosId);
 
       // Update fields if provided
@@ -2249,15 +2439,19 @@ export class KajianService {
       if (dto.perihal) naskah.perihal = dto.perihal;
       if (dto.konten !== undefined) naskah.konten = dto.konten;
       if (dto.klasifikasi !== undefined) naskah.klasifikasi = dto.klasifikasi;
-      if (dto.klasifikasi_text !== undefined) naskah.klasifikasi_text = dto.klasifikasi_text;
+      if (dto.klasifikasi_text !== undefined)
+        naskah.klasifikasi_text = dto.klasifikasi_text;
       if (dto.lampiran !== undefined) naskah.lampiran = dto.lampiran;
 
       // Auto-generate nomor if empty
       if ((!naskah.nomor || naskah.nomor === '') && pengirimData) {
         // Ensure tanggal is a Date object for nomor generation
-        const tanggalDate = naskah.tanggal instanceof Date
-          ? naskah.tanggal
-          : (naskah.tanggal ? new Date(naskah.tanggal) : new Date());
+        const tanggalDate =
+          naskah.tanggal instanceof Date
+            ? naskah.tanggal
+            : naskah.tanggal
+              ? new Date(naskah.tanggal)
+              : new Date();
 
         const generatedNomor = await this.nomorSuratService.generateNomor({
           jenis: 'KA',
@@ -2301,7 +2495,9 @@ export class KajianService {
             position: String(penerimaData.position),
             positionText: penerimaData.position_text,
             positionStatus: 'ybs',
-            idSirkuler: penerimaData.persnum_person ? String(penerimaData.persnum_person) : '',
+            idSirkuler: penerimaData.persnum_person
+              ? String(penerimaData.persnum_person)
+              : '',
             namaSirkuler: penerimaData.persnum_person_text || '',
             isDraft: false,
           });
@@ -2351,9 +2547,15 @@ export class KajianService {
       where: { id_naskah: naskahId },
     });
 
-    const pengirimSirk = updatedSirkulasi.find((s) => s.sirkuler === 'pengirim');
-    const penerimaSirk = updatedSirkulasi.filter((s) => s.sirkuler === 'penerima');
-    const tembusanSirk = updatedSirkulasi.filter((s) => s.sirkuler === 'tembusan');
+    const pengirimSirk = updatedSirkulasi.find(
+      (s) => s.sirkuler === 'pengirim',
+    );
+    const penerimaSirk = updatedSirkulasi.filter(
+      (s) => s.sirkuler === 'penerima',
+    );
+    const tembusanSirk = updatedSirkulasi.filter(
+      (s) => s.sirkuler === 'tembusan',
+    );
 
     const sirkulasiToResponse = (s: NaskahSirkulasi): SirkulasiInfoDto => ({
       position: parseInt(s.position || '0', 10),
@@ -2382,9 +2584,9 @@ export class KajianService {
     };
 
     const tanggalStr = updatedNaskah?.tanggal
-      ? (updatedNaskah.tanggal instanceof Date
+      ? updatedNaskah.tanggal instanceof Date
         ? updatedNaskah.tanggal.toISOString().split('T')[0]
-        : String(updatedNaskah.tanggal).split('T')[0])
+        : String(updatedNaskah.tanggal).split('T')[0]
       : '';
 
     // Get lampiran with signed URLs
@@ -2405,7 +2607,9 @@ export class KajianService {
         tanggal: tanggalStr,
         status: 'final',
         perihal: updatedNaskah?.perihal || '',
-        pengirim: pengirimSirk ? sirkulasiToResponse(pengirimSirk) : defaultPengirim,
+        pengirim: pengirimSirk
+          ? sirkulasiToResponse(pengirimSirk)
+          : defaultPengirim,
         penerima: penerimaSirk.map(sirkulasiToResponse),
         tembusan: tembusanSirk.map(sirkulasiToResponse),
         final_pdf: updatedNaskah?.final_pdf || null,
@@ -2425,19 +2629,25 @@ export class KajianService {
   async getHeaderInfoByUser(
     user: { company?: string | number; area?: string; subArea?: string },
     tanggal?: string,
-  ): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+  ): Promise<{
+    kantor: string;
+    gedung: string;
+    alamat: string;
+    kota: string;
+  } | null> {
     try {
       const company = String(user.company || COMPANY_ID);
       const area = user.area || '';
       const subArea = user.subArea || '';
       const tgl = tanggal ? new Date(tanggal) : new Date();
 
-      const alamatInfo = await this.subAreaAlamatService.findAlamatByUserContext(
-        company,
-        area,
-        subArea,
-        tgl,
-      );
+      const alamatInfo =
+        await this.subAreaAlamatService.findAlamatByUserContext(
+          company,
+          area,
+          subArea,
+          tgl,
+        );
 
       return alamatInfo;
     } catch (error) {
@@ -2449,7 +2659,10 @@ export class KajianService {
   /**
    * Get person name by position ID from org_data
    */
-  async getPersonNameByPosition(positionId: number | string, tgl?: string): Promise<string> {
+  async getPersonNameByPosition(
+    positionId: number | string,
+    tgl?: string,
+  ): Promise<string> {
     try {
       const barisData = await this.getPositionData(tgl);
       const posData = this.findByPosition(barisData, Number(positionId));
@@ -2490,7 +2703,10 @@ export class KajianService {
    */
   async parseFormDataToDto(
     body: any,
-    files?: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
   ): Promise<CreateKajianDto> {
     // Upload final_pdf file jika ada
     let finalPdfPath: string | undefined;
@@ -2522,7 +2738,12 @@ export class KajianService {
       if (typeof value === 'string') {
         // Handle format {uuid} atau {"uuid"} - strip curly braces
         let cleanValue = value.trim();
-        if (cleanValue.startsWith('{') && cleanValue.endsWith('}') && !cleanValue.startsWith('{"') && !cleanValue.includes(':')) {
+        if (
+          cleanValue.startsWith('{') &&
+          cleanValue.endsWith('}') &&
+          !cleanValue.startsWith('{"') &&
+          !cleanValue.includes(':')
+        ) {
           // Format: {uuid} atau {"uuid"} - extract UUID
           cleanValue = cleanValue.slice(1, -1).replace(/"/g, '').trim();
           return [cleanValue];
@@ -2564,12 +2785,15 @@ export class KajianService {
       final_pdf: finalPdfPath || body.final_pdf || undefined,
       tgl: body.tgl || undefined,
       // Digital signature options
-      sign_option: body.sign_option as SignOption || undefined,
+      sign_option: (body.sign_option as SignOption) || undefined,
       passphrase: body.passphrase || undefined,
     };
 
     console.log('[KA parseFormDataToDto] sign_option:', dto.sign_option);
-    console.log('[KA parseFormDataToDto] passphrase:', dto.passphrase ? '****' : 'empty');
+    console.log(
+      '[KA parseFormDataToDto] passphrase:',
+      dto.passphrase ? '****' : 'empty',
+    );
 
     return dto;
   }
@@ -2601,7 +2825,12 @@ export class KajianService {
       if (typeof value === 'string') {
         // Handle format {uuid} atau {"uuid"} - strip curly braces
         let cleanValue = value.trim();
-        if (cleanValue.startsWith('{') && cleanValue.endsWith('}') && !cleanValue.startsWith('{"') && !cleanValue.includes(':')) {
+        if (
+          cleanValue.startsWith('{') &&
+          cleanValue.endsWith('}') &&
+          !cleanValue.startsWith('{"') &&
+          !cleanValue.includes(':')
+        ) {
           // Format: {uuid} atau {"uuid"} - extract UUID
           cleanValue = cleanValue.slice(1, -1).replace(/"/g, '').trim();
           return [cleanValue];
@@ -2634,13 +2863,15 @@ export class KajianService {
     if (body.sifat) dto.sifat = body.sifat;
     if (body.perihal) dto.perihal = body.perihal;
     if (body.konten) dto.konten = body.konten;
-    if (body.english !== undefined) dto.english = body.english === 'true' || body.english === true;
+    if (body.english !== undefined)
+      dto.english = body.english === 'true' || body.english === true;
     if (body.nama_tempat) dto.nama_tempat = body.nama_tempat;
     if (body.nama_jabatan) dto.nama_jabatan = body.nama_jabatan;
     if (body.tanda_tangan) dto.tanda_tangan = body.tanda_tangan;
     if (body.nama_lengkap) dto.nama_lengkap = body.nama_lengkap;
     if (body.lampiran) dto.lampiran = body.lampiran;
-    if (body.lampiran_temp_ids) dto.lampiran_temp_ids = parseStringArray(body.lampiran_temp_ids);
+    if (body.lampiran_temp_ids)
+      dto.lampiran_temp_ids = parseStringArray(body.lampiran_temp_ids);
     if (body.tgl) dto.tgl = body.tgl;
 
     return dto;
@@ -2651,7 +2882,10 @@ export class KajianService {
    */
   async parseFormDataToFinalizeDraftDto(
     body: any,
-    files?: { lampiran_files?: Express.Multer.File[]; final_pdf?: Express.Multer.File[] },
+    files?: {
+      lampiran_files?: Express.Multer.File[];
+      final_pdf?: Express.Multer.File[];
+    },
   ): Promise<FinalizeDraftDto> {
     const parseArray = (value: any): number[] | undefined => {
       if (!value) return undefined;
@@ -2673,7 +2907,12 @@ export class KajianService {
       if (typeof value === 'string') {
         // Handle format {uuid} atau {"uuid"} - strip curly braces
         let cleanValue = value.trim();
-        if (cleanValue.startsWith('{') && cleanValue.endsWith('}') && !cleanValue.startsWith('{"') && !cleanValue.includes(':')) {
+        if (
+          cleanValue.startsWith('{') &&
+          cleanValue.endsWith('}') &&
+          !cleanValue.startsWith('{"') &&
+          !cleanValue.includes(':')
+        ) {
           // Format: {uuid} atau {"uuid"} - extract UUID
           cleanValue = cleanValue.slice(1, -1).replace(/"/g, '').trim();
           return [cleanValue];
@@ -2716,13 +2955,15 @@ export class KajianService {
     if (body.sifat) dto.sifat = body.sifat;
     if (body.perihal) dto.perihal = body.perihal;
     if (body.konten) dto.konten = body.konten;
-    if (body.english !== undefined) dto.english = body.english === 'true' || body.english === true;
+    if (body.english !== undefined)
+      dto.english = body.english === 'true' || body.english === true;
     if (body.nama_tempat) dto.nama_tempat = body.nama_tempat;
     if (body.nama_jabatan) dto.nama_jabatan = body.nama_jabatan;
     if (body.tanda_tangan) dto.tanda_tangan = body.tanda_tangan;
     if (body.nama_lengkap) dto.nama_lengkap = body.nama_lengkap;
     if (body.lampiran) dto.lampiran = body.lampiran;
-    if (body.lampiran_temp_ids) dto.lampiran_temp_ids = parseStringArray(body.lampiran_temp_ids);
+    if (body.lampiran_temp_ids)
+      dto.lampiran_temp_ids = parseStringArray(body.lampiran_temp_ids);
     if (body.tgl) dto.tgl = body.tgl;
     if (finalPdfPath) dto.final_pdf = finalPdfPath;
     else if (body.final_pdf) dto.final_pdf = body.final_pdf;
@@ -2731,8 +2972,14 @@ export class KajianService {
     if (body.sign_option) dto.sign_option = body.sign_option as SignOption;
     if (body.passphrase) dto.passphrase = body.passphrase;
 
-    console.log('[KA parseFormDataToFinalizeDraftDto] sign_option:', dto.sign_option);
-    console.log('[KA parseFormDataToFinalizeDraftDto] passphrase:', dto.passphrase ? '****' : 'empty');
+    console.log(
+      '[KA parseFormDataToFinalizeDraftDto] sign_option:',
+      dto.sign_option,
+    );
+    console.log(
+      '[KA parseFormDataToFinalizeDraftDto] passphrase:',
+      dto.passphrase ? '****' : 'empty',
+    );
 
     return dto;
   }
@@ -2748,7 +2995,9 @@ export class KajianService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.jenis !== 'KA') {
@@ -2790,7 +3039,9 @@ export class KajianService {
         subAreaText: penerima.subAreaText || '',
         areaText: penerima.areaText || '',
         status: penerima.sendReadTime ? 'dibaca' : 'belum_dibaca',
-        readTime: penerima.sendReadTime ? penerima.sendReadTime.toISOString() : null,
+        readTime: penerima.sendReadTime
+          ? penerima.sendReadTime.toISOString()
+          : null,
       })),
     );
 
@@ -2815,7 +3066,10 @@ export class KajianService {
           try {
             fileUrl = await this.storageService.getFileUrl(l.file_pdf);
           } catch (e) {
-            console.error(`[KajianService] Failed to get URL for lampiran ${l.id}:`, e);
+            console.error(
+              `[KajianService] Failed to get URL for lampiran ${l.id}:`,
+              e,
+            );
           }
         }
         return {
@@ -2853,7 +3107,9 @@ export class KajianService {
         konten: naskah.konten || null,
         pengirim: {
           id: pengirimSirkulasi?.id || '',
-          persnum: pengirimSirkulasi ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10) : 0,
+          persnum: pengirimSirkulasi
+            ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10)
+            : 0,
           nama: pengirimSirkulasi?.namaSirkuler || '',
           position_id: pengirimSirkulasi?.position || '',
           position_status: pengirimSirkulasi?.positionStatus || '',
@@ -2867,7 +3123,7 @@ export class KajianService {
         lampiran_files: lampiranInfoList,
         final_pdf: naskah.final_pdf || null,
         final_pdf_url: finalPdfUrl,
-        
+
         // Metadata
         created_at: pengirimSirkulasi?.createdAt || null,
         updated_at: pengirimSirkulasi?.updatedAt || null,
@@ -2895,12 +3151,17 @@ export class KajianService {
   /**
    * Get draft list by position
    */
-  async getDraftList(positionId: number, tgl?: string): Promise<GetSendMessageResponseDto> {
+  async getDraftList(
+    positionId: number,
+    tgl?: string,
+  ): Promise<GetSendMessageResponseDto> {
     const barisData = await this.getPositionData(tgl);
     const senderData = this.findByPosition(barisData, positionId);
 
     if (!senderData) {
-      throw new NotFoundException(`Position dengan ID ${positionId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Position dengan ID ${positionId} tidak ditemukan`,
+      );
     }
 
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.find({
@@ -2949,11 +3210,15 @@ export class KajianService {
             id: l.id,
             fileName: l.file_name || '',
             filePath: l.file_pdf || '',
-            fileUrl: l.file_pdf ? await this.storageService.getFileUrl(l.file_pdf) : null,
+            fileUrl: l.file_pdf
+              ? await this.storageService.getFileUrl(l.file_pdf)
+              : null,
           })),
         );
 
-        const pengirim = pengirimSirkulasi.find((s) => s.idNaskah === naskah.id);
+        const pengirim = pengirimSirkulasi.find(
+          (s) => s.idNaskah === naskah.id,
+        );
 
         // Generate final_pdf_url if final_pdf exists
         const finalPdfUrl = naskah.final_pdf
@@ -2964,7 +3229,10 @@ export class KajianService {
           id: naskah.id,
           jenis: naskah.jenis || 'KA',
           nomor: naskah.nomor || '',
-          tanggal: naskah.tanggal instanceof Date ? naskah.tanggal.toISOString().split('T')[0] : String(naskah.tanggal || ''),
+          tanggal:
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || ''),
           status: naskah.status as 'draf' | 'final' | 'final_tte',
           kop_logo: null,
           kop_nama: null,
@@ -2990,7 +3258,7 @@ export class KajianService {
             nama: p.namaSirkuler || '',
             organizationText: p.organizationText || '',
             positionText: p.positionText || '',
-            status: (p.sendReadTime ? 'dibaca' : 'belum_dibaca') as 'dibaca' | 'belum_dibaca',
+            status: p.sendReadTime ? 'dibaca' : 'belum_dibaca',
             readTime: p.sendReadTime ? p.sendReadTime.toISOString() : null,
           })),
           tembusan: tembusanList.map((t) => ({
@@ -3022,24 +3290,34 @@ export class KajianService {
   /**
    * Finalize draft (convert to final)
    * Support digital signature options (digsig, qr_only, none)
-   * 
+   *
    * @param naskahId - ID naskah draft
    * @param dto - FinalizeDraftDto dengan sign_option dan passphrase
    * @param persnum - Persnum user untuk BSrE (optional, required for digsig)
    */
-  async finalizeDraft(naskahId: string, dto: FinalizeDraftDto, persnum?: number): Promise<SendMessageResponseDto> {
-    console.log(`[KA] finalizeDraft called for naskah ${naskahId}, sign_option: ${dto.sign_option}, persnum: ${persnum}`);
+  async finalizeDraft(
+    naskahId: string,
+    dto: FinalizeDraftDto,
+    persnum?: number,
+  ): Promise<SendMessageResponseDto> {
+    console.log(
+      `[KA] finalizeDraft called for naskah ${naskahId}, sign_option: ${dto.sign_option}, persnum: ${persnum}`,
+    );
 
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan id ${naskahId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
     }
 
     if (naskah.status !== 'draf') {
-      throw new BadRequestException(`Naskah bukan draft, tidak bisa di-finalize`);
+      throw new BadRequestException(
+        `Naskah bukan draft, tidak bisa di-finalize`,
+      );
     }
 
     if (naskah.jenis !== 'KA') {
@@ -3051,10 +3329,14 @@ export class KajianService {
     // Validate signing options
     if (dto.sign_option === SignOption.DIGSIG) {
       if (!persnum) {
-        throw new BadRequestException('Persnum diperlukan untuk tanda tangan digital (digsig)');
+        throw new BadRequestException(
+          'Persnum diperlukan untuk tanda tangan digital (digsig)',
+        );
       }
       if (!dto.passphrase) {
-        throw new BadRequestException('Passphrase diperlukan untuk tanda tangan digital (digsig)');
+        throw new BadRequestException(
+          'Passphrase diperlukan untuk tanda tangan digital (digsig)',
+        );
       }
     }
 
@@ -3071,7 +3353,13 @@ export class KajianService {
       where: { idNaskah: naskahId, sirkuler: 'tembusan' },
     });
 
-    const tanggalStr = dto.tgl || (naskah.tanggal ? (naskah.tanggal instanceof Date ? naskah.tanggal.toISOString().split('T')[0] : String(naskah.tanggal).split('T')[0]) : new Date().toISOString().split('T')[0]);
+    const tanggalStr =
+      dto.tgl ||
+      (naskah.tanggal
+        ? naskah.tanggal instanceof Date
+          ? naskah.tanggal.toISOString().split('T')[0]
+          : String(naskah.tanggal).split('T')[0]
+        : new Date().toISOString().split('T')[0]);
     const barisData = await this.getPositionData(tanggalStr);
     const pengirimData = this.findByPosition(
       barisData,
@@ -3144,7 +3432,10 @@ export class KajianService {
             'kajian/lampiran',
           );
         } catch (moveError: any) {
-          console.error('Failed to move temporary lampiran in finalizeDraft:', moveError?.message || moveError);
+          console.error(
+            'Failed to move temporary lampiran in finalizeDraft:',
+            moveError?.message || moveError,
+          );
         }
       }
 
@@ -3158,34 +3449,55 @@ export class KajianService {
         {
           company: pengirimData?.company ?? undefined,
           area: pengirimData?.area ?? undefined,
-          subArea: pengirimData?.sub_area != null ? String(pengirimData.sub_area) : undefined,
+          subArea:
+            pengirimData?.sub_area != null
+              ? String(pengirimData.sub_area)
+              : undefined,
         },
         tanggalStr,
       );
 
-      const dynamicNamaTempat = headerInfo?.kota || dto.nama_tempat || pengirimData?.sub_area_text || 'Tangerang';
+      const dynamicNamaTempat =
+        headerInfo?.kota ||
+        dto.nama_tempat ||
+        pengirimData?.sub_area_text ||
+        'Tangerang';
 
       // Format tanggal for PDF
       const tanggalKajian = new Date(tanggalStr);
-      const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString('id-ID', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })}`;
+      const formattedTanggal = `${dynamicNamaTempat}, ${tanggalKajian.toLocaleDateString(
+        'id-ID',
+        {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        },
+      )}`;
 
       // Build tertuju (penerima) list - filter out null values
-      const tertujuList = penerimaSirkulasiList.map((p) => p.positionText || '').filter(Boolean);
+      const tertujuList = penerimaSirkulasiList
+        .map((p) => p.positionText || '')
+        .filter(Boolean);
 
       // Build tembusan list - filter out null values
-      const tembusanList = tembusanSirkulasiList.map((t) => t.positionText || '').filter(Boolean);
+      const tembusanList = tembusanSirkulasiList
+        .map((t) => t.positionText || '')
+        .filter(Boolean);
 
       // Determine konten and perihal for PDF
       const kontenForPdf = dto.konten || naskah.konten || '';
       const perihalForPdf = dto.perihal || naskah.perihal || '';
-      const signerJabatan = (dto.nama_jabatan && dto.nama_jabatan.trim())
-        ? dto.nama_jabatan
-        : (pengirimData?.position_text || pengirimSirkulasi?.positionText || '');
-      const signerName = dto.nama_lengkap || pengirimData?.persnum_person_text || pengirimSirkulasi?.namaSirkuler || '';
+      const signerJabatan =
+        dto.nama_jabatan && dto.nama_jabatan.trim()
+          ? dto.nama_jabatan
+          : pengirimData?.position_text ||
+            pengirimSirkulasi?.positionText ||
+            '';
+      const signerName =
+        dto.nama_lengkap ||
+        pengirimData?.persnum_person_text ||
+        pengirimSirkulasi?.namaSirkuler ||
+        '';
       const dariForPdf = pengirimData
         ? pengirimData.position_text
         : pengirimSirkulasi?.positionText || '';
@@ -3196,22 +3508,29 @@ export class KajianService {
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
 
-      console.log(`[KA finalizeDraft] Preparing signing, sign_option: ${dto.sign_option}`);
+      console.log(
+        `[KA finalizeDraft] Preparing signing, sign_option: ${dto.sign_option}`,
+      );
 
       // Pre-generate QR code untuk digsig atau qr_only
-      if ((dto.sign_option === SignOption.DIGSIG && persnum) || dto.sign_option === SignOption.QR_ONLY) {
+      if (
+        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        dto.sign_option === SignOption.QR_ONLY
+      ) {
         signedAt = new Date().toISOString();
         signatureId = generateSignatureId();
         verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
         const qrData: QRCodeData = {
-          signature_id: dto.sign_option === SignOption.DIGSIG ? signatureId : '',
+          signature_id:
+            dto.sign_option === SignOption.DIGSIG ? signatureId : '',
           document_number: naskah.nomor || '',
           signed_at: signedAt,
           signer_name: signerName,
           signer_jabatan: signerJabatan,
           document_type: 'Kajian',
-          verification_url: dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
+          verification_url:
+            dto.sign_option === SignOption.DIGSIG ? verificationUrl : undefined,
         };
 
         console.log(`[KA finalizeDraft] Generating QR Code HTML for template`);
@@ -3221,7 +3540,9 @@ export class KajianService {
       }
 
       // Generate PDF with QR code di template (jika ada)
-      console.log(`[KA finalizeDraft] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`);
+      console.log(
+        `[KA finalizeDraft] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`,
+      );
       let pdfBuffer = await this.generatePdfKajianService.generatePdf({
         html: kontenForPdf,
         htmlContent: kontenForPdf,
@@ -3248,27 +3569,39 @@ export class KajianService {
 
       if (existingLampiran && existingLampiran.length > 0) {
         const lampiranFiles = existingLampiran
-          .filter(l => l.file_pdf && l.file_pdf.trim() !== '')
-          .map(l => ({
-            filePath: l.file_pdf!,
+          .filter((l) => l.file_pdf && l.file_pdf.trim() !== '')
+          .map((l) => ({
+            filePath: l.file_pdf,
             fileType: 'application/pdf',
             fileName: l.file_name || '',
           }));
 
         if (lampiranFiles.length > 0) {
-          pdfBuffer = await this.mergePdfWithLampiranFiles(pdfBuffer, lampiranFiles);
+          pdfBuffer = await this.mergePdfWithLampiranFiles(
+            pdfBuffer,
+            lampiranFiles,
+          );
           console.log(`[KA finalizeDraft] Lampiran merged successfully`);
         }
       }
 
       // Process BSrE signing (jika digsig)
       if (dto.sign_option === SignOption.DIGSIG && persnum) {
-        console.log(`[KA finalizeDraft] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`);
+        console.log(
+          `[KA finalizeDraft] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
+        );
 
         // Fetch NIK dan no_wa dari HR API via DigsigService
-        console.log(`[KA finalizeDraft] Fetching user data for persnum: ${persnum}`);
-        const userData = await this.digsigService.getUserDataForBsre(persnum.toString());
-        console.log(`[KA finalizeDraft] Got userData:`, { nik: userData.nik, no_wa: userData.no_wa });
+        console.log(
+          `[KA finalizeDraft] Fetching user data for persnum: ${persnum}`,
+        );
+        const userData = await this.digsigService.getUserDataForBsre(
+          persnum.toString(),
+        );
+        console.log(`[KA finalizeDraft] Got userData:`, {
+          nik: userData.nik,
+          no_wa: userData.no_wa,
+        });
 
         // Upload PDF (dengan QR) ke temp untuk BSrE signing
         console.log(`[KA finalizeDraft] Uploading temp PDF for BSrE`);
@@ -3284,35 +3617,46 @@ export class KajianService {
 
         // Hit BSrE API untuk digital signature
         console.log(`[KA finalizeDraft] Hitting BSrE API`);
-        const bsreResponse = await this.digsigService.hitDigsigEndpoint({
-          key: tempUpload.key,
-          filename: tempFileName,
-          nomorDokumen: naskah.nomor || '',
-          tanggalDokumen: tanggalStr,
-          klasifikasi: naskah.klasifikasi || 'Biasa',
-          jenisNaskah: 'Kajian',
-          perihal: perihalForPdf,
-          nik: userData.nik,
-          passphrase: dto.passphrase!,
-          path_dokumen: 'kajian/digsig/',
-          no_wa: userData.no_wa,
-        }, {
-          userPersnum: persnum,
-          userName: signerName || 'User',
-          idNaskah: naskahId,
-          jenisNaskah: 'KA',
-        });
-        console.log(`[KA finalizeDraft] BSrE response:`, JSON.stringify(bsreResponse, null, 2));
+        const bsreResponse = await this.digsigService.hitDigsigEndpoint(
+          {
+            key: tempUpload.key,
+            filename: tempFileName,
+            nomorDokumen: naskah.nomor || '',
+            tanggalDokumen: tanggalStr,
+            klasifikasi: naskah.klasifikasi || 'Biasa',
+            jenisNaskah: 'Kajian',
+            perihal: perihalForPdf,
+            nik: userData.nik,
+            passphrase: dto.passphrase!,
+            path_dokumen: 'kajian/digsig/',
+            no_wa: userData.no_wa,
+          },
+          {
+            userPersnum: persnum,
+            userName: signerName || 'User',
+            idNaskah: naskahId,
+            jenisNaskah: 'KA',
+          },
+        );
+        console.log(
+          `[KA finalizeDraft] BSrE response:`,
+          JSON.stringify(bsreResponse, null, 2),
+        );
 
         // Extract name_doc from BSrE response
-        bsreNameDoc = bsreResponse?.name_doc?.[0] || bsreResponse?.data?.name_doc?.[0] || null;
+        bsreNameDoc =
+          bsreResponse?.name_doc?.[0] ||
+          bsreResponse?.data?.name_doc?.[0] ||
+          null;
         console.log(`[KA finalizeDraft] BSrE name_doc: ${bsreNameDoc}`);
 
         // Cleanup temp file
         try {
           await this.storageService.deleteFile(tempUpload.key);
         } catch (e) {
-          console.warn(`[KA finalizeDraft] Failed to cleanup temp file: ${e.message}`);
+          console.warn(
+            `[KA finalizeDraft] Failed to cleanup temp file: ${e.message}`,
+          );
         }
 
         // Download signed PDF from digsig/ and upload to final/
@@ -3320,22 +3664,30 @@ export class KajianService {
           console.log(`[KA finalizeDraft] Downloading signed PDF from digsig/`);
           const digsigPath = `kajian/digsig/${bsreNameDoc}`;
           try {
-            const signedPdfBuffer = await this.storageService.getFile(digsigPath);
-            console.log(`[KA finalizeDraft] Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`);
+            const signedPdfBuffer =
+              await this.storageService.getFile(digsigPath);
+            console.log(
+              `[KA finalizeDraft] Signed PDF downloaded, size: ${signedPdfBuffer.length} bytes`,
+            );
             // Replace pdfBuffer with signed version
             pdfBuffer = signedPdfBuffer;
           } catch (e) {
-            console.warn(`[KA finalizeDraft] Failed to download signed PDF from digsig/, will use original: ${e.message}`);
+            console.warn(
+              `[KA finalizeDraft] Failed to download signed PDF from digsig/, will use original: ${e.message}`,
+            );
           }
         }
-
       } else if (dto.sign_option === SignOption.QR_ONLY) {
-        console.log(`[KA finalizeDraft] QR_ONLY mode - QR already in template, no BSrE signing needed`);
+        console.log(
+          `[KA finalizeDraft] QR_ONLY mode - QR already in template, no BSrE signing needed`,
+        );
       }
 
       // Upload final PDF to storage
       const timestamp = Date.now();
-      const nomorForFilename = naskah.nomor ? naskah.nomor.replace(/\//g, '-') : naskahId;
+      const nomorForFilename = naskah.nomor
+        ? naskah.nomor.replace(/\//g, '-')
+        : naskahId;
       const pdfFileName = `KA-${nomorForFilename}-${timestamp}.pdf`;
       const uploadResult = await this.storageService.uploadBuffer(
         pdfBuffer,
@@ -3414,7 +3766,6 @@ export class KajianService {
           bsre_name_doc: bsreNameDoc,
         } as any,
       };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -3437,7 +3788,12 @@ export class KajianService {
     tembusan: string[] = [],
     tgl?: string,
     nama_tempat?: string,
-    headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota: string;
+    },
     qrCodeHtml?: string,
   ): Promise<Buffer> {
     try {
@@ -3515,7 +3871,10 @@ export class KajianService {
           });
         }
       } catch (error) {
-        console.error(`[KajianService] Error getting lampiran ${lampiranId}:`, error);
+        console.error(
+          `[KajianService] Error getting lampiran ${lampiranId}:`,
+          error,
+        );
       }
     }
 
@@ -3533,13 +3892,19 @@ export class KajianService {
       const mergedPdf = await PDFDocument.create();
 
       const mainDoc = await PDFDocument.load(mainPdfBuffer);
-      const mainPages = await mergedPdf.copyPages(mainDoc, mainDoc.getPageIndices());
+      const mainPages = await mergedPdf.copyPages(
+        mainDoc,
+        mainDoc.getPageIndices(),
+      );
       mainPages.forEach((page) => mergedPdf.addPage(page));
 
       for (const file of lampiranFiles) {
         if (file.fileName.toLowerCase().endsWith('.pdf')) {
           const lampiranDoc = await PDFDocument.load(file.buffer);
-          const lampiranPages = await mergedPdf.copyPages(lampiranDoc, lampiranDoc.getPageIndices());
+          const lampiranPages = await mergedPdf.copyPages(
+            lampiranDoc,
+            lampiranDoc.getPageIndices(),
+          );
           lampiranPages.forEach((page) => mergedPdf.addPage(page));
         }
       }
@@ -3564,22 +3929,34 @@ export class KajianService {
 
       // Add main PDF pages
       const mainDoc = await PDFDocument.load(mainPdfBuffer);
-      const mainPages = await mergedPdf.copyPages(mainDoc, mainDoc.getPageIndices());
+      const mainPages = await mergedPdf.copyPages(
+        mainDoc,
+        mainDoc.getPageIndices(),
+      );
       mainPages.forEach((page) => mergedPdf.addPage(page));
 
       // Add lampiran files (only PDFs)
       for (const file of lampiranFiles) {
-        if (file.fileName.toLowerCase().endsWith('.pdf') || file.fileType === 'application/pdf') {
+        if (
+          file.fileName.toLowerCase().endsWith('.pdf') ||
+          file.fileType === 'application/pdf'
+        ) {
           try {
             // Fetch file from storage
             const fileBuffer = await this.storageService.getFile(file.filePath);
             if (fileBuffer) {
               const lampiranDoc = await PDFDocument.load(fileBuffer);
-              const lampiranPages = await mergedPdf.copyPages(lampiranDoc, lampiranDoc.getPageIndices());
+              const lampiranPages = await mergedPdf.copyPages(
+                lampiranDoc,
+                lampiranDoc.getPageIndices(),
+              );
               lampiranPages.forEach((page) => mergedPdf.addPage(page));
             }
           } catch (lampiranError) {
-            console.error(`[KajianService] Error loading lampiran ${file.fileName}:`, lampiranError);
+            console.error(
+              `[KajianService] Error loading lampiran ${file.fileName}:`,
+              lampiranError,
+            );
             // Continue with next lampiran
           }
         }
@@ -3608,7 +3985,12 @@ export class KajianService {
     lampiranData?: string[] | Express.Multer.File[],
     tgl?: string,
     nama_tempat?: string,
-    headerInfo?: { kantor: string; gedung: string; alamat: string; kota: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota: string;
+    },
   ): Promise<Buffer> {
     try {
       let pdfBuffer = await this.generatePlainPdf(
@@ -3629,9 +4011,14 @@ export class KajianService {
         const firstItem = lampiranData[0];
 
         if (typeof firstItem === 'string') {
-          const lampiranFiles = await this.getTemporaryLampiranFiles(lampiranData as string[]);
+          const lampiranFiles = await this.getTemporaryLampiranFiles(
+            lampiranData as string[],
+          );
           if (lampiranFiles && lampiranFiles.length > 0) {
-            pdfBuffer = await this.mergePdfWithTemporaryFiles(pdfBuffer, lampiranFiles);
+            pdfBuffer = await this.mergePdfWithTemporaryFiles(
+              pdfBuffer,
+              lampiranFiles,
+            );
           }
         }
       }

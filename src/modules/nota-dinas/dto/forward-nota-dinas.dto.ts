@@ -22,15 +22,15 @@ export enum JenisNaskahDinas {
 
 /**
  * DTO untuk Forward Nota Dinas / Surat Dinas
- * 
- * Digunakan ketika user yang sudah menerima naskah dinas (ND/SDI/SDE) 
+ *
+ * Digunakan ketika user yang sudah menerima naskah dinas (ND/SDI/SDE)
  * ingin meneruskan ke user lain.
- * 
+ *
  * Fitur khusus: Bisa mengubah jenis naskah saat forward
  * - ND → SDI / SDE
  * - SDI → ND / SDE
  * - SDE → ND / SDI
- * 
+ *
  * Flow:
  * 1. User A kirim ND ke User B
  * 2. User B terima ND, lalu forward sebagai SDI ke User C
@@ -50,7 +50,13 @@ export class ForwardNotaDinasDto {
   // Penerima - array of position_id (WAJIB)
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima: number[];
 
   // Tembusan (opsional)
