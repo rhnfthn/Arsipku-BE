@@ -69,6 +69,14 @@ export class PermissionGuard implements CanActivate {
   ];
   private readonly VIEW_ONLY_WRITE_ALLOW_EXACT = ['/delegasi/switch-role'];
 
+  /**
+   * SE (Sekretaris yang didelegasikan) diizinkan melakukan aksi tulis pada
+   * resource usulan-akses-berkas (membuat/memilih berkas). VI tetap read-only
+   * penuh. Ini adalah pengecualian khusus karena SE adalah aktor utama fitur
+   * usulan peminjaman berkas.
+   */
+  private readonly SE_WRITE_ALLOW_PREFIX = ['/usulan-akses-berkas'];
+
   private isAllowListedForViewer(path: string): boolean {
     const p = path.split('?')[0];
     if (this.VIEW_ONLY_WRITE_ALLOW_EXACT.includes(p)) return true;
@@ -88,6 +96,13 @@ export class PermissionGuard implements CanActivate {
     if (!req.method || !this.WRITE_METHODS.has(req.method)) return;
     if (allowedStatuses?.includes(ps)) return; // SE di-allow untuk route ini
     if (this.isAllowListedForViewer(req.url || '')) return;
+    // Pengecualian: SE (Sekretaris) boleh write ke /usulan-akses-berkas
+    if (ps === PositionStatus.SE) {
+      const p = (req.url || '').split('?')[0];
+      if (this.SE_WRITE_ALLOW_PREFIX.some((prefix) => p === prefix || p.startsWith(prefix + '/'))) {
+        return;
+      }
+    }
     throw new ForbiddenException(
       'Akses lihat saja (read-only): tidak dapat melakukan aksi tulis dalam delegasi ini.',
     );
