@@ -56,7 +56,10 @@ export class PenandatangananService {
       userPersnum: signer.persnum,
       type: NotificationType.DIGSIG_TANDA_TANGAN,
       title: 'Dokumen menunggu tanda tangan',
-      body: document.perihal || document.nomorDokumen || 'Ada dokumen yang perlu ditandatangani',
+      body:
+        document.perihal ||
+        document.nomorDokumen ||
+        'Ada dokumen yang perlu ditandatangani',
       data: {
         action: 'OPEN_DIGSIG_PENANDATANGANAN',
         requestId: document.id,
@@ -75,7 +78,9 @@ export class PenandatangananService {
     title: string,
     body: string,
   ) {
-    const userData = await this.orgDataService.findByPersnum(document.createdBy).catch(() => null);
+    const userData = await this.orgDataService
+      .findByPersnum(document.createdBy)
+      .catch(() => null);
     const positionId = userData?.position;
     if (!positionId) return;
 
@@ -111,7 +116,9 @@ export class PenandatangananService {
     // Build base query - find documents where user is a signer
     const queryBuilder = this.documentRepository
       .createQueryBuilder('doc')
-      .innerJoin('doc.signers', 'mySigner', 'mySigner.persnum = :persnum', { persnum })
+      .innerJoin('doc.signers', 'mySigner', 'mySigner.persnum = :persnum', {
+        persnum,
+      })
       .leftJoinAndSelect('doc.signers', 'allSigners')
       .orderBy('doc.createdAt', 'DESC')
       .addOrderBy('allSigners.urutan', 'ASC');
@@ -120,21 +127,32 @@ export class PenandatangananService {
     if (filter.status && filter.status !== 'all') {
       if (filter.status === 'pending') {
         // Documents where my signature is waiting
-        queryBuilder.andWhere('mySigner.status = :signerStatus', { signerStatus: 'waiting' });
-        queryBuilder.andWhere('doc.status = :docStatus', { docStatus: 'on_progress' });
-      } else if (filter.status === 'signed') {
-        queryBuilder.andWhere('mySigner.status = :signerStatus', { signerStatus: 'signed' });
-      } else if (filter.status === 'rejected') {
-        queryBuilder.andWhere('(mySigner.status = :signerStatus OR doc.status = :docStatus)', {
-          signerStatus: 'rejected',
-          docStatus: 'rejected',
+        queryBuilder.andWhere('mySigner.status = :signerStatus', {
+          signerStatus: 'waiting',
         });
+        queryBuilder.andWhere('doc.status = :docStatus', {
+          docStatus: 'on_progress',
+        });
+      } else if (filter.status === 'signed') {
+        queryBuilder.andWhere('mySigner.status = :signerStatus', {
+          signerStatus: 'signed',
+        });
+      } else if (filter.status === 'rejected') {
+        queryBuilder.andWhere(
+          '(mySigner.status = :signerStatus OR doc.status = :docStatus)',
+          {
+            signerStatus: 'rejected',
+            docStatus: 'rejected',
+          },
+        );
       }
     }
 
     // Filter by jenis naskah
     if (filter.jenisNaskah) {
-      queryBuilder.andWhere('doc.jenisNaskah = :jenisNaskah', { jenisNaskah: filter.jenisNaskah });
+      queryBuilder.andWhere('doc.jenisNaskah = :jenisNaskah', {
+        jenisNaskah: filter.jenisNaskah,
+      });
     }
 
     // Filter by date range
@@ -144,9 +162,13 @@ export class PenandatangananService {
         endDate: filter.endDate,
       });
     } else if (filter.startDate) {
-      queryBuilder.andWhere('doc.createdAt >= :startDate', { startDate: filter.startDate });
+      queryBuilder.andWhere('doc.createdAt >= :startDate', {
+        startDate: filter.startDate,
+      });
     } else if (filter.endDate) {
-      queryBuilder.andWhere('doc.createdAt <= :endDate', { endDate: filter.endDate });
+      queryBuilder.andWhere('doc.createdAt <= :endDate', {
+        endDate: filter.endDate,
+      });
     }
 
     // Search
@@ -177,7 +199,7 @@ export class PenandatangananService {
 
     // Transform to response
     const data = await Promise.all(
-      documents.map(doc => this.toSigningListItem(doc, persnum)),
+      documents.map((doc) => this.toSigningListItem(doc, persnum)),
     );
 
     return {
@@ -207,7 +229,9 @@ export class PenandatangananService {
     });
 
     if (!document) {
-      throw new NotFoundException(`Dokumen dengan ID ${documentId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Dokumen dengan ID ${documentId} tidak ditemukan`,
+      );
     }
 
     // Sort signers by urutan
@@ -216,7 +240,7 @@ export class PenandatangananService {
     }
 
     // Check if user is a signer
-    const mySigner = document.signers?.find(s => s.persnum === persnum);
+    const mySigner = document.signers?.find((s) => s.persnum === persnum);
     if (!mySigner) {
       throw new ForbiddenException('Anda tidak memiliki akses ke dokumen ini');
     }
@@ -235,17 +259,19 @@ export class PenandatangananService {
   ): Promise<SigningResultDto> {
     const persnum = computeEffectivePersnum(user);
     const userName = user.nama;
-    
+
     // Validasi NIK dari JWT payload
     const userData = this.digsigService.getUserDataFromJwt(user);
-    
+
     const document = await this.documentRepository.findOne({
       where: { id: documentId },
       relations: ['signers'],
     });
 
     if (!document) {
-      throw new NotFoundException(`Dokumen dengan ID ${documentId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Dokumen dengan ID ${documentId} tidak ditemukan`,
+      );
     }
 
     // Sort signers
@@ -254,9 +280,11 @@ export class PenandatangananService {
     }
 
     // Find signer
-    const signer = document.signers?.find(s => s.persnum === persnum);
+    const signer = document.signers?.find((s) => s.persnum === persnum);
     if (!signer) {
-      throw new ForbiddenException('Anda tidak terdaftar sebagai penandatangan dokumen ini');
+      throw new ForbiddenException(
+        'Anda tidak terdaftar sebagai penandatangan dokumen ini',
+      );
     }
 
     if (signer.status !== 'waiting') {
@@ -265,21 +293,26 @@ export class PenandatangananService {
       } else if (signer.status === 'rejected') {
         throw new BadRequestException('Dokumen ini sudah ditolak');
       } else {
-        throw new BadRequestException('Belum giliran Anda untuk menandatangani');
+        throw new BadRequestException(
+          'Belum giliran Anda untuk menandatangani',
+        );
       }
     }
 
     if (document.status !== 'on_progress') {
-      throw new BadRequestException(`Dokumen tidak dapat ditandatangani (status: ${document.status})`);
+      throw new BadRequestException(
+        `Dokumen tidak dapat ditandatangani (status: ${document.status})`,
+      );
     }
 
     // Safely convert tanggalDokumen to string (handle both Date and string)
     const tanggalRaw = document.tanggalDokumen as unknown;
-    const tanggalStr = tanggalRaw instanceof Date
-      ? tanggalRaw.toISOString().split('T')[0]
-      : typeof tanggalRaw === 'string'
-        ? tanggalRaw.split('T')[0]
-        : new Date(tanggalRaw as string | number).toISOString().split('T')[0];
+    const tanggalStr =
+      tanggalRaw instanceof Date
+        ? tanggalRaw.toISOString().split('T')[0]
+        : typeof tanggalRaw === 'string'
+          ? tanggalRaw.split('T')[0]
+          : new Date(tanggalRaw as string | number).toISOString().split('T')[0];
 
     try {
       // Hit BSrE API for signing
@@ -325,15 +358,18 @@ export class PenandatangananService {
         document.filePath = document.signedFilePath;
 
         try {
-          signedFilePreviewUrl = await this.storageService.getPreviewUrl(document.signedFilePath, 3600);
+          signedFilePreviewUrl = await this.storageService.getPreviewUrl(
+            document.signedFilePath,
+            3600,
+          );
         } catch (e) {
           // Ignore
         }
       }
 
       // Check if all signers have signed
-      const unsignedCount = document.signers!.filter(
-        s => s.status !== 'signed' && s.id !== signer.id,
+      const unsignedCount = document.signers.filter(
+        (s) => s.status !== 'signed' && s.id !== signer.id,
       ).length;
 
       if (unsignedCount === 0) {
@@ -344,12 +380,16 @@ export class PenandatangananService {
         document.currentSignerOrder = signer.urutan + 1;
 
         // Set next signer to waiting
-        const nextSigner = document.signers!.find(s => s.urutan === signer.urutan + 1);
+        const nextSigner = document.signers.find(
+          (s) => s.urutan === signer.urutan + 1,
+        );
         if (nextSigner) {
           nextSigner.status = 'waiting';
           await this.signerRepository.save(nextSigner);
           this.notifySigner(document, nextSigner).catch((err) =>
-            console.warn(`[Penandatanganan] Failed to send next signer notification: ${err?.message}`),
+            console.warn(
+              `[Penandatanganan] Failed to send next signer notification: ${err?.message}`,
+            ),
           );
         }
       }
@@ -361,9 +401,13 @@ export class PenandatangananService {
           document,
           NotificationType.DIGSIG_SELESAI,
           'Dokumen selesai ditandatangani',
-          document.perihal || document.nomorDokumen || 'Dokumen selesai ditandatangani',
+          document.perihal ||
+            document.nomorDokumen ||
+            'Dokumen selesai ditandatangani',
         ).catch((err) =>
-          console.warn(`[Penandatanganan] Failed to send completed notification: ${err?.message}`),
+          console.warn(
+            `[Penandatanganan] Failed to send completed notification: ${err?.message}`,
+          ),
         );
       }
 
@@ -393,7 +437,10 @@ export class PenandatangananService {
 
       throw new HttpException(
         {
-          message: error.response?.message || error.message || 'Gagal menandatangani dokumen',
+          message:
+            error.response?.message ||
+            error.message ||
+            'Gagal menandatangani dokumen',
           details: error.response?.data || null,
         },
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
@@ -416,27 +463,37 @@ export class PenandatangananService {
     });
 
     if (!document) {
-      throw new NotFoundException(`Dokumen dengan ID ${documentId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Dokumen dengan ID ${documentId} tidak ditemukan`,
+      );
     }
 
     // Find signer
-    const signer = document.signers?.find(s => s.persnum === persnum);
+    const signer = document.signers?.find((s) => s.persnum === persnum);
     if (!signer) {
-      throw new ForbiddenException('Anda tidak terdaftar sebagai penandatangan dokumen ini');
+      throw new ForbiddenException(
+        'Anda tidak terdaftar sebagai penandatangan dokumen ini',
+      );
     }
 
     if (signer.status !== 'waiting') {
       if (signer.status === 'signed') {
-        throw new BadRequestException('Anda sudah menandatangani dokumen ini, tidak dapat menolak');
+        throw new BadRequestException(
+          'Anda sudah menandatangani dokumen ini, tidak dapat menolak',
+        );
       } else if (signer.status === 'rejected') {
         throw new BadRequestException('Dokumen ini sudah ditolak');
       } else {
-        throw new BadRequestException('Belum giliran Anda untuk menandatangani/menolak');
+        throw new BadRequestException(
+          'Belum giliran Anda untuk menandatangani/menolak',
+        );
       }
     }
 
     if (document.status !== 'on_progress') {
-      throw new BadRequestException(`Dokumen tidak dapat ditolak (status: ${document.status})`);
+      throw new BadRequestException(
+        `Dokumen tidak dapat ditolak (status: ${document.status})`,
+      );
     }
 
     const rejectedAt = new Date();
@@ -460,7 +517,9 @@ export class PenandatangananService {
       'Dokumen ditolak',
       dto.alasan || document.perihal || 'Dokumen ditolak',
     ).catch((err) =>
-      console.warn(`[Penandatanganan] Failed to send rejected notification: ${err?.message}`),
+      console.warn(
+        `[Penandatanganan] Failed to send rejected notification: ${err?.message}`,
+      ),
     );
 
     // Log rejection (using 'sign' action with gagal status to indicate rejection)
@@ -519,7 +578,7 @@ export class PenandatangananService {
     doc: DigsigDocumentEntity,
     persnum: number,
   ): Promise<PenandatangananItemDto> {
-    const mySigner = doc.signers?.find(s => s.persnum === persnum);
+    const mySigner = doc.signers?.find((s) => s.persnum === persnum);
 
     // Determine status for display
     let status: 'pending' | 'signed' | 'rejected' = 'pending';
@@ -535,7 +594,10 @@ export class PenandatangananService {
 
     if (doc.filePath) {
       try {
-        filePreviewUrl = await this.storageService.getPreviewUrl(doc.filePath, 3600);
+        filePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.filePath,
+          3600,
+        );
       } catch (e) {
         // Ignore
       }
@@ -543,7 +605,10 @@ export class PenandatangananService {
 
     if (doc.signedFilePath) {
       try {
-        signedFilePreviewUrl = await this.storageService.getPreviewUrl(doc.signedFilePath, 3600);
+        signedFilePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.signedFilePath,
+          3600,
+        );
       } catch (e) {
         // Ignore
       }
@@ -562,7 +627,7 @@ export class PenandatangananService {
       documentStatus: doc.status,
       canSign: mySigner?.status === 'waiting' && doc.status === 'on_progress',
       canReject: mySigner?.status === 'waiting' && doc.status === 'on_progress',
-      signers: (doc.signers || []).map(s => this.toSignerInfo(s)),
+      signers: (doc.signers || []).map((s) => this.toSignerInfo(s)),
       filePreviewUrl,
       signedFilePreviewUrl,
       createdByName: doc.createdByName,
@@ -574,10 +639,12 @@ export class PenandatangananService {
     doc: DigsigDocumentEntity,
     persnum: number,
   ): Promise<PenandatangananDetailDto> {
-    const mySigner = doc.signers?.find(s => s.persnum === persnum);
+    const mySigner = doc.signers?.find((s) => s.persnum === persnum);
 
     // Get jenis naskah label
-    const jenisNaskahOption = JENIS_NASKAH_OPTIONS.find(j => j.value === doc.jenisNaskah);
+    const jenisNaskahOption = JENIS_NASKAH_OPTIONS.find(
+      (j) => j.value === doc.jenisNaskah,
+    );
     const jenisNaskahText = jenisNaskahOption?.label || doc.jenisNaskah;
 
     // Generate file preview URLs
@@ -586,7 +653,10 @@ export class PenandatangananService {
 
     if (doc.filePath) {
       try {
-        filePreviewUrl = await this.storageService.getPreviewUrl(doc.filePath, 3600);
+        filePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.filePath,
+          3600,
+        );
       } catch (e) {
         // Ignore
       }
@@ -594,7 +664,10 @@ export class PenandatangananService {
 
     if (doc.signedFilePath) {
       try {
-        signedFilePreviewUrl = await this.storageService.getPreviewUrl(doc.signedFilePath, 3600);
+        signedFilePreviewUrl = await this.storageService.getPreviewUrl(
+          doc.signedFilePath,
+          3600,
+        );
       } catch (e) {
         // Ignore
       }
@@ -619,7 +692,7 @@ export class PenandatangananService {
       documentStatus: doc.status,
       currentSignerOrder: doc.currentSignerOrder,
       totalSigners: doc.totalSigners,
-      signers: (doc.signers || []).map(s => this.toSignerInfo(s)),
+      signers: (doc.signers || []).map((s) => this.toSignerInfo(s)),
       mySignerInfo: mySigner ? this.toSignerInfo(mySigner) : null,
       canSign: mySigner?.status === 'waiting' && doc.status === 'on_progress',
       canReject: mySigner?.status === 'waiting' && doc.status === 'on_progress',

@@ -38,7 +38,13 @@ export class ForwardSuratDinasInternalDto {
   // Penerima - array of position_id (WAJIB)
   @IsArray({ message: 'Penerima harus berupa array' })
   @ArrayMinSize(1, { message: 'Minimal harus ada 1 penerima' })
-  @IsNumber({}, { each: true, message: 'Setiap penerima harus berupa position_id (number)' })
+  @IsNumber(
+    {},
+    {
+      each: true,
+      message: 'Setiap penerima harus berupa position_id (number)',
+    },
+  )
   penerima: number[];
 
   // Tembusan (opsional)

@@ -129,9 +129,7 @@ export class PersonController {
    * @example GET /person/:persnum/details
    */
   @Get(':persnum/details')
-  findOneWithDetails(
-    @Param('persnum', ParseIntPipe) persnum: number,
-  ) {
+  findOneWithDetails(@Param('persnum', ParseIntPipe) persnum: number) {
     return this.personService.findOneWithDetails(persnum);
   }
 
@@ -172,7 +170,8 @@ export class PersonController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Assign additional position to existing person',
-    description: 'Creates new position assignment in om_relation_sp without modifying pa_personal. Allows one person to have multiple positions across different companies.',
+    description:
+      'Creates new position assignment in om_relation_sp without modifying pa_personal. Allows one person to have multiple positions across different companies.',
   })
   @ApiResponse({
     status: 201,
@@ -198,7 +197,8 @@ export class PersonController {
   @Get(':persnum/positions')
   @ApiOperation({
     summary: 'Get all positions for a person',
-    description: 'Returns all position assignments (across all companies) for a specific persnum',
+    description:
+      'Returns all position assignments (across all companies) for a specific persnum',
   })
   @ApiParam({
     name: 'persnum',
@@ -226,7 +226,8 @@ export class PersonController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Update existing position assignment',
-    description: 'Updates position assignment details in om_relation_sp. Can modify position_text, startDate, endDate, and uname.',
+    description:
+      'Updates position assignment details in om_relation_sp. Can modify position_text, startDate, endDate, and uname.',
   })
   @ApiParam({
     name: 'id',
@@ -257,7 +258,8 @@ export class PersonController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Delete existing position assignment',
-    description: 'Removes position assignment from om_relation_sp. Use this to unassign a position from a person.',
+    description:
+      'Removes position assignment from om_relation_sp. Use this to unassign a position from a person.',
   })
   @ApiParam({
     name: 'id',

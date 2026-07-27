@@ -419,7 +419,7 @@ export interface ResourceDef {
   permissions: { action: string; description: string }[];
 }
 
-function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
+export function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
   const map = new Map<string, ResourceDef>();
   for (const menu of halaman.menus) {
     for (const sub of menu.subMenus) {

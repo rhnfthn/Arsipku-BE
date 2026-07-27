@@ -10,7 +10,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { PedomanEntity } from '../entities/pedoman.entity';
 import { CreatePedomanDto } from '../dto/create-pedoman.dto';
 import { UpdatePedomanDto } from '../dto/update-pedoman.dto';
-import { PedomanData, PedomanResponseDto, LampiranItem } from '../dto/pedoman.dto';
+import {
+  PedomanData,
+  PedomanResponseDto,
+  LampiranItem,
+} from '../dto/pedoman.dto';
 import { StorageService } from '../../storage/services/storage.service';
 
 @Injectable()
@@ -138,9 +142,13 @@ export class PedomanService {
         if (!newUrls.includes(oldLampiran.url)) {
           try {
             await this.storageService.deleteFile(oldLampiran.url);
-            this.logger.log(`🗑️ File lampiran lama dihapus dari MinIO: ${oldLampiran.url}`);
+            this.logger.log(
+              `🗑️ File lampiran lama dihapus dari MinIO: ${oldLampiran.url}`,
+            );
           } catch (err: any) {
-            this.logger.warn(`⚠️ Gagal menghapus file lampiran lama: ${oldLampiran.url} - ${err.message}`);
+            this.logger.warn(
+              `⚠️ Gagal menghapus file lampiran lama: ${oldLampiran.url} - ${err.message}`,
+            );
           }
         }
       }
@@ -172,9 +180,13 @@ export class PedomanService {
       for (const lampiran of pedoman.lampirans) {
         try {
           await this.storageService.deleteFile(lampiran.url);
-          this.logger.log(`🗑️ File lampiran dihapus dari MinIO: ${lampiran.url}`);
+          this.logger.log(
+            `🗑️ File lampiran dihapus dari MinIO: ${lampiran.url}`,
+          );
         } catch (err: any) {
-          this.logger.warn(`⚠️ Gagal menghapus file lampiran dari MinIO: ${lampiran.url} - ${err.message}`);
+          this.logger.warn(
+            `⚠️ Gagal menghapus file lampiran dari MinIO: ${lampiran.url} - ${err.message}`,
+          );
         }
       }
     }

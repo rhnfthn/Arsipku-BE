@@ -14,7 +14,14 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DelegasiEntity, OmPosition, RelationOs, RelationOsc, OmOrganization, OrgDatum]),
+    TypeOrmModule.forFeature([
+      DelegasiEntity,
+      OmPosition,
+      RelationOs,
+      RelationOsc,
+      OmOrganization,
+      OrgDatum,
+    ]),
     forwardRef(() => AuthModule),
   ],
   controllers: [DelegasiController],

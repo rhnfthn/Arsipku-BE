@@ -14,7 +14,10 @@ import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { Session } from '../../auth/entities/session.entity';
-import { formatSignatureData, generateSignatureId } from '../../../common/helpers/signature.helper';
+import {
+  formatSignatureData,
+  generateSignatureId,
+} from '../../../common/helpers/signature.helper';
 import { QRCodeService, QRCodeData } from './qrcode.service';
 import { DigsigLogService } from './digsig-log.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
@@ -94,7 +97,9 @@ const DEFAULT_PASSPHRASE = '12345';
 const COMPANY_ID = process.env.COMPANY_ID || '1000';
 
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
-const VERIFICATION_BASE_URL = process.env.VERIFICATION_URL || 'https://arsipku.a  irnavindonesia.co.id/verify';
+const VERIFICATION_BASE_URL =
+  process.env.VERIFICATION_URL ||
+  'https://arsipku.a  irnavindonesia.co.id/verify';
 
 @Injectable()
 export class DigsigService {
@@ -135,8 +140,6 @@ export class DigsigService {
     return process.env.BSRE_VERIFY_URL!;
   }
 
-
-
   /**
    * Hit Digsig API Endpoint
    * @param params - DigsigParams for BSrE API
@@ -157,12 +160,19 @@ export class DigsigService {
       // 1. Ambil file dari MinIO
       console.log('[DigsigService] Fetching file from MinIO:', params.key);
       const buffer = await this.storageService.getFile(params.key);
-      console.log('[DigsigService] File fetched, size:', buffer.length, 'bytes');
+      console.log(
+        '[DigsigService] File fetched, size:',
+        buffer.length,
+        'bytes',
+      );
       const base64File = buffer.toString('base64');
       const dokumenName = params.filename;
 
       const timestamp = Date.now();
-      const newDokumenName = dokumenName.replace(/\.pdf$/i, `-${timestamp}.pdf`);
+      const newDokumenName = dokumenName.replace(
+        /\.pdf$/i,
+        `-${timestamp}.pdf`,
+      );
 
       // 2. Payload sesuai spesifikasi
       const payload = {
@@ -191,16 +201,12 @@ export class DigsigService {
       console.log('[DigsigService] BSrE URL:', this.BSRE_SIGNIN_URL);
 
       // 3. Hit endpoint
-      const response = await axios.post(
-        this.BSRE_SIGNIN_URL,
-        payload,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000,
+      const response = await axios.post(this.BSRE_SIGNIN_URL, payload, {
+        headers: {
+          'Content-Type': 'application/json',
         },
-      );
+        timeout: 30000,
+      });
 
       console.log('[DigsigService] BSrE Response:', response.data);
 
@@ -226,7 +232,9 @@ export class DigsigService {
           console.error('[DigsigService] Failed to log success:', logError);
         }
       } else {
-        console.log('[DigsigService] No logContext provided - skipping logging');
+        console.log(
+          '[DigsigService] No logContext provided - skipping logging',
+        );
       }
 
       return response.data;
@@ -245,21 +253,30 @@ export class DigsigService {
             jenisNaskah: logContext.jenisNaskah,
             apiEndpoint: 'POST /signin',
             status: 'gagal',
-            note: axios.isAxiosError(error) ? (error.response?.data?.message || error.message) : error.message,
-            bsreResponse: axios.isAxiosError(error) ? error.response?.data : { error: error.message },
+            note: axios.isAxiosError(error)
+              ? error.response?.data?.message || error.message
+              : error.message,
+            bsreResponse: axios.isAxiosError(error)
+              ? error.response?.data
+              : { error: error.message },
           });
           console.log('[DigsigService] Failure log saved:', logResult.id);
         } catch (logError) {
           console.error('[DigsigService] Failed to log failure:', logError);
         }
       } else {
-        console.log('[DigsigService] No logContext for failure - skipping logging');
+        console.log(
+          '[DigsigService] No logContext for failure - skipping logging',
+        );
       }
 
       if (axios.isAxiosError(error)) {
         console.error('[DigsigService] Axios Error Message:', error.message);
         console.error('[DigsigService] Status:', error.response?.status);
-        console.error('[DigsigService] Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error(
+          '[DigsigService] Response Data:',
+          JSON.stringify(error.response?.data, null, 2),
+        );
         console.error('[DigsigService] Request URL:', error.config?.url);
         const status =
           error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
@@ -333,10 +350,14 @@ export class DigsigService {
         'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
       );
     }
-    
-    console.log(`[DigsigService] Getting user data from JWT, persnum: ${user.persnum}`);
-    console.log(`[DigsigService] NIK: ${user.nik.substring(0, 4)}****, noWa: ${user.noWa ? user.noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
-    
+
+    console.log(
+      `[DigsigService] Getting user data from JWT, persnum: ${user.persnum}`,
+    );
+    console.log(
+      `[DigsigService] NIK: ${user.nik.substring(0, 4)}****, noWa: ${user.noWa ? user.noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
+    );
+
     return {
       nik: user.nik,
       no_wa: user.noWa || '',
@@ -350,13 +371,19 @@ export class DigsigService {
    * @param persnum - Persnum user yang login
    * @returns Object containing nik dan no_wa
    */
-  async getUserDataForBsre(persnum: string): Promise<{ nik: string; no_wa: string }> {
-    console.log(`[DigsigService] DEPRECATED: Getting user data for BSrE from HR API, persnum: ${persnum}`);
-    console.log(`[DigsigService] Consider using getUserDataFromJwt() instead for better performance`);
-    
+  async getUserDataForBsre(
+    persnum: string,
+  ): Promise<{ nik: string; no_wa: string }> {
+    console.log(
+      `[DigsigService] DEPRECATED: Getting user data for BSrE from HR API, persnum: ${persnum}`,
+    );
+    console.log(
+      `[DigsigService] Consider using getUserDataFromJwt() instead for better performance`,
+    );
+
     // Fetch NIK dari HR API
     const token = await this.getAirnavTokenFromSession(Number(persnum));
-    
+
     // Get KTP
     let nik = '';
     try {
@@ -373,7 +400,9 @@ export class DigsigService {
       const ktpData = ktpResponse.data?.data ?? [];
       const filterktp = ktpData.find((x) => x.subType === '01');
       if (!filterktp) {
-        throw new BadRequestException('Data KTP dengan subType 01 tidak ditemukan');
+        throw new BadRequestException(
+          'Data KTP dengan subType 01 tidak ditemukan',
+        );
       }
       nik = filterktp.number;
     } catch (error: any) {
@@ -381,11 +410,12 @@ export class DigsigService {
         throw error;
       }
       const message = axios.isAxiosError(error)
-        ? (error.response?.data?.message || 'Gagal mengambil data KTP dari HR API')
-        : (error.message || 'Unexpected error');
+        ? error.response?.data?.message ||
+          'Gagal mengambil data KTP dari HR API'
+        : error.message || 'Unexpected error';
       throw new BadRequestException(message);
     }
-    
+
     // Get phone (optional)
     let no_wa = '';
     try {
@@ -410,12 +440,17 @@ export class DigsigService {
         }
       }
     } catch (error) {
-      console.warn(`[DigsigService] Gagal mengambil nomor HP untuk persnum ${persnum}:`, error.message);
+      console.warn(
+        `[DigsigService] Gagal mengambil nomor HP untuk persnum ${persnum}:`,
+        error.message,
+      );
       // Phone optional, continue without it
     }
 
-    console.log(`[DigsigService] NIK: ${nik}, Phone: ${no_wa || '(tidak tersedia)'}`);
-    
+    console.log(
+      `[DigsigService] NIK: ${nik}, Phone: ${no_wa || '(tidak tersedia)'}`,
+    );
+
     return { nik, no_wa };
   }
 
@@ -434,7 +469,9 @@ export class DigsigService {
     dto: { passphrase: string; klasifikasi?: string },
     user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signNotaDinasBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
+    console.log(
+      `[DigsigService] signNotaDinasBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
+    );
 
     // 1. Validasi NIK dari JWT payload
     if (!user.nik) {
@@ -442,10 +479,12 @@ export class DigsigService {
         'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
       );
     }
-    
+
     const nik = user.nik;
     const noWa = user.noWa || '';
-    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
+    console.log(
+      `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
+    );
 
     // 2. Cari naskah berdasarkan idNaskah
     const naskah = await this.naskahRepository.findOne({
@@ -453,7 +492,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -464,7 +505,9 @@ export class DigsigService {
     // Cari nota dinas berdasarkan id_naskah
     const nd = await this.ndRepository.findOne({ where: { idNaskah } });
     if (!nd) {
-      throw new NotFoundException(`Nota Dinas dengan id_naskah ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Nota Dinas dengan id_naskah ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (!naskah.final_pdf) {
@@ -504,7 +547,9 @@ export class DigsigService {
     const signerJabatan = nd.namaJabatan || 'Jabatan';
     const verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     const qrData: QRCodeData = {
       signature_id: signatureId,
@@ -568,7 +613,9 @@ export class DigsigService {
     dto: { passphrase: string; klasifikasi?: string },
     user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signSdiBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
+    console.log(
+      `[DigsigService] signSdiBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
+    );
 
     // 1. Validasi NIK dari JWT payload
     if (!user.nik) {
@@ -576,10 +623,12 @@ export class DigsigService {
         'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
       );
     }
-    
+
     const nik = user.nik;
     const noWa = user.noWa || '';
-    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
+    console.log(
+      `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
+    );
 
     // 2. Cari naskah berdasarkan idNaskah
     const naskah = await this.naskahRepository.findOne({
@@ -587,7 +636,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -598,7 +649,9 @@ export class DigsigService {
     // Cari SDI berdasarkan id_naskah
     const sdi = await this.sdiSdeRepository.findOne({ where: { idNaskah } });
     if (!sdi) {
-      throw new NotFoundException(`Surat Dinas Internal dengan id_naskah ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Surat Dinas Internal dengan id_naskah ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (!naskah.final_pdf) {
@@ -638,7 +691,9 @@ export class DigsigService {
     const signerJabatan = sdi.namaJabatan || 'Jabatan';
     const verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     const qrData: QRCodeData = {
       signature_id: signatureId,
@@ -701,7 +756,9 @@ export class DigsigService {
     dto: { passphrase: string; klasifikasi?: string },
     user: JwtPayload,
   ): Promise<SignResultResponse> {
-    console.log(`[DigsigService] signSdeBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`);
+    console.log(
+      `[DigsigService] signSdeBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
+    );
 
     // 1. Validasi NIK dari JWT payload
     if (!user.nik) {
@@ -709,10 +766,12 @@ export class DigsigService {
         'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
       );
     }
-    
+
     const nik = user.nik;
     const noWa = user.noWa || '';
-    console.log(`[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`);
+    console.log(
+      `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
+    );
 
     // 2. Cari naskah berdasarkan idNaskah
 
@@ -722,7 +781,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -733,7 +794,9 @@ export class DigsigService {
     // Cari SDE berdasarkan id_naskah
     const sde = await this.sdiSdeRepository.findOne({ where: { idNaskah } });
     if (!sde) {
-      throw new NotFoundException(`Surat Dinas Eksternal dengan id_naskah ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Surat Dinas Eksternal dengan id_naskah ${idNaskah} tidak ditemukan`,
+      );
     }
 
     if (!naskah.final_pdf) {
@@ -773,7 +836,9 @@ export class DigsigService {
     const signerJabatan = sde.namaJabatan || 'Jabatan';
     const verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     const qrData: QRCodeData = {
       signature_id: signatureId,
@@ -848,7 +913,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -874,7 +941,9 @@ export class DigsigService {
 
     // Get public URL untuk final PDF
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     // Generate QR Code untuk signature - langsung ke PDF
     const qrData: QRCodeData = {
@@ -955,7 +1024,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -981,7 +1052,9 @@ export class DigsigService {
 
     // Get public URL untuk final PDF
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     // Generate QR Code untuk signature - langsung ke PDF
     const qrData: QRCodeData = {
@@ -1060,7 +1133,9 @@ export class DigsigService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah dengan ID ${idNaskah} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${idNaskah} tidak ditemukan`,
+      );
     }
 
     // Validasi jenis naskah
@@ -1086,7 +1161,9 @@ export class DigsigService {
 
     // Get public URL untuk final PDF
     const finalPdfPath = naskah.final_pdf;
-    const pdfUrl = finalPdfPath ? this.storageService.getPublicUrl(finalPdfPath) : undefined;
+    const pdfUrl = finalPdfPath
+      ? this.storageService.getPublicUrl(finalPdfPath)
+      : undefined;
 
     // Generate QR Code untuk signature - langsung ke PDF
     const qrData: QRCodeData = {
@@ -1171,7 +1248,12 @@ export class DigsigService {
   private async getHeaderInfoFromNaskah(
     idNaskah: string,
     tanggal?: Date,
-  ): Promise<{ kantor: string; gedung: string; alamat: string; kota: string } | null> {
+  ): Promise<{
+    kantor: string;
+    gedung: string;
+    alamat: string;
+    kota: string;
+  } | null> {
     try {
       // Get pengirim dari naskah_sirkulasi
       const pengirim = await this.naskahSirkulasiRepository.findOne({
@@ -1182,7 +1264,9 @@ export class DigsigService {
       });
 
       if (!pengirim) {
-        console.log('[DigsigService getHeaderInfo] Pengirim not found in naskah_sirkulasi');
+        console.log(
+          '[DigsigService getHeaderInfo] Pengirim not found in naskah_sirkulasi',
+        );
         return null;
       }
 
@@ -1191,25 +1275,33 @@ export class DigsigService {
       const subArea = pengirim.subArea || '';
 
       if (!area || !subArea) {
-        console.log('[DigsigService getHeaderInfo] Missing area or subArea, using default');
+        console.log(
+          '[DigsigService getHeaderInfo] Missing area or subArea, using default',
+        );
         return null;
       }
 
       const queryDate = tanggal || new Date();
 
-      const headerInfo = await this.subAreaAlamatService.findAlamatByUserContext(
-        company,
-        area,
-        subArea,
-        queryDate,
-      );
+      const headerInfo =
+        await this.subAreaAlamatService.findAlamatByUserContext(
+          company,
+          area,
+          subArea,
+          queryDate,
+        );
 
       if (headerInfo) {
-        console.log('[DigsigService getHeaderInfo] Found header info:', headerInfo);
+        console.log(
+          '[DigsigService getHeaderInfo] Found header info:',
+          headerInfo,
+        );
         return headerInfo;
       }
 
-      console.log('[DigsigService getHeaderInfo] No header info found, using default');
+      console.log(
+        '[DigsigService getHeaderInfo] No header info found, using default',
+      );
       return null;
     } catch (error) {
       console.error('[DigsigService getHeaderInfo] Error:', error);
@@ -1233,8 +1325,13 @@ export class DigsigService {
     const qrCodeHtml = this.generateQRCodeForTTD(qrCodeBase64, qrData);
 
     // Get dynamic header info dari sub_area_alamat berdasarkan pengirim di naskah_sirkulasi
-    const tanggalNaskah = naskah.tanggal ? new Date(naskah.tanggal) : new Date();
-    const headerInfo = await this.getHeaderInfoFromNaskah(naskah.id, tanggalNaskah);
+    const tanggalNaskah = naskah.tanggal
+      ? new Date(naskah.tanggal)
+      : new Date();
+    const headerInfo = await this.getHeaderInfoFromNaskah(
+      naskah.id,
+      tanggalNaskah,
+    );
 
     // Parse tertuju/penerima
     let tertuju: string[] = [];
@@ -1279,13 +1376,14 @@ export class DigsigService {
     };
 
     // Generate PDF menggunakan GeneratePdfNodinService
-    const pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfOptions);
+    const pdfBuffer =
+      await this.generatePdfNodinService.generatePdf(pdfOptions);
 
     // Overwrite file di storage (gunakan path yang sama)
     const finalPdfPath = naskah.final_pdf;
     if (finalPdfPath) {
       await this.storageService.deleteFile(finalPdfPath).catch(() => {});
-      
+
       // Extract folder dan filename dari path
       const pathParts = finalPdfPath.split('/');
       const filename = pathParts.pop() || `${naskah.id}.pdf`;
@@ -1317,8 +1415,13 @@ export class DigsigService {
     const qrCodeHtml = this.generateQRCodeForTTD(qrCodeBase64, qrData);
 
     // Get dynamic header info dari sub_area_alamat berdasarkan pengirim di naskah_sirkulasi
-    const tanggalNaskah = naskah.tanggal ? new Date(naskah.tanggal) : new Date();
-    const headerInfo = await this.getHeaderInfoFromNaskah(naskah.id, tanggalNaskah);
+    const tanggalNaskah = naskah.tanggal
+      ? new Date(naskah.tanggal)
+      : new Date();
+    const headerInfo = await this.getHeaderInfoFromNaskah(
+      naskah.id,
+      tanggalNaskah,
+    );
 
     // Get konten (tanpa append QR ke body - QR akan ditampilkan di TTD section)
     const konten = sdiSde.konten || naskah.konten || '';
@@ -1368,13 +1471,14 @@ export class DigsigService {
     };
 
     // Generate PDF menggunakan GeneratePdfSudinService
-    const pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfOptions);
+    const pdfBuffer =
+      await this.generatePdfSudinService.generatePdf(pdfOptions);
 
     // Overwrite file di storage (gunakan path yang sama)
     const finalPdfPath = naskah.final_pdf;
     if (finalPdfPath) {
       await this.storageService.deleteFile(finalPdfPath).catch(() => {});
-      
+
       // Extract folder dan filename dari path
       const pathParts = finalPdfPath.split('/');
       const filename = pathParts.pop() || `${naskah.id}.pdf`;
@@ -1435,10 +1539,12 @@ export class DigsigService {
       if (ndList.length > 0) {
         const nd = ndList[0];
         const metadata = JSON.parse(nd.tandaTangan || '{}');
-        
+
         // Get naskah status
-        const naskah = nd.idNaskah ? await this.naskahRepository.findOne({ where: { id: nd.idNaskah } }) : null;
-        
+        const naskah = nd.idNaskah
+          ? await this.naskahRepository.findOne({ where: { id: nd.idNaskah } })
+          : null;
+
         return {
           valid: true,
           document: {
@@ -1464,11 +1570,16 @@ export class DigsigService {
       if (sdiList.length > 0) {
         const sdi = sdiList[0];
         const metadata = JSON.parse(sdi.tandaTangan || '{}');
-        
+
         // Get naskah info
-        const naskah = sdi.idNaskah ? await this.naskahRepository.findOne({ where: { id: sdi.idNaskah } }) : null;
-        const docType = naskah?.jenis === 'SDE' ? 'Surat Dinas Eksternal' : 'Surat Dinas Internal';
-        
+        const naskah = sdi.idNaskah
+          ? await this.naskahRepository.findOne({ where: { id: sdi.idNaskah } })
+          : null;
+        const docType =
+          naskah?.jenis === 'SDE'
+            ? 'Surat Dinas Eksternal'
+            : 'Surat Dinas Internal';
+
         return {
           valid: true,
           document: {
@@ -1516,7 +1627,7 @@ export class DigsigService {
 
       // Hit BSrE verify endpoint
       // Note: URL endpoint verify BSrE perlu disesuaikan dengan dokumentasi BSrE
-      
+
       const response = await axios.post(
         this.BSRE_VERIFY_URL,
         { name_doc: nameDoc },
@@ -1528,7 +1639,7 @@ export class DigsigService {
 
       // Parse response dari BSrE
       const bsreData = response.data;
-      
+
       // Asumsi BSrE return status success jika dokumen valid
       if (bsreData.status === 'success' || bsreData.valid === true) {
         return {
@@ -1541,17 +1652,19 @@ export class DigsigService {
       return {
         valid: false,
         bsre_response: bsreData,
-        message: bsreData.message || 'Dokumen tidak valid atau tidak terdaftar di BSrE',
+        message:
+          bsreData.message ||
+          'Dokumen tidak valid atau tidak terdaftar di BSrE',
       };
-
     } catch (error: any) {
       console.error('[DigsigService] BSrE verify error:', error.message);
-      
+
       if (axios.isAxiosError(error)) {
         return {
           valid: false,
           bsre_response: error.response?.data,
-          message: error.response?.data?.message || 'Gagal verifikasi dengan BSrE',
+          message:
+            error.response?.data?.message || 'Gagal verifikasi dengan BSrE',
         };
       }
 
@@ -1576,24 +1689,23 @@ export class DigsigService {
       };
 
       // 3. Hit endpoint
-      const response = await axios.post(
-        this.BSRE_VERIFY_URL,
-        payload,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000,
+      const response = await axios.post(this.BSRE_VERIFY_URL, payload, {
+        headers: {
+          'Content-Type': 'application/json',
         },
-      );
+        timeout: 30000,
+      });
 
       console.log('[DigsigService] BSrE Response:', response.data);
       return response.data;
-    } catch (error: any) {      
+    } catch (error: any) {
       if (axios.isAxiosError(error)) {
         console.error('[DigsigService] Axios Error Message:', error.message);
         console.error('[DigsigService] Status:', error.response?.status);
-        console.error('[DigsigService] Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error(
+          '[DigsigService] Response Data:',
+          JSON.stringify(error.response?.data, null, 2),
+        );
         console.error('[DigsigService] Request URL:', error.config?.url);
         const status =
           error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
@@ -1625,5 +1737,4 @@ export class DigsigService {
       );
     }
   }
-  
 }

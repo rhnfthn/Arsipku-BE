@@ -73,26 +73,31 @@ export class DraftController {
       const limitNum = query.limit ?? 10;
 
       // Normalize preset
-      const normalizedPreset = query.preset 
-        ? String(query.preset).toLowerCase().trim().replace(/\s+/g, '_') as '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua'
+      const normalizedPreset = query.preset
+        ? (String(query.preset).toLowerCase().trim().replace(/\s+/g, '_') as
+            | '7_hari'
+            | '30_hari'
+            | '60_hari'
+            | '1_tahun'
+            | 'semua')
         : undefined;
 
       return await this.draftService.getDraftList(
-        position, 
-        query.jenis, 
+        position,
+        query.jenis,
         query.favorite,
         query.lock,
         query.note,
         query.arsip,
         query.priority,
-        query.search, 
-        daysNum, 
-        query.start_date, 
-        query.end_date, 
-        normalizedPreset, 
+        query.search,
+        daysNum,
+        query.start_date,
+        query.end_date,
+        normalizedPreset,
         query.sort,
-        pageNum, 
-        limitNum
+        pageNum,
+        limitNum,
       );
     } catch (error) {
       if (error instanceof HttpException) {
@@ -207,7 +212,11 @@ export class DraftController {
     @Body() dto: SignDraftDto,
   ): Promise<SignDraftResponseDto> {
     try {
-      return await this.draftService.signDraft(id, dto.position_id, dto.signature_data);
+      return await this.draftService.signDraft(
+        id,
+        dto.position_id,
+        dto.signature_data,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -238,7 +247,10 @@ export class DraftController {
     @Body() dto: BulkDeleteDraftDto,
   ): Promise<BulkDeleteDraftResponseDto> {
     try {
-      return await this.draftService.bulkDeleteDraft(dto.naskah_ids, dto.position_id);
+      return await this.draftService.bulkDeleteDraft(
+        dto.naskah_ids,
+        dto.position_id,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

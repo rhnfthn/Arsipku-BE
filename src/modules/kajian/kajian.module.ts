@@ -43,4 +43,4 @@ import { SearchModule } from '../search/search.module';
   providers: [KajianService, NomorSuratService],
   exports: [KajianService],
 })
-export class KajianModule { }
+export class KajianModule {}

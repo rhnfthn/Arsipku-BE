@@ -1,9 +1,4 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  CreateDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
 
 @Entity('mail_log')
 export class MailLogEntity {
@@ -55,6 +50,10 @@ export class MailLogEntity {
   @Column('varchar', { length: 255, nullable: true })
   sender_nama: string | null;
 
-  @CreateDateColumn({ type: 'datetime', precision: 0, default: () => 'CURRENT_TIMESTAMP' })
+  @CreateDateColumn({
+    type: 'datetime',
+    precision: 0,
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   created_at: Date;
 }

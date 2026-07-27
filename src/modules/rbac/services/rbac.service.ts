@@ -9,7 +9,10 @@ import {
   RolePermissionEntity,
   RbacUserRoleEntity,
 } from '../entities';
-import type { ActivePermission, ActiveRoleInfo } from '../../auth/interfaces/jwt-payload.interface';
+import type {
+  ActivePermission,
+  ActiveRoleInfo,
+} from '../../auth/interfaces/jwt-payload.interface';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { NotificationGateway } from '../../notification/gateways/notification.gateway';
 import { Person } from '../../master-data/person/entities/person.entity';
@@ -70,14 +73,23 @@ export class RbacService {
   }> {
     const userRoles = await this.rbacUserRoleRepo.find({
       where: { persnum, active: true },
-      relations: ['role', 'role.rolePermissions', 'role.rolePermissions.permission', 'role.rolePermissions.permission.resource'],
+      relations: [
+        'role',
+        'role.rolePermissions',
+        'role.rolePermissions.permission',
+        'role.rolePermissions.permission.resource',
+      ],
     });
 
     if (userRoles.length === 0) {
       // Default USER
       const userRole = await this.roleRepo.findOne({
         where: { name: RoleName.USER },
-        relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.resource'],
+        relations: [
+          'rolePermissions',
+          'rolePermissions.permission',
+          'rolePermissions.permission.resource',
+        ],
       });
       const activePermissions = this.groupPermissionsByResource(
         (userRole?.rolePermissions ?? []) as any,
@@ -97,21 +109,31 @@ export class RbacService {
     for (const ur of userRoles) {
       for (const rp of ur.role.rolePermissions ?? []) {
         const resName = rp.permission.resource.name;
-        if (!permissionsMap.has(resName)) permissionsMap.set(resName, new Set());
+        if (!permissionsMap.has(resName))
+          permissionsMap.set(resName, new Set());
         permissionsMap.get(resName)!.add(rp.permission.action);
       }
     }
-    const activePermissions: ActivePermission[] = Array.from(permissionsMap.entries()).map(
-      ([resource, actions]) => ({ resource, actions: Array.from(actions) }),
-    );
+    const activePermissions: ActivePermission[] = Array.from(
+      permissionsMap.entries(),
+    ).map(([resource, actions]) => ({
+      resource,
+      actions: Array.from(actions),
+    }));
 
     const roles: ActiveRoleInfo[] = userRoles.map((ur) => ({
       id: ur.role.id,
       name: ur.role.name,
     }));
 
-    const activeRole = { id: userRoles[0].role.id, name: userRoles[0].role.name };
-    const role = (activeRole.name.toLowerCase() as 'user' | 'admin' | 'superadmin');
+    const activeRole = {
+      id: userRoles[0].role.id,
+      name: userRoles[0].role.name,
+    };
+    const role = activeRole.name.toLowerCase() as
+      | 'user'
+      | 'admin'
+      | 'superadmin';
 
     return { activeRole, activePermissions, roles, role };
   }
@@ -122,7 +144,11 @@ export class RbacService {
   async getRoleWithPermissions(roleId: string): Promise<RoleEntity | null> {
     return this.roleRepo.findOne({
       where: { id: roleId },
-      relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.resource'],
+      relations: [
+        'rolePermissions',
+        'rolePermissions.permission',
+        'rolePermissions.permission.resource',
+      ],
     });
   }
 
@@ -140,7 +166,11 @@ export class RbacService {
   async findRoleById(id: string): Promise<RoleEntity | null> {
     return this.roleRepo.findOne({
       where: { id },
-      relations: ['rolePermissions', 'rolePermissions.permission', 'rolePermissions.permission.resource'],
+      relations: [
+        'rolePermissions',
+        'rolePermissions.permission',
+        'rolePermissions.permission.resource',
+      ],
     });
   }
 
@@ -148,7 +178,10 @@ export class RbacService {
     return this.roleRepo.findOne({ where: { name } });
   }
 
-  async createRole(data: { name: RoleName; description?: string }): Promise<RoleEntity> {
+  async createRole(data: {
+    name: RoleName;
+    description?: string;
+  }): Promise<RoleEntity> {
     const role = this.roleRepo.create({
       id: crypto.randomUUID(),
       name: data.name,
@@ -157,10 +190,15 @@ export class RbacService {
     return this.roleRepo.save(role);
   }
 
-  async updateRole(id: string, data: { name?: RoleName; description?: string | null }): Promise<RoleEntity | null> {
+  async updateRole(
+    id: string,
+    data: { name?: RoleName; description?: string | null },
+  ): Promise<RoleEntity | null> {
     await this.roleRepo.update(id, {
       ...(data.name ? { name: data.name } : {}),
-      ...(data.description !== undefined ? { description: data.description } : {}),
+      ...(data.description !== undefined
+        ? { description: data.description }
+        : {}),
     });
     return this.findRoleById(id);
   }
@@ -223,11 +261,15 @@ export class RbacService {
       const newIds = new Set(permissionIds);
 
       // Diff: hanya yang berubah (dedupe permissionIds via Set)
-      const toAdd = [...new Set(permissionIds.filter((id) => !existingIds.has(id)))];
+      const toAdd = [
+        ...new Set(permissionIds.filter((id) => !existingIds.has(id))),
+      ];
 
       // Hanya hapus permission yang ada dalam scope matrix (jika diberikan).
       // Permission di luar scope matrix dipertahankan.
-      const scopeSet = matrixPermissionIds ? new Set(matrixPermissionIds) : null;
+      const scopeSet = matrixPermissionIds
+        ? new Set(matrixPermissionIds)
+        : null;
       const toRemove = existing.filter((rp) => {
         if (newIds.has(rp.permissionId)) return false; // masih dipilih
         if (scopeSet && !scopeSet.has(rp.permissionId)) return false; // di luar scope matrix — keep
@@ -239,7 +281,11 @@ export class RbacService {
       }
       if (toAdd.length > 0) {
         const rows = toAdd.map((pid) =>
-          rolePermRepo.create({ id: crypto.randomUUID(), roleId, permissionId: pid }),
+          rolePermRepo.create({
+            id: crypto.randomUUID(),
+            roleId,
+            permissionId: pid,
+          }),
         );
         await rolePermRepo.save(rows);
       }
@@ -251,7 +297,9 @@ export class RbacService {
     try {
       const role = await this.roleRepo.findOne({ where: { id: roleId } });
       if (role) {
-        this.notificationGateway.emitRbacPermissionChanged(role.name, { roleId });
+        this.notificationGateway.emitRbacPermissionChanged(role.name, {
+          roleId,
+        });
       }
     } catch {}
   }
@@ -317,7 +365,9 @@ export class RbacService {
     node: any,
     roleId?: string,
   ): Promise<{ tree: any; assignedPermissionIds: string[] }> {
-    const allPerms = await this.permissionRepo.find({ select: ['id', 'name', 'action', 'resourceId'] });
+    const allPerms = await this.permissionRepo.find({
+      select: ['id', 'name', 'action', 'resourceId'],
+    });
     const nameToId = new Map<string, string>();
     for (const p of allPerms) nameToId.set(p.name, p.id);
 
@@ -336,7 +386,10 @@ export class RbacService {
 
     const assignedPermissionIds: string[] = [];
     if (roleId) {
-      const rolePerms = await this.rolePermissionRepo.find({ where: { roleId }, select: ['permissionId'] });
+      const rolePerms = await this.rolePermissionRepo.find({
+        where: { roleId },
+        select: ['permissionId'],
+      });
       assignedPermissionIds.push(...rolePerms.map((rp) => rp.permissionId));
     }
 
@@ -482,9 +535,7 @@ export class RbacService {
       );
     }
 
-    qb.orderBy('ur.createdAt', 'DESC')
-      .skip(skip)
-      .take(limit);
+    qb.orderBy('ur.createdAt', 'DESC').skip(skip).take(limit);
 
     const [rows, total] = await qb.getManyAndCount();
 
@@ -519,10 +570,14 @@ export class RbacService {
     return { data, total, page, limit };
   }
 
-  async assignRoleToUser(persnum: number, roleId: string, unitKerja?: string | null): Promise<RbacUserRoleEntity> {
+  async assignRoleToUser(
+    persnum: number,
+    roleId: string,
+    unitKerja?: string | null,
+  ): Promise<RbacUserRoleEntity> {
     // Bug B4 fix: throw error jika user sudah punya role ini & active
     const existing = await this.rbacUserRoleRepo.findOne({
-      where: { persnum, roleId, unitKerja: unitKerja ?? null as any },
+      where: { persnum, roleId, unitKerja: unitKerja ?? (null as any) },
     });
 
     if (existing && existing.active) {
@@ -561,7 +616,9 @@ export class RbacService {
     this.permissionCache.invalidate(persnum);
     // Real-time: emit ke user yg di-assign agar FE auto-refresh profile
     try {
-      const assignedRole = await this.roleRepo.findOne({ where: { id: roleId } });
+      const assignedRole = await this.roleRepo.findOne({
+        where: { id: roleId },
+      });
       this.notificationGateway.emitRbacRoleChanged(persnum, {
         action: 'assigned',
         roleName: assignedRole?.name,
@@ -608,7 +665,9 @@ export class RbacService {
    * Ambil role aktif (yang paling prioritas: SUPERADMIN > ADMIN > USER)
    * untuk list persnum secara batch. User tanpa baris di rbac_user_role → default USER.
    */
-  async getActiveRolesForPersnums(persnums: number[]): Promise<Map<number, string>> {
+  async getActiveRolesForPersnums(
+    persnums: number[],
+  ): Promise<Map<number, string>> {
     const result = new Map<number, string>();
     if (persnums.length === 0) return result;
 

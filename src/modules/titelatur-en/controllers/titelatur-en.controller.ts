@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseUUIDPipe, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  ParseUUIDPipe,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { TitelaturEnService } from '../services/titelatur-en.service';
 import { CreateTitelaturEnDto } from '../dto/create-titelatur-en.dto';
 import { UpdateTitelaturEnDto } from '../dto/update-titelatur-en.dto';
@@ -15,12 +27,22 @@ export class TitelaturEnController {
       const created = await this.service.create(dto);
       return { success: true, data: created };
     } catch (err) {
-      throw new HttpException({ success: false, message: 'Failed to create titelatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to create titelatur',
+          error: err.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Get()
-  async findAll(@Query('company') company: string, @Query('object_type') object_type: string) {
+  async findAll(
+    @Query('company') company: string,
+    @Query('object_type') object_type: string,
+  ) {
     const results = await this.service.findAll(company, object_type);
     return { success: true, data: results, total: results.length };
   }
@@ -33,12 +55,22 @@ export class TitelaturEnController {
 
   @Put(':id')
   @RequirePermission('master-data', 'update')
-  async update(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Body() dto: UpdateTitelaturEnDto) {
+  async update(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateTitelaturEnDto,
+  ) {
     try {
       const updated = await this.service.update(id, dto);
       return { success: true, data: updated };
     } catch (err) {
-      throw new HttpException({ success: false, message: 'Failed to update titelatur', error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to update titelatur',
+          error: err.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 

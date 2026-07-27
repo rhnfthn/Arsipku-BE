@@ -20,7 +20,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: payload.role,
       keys: Object.keys(payload),
     });
-    
+
     if (!payload.persnum) {
       throw new UnauthorizedException('Invalid token payload');
     }

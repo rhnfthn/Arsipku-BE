@@ -29,7 +29,12 @@ export class DigsigDocumentEntity {
   @Column({ name: 'klasifikasi', type: 'varchar', length: 50, nullable: true })
   klasifikasi: string | null;
 
-  @Column({ name: 'klasifikasi_text', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'klasifikasi_text',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   klasifikasiText: string | null;
 
   @Column({ name: 'jenis_naskah', type: 'varchar', length: 50 })
@@ -51,14 +56,29 @@ export class DigsigDocumentEntity {
   @Column({ name: 'file_size', type: 'int', nullable: true })
   fileSize: number | null;
 
-  @Column({ name: 'file_mime_type', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'file_mime_type',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   fileMimeType: string | null;
 
   // ======== Signed File ========
-  @Column({ name: 'signed_file_path', type: 'varchar', length: 500, nullable: true })
+  @Column({
+    name: 'signed_file_path',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
   signedFilePath: string | null;
 
-  @Column({ name: 'signed_file_name', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'signed_file_name',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   signedFileName: string | null;
 
   // ======== Options ========
@@ -94,10 +114,20 @@ export class DigsigDocumentEntity {
   @Column({ name: 'created_by', type: 'int' })
   createdBy: number;
 
-  @Column({ name: 'created_by_name', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'created_by_name',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   createdByName: string | null;
 
-  @Column({ name: 'created_by_position', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'created_by_position',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   createdByPosition: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
@@ -107,9 +137,6 @@ export class DigsigDocumentEntity {
   updatedAt: Date;
 
   // ======== Relations ========
-  @OneToMany(
-    () => DigsigDocumentSignerEntity,
-    (signer) => signer.document,
-  )
+  @OneToMany(() => DigsigDocumentSignerEntity, (signer) => signer.document)
   signers: DigsigDocumentSignerEntity[];
 }

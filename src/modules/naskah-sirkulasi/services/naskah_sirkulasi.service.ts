@@ -169,8 +169,8 @@ export class NaskahSirkulasiService {
           String(saved.position),
         ).catch(() => null);
         const count =
-          inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
-            ? (inboxResult as any).data.count
+          inboxResult && typeof inboxResult?.data?.count === 'number'
+            ? inboxResult.data.count
             : 0;
         this.realtimeEmitService.emitInboxCount(String(saved.position), count);
       } catch {}
@@ -278,8 +278,8 @@ export class NaskahSirkulasiService {
         String(dto.position_id),
       ).catch(() => null);
       const count =
-        inboxResult && typeof (inboxResult as any)?.data?.count === 'number'
-          ? (inboxResult as any).data.count
+        inboxResult && typeof inboxResult?.data?.count === 'number'
+          ? inboxResult.data.count
           : 0;
       this.realtimeEmitService.emitInboxCount(String(dto.position_id), count);
     } catch {}
@@ -1781,12 +1781,6 @@ export class NaskahSirkulasiService {
         const penerimaRows = await this.dataSource.query(penerimaQuery, [
           row.id_naskah,
         ]);
-
-        console.log('🔍 SDE Debug - Naskah ID:', row.id_naskah);
-        console.log(
-          '🔍 SDE Debug - Penerima count:',
-          penerimaRows?.length || 0,
-        );
 
         if (penerimaRows && penerimaRows.length > 0) {
           // For each penerima, try to enrich with data from eksternal table

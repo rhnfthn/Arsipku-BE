@@ -1,7 +1,21 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { NomorRequestEntity } from './nomor-request.entity';
 
-export type NomorRequestDetailStatus = 'draft' | 'booking' | 'terpakai' | 'tidak terpakai' | 'hangus' | 'terpakai_final' | 'ditolak';
+export type NomorRequestDetailStatus =
+  | 'draft'
+  | 'booking'
+  | 'terpakai'
+  | 'tidak terpakai'
+  | 'hangus'
+  | 'terpakai_final'
+  | 'ditolak';
 
 @Entity('nomor_request_detail')
 export class NomorRequestDetailEntity {
@@ -21,7 +35,15 @@ export class NomorRequestDetailEntity {
   fileText: string | null;
 
   @Column('enum', {
-    enum: ['draft', 'booking', 'terpakai', 'tidak terpakai', 'hangus', 'terpakai_final', 'ditolak'],
+    enum: [
+      'draft',
+      'booking',
+      'terpakai',
+      'tidak terpakai',
+      'hangus',
+      'terpakai_final',
+      'ditolak',
+    ],
     default: 'draft',
   })
   status: NomorRequestDetailStatus;

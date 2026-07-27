@@ -6,7 +6,8 @@ import { BsreAlertEntity } from '../entities/bsre-alert.entity';
 import { BsreAlertStatusDto } from '../dto/bsre-alert.dto';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
-const DEFAULT_ALERT_MESSAGE = 'Layanan BSrE sedang mengalami gangguan. Mohon coba beberapa saat lagi.';
+const DEFAULT_ALERT_MESSAGE =
+  'Layanan BSrE sedang mengalami gangguan. Mohon coba beberapa saat lagi.';
 
 @Injectable()
 export class BsreAlertService {

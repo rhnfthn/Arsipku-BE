@@ -6,10 +6,7 @@ import { JenisService } from './services/jenis.service';
 import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([JenisEntity]),
-    StorageModule,
-  ],
+  imports: [TypeOrmModule.forFeature([JenisEntity]), StorageModule],
   controllers: [JenisController],
   providers: [JenisService],
   exports: [JenisService],

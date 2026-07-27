@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsInt,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateOrganizationDto {
   @IsUUID()

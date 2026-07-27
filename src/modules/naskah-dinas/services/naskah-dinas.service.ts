@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
@@ -47,10 +52,14 @@ export class NaskahDinasService {
   ) {}
 
   private getScopedAreaCode(user: JwtPayload): string | undefined {
-    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+    const requesterAreaCode = String(user?.area || '')
+      .trim()
+      .toUpperCase();
 
     if (!requesterAreaCode) {
-      throw new BadRequestException('Area code tidak ditemukan pada token user');
+      throw new BadRequestException(
+        'Area code tidak ditemukan pada token user',
+      );
     }
 
     return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
@@ -58,7 +67,8 @@ export class NaskahDinasService {
 
   private parseNumberArray(value: any): number[] {
     if (!value) return [];
-    if (Array.isArray(value)) return value.map(Number).filter((item) => Number.isFinite(item));
+    if (Array.isArray(value))
+      return value.map(Number).filter((item) => Number.isFinite(item));
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value);
@@ -78,13 +88,18 @@ export class NaskahDinasService {
     return Number.isFinite(parsedNumber) ? [parsedNumber] : [];
   }
 
-  private normalizeSifat(value?: string): 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka' {
+  private normalizeSifat(
+    value?: string,
+  ): 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka' {
     const normalized = String(value || 'biasa')
       .trim()
       .toLowerCase()
       .replace(/\s+/g, '_');
 
-    const map: Record<string, 'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka'> = {
+    const map: Record<
+      string,
+      'sangat_rahasia' | 'rahasia' | 'terbatas' | 'biasa' | 'terbuka'
+    > = {
       sangat_rahasia: 'sangat_rahasia',
       rahasia: 'rahasia',
       terbatas: 'terbatas',
@@ -142,7 +157,9 @@ export class NaskahDinasService {
     persnums: number[],
     positions: NdOrgDataPositionDto[],
   ): NaskahDinasVerifikatorEntity[] {
-    const uniquePersnums = Array.from(new Set(persnums.filter((item) => Number.isFinite(item))));
+    const uniquePersnums = Array.from(
+      new Set(persnums.filter((item) => Number.isFinite(item))),
+    );
 
     return uniquePersnums.map((persnum, index) => {
       const position = positions.find(
@@ -152,7 +169,9 @@ export class NaskahDinasService {
       );
 
       if (!position) {
-        throw new NotFoundException(`Verifikator dengan persnum ${persnum} tidak ditemukan`);
+        throw new NotFoundException(
+          `Verifikator dengan persnum ${persnum} tidak ditemukan`,
+        );
       }
 
       const rawPosition = position as any;
@@ -167,12 +186,15 @@ export class NaskahDinasService {
         lokasi: position.sub_area_text || position.area_text || null,
         positionId: position.position ? Number(position.position) : null,
         company: rawPosition.company ? String(rawPosition.company) : null,
-        companyText: rawPosition.company_name || rawPosition.companyText || null,
+        companyText:
+          rawPosition.company_name || rawPosition.companyText || null,
         area: position.area || null,
         areaText: position.area_text || null,
         subArea: position.sub_area ? String(position.sub_area) : null,
         subAreaText: position.sub_area_text || null,
-        organization: position.organization_id ? String(position.organization_id) : null,
+        organization: position.organization_id
+          ? String(position.organization_id)
+          : null,
         organizationText: position.organization_text || null,
         status: index === 0 ? 'waiting' : 'pending',
       });
@@ -197,17 +219,25 @@ export class NaskahDinasService {
 
     for (const persnum of forceZeroPersnums) {
       if (Number.isFinite(persnum)) {
-        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(Number(persnum), 0);
+        this.realtimeEmitService.emitNaskahDinasVerifikatorCountUser(
+          Number(persnum),
+          0,
+        );
       }
     }
   }
 
   private async notifyNaskahDinasRecipients(idNaskah: string) {
-    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
-    if (!naskah || !['final', 'final_tte'].includes(String(naskah.status))) return;
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: idNaskah },
+    });
+    if (!naskah || !['final', 'final_tte'].includes(String(naskah.status)))
+      return;
 
     const pengirim = naskah.tempat
-      ? await this.eksternalRepository.findOne({ where: { id: naskah.tempat } }).catch(() => null)
+      ? await this.eksternalRepository
+          .findOne({ where: { id: naskah.tempat } })
+          .catch(() => null)
       : null;
 
     const recipients = await this.naskahSirkulasiRepository.find({
@@ -224,7 +254,9 @@ export class NaskahDinasService {
           this.notificationService
             .createNaskahMasukNotification({
               positionId: String(sirkulasi.position),
-              userPersnum: sirkulasi.idSirkuler ? Number(sirkulasi.idSirkuler) : undefined,
+              userPersnum: sirkulasi.idSirkuler
+                ? Number(sirkulasi.idSirkuler)
+                : undefined,
               naskahId: idNaskah,
               sirkulasiId: sirkulasi.id,
               jenis: 'SDE',
@@ -249,7 +281,9 @@ export class NaskahDinasService {
   ) {
     if (!verifikator?.positionId) return;
 
-    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: idNaskah },
+    });
 
     await this.notificationService.createNotification({
       positionId: String(verifikator.positionId),
@@ -270,10 +304,14 @@ export class NaskahDinasService {
 
   private async notifyNaskahDinasOwner(
     idNaskah: string,
-    type: NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI | NotificationType.NASKAH_DINAS_DITOLAK,
+    type:
+      | NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI
+      | NotificationType.NASKAH_DINAS_DITOLAK,
     body: string,
   ) {
-    const naskah = await this.naskahRepository.findOne({ where: { id: idNaskah } });
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: idNaskah },
+    });
     if (!naskah?.createdByPosition) return;
 
     await this.notificationService.createNotification({
@@ -353,8 +391,11 @@ export class NaskahDinasService {
       position: String(pos.position),
       positionText: pos.position_text,
       positionStatus: 'ybs',
-      idSirkuler: String(pos.persnum_person ?? pos.persnum ?? pos.position ?? ''),
-      namaSirkuler: pos.persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+      idSirkuler: String(
+        pos.persnum_person ?? pos.persnum ?? pos.position ?? '',
+      ),
+      namaSirkuler:
+        pos.persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
       isDraft: false,
     });
 
@@ -393,7 +434,7 @@ export class NaskahDinasService {
 
   /**
    * Parse form-data body + uploaded file to CreateNaskahDinasDto
-   * 
+   *
    * Form field names sesuai UI:
    * - tanggal_surat: Tanggal Surat
    * - sifat_naskah: Sifat Naskah
@@ -409,7 +450,9 @@ export class NaskahDinasService {
     file?: Express.Multer.File,
   ): Promise<{ dto: CreateNaskahDinasDto; file?: Express.Multer.File }> {
     // Parse tertuju - array of positionId (penerima internal)
-    const tertujuArray = this.parseNumberArray(body.tertuju ?? body['tertuju[]']);
+    const tertujuArray = this.parseNumberArray(
+      body.tertuju ?? body['tertuju[]'],
+    );
     if (tertujuArray.length === 0) {
       throw new BadRequestException('Minimal harus ada 1 penerima (tertuju)');
     }
@@ -466,7 +509,7 @@ export class NaskahDinasService {
 
   /**
    * Get Naskah Dinas recipients using org_data
-   * 
+   *
    * Naskah Dinas (kebalikan dari SDE):
    * - Pengirim: dari tabel eksternal (pihak luar perusahaan)
    * - Penerima: dari org_data (internal users dengan chief=1)
@@ -500,7 +543,9 @@ export class NaskahDinasService {
         return true;
       }
 
-      const recipientAreaCode = String(pos.area || '').trim().toUpperCase();
+      const recipientAreaCode = String(pos.area || '')
+        .trim()
+        .toUpperCase();
       return recipientAreaCode === scopedAreaCode;
     });
 
@@ -565,7 +610,9 @@ export class NaskahDinasService {
       const penerimaPositions: NdOrgDataPositionDto[] = [];
 
       for (const posId of dto.tertuju) {
-        const position = barisData.find((p) => Number(p.position) === Number(posId));
+        const position = barisData.find(
+          (p) => Number(p.position) === Number(posId),
+        );
         if (!position) {
           throw new NotFoundException(
             `Penerima dengan positionId ${posId} tidak ditemukan`,
@@ -593,7 +640,7 @@ export class NaskahDinasService {
       );
       const initialStatus: 'pending' | 'final' =
         verifikatorRows.length > 0 ? 'pending' : 'final';
-      
+
       // Parse tanggal surat untuk naskah
       let tanggalNaskah = new Date();
       if (dto.tanggal_surat) {
@@ -623,13 +670,20 @@ export class NaskahDinasService {
       await queryRunner.manager.save(naskah);
 
       // 5. Create sirkulasi untuk pengirim (eksternal)
-      const sirkulasiPengirim = this.createSirkulasiFromEksternal(naskahId, pengirimEksternal);
+      const sirkulasiPengirim = this.createSirkulasiFromEksternal(
+        naskahId,
+        pengirimEksternal,
+      );
       await queryRunner.manager.save(sirkulasiPengirim);
 
       // 6. Create sirkulasi untuk penerima (internal user)
       const penerimaResponses: NdPenerimaInfoDto[] = [];
       for (const pos of penerimaPositions) {
-        const sirkulasiPenerima = this.createSirkulasiFromOrgData(naskahId, 'penerima', pos);
+        const sirkulasiPenerima = this.createSirkulasiFromOrgData(
+          naskahId,
+          'penerima',
+          pos,
+        );
         await queryRunner.manager.save(sirkulasiPenerima);
         penerimaResponses.push(this.toPenerimaInfo(pos));
       }
@@ -645,7 +699,9 @@ export class NaskahDinasService {
       if (verifikatorRows.length > 0) {
         this.emitVerifierWaitingCounts().catch(() => {});
         this.notifyCurrentVerifikator(
-          verifikatorRows.find((verifikator) => verifikator.status === 'waiting'),
+          verifikatorRows.find(
+            (verifikator) => verifikator.status === 'waiting',
+          ),
           naskahId,
         ).catch(() => {});
       } else {
@@ -655,7 +711,9 @@ export class NaskahDinasService {
       // Lookup pembuat dari org_data untuk response
       let pembuatInfo: NdPembuatInfoDto | null = null;
       if (dto.created_by_position_id) {
-        const pembuatPos = barisData.find((p) => String(p.position) === String(dto.created_by_position_id));
+        const pembuatPos = barisData.find(
+          (p) => String(p.position) === String(dto.created_by_position_id),
+        );
         if (pembuatPos) {
           pembuatInfo = {
             position: pembuatPos.position,
@@ -678,7 +736,10 @@ export class NaskahDinasService {
         try {
           finalPdfUrl = await this.storageService.getFileUrl(finalPdfPath);
         } catch (error) {
-          console.warn(`Failed to get signed URL for ${finalPdfPath}:`, error.message);
+          console.warn(
+            `Failed to get signed URL for ${finalPdfPath}:`,
+            error.message,
+          );
         }
       }
 
@@ -702,7 +763,9 @@ export class NaskahDinasService {
           pembuat: pembuatInfo,
           verifikatorProgress,
           totalVerifikator: verifikatorRows.length,
-          verifikators: verifikatorRows.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+          verifikators: verifikatorRows.map((verifikator) =>
+            this.toVerifikatorInfo(verifikator),
+          ),
         },
       };
     } catch (error) {
@@ -720,7 +783,7 @@ export class NaskahDinasService {
   /**
    * Get all Naskah Dinas (tanpa pagination)
    * Naskah Dinas = SDE dengan pengirim eksternal (field tempat berisi eksternal.id)
-   * 
+   *
    * @param positionId - Optional filter by penerima position
    * @param userArea - User's area from JWT token. If not A000 (kantor pusat), filter data by user's area
    */
@@ -743,13 +806,19 @@ export class NaskahDinasService {
     if (shouldJoinSirkulasi) {
       query = query
         .distinct(true)
-        .innerJoin('naskah_sirkulasi', 'sirkulasi', 'sirkulasi.idNaskah = naskah.id')
+        .innerJoin(
+          'naskah_sirkulasi',
+          'sirkulasi',
+          'sirkulasi.idNaskah = naskah.id',
+        )
         .andWhere('sirkulasi.sirkuler = :sirkuler', { sirkuler: 'penerima' });
     }
 
     // If positionId provided, filter by specific position
     if (positionId) {
-      query = query.andWhere('sirkulasi.position = :position', { position: String(positionId) });
+      query = query.andWhere('sirkulasi.position = :position', {
+        position: String(positionId),
+      });
     }
 
     // If user is not from kantor pusat (A000), filter by user's area
@@ -767,7 +836,9 @@ export class NaskahDinasService {
     // BULK FETCH (eliminasi N+1)
     // ============================================================
     const naskahIds = naskahList.map((n) => n.id).filter(Boolean);
-    const tempatIds = naskahList.map((n) => n.tempat).filter((t): t is string => !!t);
+    const tempatIds = naskahList
+      .map((n) => n.tempat)
+      .filter((t): t is string => !!t);
 
     // 1. Bulk semua sirkulasi sekaligus
     const allSirkulasi = naskahIds.length
@@ -778,7 +849,8 @@ export class NaskahDinasService {
     const sirkulasiByNaskah = new Map<string, typeof allSirkulasi>();
     for (const s of allSirkulasi) {
       if (!s.idNaskah) continue;
-      if (!sirkulasiByNaskah.has(s.idNaskah)) sirkulasiByNaskah.set(s.idNaskah, []);
+      if (!sirkulasiByNaskah.has(s.idNaskah))
+        sirkulasiByNaskah.set(s.idNaskah, []);
       sirkulasiByNaskah.get(s.idNaskah)!.push(s);
     }
 
@@ -788,7 +860,10 @@ export class NaskahDinasService {
           order: { urutan: 'ASC' },
         })
       : [];
-    const verifikatorsByNaskah = new Map<string, NaskahDinasVerifikatorEntity[]>();
+    const verifikatorsByNaskah = new Map<
+      string,
+      NaskahDinasVerifikatorEntity[]
+    >();
     for (const verifikator of allVerifikators) {
       if (!verifikatorsByNaskah.has(verifikator.idNaskah)) {
         verifikatorsByNaskah.set(verifikator.idNaskah, []);
@@ -828,10 +903,13 @@ export class NaskahDinasService {
     await Promise.all(
       naskahWithPdf.map(async (n) => {
         try {
-          const url = await this.storageService.getFileUrl(n.final_pdf!);
+          const url = await this.storageService.getFileUrl(n.final_pdf);
           if (url) finalPdfUrlMap.set(n.id, url);
         } catch (err: any) {
-          console.warn(`Failed to get signed URL for ${n.final_pdf}:`, err?.message);
+          console.warn(
+            `Failed to get signed URL for ${n.final_pdf}:`,
+            err?.message,
+          );
         }
       }),
     );
@@ -840,12 +918,14 @@ export class NaskahDinasService {
     // BUILD RESPONSE (no async per item)
     // ============================================================
     const data = naskahList.map((naskah) => {
-      let penerimaSirkulasiList = (sirkulasiByNaskah.get(naskah.id) || []).filter(
-        (s) => s.sirkuler === 'penerima',
-      );
+      let penerimaSirkulasiList = (
+        sirkulasiByNaskah.get(naskah.id) || []
+      ).filter((s) => s.sirkuler === 'penerima');
 
       if (userArea && userArea !== 'A000') {
-        penerimaSirkulasiList = penerimaSirkulasiList.filter((s) => s.area === userArea);
+        penerimaSirkulasiList = penerimaSirkulasiList.filter(
+          (s) => s.area === userArea,
+        );
       }
 
       // Pengirim eksternal
@@ -864,18 +944,20 @@ export class NaskahDinasService {
         }
       }
 
-      const penerimaInfo: NdPenerimaInfoDto[] = penerimaSirkulasiList.map((s) => ({
-        position: Number(s.position) || 0,
-        position_text: s.positionText || '',
-        persnum: Number(s.idSirkuler) || null,
-        nama: s.namaSirkuler || null,
-        organization_id: Number(s.organization) || 0,
-        organization_text: s.organizationText || '',
-        sub_area: Number(s.subArea) || null,
-        sub_area_text: s.subAreaText || null,
-        area: s.area || null,
-        area_text: s.areaText || null,
-      }));
+      const penerimaInfo: NdPenerimaInfoDto[] = penerimaSirkulasiList.map(
+        (s) => ({
+          position: Number(s.position) || 0,
+          position_text: s.positionText || '',
+          persnum: Number(s.idSirkuler) || null,
+          nama: s.namaSirkuler || null,
+          organization_id: Number(s.organization) || 0,
+          organization_text: s.organizationText || '',
+          sub_area: Number(s.subArea) || null,
+          sub_area_text: s.subAreaText || null,
+          area: s.area || null,
+          area_text: s.areaText || null,
+        }),
+      );
 
       // Tanggal
       let tanggalStr = '';
@@ -890,7 +972,9 @@ export class NaskahDinasService {
       let jamUtc = '';
       if (naskah.createdAt) {
         const dateObj =
-          naskah.createdAt instanceof Date ? naskah.createdAt : new Date(naskah.createdAt);
+          naskah.createdAt instanceof Date
+            ? naskah.createdAt
+            : new Date(naskah.createdAt);
         jamUtc = dateObj.toISOString().split('T')[1].split('.')[0];
       }
 
@@ -935,7 +1019,9 @@ export class NaskahDinasService {
         pembuat: pembuatInfo,
         verifikatorProgress: this.getVerifikatorProgress(verifikators),
         totalVerifikator: verifikators.length,
-        verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+        verifikators: verifikators.map((verifikator) =>
+          this.toVerifikatorInfo(verifikator),
+        ),
       };
     });
 
@@ -961,12 +1047,16 @@ export class NaskahDinasService {
     });
 
     if (!naskah) {
-      throw new NotFoundException(`Naskah Dinas dengan ID ${id} tidak ditemukan`);
+      throw new NotFoundException(
+        `Naskah Dinas dengan ID ${id} tidak ditemukan`,
+      );
     }
 
     // Verify bahwa ini Naskah Dinas (tempat harus berisi eksternal.id)
     if (!naskah.tempat) {
-      throw new NotFoundException(`Naskah dengan ID ${id} adalah SDE biasa, bukan Naskah Dinas`);
+      throw new NotFoundException(
+        `Naskah dengan ID ${id} adalah SDE biasa, bukan Naskah Dinas`,
+      );
     }
 
     // Get sirkulasi
@@ -974,7 +1064,9 @@ export class NaskahDinasService {
       where: { idNaskah: id },
     });
 
-    const penerimaSirkulasiList = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
+    const penerimaSirkulasiList = sirkulasiList.filter(
+      (s) => s.sirkuler === 'penerima',
+    );
 
     // Ambil data pengirim dari tabel eksternal berdasarkan naskah.tempat (eksternal.id)
     let pengirimInfo: NdPengirimInfoDto = {
@@ -1000,33 +1092,37 @@ export class NaskahDinasService {
     }
 
     // Build penerima info
-    const penerimaInfo: NdPenerimaInfoDto[] = penerimaSirkulasiList.map((s) => ({
-      position: Number(s.position) || 0,
-      position_text: s.positionText || '',
-      persnum: Number(s.idSirkuler) || null,
-      nama: s.namaSirkuler || null,
-      organization_id: Number(s.organization) || 0,
-      organization_text: s.organizationText || '',
-      sub_area: Number(s.subArea) || null,
-      sub_area_text: s.subAreaText || null,
-      area: s.area || null,
-      area_text: s.areaText || null,
-    }));
+    const penerimaInfo: NdPenerimaInfoDto[] = penerimaSirkulasiList.map(
+      (s) => ({
+        position: Number(s.position) || 0,
+        position_text: s.positionText || '',
+        persnum: Number(s.idSirkuler) || null,
+        nama: s.namaSirkuler || null,
+        organization_id: Number(s.organization) || 0,
+        organization_text: s.organizationText || '',
+        sub_area: Number(s.subArea) || null,
+        sub_area_text: s.subAreaText || null,
+        area: s.area || null,
+        area_text: s.areaText || null,
+      }),
+    );
 
     // Handle tanggal - bisa Date object atau string dari DB
     let tanggalStr = '';
     if (naskah.tanggal) {
-      tanggalStr = naskah.tanggal instanceof Date 
-        ? naskah.tanggal.toISOString().split('T')[0]
-        : String(naskah.tanggal).split('T')[0];
+      tanggalStr =
+        naskah.tanggal instanceof Date
+          ? naskah.tanggal.toISOString().split('T')[0]
+          : String(naskah.tanggal).split('T')[0];
     }
 
     // Get jam UTC from createdAt (hanya waktu tanpa tanggal)
     let jamUtc = '';
     if (naskah.createdAt) {
-      const dateObj = naskah.createdAt instanceof Date
-        ? naskah.createdAt
-        : new Date(naskah.createdAt);
+      const dateObj =
+        naskah.createdAt instanceof Date
+          ? naskah.createdAt
+          : new Date(naskah.createdAt);
       jamUtc = dateObj.toISOString().split('T')[1].split('.')[0]; // HH:mm:ss
     }
 
@@ -1038,7 +1134,9 @@ export class NaskahDinasService {
         const orgData = await this.orgDataService.findOrg(today);
         if (orgData && orgData.position_json) {
           const barisData: NdOrgDataPositionDto[] = orgData.position_json;
-          const pembuatPos = barisData.find((p) => String(p.position) === String(naskah.createdByPosition));
+          const pembuatPos = barisData.find(
+            (p) => String(p.position) === String(naskah.createdByPosition),
+          );
           if (pembuatPos) {
             pembuatInfo = {
               position: pembuatPos.position,
@@ -1065,7 +1163,10 @@ export class NaskahDinasService {
       try {
         finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
       } catch (error) {
-        console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
+        console.warn(
+          `Failed to get signed URL for ${naskah.final_pdf}:`,
+          error.message,
+        );
       }
     }
 
@@ -1094,7 +1195,9 @@ export class NaskahDinasService {
         pembuat: pembuatInfo,
         verifikatorProgress: this.getVerifikatorProgress(verifikators),
         totalVerifikator: verifikators.length,
-        verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+        verifikators: verifikators.map((verifikator) =>
+          this.toVerifikatorInfo(verifikator),
+        ),
       },
     };
   }
@@ -1114,7 +1217,9 @@ export class NaskahDinasService {
       });
 
       if (!naskah || !naskah.tempat) {
-        throw new NotFoundException(`Naskah Dinas dengan ID ${id} tidak ditemukan`);
+        throw new NotFoundException(
+          `Naskah Dinas dengan ID ${id} tidak ditemukan`,
+        );
       }
 
       let tanggal = new Date().toISOString().split('T')[0];
@@ -1139,23 +1244,32 @@ export class NaskahDinasService {
 
       const orgData = await this.orgDataService.findOrg(tanggal);
       if (!orgData || !orgData.position_json) {
-        throw new NotFoundException(`Data organisasi untuk tanggal ${tanggal} tidak ditemukan`);
+        throw new NotFoundException(
+          `Data organisasi untuk tanggal ${tanggal} tidak ditemukan`,
+        );
       }
 
       const barisData: NdOrgDataPositionDto[] = orgData.position_json;
       const penerimaPositions: NdOrgDataPositionDto[] = [];
 
       for (const posId of dto.tertuju) {
-        const position = barisData.find((p) => Number(p.position) === Number(posId));
+        const position = barisData.find(
+          (p) => Number(p.position) === Number(posId),
+        );
         if (!position) {
-          throw new NotFoundException(`Penerima dengan positionId ${posId} tidak ditemukan`);
+          throw new NotFoundException(
+            `Penerima dengan positionId ${posId} tidak ditemukan`,
+          );
         }
         penerimaPositions.push(position);
       }
 
       let finalPdfPath = naskah.final_pdf || null;
       if (file) {
-        const uploadResult = await this.storageService.uploadFile(file, 'naskah-dinas/final');
+        const uploadResult = await this.storageService.uploadFile(
+          file,
+          'naskah-dinas/final',
+        );
         finalPdfPath = uploadResult.key;
       }
 
@@ -1169,7 +1283,11 @@ export class NaskahDinasService {
         }
       }
 
-      const verifikatorRows = this.createVerifikatorEntities(id, dto.verifikator || [], barisData);
+      const verifikatorRows = this.createVerifikatorEntities(
+        id,
+        dto.verifikator || [],
+        barisData,
+      );
 
       naskah.nomor = dto.nomor_asal || null;
       naskah.klasifikasi = dto.klasifikasi || '';
@@ -1180,19 +1298,26 @@ export class NaskahDinasService {
       naskah.final_pdf = finalPdfPath || '';
       naskah.tanggal = tanggalNaskah;
       naskah.tempat = dto.asal_naskah;
-      naskah.createdByPosition = dto.created_by_position_id || naskah.createdByPosition;
+      naskah.createdByPosition =
+        dto.created_by_position_id || naskah.createdByPosition;
       naskah.status = verifikatorRows.length > 0 ? 'pending' : 'final';
 
       await queryRunner.manager.save(naskah);
 
       await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: id });
-      await queryRunner.manager.save(this.createSirkulasiFromEksternal(id, pengirimEksternal));
+      await queryRunner.manager.save(
+        this.createSirkulasiFromEksternal(id, pengirimEksternal),
+      );
 
       for (const pos of penerimaPositions) {
-        await queryRunner.manager.save(this.createSirkulasiFromOrgData(id, 'penerima', pos));
+        await queryRunner.manager.save(
+          this.createSirkulasiFromOrgData(id, 'penerima', pos),
+        );
       }
 
-      await queryRunner.manager.delete(NaskahDinasVerifikatorEntity, { idNaskah: id });
+      await queryRunner.manager.delete(NaskahDinasVerifikatorEntity, {
+        idNaskah: id,
+      });
       if (verifikatorRows.length > 0) {
         await queryRunner.manager.save(verifikatorRows);
       }
@@ -1202,7 +1327,9 @@ export class NaskahDinasService {
       if (verifikatorRows.length > 0) {
         this.emitVerifierWaitingCounts().catch(() => {});
         this.notifyCurrentVerifikator(
-          verifikatorRows.find((verifikator) => verifikator.status === 'waiting'),
+          verifikatorRows.find(
+            (verifikator) => verifikator.status === 'waiting',
+          ),
           id,
         ).catch(() => {});
       } else {
@@ -1233,18 +1360,28 @@ export class NaskahDinasService {
       .orderBy('naskah.createdAt', 'DESC');
 
     if (filter.status && filter.status !== 'all') {
-      queryBuilder.andWhere('myVerifier.status = :status', { status: filter.status });
+      queryBuilder.andWhere('myVerifier.status = :status', {
+        status: filter.status,
+      });
     } else if (!filter.status) {
-      queryBuilder.andWhere('myVerifier.status = :status', { status: 'waiting' });
-    }
-
-    if (filter.search) {
-      queryBuilder.andWhere('(naskah.nomor LIKE :search OR naskah.perihal LIKE :search)', {
-        search: `%${filter.search}%`,
+      queryBuilder.andWhere('myVerifier.status = :status', {
+        status: 'waiting',
       });
     }
 
-    const [myVerifierRows, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
+    if (filter.search) {
+      queryBuilder.andWhere(
+        '(naskah.nomor LIKE :search OR naskah.perihal LIKE :search)',
+        {
+          search: `%${filter.search}%`,
+        },
+      );
+    }
+
+    const [myVerifierRows, total] = await queryBuilder
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
     const naskahIds = myVerifierRows.map((row) => row.idNaskah);
 
     const allVerifikators = naskahIds.length
@@ -1254,7 +1391,10 @@ export class NaskahDinasService {
         })
       : [];
 
-    const verifikatorsByNaskah = new Map<string, NaskahDinasVerifikatorEntity[]>();
+    const verifikatorsByNaskah = new Map<
+      string,
+      NaskahDinasVerifikatorEntity[]
+    >();
     for (const verifikator of allVerifikators) {
       if (!verifikatorsByNaskah.has(verifikator.idNaskah)) {
         verifikatorsByNaskah.set(verifikator.idNaskah, []);
@@ -1285,9 +1425,14 @@ export class NaskahDinasService {
         let finalPdfUrl: string | null = null;
         if (naskah.final_pdf) {
           try {
-            finalPdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+            finalPdfUrl = await this.storageService.getFileUrl(
+              naskah.final_pdf,
+            );
           } catch (error) {
-            console.warn(`Failed to get signed URL for ${naskah.final_pdf}:`, error.message);
+            console.warn(
+              `Failed to get signed URL for ${naskah.final_pdf}:`,
+              error.message,
+            );
           }
         }
 
@@ -1307,7 +1452,9 @@ export class NaskahDinasService {
           pengirim: pengirim ? this.toEksternalPengirimInfo(pengirim) : null,
           verifikatorProgress: progress,
           totalVerifikator: verifikators.length,
-          verifikators: verifikators.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+          verifikators: verifikators.map((verifikator) =>
+            this.toVerifikatorInfo(verifikator),
+          ),
           myVerifikatorInfo: this.toVerifikatorInfo(row),
         };
       }),
@@ -1347,7 +1494,9 @@ export class NaskahDinasService {
     );
 
     if (!myVerifikator) {
-      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+      throw new ForbiddenException(
+        'Anda tidak terdaftar sebagai verifikator naskah ini',
+      );
     }
 
     return {
@@ -1376,7 +1525,9 @@ export class NaskahDinasService {
     );
 
     if (!myVerifikator) {
-      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+      throw new ForbiddenException(
+        'Anda tidak terdaftar sebagai verifikator naskah ini',
+      );
     }
 
     if (myVerifikator.status !== 'waiting') {
@@ -1386,7 +1537,9 @@ export class NaskahDinasService {
       if (myVerifikator.status === 'rejected') {
         throw new BadRequestException('Naskah ini sudah Anda tolak');
       }
-      throw new BadRequestException('Belum giliran Anda untuk memverifikasi naskah ini');
+      throw new BadRequestException(
+        'Belum giliran Anda untuk memverifikasi naskah ini',
+      );
     }
 
     myVerifikator.status = 'verified';
@@ -1396,7 +1549,8 @@ export class NaskahDinasService {
 
     const nextVerifikator = verifikators.find(
       (verifikator) =>
-        verifikator.urutan > myVerifikator.urutan && verifikator.status === 'pending',
+        verifikator.urutan > myVerifikator.urutan &&
+        verifikator.status === 'pending',
     );
     if (nextVerifikator) {
       nextVerifikator.status = 'waiting';
@@ -1428,7 +1582,9 @@ export class NaskahDinasService {
       data: {
         id,
         verifikatorProgress: this.getVerifikatorProgress(refreshed),
-        verifikators: refreshed.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+        verifikators: refreshed.map((verifikator) =>
+          this.toVerifikatorInfo(verifikator),
+        ),
       },
     };
   }
@@ -1452,17 +1608,23 @@ export class NaskahDinasService {
     );
 
     if (!myVerifikator) {
-      throw new ForbiddenException('Anda tidak terdaftar sebagai verifikator naskah ini');
+      throw new ForbiddenException(
+        'Anda tidak terdaftar sebagai verifikator naskah ini',
+      );
     }
 
     if (myVerifikator.status !== 'waiting') {
       if (myVerifikator.status === 'verified') {
-        throw new BadRequestException('Anda sudah memverifikasi naskah ini, tidak dapat menolak');
+        throw new BadRequestException(
+          'Anda sudah memverifikasi naskah ini, tidak dapat menolak',
+        );
       }
       if (myVerifikator.status === 'rejected') {
         throw new BadRequestException('Naskah ini sudah Anda tolak');
       }
-      throw new BadRequestException('Belum giliran Anda untuk menolak naskah ini');
+      throw new BadRequestException(
+        'Belum giliran Anda untuk menolak naskah ini',
+      );
     }
 
     myVerifikator.status = 'rejected';
@@ -1492,7 +1654,9 @@ export class NaskahDinasService {
       data: {
         id,
         verifikatorProgress: this.getVerifikatorProgress(refreshed),
-        verifikators: refreshed.map((verifikator) => this.toVerifikatorInfo(verifikator)),
+        verifikators: refreshed.map((verifikator) =>
+          this.toVerifikatorInfo(verifikator),
+        ),
       },
     };
   }

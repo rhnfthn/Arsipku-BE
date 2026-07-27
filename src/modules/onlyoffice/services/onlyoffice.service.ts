@@ -37,10 +37,14 @@ export class OnlyOfficeService {
       );
     }
     if (!this.ooUrl) {
-      throw new BadRequestException('Missing required environment variable: ONLYOFFICE_URL');
+      throw new BadRequestException(
+        'Missing required environment variable: ONLYOFFICE_URL',
+      );
     }
     if (!this.jwtSecret) {
-      throw new BadRequestException('Missing required environment variable: ONLYOFFICE_JWT_SECRET');
+      throw new BadRequestException(
+        'Missing required environment variable: ONLYOFFICE_JWT_SECRET',
+      );
     }
   }
 
@@ -50,13 +54,15 @@ export class OnlyOfficeService {
 
   signJwt(payload: object): string {
     this.ensureEnabled();
-    return jwt.sign(payload as object, this.jwtSecret, { algorithm: 'HS256' });
+    return jwt.sign(payload, this.jwtSecret, { algorithm: 'HS256' });
   }
 
   buildStorageDocumentUrl(s3Key: string): string {
     this.ensureEnabled();
     if (!this.publicBaseUrl) {
-      throw new BadRequestException('Missing required environment variable: APP_PUBLIC_URL');
+      throw new BadRequestException(
+        'Missing required environment variable: APP_PUBLIC_URL',
+      );
     }
     const token = this.signJwt({
       purpose: 'onlyoffice-storage-document',
@@ -124,9 +130,13 @@ export class OnlyOfficeService {
     const token = this.signJwt(payload);
 
     const { data } = await firstValueFrom(
-      this.http.post(`${this.ooUrl}/converter`, { ...payload, token }, {
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      this.http.post(
+        `${this.ooUrl}/converter`,
+        { ...payload, token },
+        {
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
     );
 
     if (data?.endConvert === true && data?.url) {

@@ -1,4 +1,13 @@
-import { Controller, Post, Delete, Param, HttpException, HttpStatus, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Delete,
+  Param,
+  HttpException,
+  HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
+} from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { NotaDinasService } from '../services/nota-dinas.service';
 import { UploadTemporaryLampiranResponseDto } from '../dto/upload-temporary-lampiran.dto';
@@ -18,7 +27,7 @@ export class UploadTemporaryController {
    * - lampiran_files: file[] (multiple PDF files)
    *
    * @returns UploadTemporaryLampiranResponseDto
-   * 
+   *
    * Response:
    * {
    *   success: true,

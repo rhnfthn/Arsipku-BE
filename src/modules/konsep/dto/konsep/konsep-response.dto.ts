@@ -22,7 +22,7 @@ export class KonsepDetailDto {
   id: string;
   id_naskah: string | null;
   jenis: 'ND' | 'SDI' | 'SDE' | null;
-  
+
   from: KonsepPositionInfoDto;
   to: KonsepPositionInfoDto;
 
@@ -35,7 +35,7 @@ export class KonsepDetailDto {
   status: string | null; // draf/final/final_tte
 
   catatan: string | null;
-  
+
   send_read_time: Date | null;
   send_read_user: string | null;
 

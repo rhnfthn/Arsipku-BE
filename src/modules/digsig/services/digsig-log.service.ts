@@ -86,7 +86,9 @@ export class DigsigLogService {
   /**
    * Get all logs with filtering and pagination
    */
-  async findAll(filter: FilterDigsigLogDto): Promise<DigsigLogPaginatedResponseDto> {
+  async findAll(
+    filter: FilterDigsigLogDto,
+  ): Promise<DigsigLogPaginatedResponseDto> {
     const page = filter.page || 1;
     const limit = filter.limit || 10;
     const skip = (page - 1) * limit;
@@ -240,7 +242,12 @@ export class DigsigLogService {
   }): Promise<{
     totalLogs: number;
     byStatus: { sukses: number; gagal: number; pending: number };
-    byAction: { sign: number; verify: number; download: number; upload: number };
+    byAction: {
+      sign: number;
+      verify: number;
+      download: number;
+      upload: number;
+    };
     byJenisNaskah: Record<string, number>;
     recentLogs: DigsigLogResponseDto[];
   }> {
@@ -364,8 +371,12 @@ export class DigsigLogService {
       order: { tanggal: 'DESC' },
     });
 
-    const recentFailures = recentLogs.filter((log) => log.status === 'gagal').length;
-    const recentSuccesses = recentLogs.filter((log) => log.status === 'sukses').length;
+    const recentFailures = recentLogs.filter(
+      (log) => log.status === 'gagal',
+    ).length;
+    const recentSuccesses = recentLogs.filter(
+      (log) => log.status === 'sukses',
+    ).length;
 
     // Consider unhealthy if failure rate > 50% with at least 3 attempts
     const totalAttempts = recentFailures + recentSuccesses;

@@ -307,7 +307,9 @@ export class KonsepService {
         id_naskah_konsep: naskahKonsepId, // Link to konsep workflow
         // Garis Kewenangan (a.n.) — khusus SDE. Label pemberi kuasa untuk template.
         atasNama: dto.atas_nama || null,
-        atasNamaPositionId: dto.atas_nama_position_id ? String(dto.atas_nama_position_id) : null,
+        atasNamaPositionId: dto.atas_nama_position_id
+          ? String(dto.atas_nama_position_id)
+          : null,
       });
       await queryRunner.manager.save(naskahAsli);
 
@@ -473,7 +475,12 @@ export class KonsepService {
           where: { id: In(dto.penerima_eksternal) },
         });
         for (let i = 0; i < eksternalList.length; i++) {
-          const sirkulasi = this.createSirkulasiFromEksternal(naskahAsliId, eksternalList[i], true, i);
+          const sirkulasi = this.createSirkulasiFromEksternal(
+            naskahAsliId,
+            eksternalList[i],
+            true,
+            i,
+          );
           await queryRunner.manager.save(sirkulasi);
         }
       }
@@ -519,10 +526,21 @@ export class KonsepService {
 
       // Garis Kewenangan (a.n.): pemberi kuasa auto-tembusan (force, non-Dirut).
       // Hanya untuk SDE. Dirut "a.n Direksi" tidak CC (atas_nama_position_id null).
-      if (dto.atas_nama_position_id && !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))) {
-        const atasNamaPos = this.findByPosition(barisData, Number(dto.atas_nama_position_id));
+      if (
+        dto.atas_nama_position_id &&
+        !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))
+      ) {
+        const atasNamaPos = this.findByPosition(
+          barisData,
+          Number(dto.atas_nama_position_id),
+        );
         if (atasNamaPos) {
-          const sirkulasiAtasNama = this.createSirkulasi(naskahAsliId, 'tembusan', atasNamaPos, true);
+          const sirkulasiAtasNama = this.createSirkulasi(
+            naskahAsliId,
+            'tembusan',
+            atasNamaPos,
+            true,
+          );
           await queryRunner.manager.save(sirkulasiAtasNama);
         }
       }
@@ -730,8 +748,18 @@ export class KonsepService {
     naskahId: string | null | undefined,
     positionId: number | string | null | undefined,
   ): Promise<void> {
-    if (!naskahId || positionId === null || positionId === undefined || positionId === '') return;
-    await this.naskahSirkulasiService.markTindakLanjut(naskahId, String(positionId), manager);
+    if (
+      !naskahId ||
+      positionId === null ||
+      positionId === undefined ||
+      positionId === ''
+    )
+      return;
+    await this.naskahSirkulasiService.markTindakLanjut(
+      naskahId,
+      String(positionId),
+      manager,
+    );
   }
 
   private async getPositionData(): Promise<PositionData[]> {
@@ -1395,7 +1423,9 @@ export class KonsepService {
       tanda_tangan: body.tanda_tangan,
       // Garis Kewenangan (a.n.)
       atas_nama: body.atas_nama || undefined,
-      atas_nama_position_id: body.atas_nama_position_id ? Number(body.atas_nama_position_id) : undefined,
+      atas_nama_position_id: body.atas_nama_position_id
+        ? Number(body.atas_nama_position_id)
+        : undefined,
     };
   }
 
@@ -1447,7 +1477,9 @@ export class KonsepService {
     return {
       from_position_id: Number(body.from_position_id),
       to_position_id: Number(body.to_position_id),
-      is_turunkan: ['true', '1', 'yes'].includes(String(body.is_turunkan ?? '').toLowerCase()),
+      is_turunkan: ['true', '1', 'yes'].includes(
+        String(body.is_turunkan ?? '').toLowerCase(),
+      ),
       perihal: body.perihal,
       konten: body.konten,
       klasifikasi: body.klasifikasi,
@@ -1926,7 +1958,16 @@ export class KonsepService {
       const aksiLabel: 'forward' | 'turunkan' = dto.is_turunkan
         ? 'turunkan'
         : 'forward';
-      console.log('[forwardKonsep] is_turunkan:', dto.is_turunkan, '→ aksiLabel:', aksiLabel, 'from:', dto.from_position_id, 'to:', dto.to_position_id);
+      console.log(
+        '[forwardKonsep] is_turunkan:',
+        dto.is_turunkan,
+        '→ aksiLabel:',
+        aksiLabel,
+        'from:',
+        dto.from_position_id,
+        'to:',
+        dto.to_position_id,
+      );
 
       // Generate PDF snapshot untuk state forward/turunkan
       let pdfSnapshotUrl: string | null = null;
@@ -2370,7 +2411,7 @@ export class KonsepService {
         await this.handleLampiranTempIds(
           naskahAsliId,
           dto.lampiran_temp_ids,
-          jenis as 'ND' | 'SDI' | 'SDE',
+          jenis,
           queryRunner.manager,
         );
         totalLampiran = dto.lampiran_temp_ids.length;
@@ -2415,7 +2456,7 @@ export class KonsepService {
       // Generate PDF snapshot untuk state 'finalize' (dengan nomor resmi)
       const pdfSnapshotUrl = await this.generateAndUploadPdfSnapshot(
         naskahAsli,
-        jenis as 'ND' | 'SDI' | 'SDE',
+        jenis,
         'finalize',
         nextUrutan,
         queryRunner, // Pass queryRunner untuk akses data dalam transaksi
@@ -2644,9 +2685,12 @@ export class KonsepService {
       // Reject K tidak dapat NaskahReferensi otomatis. Copy referensi root K
       // agar getDetailWithChain(K reject) bisa trace ke disposisi (chain
       // riwayat tidak hilang).
-      const rootRefReject = await queryRunner.manager.findOne(NaskahReferensiEntity, {
-        where: { id_naskah: In(konsepIds), ref_nomor: Not(IsNull()) },
-      });
+      const rootRefReject = await queryRunner.manager.findOne(
+        NaskahReferensiEntity,
+        {
+          where: { id_naskah: In(konsepIds), ref_nomor: Not(IsNull()) },
+        },
+      );
       if (rootRefReject) {
         const refCopyReject = new NaskahReferensiEntity();
         refCopyReject.id = uuidv4();
@@ -3594,7 +3638,9 @@ export class KonsepService {
           tembusan_grup: tembusanGrupInfo,
 
           // penerima_ids (external ids) — untuk restore form tertuju SDE.
-          penerima_ids: penerimaAsliList.map((p) => p.idSirkuler).filter(Boolean) as string[],
+          penerima_ids: penerimaAsliList
+            .map((p) => p.idSirkuler)
+            .filter(Boolean) as string[],
 
           lampiran_files: lampiranAsliFiles,
           jumlah_lampiran: lampiranAsliList.length,
@@ -4048,7 +4094,10 @@ export class KonsepService {
         headerAlamat: body.header_alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
-        english: body.english === true || body.english === '1' || body.english === 'true', // Gunakan flag dari frontend
+        english:
+          body.english === true ||
+          body.english === '1' ||
+          body.english === 'true', // Gunakan flag dari frontend
         // Garis Kewenangan (a.n.) — label pemberi kuasa.
         atasNama: body.atas_nama || null,
       };
@@ -4453,7 +4502,10 @@ export class KonsepService {
           nomor: naskahAsli.nomor || '',
           sifat: naskahAsli.sifat || 'Biasa',
           lampiran: naskahAsli.lampiran || '-',
-          english: (naskahAsli as any).english === true || (naskahAsli as any).english === 1 || (naskahAsli as any).english === '1', // Gunakan flag dari naskah asli
+          english:
+            (naskahAsli as any).english === true ||
+            (naskahAsli as any).english === 1 ||
+            (naskahAsli as any).english === '1', // Gunakan flag dari naskah asli
           // Garis Kewenangan (a.n.) — label pemberi kuasa dari naskah asli.
           atasNama: (naskahAsli as any).atasNama || null,
           // Dynamic header info dari sub_area_alamat
@@ -4532,7 +4584,14 @@ export class KonsepService {
     toPositionId: number | null,
     toPositionText: string | null,
     toNama: string | null,
-    aksi: 'create' | 'forward' | 'turunkan' | 'approve' | 'reject' | 'revisi' | 'finalize',
+    aksi:
+      | 'create'
+      | 'forward'
+      | 'turunkan'
+      | 'approve'
+      | 'reject'
+      | 'revisi'
+      | 'finalize',
     catatan: string | null,
     createdBy: string | null,
     pdfSnapshot: string | null = null,

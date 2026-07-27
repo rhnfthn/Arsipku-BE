@@ -49,7 +49,8 @@ export class NaskahSirkulasi {
     name: 'position_status',
     nullable: true,
     enum: ['ybs', 'pt', 'ph', 'ps', 'se', 'vi', 'ext'],
-    comment: 'ybs=definitif/interim, pt=pelaksana tugas, ph=pelaksana harian, ps=penugasan sementara, se=sekretaris, vi=viewer, ext=external',
+    comment:
+      'ybs=definitif/interim, pt=pelaksana tugas, ph=pelaksana harian, ps=penugasan sementara, se=sekretaris, vi=viewer, ext=external',
   })
   positionStatus: 'ybs' | 'pt' | 'ph' | 'ps' | 'se' | 'vi' | 'ext' | null;
 
@@ -80,7 +81,11 @@ export class NaskahSirkulasi {
   @Column('char', { name: 'id_label', nullable: true, length: 36 })
   idLabel: string | null;
 
-  @Column('tinyint', { name: 'is_konsep', default: 0, comment: '0=final/sudah finalize, 1=masih konsep/draft' })
+  @Column('tinyint', {
+    name: 'is_konsep',
+    default: 0,
+    comment: '0=final/sudah finalize, 1=masih konsep/draft',
+  })
   isKonsep: number;
 
   @Column('tinyint', { name: 'flag_favorit', nullable: true, default: 0 })
@@ -95,10 +100,20 @@ export class NaskahSirkulasi {
   @Column('tinyint', { name: 'flag_arsip', nullable: true, default: 0 })
   flagArsip: number | null;
 
-  @Column('tinyint', { name: 'tindak_lanjut', nullable: true, default: 0, comment: 'Flag tindak lanjut: 0=belum, 1=sudah' })
+  @Column('tinyint', {
+    name: 'tindak_lanjut',
+    nullable: true,
+    default: 0,
+    comment: 'Flag tindak lanjut: 0=belum, 1=sudah',
+  })
   tindakLanjut: number | null;
 
-  @Column('tinyint', { name: 'is_locked', nullable: true, default: 0, comment: 'Flag lock kotak masuk: 0=unlocked, 1=locked' })
+  @Column('tinyint', {
+    name: 'is_locked',
+    nullable: true,
+    default: 0,
+    comment: 'Flag lock kotak masuk: 0=unlocked, 1=locked',
+  })
   isLocked: number | null;
 
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
@@ -107,18 +122,18 @@ export class NaskahSirkulasi {
   @Column('int', { name: 'urutan', nullable: true, default: 0 })
   urutan: number | null;
 
-  @Column('timestamp', { 
-    name: 'created_at', 
+  @Column('timestamp', {
+    name: 'created_at',
     nullable: false,
-    default: () => 'CURRENT_TIMESTAMP'
+    default: () => 'CURRENT_TIMESTAMP',
   })
   createdAt: Date;
 
-  @Column('timestamp', { 
-    name: 'updated_at', 
+  @Column('timestamp', {
+    name: 'updated_at',
     nullable: true,
     default: null,
-    onUpdate: 'CURRENT_TIMESTAMP'
+    onUpdate: 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date | null;
 }

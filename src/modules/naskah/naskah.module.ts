@@ -32,4 +32,4 @@ import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
   providers: [NaskahService],
   exports: [NaskahService, TypeOrmModule],
 })
-export class NaskahModule { }
+export class NaskahModule {}

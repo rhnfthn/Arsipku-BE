@@ -86,7 +86,10 @@ export class OrgDataScheduler {
       await this.syncOrgData();
       this.logger.log('✅ [CRON] Sync org-data selesai.');
     } catch (error) {
-      this.logger.error('❌ [CRON] Gagal sync org-data:', error?.message || error);
+      this.logger.error(
+        '❌ [CRON] Gagal sync org-data:',
+        error?.message || error,
+      );
     }
   }
 
@@ -97,14 +100,16 @@ export class OrgDataScheduler {
     const now = new Date();
     const tgl = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-    const [ooData, oaData, osData, oscData, spData, odData] = await Promise.all([
-      this.relationOoService.findManyRelation(tgl),
-      this.relationOaService.findManyRelation(tgl),
-      this.relationOsService.findManyRelation(tgl),
-      this.relationOscService.findManyByDate(tgl),
-      this.relationSpService.findManyByDate(tgl),
-      this.relationOdService.findManyByDate(tgl),
-    ]);
+    const [ooData, oaData, osData, oscData, spData, odData] = await Promise.all(
+      [
+        this.relationOoService.findManyRelation(tgl),
+        this.relationOaService.findManyRelation(tgl),
+        this.relationOsService.findManyRelation(tgl),
+        this.relationOscService.findManyByDate(tgl),
+        this.relationSpService.findManyByDate(tgl),
+        this.relationOdService.findManyByDate(tgl),
+      ],
+    );
 
     const tipeDepart = new Map<string, string>();
     odData.forEach((item) => {
@@ -121,17 +126,20 @@ export class OrgDataScheduler {
     const mergedData = (ooData as Org[]).map((org) => {
       const matchArea = (oaData as Area[]).find(
         (area) =>
-          area.organization === org.organization && area.company === org.company,
+          area.organization === org.organization &&
+          area.company === org.company,
       );
 
       const orgPositions = (osData as Position[])
         .filter(
           (pos) =>
-            pos.organization === org.organization && pos.company === org.company,
+            pos.organization === org.organization &&
+            pos.company === org.company,
         )
         .map((pos) => {
           const matchedPerson = (spData as Person[]).find(
-            (p) => p.position === pos.relation_position && p.company === pos.company,
+            (p) =>
+              p.position === pos.relation_position && p.company === pos.company,
           );
 
           const keybod = `${pos.company}-${pos.relation_position}`;
@@ -168,14 +176,18 @@ export class OrgDataScheduler {
     });
 
     const tree = this.buildOrgTree(mergedData);
-    const treeWithExtra = tree.map((root) => this.injectDivisionAndDirektorat(root));
+    const treeWithExtra = tree.map((root) =>
+      this.injectDivisionAndDirektorat(root),
+    );
 
     if (treeWithExtra.length > 0) {
       const barisData = this.flattenOrgTree(treeWithExtra);
       await this.orgDataService.createOrUpdate(tgl, treeWithExtra, barisData);
     }
 
-    this.logger.log(`📊 [CRON] org-data tgl=${tgl}, total tree roots=${treeWithExtra.length}`);
+    this.logger.log(
+      `📊 [CRON] org-data tgl=${tgl}, total tree roots=${treeWithExtra.length}`,
+    );
   }
 
   private injectDivisionAndDirektorat(

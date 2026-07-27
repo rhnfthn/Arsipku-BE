@@ -13,7 +13,9 @@ export class DisposisiItemService {
     private disposisiItemRepository: Repository<DisposisiItemEntity>,
   ) {}
 
-  async create(createDisposisiItemDto: CreateDisposisiItemDto): Promise<DisposisiItemEntity> {
+  async create(
+    createDisposisiItemDto: CreateDisposisiItemDto,
+  ): Promise<DisposisiItemEntity> {
     const disposisiItem = this.disposisiItemRepository.create({
       id: uuidv4(),
       ...createDisposisiItemDto,
@@ -23,7 +25,8 @@ export class DisposisiItemService {
   }
 
   async findAll(company?: string): Promise<DisposisiItemEntity[]> {
-    const query = this.disposisiItemRepository.createQueryBuilder('disposisi_item');
+    const query =
+      this.disposisiItemRepository.createQueryBuilder('disposisi_item');
 
     if (company) {
       query.where('disposisi_item.company = :company', { company });

@@ -20,12 +20,12 @@ export class BerkasService {
   async create(createBerkasDto: CreateBerkasDto): Promise<Berkas> {
     // Fetch klasifikasi_text dari tabel klasifikasi jika tidak dikirim dari frontend
     let klasifikasiTeks = createBerkasDto.klasifikasi_teks;
-    
+
     if (!klasifikasiTeks && createBerkasDto.klasifikasi) {
       const klasifikasi = await this.klasifikasiRepository.findOne({
         where: { klasifikasi: createBerkasDto.klasifikasi },
       });
-      
+
       if (klasifikasi) {
         klasifikasiTeks = klasifikasi.klasifikasi_text;
       }
@@ -82,13 +82,13 @@ export class BerkasService {
     // Update field yang ada di DTO
     if (updateBerkasDto.klasifikasi !== undefined) {
       berkas.klasifikasi = updateBerkasDto.klasifikasi;
-      
+
       // Auto-fetch klasifikasi_text jika klasifikasi berubah dan klasifikasi_teks tidak dikirim
       if (updateBerkasDto.klasifikasi_teks === undefined) {
         const klasifikasi = await this.klasifikasiRepository.findOne({
           where: { klasifikasi: updateBerkasDto.klasifikasi },
         });
-        
+
         if (klasifikasi) {
           berkas.klasifikasiTeks = klasifikasi.klasifikasi_text;
         }
@@ -101,8 +101,7 @@ export class BerkasService {
       berkas.judulBerkas = updateBerkasDto.judul_berkas;
     }
     if (updateBerkasDto.hitung_waktu_retensi_dari !== undefined) {
-      berkas.hitungWaktuRetensiDari =
-        updateBerkasDto.hitung_waktu_retensi_dari;
+      berkas.hitungWaktuRetensiDari = updateBerkasDto.hitung_waktu_retensi_dari;
     }
     if (updateBerkasDto.tindakan_penyusutan_akhir !== undefined) {
       berkas.tindakanPenyusutanAkhir =

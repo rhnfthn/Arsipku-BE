@@ -17,11 +17,21 @@ export enum TindakanPenyusutanAkhir {
   PERMANEN = 'Permanen',
 }
 
+export enum StatusBerkas {
+  DRAFT = 'draft',
+  AKTIF = 'aktif',
+  MENUNGGU_VERIFIKASI = 'menunggu_verifikasi',
+  DITOLAK = 'ditolak',
+  CLOSED_RETENSI_AKTIF = 'closed_retensi_aktif',
+}
+
 @Entity('berkas', { schema: 'navmail' })
 export class Berkas {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })
   id: string;
+
+  // ── Kolom Existing ──────────────────────────────────────────────
 
   @Column('varchar', { name: 'klasifikasi', length: 50 })
   klasifikasi: string;
@@ -69,4 +79,57 @@ export class Berkas {
     onUpdate: 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date;
+
+  // ── Kolom Baru — Arsip Dinamis Phase 1 ─────────────────────────
+
+  @Column('varchar', { name: 'kode_berkas', length: 100, unique: true, nullable: true })
+  kodeBerkas: string;
+
+  @Column('varchar', { name: 'kategori_berkas', length: 100, nullable: true })
+  kategoriBerkas: string;
+
+  @Column('int', { name: 'retensi_aktif_tahun', nullable: true })
+  retensiAktifTahun: number;
+
+  @Column('int', { name: 'retensi_inaktif_tahun', nullable: true })
+  retensiInaktifTahun: number;
+
+  @Column('varchar', { name: 'foto_lokasi_fisik', length: 255, nullable: true })
+  fotoLokasiFisik: string;
+
+  @Column('varchar', { name: 'dokumen_pendukung', length: 255, nullable: true })
+  dokumenPendukung: string;
+
+  @Column('int', { name: 'unit_pencipta_id', nullable: true })
+  unitPenciptaId: number;
+
+  @Column('varchar', { name: 'pic_persnum', length: 50, nullable: true })
+  picPersnum: string;
+
+  @Column('int', { name: 'pic_position_id', nullable: true })
+  picPositionId: number;
+
+  @Column('date', { name: 'tanggal_dibuat', nullable: true })
+  tanggalDibuat: string;
+
+  @Column('date', { name: 'tanggal_ditutup', nullable: true })
+  tanggalDitutup: string;
+
+  @Column('date', { name: 'tanggal_retensi_aktif_berakhir', nullable: true })
+  tanggalRetensiAktifBerakhir: string;
+
+  @Column('date', { name: 'tanggal_retensi_inaktif_berakhir', nullable: true })
+  tanggalRetensiInaktifBerakhir: string;
+
+  @Column('varchar', { name: 'status', length: 40, nullable: true, default: 'draft' })
+  status: string;
+
+  @Column('int', { name: 'created_by', nullable: true })
+  createdBy: number;
+
+  @Column('int', { name: 'updated_by', nullable: true })
+  updatedBy: number;
+
+  @Column('datetime', { name: 'deleted_at', nullable: true })
+  deletedAt: Date;
 }

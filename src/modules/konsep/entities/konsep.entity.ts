@@ -1,9 +1,16 @@
-import { Entity, Column, PrimaryColumn, Index, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  Index,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 /**
  * Entity untuk tabel 'konsep'
  * Menyimpan workflow konsep naskah (ND/SDI/SDE)
- * 
+ *
  * Konsep adalah draft naskah yang dibuat oleh bawahan (konseptor)
  * yang kemudian dikirim ke atasan (pemeriksa/pengirim) untuk review/approval
  */
@@ -38,19 +45,31 @@ export class KonsepEntity {
   @Column('varchar', { name: 'from_sub_area', length: 50, nullable: true })
   fromSubArea: string | null;
 
-  @Column('varchar', { name: 'from_sub_area_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'from_sub_area_text',
+    length: 150,
+    nullable: true,
+  })
   fromSubAreaText: string | null;
 
   @Column('varchar', { name: 'from_organization', length: 100, nullable: true })
   fromOrganization: string | null;
 
-  @Column('varchar', { name: 'from_organization_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'from_organization_text',
+    length: 150,
+    nullable: true,
+  })
   fromOrganizationText: string | null;
 
   @Column('varchar', { name: 'from_position', length: 100, nullable: true })
   fromPosition: string | null;
 
-  @Column('varchar', { name: 'from_position_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'from_position_text',
+    length: 150,
+    nullable: true,
+  })
   fromPositionText: string | null;
 
   @Column({
@@ -64,7 +83,11 @@ export class KonsepEntity {
   @Column('varchar', { name: 'from_id_sirkuler', length: 50, nullable: true })
   fromIdSirkuler: string | null;
 
-  @Column('varchar', { name: 'from_nama_sirkuler', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'from_nama_sirkuler',
+    length: 150,
+    nullable: true,
+  })
   fromNamaSirkuler: string | null;
 
   @Column('varchar', { name: 'from_telepon', length: 50, nullable: true })
@@ -94,7 +117,11 @@ export class KonsepEntity {
   @Column('varchar', { name: 'to_organization', length: 100, nullable: true })
   toOrganization: string | null;
 
-  @Column('varchar', { name: 'to_organization_text', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'to_organization_text',
+    length: 150,
+    nullable: true,
+  })
   toOrganizationText: string | null;
 
   @Column('varchar', { name: 'to_position', length: 100, nullable: true })
@@ -135,7 +162,11 @@ export class KonsepEntity {
   // =========================
   // DATA SURAT FINAL (untuk naskah_sirkulasi setelah finalize)
   // =========================
-  @Column('varchar', { name: 'pengirim_position_id', length: 100, nullable: true })
+  @Column('varchar', {
+    name: 'pengirim_position_id',
+    length: 100,
+    nullable: true,
+  })
   pengirimPositionId: string | null; // Position ID penandatangan surat
 
   @Column('text', { name: 'penerima_position_ids', nullable: true })

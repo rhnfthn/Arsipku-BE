@@ -4,7 +4,7 @@ import { Transform } from 'class-transformer';
 /**
  * DTO untuk Generate PDF Disposisi
  * Menerima data dari frontend dan generate PDF dinamis
- * 
+ *
  * Field dari UI Form Disposisi:
  * - Tanggal Disposisi
  * - Sifat Naskah (Biasa, Terbatas, Rahasia, Sangat Rahasia)
@@ -106,7 +106,7 @@ export class GeneratePdfDisposisiDto {
   /**
    * Pilihan Disposisi yang dicentang
    * Array dari opsi yang dipilih, contoh: ["Untuk Diketahui", "Proses Lanjut"]
-   * 
+   *
    * Opsi yang tersedia:
    * - Untuk Diketahui, Proses Lanjut, Koordinasikan
    * - Cek, Monitor, Evaluasi

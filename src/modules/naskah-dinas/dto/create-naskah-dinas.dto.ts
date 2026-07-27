@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsArray, IsOptional, IsString, IsBoolean, IsEnum, ArrayMinSize, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsArray,
+  IsOptional,
+  IsString,
+  IsBoolean,
+  IsEnum,
+  ArrayMinSize,
+  Matches,
+} from 'class-validator';
 
 // Enum untuk sifat surat
 export enum SifatSurat {
@@ -11,7 +20,7 @@ export enum SifatSurat {
 
 /**
  * DTO untuk send-message Naskah Dinas
- * 
+ *
  * Field names sesuai dengan form UI:
  * - tanggal_surat: Tanggal Surat
  * - sifat_naskah: Sifat Naskah (biasa/terbuka, dll)
@@ -28,8 +37,8 @@ export class CreateNaskahDinasDto {
   // ============================================
   @IsOptional()
   @IsString()
-  @Matches(/^\d{2}\.\d{2}\.\d{4}$|^\d{4}-\d{2}-\d{2}$/, { 
-    message: 'tanggal_surat must be in format DD.MM.YYYY or YYYY-MM-DD' 
+  @Matches(/^\d{2}\.\d{2}\.\d{4}$|^\d{4}-\d{2}-\d{2}$/, {
+    message: 'tanggal_surat must be in format DD.MM.YYYY or YYYY-MM-DD',
   })
   tanggal_surat?: string; // Format: DD.MM.YYYY atau YYYY-MM-DD
 

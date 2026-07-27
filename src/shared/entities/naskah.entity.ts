@@ -1,9 +1,4 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  CreateDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
 
 @Entity('naskah')
 export class NaskahEntity {
@@ -61,21 +56,28 @@ export class NaskahEntity {
   @Column('boolean', { default: false })
   english: boolean;
 
-  @Column('text', { name: 'tanda_tangan', nullable: true, comment: 'Metadata TTE: signature_id, doc_id, verification_url, signed_at (JSON)' })
+  @Column('text', {
+    name: 'tanda_tangan',
+    nullable: true,
+    comment:
+      'Metadata TTE: signature_id, doc_id, verification_url, signed_at (JSON)',
+  })
   tandaTangan: string | null;
 
   @Column('enum', {
     name: 'sign_option',
     enum: ['digsig', 'qr_only', 'ttd_basah'],
     nullable: true,
-    comment: 'Opsi TTD saat kirim: digsig=BSrE, qr_only=QR Code, ttd_basah=TTD manual',
+    comment:
+      'Opsi TTD saat kirim: digsig=BSrE, qr_only=QR Code, ttd_basah=TTD manual',
   })
   signOption: 'digsig' | 'qr_only' | 'ttd_basah' | null;
 
   @Column('text', {
     name: 'dikirim_oleh',
     nullable: true,
-    comment: 'JSON snapshot: {persnum, nama, position_text} orang yang mengirim/finalize naskah pending (bisa delegasi)',
+    comment:
+      'JSON snapshot: {persnum, nama, position_text} orang yang mengirim/finalize naskah pending (bisa delegasi)',
     transformer: {
       to: (value: any) => (value ? JSON.stringify(value) : null),
       from: (value: string | null) => (value ? JSON.parse(value) : null),
@@ -83,7 +85,11 @@ export class NaskahEntity {
   })
   dikirimOleh: { persnum: string; nama: string; position_text: string } | null;
 
-  @Column('varchar', { name: 'created_by_position', length: 100, nullable: true })
+  @Column('varchar', {
+    name: 'created_by_position',
+    length: 100,
+    nullable: true,
+  })
   createdByPosition: string | null;
 
   // Garis Kewenangan (a.n.) — label pemberi kuasa di template signature.
@@ -92,7 +98,11 @@ export class NaskahEntity {
   atasNama: string | null;
 
   // Position id pemberi kuasa (untuk auto-tembusan + restore form). Null untuk Dirut ("Direksi").
-  @Column('varchar', { name: 'atas_nama_position_id', length: 50, nullable: true })
+  @Column('varchar', {
+    name: 'atas_nama_position_id',
+    length: 50,
+    nullable: true,
+  })
   atasNamaPositionId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })

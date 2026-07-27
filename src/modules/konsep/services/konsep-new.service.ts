@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
@@ -23,7 +28,8 @@ import {
 const COMPANY_ID = 10000;
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
 const DEFAULT_KOP_LOGO = '/assets/logo-airnav.png';
-const DEFAULT_ALAMAT_PERUSAHAAN = 'Gedung AirNav Indonesia, Jl. Ir. H. Juanda No. 1, Tangerang 15121';
+const DEFAULT_ALAMAT_PERUSAHAAN =
+  'Gedung AirNav Indonesia, Jl. Ir. H. Juanda No. 1, Tangerang 15121';
 
 interface PositionData {
   position: number;
@@ -60,11 +66,11 @@ export class KonsepService {
 
   /**
    * CREATE KONSEP - Workflow Tracking
-   * 
+   *
    * Creates 2 naskah records:
    * 1. Naskah jenis 'K' (konsep workflow) - tracks reviewer workflow
    * 2. Naskah jenis 'ND/SDI/SDE' (actual document) - the final document content
-   * 
+   *
    * Both connected via sirkulasi with is_konsep=1 until finalized
    */
   async createKonsep(dto: CreateKonsepDto): Promise<CreateKonsepResponseDto> {
@@ -73,14 +79,24 @@ export class KonsepService {
     const toPos = this.findByPosition(barisData, dto.to_position_id);
 
     if (!fromPos) {
-      throw new NotFoundException(`Position ${dto.from_position_id} tidak ditemukan`);
+      throw new NotFoundException(
+        `Position ${dto.from_position_id} tidak ditemukan`,
+      );
     }
     if (!toPos) {
-      throw new NotFoundException(`Position ${dto.to_position_id} tidak ditemukan`);
+      throw new NotFoundException(
+        `Position ${dto.to_position_id} tidak ditemukan`,
+      );
     }
 
     // Validate hierarchy
-    if (!this.validateHierarchy(barisData, dto.from_position_id, dto.to_position_id)) {
+    if (
+      !this.validateHierarchy(
+        barisData,
+        dto.from_position_id,
+        dto.to_position_id,
+      )
+    ) {
       throw new BadRequestException(
         `Position ${dto.to_position_id} bukan atasan dari position ${dto.from_position_id}`,
       );
@@ -92,7 +108,7 @@ export class KonsepService {
 
     try {
       const tanggalHariIni = new Date();
-      
+
       // ==========================================
       // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
       // ==========================================
@@ -121,7 +137,9 @@ export class KonsepService {
         sifat: dto.sifat || 'biasa',
         nomor: `DRAFT-${Date.now()}`, // Temporary, will be replaced on finalize
         tanggal: dto.tgl ? new Date(dto.tgl) : tanggalHariIni,
-        lampiran: dto.lampiran?.length ? `${dto.lampiran.length} file` : undefined,
+        lampiran: dto.lampiran?.length
+          ? `${dto.lampiran.length} file`
+          : undefined,
         perihal: dto.perihal,
         konten: dto.konten,
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
@@ -138,11 +156,21 @@ export class KonsepService {
       // 3. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
       // ==========================================
       // Pengirim konsep (pembuat)
-      const sirkulasiKonsepPengirim = this.createSirkulasi(naskahKonsepId, 'pengirim', fromPos, true);
+      const sirkulasiKonsepPengirim = this.createSirkulasi(
+        naskahKonsepId,
+        'pengirim',
+        fromPos,
+        true,
+      );
       await queryRunner.manager.save(sirkulasiKonsepPengirim);
 
       // Penerima konsep (reviewer/atasan)
-      const sirkulasiKonsepPenerima = this.createSirkulasi(naskahKonsepId, 'penerima', toPos, true);
+      const sirkulasiKonsepPenerima = this.createSirkulasi(
+        naskahKonsepId,
+        'penerima',
+        toPos,
+        true,
+      );
       await queryRunner.manager.save(sirkulasiKonsepPenerima);
 
       // ==========================================
@@ -152,7 +180,12 @@ export class KonsepService {
       const pengirimPosId = dto.from_position_id; // Bisa juga dari field pengirim_position_id jika ada
       const pengirimPos = this.findByPosition(barisData, pengirimPosId);
       if (pengirimPos) {
-        const sirkulasiNaskahPengirim = this.createSirkulasi(naskahAsliId, 'pengirim', pengirimPos, true);
+        const sirkulasiNaskahPengirim = this.createSirkulasi(
+          naskahAsliId,
+          'pengirim',
+          pengirimPos,
+          true,
+        );
         await queryRunner.manager.save(sirkulasiNaskahPengirim);
       }
 
@@ -161,7 +194,12 @@ export class KonsepService {
         for (const posId of dto.penerima_position_ids) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'penerima', pos, true);
+          const sirkulasi = this.createSirkulasi(
+            naskahAsliId,
+            'penerima',
+            pos,
+            true,
+          );
           await queryRunner.manager.save(sirkulasi);
         }
       }
@@ -171,7 +209,12 @@ export class KonsepService {
         for (const posId of dto.tembusan_position_ids) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(naskahAsliId, 'tembusan', pos, true);
+          const sirkulasi = this.createSirkulasi(
+            naskahAsliId,
+            'tembusan',
+            pos,
+            true,
+          );
           await queryRunner.manager.save(sirkulasi);
         }
       }
@@ -180,7 +223,7 @@ export class KonsepService {
       // 5. SAVE TANDA TANGAN TO NASKAH (REFACTORED)
       // ==========================================
       // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan
-      // Semua data (kepada_yth, dari, nama_jabatan, nama_lengkap, tembusan) 
+      // Semua data (kepada_yth, dari, nama_jabatan, nama_lengkap, tembusan)
       // sudah tersedia di naskah_sirkulasi.
       // Hanya tandaTangan yang perlu disimpan di tabel naskah.
       if (dto.tanda_tangan) {
@@ -192,7 +235,11 @@ export class KonsepService {
       // 6. HANDLE LAMPIRAN
       // ==========================================
       if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-        await this.handleLampiranTempIds(naskahAsliId, dto.lampiran_temp_ids, dto.jenis);
+        await this.handleLampiranTempIds(
+          naskahAsliId,
+          dto.lampiran_temp_ids,
+          dto.jenis,
+        );
       } else if (dto.lampiran && dto.lampiran.length > 0) {
         for (const lamp of dto.lampiran) {
           const lampiran = this.naskahLampiranRepository.create({
@@ -278,7 +325,8 @@ export class KonsepService {
     sirkulasi.positionText = posData.position_text;
     sirkulasi.positionStatus = 'ybs';
     sirkulasi.idSirkuler = String(posData.persnum_person || posData.position);
-    sirkulasi.namaSirkuler = posData.persnum_person_text || posData.position_text;
+    sirkulasi.namaSirkuler =
+      posData.persnum_person_text || posData.position_text;
     sirkulasi.isKonsep = isKonsep ? 1 : 0;
     return sirkulasi;
   }
@@ -294,14 +342,21 @@ export class KonsepService {
     return orgData.position_json as PositionData[];
   }
 
-  private findByPosition(data: PositionData[], positionId: number): PositionData | null {
-    return data.find(p => p.position === positionId) || null;
+  private findByPosition(
+    data: PositionData[],
+    positionId: number,
+  ): PositionData | null {
+    return data.find((p) => p.position === positionId) || null;
   }
 
-  private validateHierarchy(data: PositionData[], fromPosId: number, toPosId: number): boolean {
+  private validateHierarchy(
+    data: PositionData[],
+    fromPosId: number,
+    toPosId: number,
+  ): boolean {
     const fromPos = this.findByPosition(data, fromPosId);
     if (!fromPos || !fromPos.direct_manager) return false;
-    
+
     let currentManager: number | null = fromPos.direct_manager;
     while (currentManager) {
       if (currentManager === toPosId) return true;

@@ -7,7 +7,10 @@ import { ResourceEntity } from '../entities/resource.entity';
 import { PermissionEntity } from '../entities/permission.entity';
 import { RolePermissionEntity } from '../entities/role-permission.entity';
 import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
-import { utilitasResources, utilitasSuperAdminPermissions } from './utilitas-matrix';
+import {
+  utilitasResources,
+  utilitasSuperAdminPermissions,
+} from './utilitas-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -20,7 +23,13 @@ function buildDataSource(): DataSource {
     username: env.DB_USER || 'root',
     password: env.DB_PASS || '',
     database: env.DB_NAME || 'arsipku',
-    entities: [RoleEntity, ResourceEntity, PermissionEntity, RolePermissionEntity, RbacUserRoleEntity],
+    entities: [
+      RoleEntity,
+      ResourceEntity,
+      PermissionEntity,
+      RolePermissionEntity,
+      RbacUserRoleEntity,
+    ],
     synchronize: false,
     timezone: '+07:00',
   });
@@ -39,7 +48,11 @@ async function main() {
   for (const rDef of utilitasResources) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
     if (!resource) {
-      resource = resourceRepo.create({ id: uuidv4(), name: rDef.name, description: rDef.description });
+      resource = resourceRepo.create({
+        id: uuidv4(),
+        name: rDef.name,
+        description: rDef.description,
+      });
     } else {
       resource.description = rDef.description;
     }
@@ -49,7 +62,13 @@ async function main() {
       const permName = `${rDef.name}.${pDef.action}`;
       let perm = await permRepo.findOne({ where: { name: permName } });
       if (!perm) {
-        perm = permRepo.create({ id: uuidv4(), name: permName, description: pDef.description, action: pDef.action, resourceId: resource.id });
+        perm = permRepo.create({
+          id: uuidv4(),
+          name: permName,
+          description: pDef.description,
+          action: pDef.action,
+          resourceId: resource.id,
+        });
       } else {
         perm.description = pDef.description;
         perm.action = pDef.action;
@@ -59,9 +78,13 @@ async function main() {
       permIdByName.set(permName, perm.id);
     }
   }
-  console.log(`✅ Utilitas matrix: ${utilitasResources.length} resources + ${permIdByName.size} permissions upserted`);
+  console.log(
+    `✅ Utilitas matrix: ${utilitasResources.length} resources + ${permIdByName.size} permissions upserted`,
+  );
 
-  const superadmin = await roleRepo.findOne({ where: { name: RoleName.SUPERADMIN } });
+  const superadmin = await roleRepo.findOne({
+    where: { name: RoleName.SUPERADMIN },
+  });
   if (!superadmin) {
     console.warn('⚠️ Role SUPERADMIN not found');
     await dataSource.destroy();
@@ -79,7 +102,9 @@ async function main() {
     }
   }
   if (toAdd.length > 0) await rpRepo.save(toAdd);
-  console.log(`✅ ${toAdd.length} Utilitas permissions assigned to SUPERADMIN (existing ${existing.length})`);
+  console.log(
+    `✅ ${toAdd.length} Utilitas permissions assigned to SUPERADMIN (existing ${existing.length})`,
+  );
 
   await dataSource.destroy();
   console.log('🎉 Utilitas matrix seed complete');

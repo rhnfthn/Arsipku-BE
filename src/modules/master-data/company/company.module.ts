@@ -9,12 +9,7 @@ import { Person } from '../person/entities/person.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      OmCompany,
-      OmOrganization,
-      OmPosition,
-      Person,
-    ]),
+    TypeOrmModule.forFeature([OmCompany, OmOrganization, OmPosition, Person]),
   ],
   controllers: [CompanyController],
   providers: [CompanyService],

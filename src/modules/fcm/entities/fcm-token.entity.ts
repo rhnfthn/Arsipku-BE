@@ -22,7 +22,10 @@ export class FcmTokenEntity {
   @Column('tinyint', { name: 'is_active', default: 1 })
   isActive: boolean;
 
-  @Column('timestamp', { name: 'last_used_at', default: () => 'CURRENT_TIMESTAMP' })
+  @Column('timestamp', {
+    name: 'last_used_at',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   lastUsedAt: Date;
 
   @CreateDateColumn({ name: 'created_at' })

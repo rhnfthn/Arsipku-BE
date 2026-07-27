@@ -4,7 +4,8 @@ import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 export class SwitchRoleDto {
   @ApiProperty({
-    description: 'ID delegasi yang akan diaktifkan (jika ingin switch ke role delegasi)',
+    description:
+      'ID delegasi yang akan diaktifkan (jika ingin switch ke role delegasi)',
     example: 'uuid-delegasi-123',
     required: false,
   })

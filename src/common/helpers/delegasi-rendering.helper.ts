@@ -1,6 +1,10 @@
 import { PositionStatus } from '../enums/position-status.enum';
 
-const DELEGATED_ACTORS = new Set<string>([PositionStatus.PT, PositionStatus.PH, PositionStatus.PS]);
+const DELEGATED_ACTORS = new Set<string>([
+  PositionStatus.PT,
+  PositionStatus.PH,
+  PositionStatus.PS,
+]);
 
 export interface PengirimRenderFields {
   positionStatus: string; // 'PT' (etc) saat delegated, 'ybs' otherwise
@@ -20,7 +24,7 @@ export function delegatedPengirimFields(
   const ps = user?.position_status;
   const isDelegated = !!ps && DELEGATED_ACTORS.has(ps);
   return {
-    positionStatus: isDelegated ? (ps as string) : 'ybs',
+    positionStatus: isDelegated ? ps : 'ybs',
     positionText: isDelegated ? `${ps}. ${basePositionText}` : basePositionText,
     namaSirkuler: isDelegated ? (user?.nama ?? '') : fallbackName,
   };
@@ -30,17 +34,26 @@ export function delegatedPengirimFields(
 // VI/SE resolve by delegator_persnum even though they can't send (the rendering
 // helper above uses the smaller DELEGATED_ACTORS set, excluding VI/SE).
 const EFFECTIVE_PERSNUM_ACTORS = new Set<string>([
-  PositionStatus.PT, PositionStatus.PH, PositionStatus.PS,
-  PositionStatus.VI, PositionStatus.SE,
+  PositionStatus.PT,
+  PositionStatus.PH,
+  PositionStatus.PS,
+  PositionStatus.VI,
+  PositionStatus.SE,
 ]);
 
-export function isDelegatedActor(user: { position_status?: string | null }): boolean {
+export function isDelegatedActor(user: {
+  position_status?: string | null;
+}): boolean {
   const ps = user?.position_status;
   return !!ps && EFFECTIVE_PERSNUM_ACTORS.has(ps);
 }
 
-export function computeEffectivePersnum(
-  user: { position_status?: string | null; persnum: number; delegator_persnum?: number | null },
-): number {
-  return isDelegatedActor(user) && user.delegator_persnum ? user.delegator_persnum : user.persnum;
+export function computeEffectivePersnum(user: {
+  position_status?: string | null;
+  persnum: number;
+  delegator_persnum?: number | null;
+}): number {
+  return isDelegatedActor(user) && user.delegator_persnum
+    ? user.delegator_persnum
+    : user.persnum;
 }
