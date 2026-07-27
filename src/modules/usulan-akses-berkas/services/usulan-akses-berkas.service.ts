@@ -29,6 +29,7 @@ import {
 } from '../enums';
 import { Berkas } from '../../berkas/entities/berkas.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 /**
  * ID organization "Corporate Secretary Division" (TU)
@@ -150,6 +151,21 @@ export class UsulanAksesBerkasService {
   ): Promise<UsulanAksesBerkasEntity> {
     const userOrgId = Number(user.organization);
     const userPersnum = Number(user.persnum);
+
+    // Validasi: hanya Sekretaris yang didelegasikan (position_status = SE) yang
+    // dapat membuat usulan peminjaman berkas. Pengecualian untuk SUPERADMIN
+    // (untuk testing/admin ops) dan non-delegated user (YBS/PT/PH/PS) yang
+    // tetap bisa membuat usulan jika punya permission 'create'.
+    const positionStatus = user.position_status as string | undefined;
+    const activeRoleName =
+      user.activeRole?.name ??
+      (user.role ? String(user.role).toUpperCase() : undefined);
+    const isSuperadmin = activeRoleName === 'SUPERADMIN';
+    if (!isSuperadmin && positionStatus !== PositionStatus.SE) {
+      throw new ForbiddenException(
+        'Hanya Sekretaris yang didelegasikan yang dapat membuat usulan peminjaman berkas.',
+      );
+    }
 
     // Validasi: jika AKTIF, divisiPemberiId wajib
     let divisiPemberiId: number;
