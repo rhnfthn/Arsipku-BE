@@ -225,6 +225,44 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
+    name: 'usulan-akses-berkas',
+    description: 'Usulan peminjaman akses berkas',
+    permissions: [
+      { action: 'create', description: 'Membuat usulan akses berkas' },
+      { action: 'read', description: 'Melihat daftar usulan akses berkas' },
+      { action: 'verify-pengusul', description: 'Verifikasi pengusul (AVP/VP/EVP)' },
+      { action: 'verify-pemberi', description: 'Verifikasi Sekretaris Pemberi' },
+      { action: 'select-files', description: 'Memilih berkas untuk usulan' },
+      { action: 'approve-pemberi', description: 'Persetujuan pemberi (AVP/VP/EVP)' },
+    ],
+  },
+  {
+    name: 'pemeliharaan.pemberkasan',
+    description: 'Pemeliharaan arsip - Pemberkasan',
+    permissions: [
+      { action: 'read', description: 'Melihat daftar pemberkasan' },
+      { action: 'create', description: 'Membuat berkas arsip' },
+      { action: 'update', description: 'Update berkas arsip' },
+      { action: 'delete', description: 'Menghapus berkas arsip' },
+    ],
+  },
+  {
+    name: 'pemeliharaan.verifikasi',
+    description: 'Pemeliharaan arsip - Persetujuan/Verifikasi',
+    permissions: [
+      { action: 'read', description: 'Melihat daftar persetujuan' },
+      { action: 'verify', description: 'Verifikasi berkas arsip' },
+      { action: 'approve', description: 'Persetujuan berkas arsip' },
+    ],
+  },
+  {
+    name: 'pemeliharaan.retensi',
+    description: 'Pemeliharaan arsip - Riwayat & Retensi',
+    permissions: [
+      { action: 'read', description: 'Melihat riwayat retensi' },
+    ],
+  },
+  {
     name: 'tata-naskah-pyb',
     description: 'Pengaturan akses PYB/Direksi Pekerjaan/Ketua Tim',
     permissions: [
