@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -73,6 +74,9 @@ import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
 import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module';
 import { NaskahShareModule } from './modules/naskah-share/naskah-share.module';
 import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-akses-berkas.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { SdeMasalModule } from './modules/sde-masal/sde-masal.module';
+import { SentryModule } from './modules/sentry/sentry.module';
 
 @Module({
   imports: [
@@ -111,6 +115,15 @@ import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-ak
         migrationsRun: true,
         synchronize: false,
         timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
+      }),
+    }),
+    // ─── Audit Trail DB (MongoDB: arsipku_audit) ────────────────────────────
+    // Database audit trail pindah ke MongoDB. Data utama Arsipku tetap di MySQL.
+    MongooseModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri: config.get<string>('MONGODB_URI'),
       }),
     }),
     CompanyModule,
@@ -177,6 +190,9 @@ import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-ak
     NaskahShareModule,
     // New module for usulan akses berkas
     UsulanAksesBerkasModule,
+    AuditModule,
+    SdeMasalModule,
+    SentryModule,
   ],
   controllers: [AppController],
   providers: [

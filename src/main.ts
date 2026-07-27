@@ -1,5 +1,10 @@
 process.env.TZ = 'Asia/Jakarta';
 
+// ─── Sentry inisialisasi (SEBELUM NestFactory agar error bootstrap tertangkap) ───
+// initSentry() no-op jika SENTRY_DSN tidak di-set → tidak mengubah behavior lama.
+import { initSentry } from './config/sentry.config';
+initSentry();
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -37,6 +42,13 @@ async function bootstrap() {
 
   // Enable CORS if needed
   app.enableCors();
+
+  // Trust proxy agar Express membaca x-forwarded-for / x-real-ip dengan benar
+  // (diperlukan untuk audit trail IP address yang akurat di balik reverse proxy)
+  const httpAdapter = app.getHttpAdapter();
+  if (httpAdapter && typeof (httpAdapter.getInstance() as any).set === 'function') {
+    (httpAdapter.getInstance() as any).set('trust proxy', true);
+  }
 
   await app.listen(PORT);
 }
