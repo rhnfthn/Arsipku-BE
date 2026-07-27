@@ -1,0 +1,144 @@
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  Index,
+  BeforeInsert,
+} from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { AuditAction } from '../enums/audit-action.enum';
+import { AuditModule } from '../enums/audit-module.enum';
+import { AuditStatus } from '../enums/audit-status.enum';
+
+/**
+ * Entity untuk tabel `audit_trails` di database `arsipku_audit` (terpisah).
+ *
+ * Kolom sama persis dengan struktur tabel existing:
+ *  - id char(36) PK
+ *  - created_at timestamp default CURRENT_TIMESTAMP
+ *  - user_id, persnum, user_name, user_email, user_role, id_position, unit_kerja
+ *  - action, module, entity_type, entity_id, sub_entity_type, sub_entity_id
+ *  - description, old_value, new_value (text, JSON)
+ *  - ip_address, user_agent, request_method, request_url
+ *  - status enum, error_message, metadata (text, JSON)
+ *
+ * Catatan: tabel ini TIDAK punya foreign key ke database utama (snapshot data).
+ */
+@Entity('audit_trails')
+export class AuditTrailEntity {
+  @PrimaryColumn('char', { length: 36 })
+  id: string;
+
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = uuidv4();
+    }
+  }
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  createdAt: Date;
+
+  @Index('idx_audit_user_id')
+  @Column({ name: 'user_id', type: 'char', length: 36, nullable: true })
+  userId: string | null;
+
+  @Index('idx_audit_persnum')
+  @Column({ name: 'persnum', type: 'int', nullable: true })
+  persnum: number | null;
+
+  @Column({ name: 'user_name', type: 'varchar', length: 255, nullable: true })
+  userName: string | null;
+
+  @Column({ name: 'user_email', type: 'varchar', length: 255, nullable: true })
+  userEmail: string | null;
+
+  @Column({ name: 'user_role', type: 'varchar', length: 100, nullable: true })
+  userRole: string | null;
+
+  @Column({ name: 'id_position', type: 'char', length: 36, nullable: true })
+  idPosition: string | null;
+
+  @Column({ name: 'unit_kerja', type: 'varchar', length: 11, nullable: true })
+  unitKerja: string | null;
+
+  @Index('idx_audit_action')
+  @Column({ type: 'varchar', length: 50 })
+  action: AuditAction | string;
+
+  @Index('idx_audit_module')
+  @Column({ type: 'varchar', length: 100 })
+  module: AuditModule | string;
+
+  @Index('idx_audit_entity_type')
+  @Column({ name: 'entity_type', type: 'varchar', length: 100, nullable: true })
+  entityType: string | null;
+
+  @Column({ name: 'entity_id', type: 'varchar', length: 255, nullable: true })
+  entityId: string | null;
+
+  @Column({ name: 'sub_entity_type', type: 'varchar', length: 100, nullable: true })
+  subEntityType: string | null;
+
+  @Column({ name: 'sub_entity_id', type: 'varchar', length: 255, nullable: true })
+  subEntityId: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({
+    name: 'old_value',
+    type: 'text',
+    nullable: true,
+    transformer: {
+      to: (value: any) => (value !== null && value !== undefined ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  oldValue: any;
+
+  @Column({
+    name: 'new_value',
+    type: 'text',
+    nullable: true,
+    transformer: {
+      to: (value: any) => (value !== null && value !== undefined ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  newValue: any;
+
+  @Column({ name: 'ip_address', type: 'varchar', length: 45, nullable: true })
+  ipAddress: string | null;
+
+  @Column({ name: 'user_agent', type: 'text', nullable: true })
+  userAgent: string | null;
+
+  @Column({ name: 'request_method', type: 'varchar', length: 10, nullable: true })
+  requestMethod: string | null;
+
+  @Column({ name: 'request_url', type: 'text', nullable: true })
+  requestUrl: string | null;
+
+  @Index('idx_audit_status')
+  @Column({
+    type: 'enum',
+    enum: AuditStatus,
+    default: AuditStatus.SUCCESS,
+  })
+  status: AuditStatus;
+
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage: string | null;
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: {
+      to: (value: any) => (value !== null && value !== undefined ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  metadata: any;
+}
