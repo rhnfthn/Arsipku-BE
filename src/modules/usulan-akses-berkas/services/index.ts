@@ -1,0 +1,1 @@
+export { UsulanAksesBerkasService, CORPORATE_SECRETARY_ORG_ID } from './usulan-akses-berkas.service';
