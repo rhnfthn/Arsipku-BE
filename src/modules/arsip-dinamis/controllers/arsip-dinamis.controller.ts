@@ -10,7 +10,13 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  BadRequestException,
+  UploadedFile,
+  UseInterceptors,
+  Res,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ArsipDinamisService } from '../services';
@@ -81,6 +87,63 @@ export class ArsipDinamisController {
   }
 
   /**
+   * Upload file pendukung berkas (foto lokasi fisik / dokumen pendukung)
+   * POST /arsip-dinamis/berkas/upload-file
+   */
+  @Post('berkas/upload-file')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('pemeliharaan.pemberkasan', 'create')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/gif',
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ];
+        if (allowed.includes(file.mimetype)) cb(null, true);
+        else
+          cb(
+            new BadRequestException(
+              `Tipe file tidak diizinkan: ${file.mimetype}`,
+            ),
+            false,
+          );
+      },
+    }),
+  )
+  async uploadBerkasFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File tidak ditemukan');
+    const data = await this.arsipDinamisService.uploadBerkasFile(file);
+    return { success: true, data };
+  }
+
+  /**
+   * Ambil/preview file pendukung berkas (inline)
+   * GET /arsip-dinamis/berkas/file?key=
+   */
+  @Get('berkas/file')
+  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  async getBerkasFile(
+    @Query('key') key: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, contentType } =
+      await this.arsipDinamisService.getBerkasFile(key);
+    const filename = key.split('/').pop() || 'berkas-file';
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
+    res.send(buffer);
+  }
+
+  /**
    * Daftar berkas milik user
    * GET /arsip-dinamis/berkas
    */
@@ -122,7 +185,7 @@ export class ArsipDinamisController {
   @Get('berkas/:id')
   @RequirePermission('pemeliharaan.pemberkasan', 'read')
   async findOneBerkas(@Param('id') id: string) {
-    return this.arsipDinamisService.findOneBerkas(id);
+    return this.arsipDinamisService.getDetailBerkas(id);
   }
 
   /**
