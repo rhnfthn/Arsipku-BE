@@ -30,6 +30,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/mapped-types": "*",
+    "@nestjs/mongoose": "^11.0.4",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.27",
@@ -38,6 +39,9 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.1.27",
+    "@sentry/nestjs": "^10.68.0",
+    "@sentry/node": "^10.68.0",
+    "@sentry/profiling-node": "^10.68.0",
     "@smithy/node-http-handler": "^4.4.5",
     "axios": "^1.13.2",
     "canvas": "^3.2.0",
@@ -47,6 +51,7 @@
     "firebase-admin": "^13.6.0",
     "jsonwebtoken": "^9.0.3",
     "meilisearch": "^0.55.0",
+    "mongoose": "^9.8.0",
     "mysql2": "^3.15.3",
     "p-queue": "^6.6.2",
     "passport": "^0.7.0",
@@ -59,7 +64,8 @@
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
     "typeorm": "^0.3.27",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
