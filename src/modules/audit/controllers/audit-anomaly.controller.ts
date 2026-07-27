@@ -39,6 +39,28 @@ export class AuditAnomalyController {
   }
 
   /**
+   * GET /audit/anomalies/summary — ringkasan count anomali.
+   * PENTING: route ini harus dideklarasikan SEBELUM anomalies/:id
+   * agar tidak tertangkap sebagai :id="summary".
+   */
+  @Get('anomalies/summary')
+  async getAnomalySummary() {
+    const summary = await this.anomalyService.getSummary();
+    return { success: true, data: summary };
+  }
+
+  /**
+   * GET /audit/anomalies/unread-count — jumlah anomali belum dibaca (NEW).
+   * Dipakai oleh badge notifikasi topbar Super Admin.
+   * PENTING: route ini juga harus dideklarasikan SEBELUM anomalies/:id.
+   */
+  @Get('anomalies/unread-count')
+  async getUnreadCount() {
+    const count = await this.anomalyService.getUnreadCount();
+    return { success: true, data: { count } };
+  }
+
+  /**
    * GET /audit/anomalies/:id — detail alert.
    */
   @Get('anomalies/:id')
@@ -74,17 +96,9 @@ export class AuditAnomalyController {
   @Get('notifications')
   async getNotifications(@Query('limit') limit?: string) {
     const parsedLimit = limit ? parseInt(limit, 10) : 10;
-    const safeLimit = isNaN(parsedLimit) || parsedLimit < 1 ? 10 : Math.min(parsedLimit, 50);
+    const safeLimit =
+      isNaN(parsedLimit) || parsedLimit < 1 ? 10 : Math.min(parsedLimit, 50);
     const data = await this.anomalyService.getRecentNotifications(safeLimit);
     return { success: true, data };
-  }
-
-  /**
-   * GET /audit/anomalies/summary — ringkasan count anomali.
-   */
-  @Get('anomalies/summary')
-  async getAnomalySummary() {
-    const summary = await this.anomalyService.getSummary();
-    return { success: true, data: summary };
   }
 }
