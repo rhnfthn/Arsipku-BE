@@ -1,4 +1,10 @@
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { DashboardService } from '../services/dashboard.service';
 import { RealtimeSummaryService } from '../services/realtime-summary.service';
 import { DashboardResponseDto } from '../dto/dashboard.dto';
@@ -16,10 +22,10 @@ export class DashboardController {
 
   /**
    * GET /dashboard
-   * 
+   *
    * Mendapatkan data dashboard berdasarkan user yang login (dari JWT)
    * Menggunakan position dan persnum dari JWT untuk query
-   * 
+   *
    * Response:
    * - summary: pesan_baru, surat_terkirim, disposisi_masuk, draft_tersimpan
    * - surat_masuk_terbaru: 10 surat terbaru yang diterima

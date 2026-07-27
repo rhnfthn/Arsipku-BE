@@ -92,10 +92,22 @@ describe('RbacService', () => {
       providers: [
         RbacService,
         { provide: getRepositoryToken(RoleEntity), useValue: roleRepo },
-        { provide: getRepositoryToken(ResourceEntity), useValue: { find: jest.fn() } },
-        { provide: getRepositoryToken(PermissionEntity), useValue: { find: jest.fn() } },
-        { provide: getRepositoryToken(RolePermissionEntity), useValue: rolePermissionRepo },
-        { provide: getRepositoryToken(RbacUserRoleEntity), useValue: rbacUserRoleRepo },
+        {
+          provide: getRepositoryToken(ResourceEntity),
+          useValue: { find: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(PermissionEntity),
+          useValue: { find: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(RolePermissionEntity),
+          useValue: rolePermissionRepo,
+        },
+        {
+          provide: getRepositoryToken(RbacUserRoleEntity),
+          useValue: rbacUserRoleRepo,
+        },
         { provide: getRepositoryToken(Person), useValue: personRepo },
         { provide: PermissionCacheService, useValue: permissionCache },
         { provide: DataSource, useValue: dataSource },
@@ -181,7 +193,9 @@ describe('RbacService', () => {
     it('should throw BadRequestException when role still has active users', async () => {
       rbacUserRoleRepo.count.mockResolvedValue(3);
 
-      await expect(service.deleteRole('role-1')).rejects.toThrow(BadRequestException);
+      await expect(service.deleteRole('role-1')).rejects.toThrow(
+        BadRequestException,
+      );
       await expect(service.deleteRole('role-1')).rejects.toThrow('3 user');
     });
 
@@ -207,16 +221,21 @@ describe('RbacService', () => {
         active: true,
       });
 
-      await expect(service.assignRoleToUser(123, 'role-1', null)).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.assignRoleToUser(123, 'role-1', null)).rejects.toThrow(
-        'sudah memiliki role',
-      );
+      await expect(
+        service.assignRoleToUser(123, 'role-1', null),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.assignRoleToUser(123, 'role-1', null),
+      ).rejects.toThrow('sudah memiliki role');
     });
 
     it('should re-activate when existing is nonaktif', async () => {
-      const existing = { id: 'ur-1', persnum: 123, roleId: 'role-1', active: false };
+      const existing = {
+        id: 'ur-1',
+        persnum: 123,
+        roleId: 'role-1',
+        active: false,
+      };
       rbacUserRoleRepo.findOne.mockResolvedValue(existing);
       rbacUserRoleRepo.find.mockResolvedValue([]);
 
@@ -234,7 +253,11 @@ describe('RbacService', () => {
       const result = await service.assignRoleToUser(123, 'role-1', null);
 
       expect(rbacUserRoleRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ persnum: 123, roleId: 'role-1', active: true }),
+        expect.objectContaining({
+          persnum: 123,
+          roleId: 'role-1',
+          active: true,
+        }),
       );
       expect(permissionCache.invalidate).toHaveBeenCalledWith(123);
     });
@@ -248,9 +271,9 @@ describe('RbacService', () => {
         active: true,
       });
 
-      await expect(service.assignRoleToUser(123, 'role-1', 'CGK')).rejects.toThrow(
-        'unit kerja: CGK',
-      );
+      await expect(
+        service.assignRoleToUser(123, 'role-1', 'CGK'),
+      ).rejects.toThrow('unit kerja: CGK');
     });
   });
 
@@ -259,16 +282,25 @@ describe('RbacService', () => {
   // ============================================================
   describe('removeRoleFromUser', () => {
     it('should delete assignment for non-SUPERADMIN role', async () => {
-      roleRepo.findOne.mockResolvedValue({ id: 'role-1', name: RoleName.ADMIN });
+      roleRepo.findOne.mockResolvedValue({
+        id: 'role-1',
+        name: RoleName.ADMIN,
+      });
 
       await service.removeRoleFromUser(123, 'role-1');
 
-      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({ persnum: 123, roleId: 'role-1' });
+      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({
+        persnum: 123,
+        roleId: 'role-1',
+      });
       expect(permissionCache.invalidate).toHaveBeenCalledWith(123);
     });
 
     it('should throw BadRequestException when removing last SUPERADMIN', async () => {
-      roleRepo.findOne.mockResolvedValue({ id: 'role-sa', name: RoleName.SUPERADMIN });
+      roleRepo.findOne.mockResolvedValue({
+        id: 'role-sa',
+        name: RoleName.SUPERADMIN,
+      });
       rbacUserRoleRepo.findOne.mockResolvedValue({
         id: 'ur-1',
         persnum: 123,
@@ -284,7 +316,10 @@ describe('RbacService', () => {
     });
 
     it('should allow removing SUPERADMIN when there are more than 1', async () => {
-      roleRepo.findOne.mockResolvedValue({ id: 'role-sa', name: RoleName.SUPERADMIN });
+      roleRepo.findOne.mockResolvedValue({
+        id: 'role-sa',
+        name: RoleName.SUPERADMIN,
+      });
       rbacUserRoleRepo.findOne.mockResolvedValue({
         id: 'ur-1',
         persnum: 123,
@@ -295,17 +330,26 @@ describe('RbacService', () => {
 
       await service.removeRoleFromUser(123, 'role-sa');
 
-      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({ persnum: 123, roleId: 'role-sa' });
+      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({
+        persnum: 123,
+        roleId: 'role-sa',
+      });
       expect(permissionCache.invalidate).toHaveBeenCalledWith(123);
     });
 
     it('should not throw when removing SUPERADMIN user does not have', async () => {
-      roleRepo.findOne.mockResolvedValue({ id: 'role-sa', name: RoleName.SUPERADMIN });
+      roleRepo.findOne.mockResolvedValue({
+        id: 'role-sa',
+        name: RoleName.SUPERADMIN,
+      });
       rbacUserRoleRepo.findOne.mockResolvedValue(null);
 
       await service.removeRoleFromUser(123, 'role-sa');
 
-      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({ persnum: 123, roleId: 'role-sa' });
+      expect(rbacUserRoleRepo.delete).toHaveBeenCalledWith({
+        persnum: 123,
+        roleId: 'role-sa',
+      });
     });
   });
 
@@ -379,7 +423,15 @@ describe('RbacService', () => {
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([
           [
-            { id: 'ur-1', persnum: 123, roleId: 'r1', role: { name: 'ADMIN' }, unitKerja: null, active: true, createdAt: new Date() },
+            {
+              id: 'ur-1',
+              persnum: 123,
+              roleId: 'r1',
+              role: { name: 'ADMIN' },
+              unitKerja: null,
+              active: true,
+              createdAt: new Date(),
+            },
           ],
           1,
         ]),

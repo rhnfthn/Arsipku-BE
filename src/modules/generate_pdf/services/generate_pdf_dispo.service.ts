@@ -42,9 +42,11 @@ export class GeneratePdfDispoService {
     return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
-  private async _generatePdfInternal(body: GeneratePdfDispoBody): Promise<Buffer> {
+  private async _generatePdfInternal(
+    body: GeneratePdfDispoBody,
+  ): Promise<Buffer> {
     let logoBase64 = '';
-    
+
     try {
       // Try multiple possible paths
       const possiblePaths = [
@@ -52,7 +54,7 @@ export class GeneratePdfDispoService {
         path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
         path.join(__dirname, '../../../../public/logo_airnav.jpg'),
       ];
-      
+
       for (const logoPath of possiblePaths) {
         if (fs.existsSync(logoPath)) {
           logoBase64 = fs.readFileSync(logoPath, 'base64');
@@ -66,7 +68,7 @@ export class GeneratePdfDispoService {
     // Accept both 'html' and 'htmlContent' field names
     // htmlContent is now optional - can be empty/null for disposisi without catatan
     const htmlContent = body.html || body.htmlContent || '';
-    
+
     // Decode from base64 - but handle both base64-encoded and plain text
     let decodedContent = '';
     try {
@@ -86,7 +88,7 @@ export class GeneratePdfDispoService {
       // If base64 decode fails, assume it's plain text already
       decodedContent = htmlContent;
     }
-    
+
     const htmlCatatan = decodedContent || '';
     const penerima = body.penerima || [];
     const pengirim = body.pengirim || '';
@@ -106,13 +108,27 @@ export class GeneratePdfDispoService {
 
     const normalizedSifat = normalizeSifat(body.sifat);
     const selectedSifatLabel = sifatLabelMap[normalizedSifat] || 'Biasa';
-    const toTitleCase = (s: string) => s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const toTitleCase = (s: string) =>
+      s.replace(
+        /\b\w+/g,
+        (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+      );
     const penandatangan = toTitleCase(body.penandatangan || '');
-    
+
     // Indonesian month names
     const monthNamesId = [
-      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
     ];
 
     // Helper function untuk format tanggal ke format Indonesia "20 Desember 2025"
@@ -122,11 +138,15 @@ export class GeneratePdfDispoService {
       if (!trimmed) return '';
       try {
         let dateObj: Date | null = null;
-        
+
         // Already in DD-MM-YYYY format
         if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('-');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
         // YYYY-MM-DD format
         else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -135,24 +155,32 @@ export class GeneratePdfDispoService {
         // DD/MM/YYYY format
         else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
           const [day, month, year] = trimmed.split('/');
-          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          dateObj = new Date(
+            parseInt(year),
+            parseInt(month) - 1,
+            parseInt(day),
+          );
         }
         // Indonesian long format (e.g., "Selasa, 24 Desember 2024") - already in correct format
-        else if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(trimmed)) {
+        else if (
+          /januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(
+            trimmed,
+          )
+        ) {
           const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
           if (match) {
             return `${match[1]} ${match[2].charAt(0).toUpperCase() + match[2].slice(1).toLowerCase()} ${match[3]}`;
           }
           return trimmed;
         }
-        
+
         if (dateObj && !isNaN(dateObj.getTime())) {
           const day = dateObj.getDate();
           const month = monthNamesId[dateObj.getMonth()];
           const year = dateObj.getFullYear();
           return `${day} ${month} ${year}`;
         }
-        
+
         return trimmed; // Return as-is if format not recognized
       } catch (e) {
         console.error('[GeneratePdfDispo] Error formatting date:', e);
@@ -162,7 +190,12 @@ export class GeneratePdfDispoService {
 
     // Format tanggal disposisi (untuk AGENDA) ke format Indonesia "20 Desember 2025"
     let tanggal = (body.tanggal || '').trim();
-    console.log('[GeneratePdfDispo] Input tanggal:', body.tanggal, '| tanggal after trim:', tanggal);
+    console.log(
+      '[GeneratePdfDispo] Input tanggal:',
+      body.tanggal,
+      '| tanggal after trim:',
+      tanggal,
+    );
     if (!tanggal) {
       const now = new Date();
       const day = now.getDate();
@@ -173,38 +206,45 @@ export class GeneratePdfDispoService {
       tanggal = formatDateToIndonesian(tanggal);
     }
     console.log('[GeneratePdfDispo] tanggal after format:', tanggal);
-    
+
     // Field referensi surat asal (kolom kanan - data dari surat yang didisposisi)
     // Jika tidak ada ref_nomor dan ref_perihal, semua field referensi harus kosong
     const refNomor = body.refNomor || '';
     const refPerihal = body.refPerihal || '';
     const hasRefData = refNomor || refPerihal; // Cek apakah ada data referensi
-    const refTanggal = hasRefData && body.refTanggal ? formatDateToIndonesian(body.refTanggal) : ''; // Tanggal surat referensi
-    const refPengirim = hasRefData ? (body.refPengirim || '') : ''; // Pengirim surat referensi (surat dari)
-    
+    const refTanggal =
+      hasRefData && body.refTanggal
+        ? formatDateToIndonesian(body.refTanggal)
+        : ''; // Tanggal surat referensi
+    const refPengirim = hasRefData ? body.refPengirim || '' : ''; // Pengirim surat referensi (surat dari)
+
     // Catatan untuk disposisi "Lainnya"
     const catatan = body.catatan || '';
 
     // QR Code section (optional - passed from digsig signing or preview)
     const qrCodeHtml = body.qrCodeHtml || '';
-    
+
     // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
     // Jika format "Position - Organization", ambil hanya Position
-    let sortedPenerima = [...penerima].sort((a, b) => a.localeCompare(b, 'id'));
+    const sortedPenerima = [...penerima].sort((a, b) =>
+      a.localeCompare(b, 'id'),
+    );
     let penerimaHtml = '';
     if (Array.isArray(sortedPenerima) && sortedPenerima.length > 0) {
       // Extract only position text if format is "Position - Organization"
-      const cleanPenerima = sortedPenerima.map(p => {
+      const cleanPenerima = sortedPenerima.map((p) => {
         if (p.includes(' - ')) {
           return p.split(' - ')[0].trim();
         }
         return p;
       });
-      
+
       if (cleanPenerima.length === 1) {
         penerimaHtml = cleanPenerima[0];
       } else {
-        penerimaHtml = cleanPenerima.map(p => `<div style="margin-left: 20px;">${p}</div>`).join('');
+        penerimaHtml = cleanPenerima
+          .map((p) => `<div style="margin-left: 20px;">${p}</div>`)
+          .join('');
       }
     }
 
@@ -212,21 +252,21 @@ export class GeneratePdfDispoService {
     // Daftar lengkap semua pilihan disposisi (layout 3 kolom vertikal sesuai gambar)
     // Kolom 1 -> Kolom 2 -> Kolom 3, urutan dari atas ke bawah
     const disposisiOptions = [
-      'Untuk Diketahui',        // Kolom 1 baris 1
-      'Proses Lanjut',          // Kolom 2 baris 1
-      'Koordinasikan',          // Kolom 3 baris 1
-      'Cek',                    // Kolom 1 baris 2
-      'Monitor',                // Kolom 2 baris 2
-      'Evaluasi',               // Kolom 3 baris 2
-      'Dikaji Kemungkinannya',  // Kolom 1 baris 3
-      'Laporkan',               // Kolom 2 baris 3
+      'Untuk Diketahui', // Kolom 1 baris 1
+      'Proses Lanjut', // Kolom 2 baris 1
+      'Koordinasikan', // Kolom 3 baris 1
+      'Cek', // Kolom 1 baris 2
+      'Monitor', // Kolom 2 baris 2
+      'Evaluasi', // Kolom 3 baris 2
+      'Dikaji Kemungkinannya', // Kolom 1 baris 3
+      'Laporkan', // Kolom 2 baris 3
       'Untuk Menjadi Perhatian', // Kolom 3 baris 3
       'Untuk Dijadikan Acuan/Dipergunakan', // Kolom 1 baris 4
-      'Harap Mewakili',         // Kolom 2 baris 4
-      'Harap Mendampingi',      // Kolom 3 baris 4
-      'Tunjuk Perwakilan',      // Kolom 1 baris 5
-      'Siapkan Bahan/Materi',   // Kolom 2 baris 5
-      'Lainnya',                // Kolom 3 baris 5
+      'Harap Mewakili', // Kolom 2 baris 4
+      'Harap Mendampingi', // Kolom 3 baris 4
+      'Tunjuk Perwakilan', // Kolom 1 baris 5
+      'Siapkan Bahan/Materi', // Kolom 2 baris 5
+      'Lainnya', // Kolom 3 baris 5
     ];
 
     const disposisi = body.disposisi || [];
@@ -240,9 +280,10 @@ export class GeneratePdfDispoService {
         column-gap: 16px;
         row-gap: 8px;
       ">
-        ${disposisiOptions.map(item => {
-          const isChecked = selectedDisposisi.includes(item);
-          return `
+        ${disposisiOptions
+          .map((item) => {
+            const isChecked = selectedDisposisi.includes(item);
+            return `
             <div style="display: flex; gap: 6px; align-items: flex-start;">
               <div style="
                 width: 14px;
@@ -261,20 +302,25 @@ export class GeneratePdfDispoService {
               </span>
             </div>
           `;
-        }).join('')}
+          })
+          .join('')}
       </div>
     `;
 
     // Format klasifikasi (Biasa, Terbatas, Rahasia, Sangat Rahasia)
     const array_sifat = ['Biasa', 'Terbatas', 'Rahasia', 'Sangat Rahasia'];
-    let sifatsHtml = array_sifat.map(item => `
+    const sifatsHtml = array_sifat
+      .map(
+        (item) => `
       <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
         <div style="width: 16px; height: 16px; border: 1px solid #000; display: flex; align-items: center; justify-content: center; font-size: 10px;">
           ${item === selectedSifatLabel ? '✓' : ''}
         </div>
         <span style="font-size: 11px;">${item}</span>
       </div>
-    `).join('');
+    `,
+      )
+      .join('');
 
     const konten = `
       <div style="border: 2px solid #000; font-family: 'Times New Roman', Times, serif; font-size: 12px;">

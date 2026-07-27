@@ -75,7 +75,11 @@ export class RelationOoService {
      AND :tgl BETWEEN oc.startDate AND oc.endDate`,
         { tgl },
       )
-      .select(['a.*', 'o.abbreviation as abbreviation', 'oc.long_text as company_name'])
+      .select([
+        'a.*',
+        'o.abbreviation as abbreviation',
+        'oc.long_text as company_name',
+      ])
       .where(':tgl BETWEEN a.startDate AND a.endDate', { tgl })
       .getRawMany();
 

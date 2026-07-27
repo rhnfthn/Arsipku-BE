@@ -1,4 +1,10 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 @Entity('delegasi')
@@ -51,10 +57,10 @@ export class DelegasiEntity {
   as_name: string;
 
   // Position status (role type: PT, PH, PS, VI, SE)
-  @Column({ 
-    type: 'enum', 
-    enum: PositionStatus, 
-    nullable: true 
+  @Column({
+    type: 'enum',
+    enum: PositionStatus,
+    nullable: true,
   })
   position_status: PositionStatus;
 

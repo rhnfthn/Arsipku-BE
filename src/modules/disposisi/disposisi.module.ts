@@ -66,4 +66,4 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
   providers: [DisposisiService, NomorSuratService],
   exports: [DisposisiService],
 })
-export class DisposisiModule { }
+export class DisposisiModule {}

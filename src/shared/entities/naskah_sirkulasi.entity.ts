@@ -49,7 +49,8 @@ export class NaskahSirkulasi {
     name: 'position_status',
     nullable: true,
     enum: ['ybs', 'pt', 'ph', 'ps', 'se', 'vi', 'ext'],
-    comment: 'ybs=definitif/interim, pt=pelaksana tugas, ph=pelaksana harian, ps=penugasan sementara, se=sekretaris, vi=viewer, ext=external',
+    comment:
+      'ybs=definitif/interim, pt=pelaksana tugas, ph=pelaksana harian, ps=penugasan sementara, se=sekretaris, vi=viewer, ext=external',
   })
   positionStatus: 'ybs' | 'pt' | 'ph' | 'ps' | 'se' | 'vi' | 'ext' | null;
 
@@ -92,13 +93,18 @@ export class NaskahSirkulasi {
   @Column('tinyint', { name: 'flag_arsip', nullable: true, default: 0 })
   flagArsip: number | null;
 
-  @Column('tinyint', { name: 'tindak_lanjut', nullable: true, default: 0, comment: 'Flag tindak lanjut: 0=belum, 1=sudah' })
+  @Column('tinyint', {
+    name: 'tindak_lanjut',
+    nullable: true,
+    default: 0,
+    comment: 'Flag tindak lanjut: 0=belum, 1=sudah',
+  })
   tindakLanjut: number | null;
 
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
 
-  @Column('int', { name: 'urutan', nullable: true, default: 0})
+  @Column('int', { name: 'urutan', nullable: true, default: 0 })
   urutan: number | null;
 
   @CreateDateColumn({ name: 'created_at' })

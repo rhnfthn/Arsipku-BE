@@ -1,4 +1,11 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 import { MessageType } from '../entities';
 
@@ -13,7 +20,9 @@ export class CreateMessageDto {
   message: string;
 
   @IsOptional()
-  @IsEnum(MessageType, { message: 'Type harus berupa info, warning, error, atau success' })
+  @IsEnum(MessageType, {
+    message: 'Type harus berupa info, warning, error, atau success',
+  })
   type?: MessageType;
 
   @IsOptional()
@@ -37,7 +46,9 @@ export class UpdateMessageDto {
   message?: string;
 
   @IsOptional()
-  @IsEnum(MessageType, { message: 'Type harus berupa info, warning, error, atau success' })
+  @IsEnum(MessageType, {
+    message: 'Type harus berupa info, warning, error, atau success',
+  })
   type?: MessageType;
 
   @IsOptional()

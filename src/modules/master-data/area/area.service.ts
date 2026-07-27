@@ -57,12 +57,17 @@ export class AreaService {
   /**
    * Find area by company and area code
    */
-  async findByCompanyAndArea(companyId: number, areaCode: string): Promise<OmArea> {
+  async findByCompanyAndArea(
+    companyId: number,
+    areaCode: string,
+  ): Promise<OmArea> {
     const area = await this.areaRepo.findOne({
       where: { company: companyId, area: areaCode },
     });
     if (!area) {
-      throw new NotFoundException(`Area with company ${companyId} and area ${areaCode} not found`);
+      throw new NotFoundException(
+        `Area with company ${companyId} and area ${areaCode} not found`,
+      );
     }
     return area;
   }
@@ -75,10 +80,14 @@ export class AreaService {
     return this.areaRepo.save(newArea);
   }
 
-  async update(id: string, companyId: number, dto: UpdateAreaDto): Promise<OmArea> {
+  async update(
+    id: string,
+    companyId: number,
+    dto: UpdateAreaDto,
+  ): Promise<OmArea> {
     // Fetch existing area
     const area = await this.findOne(id);
-    
+
     // Manually assign each field from DTO
     if (dto.area !== undefined) area.area = dto.area;
     if (dto.shortText !== undefined) area.shortText = dto.shortText;
@@ -86,10 +95,10 @@ export class AreaService {
     if (dto.startDate !== undefined) area.startDate = dto.startDate;
     if (dto.endDate !== undefined) area.endDate = dto.endDate;
     if (dto.uname !== undefined) area.uname = dto.uname;
-    
+
     // Always update company from route param
     area.company = companyId;
-    
+
     // Save and return
     const saved = await this.areaRepo.save(area);
     return saved;

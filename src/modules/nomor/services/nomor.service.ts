@@ -35,17 +35,17 @@ import {
   ApproveBulkPenandatanganDto,
   ApproveBulkPenandatanganResponseDto,
 } from '../dto/admin-nomor-request.dto';
-import {
-  GetNomorQueryDto,
-  GetNomorResponseDto,
-} from '../dto/get-nomor.dto';
+import { GetNomorQueryDto, GetNomorResponseDto } from '../dto/get-nomor.dto';
 import {
   AdminCreateNomorDto,
   AdminCreateNomorResponseDto,
 } from '../dto/admin-create-nomor.dto';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
-import { UserRoleEntity, UserRole } from '../../superadmin/entities/user-role.entity';
+import {
+  UserRoleEntity,
+  UserRole,
+} from '../../superadmin/entities/user-role.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { NotificationService } from '../../notification/services';
@@ -80,14 +80,19 @@ export class NomorService {
    * Helper: Get latest position JSON data dengan caching.
    * Memanfaatkan cache 5 menit di OrgDataService.findLatestOrg().
    */
-  private async getLatestPositionJsonData(forceRefresh = false): Promise<any[]> {
+  private async getLatestPositionJsonData(
+    forceRefresh = false,
+  ): Promise<any[]> {
     if (!forceRefresh && this.cachedPositionJsonData !== null) {
       return this.cachedPositionJsonData;
     }
 
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+      if (
+        latestOrgData?.position_json &&
+        Array.isArray(latestOrgData.position_json)
+      ) {
         this.cachedPositionJsonData = latestOrgData.position_json;
         return this.cachedPositionJsonData;
       }
@@ -102,42 +107,64 @@ export class NomorService {
   /**
    * Helper: Determine status dari details array
    */
-  private determineStatusFromDetails(details: NomorRequestDetailEntity[]): string {
+  private determineStatusFromDetails(
+    details: NomorRequestDetailEntity[],
+  ): string {
     if (details.length === 0) return 'Belum Diajukan';
 
     const hasDraft = details.some((d) => d.status === 'draft');
     const hasBooking = details.some((d) => d.status === 'booking');
-    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const hasTerpakai = details.some(
+      (d) => d.status === 'terpakai' || d.status === 'terpakai_final',
+    );
     const allHangus = details.every((d) => d.status === 'hangus');
     const allDitolak = details.every((d) => d.status === 'ditolak');
-    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+    const hasRejected = details.some(
+      (d) => d.status === 'hangus' || d.status === 'ditolak',
+    );
 
     if (hasTerpakai) return 'Disetujui';
-    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'Ditolak';
+    if (
+      allHangus ||
+      allDitolak ||
+      (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)
+    )
+      return 'Ditolak';
     if (hasBooking) return 'Menunggu Verifikasi';
     if (hasDraft) return 'Draft';
-    
+
     return 'Belum Diajukan';
   }
 
   /**
    * Helper: Determine status key untuk counting (lowercase dengan underscore)
    */
-  private determineStatusKeyFromDetails(details: NomorRequestDetailEntity[]): string {
+  private determineStatusKeyFromDetails(
+    details: NomorRequestDetailEntity[],
+  ): string {
     if (details.length === 0) return 'belum_diajukan';
 
     const hasDraft = details.some((d) => d.status === 'draft');
     const hasBooking = details.some((d) => d.status === 'booking');
-    const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    const hasTerpakai = details.some(
+      (d) => d.status === 'terpakai' || d.status === 'terpakai_final',
+    );
     const allHangus = details.every((d) => d.status === 'hangus');
     const allDitolak = details.every((d) => d.status === 'ditolak');
-    const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+    const hasRejected = details.some(
+      (d) => d.status === 'hangus' || d.status === 'ditolak',
+    );
 
     if (hasTerpakai) return 'disetujui';
-    if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)) return 'ditolak';
+    if (
+      allHangus ||
+      allDitolak ||
+      (hasRejected && !hasBooking && !hasTerpakai && !hasDraft)
+    )
+      return 'ditolak';
     if (hasBooking) return 'menunggu_verifikasi';
     if (hasDraft) return 'menunggu_persetujuan';
-    
+
     return 'belum_diajukan';
   }
 
@@ -148,7 +175,11 @@ export class NomorService {
     if (!status) return status;
 
     const normalized = status.trim().toLowerCase();
-    if (normalized === 'menunggu persetujuan' || normalized === 'menunggu_persetujuan' || normalized === 'draft' ) {
+    if (
+      normalized === 'menunggu persetujuan' ||
+      normalized === 'menunggu_persetujuan' ||
+      normalized === 'draft'
+    ) {
       return 'Draft';
     }
 
@@ -161,10 +192,14 @@ export class NomorService {
    * - Selain A000: dibatasi ke area user login
    */
   private getScopedAreaCode(user: JwtPayload): string | undefined {
-    const requesterAreaCode = String(user?.area || '').trim().toUpperCase();
+    const requesterAreaCode = String(user?.area || '')
+      .trim()
+      .toUpperCase();
 
     if (!requesterAreaCode) {
-      throw new BadRequestException('Area code tidak ditemukan pada token user');
+      throw new BadRequestException(
+        'Area code tidak ditemukan pada token user',
+      );
     }
 
     return requesterAreaCode === 'A000' ? undefined : requesterAreaCode;
@@ -173,9 +208,13 @@ export class NomorService {
   /**
    * Helper legacy: Check berdasarkan status detail (dipakai sebagai fallback data lama)
    */
-  private isFromTulisSuratOtomatis(details: NomorRequestDetailEntity[]): boolean {
+  private isFromTulisSuratOtomatis(
+    details: NomorRequestDetailEntity[],
+  ): boolean {
     if (details.length === 0) return false;
-    return details.every((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+    return details.every(
+      (d) => d.status === 'terpakai' || d.status === 'terpakai_final',
+    );
   }
 
   /**
@@ -195,48 +234,40 @@ export class NomorService {
    * Helper: Map position text to jabatan code
    * P = Dir. SDM, U = Dirut, S = Dir. Keselamatan, O = Dir. Operasi, K = Dir. Keuangan
    */
-  private mapPositionToJabatanCode(positionText: string | null | undefined): string {
+  private mapPositionToJabatanCode(
+    positionText: string | null | undefined,
+  ): string {
     if (!positionText) return '';
-    
+
     const positionLower = positionText.toLowerCase().trim();
-    
+
     // Hardcoded mapping sesuai contoh - cek berdasarkan text dengan berbagai variasi
-    if (
-      positionLower.includes('direktur sdm dan umum')
-    ) {
+    if (positionLower.includes('direktur sdm dan umum')) {
       return 'P';
     }
-    
-    if (
-      positionLower.includes('direktur utama')
-    ) {
+
+    if (positionLower.includes('direktur utama')) {
       return 'U';
     }
-    
+
     if (
       positionLower.includes('direktur keselamatan, keamanan dan standardisasi')
     ) {
       return 'S';
     }
-    
-    if (
-      positionLower.includes('direktur operasi')
-    ) {
+
+    if (positionLower.includes('direktur operasi')) {
       return 'O';
     }
 
-    if (
-      positionLower.includes('direktur teknik')
-    ) {
+    if (positionLower.includes('direktur teknik')) {
       return 'T';
     }
-    
-    if (
-      positionLower.includes('direktur keuangan dan manajemen risiko')
-    ) {
+
+    if (positionLower.includes('direktur keuangan dan manajemen risiko')) {
       return 'K';
     }
-    
+
     return '';
   }
 
@@ -246,12 +277,12 @@ export class NomorService {
    */
   private extractAreaCode(area: string | null | undefined): string {
     if (!area) return '';
-    
+
     // Ambil 2 karakter terakhir
     if (area.length >= 2) {
       return area.slice(-2);
     }
-    
+
     return area.padStart(2, '0');
   }
 
@@ -285,7 +316,7 @@ export class NomorService {
     const instansi = 'LPPNPI'; // Hardcoded
 
     // Replace placeholders dengan nilai sebenarnya
-    let nomorBaru = format
+    const nomorBaru = format
       .replace(/{TIPE}/g, request.jenis || '')
       .replace(/{NO_URUT}/g, noUrutFormatted)
       .replace(/{INSTANSI}/g, instansi)
@@ -356,19 +387,19 @@ export class NomorService {
     }
     if (!orgDataRecord) {
       throw new NotFoundException(
-        `Data org_data tidak ditemukan untuk tanggal ${tglFormatted} maupun data terbaru`
+        `Data org_data tidak ditemukan untuk tanggal ${tglFormatted} maupun data terbaru`,
       );
     }
-    
+
     // Parse position_json dan cari position_id
     const positionJson = orgDataRecord.position_json;
-    const positionData = Array.isArray(positionJson) 
+    const positionData = Array.isArray(positionJson)
       ? positionJson.find((p: any) => p.position === dto.position_id)
       : null;
 
     if (!positionData) {
       throw new NotFoundException(
-        `Position dengan ID ${dto.position_id} tidak ditemukan di org_data untuk tanggal ${tglFormatted}`
+        `Position dengan ID ${dto.position_id} tidak ditemukan di org_data untuk tanggal ${tglFormatted}`,
       );
     }
 
@@ -404,10 +435,13 @@ export class NomorService {
         request: nomorRequest,
         type: NotificationType.PENOMORAN_USULAN,
         title: 'Usulan penomoran baru',
-        body: nomorRequest.perihal || 'Ada usulan penomoran yang perlu disetujui',
+        body:
+          nomorRequest.perihal || 'Ada usulan penomoran yang perlu disetujui',
         action: 'OPEN_PERSETUJUAN_PENOMORAN',
       }).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_USULAN notification: ${err?.message}`,
+        ),
       );
     } else {
       this.notifyNomorAdmins(
@@ -416,7 +450,9 @@ export class NomorService {
         'Usulan penomoran baru',
         nomorRequest.perihal || 'Ada usulan penomoran baru',
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_USULAN admin notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_USULAN admin notification: ${err?.message}`,
+        ),
       );
     }
 
@@ -471,12 +507,18 @@ export class NomorService {
 
     // Pre-cache jenis data untuk generateNomorTemplate
     const jenisCache = new Map<string, any>();
-    const uniqueJenis = [...new Set(requests.map(r => r.jenis).filter((j): j is string => j !== null && j !== undefined))];
+    const uniqueJenis = [
+      ...new Set(
+        requests
+          .map((r) => r.jenis)
+          .filter((j): j is string => j !== null && j !== undefined),
+      ),
+    ];
     if (uniqueJenis.length > 0) {
       const jenisDataList = await this.jenisRepository.find({
-        where: uniqueJenis.map(j => ({ jenis: j })),
+        where: uniqueJenis.map((j) => ({ jenis: j })),
       });
-      jenisDataList.forEach(j => jenisCache.set(j.jenis!, j));
+      jenisDataList.forEach((j) => jenisCache.set(j.jenis!, j));
     }
 
     // Generate data tanpa N+1 query
@@ -484,7 +526,10 @@ export class NomorService {
       requests.map(async (request) => {
         const details = request.details || [];
         // Sort details by createdAt ASC
-        details.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        details.sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
 
         // Generate template nomor (menggunakan cache)
         const templateNomor = await this.generateNomorTemplate(request);
@@ -506,15 +551,15 @@ export class NomorService {
           template_nomor: templateNomor,
           created_at: request.createdAt,
           details: await Promise.all(
-                details.map(async (detail) => ({
-                  id: detail.id,
-                  nomor: detail.nomor,
-                  status: detail.status,
-                  file_name: detail.fileName,
-                  file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
-                  created_at: detail.createdAt,
-                })),
-              ),
+            details.map(async (detail) => ({
+              id: detail.id,
+              nomor: detail.nomor,
+              status: detail.status,
+              file_name: detail.fileName,
+              file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+              created_at: detail.createdAt,
+            })),
+          ),
         };
       }),
     );
@@ -524,9 +569,13 @@ export class NomorService {
     if (query?.search) {
       const searchLower = query.search.toLowerCase();
       filteredData = data.filter((item) => {
-        const perihalMatch = item.perihal && item.perihal.toLowerCase().includes(searchLower);
-        const jenisMatch = item.jenis && item.jenis.toLowerCase().includes(searchLower);
-        const penandatanganMatch = item.penandatangan && item.penandatangan.toLowerCase().includes(searchLower);
+        const perihalMatch =
+          item.perihal && item.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch =
+          item.jenis && item.jenis.toLowerCase().includes(searchLower);
+        const penandatanganMatch =
+          item.penandatangan &&
+          item.penandatangan.toLowerCase().includes(searchLower);
         return perihalMatch || jenisMatch || penandatanganMatch;
       });
     }
@@ -536,7 +585,9 @@ export class NomorService {
       filteredData = filteredData.filter((item) => {
         const details = item.details || [];
         // Convert to entity-like format for helper
-        const detailsForHelper = details.map(d => ({ status: d.status }) as NomorRequestDetailEntity);
+        const detailsForHelper = details.map(
+          (d) => ({ status: d.status }) as NomorRequestDetailEntity,
+        );
         const status = this.determineStatusFromDetails(detailsForHelper);
         return status === normalizedStatus;
       });
@@ -552,7 +603,10 @@ export class NomorService {
         if (query.sort_by === 'tanggal') {
           aValue = new Date(a.tanggal).getTime();
           bValue = new Date(b.tanggal).getTime();
-        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+        } else if (
+          query.sort_by === 'tanggal_usulan' ||
+          query.sort_by === 'waktu'
+        ) {
           aValue = new Date(a.created_at).getTime();
           bValue = new Date(b.created_at).getTime();
         } else {
@@ -587,7 +641,7 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
-  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestSubmitted(
@@ -611,7 +665,9 @@ export class NomorService {
       const details = request.details || [];
 
       if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        const requestAreaCode = String(request.area || '')
+          .trim()
+          .toUpperCase();
         if (requestAreaCode !== scopedAreaCode) {
           return null;
         }
@@ -626,8 +682,10 @@ export class NomorService {
 
       // Get position data
       const positionNumber = parseInt(request.position!, 10);
-      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-      
+      const positionData = positionJsonData.find(
+        (p: any) => p.position === positionNumber,
+      );
+
       const persnum = positionData?.persnum_person || null;
       const nama = positionData?.persnum_person_text || null;
 
@@ -670,18 +728,22 @@ export class NomorService {
           responseItem.penandatangan,
           responseItem.status,
         ];
-        
-        const isMatch = searchFields.some(field => 
-          field && field.toLowerCase().includes(searchLower)
+
+        const isMatch = searchFields.some(
+          (field) => field && field.toLowerCase().includes(searchLower),
         );
-        
+
         if (!isMatch) {
           return null;
         }
       }
 
       // Apply status filter
-      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+      if (
+        normalizedStatus &&
+        normalizedStatus !== 'Semua' &&
+        status !== normalizedStatus
+      ) {
         return null;
       }
 
@@ -689,8 +751,9 @@ export class NomorService {
     });
 
     // Filter out null values and 'Belum Diajukan'
-    const submittedData = data.filter((item): item is Exclude<typeof item, null> => 
-      item !== null && item.status !== 'Belum Diajukan'
+    const submittedData = data.filter(
+      (item): item is Exclude<typeof item, null> =>
+        item !== null && item.status !== 'Belum Diajukan',
     );
 
     // Apply sorting
@@ -703,7 +766,10 @@ export class NomorService {
         if (query.sort_by === 'tanggal') {
           aValue = new Date(a.tanggal).getTime();
           bValue = new Date(b.tanggal).getTime();
-        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+        } else if (
+          query.sort_by === 'tanggal_usulan' ||
+          query.sort_by === 'waktu'
+        ) {
           aValue = new Date(a.created_at).getTime();
           bValue = new Date(b.created_at).getTime();
         } else if (query.sort_by === 'jenis') {
@@ -747,27 +813,31 @@ export class NomorService {
    * Count nomor request by status (for admin dashboard)
    * - Semua data dengan status selain "Belum Diajukan" di-count
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
-  * Hanya count data dari usulan manual (is_naskah_generated != true)
+   * Hanya count data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
-  async getAdminCountNomorRequest(positionId: number, user?: JwtPayload): Promise<any> {
+  async getAdminCountNomorRequest(
+    positionId: number,
+    user?: JwtPayload,
+  ): Promise<any> {
     const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
 
     // Load requests, role admin data, dan position mapping in parallel
-    const [requests, penandatanganRequests, adminRoles, positionJsonData] = await Promise.all([
-      this.nomorRequestRepository.find({
-        relations: ['details'],
-      }),
-      this.nomorRequestRepository.find({
-        where: { idPositionPenandatangan: positionId },
-        relations: ['details'],
-      }),
-      this.userRoleRepository.find({
-        where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
-        select: ['persnum'],
-      }),
-      this.getLatestPositionJsonData(),
-    ]);
+    const [requests, penandatanganRequests, adminRoles, positionJsonData] =
+      await Promise.all([
+        this.nomorRequestRepository.find({
+          relations: ['details'],
+        }),
+        this.nomorRequestRepository.find({
+          where: { idPositionPenandatangan: positionId },
+          relations: ['details'],
+        }),
+        this.userRoleRepository.find({
+          where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
+          select: ['persnum'],
+        }),
+        this.getLatestPositionJsonData(),
+      ]);
 
     const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
 
@@ -802,7 +872,9 @@ export class NomorService {
       const details = request.details || [];
 
       if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        const requestAreaCode = String(request.area || '')
+          .trim()
+          .toUpperCase();
         if (requestAreaCode !== scopedAreaCode) {
           continue;
         }
@@ -816,7 +888,10 @@ export class NomorService {
       const statusKey = this.determineStatusKeyFromDetails(details);
 
       // Filter: jika status "belum_diajukan", hanya count yang dibuat oleh posisi ini
-      if (statusKey === 'belum_diajukan' && request.position !== positionId.toString()) {
+      if (
+        statusKey === 'belum_diajukan' &&
+        request.position !== positionId.toString()
+      ) {
         continue;
       }
 
@@ -843,7 +918,9 @@ export class NomorService {
       const details = request.details || [];
 
       if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        const requestAreaCode = String(request.area || '')
+          .trim()
+          .toUpperCase();
         if (requestAreaCode !== scopedAreaCode) {
           continue;
         }
@@ -879,7 +956,7 @@ export class NomorService {
 
   /**
    * Count nomor request by status filtered by position ID
-  * Hanya count data dari usulan manual (is_naskah_generated != true)
+   * Hanya count data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN
    */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
@@ -964,30 +1041,47 @@ export class NomorService {
    * Helper: Emit nomor count lengkap ke admin (broadcast) dan user (per position).
    * Dipanggil setelah aksi yang mengubah count (create, approve, reject, submit, etc).
    */
-  private async emitNomorCountRefresh(positionId?: string, user?: JwtPayload): Promise<void> {
+  private async emitNomorCountRefresh(
+    positionId?: string,
+    user?: JwtPayload,
+  ): Promise<void> {
     try {
       // Emit ke admin/superadmin dengan count lengkap
       if (user) {
-        const adminResult = await this.getAdminCountNomorRequest(Number(user.position), user);
-        this.realtimeEmitService.emitNomorCountAdminBroadcast(adminResult?.data ?? {});
+        const adminResult = await this.getAdminCountNomorRequest(
+          Number(user.position),
+          user,
+        );
+        this.realtimeEmitService.emitNomorCountAdminBroadcast(
+          adminResult?.data ?? {},
+        );
       }
 
       // Emit ke user position dengan count lengkap
       if (positionId) {
-        const userResult = await this.getAdminCountNomorRequestByPosition(Number(positionId));
-        this.realtimeEmitService.emitNomorCountUser(positionId, userResult?.data ?? {});
+        const userResult = await this.getAdminCountNomorRequestByPosition(
+          Number(positionId),
+        );
+        this.realtimeEmitService.emitNomorCountUser(
+          positionId,
+          userResult?.data ?? {},
+        );
       }
     } catch (err: any) {
       this.logger?.warn?.(`⚠️ [emitNomorCountRefresh] failed: ${err?.message}`);
     }
   }
 
-  private async resolvePersnumByPosition(positionId?: string | number | null): Promise<number | undefined> {
+  private async resolvePersnumByPosition(
+    positionId?: string | number | null,
+  ): Promise<number | undefined> {
     if (positionId == null) return undefined;
 
     try {
       const positionJsonData = await this.getLatestPositionJsonData();
-      const position = positionJsonData.find((p: any) => String(p.position) === String(positionId));
+      const position = positionJsonData.find(
+        (p: any) => String(p.position) === String(positionId),
+      );
       const persnum = Number(position?.persnum_person);
       return Number.isFinite(persnum) ? persnum : undefined;
     } catch {
@@ -1026,7 +1120,8 @@ export class NomorService {
     if (params.positionId == null) return;
 
     const userPersnum =
-      params.userPersnum ?? (await this.resolvePersnumByPosition(params.positionId));
+      params.userPersnum ??
+      (await this.resolvePersnumByPosition(params.positionId));
 
     await this.notificationService.createNotification({
       positionId: String(params.positionId),
@@ -1034,7 +1129,11 @@ export class NomorService {
       type: params.type,
       title: params.title,
       body: params.body,
-      data: this.buildNomorNotificationData(params.request, params.action, params.detail),
+      data: this.buildNomorNotificationData(
+        params.request,
+        params.action,
+        params.detail,
+      ),
     });
   }
 
@@ -1090,11 +1189,13 @@ export class NomorService {
 
   /**
    * Admin melihat semua usulan nomor
-  * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
-  async getAdminNomorRequest(query?: GetNomorQueryDto): Promise<GetAdminNomorRequestResponseDto> {
+  async getAdminNomorRequest(
+    query?: GetNomorQueryDto,
+  ): Promise<GetAdminNomorRequestResponseDto> {
     const normalizedStatus = this.normalizeStatusFilter(query?.status);
 
     // Optimized: Load dengan relations dalam 1 query
@@ -1119,25 +1220,36 @@ export class NomorService {
 
       // Get position data
       const positionNumber = parseInt(request.position!, 10);
-      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-      
+      const positionData = positionJsonData.find(
+        (p: any) => p.position === positionNumber,
+      );
+
       const persnum = positionData?.persnum_person || null;
       const nama = positionData?.persnum_person_text || null;
 
       // Apply search filter
       if (query?.search) {
         const searchLower = query.search.toLowerCase();
-        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
-        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
-        const nomorMatch = request.penandatangan && request.penandatangan.toLowerCase().includes(searchLower);
-        
+        const perihalMatch =
+          request.perihal &&
+          request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch =
+          request.jenis && request.jenis.toLowerCase().includes(searchLower);
+        const nomorMatch =
+          request.penandatangan &&
+          request.penandatangan.toLowerCase().includes(searchLower);
+
         if (!perihalMatch && !jenisMatch && !nomorMatch) {
           return null;
         }
       }
 
       // Apply status filter
-      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+      if (
+        normalizedStatus &&
+        normalizedStatus !== 'Semua' &&
+        status !== normalizedStatus
+      ) {
         return null;
       }
 
@@ -1162,7 +1274,9 @@ export class NomorService {
     });
 
     // Filter out null values
-    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+    const filteredData = data.filter(
+      (item): item is Exclude<typeof item, null> => item !== null,
+    );
 
     // Apply sorting
     if (query?.sort_by) {
@@ -1174,7 +1288,10 @@ export class NomorService {
         if (query.sort_by === 'tanggal') {
           aValue = new Date(a.tanggal).getTime();
           bValue = new Date(b.tanggal).getTime();
-        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+        } else if (
+          query.sort_by === 'tanggal_usulan' ||
+          query.sort_by === 'waktu'
+        ) {
           aValue = new Date(a.created_at).getTime();
           bValue = new Date(b.created_at).getTime();
         } else if (query.sort_by === 'jenis') {
@@ -1218,7 +1335,7 @@ export class NomorService {
    * Admin melihat semua usulan nomor dengan filter posisi
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
-  * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestByPosition(
@@ -1252,7 +1369,9 @@ export class NomorService {
       const details = request.details || [];
 
       if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        const requestAreaCode = String(request.area || '')
+          .trim()
+          .toUpperCase();
         if (requestAreaCode !== scopedAreaCode) {
           return null;
         }
@@ -1261,14 +1380,19 @@ export class NomorService {
       const status = this.determineStatusFromDetails(details);
 
       // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
-      if (status === 'Belum Diajukan' && request.position !== positionId.toString()) {
+      if (
+        status === 'Belum Diajukan' &&
+        request.position !== positionId.toString()
+      ) {
         return null;
       }
 
       // Get position data
       const positionNumber = parseInt(request.position!, 10);
-      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-      
+      const positionData = positionJsonData.find(
+        (p: any) => p.position === positionNumber,
+      );
+
       const persnum = positionData?.persnum_person || null;
       const nama = positionData?.persnum_person_text || null;
 
@@ -1316,18 +1440,22 @@ export class NomorService {
           responseItem.penandatangan,
           responseItem.status,
         ];
-        
-        const isMatch = searchFields.some(field => 
-          field && field.toLowerCase().includes(searchLower)
+
+        const isMatch = searchFields.some(
+          (field) => field && field.toLowerCase().includes(searchLower),
         );
-        
+
         if (!isMatch) {
           return null;
         }
       }
 
       // Apply status filter
-      if (normalizedStatus && normalizedStatus !== 'Semua' && status !== normalizedStatus) {
+      if (
+        normalizedStatus &&
+        normalizedStatus !== 'Semua' &&
+        status !== normalizedStatus
+      ) {
         return null;
       }
 
@@ -1335,7 +1463,9 @@ export class NomorService {
     });
 
     // Filter out null values
-    const filteredData = data.filter((item): item is Exclude<typeof item, null> => item !== null);
+    const filteredData = data.filter(
+      (item): item is Exclude<typeof item, null> => item !== null,
+    );
 
     // Apply sorting
     if (query?.sort_by) {
@@ -1347,7 +1477,10 @@ export class NomorService {
         if (query.sort_by === 'tanggal') {
           aValue = new Date(a.tanggal).getTime();
           bValue = new Date(b.tanggal).getTime();
-        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+        } else if (
+          query.sort_by === 'tanggal_usulan' ||
+          query.sort_by === 'waktu'
+        ) {
           aValue = new Date(a.created_at).getTime();
           bValue = new Date(b.created_at).getTime();
         } else if (query.sort_by === 'jenis') {
@@ -1390,39 +1523,48 @@ export class NomorService {
   /**
    * Get detail usulan nomor berdasarkan ID (usulan saja, tanpa details)
    */
-  async getNomorRequestDetail(
-    requestId: string,
-  ): Promise<any> {
+  async getNomorRequestDetail(requestId: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Get org_data untuk tanggal request
     const tglFormatted = this.formatDate(request.tanggal!);
     let positionJsonData: any[] = [];
     let usingLatestFallback = false;
-    
+
     try {
       const orgData = await this.orgDataService.findOrg(tglFormatted);
       if (orgData?.position_json && Array.isArray(orgData.position_json)) {
         positionJsonData = orgData.position_json;
       }
     } catch (error) {
-      console.log('Could not fetch position data from org_data for date:', tglFormatted);
+      console.log(
+        'Could not fetch position data from org_data for date:',
+        tglFormatted,
+      );
     }
-    
+
     // Fallback: If position_json is empty or position not found, try latest org_data
     if (positionJsonData.length === 0) {
       try {
         const latestOrgData = await this.orgDataService.findLatestOrg();
-        if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+        if (
+          latestOrgData?.position_json &&
+          Array.isArray(latestOrgData.position_json)
+        ) {
           positionJsonData = latestOrgData.position_json;
           usingLatestFallback = true;
-          console.log('Using latest org_data as fallback, date:', latestOrgData.tgl);
+          console.log(
+            'Using latest org_data as fallback, date:',
+            latestOrgData.tgl,
+          );
         }
       } catch (error) {
         console.log('Could not fetch latest org_data');
@@ -1438,14 +1580,22 @@ export class NomorService {
     let status = 'Belum Diajukan';
     if (details.length > 0) {
       const hasBooking = details.some((d) => d.status === 'booking');
-      const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+      const hasTerpakai = details.some(
+        (d) => d.status === 'terpakai' || d.status === 'terpakai_final',
+      );
       const allHangus = details.every((d) => d.status === 'hangus');
       const allDitolak = details.every((d) => d.status === 'ditolak');
-      const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+      const hasRejected = details.some(
+        (d) => d.status === 'hangus' || d.status === 'ditolak',
+      );
 
       if (hasTerpakai) {
         status = 'Disetujui';
-      } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
+      } else if (
+        allHangus ||
+        allDitolak ||
+        (hasRejected && !hasBooking && !hasTerpakai)
+      ) {
         status = 'Ditolak';
       } else if (hasBooking) {
         status = 'Menunggu Verifikasi';
@@ -1454,25 +1604,41 @@ export class NomorService {
 
     // Get position data
     const positionNumber = parseInt(request.position!, 10);
-    const positionData = positionJsonData.find((p: any) => Number(p.position) === positionNumber);
-    
+    const positionData = positionJsonData.find(
+      (p: any) => Number(p.position) === positionNumber,
+    );
+
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
 
     // Get penandatangan position abbreviation
     let penandatanganPositionAbbreviation: string | null = null;
-    
+
     if (request.idPositionPenandatangan) {
       const searchId = Number(request.idPositionPenandatangan);
       const penandatanganPosition = positionJsonData.find(
-        (p: any) => Number(p.position) === searchId
+        (p: any) => Number(p.position) === searchId,
       );
-      
+
       if (penandatanganPosition) {
-        penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
-        console.log('Found penandatangan position:', searchId, 'abbreviation:', penandatanganPositionAbbreviation);
+        penandatanganPositionAbbreviation =
+          penandatanganPosition.position_abbreviation ||
+          penandatanganPosition.abbreviation ||
+          null;
+        console.log(
+          'Found penandatangan position:',
+          searchId,
+          'abbreviation:',
+          penandatanganPositionAbbreviation,
+        );
       } else {
-        console.log('Position', searchId, 'not found in org_data (using fallback:', usingLatestFallback, ')');
+        console.log(
+          'Position',
+          searchId,
+          'not found in org_data (using fallback:',
+          usingLatestFallback,
+          ')',
+        );
       }
     }
 
@@ -1512,7 +1678,7 @@ export class NomorService {
           file_name: d.fileName,
           file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
           created_at: d.createdAt,
-        }))
+        })),
       );
 
       responseData.details = detailsWithUrls;
@@ -1552,7 +1718,7 @@ export class NomorService {
       if (request.idPositionPenandatangan) {
         const tglFormatted = this.formatDate(request.tanggal!);
         let positionJsonData: any[] = [];
-        
+
         try {
           const orgData = await this.orgDataService.findOrg(tglFormatted);
           if (orgData?.position_json && Array.isArray(orgData.position_json)) {
@@ -1562,7 +1728,10 @@ export class NomorService {
           // Fallback to latest org_data if date not found
           try {
             const latestOrgData = await this.orgDataService.findLatestOrg();
-            if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+            if (
+              latestOrgData?.position_json &&
+              Array.isArray(latestOrgData.position_json)
+            ) {
               positionJsonData = latestOrgData.position_json;
             }
           } catch (err) {
@@ -1572,11 +1741,14 @@ export class NomorService {
 
         const searchId = Number(request.idPositionPenandatangan);
         const penandatanganPosition = positionJsonData.find(
-          (p: any) => Number(p.position) === searchId
+          (p: any) => Number(p.position) === searchId,
         );
-        
+
         if (penandatanganPosition) {
-          penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+          penandatanganPositionAbbreviation =
+            penandatanganPosition.position_abbreviation ||
+            penandatanganPosition.abbreviation ||
+            null;
           penandatanganArea = penandatanganPosition.area || null;
         }
 
@@ -1597,7 +1769,7 @@ export class NomorService {
       const instansi = 'LPPNPI';
 
       // Ganti {NO_URUT} dengan dots, replace placeholder lainnya
-      let template = jenisData.formatPenomoran
+      const template = jenisData.formatPenomoran
         .replace(/{NO_URUT}/g, '.....')
         .replace(/{TIPE}/g, request.jenis || '')
         .replace(/{INSTANSI}/g, instansi)
@@ -1617,15 +1789,15 @@ export class NomorService {
   /**
    * Get detail penomoran (usulan + nomor request details)
    */
-  async getNomorDetailPenomoran(
-    requestId: string,
-  ): Promise<any> {
+  async getNomorDetailPenomoran(requestId: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Get latest org_data untuk extract position details
@@ -1633,7 +1805,10 @@ export class NomorService {
     let positionJsonData: any[] = [];
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+      if (
+        latestOrgData?.position_json &&
+        Array.isArray(latestOrgData.position_json)
+      ) {
         positionJsonData = latestOrgData.position_json;
       }
     } catch (error) {
@@ -1650,14 +1825,22 @@ export class NomorService {
     let status = 'Belum Diajukan';
     if (details.length > 0) {
       const hasBooking = details.some((d) => d.status === 'booking');
-      const hasTerpakai = details.some((d) => d.status === 'terpakai' || d.status === 'terpakai_final');
+      const hasTerpakai = details.some(
+        (d) => d.status === 'terpakai' || d.status === 'terpakai_final',
+      );
       const allHangus = details.every((d) => d.status === 'hangus');
       const allDitolak = details.every((d) => d.status === 'ditolak');
-      const hasRejected = details.some((d) => d.status === 'hangus' || d.status === 'ditolak');
+      const hasRejected = details.some(
+        (d) => d.status === 'hangus' || d.status === 'ditolak',
+      );
 
       if (hasTerpakai) {
         status = 'Disetujui';
-      } else if (allHangus || allDitolak || (hasRejected && !hasBooking && !hasTerpakai)) {
+      } else if (
+        allHangus ||
+        allDitolak ||
+        (hasRejected && !hasBooking && !hasTerpakai)
+      ) {
         status = 'Ditolak';
       } else if (hasBooking) {
         status = 'Menunggu Verifikasi';
@@ -1666,8 +1849,10 @@ export class NomorService {
 
     // Get position data
     const positionNumber = parseInt(request.position!, 10);
-    const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
-    
+    const positionData = positionJsonData.find(
+      (p: any) => p.position === positionNumber,
+    );
+
     const persnum = positionData?.persnum_person || null;
     const nama = positionData?.persnum_person_text || null;
 
@@ -1681,7 +1866,7 @@ export class NomorService {
         file_text: d.fileText,
         file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
         created_at: d.createdAt,
-      }))
+      })),
     );
 
     return {
@@ -1714,7 +1899,7 @@ export class NomorService {
    * User/Admin memproses usulan dan membuat booking nomor
    * Dengan file upload ke storage menggunakan folder query parameter
    * Mendukkan multiple file upload
-   * 
+   *
    * Flow:
    * 1. Validasi request ada
    * 2. Jika action=replace, hapus detail lama dengan status booking (dan file di storage)
@@ -1735,7 +1920,9 @@ export class NomorService {
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
@@ -1752,7 +1939,10 @@ export class NomorService {
             console.log(`Deleted old file from storage: ${detail.fileText}`);
           } catch (error) {
             // Log error tapi jangan throw, proses tetap lanjut
-            console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+            console.log(
+              `Failed to delete file ${detail.fileText}:`,
+              error.message,
+            );
           }
         }
       }
@@ -1767,11 +1957,7 @@ export class NomorService {
     const details: NomorRequestDetailEntity[] = [];
 
     // Normalize files ke array
-    const fileArray = files
-      ? Array.isArray(files)
-        ? files
-        : [files]
-      : [];
+    const fileArray = files ? (Array.isArray(files) ? files : [files]) : [];
 
     // Upload files jika ada
     if (fileArray && fileArray.length > 0) {
@@ -1782,12 +1968,17 @@ export class NomorService {
 
         // Upload file ke storage dengan folder path
         try {
-          const uploadResult = await this.storageService.uploadFile(file, folder);
+          const uploadResult = await this.storageService.uploadFile(
+            file,
+            folder,
+          );
           fileKey = uploadResult.key;
           console.log(`✅ File uploaded successfully: ${fileKey}`);
         } catch (error) {
           console.error(`❌ File upload error for ${fileName}:`, error.message);
-          throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+          throw new BadRequestException(
+            `Gagal upload file ${fileName}: ${error.message}`,
+          );
         }
 
         const detail = this.nomorRequestDetailRepository.create({
@@ -1805,7 +1996,7 @@ export class NomorService {
     // Tambah details tanpa file berdasarkan jumlah (untuk melengkapi total quantity)
     const jumlahDiajukan = dto.jumlah || request.jumlah || 0;
     const uploadedFileCount = fileArray.length;
-    
+
     // Jika jumlah lebih besar dari file count, buat details tambahan tanpa file
     if (jumlahDiajukan > uploadedFileCount) {
       for (let i = uploadedFileCount; i < jumlahDiajukan; i++) {
@@ -1825,7 +2016,7 @@ export class NomorService {
     // Validasi: minimal harus ada 1 detail (file atau quantity)
     if (details.length === 0) {
       throw new BadRequestException(
-        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan'
+        'Minimal harus upload file atau mengisi jumlah nomor yang diajukan',
       );
     }
 
@@ -1840,7 +2031,9 @@ export class NomorService {
         body: request.perihal || 'Ada usulan penomoran yang perlu disetujui',
         action: 'OPEN_PERSETUJUAN_PENOMORAN',
       }).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_USULAN notification: ${err?.message}`,
+        ),
       );
     } else {
       this.notifyNomorAdmins(
@@ -1849,7 +2042,9 @@ export class NomorService {
         'Usulan penomoran siap diverifikasi',
         request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`,
+        ),
       );
     }
 
@@ -1862,7 +2057,7 @@ export class NomorService {
         file_text: detail.fileText,
         file_url: await this.getDetailFileUrlAndHeal(detail, folder),
         created_at: detail.createdAt,
-      }))
+      })),
     );
 
     // Hitung berapa file dan berapa nomor tanpa file
@@ -1912,7 +2107,9 @@ export class NomorService {
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Jika action = 'replace', hapus detail lama dengan status draft dan file-nya
@@ -1958,7 +2155,9 @@ export class NomorService {
         console.log(`✅ File uploaded successfully (single): ${fileKey}`);
       } catch (error) {
         console.error(`❌ File upload error for ${fileName}:`, error.message);
-        throw new BadRequestException(`Gagal upload file ${fileName}: ${error.message}`);
+        throw new BadRequestException(
+          `Gagal upload file ${fileName}: ${error.message}`,
+        );
       }
     }
 
@@ -2003,7 +2202,9 @@ export class NomorService {
         body: request.perihal || 'Ada usulan penomoran yang perlu disetujui',
         action: 'OPEN_PERSETUJUAN_PENOMORAN',
       }).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_USULAN notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_USULAN notification: ${err?.message}`,
+        ),
       );
     } else {
       this.notifyNomorAdmins(
@@ -2012,7 +2213,9 @@ export class NomorService {
         'Usulan penomoran siap diverifikasi',
         request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`,
+        ),
       );
     }
 
@@ -2059,7 +2262,9 @@ export class NomorService {
     });
 
     if (!detail) {
-      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+      );
     }
 
     if (detail.status !== 'booking') {
@@ -2074,7 +2279,10 @@ export class NomorService {
         await this.storageService.deleteFile(detail.fileText);
         console.log(`Deleted old file from storage: ${detail.fileText}`);
       } catch (error) {
-        console.log(`Failed to delete old file ${detail.fileText}:`, error.message);
+        console.log(
+          `Failed to delete old file ${detail.fileText}:`,
+          error.message,
+        );
       }
     }
 
@@ -2084,7 +2292,9 @@ export class NomorService {
       const uploadResult = await this.storageService.uploadFile(file, folder);
       fileKey = uploadResult.key;
     } catch (error) {
-      throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
+      throw new BadRequestException(
+        `Gagal upload file ${file.originalname}: ${error.message}`,
+      );
     }
 
     // Update detail dengan file baru
@@ -2119,7 +2329,9 @@ export class NomorService {
     });
 
     if (!detail) {
-      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+      );
     }
 
     if (detail.status !== 'terpakai') {
@@ -2134,7 +2346,10 @@ export class NomorService {
         await this.storageService.deleteFile(detail.fileText);
         console.log(`Deleted old file from storage: ${detail.fileText}`);
       } catch (error) {
-        console.log(`Failed to delete old file ${detail.fileText}:`, error.message);
+        console.log(
+          `Failed to delete old file ${detail.fileText}:`,
+          error.message,
+        );
       }
     }
 
@@ -2143,9 +2358,13 @@ export class NomorService {
     try {
       const uploadResult = await this.storageService.uploadFile(file, folder);
       fileKey = uploadResult.key;
-      console.log(`✅ File uploaded successfully for terpakai_final: ${fileKey}`);
+      console.log(
+        `✅ File uploaded successfully for terpakai_final: ${fileKey}`,
+      );
     } catch (error) {
-      throw new BadRequestException(`Gagal upload file ${file.originalname}: ${error.message}`);
+      throw new BadRequestException(
+        `Gagal upload file ${file.originalname}: ${error.message}`,
+      );
     }
 
     // Cek apakah request ini single file mode
@@ -2182,7 +2401,8 @@ export class NomorService {
 
     return {
       success: true,
-      message: 'File berhasil diupload dan status berubah menjadi terpakai_final',
+      message:
+        'File berhasil diupload dan status berubah menjadi terpakai_final',
       data: {
         id: detail.id,
         nomor: detail.nomor,
@@ -2196,13 +2416,13 @@ export class NomorService {
 
   /**
    * Admin menyetujui usulan dan generate nomor
-   * 
+   *
    * Flow:
    * 1. Ambil nomor terakhir dari tabel nomor (dengan locking)
    * 2. Generate nomor baru
    * 3. Update nomor_request_detail: status = 'terpakai', nomor = nomor baru
    * 4. Insert data ke tabel nomor sebagai nomor resmi
-   * 
+   *
    * Menggunakan transaction dan locking untuk mencegah duplikasi
    */
   async approveNomorRequestDetail(
@@ -2215,13 +2435,18 @@ export class NomorService {
 
     try {
       // 1. Ambil detail dengan locking
-      const detail = await queryRunner.manager.findOne(NomorRequestDetailEntity, {
-        where: { id: detailId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      const detail = await queryRunner.manager.findOne(
+        NomorRequestDetailEntity,
+        {
+          where: { id: detailId },
+          lock: { mode: 'pessimistic_write' },
+        },
+      );
 
       if (!detail) {
-        throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+        throw new NotFoundException(
+          `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+        );
       }
 
       if (detail.status !== 'booking') {
@@ -2243,7 +2468,9 @@ export class NomorService {
 
       // 3. Validasi jenis ada
       if (!request.jenis) {
-        throw new BadRequestException('Jenis nomor tidak ditemukan pada request');
+        throw new BadRequestException(
+          'Jenis nomor tidak ditemukan pada request',
+        );
       }
 
       // 4. Ambil format penomoran dari tabel jenis
@@ -2262,7 +2489,7 @@ export class NomorService {
       // - ND & DI: Company + Position + Jenis + Tahun
       // - Lainnya: Company + Area + Jenis + Tahun
       const isNdOrDi = request.jenis === 'ND' || request.jenis === 'DI';
-      
+
       let queryBuilder = queryRunner.manager
         .createQueryBuilder(NomorEntity, 'n')
         .where('n.tahun = :tahun', { tahun })
@@ -2271,10 +2498,14 @@ export class NomorService {
 
       if (isNdOrDi) {
         // ND & DI: gunakan position sebagai parameter
-        queryBuilder = queryBuilder.andWhere('n.position = :position', { position: request.position });
+        queryBuilder = queryBuilder.andWhere('n.position = :position', {
+          position: request.position,
+        });
       } else {
         // Jenis lainnya: gunakan area sebagai parameter
-        queryBuilder = queryBuilder.andWhere('n.area = :area', { area: request.area });
+        queryBuilder = queryBuilder.andWhere('n.area = :area', {
+          area: request.area,
+        });
       }
 
       const nomorRecord = await queryBuilder
@@ -2295,7 +2526,7 @@ export class NomorService {
       if (request.idPositionPenandatangan) {
         const tglFormatted = this.formatDate(request.tanggal!);
         let positionJsonData: any[] = [];
-        
+
         try {
           const orgData = await this.orgDataService.findOrg(tglFormatted);
           if (orgData?.position_json && Array.isArray(orgData.position_json)) {
@@ -2305,7 +2536,10 @@ export class NomorService {
           // Fallback to latest org_data if date not found
           try {
             const latestOrgData = await this.orgDataService.findLatestOrg();
-            if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+            if (
+              latestOrgData?.position_json &&
+              Array.isArray(latestOrgData.position_json)
+            ) {
               positionJsonData = latestOrgData.position_json;
             }
           } catch (err) {
@@ -2315,11 +2549,14 @@ export class NomorService {
 
         const searchId = Number(request.idPositionPenandatangan);
         const penandatanganPosition = positionJsonData.find(
-          (p: any) => Number(p.position) === searchId
+          (p: any) => Number(p.position) === searchId,
         );
-        
+
         if (penandatanganPosition) {
-          penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+          penandatanganPositionAbbreviation =
+            penandatanganPosition.position_abbreviation ||
+            penandatanganPosition.abbreviation ||
+            null;
           penandatanganArea = penandatanganPosition.area || null;
         }
 
@@ -2339,7 +2576,9 @@ export class NomorService {
       } else {
         // Jika idPositionPenandatangan tidak ada, gunakan area dari request
         penandatanganArea = request.area;
-        console.log('Penandatangan lookup (single): idPositionPenandatangan is null, using request area');
+        console.log(
+          'Penandatangan lookup (single): idPositionPenandatangan is null, using request area',
+        );
       }
 
       // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
@@ -2402,11 +2641,15 @@ export class NomorService {
         request,
         NotificationType.PENOMORAN_SELESAI,
         'Nomor berhasil diterbitkan',
-        detail.nomor ? `Nomor ${detail.nomor} telah diterbitkan` : 'Nomor telah diterbitkan',
+        detail.nomor
+          ? `Nomor ${detail.nomor} telah diterbitkan`
+          : 'Nomor telah diterbitkan',
         'OPEN_DETAIL_PENOMORAN',
         detail,
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_SELESAI notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_SELESAI notification: ${err?.message}`,
+        ),
       );
 
       return {
@@ -2440,7 +2683,9 @@ export class NomorService {
     });
 
     if (!detail) {
-      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+      );
     }
 
     if (detail.status !== 'booking') {
@@ -2450,7 +2695,9 @@ export class NomorService {
     }
 
     const request = detail.idRequest
-      ? await this.nomorRequestRepository.findOne({ where: { id: detail.idRequest } })
+      ? await this.nomorRequestRepository.findOne({
+          where: { id: detail.idRequest },
+        })
       : null;
 
     detail.status = 'hangus';
@@ -2470,7 +2717,9 @@ export class NomorService {
         'OPEN_DETAIL_PENOMORAN',
         detail,
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`,
+        ),
       );
     }
 
@@ -2508,13 +2757,18 @@ export class NomorService {
 
         try {
           // 1. Ambil detail dengan locking
-          const detail = await queryRunner.manager.findOne(NomorRequestDetailEntity, {
-            where: { id: detailId },
-            lock: { mode: 'pessimistic_write' },
-          });
+          const detail = await queryRunner.manager.findOne(
+            NomorRequestDetailEntity,
+            {
+              where: { id: detailId },
+              lock: { mode: 'pessimistic_write' },
+            },
+          );
 
           if (!detail) {
-            throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+            throw new NotFoundException(
+              `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+            );
           }
 
           if (detail.status !== 'booking') {
@@ -2524,9 +2778,12 @@ export class NomorService {
           }
 
           // 2. Ambil request untuk mendapatkan info
-          const request = await queryRunner.manager.findOne(NomorRequestEntity, {
-            where: { id: detail.idRequest! },
-          });
+          const request = await queryRunner.manager.findOne(
+            NomorRequestEntity,
+            {
+              where: { id: detail.idRequest! },
+            },
+          );
 
           if (!request) {
             throw new NotFoundException(`Request nomor tidak ditemukan`);
@@ -2536,7 +2793,9 @@ export class NomorService {
 
           // 3. Validasi jenis ada
           if (!request.jenis) {
-            throw new BadRequestException('Jenis nomor tidak ditemukan pada request');
+            throw new BadRequestException(
+              'Jenis nomor tidak ditemukan pada request',
+            );
           }
 
           // 4. Ambil format penomoran dari tabel jenis
@@ -2555,7 +2814,7 @@ export class NomorService {
           // - ND & DI: Company + Position + Jenis + Tahun
           // - Lainnya: Company + Area + Jenis + Tahun
           const isNdOrDi = request.jenis === 'ND' || request.jenis === 'DI';
-          
+
           let queryBuilder = queryRunner.manager
             .createQueryBuilder(NomorEntity, 'n')
             .where('n.tahun = :tahun', { tahun })
@@ -2564,10 +2823,14 @@ export class NomorService {
 
           if (isNdOrDi) {
             // ND & DI: gunakan position sebagai parameter
-            queryBuilder = queryBuilder.andWhere('n.position = :position', { position: request.position });
+            queryBuilder = queryBuilder.andWhere('n.position = :position', {
+              position: request.position,
+            });
           } else {
             // Jenis lainnya: gunakan area sebagai parameter
-            queryBuilder = queryBuilder.andWhere('n.area = :area', { area: request.area });
+            queryBuilder = queryBuilder.andWhere('n.area = :area', {
+              area: request.area,
+            });
           }
 
           const nomorRecord = await queryBuilder
@@ -2588,17 +2851,23 @@ export class NomorService {
           if (request.idPositionPenandatangan) {
             const tglFormatted = this.formatDate(request.tanggal!);
             let positionJsonData: any[] = [];
-            
+
             try {
               const orgData = await this.orgDataService.findOrg(tglFormatted);
-              if (orgData?.position_json && Array.isArray(orgData.position_json)) {
+              if (
+                orgData?.position_json &&
+                Array.isArray(orgData.position_json)
+              ) {
                 positionJsonData = orgData.position_json;
               }
             } catch (error) {
               // Fallback to latest org_data if date not found
               try {
                 const latestOrgData = await this.orgDataService.findLatestOrg();
-                if (latestOrgData?.position_json && Array.isArray(latestOrgData.position_json)) {
+                if (
+                  latestOrgData?.position_json &&
+                  Array.isArray(latestOrgData.position_json)
+                ) {
                   positionJsonData = latestOrgData.position_json;
                 }
               } catch (err) {
@@ -2608,11 +2877,14 @@ export class NomorService {
 
             const searchId = Number(request.idPositionPenandatangan);
             const penandatanganPosition = positionJsonData.find(
-              (p: any) => Number(p.position) === searchId
+              (p: any) => Number(p.position) === searchId,
             );
-            
+
             if (penandatanganPosition) {
-              penandatanganPositionAbbreviation = penandatanganPosition.position_abbreviation || penandatanganPosition.abbreviation || null;
+              penandatanganPositionAbbreviation =
+                penandatanganPosition.position_abbreviation ||
+                penandatanganPosition.abbreviation ||
+                null;
               penandatanganArea = penandatanganPosition.area || null;
             }
 
@@ -2632,7 +2904,9 @@ export class NomorService {
           } else {
             // Jika idPositionPenandatangan tidak ada, gunakan area dari request
             penandatanganArea = request.area;
-            console.log('Penandatangan lookup (bulk): idPositionPenandatangan is null, using request area');
+            console.log(
+              'Penandatangan lookup (bulk): idPositionPenandatangan is null, using request area',
+            );
           }
 
           // Generate nomor menggunakan format dari tabel jenis dengan data penandatangan
@@ -2690,11 +2964,15 @@ export class NomorService {
             request,
             NotificationType.PENOMORAN_SELESAI,
             'Nomor berhasil diterbitkan',
-            detail.nomor ? `Nomor ${detail.nomor} telah diterbitkan` : 'Nomor telah diterbitkan',
+            detail.nomor
+              ? `Nomor ${detail.nomor} telah diterbitkan`
+              : 'Nomor telah diterbitkan',
             'OPEN_DETAIL_PENOMORAN',
             detail,
           ).catch((err) =>
-            this.logger.warn(`Failed to send PENOMORAN_SELESAI notification: ${err?.message}`),
+            this.logger.warn(
+              `Failed to send PENOMORAN_SELESAI notification: ${err?.message}`,
+            ),
           );
 
           results.push({
@@ -2767,7 +3045,9 @@ export class NomorService {
         });
 
         if (!detail) {
-          throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+          throw new NotFoundException(
+            `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+          );
         }
 
         if (detail.status !== 'booking') {
@@ -2777,7 +3057,9 @@ export class NomorService {
         }
 
         const request = detail.idRequest
-          ? await this.nomorRequestRepository.findOne({ where: { id: detail.idRequest } })
+          ? await this.nomorRequestRepository.findOne({
+              where: { id: detail.idRequest },
+            })
           : null;
 
         detail.status = 'hangus';
@@ -2792,7 +3074,9 @@ export class NomorService {
             'OPEN_DETAIL_PENOMORAN',
             detail,
           ).catch((err) =>
-            this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+            this.logger.warn(
+              `Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`,
+            ),
           );
         }
 
@@ -2833,15 +3117,15 @@ export class NomorService {
    * Admin mengubah status detail menjadi hangus
    * Bisa digunakan untuk nomor dengan status apapun (terpakai, terpakai_final, booking, dll)
    */
-  async setStatusHangus(
-    detailId: string,
-  ): Promise<any> {
+  async setStatusHangus(detailId: string): Promise<any> {
     const detail = await this.nomorRequestDetailRepository.findOne({
       where: { id: detailId },
     });
 
     if (!detail) {
-      throw new NotFoundException(`Detail nomor dengan ID ${detailId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Detail nomor dengan ID ${detailId} tidak ditemukan`,
+      );
     }
 
     // Simpan status lama untuk log
@@ -2868,7 +3152,10 @@ export class NomorService {
    * Get semua nomor yang sudah jadi (dari nomor_request_detail dengan status terpakai, terpakai_final, atau hangus)
    * OPTIMIZED: Pagination per usulan (request), output tetap flat per nomor
    */
-  async getNomor(query: GetNomorQueryDto, user?: JwtPayload): Promise<GetNomorResponseDto> {
+  async getNomor(
+    query: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetNomorResponseDto> {
     const scopedAreaCode = user ? this.getScopedAreaCode(user) : undefined;
 
     // Load requests yang memiliki nomor dengan status terpakai/hangus
@@ -2883,7 +3170,9 @@ export class NomorService {
     // Process dan filter requests yang memiliki nomor jadi
     const usulanData = requests.map((request) => {
       if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '').trim().toUpperCase();
+        const requestAreaCode = String(request.area || '')
+          .trim()
+          .toUpperCase();
         if (requestAreaCode !== scopedAreaCode) {
           return null;
         }
@@ -2891,7 +3180,10 @@ export class NomorService {
 
       // Filter details hanya yang sudah jadi (terpakai, terpakai_final, hangus)
       const validDetails = (request.details || []).filter(
-        (d) => d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus'
+        (d) =>
+          d.status === 'terpakai' ||
+          d.status === 'terpakai_final' ||
+          d.status === 'hangus',
       );
 
       // Skip jika tidak ada nomor yang sudah jadi
@@ -2911,11 +3203,14 @@ export class NomorService {
       if (query.search) {
         const searchLower = query.search.toLowerCase();
         const nomorMatch = validDetails.some(
-          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower)
+          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower),
         );
-        const perihalMatch = request.perihal && request.perihal.toLowerCase().includes(searchLower);
-        const jenisMatch = request.jenis && request.jenis.toLowerCase().includes(searchLower);
-        
+        const perihalMatch =
+          request.perihal &&
+          request.perihal.toLowerCase().includes(searchLower);
+        const jenisMatch =
+          request.jenis && request.jenis.toLowerCase().includes(searchLower);
+
         if (!nomorMatch && !perihalMatch && !jenisMatch) {
           return null;
         }
@@ -2923,23 +3218,30 @@ export class NomorService {
 
       // Get position data pengusul
       const positionNumber = parseInt(request.position || '0', 10);
-      const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+      const positionData = positionJsonData.find(
+        (p: any) => p.position === positionNumber,
+      );
       const namaPengirim = positionData?.persnum_person_text || null;
 
       // Get position data penandatangan
       let jabatan = null;
       if (request.idPositionPenandatangan) {
         const penandatanganPosition = positionJsonData.find(
-          (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+          (p: any) =>
+            Number(p.position) === Number(request.idPositionPenandatangan),
         );
         jabatan = penandatanganPosition?.position_text || null;
       }
 
       // Sort details by createdAt DESC (terbaru di atas)
-      validDetails.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      validDetails.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
 
       // Waktu usulan = waktu nomor terakhir yang dibuat (untuk sorting)
-      const latestDetailTime = validDetails.length > 0 ? validDetails[0].createdAt : request.createdAt;
+      const latestDetailTime =
+        validDetails.length > 0 ? validDetails[0].createdAt : request.createdAt;
 
       return {
         request,
@@ -2961,9 +3263,16 @@ export class NomorService {
         let bValue: any;
 
         if (query.sort_by === 'tanggal') {
-          aValue = a.request.tanggal ? new Date(a.request.tanggal).getTime() : 0;
-          bValue = b.request.tanggal ? new Date(b.request.tanggal).getTime() : 0;
-        } else if (query.sort_by === 'tanggal_usulan' || query.sort_by === 'waktu') {
+          aValue = a.request.tanggal
+            ? new Date(a.request.tanggal).getTime()
+            : 0;
+          bValue = b.request.tanggal
+            ? new Date(b.request.tanggal).getTime()
+            : 0;
+        } else if (
+          query.sort_by === 'tanggal_usulan' ||
+          query.sort_by === 'waktu'
+        ) {
           aValue = new Date(a.waktu).getTime();
           bValue = new Date(b.waktu).getTime();
         } else if (query.sort_by === 'jenis') {
@@ -2978,13 +3287,15 @@ export class NomorService {
       });
     } else {
       // Default sort by waktu DESC
-      filteredUsulan.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
+      filteredUsulan.sort(
+        (a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime(),
+      );
     }
 
     // Apply pagination (per usulan, bukan per nomor)
     const page = query?.page || 1;
     const limit = query?.limit || 10;
-    const total = filteredUsulan.length;  // Total usulan
+    const total = filteredUsulan.length; // Total usulan
     const totalPages = Math.ceil(total / limit);
     const skip = (page - 1) * limit;
     const paginatedUsulan = filteredUsulan.slice(skip, skip + limit);
@@ -3003,7 +3314,7 @@ export class NomorService {
         status: detail.status,
         nama_pengirim: item.namaPengirim,
         waktu: detail.createdAt,
-      }))
+      })),
     );
 
     return {
@@ -3013,7 +3324,7 @@ export class NomorService {
       pagination: {
         page,
         limit,
-        total,          // Total usulan (bukan nomor)
+        total, // Total usulan (bukan nomor)
         totalPages,
       },
     };
@@ -3039,7 +3350,8 @@ export class NomorService {
     let jabatan = null;
     if (request.idPositionPenandatangan) {
       const penandatanganPosition = positionJsonData.find(
-        (p: any) => Number(p.position) === Number(request.idPositionPenandatangan)
+        (p: any) =>
+          Number(p.position) === Number(request.idPositionPenandatangan),
       );
       jabatan = penandatanganPosition?.position_text || null;
     }
@@ -3051,7 +3363,11 @@ export class NomorService {
     });
 
     const validDetails = details.filter(
-      (d) => (d.status === 'terpakai' || d.status === 'terpakai_final' || d.status === 'hangus') && d.nomor,
+      (d) =>
+        (d.status === 'terpakai' ||
+          d.status === 'terpakai_final' ||
+          d.status === 'hangus') &&
+        d.nomor,
     );
 
     // Generate signed URLs untuk nomor_list
@@ -3064,7 +3380,7 @@ export class NomorService {
         file_text: d.fileText || null,
         file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
         created_at: d.createdAt,
-      }))
+      })),
     );
 
     return {
@@ -3087,15 +3403,15 @@ export class NomorService {
   /**
    * Hapus usulan nomor dan semua detailnya (plus file di storage)
    */
-  async deleteNomorRequest(
-    requestId: string,
-  ): Promise<any> {
+  async deleteNomorRequest(requestId: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Ambil semua detail untuk hapus file dari storage
@@ -3108,9 +3424,14 @@ export class NomorService {
       if (detail.fileText) {
         try {
           await this.storageService.deleteFile(detail.fileText);
-          console.log(`Deleted file from storage on delete request: ${detail.fileText}`);
+          console.log(
+            `Deleted file from storage on delete request: ${detail.fileText}`,
+          );
         } catch (error) {
-          console.log(`Failed to delete file ${detail.fileText}:`, error.message);
+          console.log(
+            `Failed to delete file ${detail.fileText}:`,
+            error.message,
+          );
         }
       }
     }
@@ -3139,15 +3460,15 @@ export class NomorService {
   /**
    * Tolak semua nomor dalam satu request (set semua details status = 'ditolak')
    */
-  async rejectAllNomorRequest(
-    requestId: string,
-  ): Promise<any> {
+  async rejectAllNomorRequest(requestId: string): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     // Get semua details untuk request ini
@@ -3163,7 +3484,7 @@ export class NomorService {
 
     // Update semua details yang belum diproses menjadi ditolak
     const rejectedDetails: { id: string; status: string }[] = [];
-    
+
     for (const detail of details) {
       // Hanya set ditolak jika status masih booking
       if (detail.status === 'booking') {
@@ -3189,7 +3510,9 @@ export class NomorService {
         request.perihal || 'Usulan penomoran ditolak',
         'OPEN_DETAIL_PENOMORAN',
       ).catch((err) =>
-        this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+        this.logger.warn(
+          `Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`,
+        ),
       );
     }
 
@@ -3205,12 +3528,15 @@ export class NomorService {
   }
 
   /**
-    * Penandatangan melihat daftar usulan berdasarkan posisi penandatangan.
-    * Semua detail ditampilkan apa adanya (tanpa mapping status):
-    * draft, booking, terpakai, terpakai_final, ditolak, hangus, dll.
+   * Penandatangan melihat daftar usulan berdasarkan posisi penandatangan.
+   * Semua detail ditampilkan apa adanya (tanpa mapping status):
+   * draft, booking, terpakai, terpakai_final, ditolak, hangus, dll.
    * position_id diambil dari bearer token
    */
-  async getPendingApproval(positionId: number, query?: GetNomorQueryDto): Promise<any> {
+  async getPendingApproval(
+    positionId: number,
+    query?: GetNomorQueryDto,
+  ): Promise<any> {
     // Ambil semua request yang penandatangannya adalah posisi ini
     const requests = await this.nomorRequestRepository.find({
       where: [
@@ -3230,7 +3556,9 @@ export class NomorService {
           ? 'approved'
           : 'draft';
         const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find((p: any) => p.position === positionNumber);
+        const positionData = positionJsonData.find(
+          (p: any) => p.position === positionNumber,
+        );
 
         const templateNomor = await this.generateNomorTemplate(request);
 
@@ -3300,13 +3628,18 @@ export class NomorService {
    * Penandatangan menyetujui usulan (ubah semua detail draft → booking)
    * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
    */
-  async approvePenandatangan(requestId: string, positionId: number): Promise<any> {
+  async approvePenandatangan(
+    requestId: string,
+    positionId: number,
+  ): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     if (Number(request.idPositionPenandatangan) !== positionId) {
@@ -3320,7 +3653,9 @@ export class NomorService {
     });
 
     if (draftDetails.length === 0) {
-      throw new BadRequestException('Tidak ada detail dengan status draft untuk disetujui');
+      throw new BadRequestException(
+        'Tidak ada detail dengan status draft untuk disetujui',
+      );
     }
 
     for (const detail of draftDetails) {
@@ -3340,7 +3675,9 @@ export class NomorService {
       request.perihal || 'Usulan penomoran telah disetujui penandatangan',
       'OPEN_USULAN_PENOMORAN',
     ).catch((err) =>
-      this.logger.warn(`Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`),
+      this.logger.warn(
+        `Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`,
+      ),
     );
 
     this.notifyNomorAdmins(
@@ -3349,7 +3686,9 @@ export class NomorService {
       'Usulan penomoran siap diverifikasi',
       request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
     ).catch((err) =>
-      this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+      this.logger.warn(
+        `Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`,
+      ),
     );
 
     return {
@@ -3367,13 +3706,18 @@ export class NomorService {
    * Penandatangan menolak usulan (ubah semua detail draft → ditolak)
    * Validasi: positionId dari token harus cocok dengan id_position_penandatangan di request
    */
-  async rejectPenandatangan(requestId: string, positionId: number): Promise<any> {
+  async rejectPenandatangan(
+    requestId: string,
+    positionId: number,
+  ): Promise<any> {
     const request = await this.nomorRequestRepository.findOne({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException(`Usulan nomor dengan ID ${requestId} tidak ditemukan`);
+      throw new NotFoundException(
+        `Usulan nomor dengan ID ${requestId} tidak ditemukan`,
+      );
     }
 
     if (Number(request.idPositionPenandatangan) !== positionId) {
@@ -3387,7 +3731,9 @@ export class NomorService {
     });
 
     if (draftDetails.length === 0) {
-      throw new BadRequestException('Tidak ada detail dengan status draft untuk ditolak');
+      throw new BadRequestException(
+        'Tidak ada detail dengan status draft untuk ditolak',
+      );
     }
 
     for (const detail of draftDetails) {
@@ -3409,7 +3755,9 @@ export class NomorService {
       request.perihal || 'Usulan penomoran ditolak penandatangan',
       'OPEN_USULAN_PENOMORAN',
     ).catch((err) =>
-      this.logger.warn(`Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`),
+      this.logger.warn(
+        `Failed to send PENOMORAN_DITOLAK notification: ${err?.message}`,
+      ),
     );
 
     return {
@@ -3486,7 +3834,9 @@ export class NomorService {
           'OPEN_USULAN_PENOMORAN',
           detail,
         ).catch((err) =>
-          this.logger.warn(`Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`),
+          this.logger.warn(
+            `Failed to send PENOMORAN_PERSETUJUAN notification: ${err?.message}`,
+          ),
         );
 
         this.notifyNomorAdmins(
@@ -3495,7 +3845,9 @@ export class NomorService {
           'Usulan penomoran siap diverifikasi',
           request.perihal || 'Ada usulan penomoran yang siap diverifikasi',
         ).catch((err) =>
-          this.logger.warn(`Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`),
+          this.logger.warn(
+            `Failed to send PENOMORAN_VERIFIKASI notification: ${err?.message}`,
+          ),
         );
 
         results.push({
@@ -3537,8 +3889,18 @@ export class NomorService {
    */
   private getBulanRomawi(bulan: number): string {
     const mapping: Record<number, string> = {
-      1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
-      7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII',
+      1: 'I',
+      2: 'II',
+      3: 'III',
+      4: 'IV',
+      5: 'V',
+      6: 'VI',
+      7: 'VII',
+      8: 'VIII',
+      9: 'IX',
+      10: 'X',
+      11: 'XI',
+      12: 'XII',
     };
     return mapping[bulan] || 'I';
   }
@@ -3547,7 +3909,9 @@ export class NomorService {
    * Admin langsung create nomor valid (tanpa melalui booking/approve)
    * Menggabungkan proses create request + approve dalam satu step
    */
-  async adminCreateNomor(dto: AdminCreateNomorDto): Promise<AdminCreateNomorResponseDto> {
+  async adminCreateNomor(
+    dto: AdminCreateNomorDto,
+  ): Promise<AdminCreateNomorResponseDto> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -3556,7 +3920,7 @@ export class NomorService {
       // 1. Ambil data org_data berdasarkan tanggal
       const tglFormatted = this.formatDate(new Date(dto.tanggal));
       let positionJsonData: any[] = [];
-      
+
       try {
         const orgData = await this.orgDataService.findOrg(tglFormatted);
         if (orgData?.position_json && Array.isArray(orgData.position_json)) {
@@ -3571,11 +3935,13 @@ export class NomorService {
       }
 
       // 2. Parse position_json dan cari position_id pengirim
-      const positionData = positionJsonData.find((p: any) => p.position === dto.position_id);
+      const positionData = positionJsonData.find(
+        (p: any) => p.position === dto.position_id,
+      );
 
       if (!positionData) {
         throw new NotFoundException(
-          `Position dengan ID ${dto.position_id} tidak ditemukan di org_data untuk tanggal ${tglFormatted}`
+          `Position dengan ID ${dto.position_id} tidak ditemukan di org_data untuk tanggal ${tglFormatted}`,
         );
       }
 
@@ -3583,10 +3949,12 @@ export class NomorService {
       // Parameter counter menggunakan data dari penandatangan, bukan pengirim
       let penandatanganData: any = null;
       if (dto.id_position_penandatangan) {
-        penandatanganData = positionJsonData.find((p: any) => p.position === dto.id_position_penandatangan);
+        penandatanganData = positionJsonData.find(
+          (p: any) => p.position === dto.id_position_penandatangan,
+        );
         if (!penandatanganData) {
           throw new NotFoundException(
-            `Position penandatangan dengan ID ${dto.id_position_penandatangan} tidak ditemukan di org_data`
+            `Position penandatangan dengan ID ${dto.id_position_penandatangan} tidak ditemukan di org_data`,
           );
         }
       }
@@ -3634,7 +4002,10 @@ export class NomorService {
       let penandatanganArea: string | null = null;
 
       if (penandatanganData) {
-        penandatanganPositionAbbreviation = penandatanganData.position_abbreviation || penandatanganData.abbreviation || null;
+        penandatanganPositionAbbreviation =
+          penandatanganData.position_abbreviation ||
+          penandatanganData.abbreviation ||
+          null;
         penandatanganArea = penandatanganData.area || null;
       }
 
@@ -3654,9 +4025,13 @@ export class NomorService {
           .andWhere('n.company = :company', { company: nomorRequest.company });
 
         if (isNdOrDi) {
-          queryBuilder = queryBuilder.andWhere('n.position = :position', { position: nomorRequest.position });
+          queryBuilder = queryBuilder.andWhere('n.position = :position', {
+            position: nomorRequest.position,
+          });
         } else {
-          queryBuilder = queryBuilder.andWhere('n.area = :area', { area: nomorRequest.area });
+          queryBuilder = queryBuilder.andWhere('n.area = :area', {
+            area: nomorRequest.area,
+          });
         }
 
         const nomorRecord = await queryBuilder

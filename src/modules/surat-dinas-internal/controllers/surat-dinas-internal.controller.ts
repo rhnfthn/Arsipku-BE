@@ -35,7 +35,11 @@ import {
   SdiRecipientResponseDto,
 } from '../dto/surat-dinas-internal-recipient-response.dto';
 import { UserLevelGuard, JwtAuthGuard } from '../../../common/guards';
-import { UserLevels, CurrentUser, RequirePermission } from '../../../common/decorators';
+import {
+  UserLevels,
+  CurrentUser,
+  RequirePermission,
+} from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
@@ -82,7 +86,9 @@ export class SuratDinasInternalController {
   ): Promise<SdiRecipientResponseDto> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      const positionId = query.pengirim
+        ? parseInt(query.pengirim, 10)
+        : parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSdiRecipients(
         positionId,
         query.tgl,
@@ -126,7 +132,9 @@ export class SuratDinasInternalController {
   ): Promise<SdiOrgDataPositionDto[]> {
     try {
       // Jika pengirim ada di query, gunakan itu; jika tidak, gunakan position dari JWT
-      const positionId = query.pengirim ? parseInt(query.pengirim, 10) : parseInt(user.position, 10);
+      const positionId = query.pengirim
+        ? parseInt(query.pengirim, 10)
+        : parseInt(user.position, 10);
       return await this.suratDinasInternalService.getSenderKonsep(
         positionId,
         query.tgl,
@@ -174,7 +182,10 @@ export class SuratDinasInternalController {
     @CurrentUser() user: any,
   ): Promise<any> {
     try {
-      return await this.suratDinasInternalService.getSdiDetail(id, user.position);
+      return await this.suratDinasInternalService.getSdiDetail(
+        id,
+        user.position,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -246,7 +257,7 @@ export class SuratDinasInternalController {
 
       // Extract persnum from JWT user (required for digital signature)
       const persnum = user?.persnum;
-      
+
       console.log('[SDI Controller] sendMessage called with:', {
         sign_option: dto.sign_option,
         persnum: persnum,
@@ -264,7 +275,10 @@ export class SuratDinasInternalController {
         );
       }
 
-      return await this.suratDinasInternalService.sendMessage(dto, Number(persnum));
+      return await this.suratDinasInternalService.sendMessage(
+        dto,
+        Number(persnum),
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
@@ -438,8 +452,6 @@ export class SuratDinasInternalController {
     }
   }
 
-
-
   /**
    * GET /SDI/draft-list/:positionId
    * Get all draft SDI by position (where position is pengirim)
@@ -530,7 +542,7 @@ export class SuratDinasInternalController {
 
       // Get persnum from JWT for digital signature
       const persnum = user?.persnum;
-      
+
       console.log('[SDI Controller] sendDraft called with:', {
         id,
         sign_option: dto.sign_option,
@@ -538,7 +550,11 @@ export class SuratDinasInternalController {
         hasPassphrase: !!dto.passphrase,
       });
 
-      return await this.suratDinasInternalService.finalizeDraft(id, dto, persnum ? Number(persnum) : undefined);
+      return await this.suratDinasInternalService.finalizeDraft(
+        id,
+        dto,
+        persnum ? Number(persnum) : undefined,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -673,7 +689,8 @@ export class SuratDinasInternalController {
 
       // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       if (penerimaGrupArray.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
         penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
@@ -710,7 +727,8 @@ export class SuratDinasInternalController {
         }
       }
       if (tembusanGrupArray.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
         tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
@@ -729,10 +747,11 @@ export class SuratDinasInternalController {
       }
 
       // Get actual person name from org_data (persnum_person_text) — fallback saat YBS.
-      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
-        user?.position,
-        body.tgl,
-      );
+      const personName =
+        await this.suratDinasInternalService.getPersonNameByPosition(
+          user?.position,
+          body.tgl,
+        );
       // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
       const _pf = delegatedPengirimFields(
         user,
@@ -743,17 +762,19 @@ export class SuratDinasInternalController {
       const namaLengkap = _pf.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
-      const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
-        {
-          company: user?.company,
-          area: user?.area,
-          subArea: user?.subArea,
-        },
-        body.tgl || body.tanggal,
-      );
+      const headerInfo =
+        await this.suratDinasInternalService.getHeaderInfoByUser(
+          {
+            company: user?.company,
+            area: user?.area,
+            subArea: user?.subArea,
+          },
+          body.tgl || body.tanggal,
+        );
 
       // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
-      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+      const dynamicNamaTempat =
+        headerInfo?.kota || body.nama_tempat || 'Tangerang';
 
       const pdfBuffer =
         await this.suratDinasInternalService.generatePdfFromHtml(
@@ -902,7 +923,8 @@ export class SuratDinasInternalController {
 
       // Add grup penerima display names (e.g., "Para GM") — grup appears BEFORE individuals
       if (penerimaGrupArray.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(penerimaGrupArray);
         penerimaArray = [...grupDisplayNames, ...penerimaArray];
       }
 
@@ -939,7 +961,8 @@ export class SuratDinasInternalController {
         }
       }
       if (tembusanGrupArray.length > 0) {
-        const grupDisplayNames = await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
+        const grupDisplayNames =
+          await this.grupPenerimaService.getGrupDisplayNames(tembusanGrupArray);
         tembusanArray = [...grupDisplayNames, ...tembusanArray];
       }
 
@@ -958,10 +981,11 @@ export class SuratDinasInternalController {
       }
 
       // Get actual person name from org_data (persnum_person_text) — fallback saat YBS.
-      const personName = await this.suratDinasInternalService.getPersonNameByPosition(
-        user?.position,
-        body.tgl,
-      );
+      const personName =
+        await this.suratDinasInternalService.getPersonNameByPosition(
+          user?.position,
+          body.tgl,
+        );
       // BE = sumber PDF: prefix actor + nama delegate via helper (Spec B-2a).
       const _pf = delegatedPengirimFields(
         user,
@@ -972,34 +996,35 @@ export class SuratDinasInternalController {
       const namaLengkap = _pf.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
-      const headerInfo = await this.suratDinasInternalService.getHeaderInfoByUser(
-        {
-          company: user?.company,
-          area: user?.area,
-          subArea: user?.subArea,
-        },
-        body.tgl || body.tanggal,
-      );
+      const headerInfo =
+        await this.suratDinasInternalService.getHeaderInfoByUser(
+          {
+            company: user?.company,
+            area: user?.area,
+            subArea: user?.subArea,
+          },
+          body.tgl || body.tanggal,
+        );
 
       // Use kota from headerInfo if available, else fallback to body.nama_tempat or 'Tangerang'
-      const dynamicNamaTempat = headerInfo?.kota || body.nama_tempat || 'Tangerang';
+      const dynamicNamaTempat =
+        headerInfo?.kota || body.nama_tempat || 'Tangerang';
 
       // generate-pdf: PDF polos TANPA lampiran merge
-      const pdfBuffer =
-        await this.suratDinasInternalService.generatePlainPdf(
-          body.htmlContent,
-          penerimaArray,
-          dynamicNamaTempat,
-          body.tanggal || body.tgl || '',
-          namaJabatan,
-          namaLengkap,
-          tembusanArray,
-          body.perihal || '',
-          body.sifat || 'Biasa',
-          body.nomor || '',
-          body.lampiran || '-',
-          headerInfo || undefined,
-        );
+      const pdfBuffer = await this.suratDinasInternalService.generatePlainPdf(
+        body.htmlContent,
+        penerimaArray,
+        dynamicNamaTempat,
+        body.tanggal || body.tgl || '',
+        namaJabatan,
+        namaLengkap,
+        tembusanArray,
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+        headerInfo || undefined,
+      );
 
       res.set({
         'Content-Type': 'application/pdf',
@@ -1009,12 +1034,10 @@ export class SuratDinasInternalController {
 
       return res.status(HttpStatus.OK).send(pdfBuffer);
     } catch (error) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .json({
-          error: 'Failed to generate PDF',
-          detail: error instanceof Error ? error.message : String(error),
-        });
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Failed to generate PDF',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

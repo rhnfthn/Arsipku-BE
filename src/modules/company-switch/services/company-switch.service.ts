@@ -47,7 +47,7 @@ export class CompanySwitchService {
   /**
    * Get all available companies for a user
    * Queries om_relation_sp to find all active positions across companies for a persnum
-   * 
+   *
    * @param persnum - User's persnum
    * @param currentCompany - Current active company from JWT
    * @returns List of available companies with position info
@@ -72,7 +72,10 @@ export class CompanySwitchService {
     const localDate = new Date(now.getTime() + 7 * 60 * 60 * 1000);
     const todayStr = localDate.toISOString().split('T')[0];
 
-    console.log('[CompanySwitchService] Getting available companies for persnum:', persnum);
+    console.log(
+      '[CompanySwitchService] Getting available companies for persnum:',
+      persnum,
+    );
     console.log('[CompanySwitchService] Current company:', currentCompany);
     console.log('[CompanySwitchService] Today:', todayStr);
 
@@ -86,7 +89,10 @@ export class CompanySwitchService {
       .addOrderBy('sp.position_text', 'ASC')
       .getMany();
 
-    console.log('[CompanySwitchService] Found relation_sp records:', relationSpRecords.length);
+    console.log(
+      '[CompanySwitchService] Found relation_sp records:',
+      relationSpRecords.length,
+    );
 
     if (relationSpRecords.length === 0) {
       return {
@@ -104,7 +110,7 @@ export class CompanySwitchService {
     }
 
     // Get company details
-    const companyIds = [...new Set(relationSpRecords.map(r => r.company))];
+    const companyIds = [...new Set(relationSpRecords.map((r) => r.company))];
     const companies = await this.companyRepo
       .createQueryBuilder('c')
       .where('c.company IN (:...companyIds)', { companyIds })
@@ -112,11 +118,11 @@ export class CompanySwitchService {
 
     console.log('[CompanySwitchService] Found companies:', companies.length);
 
-    const companyMap = new Map(companies.map(c => [c.company, c]));
+    const companyMap = new Map(companies.map((c) => [c.company, c]));
 
     // Get position details with organization data from org_data
-    let positionDataMap = new Map<number, any>();
-    
+    const positionDataMap = new Map<number, any>();
+
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
       if (latestOrgData?.position_json) {
@@ -126,36 +132,51 @@ export class CompanySwitchService {
         }
       }
     } catch (error) {
-      console.warn('[CompanySwitchService] Could not load org_data:', error.message);
+      console.warn(
+        '[CompanySwitchService] Could not load org_data:',
+        error.message,
+      );
     }
 
     // Build available companies list
-    const availableCompanies: AvailableCompanyDto[] = relationSpRecords.map(sp => {
-      const companyInfo = companyMap.get(sp.company);
-      const positionInfo = sp.position ? positionDataMap.get(sp.position) : null;
+    const availableCompanies: AvailableCompanyDto[] = relationSpRecords.map(
+      (sp) => {
+        const companyInfo = companyMap.get(sp.company);
+        const positionInfo = sp.position
+          ? positionDataMap.get(sp.position)
+          : null;
 
-      return {
-        relationSpId: sp.id,
-        company: sp.company || 0,
-        companyText: companyInfo?.longText || companyInfo?.shortText || `Company ${sp.company}`,
-        position: sp.position || 0,
-        positionText: sp.position_text || positionInfo?.position_text || `Position ${sp.position}`,
-        organization: positionInfo?.organization_id?.toString() || '',
-        organizationText: positionInfo?.organization_text || '',
-        area: positionInfo?.area || '',
-        areaText: positionInfo?.area_text || '',
-        subArea: positionInfo?.sub_area?.toString() || '',
-        subAreaText: positionInfo?.sub_area_text || '',
-        bodTag: positionInfo?.bod_tag || '',
-        startDate: sp.startDate || '',
-        endDate: sp.endDate || '',
-        isCurrentCompany: String(sp.company) === String(currentCompany),
-        isDefaultCompany: sp === relationSpRecords[0], // First one is considered default
-      };
-    });
+        return {
+          relationSpId: sp.id,
+          company: sp.company || 0,
+          companyText:
+            companyInfo?.longText ||
+            companyInfo?.shortText ||
+            `Company ${sp.company}`,
+          position: sp.position || 0,
+          positionText:
+            sp.position_text ||
+            positionInfo?.position_text ||
+            `Position ${sp.position}`,
+          organization: positionInfo?.organization_id?.toString() || '',
+          organizationText: positionInfo?.organization_text || '',
+          area: positionInfo?.area || '',
+          areaText: positionInfo?.area_text || '',
+          subArea: positionInfo?.sub_area?.toString() || '',
+          subAreaText: positionInfo?.sub_area_text || '',
+          bodTag: positionInfo?.bod_tag || '',
+          startDate: sp.startDate || '',
+          endDate: sp.endDate || '',
+          isCurrentCompany: String(sp.company) === String(currentCompany),
+          isDefaultCompany: sp === relationSpRecords[0], // First one is considered default
+        };
+      },
+    );
 
     // Find current company info
-    const currentCompanyInfo = availableCompanies.find(c => c.isCurrentCompany) || availableCompanies[0];
+    const currentCompanyInfo =
+      availableCompanies.find((c) => c.isCurrentCompany) ||
+      availableCompanies[0];
 
     return {
       success: true,
@@ -174,7 +195,7 @@ export class CompanySwitchService {
   /**
    * Get company switch data for JWT generation
    * Validates the switch request and returns complete position data
-   * 
+   *
    * @param persnum - User's persnum
    * @param relationSpId - ID of om_relation_sp record (optional)
    * @param company - Company ID to switch to (optional)
@@ -236,7 +257,9 @@ export class CompanySwitchService {
       }
 
       if (position) {
-        qb.andWhere('sp.position = :position', { position: parseInt(position) });
+        qb.andWhere('sp.position = :position', {
+          position: parseInt(position),
+        });
       }
 
       relationSp = await qb.getOne();
@@ -254,7 +277,10 @@ export class CompanySwitchService {
       .where('c.company = :company', { company: relationSp.company })
       .getOne();
 
-    console.log('[CompanySwitchService] Company info:', companyInfo ? 'found' : 'not found');
+    console.log(
+      '[CompanySwitchService] Company info:',
+      companyInfo ? 'found' : 'not found',
+    );
 
     // Get complete position data from org_data
     let positionData: any = null;
@@ -263,24 +289,37 @@ export class CompanySwitchService {
       if (latestOrgData?.position_json) {
         const positionJson = latestOrgData.position_json as any[];
         positionData = positionJson.find(
-          p => p.position === relationSp.position && p.company === relationSp.company,
+          (p) =>
+            p.position === relationSp.position &&
+            p.company === relationSp.company,
         );
-        
+
         // If not found with company filter, try without
         if (!positionData) {
-          positionData = positionJson.find(p => p.position === relationSp.position);
+          positionData = positionJson.find(
+            (p) => p.position === relationSp.position,
+          );
         }
       }
     } catch (error) {
-      console.warn('[CompanySwitchService] Could not load position from org_data:', error.message);
+      console.warn(
+        '[CompanySwitchService] Could not load position from org_data:',
+        error.message,
+      );
     }
 
     // Build switch data
     const switchData: CompanySwitchData = {
       company: String(relationSp.company),
-      companyText: companyInfo?.longText || companyInfo?.shortText || `Company ${relationSp.company}`,
+      companyText:
+        companyInfo?.longText ||
+        companyInfo?.shortText ||
+        `Company ${relationSp.company}`,
       position: String(relationSp.position),
-      positionText: relationSp.position_text || positionData?.position_text || `Position ${relationSp.position}`,
+      positionText:
+        relationSp.position_text ||
+        positionData?.position_text ||
+        `Position ${relationSp.position}`,
       organization: positionData?.organization_id?.toString() || '',
       organizationText: positionData?.organization_text || '',
       area: positionData?.area || '',

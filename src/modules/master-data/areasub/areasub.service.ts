@@ -35,7 +35,10 @@ export class AreasubService {
   /**
    * Get all sub areas by company and area
    */
-  async findByCompanyAndArea(companyId: number, areaCode: string): Promise<any[]> {
+  async findByCompanyAndArea(
+    companyId: number,
+    areaCode: string,
+  ): Promise<any[]> {
     const subAreas = await this.subAreaRepo.find({
       where: { company: companyId, area: areaCode },
       order: { sub_area: 'ASC' },
@@ -104,18 +107,22 @@ export class AreasubService {
     return savedSubArea;
   }
 
-  async update(id: string, companyId: number, dto: UpdateAreasubDto): Promise<any> {
+  async update(
+    id: string,
+    companyId: number,
+    dto: UpdateAreasubDto,
+  ): Promise<any> {
     // Fetch existing sub area
     const subAreaData = await this.subAreaRepo.findOne({ where: { id } });
     if (!subAreaData) {
       throw new NotFoundException(`Sub Area with ID ${id} not found`);
     }
-    
+
     // Store old values for sub_area_alamat lookup
     const oldCompany = subAreaData.company?.toString() || '';
     const oldArea = subAreaData.area || '';
     const oldSubArea = subAreaData.sub_area?.toString() || '';
-    
+
     // Manually assign each field from DTO
     if (dto.area !== undefined) subAreaData.area = dto.area;
     if (dto.sub_area !== undefined) subAreaData.sub_area = dto.sub_area;
@@ -124,10 +131,10 @@ export class AreasubService {
     if (dto.startDate !== undefined) subAreaData.startDate = dto.startDate;
     if (dto.endDate !== undefined) subAreaData.endDate = dto.endDate;
     if (dto.uname !== undefined) subAreaData.uname = dto.uname;
-    
+
     // Always update company from route params
     subAreaData.company = companyId;
-    
+
     // Save sub area
     const saved = await this.subAreaRepo.save(subAreaData);
 
@@ -188,7 +195,10 @@ export class AreasubService {
             kota: dto.kota,
           });
         } catch (createError) {
-          console.error('Failed to create sub_area_alamat on update:', createError);
+          console.error(
+            'Failed to create sub_area_alamat on update:',
+            createError,
+          );
         }
       }
     }
@@ -211,7 +221,7 @@ export class AreasubService {
         subArea.area || '',
         subArea.sub_area?.toString() || '',
       );
-      
+
       if (existingAlamat) {
         await this.subAreaAlamatService.remove(existingAlamat.id);
       }
@@ -231,7 +241,7 @@ export class AreasubService {
     const enrichedSubAreas = await Promise.all(
       subAreas.map(async (subArea) => {
         let alamat: string | null = null;
-        
+
         // Fetch alamat from sub_area_alamat table
         try {
           const subAreaAlamat = await this.subAreaAlamatService.findBySubArea(
@@ -239,7 +249,7 @@ export class AreasubService {
             subArea.area || '',
             subArea.sub_area?.toString() || '',
           );
-          
+
           if (subAreaAlamat && subAreaAlamat.alamat) {
             alamat = subAreaAlamat.alamat;
           }

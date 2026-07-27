@@ -1,8 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 /**
  * DTO untuk Cek Dokumen
@@ -40,21 +36,21 @@ export class SignerInfoDto {
   nik?: string; // NIK (jika ada di certificate)
   instansi?: string; // Organisasi/instansi
   email?: string; // Email (jika ada)
-  
+
   // Certificate Info (dari Certificate Details)
   diterbitkanOleh?: string; // Issuer DN - contoh: "C=ID,O=Lembaga Sandi Negara,CN=OSD LU Kelas 2"
   subjectDN?: string; // Subject Distinguished Name (full)
-  
+
   // Signature Details (dari Signature Properties)
   tanggalSign: string; // Timestamp saat ditandatangani - contoh: "08.03.2024 11:14:52"
   reason?: string; // Alasan penandatanganan - contoh: "Dokumen ini ditandatangani secara elektronik"
   location?: string; // Lokasi penandatanganan (jika ada)
-  
+
   // Algorithm & Validity (dari Certificate)
   algoritmaTandatangan?: string; // Algorithm yang digunakan - contoh: "RSA with SHA256"
   validDari?: string; // Certificate valid from
   validHingga?: string; // Certificate valid until - contoh: "06.12.2025 08:40:33"
-  
+
   // Verification Status (hasil verifikasi BSrE)
   valid: boolean; // Apakah signature valid
   certificateValid?: boolean; // Apakah certificate valid
@@ -74,15 +70,15 @@ export class CekDokumenResponseDto {
     // Document Info (dari file upload + BSrE)
     namaDokumen: string; // Nama file dokumen yang diupload/diverifikasi
     jumlahSignature: number; // Total signature dalam dokumen (dari BSrE)
-    
+
     // Status (dari BSrE verification result)
     status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN'; // Status keseluruhan dokumen
     keterangan?: string; // Deskripsi status - contoh: "Dokumen valid, Sertifikat yang digunakan terpercaya"
     isValid: boolean; // Boolean status valid/tidak
-    
+
     // Signature Details (dari BSrE - array karena bisa multiple signatures)
     signers: SignerInfoDto[]; // List info penandatangan
-    
+
     // Technical Verification Details (dari BSrE - untuk advanced info)
     verificationDetails?: {
       algorithm?: string;
@@ -92,10 +88,10 @@ export class CekDokumenResponseDto {
       revocationChecked?: boolean; // Apakah sudah dicek revocation status
       summary?: string; // BSrE summary status (VALID, WARNING, INVALID)
     };
-    
+
     // Metadata
     verifiedAt?: string; // Timestamp saat verifikasi dilakukan
-    
+
     // Raw response dari BSrE API (untuk debugging/troubleshooting)
     rawResponse?: any;
   };
@@ -141,7 +137,7 @@ export interface BsreVerifyResponse {
       hash_value?: string | null;
     };
   }>;
-  
+
   // Legacy fields (untuk backward compatibility)
   status?: boolean;
   message?: string;

@@ -62,7 +62,7 @@ export class GetNomorResponseDto {
   pagination?: {
     page: number;
     limit: number;
-    total: number;                 // Total usulan (bukan nomor)
+    total: number; // Total usulan (bukan nomor)
     totalPages: number;
   };
 }

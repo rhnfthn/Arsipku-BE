@@ -59,7 +59,7 @@ export class EksternalRecipientDto {
 
 /**
  * Response DTO for SDE get-recipient
- * 
+ *
  * SDE (Surat Dinas Eksternal):
  * - sender: dari org_data (positionId)
  * - recipients: dari tabel eksternal (pihak luar)
@@ -72,7 +72,7 @@ export class SdeRecipientResponseDto {
 
 /**
  * Response DTO for SDE get-tembusan
- * 
+ *
  * Tembusan recipients for SDE (same logic as SDI tembusan):
  * - Filter internal positions (org_data)
  * - chief=1 (managerial), bod_tag='BOD', same company

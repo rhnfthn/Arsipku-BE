@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { Repository, DataSource, IsNull } from 'typeorm';
@@ -33,7 +37,8 @@ export class OrganizationService {
    * @param search - Optional search query to filter organizations by name
    */
   async findByCompany(companyId: number, search?: string) {
-    const queryBuilder = this.orgRepo.createQueryBuilder('org')
+    const queryBuilder = this.orgRepo
+      .createQueryBuilder('org')
       .where('org.company = :companyId', { companyId })
       .orderBy('org.organization', 'ASC');
 
@@ -41,7 +46,7 @@ export class OrganizationService {
     if (search && search.trim()) {
       queryBuilder.andWhere(
         '(org.shortText LIKE :search OR org.longText LIKE :search OR org.abbreviation LIKE :search)',
-        { search: `%${search.trim()}%` }
+        { search: `%${search.trim()}%` },
       );
     }
 
@@ -55,17 +60,18 @@ export class OrganizationService {
    */
   async findTreeByCompany(companyId: number, search?: string) {
     let organizations = await this.findByCompany(companyId);
-    
+
     // Filter organizations by search query if provided
     if (search && search.trim()) {
       const searchLower = search.toLowerCase().trim();
-      organizations = organizations.filter(org => 
-        org.shortText?.toLowerCase().includes(searchLower) ||
-        org.longText?.toLowerCase().includes(searchLower) ||
-        org.abbreviation?.toLowerCase().includes(searchLower)
+      organizations = organizations.filter(
+        (org) =>
+          org.shortText?.toLowerCase().includes(searchLower) ||
+          org.longText?.toLowerCase().includes(searchLower) ||
+          org.abbreviation?.toLowerCase().includes(searchLower),
       );
     }
-    
+
     // Get all parent-child relationships for this company
     const relations = await this.relationOoRepo.find({
       where: { company: companyId },
@@ -73,7 +79,7 @@ export class OrganizationService {
 
     // Create a map for quick lookup
     const orgMap = new Map<number, any>();
-    organizations.forEach(org => {
+    organizations.forEach((org) => {
       if (org.organization !== null) {
         orgMap.set(org.organization, {
           id: org.id,
@@ -91,12 +97,12 @@ export class OrganizationService {
     // Build parent-child relationships
     const childrenMap = new Map<number, number[]>();
     const hasParentMap = new Map<number, boolean>(); // Track which orgs have parents
-    
-    relations.forEach(rel => {
+
+    relations.forEach((rel) => {
       if (rel.organization && rel.relation_organization) {
         // This org has a parent
         hasParentMap.set(rel.organization, true);
-        
+
         // Add to children map
         if (!childrenMap.has(rel.relation_organization)) {
           childrenMap.set(rel.relation_organization, []);
@@ -108,7 +114,7 @@ export class OrganizationService {
     // Find root nodes (organizations without parent)
     // Root = organization that doesn't have parent in relation table
     const rootIds: number[] = [];
-    organizations.forEach(org => {
+    organizations.forEach((org) => {
       if (org.organization !== null && !hasParentMap.has(org.organization)) {
         rootIds.push(org.organization);
       }
@@ -121,15 +127,15 @@ export class OrganizationService {
 
       const children = childrenMap.get(orgId) || [];
       org.children = children
-        .map(childId => buildTree(childId))
-        .filter(child => child !== null);
+        .map((childId) => buildTree(childId))
+        .filter((child) => child !== null);
 
       return org;
     };
 
     const tree = rootIds
-      .map(rootId => buildTree(rootId))
-      .filter(node => node !== null);
+      .map((rootId) => buildTree(rootId))
+      .filter((node) => node !== null);
 
     return {
       companyId,
@@ -162,17 +168,17 @@ export class OrganizationService {
    */
   async findOneWithDetails(id: string) {
     const org = await this.findOne(id);
-    
+
     // Get area and sub-area info if exists
     const areaRepo = this.dataSource.getRepository(OmArea);
     const areaSubRepo = this.dataSource.getRepository(OmAreaSub);
 
-    let areaDetails = null;
-    let subAreaDetails = null;
+    const areaDetails = null;
+    const subAreaDetails = null;
 
     // Note: You might need to add area/sub_area fields to organization entity
     // For now, returning basic organization data
-    
+
     return {
       ...org,
       areaDetails,
@@ -195,7 +201,9 @@ export class OrganizationService {
     const organization = await this.findOne(id);
 
     if (organization.organization === null) {
-      throw new BadRequestException('Organization has no valid organization ID');
+      throw new BadRequestException(
+        'Organization has no valid organization ID',
+      );
     }
 
     // Find parent relation
@@ -233,25 +241,29 @@ export class OrganizationService {
             organization: rel.organization,
           },
         });
-        return child ? {
-          id: child.id,
-          organization: child.organization,
-          shortText: child.shortText,
-          longText: child.longText,
-        } : null;
-      })
+        return child
+          ? {
+              id: child.id,
+              organization: child.organization,
+              shortText: child.shortText,
+              longText: child.longText,
+            }
+          : null;
+      }),
     );
 
     return {
       ...organization,
-      parent: parentOrg ? {
-        id: parentOrg.id,
-        organization: parentOrg.organization,
-        shortText: parentOrg.shortText,
-        longText: parentOrg.longText,
-      } : null,
-      children: children.filter(c => c !== null),
-      hasChildren: children.filter(c => c !== null).length > 0,
+      parent: parentOrg
+        ? {
+            id: parentOrg.id,
+            organization: parentOrg.organization,
+            shortText: parentOrg.shortText,
+            longText: parentOrg.longText,
+          }
+        : null,
+      children: children.filter((c) => c !== null),
+      hasChildren: children.filter((c) => c !== null).length > 0,
       isTopLevel: !parentRelation,
     };
   }
@@ -269,7 +281,7 @@ export class OrganizationService {
 
     if (!parentOrg || parentOrg.company === null) {
       throw new NotFoundException(
-        `Parent organization with ID ${parentOrgId} not found`
+        `Parent organization with ID ${parentOrgId} not found`,
       );
     }
 
@@ -293,39 +305,41 @@ export class OrganizationService {
             organization: rel.organization,
           },
         });
-        return child ? {
-          id: child.id,
-          organization: child.organization,
-          shortText: child.shortText,
-          longText: child.longText,
-          abbreviation: child.abbreviation,
-          startDate: child.startDate,
-          endDate: child.endDate,
-          relation: {
-            relationOrganization: rel.relation_organization,
-            relationOrganizationText: rel.relation_organization_text,
-            startDate: rel.startDate,
-            endDate: rel.endDate,
-          },
-        } : null;
-      })
+        return child
+          ? {
+              id: child.id,
+              organization: child.organization,
+              shortText: child.shortText,
+              longText: child.longText,
+              abbreviation: child.abbreviation,
+              startDate: child.startDate,
+              endDate: child.endDate,
+              relation: {
+                relationOrganization: rel.relation_organization,
+                relationOrganizationText: rel.relation_organization_text,
+                startDate: rel.startDate,
+                endDate: rel.endDate,
+              },
+            }
+          : null;
+      }),
     );
 
-    return children.filter(c => c !== null);
+    return children.filter((c) => c !== null);
   }
 
   async create(dto: CreateOrganizationDto): Promise<OmOrganization> {
     // Check if organization code already exists for this company
     const existing = await this.orgRepo.findOne({
-      where: { 
-        company: dto.company, 
-        organization: dto.organization 
+      where: {
+        company: dto.company,
+        organization: dto.organization,
       },
     });
 
     if (existing) {
       throw new BadRequestException(
-        `Organization code ${dto.organization} already exists for company ${dto.company}`
+        `Organization code ${dto.organization} already exists for company ${dto.company}`,
       );
     }
 
@@ -347,7 +361,7 @@ export class OrganizationService {
         // Delete the created organization if parent doesn't exist
         await this.orgRepo.remove(savedOrg);
         throw new NotFoundException(
-          `Parent organization ${dto.parentOrganization} not found for company ${dto.company}`
+          `Parent organization ${dto.parentOrganization} not found for company ${dto.company}`,
         );
       }
 
@@ -357,7 +371,8 @@ export class OrganizationService {
         organization: savedOrg.organization,
         organization_text: dto.shortText,
         relation_organization: dto.parentOrganization,
-        relation_organization_text: dto.parentOrganizationText || parentOrg.shortText,
+        relation_organization_text:
+          dto.parentOrganizationText || parentOrg.shortText,
         startDate: dto.startDate,
         endDate: dto.endDate,
         uname: dto.uname,
@@ -390,28 +405,32 @@ export class OrganizationService {
     dto: UpdateOrganizationDto,
   ): Promise<OmOrganization> {
     const organization = await this.findOne(id);
-    
+
     if (organization.company === null) {
       throw new BadRequestException('Organization has no valid company ID');
     }
 
     const companyId = organization.company;
-    
+
     // Manually assign fields from DTO
-    if (dto.organization !== undefined) organization.organization = dto.organization;
+    if (dto.organization !== undefined)
+      organization.organization = dto.organization;
     if (dto.shortText !== undefined) organization.shortText = dto.shortText;
     if (dto.longText !== undefined) organization.longText = dto.longText;
-    if (dto.abbreviation !== undefined) organization.abbreviation = dto.abbreviation;
+    if (dto.abbreviation !== undefined)
+      organization.abbreviation = dto.abbreviation;
     if (dto.startDate !== undefined) organization.startDate = dto.startDate;
     if (dto.endDate !== undefined) organization.endDate = dto.endDate;
     if (dto.uname !== undefined) organization.uname = dto.uname;
-    
+
     const savedOrg = await this.orgRepo.save(organization);
 
     // Handle parent organization change if provided in DTO
     if (dto.parentOrganization !== undefined) {
       if (savedOrg.organization === null) {
-        throw new BadRequestException('Organization has no valid organization ID');
+        throw new BadRequestException(
+          'Organization has no valid organization ID',
+        );
       }
 
       // Find existing relation
@@ -438,19 +457,22 @@ export class OrganizationService {
 
         if (!parentOrg) {
           throw new NotFoundException(
-            `Parent organization ${dto.parentOrganization} not found`
+            `Parent organization ${dto.parentOrganization} not found`,
           );
         }
 
         // Prevent circular reference
         if (dto.parentOrganization === savedOrg.organization) {
-          throw new BadRequestException('Organization cannot be its own parent');
+          throw new BadRequestException(
+            'Organization cannot be its own parent',
+          );
         }
 
         if (existingRelation) {
           // Update existing relation
           existingRelation.relation_organization = dto.parentOrganization;
-          existingRelation.relation_organization_text = dto.parentOrganizationText || parentOrg.shortText;
+          existingRelation.relation_organization_text =
+            dto.parentOrganizationText || parentOrg.shortText;
           if (dto.startDate) existingRelation.startDate = dto.startDate;
           if (dto.endDate) existingRelation.endDate = dto.endDate;
           await this.relationOoRepo.save(existingRelation);
@@ -461,7 +483,8 @@ export class OrganizationService {
             organization: savedOrg.organization,
             organization_text: savedOrg.shortText,
             relation_organization: dto.parentOrganization,
-            relation_organization_text: dto.parentOrganizationText || parentOrg.shortText,
+            relation_organization_text:
+              dto.parentOrganizationText || parentOrg.shortText,
             startDate: dto.startDate,
             endDate: dto.endDate,
             uname: dto.uname,
@@ -474,7 +497,9 @@ export class OrganizationService {
     // Handle sub area relationship if provided in DTO
     if (dto.subArea !== undefined) {
       if (savedOrg.organization === null) {
-        throw new BadRequestException('Organization has no valid organization ID');
+        throw new BadRequestException(
+          'Organization has no valid organization ID',
+        );
       }
 
       // Find existing relation
@@ -520,7 +545,7 @@ export class OrganizationService {
 
   async remove(id: string): Promise<{ message: string }> {
     const organization = await this.findOne(id);
-    
+
     if (organization.organization === null || organization.company === null) {
       throw new BadRequestException('Organization has invalid data');
     }
@@ -535,7 +560,7 @@ export class OrganizationService {
 
     if (childRelations.length > 0) {
       throw new BadRequestException(
-        `Cannot delete organization. It has ${childRelations.length} child organization(s). Please delete or reassign children first.`
+        `Cannot delete organization. It has ${childRelations.length} child organization(s). Please delete or reassign children first.`,
       );
     }
 

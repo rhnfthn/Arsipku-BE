@@ -14,7 +14,12 @@ export class NaskahUmumTempEntity {
   @Column({ name: 's3_key', type: 'varchar', length: 255 })
   s3Key: string; // filled docx (pre-edit)
 
-  @Column({ name: 's3_key_saved', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 's3_key_saved',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   s3KeySaved: string | null; // post-edit docx (from callback)
 
   @Column({ type: 'varchar', length: 20, default: 'preview' })

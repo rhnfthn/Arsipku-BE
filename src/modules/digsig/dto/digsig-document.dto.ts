@@ -81,7 +81,7 @@ export class CreateDigsigDocumentDto {
         const parsed = JSON.parse(value);
         // Accept array of numbers (persnum only) or objects
         if (Array.isArray(parsed)) {
-          return parsed.map(item => {
+          return parsed.map((item) => {
             // If it's a number, return as is
             if (typeof item === 'number') {
               return item;
@@ -97,7 +97,16 @@ export class CreateDigsigDocumentDto {
     }
     return Array.isArray(value) ? value : undefined;
   })
-  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; lokasi?: string; positionId?: number }>;
+  signers?: Array<
+    | number
+    | {
+        persnum: number;
+        nama?: string;
+        jabatan?: string;
+        lokasi?: string;
+        positionId?: number;
+      }
+  >;
 
   // File akan dihandle terpisah via multipart
   // filePath, fileName, fileSize, fileMimeType akan diisi dari file upload
@@ -150,7 +159,7 @@ export class UpdateDigsigDocumentDto {
         const parsed = JSON.parse(value);
         // Accept array of numbers (persnum only) or objects
         if (Array.isArray(parsed)) {
-          return parsed.map(item => {
+          return parsed.map((item) => {
             // If it's a number, return as is
             if (typeof item === 'number') {
               return item;
@@ -166,7 +175,16 @@ export class UpdateDigsigDocumentDto {
     }
     return Array.isArray(value) ? value : undefined;
   })
-  signers?: Array<number | { persnum: number; nama?: string; jabatan?: string; lokasi?: string; positionId?: number }>;
+  signers?: Array<
+    | number
+    | {
+        persnum: number;
+        nama?: string;
+        jabatan?: string;
+        lokasi?: string;
+        positionId?: number;
+      }
+  >;
 }
 
 // ======== Filter/Query DTO ========

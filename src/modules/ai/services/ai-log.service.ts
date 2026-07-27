@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AiRequestLog } from '../entities/ai-request-log.entity';
 
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|authorization|cookie|password|passwd|secret|token)/i;
+const SENSITIVE_KEY_PATTERN =
+  /(api[_-]?key|authorization|cookie|password|passwd|secret|token)/i;
 
 @Injectable()
 export class AiLogService {
@@ -18,7 +19,9 @@ export class AiLogService {
     try {
       const safe: Partial<AiRequestLog> = { ...entry };
       if (safe.request_body_redacted) {
-        safe.request_body_redacted = this.redactJson(safe.request_body_redacted);
+        safe.request_body_redacted = this.redactJson(
+          safe.request_body_redacted,
+        );
       }
       await this.repo.insert(safe as any);
     } catch (err) {
@@ -53,7 +56,9 @@ export class AiLogService {
     if (obj && typeof obj === 'object') {
       const out: Record<string, any> = {};
       for (const [k, v] of Object.entries(obj)) {
-        out[k] = SENSITIVE_KEY_PATTERN.test(k) ? '[REDACTED]' : this.redactObject(v);
+        out[k] = SENSITIVE_KEY_PATTERN.test(k)
+          ? '[REDACTED]'
+          : this.redactObject(v);
       }
       return out;
     }

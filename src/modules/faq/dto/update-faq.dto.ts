@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsUUID, MaxLength, ValidateIf } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsUUID,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class UpdateFaqDto {
@@ -18,7 +24,7 @@ export class UpdateFaqDto {
   @IsString()
   @IsOptional()
   @ValidateIf((o) => o.fileUrl && o.fileUrl.trim().length > 0)
-  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @MaxLength(255)
   fileUrl?: string;
 

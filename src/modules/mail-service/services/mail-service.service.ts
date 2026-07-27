@@ -1,4 +1,10 @@
-import { Injectable, HttpException, HttpStatus, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  HttpStatus,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -29,10 +35,14 @@ export class MailServiceService {
     @InjectRepository(Session)
     private readonly sessionRepository: Repository<Session>,
   ) {
-    this.baseUrl = this.normalizeBaseUrl(this.configService.get<string>('MAIL_API_BASE_URL') || '');
+    this.baseUrl = this.normalizeBaseUrl(
+      this.configService.get<string>('MAIL_API_BASE_URL') || '',
+    );
 
     if (!this.baseUrl) {
-      this.logger.warn('MAIL_API_BASE_URL is not set. Mail service will not work properly.');
+      this.logger.warn(
+        'MAIL_API_BASE_URL is not set. Mail service will not work properly.',
+      );
     }
   }
 
@@ -76,7 +86,11 @@ export class MailServiceService {
    * Kirim email dengan lampiran base64
    * Endpoint: POST /mail/base64
    */
-  async sendMailBase64(dto: SendMailDto, persnum: number, context?: MailLogContext) {
+  async sendMailBase64(
+    dto: SendMailDto,
+    persnum: number,
+    context?: MailLogContext,
+  ) {
     try {
       const token = await this.getAirnavTokenFromSession(persnum);
       const result = await this.callMailApi('/mail/base64', dto, 'POST', token);
@@ -102,13 +116,23 @@ export class MailServiceService {
   /**
    * Ambil log email dengan pagination
    */
-  async getLogs(page: number = 1, limit: number = 20, status?: string, senderPersnum?: number) {
+  async getLogs(
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+    senderPersnum?: number,
+  ) {
     if (senderPersnum === undefined || senderPersnum === null) {
-      throw new BadRequestException('Sender persnum tidak tersedia untuk filter log');
+      throw new BadRequestException(
+        'Sender persnum tidak tersedia untuk filter log',
+      );
     }
 
-    const qb = this.mailLogRepository.createQueryBuilder('log')
-      .where('log.sender_persnum = :senderPersnum', { senderPersnum: String(senderPersnum) })
+    const qb = this.mailLogRepository
+      .createQueryBuilder('log')
+      .where('log.sender_persnum = :senderPersnum', {
+        senderPersnum: String(senderPersnum),
+      })
       .orderBy('log.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -156,7 +180,9 @@ export class MailServiceService {
         lampiran_count: dto.lampiran?.length || 0,
         status,
         error_message: errorMessage,
-        api_response: apiResponse ? JSON.stringify(apiResponse).substring(0, 5000) : null,
+        api_response: apiResponse
+          ? JSON.stringify(apiResponse).substring(0, 5000)
+          : null,
         sender_persnum: context?.sender_persnum || null,
         sender_nama: context?.sender_nama || null,
       });
@@ -169,10 +195,19 @@ export class MailServiceService {
   /**
    * Helper: panggil API mail eksternal dengan SSO bearer token dari session
    */
-  private async callMailApi(endpoint: string, dto: SendMailDto, method: 'GET' | 'POST' = 'POST', token: string) {
+  private async callMailApi(
+    endpoint: string,
+    dto: SendMailDto,
+    method: 'GET' | 'POST' = 'POST',
+    token: string,
+  ) {
     if (!this.baseUrl || !token) {
       throw new HttpException(
-        { success: false, message: 'Mail API configuration is missing (MAIL_API_BASE_URL / SSO token)' },
+        {
+          success: false,
+          message:
+            'Mail API configuration is missing (MAIL_API_BASE_URL / SSO token)',
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -189,9 +224,10 @@ export class MailServiceService {
         timeout: 30000,
       };
 
-      const response = method === 'GET'
-        ? await axios.get(url, { ...config, data: dto })
-        : await axios.post(url, dto, config);
+      const response =
+        method === 'GET'
+          ? await axios.get(url, { ...config, data: dto })
+          : await axios.post(url, dto, config);
 
       this.logger.log(`Mail API response: ${response.status}`);
       return response.data;
@@ -200,7 +236,10 @@ export class MailServiceService {
       this.logger.error(`Mail API error at ${endpoint}:`, error.message);
 
       if (error.response) {
-        this.logger.error(`Mail API ${endpoint} responded with status ${error.response.status}:`, JSON.stringify(error.response.data));
+        this.logger.error(
+          `Mail API ${endpoint} responded with status ${error.response.status}:`,
+          JSON.stringify(error.response.data),
+        );
         throw new HttpException(
           {
             success: false,
@@ -213,7 +252,10 @@ export class MailServiceService {
       }
 
       throw new HttpException(
-        { success: false, message: `Failed to call mail API: ${error.message}` },
+        {
+          success: false,
+          message: `Failed to call mail API: ${error.message}`,
+        },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

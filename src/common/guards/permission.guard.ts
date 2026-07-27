@@ -12,7 +12,10 @@ import {
 } from '../decorators/require-permission.decorator';
 import { RoleName } from '../enums/role-name.enum';
 import { PositionStatus } from '../../common/enums/position-status.enum';
-import { computeEffectivePersnum, isDelegatedActor } from '../../common/helpers/delegasi-rendering.helper';
+import {
+  computeEffectivePersnum,
+  isDelegatedActor,
+} from '../../common/helpers/delegasi-rendering.helper';
 import type { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { RbacService } from '../../modules/rbac/services/rbac.service';
 import { PermissionCacheService } from './permission-cache.service';
@@ -34,26 +37,49 @@ import { PermissionCacheService } from './permission-cache.service';
 @Injectable()
 export class PermissionGuard implements CanActivate {
   private readonly logger = new Logger(PermissionGuard.name);
-  private readonly VIEW_ONLY_STATUSES = new Set<string>([PositionStatus.VI, PositionStatus.SE]);
+  private readonly VIEW_ONLY_STATUSES = new Set<string>([
+    PositionStatus.VI,
+    PositionStatus.SE,
+  ]);
 
-  private stripToReadOnly(perms: { resource: string; actions: string[] }[]): { resource: string; actions: string[] }[] {
+  private stripToReadOnly(
+    perms: { resource: string; actions: string[] }[],
+  ): { resource: string; actions: string[] }[] {
     // Copy — never mutate cached entries.
     return perms
-      .map((p) => ({ resource: p.resource, actions: p.actions.filter((a) => a === 'read' || a === 'read-detail') }))
+      .map((p) => ({
+        resource: p.resource,
+        actions: p.actions.filter((a) => a === 'read' || a === 'read-detail'),
+      }))
       .filter((p) => p.actions.length > 0);
   }
 
-  private readonly WRITE_METHODS = new Set<string>(['POST', 'PUT', 'PATCH', 'DELETE']);
-  private readonly VIEW_ONLY_WRITE_ALLOW_PREFIX = ['/auth', '/notification', '/fcm', '/short-url'];
+  private readonly WRITE_METHODS = new Set<string>([
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+  ]);
+  private readonly VIEW_ONLY_WRITE_ALLOW_PREFIX = [
+    '/auth',
+    '/notification',
+    '/fcm',
+    '/short-url',
+  ];
   private readonly VIEW_ONLY_WRITE_ALLOW_EXACT = ['/delegasi/switch-role'];
 
   private isAllowListedForViewer(path: string): boolean {
     const p = path.split('?')[0];
     if (this.VIEW_ONLY_WRITE_ALLOW_EXACT.includes(p)) return true;
-    return this.VIEW_ONLY_WRITE_ALLOW_PREFIX.some((prefix) => p === prefix || p.startsWith(prefix + '/'));
+    return this.VIEW_ONLY_WRITE_ALLOW_PREFIX.some(
+      (prefix) => p === prefix || p.startsWith(prefix + '/'),
+    );
   }
 
-  private blockViewerWrite(user: JwtPayload | undefined, req: { method?: string; url?: string }): void {
+  private blockViewerWrite(
+    user: JwtPayload | undefined,
+    req: { method?: string; url?: string },
+  ): void {
     if (!user) return;
     const ps = user.position_status as string | undefined;
     if (!ps || !this.VIEW_ONLY_STATUSES.has(ps)) return;
@@ -73,7 +99,9 @@ export class PermissionGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // 🛡️ VI/SE method-block — BEFORE the un-guarded early-return so it covers
     // endpoints without @RequirePermission too.
-    const req = context.switchToHttp().getRequest<{ user?: JwtPayload; method?: string; url?: string }>();
+    const req = context
+      .switchToHttp()
+      .getRequest<{ user?: JwtPayload; method?: string; url?: string }>();
     this.blockViewerWrite(req.user, req);
 
     const permission = this.reflector.get<RequiredPermission>(
@@ -108,7 +136,9 @@ export class PermissionGuard implements CanActivate {
     // delegator's, and never VI/SE-stripped. Otherwise a delegated user could not
     // switch back to their original role (locked into the delegation).
     const isDelegasiResource = permission.resource === 'delegasi';
-    const persnum: number = isDelegasiResource ? user.persnum : computeEffectivePersnum(user);
+    const persnum: number = isDelegasiResource
+      ? user.persnum
+      : computeEffectivePersnum(user);
     if (!persnum || typeof persnum !== 'number') {
       throw new ForbiddenException('Invalid user identity (no persnum)');
     }
@@ -123,7 +153,10 @@ export class PermissionGuard implements CanActivate {
         : Array.isArray(user.activePermissions)
           ? user.activePermissions
           : undefined;
-    const activePermissions = await this.getLivePermissions(persnum, jwtFallback);
+    const activePermissions = await this.getLivePermissions(
+      persnum,
+      jwtFallback,
+    );
 
     // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
     // resources, NOT the delegasi control plane (so switch/reset still works).
@@ -141,7 +174,8 @@ export class PermissionGuard implements CanActivate {
 
     const hasPermission = effectivePermissions.some(
       (p: { resource: string; actions: string[] }) =>
-        p.resource === permission.resource && p.actions.includes(permission.action),
+        p.resource === permission.resource &&
+        p.actions.includes(permission.action),
     );
 
     if (!hasPermission) {

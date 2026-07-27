@@ -32,7 +32,9 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 @Controller('digsig/penandatanganan')
 @UseGuards(JwtAuthGuard)
 export class PenandatangananController {
-  constructor(private readonly penandatangananService: PenandatangananService) {}
+  constructor(
+    private readonly penandatangananService: PenandatangananService,
+  ) {}
 
   /**
    * GET /digsig/penandatanganan
@@ -46,7 +48,10 @@ export class PenandatangananController {
     @CurrentUser() user: JwtPayload,
     @Query() filter: FilterPenandatangananDto,
   ): Promise<PenandatangananPaginatedResponseDto> {
-    return this.penandatangananService.getMySigningList(computeEffectivePersnum(user), filter);
+    return this.penandatangananService.getMySigningList(
+      computeEffectivePersnum(user),
+      filter,
+    );
   }
 
   /**
@@ -56,15 +61,15 @@ export class PenandatangananController {
   @Get('summary')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
-  async getSigningSummary(
-    @CurrentUser() user: JwtPayload,
-  ): Promise<{
+  async getSigningSummary(@CurrentUser() user: JwtPayload): Promise<{
     totalPending: number;
     totalSigned: number;
     totalRejected: number;
     total: number;
   }> {
-    return this.penandatangananService.getSigningSummary(computeEffectivePersnum(user));
+    return this.penandatangananService.getSigningSummary(
+      computeEffectivePersnum(user),
+    );
   }
 
   /**
@@ -78,7 +83,10 @@ export class PenandatangananController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<PenandatangananDetailDto> {
-    return this.penandatangananService.getSigningDetail(id, computeEffectivePersnum(user));
+    return this.penandatangananService.getSigningDetail(
+      id,
+      computeEffectivePersnum(user),
+    );
   }
 
   /**
@@ -95,11 +103,7 @@ export class PenandatangananController {
     @Body() dto: SignWithPassphraseDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<SigningResultDto> {
-    return this.penandatangananService.signDocument(
-      id,
-      dto,
-      user,
-    );
+    return this.penandatangananService.signDocument(id, dto, user);
   }
 
   /**

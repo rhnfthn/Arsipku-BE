@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { NotificationType } from '../entities';
 
 export class CreateNotificationDto {
@@ -25,7 +32,9 @@ export class CreateNotificationDto {
   @IsString()
   body: string;
 
-  @ApiPropertyOptional({ description: 'Additional data (naskahId, nomor, etc)' })
+  @ApiPropertyOptional({
+    description: 'Additional data (naskahId, nomor, etc)',
+  })
   @IsOptional()
   data?: Record<string, any>;
 }
@@ -41,7 +50,10 @@ export class NotificationQueryDto {
   @IsBoolean()
   isRead?: boolean;
 
-  @ApiPropertyOptional({ enum: NotificationType, description: 'Filter by type' })
+  @ApiPropertyOptional({
+    enum: NotificationType,
+    description: 'Filter by type',
+  })
   @IsOptional()
   @IsEnum(NotificationType)
   type?: NotificationType;

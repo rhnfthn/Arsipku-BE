@@ -22,7 +22,12 @@ function buildDataSource(): DataSource {
     username: env.DB_USER || 'root',
     password: env.DB_PASS || '',
     database: env.DB_NAME || 'arsipku',
-    entities: [RoleEntity, ResourceEntity, PermissionEntity, RolePermissionEntity],
+    entities: [
+      RoleEntity,
+      ResourceEntity,
+      PermissionEntity,
+      RolePermissionEntity,
+    ],
     synchronize: false,
     timezone: '+07:00',
   });
@@ -72,7 +77,9 @@ async function main() {
       permIdByName.set(permName, perm.id);
     }
   }
-  console.log(`✅ Matrix seed: ${rbacResourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`);
+  console.log(
+    `✅ Matrix seed: ${rbacResourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`,
+  );
 
   // 2. Assign matrix permissions to roles (merge/additive, does not remove existing)
   const roleNameToEntity: Record<string, RoleEntity> = {};
@@ -85,18 +92,26 @@ async function main() {
     roleNameToEntity[name] = role;
   }
 
-  for (const [roleKey, permNames] of Object.entries(rbacRolePermissionAssignments)) {
-    const roleName = roleKey.toUpperCase() === 'SUPERADMIN' ? RoleName.SUPERADMIN
-      : roleKey.toUpperCase() === 'ADMIN' ? RoleName.ADMIN
-      : roleKey.toUpperCase() === 'USER' ? RoleName.USER
-      : undefined;
+  for (const [roleKey, permNames] of Object.entries(
+    rbacRolePermissionAssignments,
+  )) {
+    const roleName =
+      roleKey.toUpperCase() === 'SUPERADMIN'
+        ? RoleName.SUPERADMIN
+        : roleKey.toUpperCase() === 'ADMIN'
+          ? RoleName.ADMIN
+          : roleKey.toUpperCase() === 'USER'
+            ? RoleName.USER
+            : undefined;
     if (!roleName) continue;
     const role = roleNameToEntity[roleName];
     if (!role) continue;
 
     const existing = await rpRepo.find({ where: { roleId: role.id } });
     const existingPermIds = new Set(existing.map((rp) => rp.permissionId));
-    const existingNameById = new Map(existing.map((rp) => [rp.permissionId, rp]));
+    const existingNameById = new Map(
+      existing.map((rp) => [rp.permissionId, rp]),
+    );
 
     const toAdd: { id: string; roleId: string; permissionId: string }[] = [];
     for (const permName of permNames) {
@@ -112,7 +127,9 @@ async function main() {
     if (toAdd.length > 0) {
       await rpRepo.save(toAdd);
     }
-    console.log(`✅ ${toAdd.length} matrix permissions added to ${roleName} (existing ${existing.length})`);
+    console.log(
+      `✅ ${toAdd.length} matrix permissions added to ${roleName} (existing ${existing.length})`,
+    );
   }
 
   await dataSource.destroy();

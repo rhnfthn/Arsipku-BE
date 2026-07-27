@@ -44,7 +44,9 @@ describe('prompt.builder', () => {
     expect(p).toContain('Prompt khusus KAJIAN');
     expect(p).toContain('Contoh gaya KAJIAN');
     expect(p).toContain('Data dari frontend');
-    expect(p).toContain('mengkaji kebutuhan peningkatan kapasitas ruang server');
+    expect(p).toContain(
+      'mengkaji kebutuhan peningkatan kapasitas ruang server',
+    );
     expect(p).toContain('"content"');
     expect(p).not.toContain('"isi_html"');
   });

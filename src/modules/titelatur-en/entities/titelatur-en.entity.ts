@@ -1,4 +1,10 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity({ name: 'titelatur_en' })
 export class TitelaturEnEntity {
@@ -14,7 +20,7 @@ export class TitelaturEnEntity {
   @Column({ type: 'date', nullable: true, default: '9999-12-31' })
   end_date: Date;
 
-  @Column({ type: 'enum', enum: ['CO','PA','SA','S'], nullable: true })
+  @Column({ type: 'enum', enum: ['CO', 'PA', 'SA', 'S'], nullable: true })
   object_type: 'CO' | 'PA' | 'SA' | 'S' | null;
 
   @Column({ type: 'text', nullable: true })

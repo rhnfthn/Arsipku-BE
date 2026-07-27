@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsUUID, MaxLength, Matches } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsInt,
+  IsUUID,
+  MaxLength,
+  Matches,
+} from 'class-validator';
 
 export class CreateRelationODto {
   @IsUUID()
@@ -25,14 +33,16 @@ export class CreateRelationODto {
   @IsString()
   @MaxLength(200)
   @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'organization_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
+    message:
+      'organization_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
   })
   organization_text: string;
 
   @IsString()
   @MaxLength(200)
   @Matches(/^[A-Za-z0-9 ._\-]+$/, {
-    message: 'relation_position_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
+    message:
+      'relation_position_text hanya boleh huruf, angka, spasi, titik, dash, dan underscore',
   })
   relation_position_text?: string;
 

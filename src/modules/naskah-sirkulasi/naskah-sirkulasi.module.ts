@@ -29,4 +29,4 @@ import { SearchModule } from '../search/search.module';
   providers: [NaskahSirkulasiService],
   exports: [NaskahSirkulasiService, TypeOrmModule],
 })
-export class NaskahSirkulasiModule { }
+export class NaskahSirkulasiModule {}

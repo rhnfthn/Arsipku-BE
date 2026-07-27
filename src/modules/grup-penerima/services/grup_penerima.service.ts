@@ -66,7 +66,7 @@ export class GrupPenerimaService {
     jenis?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list (all groups, no filtering)
-    let grupList = await this.findAll(company);
+    const grupList = await this.findAll(company);
 
     if (grupList.length === 0) {
       return [];
@@ -74,7 +74,7 @@ export class GrupPenerimaService {
 
     // Get position_json from org_data
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+    const positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
 
     try {
       const orgData = await this.orgDataService.findOrg(tanggal);
@@ -125,7 +125,7 @@ export class GrupPenerimaService {
 
     // Get position_json from org_data
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+    const positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
 
     try {
       const orgData = await this.orgDataService.findOrg(tanggal);
@@ -174,7 +174,7 @@ export class GrupPenerimaService {
 
     // Get position_json from org_data
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-    let positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
+    const positionJsonMap: Map<number, OrgDataPositionDto> = new Map();
 
     try {
       const orgData = await this.orgDataService.findOrg(tanggal);

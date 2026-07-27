@@ -95,7 +95,7 @@ export class RealtimeGateway
 
       const rawToken =
         (client.handshake.auth?.token as string | undefined) ||
-        (client.handshake.headers?.authorization as string | undefined);
+        client.handshake.headers?.authorization;
 
       if (!rawToken) {
         this.logger.warn(`Connection rejected (no token): ${client.id}`);
@@ -117,7 +117,7 @@ export class RealtimeGateway
         return;
       }
 
-      (client.data as any).user = payload;
+      client.data.user = payload;
 
       const positionRoom = `position:${payload.position}`;
       client.join(positionRoom);
@@ -142,7 +142,7 @@ export class RealtimeGateway
   }
 
   async handleDisconnect(client: Socket) {
-    const u = (client.data as any)?.user as JwtPayload | undefined;
+    const u = client.data?.user as JwtPayload | undefined;
     this.logger.log(
       `❎ Disconnected: ${client.id} ${u ? `position:${u.position} user:${u.persnum}` : ''}`,
     );
@@ -155,10 +155,13 @@ export class RealtimeGateway
 
   @SubscribeMessage('realtime:subscribe')
   async onSubscribe(@ConnectedSocket() client: Socket) {
-    const user = (client.data as any)?.user as JwtPayload | undefined;
+    const user = client.data?.user as JwtPayload | undefined;
     if (!user?.position) return { status: 'error', message: 'No position' };
     // Fetch + emit initial summary ke client ini
-    const summary = await this.syncService.sendInitialSummary(user.position, user.persnum);
+    const summary = await this.syncService.sendInitialSummary(
+      user.position,
+      user.persnum,
+    );
     if (summary) {
       // Emit hanya ke client ini, bukan ke seluruh room
       client.emit('realtime:summary', summary);
