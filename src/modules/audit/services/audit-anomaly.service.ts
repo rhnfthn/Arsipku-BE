@@ -113,7 +113,8 @@ export class AuditAnomalyService {
     )
       return;
 
-    const since = new Date(Date.now() - 10 * 60 * 1000); // 10 menit
+    // Spec: login gagal ≥ 3 kali dalam 5 menit dari IP/persnum sama → CRITICAL
+    const since = new Date(Date.now() - 5 * 60 * 1000); // 5 menit
     const query: any = {
       action: AuditAction.LOGIN,
       status: AuditStatus.FAILED,
@@ -129,8 +130,8 @@ export class AuditAnomalyService {
     }
 
     const count = await this.trailModel.countDocuments(query).exec();
-    if (count >= 5) {
-      // Cek apakah sudah ada anomali untuk pattern ini dalam 10 menit
+    if (count >= 3) {
+      // Anti-duplicate: cek apakah sudah ada anomali untuk pattern ini dalam 5 menit
       const existingQuery: any = {
         anomalyType: AnomalyType.LOGIN_BRUTE_FORCE,
         createdAt: { $gt: since },
@@ -143,8 +144,8 @@ export class AuditAnomalyService {
       if (!existing) {
         await this.create({
           anomalyType: AnomalyType.LOGIN_BRUTE_FORCE,
-          severity: AnomalySeverity.HIGH,
-          title: `Brute force login terdeteksi (${count}x gagal dalam 10 menit)`,
+          severity: AnomalySeverity.CRITICAL,
+          title: `Brute force login terdeteksi (${count}x gagal dalam 5 menit)`,
           description: `Percobaan login gagal berulang terdeteksi${
             trail.userName ? ` untuk user ${trail.userName}` : ''
           }${trail.ipAddress ? ` dari IP ${trail.ipAddress}` : ''}.`,
@@ -155,7 +156,7 @@ export class AuditAnomalyService {
           ipAddress: trail.ipAddress,
           relatedModule: AuditModule.AUTH,
           auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
-          evidence: { count, windowMinutes: 10 },
+          evidence: { count, windowMinutes: 5 },
         });
         this.logger.warn(
           `Anomali LOGIN_BRUTE_FORCE terdeteksi (count=${count})`,
@@ -167,6 +168,7 @@ export class AuditAnomalyService {
   private async detectAccessDeniedRepeated(trail: AuditTrail): Promise<void> {
     if (trail.status !== AuditStatus.DENIED || !trail.persnum) return;
 
+    // Spec: response 403 ≥ 3 kali dalam 10 menit → HIGH
     const since = new Date(Date.now() - 10 * 60 * 1000);
     const count = await this.trailModel
       .countDocuments({
@@ -176,7 +178,7 @@ export class AuditAnomalyService {
       })
       .exec();
 
-    if (count >= 5) {
+    if (count >= 3) {
       const existing = await this.model
         .findOne({
           anomalyType: AnomalyType.ACCESS_DENIED_REPEATED,
@@ -188,7 +190,7 @@ export class AuditAnomalyService {
       if (!existing) {
         await this.create({
           anomalyType: AnomalyType.ACCESS_DENIED_REPEATED,
-          severity: AnomalySeverity.MEDIUM,
+          severity: AnomalySeverity.HIGH,
           title: `Akses ditolak berulang (${count}x dalam 10 menit)`,
           description: `User ${trail.userName ?? trail.persnum} mencoba mengakses resource tanpa izin berulang kali.`,
           userId: trail.userId,
@@ -209,12 +211,25 @@ export class AuditAnomalyService {
 
   private async detectSensitiveDelete(trail: AuditTrail): Promise<void> {
     if (trail.action !== AuditAction.DELETE) return;
+    // Spec: DELETE data master/naskah/usulan/RBAC → HIGH
     const sensitiveModules = [
       AuditModule.RBAC,
       AuditModule.CONFIG,
       AuditModule.MASTER_DATA,
+      AuditModule.NASKAH,
+      AuditModule.USULAN_PINDAH,
     ];
     if (!sensitiveModules.includes(trail.module as AuditModule)) return;
+
+    // Anti-duplicate: jangan buat anomali duplikat untuk trail yang sama
+    const trailId = (trail as any)._id?.toString?.() ?? (trail as any).id;
+    const existing = await this.model
+      .findOne({
+        auditTrailId: trailId,
+        anomalyType: AnomalyType.SENSITIVE_DELETE,
+      })
+      .exec();
+    if (existing) return;
 
     await this.create({
       anomalyType: AnomalyType.SENSITIVE_DELETE,
@@ -231,7 +246,7 @@ export class AuditAnomalyService {
       relatedModule: trail.module as string,
       relatedEntityType: trail.entityType,
       relatedEntityId: trail.entityId,
-      auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
+      auditTrailId: trailId,
       evidence: {
         action: trail.action,
         module: trail.module,
@@ -252,6 +267,13 @@ export class AuditAnomalyService {
     ];
     if (!changeActions.includes(trail.action as AuditAction)) return;
 
+    // Anti-duplicate: jangan buat anomali duplikat untuk trail yang sama
+    const trailId = (trail as any)._id?.toString?.() ?? (trail as any).id;
+    const existing = await this.model
+      .findOne({ auditTrailId: trailId, anomalyType: AnomalyType.RBAC_CHANGE })
+      .exec();
+    if (existing) return;
+
     await this.create({
       anomalyType: AnomalyType.RBAC_CHANGE,
       severity: AnomalySeverity.MEDIUM,
@@ -267,7 +289,7 @@ export class AuditAnomalyService {
       relatedModule: AuditModule.RBAC,
       relatedEntityType: trail.entityType,
       relatedEntityId: trail.entityId,
-      auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
+      auditTrailId: trailId,
       evidence: {
         action: trail.action,
         module: trail.module,
@@ -280,7 +302,8 @@ export class AuditAnomalyService {
   private async detectMassDownload(trail: AuditTrail): Promise<void> {
     if (trail.action !== AuditAction.DOWNLOAD || !trail.persnum) return;
 
-    const since = new Date(Date.now() - 5 * 60 * 1000); // 5 menit
+    // Spec: download ≥ 50 file dalam 1 jam → MEDIUM
+    const since = new Date(Date.now() - 60 * 60 * 1000); // 1 jam
     const count = await this.trailModel
       .countDocuments({
         action: AuditAction.DOWNLOAD,
@@ -289,7 +312,7 @@ export class AuditAnomalyService {
       })
       .exec();
 
-    if (count >= 10) {
+    if (count >= 50) {
       const existing = await this.model
         .findOne({
           anomalyType: AnomalyType.MASS_DOWNLOAD,
@@ -302,7 +325,7 @@ export class AuditAnomalyService {
         await this.create({
           anomalyType: AnomalyType.MASS_DOWNLOAD,
           severity: AnomalySeverity.MEDIUM,
-          title: `Mass download terdeteksi (${count}x dalam 5 menit)`,
+          title: `Mass download terdeteksi (${count}x dalam 1 jam)`,
           description: `User ${trail.userName ?? trail.persnum} melakukan download berjumlah besar dalam waktu singkat.`,
           userId: trail.userId,
           persnum: trail.persnum,
@@ -311,7 +334,7 @@ export class AuditAnomalyService {
           ipAddress: trail.ipAddress,
           relatedModule: trail.module as string,
           auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
-          evidence: { count, windowMinutes: 5 },
+          evidence: { count, windowMinutes: 60 },
         });
         this.logger.warn(`Anomali MASS_DOWNLOAD terdeteksi (count=${count})`);
       }
@@ -321,8 +344,8 @@ export class AuditAnomalyService {
   private async detectOffHoursAccess(trail: AuditTrail): Promise<void> {
     if (!trail.createdAt) return;
     const hour = new Date(trail.createdAt).getHours();
-    // WIB: di luar 06:00 - 20:00
-    if (hour >= 6 && hour < 20) return;
+    // Spec: akses antara 22:00 - 06:00 → LOW
+    if (hour >= 6 && hour < 22) return;
 
     const sensitiveActions = [
       AuditAction.DELETE,
@@ -330,6 +353,16 @@ export class AuditAnomalyService {
       AuditAction.UPDATE,
     ];
     if (!sensitiveActions.includes(trail.action as AuditAction)) return;
+
+    // Anti-duplicate: jangan buat anomali duplikat untuk trail yang sama
+    const trailId = (trail as any)._id?.toString?.() ?? (trail as any).id;
+    const existing = await this.model
+      .findOne({
+        auditTrailId: trailId,
+        anomalyType: AnomalyType.OFF_HOURS_ACCESS,
+      })
+      .exec();
+    if (existing) return;
 
     await this.create({
       anomalyType: AnomalyType.OFF_HOURS_ACCESS,
@@ -342,7 +375,7 @@ export class AuditAnomalyService {
       userRole: trail.userRole,
       ipAddress: trail.ipAddress,
       relatedModule: trail.module as string,
-      auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
+      auditTrailId: trailId,
       evidence: { hour, action: trail.action },
     });
     this.logger.warn(`Anomali OFF_HOURS_ACCESS terdeteksi (hour=${hour})`);
@@ -359,9 +392,19 @@ export class AuditAnomalyService {
     ];
     if (!changeActions.includes(trail.action as AuditAction)) return;
 
+    // Anti-duplicate: jangan buat anomali duplikat untuk trail yang sama
+    const trailId = (trail as any)._id?.toString?.() ?? (trail as any).id;
+    const existing = await this.model
+      .findOne({
+        auditTrailId: trailId,
+        anomalyType: AnomalyType.UNAUTHORIZED_STATUS_CHANGE,
+      })
+      .exec();
+    if (existing) return;
+
     await this.create({
       anomalyType: AnomalyType.UNAUTHORIZED_STATUS_CHANGE,
-      severity: AnomalySeverity.HIGH,
+      severity: AnomalySeverity.CRITICAL,
       title: `Upaya perubahan tidak sah (${trail.action})`,
       description: `User ${trail.userName ?? trail.persnum} mencoba ${trail.action} pada modul ${trail.module} namun ditolak.`,
       userId: trail.userId,
@@ -370,7 +413,7 @@ export class AuditAnomalyService {
       userRole: trail.userRole,
       ipAddress: trail.ipAddress,
       relatedModule: trail.module as string,
-      auditTrailId: (trail as any)._id?.toString?.() ?? (trail as any).id,
+      auditTrailId: trailId,
       evidence: { action: trail.action, status: trail.status },
     });
     this.logger.warn(
@@ -495,6 +538,15 @@ export class AuditAnomalyService {
       .sort({ createdAt: -1 })
       .limit(limit)
       .exec();
+  }
+
+  /**
+   * Jumlah anomali yang belum dibaca (status NEW).
+   * Dipakai oleh endpoint /audit/anomalies/unread-count untuk badge
+   * notifikasi topbar Super Admin.
+   */
+  async getUnreadCount(): Promise<number> {
+    return this.model.countDocuments({ status: AnomalyStatus.NEW }).exec();
   }
 
   /**
