@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { captureAuditError } from '../../config/sentry.config';
 
 /**
  * Global All Exceptions Filter
@@ -35,6 +36,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       `${method} ${url} → ${status} ${message}`,
       exception instanceof Error ? exception.stack : undefined,
     );
+
+    // Capture ke Sentry (no-op jika SENTRY_DSN tidak di-set)
+    captureAuditError(exception, {
+      module: 'global',
+      controller: 'AllExceptionsFilter',
+      endpoint: `${method} ${url}`,
+      extra: {
+        statusCode: status,
+        message,
+      },
+    });
 
     response.status(status).json({
       success: false,
