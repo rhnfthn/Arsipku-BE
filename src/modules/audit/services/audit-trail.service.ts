@@ -270,8 +270,7 @@ export class AuditTrailService {
 
     // Strict: hanya boleh lihat log milik sendiri
     const isOwner =
-      (userId && doc.userId === userId) ||
-      (persnum && doc.persnum === persnum);
+      (userId && doc.userId === userId) || (persnum && doc.persnum === persnum);
     if (!isOwner) return null;
 
     return {
@@ -455,7 +454,10 @@ export class AuditTrailService {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const todayQuery = { ...baseQuery, createdAt: { $gte: todayStart, $lte: todayEnd } };
+    const todayQuery = {
+      ...baseQuery,
+      createdAt: { $gte: todayStart, $lte: todayEnd },
+    };
     const todayCount = await this.model.countDocuments(todayQuery).exec();
 
     const errorQuery = {
