@@ -100,6 +100,10 @@ export class Berkas {
   @Column('varchar', { name: 'dokumen_pendukung', length: 255, nullable: true })
   dokumenPendukung: string;
 
+  // Catatan/usulan pengusul saat mengajukan penutupan berkas
+  @Column('text', { name: 'catatan_penutupan', nullable: true })
+  catatanPenutupan: string | null;
+
   @Column('int', { name: 'unit_pencipta_id', nullable: true })
   unitPenciptaId: number;
 

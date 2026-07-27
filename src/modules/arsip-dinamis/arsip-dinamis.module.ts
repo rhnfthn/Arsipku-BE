@@ -5,6 +5,7 @@ import { KlasifikasiEntity } from '../klasifikasi/entities/klasifikasi.entity';
 import { BerkasNaskah, BerkasVerifikasi, BerkasRiwayatRetensi } from './entities';
 import { ArsipDinamisController } from './controllers';
 import { ArsipDinamisService } from './services';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ArsipDinamisService } from './services';
       BerkasVerifikasi,
       BerkasRiwayatRetensi,
     ]),
+    OrgDataModule,
   ],
   controllers: [ArsipDinamisController],
   providers: [ArsipDinamisService],
