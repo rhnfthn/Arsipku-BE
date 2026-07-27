@@ -140,7 +140,10 @@ export class UsulanAksesBerkasService {
   // ── Endpoint: GET /verifikator ─────────────────────────────────
 
   async getVerifikator(userOrgId: number): Promise<any[]> {
-    return this.getManagerialInDivisi(userOrgId);
+    this.logger.log(`getVerifikator called with userOrgId=${userOrgId} (type: ${typeof userOrgId})`);
+    const result = await this.getManagerialInDivisi(userOrgId);
+    this.logger.log(`getVerifikator result: ${result.length} managerial found for org ${userOrgId}`);
+    return result;
   }
 
   // ── CREATE: Buat usulan baru ───────────────────────────────────
@@ -239,9 +242,10 @@ export class UsulanAksesBerkasService {
     const qb = this.usulanRepo.createQueryBuilder('u');
 
     // Scope: user bisa lihat usulan yang dia buat ATAU yang masuk ke divisinya sebagai pemberi
-    // ATAU yang dia jadi verifikator
+    // ATAU yang dia jadi verifikator (pengusul atau pemberi)
+    // verifikatorPengusul & verifikatorPemberi adalah JSON column, pakai JSON_CONTAINS
     qb.where(
-      '(u.pengusulPersnum = :userPersnum OR u.divisiPemberiId = :userOrgId)',
+      '(u.pengusulPersnum = :userPersnum OR u.divisiPemberiId = :userOrgId OR JSON_CONTAINS(u.verifikatorPengusul, JSON_OBJECT(\'persnum\', :userPersnum)) OR JSON_CONTAINS(u.verifikatorPemberi, JSON_OBJECT(\'persnum\', :userPersnum)))',
       { userPersnum, userOrgId },
     );
 

@@ -211,6 +211,9 @@ export class PermissionGuard implements CanActivate {
     );
 
     if (!hasPermission) {
+      this.logger.warn(
+        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map(p => p.resource + ':' + p.actions.join(',')))}`,
+      );
       throw new ForbiddenException(
         `Access denied. Required: ${permission.resource}.${permission.action}`,
       );
