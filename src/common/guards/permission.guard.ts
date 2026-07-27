@@ -157,8 +157,18 @@ export class PermissionGuard implements CanActivate {
     // delegations) — always authorized by the delegate's OWN perms, never the
     // delegator's, and never VI/SE-stripped. Otherwise a delegated user could not
     // switch back to their original role (locked into the delegation).
+    //
+    // `usulan-akses-berkas` resource: SE (Sekretaris yang didelegasikan) adalah
+    // aktor utama fitur ini. Permission harus dari delegate's OWN persnum (bukan
+    // delegator's), karena delegator (EVP/VP/AVP) mungkin tidak punya role di
+    // rbac_user_role. Delegate (SE) sudah punya role USER/ADMIN yang include
+    // usulan-akses-berkas permissions.
     const isDelegasiResource = permission.resource === 'delegasi';
-    const persnum: number = isDelegasiResource
+    const isUsulanAksesBerkasResource =
+      permission.resource === 'usulan-akses-berkas';
+    const useOwnPersnum =
+      isDelegasiResource || isUsulanAksesBerkasResource;
+    const persnum: number = useOwnPersnum
       ? user.persnum
       : computeEffectivePersnum(user);
     if (!persnum || typeof persnum !== 'number') {
@@ -167,10 +177,10 @@ export class PermissionGuard implements CanActivate {
 
     // Ambil permission live dari DB (dengan cache).
     // Delegated actors on business resources: fail-closed (no JWT fallback).
-    // delegasi control plane (own persnum): use the delegate's own JWT fallback.
+    // delegasi control plane & usulan-akses-berkas (own persnum): use the delegate's own JWT fallback.
     const isActorDelegated = isDelegatedActor(user);
     const jwtFallback =
-      isActorDelegated && !isDelegasiResource
+      isActorDelegated && !useOwnPersnum
         ? undefined
         : Array.isArray(user.activePermissions)
           ? user.activePermissions
