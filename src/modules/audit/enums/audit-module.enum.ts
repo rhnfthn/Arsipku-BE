@@ -1,0 +1,16 @@
+export enum AuditModule {
+  AUTH = 'AUTH',
+  USER = 'USER',
+  RBAC = 'RBAC',
+  NASKAH = 'NASKAH',
+  BERKAS = 'BERKAS',
+  DISPOSISI = 'DISPOSISI',
+  DELEGASI = 'DELEGASI',
+  DIGSIG = 'DIGSIG',
+  MAIL = 'MAIL',
+  MASTER_DATA = 'MASTER_DATA',
+  CONFIG = 'CONFIG',
+  USULAN_PINDAH = 'USULAN_PINDAH',
+  FAQ = 'FAQ',
+  AUDIT = 'AUDIT',
+}

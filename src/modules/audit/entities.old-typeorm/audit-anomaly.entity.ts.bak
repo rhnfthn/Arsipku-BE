@@ -1,0 +1,129 @@
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  Index,
+  BeforeInsert,
+} from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { AnomalySeverity } from '../enums/anomaly-severity.enum';
+import { AnomalyStatus } from '../enums/anomaly-status.enum';
+import { AnomalyType } from '../enums/anomaly-type.enum';
+
+/**
+ * Entity untuk tabel `audit_anomalies` di database `arsipku_audit` (terpisah).
+ *
+ * Kolom sama persis dengan struktur tabel existing:
+ *  - id char(36) PK
+ *  - created_at, resolved_at timestamp
+ *  - audit_trail_id char(36) (relasi longgar, tanpa FK)
+ *  - anomaly_type varchar(100)
+ *  - severity enum('LOW','MEDIUM','HIGH','CRITICAL')
+ *  - title varchar(255), description text
+ *  - user_id, persnum, user_name, user_role, ip_address
+ *  - related_module, related_entity_type, related_entity_id
+ *  - evidence text (JSON)
+ *  - status enum('NEW','REVIEWING','RESOLVED','IGNORED') default NEW
+ *  - handled_by char(36), handling_note text
+ *  - notification_sent tinyint(1) default 0
+ *  - notification_sent_at timestamp
+ */
+@Entity('audit_anomalies')
+export class AuditAnomalyEntity {
+  @PrimaryColumn('char', { length: 36 })
+  id: string;
+
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = uuidv4();
+    }
+  }
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  createdAt: Date;
+
+  @Column({ name: 'resolved_at', type: 'timestamp', nullable: true })
+  resolvedAt: Date | null;
+
+  @Column({ name: 'audit_trail_id', type: 'char', length: 36, nullable: true })
+  auditTrailId: string | null;
+
+  @Column({ name: 'anomaly_type', type: 'varchar', length: 100 })
+  anomalyType: AnomalyType | string;
+
+  @Index('idx_anomaly_severity')
+  @Column({ type: 'enum', enum: AnomalySeverity })
+  severity: AnomalySeverity;
+
+  @Column({ type: 'varchar', length: 255 })
+  title: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @Index('idx_anomaly_user_id')
+  @Column({ name: 'user_id', type: 'char', length: 36, nullable: true })
+  userId: string | null;
+
+  @Index('idx_anomaly_persnum')
+  @Column({ name: 'persnum', type: 'int', nullable: true })
+  persnum: number | null;
+
+  @Column({ name: 'user_name', type: 'varchar', length: 255, nullable: true })
+  userName: string | null;
+
+  @Column({ name: 'user_role', type: 'varchar', length: 100, nullable: true })
+  userRole: string | null;
+
+  @Column({ name: 'ip_address', type: 'varchar', length: 45, nullable: true })
+  ipAddress: string | null;
+
+  @Column({ name: 'related_module', type: 'varchar', length: 100, nullable: true })
+  relatedModule: string | null;
+
+  @Column({ name: 'related_entity_type', type: 'varchar', length: 100, nullable: true })
+  relatedEntityType: string | null;
+
+  @Column({ name: 'related_entity_id', type: 'varchar', length: 255, nullable: true })
+  relatedEntityId: string | null;
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: {
+      to: (value: any) => (value !== null && value !== undefined ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  evidence: any;
+
+  @Index('idx_anomaly_status')
+  @Column({
+    type: 'enum',
+    enum: AnomalyStatus,
+    default: AnomalyStatus.NEW,
+  })
+  status: AnomalyStatus;
+
+  @Column({ name: 'handled_by', type: 'char', length: 36, nullable: true })
+  handledBy: string | null;
+
+  @Column({ name: 'handling_note', type: 'text', nullable: true })
+  handlingNote: string | null;
+
+  @Column({
+    name: 'notification_sent',
+    type: 'tinyint',
+    default: 0,
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
+  notificationSent: boolean;
+
+  @Column({ name: 'notification_sent_at', type: 'timestamp', nullable: true })
+  notificationSentAt: Date | null;
+}
