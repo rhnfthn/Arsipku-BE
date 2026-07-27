@@ -77,10 +77,8 @@ export class AuditInterceptor implements NestInterceptor {
     /\/stats$/,
     /\/health$/,
     /\/matrix/,
-    /\/permissions$/,
-    /\/resources$/,
-    /\/roles$/,
-    /\/users$/,
+    /\/roles-batch$/,
+    /\/switch-role$/,
     /\/config$/,
     /\/message$/,
     /\/digsig$/,
@@ -126,7 +124,11 @@ export class AuditInterceptor implements NestInterceptor {
   ];
 
   // Mapping prefix URL -> nama tabel di MySQL untuk pre-fetch old data
-  private readonly pathTableMap: { prefix: string; table: string; idColumn?: string }[] = [
+  private readonly pathTableMap: {
+    prefix: string;
+    table: string;
+    idColumn?: string;
+  }[] = [
     { prefix: '/pedoman', table: 'pedoman', idColumn: 'id' },
     { prefix: '/faq', table: 'faq', idColumn: 'id' },
     { prefix: '/faq-kategori', table: 'faq_kategori', idColumn: 'id' },
@@ -152,7 +154,10 @@ export class AuditInterceptor implements NestInterceptor {
     @Optional() private readonly dataSource?: DataSource,
   ) {}
 
-  async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
+  async intercept(
+    context: ExecutionContext,
+    next: CallHandler,
+  ): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest<Request>();
     const path = request.path || request.url || '';
     const method = request.method;
@@ -340,7 +345,10 @@ export class AuditInterceptor implements NestInterceptor {
       sentryIssueId: string | null;
       sentryUrl: string | null;
     } | null = null;
-    if (err && (status === AuditStatus.FAILED || status === AuditStatus.ERROR)) {
+    if (
+      err &&
+      (status === AuditStatus.FAILED || status === AuditStatus.ERROR)
+    ) {
       const captured = captureAuditErrorWithEventId(err, {
         module: options.module,
         method: options.action,
@@ -383,7 +391,8 @@ export class AuditInterceptor implements NestInterceptor {
       AuditAction.CONFIG_CHANGE,
     ];
     const shouldCaptureOld =
-      options.captureDiff || actionsWithOldValue.includes(options.action as AuditAction);
+      options.captureDiff ||
+      actionsWithOldValue.includes(options.action as AuditAction);
     const shouldCaptureNew =
       options.captureDiff || options.action !== AuditAction.DELETE;
 
@@ -411,7 +420,8 @@ export class AuditInterceptor implements NestInterceptor {
     //            2) options.captureDiff → tryExtractOld (dari response)
     //            3) null
     const extractedOldValue = shouldCaptureOld
-      ? (preCapturedOld ?? (options.captureDiff ? this.tryExtractOld(response) : null))
+      ? (preCapturedOld ??
+        (options.captureDiff ? this.tryExtractOld(response) : null))
       : null;
 
     // ─── Enrich user info dari response jika request.user kosong ──────────
@@ -419,23 +429,36 @@ export class AuditInterceptor implements NestInterceptor {
     // ter-set di request.user, sehingga field user kosong. Ambil dari response
     // body yang berisi data user hasil autentikasi.
     const responseUser = response?.user ?? response?.data?.user ?? null;
-    const enrichedUser = user ?? (responseUser ? {
-      id: responseUser.id ?? responseUser.userId ?? null,
-      persnum: responseUser.persnum ?? null,
-      nama: responseUser.nama ?? responseUser.name ?? responseUser.userName ?? null,
-      email: responseUser.email ?? null,
-      activeRole: responseUser.activeRole ?? null,
-      role: responseUser.role ?? null,
-      position: responseUser.position ?? responseUser.idPosition ?? null,
-      organization: responseUser.organization ?? responseUser.unitKerja ?? null,
-    } : null);
+    const enrichedUser =
+      user ??
+      (responseUser
+        ? {
+            id: responseUser.id ?? responseUser.userId ?? null,
+            persnum: responseUser.persnum ?? null,
+            nama:
+              responseUser.nama ??
+              responseUser.name ??
+              responseUser.userName ??
+              null,
+            email: responseUser.email ?? null,
+            activeRole: responseUser.activeRole ?? null,
+            role: responseUser.role ?? null,
+            position: responseUser.position ?? responseUser.idPosition ?? null,
+            organization:
+              responseUser.organization ?? responseUser.unitKerja ?? null,
+          }
+        : null);
 
     const dto: CreateAuditTrailDto = {
       action: options.action,
       module: options.module,
       userId: enrichedUser?.id ?? enrichedUser?.userId ?? null,
       persnum: enrichedUser?.persnum ?? null,
-      userName: enrichedUser?.nama ?? enrichedUser?.name ?? enrichedUser?.userName ?? null,
+      userName:
+        enrichedUser?.nama ??
+        enrichedUser?.name ??
+        enrichedUser?.userName ??
+        null,
       userEmail: enrichedUser?.email ?? null,
       userRole: enrichedUser?.activeRole?.name ?? enrichedUser?.role ?? null,
       idPosition: enrichedUser?.position ?? enrichedUser?.idPosition ?? null,
@@ -632,7 +655,7 @@ export class AuditInterceptor implements NestInterceptor {
       meta.sentryUrl = sentryInfo?.sentryUrl ?? null;
       meta.errorMessage = errorMessage;
       meta.stackTrace =
-        err instanceof Error ? err.stack ?? null : err?.stack ?? null;
+        err instanceof Error ? (err.stack ?? null) : (err?.stack ?? null);
       meta.endpoint = `${method} ${path}`;
     }
 
@@ -736,7 +759,11 @@ export class AuditInterceptor implements NestInterceptor {
     if (segments.length < 2) return null;
     const lastSegment = segments[segments.length - 1];
     // Harus terlihat seperti UUID
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lastSegment)) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        lastSegment,
+      )
+    ) {
       return null;
     }
 
@@ -751,7 +778,9 @@ export class AuditInterceptor implements NestInterceptor {
       }
       return null;
     } catch (err) {
-      this.logger.warn(`preFetchOldData failed for ${mapping.table}: ${err?.message ?? err}`);
+      this.logger.warn(
+        `preFetchOldData failed for ${mapping.table}: ${err?.message ?? err}`,
+      );
       return null;
     }
   }

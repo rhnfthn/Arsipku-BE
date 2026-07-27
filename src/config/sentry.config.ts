@@ -46,10 +46,7 @@ export function initSentry(): void {
     profilesSampleRate: Number.isNaN(profilesSampleRate)
       ? 1.0
       : profilesSampleRate,
-    integrations: [
-      Sentry.httpIntegration(),
-      nodeProfilingIntegration(),
-    ],
+    integrations: [Sentry.httpIntegration(), nodeProfilingIntegration()],
     // Scrub field sensitif sebelum event dikirim ke Sentry
     beforeSend(event: any): any {
       return scrubSentryEvent(event);
@@ -87,11 +84,14 @@ function scrubSentryEvent(event: any): any {
   const scrubValue = (val: unknown): unknown => {
     if (val === null || val === undefined) return val;
     if (typeof val === 'string') return '[REDACTED]';
-    if (typeof val === 'object') return scrubObject(val as Record<string, unknown>);
+    if (typeof val === 'object')
+      return scrubObject(val as Record<string, unknown>);
     return val;
   };
 
-  const scrubObject = (obj: Record<string, unknown>): Record<string, unknown> => {
+  const scrubObject = (
+    obj: Record<string, unknown>,
+  ): Record<string, unknown> => {
     const result: Record<string, unknown> = {};
     for (const key of Object.keys(obj)) {
       const lowerKey = key.toLowerCase();

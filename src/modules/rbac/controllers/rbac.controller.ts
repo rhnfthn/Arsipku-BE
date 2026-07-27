@@ -24,6 +24,9 @@ import { SwitchRoleDto } from '../dto/switch-role.dto';
 import { JwtService } from '@nestjs/jwt';
 import { RoleName } from '../../../common/enums/role-name.enum';
 import { RoleEntity } from '../entities';
+import { AuditLog } from '../../audit/decorators/audit-log.decorator';
+import { AuditAction } from '../../audit/enums/audit-action.enum';
+import { AuditModule } from '../../audit/enums/audit-module.enum';
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
@@ -80,6 +83,12 @@ export class RbacController {
   @Post('roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'create')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.CREATE,
+    entityType: 'role',
+    captureDiff: true,
+  })
   async createRole(@Body() dto: CreateRoleDto) {
     const role = await this.rbacService.createRole(dto);
     return { success: true, data: role };
@@ -88,6 +97,13 @@ export class RbacController {
   @Patch('roles/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'update')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.UPDATE,
+    entityType: 'role',
+    entityIdParam: 'id',
+    captureDiff: true,
+  })
   async updateRole(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
     const role = await this.rbacService.updateRole(id, dto);
     return { success: true, data: role };
@@ -96,6 +112,12 @@ export class RbacController {
   @Delete('roles/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'delete')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.DELETE,
+    entityType: 'role',
+    entityIdParam: 'id',
+  })
   async deleteRole(@Param('id') id: string) {
     await this.rbacService.deleteRole(id);
     return { success: true, message: 'Role deleted' };
@@ -199,6 +221,14 @@ export class RbacController {
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.UPDATE,
+    entityType: 'role',
+    entityIdParam: 'id',
+    subEntityType: 'permission',
+    captureDiff: true,
+  })
   async assignPermissions(
     @Param('id') id: string,
     @Body() dto: AssignPermissionDto,
@@ -284,6 +314,13 @@ export class RbacController {
   @Post('users/:persnum/roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('user', 'assign-role')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.CREATE,
+    entityType: 'user',
+    entityIdParam: 'persnum',
+    subEntityType: 'role',
+  })
   async assignRoleToUser(
     @Param('persnum', ParseIntPipe) persnum: number,
     @Body() dto: AssignRoleDto,
@@ -310,6 +347,14 @@ export class RbacController {
   @Delete('users/:persnum/roles/:roleId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('user', 'assign-role')
+  @AuditLog({
+    module: AuditModule.RBAC,
+    action: AuditAction.DELETE,
+    entityType: 'user',
+    entityIdParam: 'persnum',
+    subEntityType: 'role',
+    subEntityIdParam: 'roleId',
+  })
   async removeRoleFromUser(
     @Param('persnum', ParseIntPipe) persnum: number,
     @Param('roleId') roleId: string,
