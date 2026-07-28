@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, EntityManager } from 'typeorm';
 import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
 import { BerkasNaskah } from '../entities/berkas-naskah.entity';
 import { BerkasVerifikasi } from '../entities/berkas-verifikasi.entity';
@@ -65,13 +65,19 @@ export class ArsipDinamisService {
 
   // ── Helper: Generate Kode Berkas ────────────────────────────────
 
-  private async generateKodeBerkas(): Promise<string> {
+  // ponytail: gap-lock range ARK-YYYY-% via FOR UPDATE on the unique index
+  // to serialize concurrent createBerkas; switch to a counter table if
+  // create throughput ever matters.
+  private async generateKodeBerkas(manager: EntityManager): Promise<string> {
     const year = new Date().getFullYear();
-    const count = await this.berkasRepository
+    const rows = await manager
+      .getRepository(Berkas)
       .createQueryBuilder('b')
+      .select('b.id', 'id')
       .where('b.kode_berkas LIKE :pattern', { pattern: `ARK-${year}-%` })
-      .getCount();
-    const seq = String(count + 1).padStart(4, '0');
+      .setLock('pessimistic_write')
+      .getRawMany();
+    const seq = String(rows.length + 1).padStart(4, '0');
     return `ARK-${year}-${seq}`;
   }
 
@@ -125,7 +131,6 @@ export class ArsipDinamisService {
       }
     }
 
-    const kodeBerkas = await this.generateKodeBerkas();
     const tanggalDibuat = new Date().toISOString().split('T')[0];
 
     // Hitung tanggal retensi-end di saat create bila dasar "Sejak Berkas Dibuat".
@@ -148,32 +153,37 @@ export class ArsipDinamisService {
       tanggalRetensiInaktifBerakhir = inaktifBerakhir;
     }
 
-    const berkas = this.berkasRepository.create({
-      klasifikasi: dto.klasifikasi,
-      klasifikasiTeks,
-      judulBerkas: dto.judul_berkas,
-      hitungWaktuRetensiDari: dto.hitung_waktu_retensi_dari,
-      tindakanPenyusutanAkhir: dto.tindakan_penyusutan_akhir,
-      lokasi: dto.lokasi,
-      isiRingkas: dto.isi_ringkas,
-      kategoriBerkas: dto.kategori_berkas,
-      retensiAktifTahun: retensiAktif,
-      retensiInaktifTahun: retensiInaktif,
-      fotoLokasiFisik: dto.foto_lokasi_fisik,
-      dokumenPendukung: dto.dokumen_pendukung,
-      unitPenciptaId: dto.unit_pencipta_id,
-      picPersnum: dto.pic_persnum,
-      picPositionId: dto.pic_position_id,
-      kodeBerkas,
-      tanggalDibuat,
-      tanggalRetensiAktifBerakhir,
-      tanggalRetensiInaktifBerakhir,
-      status: StatusBerkas.DRAFT,
-      createdBy: userId,
-      updatedBy: userId,
-    });
+    // Generate kode + insert dalam transaksi yang sama agar FOR UPDATE
+    // pada generateKodeBerkas serialisasi terhadap createBerkas bersamaan.
+    return this.dataSource.transaction(async (manager) => {
+      const kodeBerkas = await this.generateKodeBerkas(manager);
+      const berkas = manager.create(Berkas, {
+        klasifikasi: dto.klasifikasi,
+        klasifikasiTeks,
+        judulBerkas: dto.judul_berkas,
+        hitungWaktuRetensiDari: dto.hitung_waktu_retensi_dari,
+        tindakanPenyusutanAkhir: dto.tindakan_penyusutan_akhir,
+        lokasi: dto.lokasi,
+        isiRingkas: dto.isi_ringkas,
+        kategoriBerkas: dto.kategori_berkas,
+        retensiAktifTahun: retensiAktif,
+        retensiInaktifTahun: retensiInaktif,
+        fotoLokasiFisik: dto.foto_lokasi_fisik,
+        dokumenPendukung: dto.dokumen_pendukung,
+        unitPenciptaId: dto.unit_pencipta_id,
+        picPersnum: dto.pic_persnum,
+        picPositionId: dto.pic_position_id,
+        kodeBerkas,
+        tanggalDibuat,
+        tanggalRetensiAktifBerakhir,
+        tanggalRetensiInaktifBerakhir,
+        status: StatusBerkas.DRAFT,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    return this.berkasRepository.save(berkas);
+      return manager.save(berkas);
+    });
   }
 
   async findAllBerkas(
@@ -234,9 +244,11 @@ export class ArsipDinamisService {
   }
 
   async findOneBerkas(id: string): Promise<Berkas> {
-    const berkas = await this.berkasRepository.findOne({
-      where: { id },
-    });
+    const berkas = await this.berkasRepository
+      .createQueryBuilder('b')
+      .where('b.id = :id', { id })
+      .andWhere('b.deleted_at IS NULL')
+      .getOne();
     if (!berkas) {
       throw new NotFoundException(`Berkas dengan ID ${id} tidak ditemukan`);
     }
@@ -362,13 +374,14 @@ export class ArsipDinamisService {
         userPersnum: String(userId),
       });
 
-    const [draft, aktif, menunggu, closed] = await Promise.all([
+    const [draft, aktif, menunggu, ditolak, closed] = await Promise.all([
       base.clone().andWhere('b.status = :s', { s: 'draft' }).getCount(),
       base.clone().andWhere('b.status = :s', { s: 'aktif' }).getCount(),
       base
         .clone()
         .andWhere('b.status = :s', { s: 'menunggu_verifikasi' })
         .getCount(),
+      base.clone().andWhere('b.status = :s', { s: 'ditolak' }).getCount(),
       base
         .clone()
         .andWhere('b.status = :s', { s: 'closed_retensi_aktif' })
@@ -379,6 +392,7 @@ export class ArsipDinamisService {
       draft,
       aktif,
       menunggu_verifikasi: menunggu,
+      ditolak,
       closed_retensi_aktif: closed,
     };
   }

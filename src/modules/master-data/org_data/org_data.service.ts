@@ -278,6 +278,81 @@ export class OrgDataService {
   }
 
   /**
+   * Atasan managerial dari sebuah positionId berdasarkan RANK jabatan
+   * (Direktur > EVP > VP > AVP), bukan tree ancestry. AVP/VP/EVP di org_data
+   * duduk sebagai posisi chief=1 di dalam Direktorat (level tree sama), jadi
+   * walk organization_parent hanya nemu kepala org Direktur — rank VP/EVP/AVP
+   * di-skip. Solusi: filter chief=1 di DIVISI+company sama dengan pengaju yang
+   * rank-nya lebih senior, sort rank ascending (AVP → VP → EVP → Direktur).
+   * Dipakai dropdown verifikator penutupan berkas.
+   */
+  async getAtasanManagerial(
+    positionId: number,
+    tgl?: string,
+  ): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+    tanggal: string;
+  }> {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    const orgData = await this.findOrg(tanggal);
+
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException(
+        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+      );
+    }
+
+    const barisData: any[] = orgData.position_json;
+    const current = barisData.find(
+      (x) => Number(x.position) === Number(positionId),
+    );
+    if (!current) {
+      throw new NotFoundException(
+        `Position ${positionId} tidak ditemukan dalam org_data tanggal ${tanggal}.`,
+      );
+    }
+
+    // Rank dari position_text: Direktur(4) > EVP(3) > VP(2) > AVP(1) > lain(0).
+    // Cek Direktur & EVP/AVP dulu sebelum VP (VP adalah substring EVP/AVP).
+    const rankOf = (text: any): number => {
+      const t = String(text || '').toUpperCase();
+      if (/DIREKTUR/.test(t)) return 4;
+      if (/\bEVP\b/.test(t)) return 3;
+      if (/\bAVP\b/.test(t)) return 1;
+      if (/\bVP\b/.test(t)) return 2;
+      return 0;
+    };
+
+    const signerDivisi = current.divisi_id ?? null;
+    const signerDir = Number(current.direktorat_id ?? null);
+    const signerCompany = Number(current.company ?? null);
+    const signerRank = rankOf(current.position_text);
+
+    const atasan = barisData
+      .filter((x) => {
+        if (Number(x.position) === Number(positionId)) return false;
+        if (x.chief !== 1) return false;
+        if (Number(x.company ?? null) !== signerCompany) return false;
+        const r = rankOf(x.position_text);
+        if (r === 0 || r <= signerRank) return false;
+        // Managerial di divisi sama (AVP/VP/EVP), ATAU Direktur (rank 4) di
+        // direktorat yang sama dengan pengaju meskipun beda divisi.
+        if ((x.divisi_id ?? null) === signerDivisi) return true;
+        return r === 4 && Number(x.direktorat_id ?? null) === signerDir;
+      })
+      .sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
+
+    return {
+      success: true,
+      data: atasan,
+      total: atasan.length,
+      tanggal,
+    };
+  }
+
+  /**
    * Find user by persnum from organization_json
    * Used for SSO authentication
    *

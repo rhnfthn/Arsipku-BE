@@ -252,6 +252,23 @@ export class OrgDataController {
     );
   }
 
+  /**
+   * GET /org-data/atasan-managerial/:positionId
+   * Atasan managerial berdasar RANK jabatan (Direktur > EVP > VP > AVP) di
+   * direktorat+company pengaju — AVP/VP/EVP/Direktur yang lebih senior dari
+   * pengaju. Untuk dropdown verifikator penutupan berkas.
+   */
+  @Get('atasan-managerial/:positionId')
+  async getAtasanManagerial(
+    @Param('positionId') positionId: string,
+    @Query() query: OrgFilterQueryDto,
+  ) {
+    return this.orgBuildService.getAtasanManagerial(
+      Number(positionId),
+      query.tgl,
+    );
+  }
+
   @Get()
   async getCombinedData(@Query() query: OrgFilterQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
