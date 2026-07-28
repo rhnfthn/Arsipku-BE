@@ -177,7 +177,7 @@ export class ArsipDinamisService {
         tanggalDibuat,
         tanggalRetensiAktifBerakhir,
         tanggalRetensiInaktifBerakhir,
-        status: StatusBerkas.DRAFT,
+        status: StatusBerkas.AKTIF,
         createdBy: userId,
         updatedBy: userId,
       });
@@ -310,12 +310,11 @@ export class ArsipDinamisService {
     const berkas = await this.findOneBerkas(id);
 
     if (
-      berkas.status !== StatusBerkas.DRAFT &&
       berkas.status !== StatusBerkas.AKTIF &&
       berkas.status !== StatusBerkas.DITOLAK
     ) {
       throw new BadRequestException(
-        'Berkas hanya bisa diubah saat status Draft, Aktif, atau Ditolak',
+        'Berkas hanya bisa diubah saat status Terbuka atau Verifikasi Ditolak Managerial',
       );
     }
 
@@ -352,23 +351,22 @@ export class ArsipDinamisService {
     return this.berkasRepository.save(berkas);
   }
 
-  async activateBerkas(id: string, userId: number): Promise<Berkas> {
-    const berkas = await this.findOneBerkas(id);
-    if (berkas.status !== StatusBerkas.DRAFT) {
-      throw new BadRequestException('Hanya berkas Draft yang bisa diaktifkan');
-    }
-    berkas.status = StatusBerkas.AKTIF;
-    berkas.updatedBy = userId;
-    return this.berkasRepository.save(berkas);
-  }
-
   async softDeleteBerkas(
     id: string,
     userId: number,
   ): Promise<{ message: string }> {
     const berkas = await this.findOneBerkas(id);
-    if (berkas.status !== StatusBerkas.DRAFT) {
-      throw new BadRequestException('Hanya berkas Draft yang bisa dihapus');
+    const berkasId = id;
+    if (berkas.status !== StatusBerkas.AKTIF) {
+      throw new BadRequestException('Hanya berkas Terbuka yang dapat dihapus');
+    }
+    const naskahCount = await this.berkasNaskahRepository.count({
+      where: { berkasId } as any,
+    });
+    if (naskahCount > 0) {
+      throw new BadRequestException(
+        'Berkas Terbuka yang masih memiliki naskah tidak dapat dihapus. Lepaskan naskah terlebih dahulu.',
+      );
     }
     berkas.deletedAt = new Date();
     berkas.updatedBy = userId;
