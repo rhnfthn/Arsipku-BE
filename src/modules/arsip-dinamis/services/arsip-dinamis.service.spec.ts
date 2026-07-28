@@ -228,3 +228,65 @@ describe('ArsipDinamisService - getPersetujuanSaya', () => {
     expect(dataSql).not.toContain('DROP');
   });
 });
+
+describe('ArsipDinamisService - softDeleteBerkas', () => {
+  let service: ArsipDinamisService;
+  let berkasRepo: any;
+  let berkasNaskahRepo: any;
+
+  beforeEach(async () => {
+    berkasRepo = { createQueryBuilder: jest.fn(), save: jest.fn() };
+    berkasNaskahRepo = { count: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: berkasNaskahRepo },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  // Mock findOneBerkas yang memakai createQueryBuilder('b').where().andWhere().getOne()
+  const stubBerkas = (status: string) => {
+    const berkas: any = { id: 'b1', status, deletedAt: null };
+    berkasRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(berkas),
+    });
+    return berkas;
+  };
+
+  it('menghapus berkas Terbuka (aktif) tanpa naskah → sukses', async () => {
+    const berkas = stubBerkas('aktif');
+    berkasNaskahRepo.count.mockResolvedValue(0);
+    const res = await service.softDeleteBerkas('b1', 99);
+    expect(res.message).toBe('Berkas berhasil dihapus');
+    expect(berkas.deletedAt).toBeInstanceOf(Date);
+    expect(berkasRepo.save).toHaveBeenCalledWith(berkas);
+  });
+
+  it('menolak hapus Terbuka yang masih punya naskah (cek naskah dipanggil)', async () => {
+    stubBerkas('aktif');
+    berkasNaskahRepo.count.mockResolvedValue(2);
+    await expect(service.softDeleteBerkas('b1', 99)).rejects.toThrow(/naskah/);
+    expect(berkasNaskahRepo.count).toHaveBeenCalled();
+    expect(berkasRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('menolak hapus berkas Menunggu Verifikasi / Tertutup (bukan Terbuka)', async () => {
+    stubBerkas('menunggu_verifikasi');
+    berkasNaskahRepo.count.mockResolvedValue(0);
+    await expect(service.softDeleteBerkas('b1', 99)).rejects.toThrow();
+    stubBerkas('closed_retensi_aktif');
+    await expect(service.softDeleteBerkas('b1', 99)).rejects.toThrow();
+    expect(berkasRepo.save).not.toHaveBeenCalled();
+  });
+});

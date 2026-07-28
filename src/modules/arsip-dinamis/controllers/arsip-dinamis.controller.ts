@@ -213,20 +213,6 @@ export class ArsipDinamisController {
   }
 
   /**
-   * Aktifkan berkas (Draft → Aktif)
-   * PATCH /arsip-dinamis/berkas/:id/activate
-   */
-  @Patch('berkas/:id/activate')
-  @PemeliharaanAccess('pemberkasan')
-  @AllowViewerWrite(PositionStatus.SE)
-  async activateBerkas(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
-    return this.arsipDinamisService.activateBerkas(id, user.persnum);
-  }
-
-  /**
    * Soft delete berkas (hanya Draft)
    * DELETE /arsip-dinamis/berkas/:id
    */
