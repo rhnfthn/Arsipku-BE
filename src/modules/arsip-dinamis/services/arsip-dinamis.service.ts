@@ -11,6 +11,8 @@ import { BerkasNaskah } from '../entities/berkas-naskah.entity';
 import { BerkasVerifikasi } from '../entities/berkas-verifikasi.entity';
 import { BerkasRiwayatRetensi } from '../entities/berkas-riwayat-retensi.entity';
 import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
+import { StorageService } from '../../storage/services/storage.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import {
   CreateArsipDinamisBerkasDto,
   AddNaskahToBerkasDto,
@@ -32,7 +34,34 @@ export class ArsipDinamisService {
     @InjectRepository(KlasifikasiEntity)
     private readonly klasifikasiRepository: Repository<KlasifikasiEntity>,
     private readonly dataSource: DataSource,
+    private readonly storageService: StorageService,
+    private readonly orgDataService: OrgDataService,
   ) {}
+
+  // ── File pendukung berkas (foto lokasi fisik & dokumen pendukung) ──
+
+  async uploadBerkasFile(
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+  ): Promise<{ key: string }> {
+    const result = await this.storageService.uploadBuffer(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+      'berkas',
+    );
+    return { key: result.key };
+  }
+
+  async getBerkasFile(
+    key: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    if (!key || !key.startsWith('berkas/') || key.includes('..')) {
+      throw new ForbiddenException('Akses ditolak: key file tidak valid');
+    }
+    const { buffer, contentType } =
+      await this.storageService.getFileWithMetadata(key);
+    return { buffer, contentType };
+  }
 
   // ── Helper: Generate Kode Berkas ────────────────────────────────
 
@@ -214,6 +243,40 @@ export class ArsipDinamisService {
     return berkas;
   }
 
+  /**
+   * Detail berkas + resolusi PIC & Unit Pencipta dari org_data.
+   * Pencipta (pembuat berkas) = created_by (persnum) → sumber unit pencipta & fallback PIC.
+   * PIC: pic_persnum bila ada, fallback ke pembuat berkas (form create tidak selalu mengisi PIC).
+   */
+  async getDetailBerkas(id: string): Promise<Berkas> {
+    const berkas = await this.findOneBerkas(id);
+
+    let pencipta: any = null;
+    if (berkas.createdBy) {
+      try {
+        pencipta = await this.orgDataService.findByPersnum(Number(berkas.createdBy));
+      } catch {
+        pencipta = null;
+      }
+    }
+    (berkas as any).penciptaNama = pencipta?.nama || null;
+    (berkas as any).unitPenciptaNama = pencipta?.organizationText || null;
+
+    const picPersnum = berkas.picPersnum || berkas.createdBy;
+    let pic: any = null;
+    if (picPersnum) {
+      try {
+        pic = await this.orgDataService.findByPersnum(Number(picPersnum));
+      } catch {
+        pic = null;
+      }
+    }
+    (berkas as any).picNama = pic?.nama || null;
+    (berkas as any).picJabatan = pic?.positionText || null;
+
+    return berkas;
+  }
+
   async updateBerkas(
     id: string,
     dto: Partial<CreateArsipDinamisBerkasDto>,
@@ -329,9 +392,12 @@ export class ArsipDinamisService {
   ): Promise<{ message: string; count: number }> {
     const berkas = await this.findOneBerkas(berkasId);
 
-    if (berkas.status !== StatusBerkas.AKTIF) {
+    if (
+      berkas.status !== StatusBerkas.AKTIF &&
+      berkas.status !== StatusBerkas.DITOLAK
+    ) {
       throw new BadRequestException(
-        'Naskah hanya bisa ditambahkan ke berkas dengan status Aktif',
+        'Naskah hanya bisa ditambahkan ke berkas dengan status Aktif atau Ditolak',
       );
     }
 
@@ -613,9 +679,12 @@ export class ArsipDinamisService {
   ): Promise<{ message: string }> {
     const berkas = await this.findOneBerkas(berkasId);
 
-    if (berkas.status !== StatusBerkas.AKTIF) {
+    if (
+      berkas.status !== StatusBerkas.AKTIF &&
+      berkas.status !== StatusBerkas.DITOLAK
+    ) {
       throw new BadRequestException(
-        'Hanya berkas Aktif yang bisa diajukan penutupan',
+        'Hanya berkas Aktif atau Ditolak yang bisa diajukan penutupan',
       );
     }
 
@@ -633,6 +702,11 @@ export class ArsipDinamisService {
       throw new BadRequestException('Pengaju tidak dapat menjadi verifikator');
     }
 
+    // Hapus baris verifikasi lama (penolakan sebelumnya) agar timeline pengajuan
+    // ulang bersih, bukan menumpuk rejected-lama + pending-baru. Riwayat penolakan
+    // tetap tersimpan di audit log (riwayat aksi status sebelumnya/baru).
+    await this.berkasVerifikasiRepository.delete({ berkasId });
+
     // Simpan verifikator
     const verifikatorEntities = dto.verifikator.map((v, idx) =>
       this.berkasVerifikasiRepository.create({
@@ -647,6 +721,7 @@ export class ArsipDinamisService {
     await this.berkasVerifikasiRepository.save(verifikatorEntities);
 
     // Update status berkas
+    berkas.catatanPenutupan = dto.catatan?.trim() || null;
     berkas.status = StatusBerkas.MENUNGGU_VERIFIKASI;
     berkas.updatedBy = userId;
     await this.berkasRepository.save(berkas);
