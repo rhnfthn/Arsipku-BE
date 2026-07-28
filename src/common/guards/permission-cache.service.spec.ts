@@ -72,8 +72,8 @@ describe('PermissionCacheService', () => {
   });
 
   describe('getTtlMs', () => {
-    it('should return 30000 ms', () => {
-      expect(service.getTtlMs()).toBe(30_000);
+    it('should return 1000 ms', () => {
+      expect(service.getTtlMs()).toBe(1_000);
     });
   });
 });
