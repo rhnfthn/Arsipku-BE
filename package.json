@@ -19,7 +19,13 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:rbac": "ts-node -r tsconfig-paths/register src/modules/rbac/seeder/seed-rbac.ts",
-    "seed:all": "ts-node -r tsconfig-paths/register src/modules/rbac/seeder/seed-all-matrix.ts"
+    "seed:all": "ts-node -r tsconfig-paths/register src/modules/rbac/seeder/seed-all-matrix.ts",
+    "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts",
+    "typeorm:generate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:generate src/migrations/$npm_config_name",
+    "typeorm:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:create src/migrations/$npm_config_name",
+    "typeorm:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:run",
+    "typeorm:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:revert",
+    "typeorm:show": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:show"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.943.0",
