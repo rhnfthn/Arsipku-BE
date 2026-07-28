@@ -1036,6 +1036,127 @@ export class ArsipDinamisService {
     };
   }
 
+  // ── Manager: Riwayat Persetujuan (keputusan lampau: approved + rejected) ──
+
+  async getRiwayatPersetujuan(
+    verifikatorPersnum: string,
+    options: {
+      search?: string;
+      status?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
+    const { search, status, page = 1, limit = 20 } = options;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+    const params: any[] = [verifikatorPersnum];
+
+    // Riwayat = semua keputusan lampau manager (approved + rejected).
+    // Tanpa guard NOT EXISTS (beda dengan getPengajuanPenutupan): kita ingin
+    // SEMUA baris yang sudah diberi aksi manager, terlepas urutan/keadaan berkas.
+    let whereSql = `
+      WHERE bv.verifikator_persnum = ?
+        AND bv.status IN ('approved','rejected')
+        AND b.deleted_at IS NULL
+    `;
+
+    if (status && status !== 'all') {
+      whereSql += ` AND bv.status = ? `;
+      params.push(status);
+    }
+
+    if (search?.trim()) {
+      whereSql += `
+        AND (
+          b.judul_berkas LIKE ?
+          OR b.kode_berkas LIKE ?
+          OR b.klasifikasi LIKE ?
+          OR b.klasifikasi_text LIKE ?
+        )
+      `;
+      const keyword = `%${search.trim()}%`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM berkas_verifikasi bv
+      INNER JOIN berkas b ON b.id = bv.berkas_id
+      ${whereSql}
+    `;
+    const [countRow] = await this.dataSource.query(countQuery, params);
+    const total = Number(countRow?.total || 0);
+
+    const dataQuery = `
+      SELECT
+        bv.id,
+        bv.berkas_id AS berkas_id,
+        bv.urutan,
+        bv.verifikator_persnum AS verifikator_persnum,
+        bv.verifikator_position_id AS verifikator_position_id,
+        bv.jabatan_verifikator AS jabatan_verifikator,
+        bv.status,
+        bv.catatan,
+        bv.action_at AS action_at,
+        bv.created_at AS created_at,
+        b.judul_berkas AS berkas_judul_berkas,
+        b.kode_berkas AS berkas_kode_berkas,
+        b.klasifikasi AS berkas_klasifikasi,
+        b.klasifikasi_text AS berkas_klasifikasi_teks,
+        b.kategori_berkas AS berkas_kategori_berkas,
+        b.lokasi AS berkas_lokasi,
+        b.retensi_aktif_tahun AS berkas_retensi_aktif_tahun,
+        b.retensi_inaktif_tahun AS berkas_retensi_inaktif_tahun,
+        b.status AS berkas_status
+      FROM berkas_verifikasi bv
+      INNER JOIN berkas b ON b.id = bv.berkas_id
+      ${whereSql}
+      ORDER BY bv.action_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const rows = await this.dataSource.query(dataQuery, [
+      ...params,
+      safeLimit,
+      (safePage - 1) * safeLimit,
+    ]);
+
+    const data = rows.map((row: any) => ({
+      id: row.id,
+      berkasId: row.berkas_id,
+      urutan: row.urutan,
+      verifikatorPersnum: row.verifikator_persnum,
+      verifikatorPositionId: row.verifikator_position_id,
+      jabatanVerifikator: row.jabatan_verifikator,
+      status: row.status,
+      catatan: row.catatan,
+      actionAt: row.action_at,
+      createdAt: row.created_at,
+      berkas: {
+        id: row.berkas_id,
+        judulBerkas: row.berkas_judul_berkas,
+        kodeBerkas: row.berkas_kode_berkas,
+        klasifikasi: row.berkas_klasifikasi,
+        klasifikasiTeks: row.berkas_klasifikasi_teks,
+        kategoriBerkas: row.berkas_kategori_berkas,
+        lokasi: row.berkas_lokasi,
+        retensiAktifTahun: row.berkas_retensi_aktif_tahun,
+        retensiInaktifTahun: row.berkas_retensi_inaktif_tahun,
+        status: row.berkas_status,
+      },
+    }));
+
+    return {
+      data,
+      meta: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
   // ── Statistik Persetujuan (kartu dashboard manager) ──────────────
 
   async getStatistikPersetujuan(verifikatorPersnum: string) {
