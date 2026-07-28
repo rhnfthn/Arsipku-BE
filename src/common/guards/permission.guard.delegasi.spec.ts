@@ -13,7 +13,7 @@ describe('PermissionGuard — delegasi enforcement (effective persnum + VI/SE st
   > = {};
 
   beforeEach(() => {
-    reflector = { get: jest.fn(() => undefined) };
+    reflector = { get: jest.fn(() => undefined), getAllAndOverride: jest.fn(() => undefined) };
     rbacService = {
       buildActiveRoleAndPermissions: jest.fn(async (persnum: number) => ({
         activePermissions: permsByPersnum[persnum] ?? [],
@@ -47,6 +47,7 @@ describe('PermissionGuard — delegasi enforcement (effective persnum + VI/SE st
     return {
       switchToHttp: () => ({ getRequest: () => req }),
       getHandler: () => ({}),
+      getClass: () => ({}),
     } as unknown as ExecutionContext;
   };
 

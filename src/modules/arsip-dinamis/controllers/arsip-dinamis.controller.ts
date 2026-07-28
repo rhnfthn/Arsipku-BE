@@ -22,6 +22,9 @@ import { Repository } from 'typeorm';
 import { ArsipDinamisService } from '../services';
 import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
 import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
+import { PemeliharaanAccess } from '../../../common/decorators/pemeliharaan-access.decorator';
+import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import {
   CreateArsipDinamisBerkasDto,
@@ -46,7 +49,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/klasifikasi
    */
   @Get('klasifikasi')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan')
   async getKlasifikasiDenganRetensi() {
     const data = await this.klasifikasiRepository.find({
       where: { active: 1 },
@@ -78,7 +81,8 @@ export class ArsipDinamisController {
    */
   @Post('berkas')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('pemeliharaan.pemberkasan', 'create')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async createBerkas(
     @Body() dto: CreateArsipDinamisBerkasDto,
     @CurrentUser() user: any,
@@ -92,7 +96,8 @@ export class ArsipDinamisController {
    */
   @Post('berkas/upload-file')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('pemeliharaan.pemberkasan', 'create')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -128,7 +133,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/file?key=
    */
   @Get('berkas/file')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async getBerkasFile(
     @Query('key') key: string,
     @Res() res: Response,
@@ -148,7 +153,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas
    */
   @Get('berkas')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan')
   async findAllBerkas(
     @CurrentUser() user: any,
     @Query('status') status?: string,
@@ -173,7 +178,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/statistik
    */
   @Get('berkas/statistik')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan')
   async getStatistikBerkas(@CurrentUser() user: any) {
     return this.arsipDinamisService.getStatistikBerkas(user.persnum);
   }
@@ -183,7 +188,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/:id
    */
   @Get('berkas/:id')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async findOneBerkas(@Param('id') id: string) {
     return this.arsipDinamisService.getDetailBerkas(id);
   }
@@ -193,7 +198,8 @@ export class ArsipDinamisController {
    * PUT /arsip-dinamis/berkas/:id
    */
   @Put('berkas/:id')
-  @RequirePermission('pemeliharaan.pemberkasan', 'update')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async updateBerkas(
     @Param('id') id: string,
     @Body() dto: UpdateArsipDinamisBerkasDto,
@@ -207,7 +213,8 @@ export class ArsipDinamisController {
    * PATCH /arsip-dinamis/berkas/:id/activate
    */
   @Patch('berkas/:id/activate')
-  @RequirePermission('pemeliharaan.pemberkasan', 'update')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async activateBerkas(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -221,7 +228,8 @@ export class ArsipDinamisController {
    */
   @Delete('berkas/:id')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('pemeliharaan.pemberkasan', 'delete')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async softDeleteBerkas(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -236,7 +244,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/:id/naskah
    */
   @Get('berkas/:id/naskah')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async getDaftarNaskah(
     @Param('id') id: string,
     @Query('search') search?: string,
@@ -256,7 +264,8 @@ export class ArsipDinamisController {
    */
   @Post('berkas/:id/naskah')
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('pemeliharaan.pemberkasan', 'add-naskah')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async addNaskahToBerkas(
     @Param('id') id: string,
     @Body() dto: AddNaskahToBerkasDto,
@@ -271,7 +280,8 @@ export class ArsipDinamisController {
    */
   @Delete('berkas/:id/naskah/:naskahId')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('pemeliharaan.pemberkasan', 'add-naskah')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async removeNaskahFromBerkas(
     @Param('id') id: string,
     @Param('naskahId') naskahId: string,
@@ -285,7 +295,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/:id/naskah-siap-arsip
    */
   @Get('berkas/:id/naskah-siap-arsip')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan')
   async getNaskahSiapArsip(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -329,7 +339,8 @@ export class ArsipDinamisController {
    */
   @Post('berkas/:id/ajukan-tutup')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('pemeliharaan.pemberkasan', 'ajukan-tutup')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async ajukanTutupBerkas(
     @Param('id') id: string,
     @Body() dto: AjukanTutupBerkasDto,
@@ -343,7 +354,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/berkas/:id/verifikasi
    */
   @Get('berkas/:id/verifikasi')
-  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async getVerifikasiDetail(@Param('id') id: string) {
     return this.arsipDinamisService.getVerifikasiDetail(id);
   }
@@ -354,7 +365,7 @@ export class ArsipDinamisController {
    */
   @Post('berkas/:id/approve')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('pemeliharaan.verifikasi', 'approve')
+  @PemeliharaanAccess('persetujuan')
   async approveVerifikasi(
     @Param('id') id: string,
     @Body() dto: VerifikasiBerkasDto,
@@ -369,7 +380,7 @@ export class ArsipDinamisController {
    */
   @Post('berkas/:id/reject')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('pemeliharaan.verifikasi', 'reject')
+  @PemeliharaanAccess('persetujuan')
   async rejectVerifikasi(
     @Param('id') id: string,
     @Body() dto: VerifikasiBerkasDto,
@@ -385,9 +396,30 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/persetujuan/statistik
    */
   @Get('persetujuan/statistik')
-  @RequirePermission('pemeliharaan.verifikasi', 'read')
+  @PemeliharaanAccess('persetujuan')
   async getStatistikPersetujuan(@CurrentUser() user: any) {
     return this.arsipDinamisService.getStatistikPersetujuan(String(user.persnum));
+  }
+
+  /**
+   * Riwayat persetujuan (keputusan lampau manager: approved + rejected)
+   * GET /arsip-dinamis/persetujuan/riwayat
+   */
+  @Get('persetujuan/riwayat')
+  @PemeliharaanAccess('persetujuan')
+  async getRiwayatPersetujuan(
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.arsipDinamisService.getRiwayatPersetujuan(String(user.persnum), {
+      search,
+      status,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
   }
 
   /**
@@ -395,7 +427,7 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/persetujuan
    */
   @Get('persetujuan')
-  @RequirePermission('pemeliharaan.verifikasi', 'read')
+  @PemeliharaanAccess('persetujuan')
   async getPengajuanPenutupan(
     @CurrentUser() user: any,
     @Query('page') page?: number,
