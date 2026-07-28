@@ -14,7 +14,7 @@ describe('PermissionGuard', () => {
   let permissionCache: any;
 
   beforeEach(async () => {
-    reflector = { get: jest.fn() };
+    reflector = { get: jest.fn(), getAllAndOverride: jest.fn(() => undefined) };
     rbacService = {
       buildActiveRoleAndPermissions: jest.fn(),
     };
@@ -46,6 +46,7 @@ describe('PermissionGuard', () => {
     return {
       switchToHttp: () => ({ getRequest: () => ({ user }) }),
       getHandler: () => ({}),
+      getClass: () => ({}),
     } as any;
   };
 

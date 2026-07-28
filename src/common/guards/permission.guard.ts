@@ -10,6 +10,7 @@ import {
   PERMISSION_KEY,
   RequiredPermission,
 } from '../decorators/require-permission.decorator';
+import { ALLOW_VIEWER_WRITE_KEY } from '../decorators/allow-viewer-write.decorator';
 import { RoleName } from '../enums/role-name.enum';
 import { PositionStatus } from '../../common/enums/position-status.enum';
 import {
@@ -79,11 +80,13 @@ export class PermissionGuard implements CanActivate {
   private blockViewerWrite(
     user: JwtPayload | undefined,
     req: { method?: string; url?: string },
+    allowedStatuses?: string[],
   ): void {
     if (!user) return;
     const ps = user.position_status as string | undefined;
     if (!ps || !this.VIEW_ONLY_STATUSES.has(ps)) return;
     if (!req.method || !this.WRITE_METHODS.has(req.method)) return;
+    if (allowedStatuses?.includes(ps)) return; // SE di-allow untuk route ini
     if (this.isAllowListedForViewer(req.url || '')) return;
     throw new ForbiddenException(
       'Akses lihat saja (read-only): tidak dapat melakukan aksi tulis dalam delegasi ini.',
@@ -102,7 +105,11 @@ export class PermissionGuard implements CanActivate {
     const req = context
       .switchToHttp()
       .getRequest<{ user?: JwtPayload; method?: string; url?: string }>();
-    this.blockViewerWrite(req.user, req);
+    const allowedViewerStatuses = this.reflector.getAllAndOverride<string[] | undefined>(
+      ALLOW_VIEWER_WRITE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    this.blockViewerWrite(req.user, req, allowedViewerStatuses);
 
     const permission = this.reflector.get<RequiredPermission>(
       PERMISSION_KEY,
