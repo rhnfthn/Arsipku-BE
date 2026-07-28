@@ -162,6 +162,8 @@ export class ArsipDinamisController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
     return this.arsipDinamisService.findAllBerkas(user.persnum, {
       status,
@@ -170,6 +172,8 @@ export class ArsipDinamisController {
       search,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
+      sortBy,
+      sortDir,
     });
   }
 
@@ -419,6 +423,31 @@ export class ArsipDinamisController {
       status,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  /**
+   * Persetujuan Saya (unified: menunggu + approved + rejected + all)
+   * GET /arsip-dinamis/persetujuan/saya?status=menunggu|approved|rejected|all
+   */
+  @Get('persetujuan/saya')
+  @PemeliharaanAccess('persetujuan')
+  async getPersetujuanSaya(
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+  ) {
+    return this.arsipDinamisService.getPersetujuanSaya(String(user.persnum), {
+      search,
+      status,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      sortBy,
+      sortDir,
     });
   }
 
