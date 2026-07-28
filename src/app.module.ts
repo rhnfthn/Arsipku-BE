@@ -78,6 +78,9 @@ import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-ak
 import { AuditModule } from './modules/audit/audit.module';
 import { SdeMasalModule } from './modules/sde-masal/sde-masal.module';
 import { SentryModule } from './modules/sentry/sentry.module';
+import { UsulanPindahModule } from './modules/usulan-pindah/usulan-pindah.module';
+import { TransferInactiveFileModule } from './modules/transfer-inactive-file/transfer-inactive-file.module';
+import { TransferActiveToInactiveModule } from './modules/transfer-active-to-inactive/transfer-active-to-inactive.module';
 
 @Module({
   imports: [
@@ -194,6 +197,9 @@ import { SentryModule } from './modules/sentry/sentry.module';
     AuditModule,
     SdeMasalModule,
     SentryModule,
+    UsulanPindahModule,
+    TransferInactiveFileModule,
+    TransferActiveToInactiveModule,
   ],
   controllers: [AppController],
   providers: [
