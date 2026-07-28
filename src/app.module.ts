@@ -8,6 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionGuard } from './common/guards/permission.guard';
+import { PemeliharaanAccessGuard } from './common/guards/pemeliharaan-access.guard';
 import { CommonGuardsModule } from './common/guards/common-guards.module';
 import { AppService } from './app.service';
 import { CompanyModule } from './modules/master-data/company/company.module';
@@ -204,6 +205,10 @@ import { SentryModule } from './modules/sentry/sentry.module';
     {
       provide: APP_GUARD,
       useClass: PermissionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PemeliharaanAccessGuard,
     },
   ],
 })
