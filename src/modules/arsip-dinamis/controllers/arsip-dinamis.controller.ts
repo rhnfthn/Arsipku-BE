@@ -391,6 +391,27 @@ export class ArsipDinamisController {
   }
 
   /**
+   * Riwayat persetujuan (keputusan lampau manager: approved + rejected)
+   * GET /arsip-dinamis/persetujuan/riwayat
+   */
+  @Get('persetujuan/riwayat')
+  @RequirePermission('pemeliharaan.verifikasi', 'read')
+  async getRiwayatPersetujuan(
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.arsipDinamisService.getRiwayatPersetujuan(String(user.persnum), {
+      search,
+      status,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  /**
    * Daftar pengajuan penutupan (Manager)
    * GET /arsip-dinamis/persetujuan
    */
