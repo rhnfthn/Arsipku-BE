@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { NaskahSirkulasiService } from 'src/modules/naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { LabelService } from 'src/modules/label/services/label.service';
 import { BsreAlertService } from 'src/modules/digsig/services/bsre-alert.service';
@@ -31,6 +31,7 @@ export class RealtimeSummaryService {
     private readonly nomorService: NomorService,
     @InjectRepository(NaskahDinasVerifikatorEntity)
     private readonly verifikatorRepository: Repository<NaskahDinasVerifikatorEntity>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async getSummary(positionId: string, persnum?: number) {
@@ -49,6 +50,7 @@ export class RealtimeSummaryService {
       verifikatorWaitingCount,
       nomorAdminCount,
       nomorUserCount,
+      arsipPersetujuanWaitingCount,
     ] = await Promise.all([
       this.sirkulasiService.countUnreadInbox(positionId).catch(() => null),
       this.labelService.countNaskahPerLabel(positionId).catch(() => ({})),
@@ -66,6 +68,22 @@ export class RealtimeSummaryService {
       this.nomorService
         .getAdminCountNomorRequestByPosition(Number(positionId))
         .catch(() => null),
+      persnum != null
+        ? this.dataSource
+            .query(
+              `SELECT COUNT(*) AS total FROM berkas_verifikasi bv
+               INNER JOIN berkas b ON b.id = bv.berkas_id
+               WHERE bv.verifikator_persnum = ? AND b.deleted_at IS NULL
+                 AND bv.status = 'pending' AND b.status = 'menunggu_verifikasi'
+                 AND NOT EXISTS (SELECT 1 FROM berkas_verifikasi earlier
+                                 WHERE earlier.berkas_id = bv.berkas_id
+                                   AND earlier.status = 'pending'
+                                   AND earlier.urutan < bv.urutan)`,
+              [String(persnum)],
+            )
+            .then((r: any) => Number(r?.[0]?.total || 0))
+            .catch(() => 0)
+        : Promise.resolve(0),
     ]);
 
     const data = {
@@ -73,6 +91,7 @@ export class RealtimeSummaryService {
       labelCounts,
       bsreAlert,
       naskahDinasVerifikatorWaitingCount: verifikatorWaitingCount,
+      arsipPersetujuanWaitingCount,
       nomorCounts: {
         admin: nomorAdminCount?.data ?? null,
         user: nomorUserCount?.data ?? null,

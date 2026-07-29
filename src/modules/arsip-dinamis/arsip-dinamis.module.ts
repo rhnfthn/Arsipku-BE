@@ -7,6 +7,7 @@ import { ArsipDinamisController } from './controllers';
 import { ArsipDinamisService } from './services';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NaskahModule } from '../naskah/naskah.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { NaskahModule } from '../naskah/naskah.module';
     ]),
     OrgDataModule,
     NaskahModule,
+    NotificationModule,
   ],
   controllers: [ArsipDinamisController],
   providers: [ArsipDinamisService],
