@@ -233,6 +233,57 @@ export class ArsipDinamisService {
     };
   }
 
+  /**
+   * Daftar berkas milik user (Berkas Saya) dengan:
+   * - status Tertutup (closed_retensi_aktif)
+   * - retensi aktif sudah habis (tanggal_retensi_aktif_berakhir <= hari ini)
+   * Dipakai oleh modul Pemindahan Arsip Aktif ke Inaktif.
+   */
+  async findBerkasRetensiHabis(
+    userId: number,
+    options: { search?: string; page?: number; limit?: number } = {},
+  ) {
+    const { search, page = 1, limit = 100 } = options;
+
+    const qb = this.berkasRepository
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL');
+
+    // Scope: berkas milik user
+    qb.andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+      userId,
+      userPersnum: String(userId),
+    });
+
+    // Status Tertutup
+    qb.andWhere('b.status = :status', {
+      status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+    });
+
+    // Retensi aktif sudah habis
+    qb.andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL');
+    qb.andWhere('b.tanggal_retensi_aktif_berakhir <= :today', {
+      today: new Date().toISOString().split('T')[0],
+    });
+
+    if (search) {
+      qb.andWhere(
+        '(b.judul_berkas LIKE :search OR b.kode_berkas LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    qb.orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
   async findOneBerkas(id: string): Promise<Berkas> {
     const berkas = await this.berkasRepository.findOne({
       where: { id },
