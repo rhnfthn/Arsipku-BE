@@ -6,6 +6,8 @@ import { BerkasNaskah, BerkasVerifikasi, BerkasRiwayatRetensi } from './entities
 import { ArsipDinamisController } from './controllers';
 import { ArsipDinamisService } from './services';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { NaskahModule } from '../naskah/naskah.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       BerkasRiwayatRetensi,
     ]),
     OrgDataModule,
+    NaskahModule,
+    NotificationModule,
   ],
   controllers: [ArsipDinamisController],
   providers: [ArsipDinamisService],

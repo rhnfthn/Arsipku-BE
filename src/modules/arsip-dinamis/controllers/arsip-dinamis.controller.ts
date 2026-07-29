@@ -249,6 +249,20 @@ export class ArsipDinamisController {
   }
 
   /**
+   * Detail naskah tunggal dalam konteks berkas (sebagai anggota pemberkasan/
+   * persetujuan) — tanpa cek peserta korespondensi. Akses: PemeliharaanAccess.
+   * GET /arsip-dinamis/berkas/:id/naskah/:naskahId/detail
+   */
+  @Get('berkas/:id/naskah/:naskahId/detail')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
+  async getNaskahDetailInBerkas(
+    @Param('id') id: string,
+    @Param('naskahId') naskahId: string,
+  ) {
+    return this.arsipDinamisService.getNaskahDetailInBerkas(id, naskahId);
+  }
+
+  /**
    * Tambah naskah ke berkas
    * POST /arsip-dinamis/berkas/:id/naskah
    */
