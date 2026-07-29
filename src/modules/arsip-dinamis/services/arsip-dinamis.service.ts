@@ -47,9 +47,11 @@ export class ArsipDinamisService {
 
   // ── File pendukung berkas (foto lokasi fisik & dokumen pendukung) ──
 
-  async uploadBerkasFile(
-    file: { buffer: Buffer; originalname: string; mimetype: string },
-  ): Promise<{ key: string }> {
+  async uploadBerkasFile(file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+  }): Promise<{ key: string }> {
     const result = await this.storageService.uploadBuffer(
       file.buffer,
       file.originalname,
@@ -337,7 +339,9 @@ export class ArsipDinamisService {
     let pencipta: any = null;
     if (berkas.createdBy) {
       try {
-        pencipta = await this.orgDataService.findByPersnum(Number(berkas.createdBy));
+        pencipta = await this.orgDataService.findByPersnum(
+          Number(berkas.createdBy),
+        );
       } catch {
         pencipta = null;
       }
