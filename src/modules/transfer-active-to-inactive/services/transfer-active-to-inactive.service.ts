@@ -1249,6 +1249,78 @@ export class TransferActiveToInactiveService {
     });
   }
 
+  /** Daftar file dari arsip yang dipilih dalam usulan. */
+  async getFiles(transferId: string) {
+    const item = await this.getItem(transferId);
+    const arsipIds = item.arsipIds ?? [{ id: item.arsipId, perihal: item.arsipPerihal, kode: item.arsipKode, tanggalRetensiHabis: null }];
+    const result: any[] = [];
+    for (const a of arsipIds) {
+      // Ambil naskah dari berkas
+      const naskah = await this.berkasRepo.manager
+        .createQueryBuilder()
+        .select(['bn.naskah_id AS naskahId', 'bn.perihal AS perihal', 'bn.nomor_surat AS nomorSurat'])
+        .from('berkas_naskah', 'bn')
+        .where('bn.berkas_id = :bid', { bid: a.id })
+        .orderBy('bn.urutan', 'ASC')
+        .getRawMany();
+      if (naskah.length === 0) {
+        result.push({ arsipId: a.id, arsipPerihal: a.perihal, files: [] });
+      } else {
+        result.push({
+          arsipId: a.id,
+          arsipPerihal: a.perihal,
+          files: naskah.map((n: any) => ({
+            naskahId: n.naskahId,
+            nama: n.perihal ?? n.nomorSurat ?? n.naskahId,
+            url: null,
+          })),
+        });
+      }
+    }
+    return result;
+  }
+
+  /** Daftar isi otomatis dari arsip yang dipilih. */
+  async getDaftarIsi(transferId: string) {
+    const item = await this.getItem(transferId);
+    const arsipIds = item.arsipIds ?? [{ id: item.arsipId, perihal: item.arsipPerihal, kode: item.arsipKode, tanggalRetensiHabis: null }];
+    return {
+      nomorUsulan: item.nomorUsulan,
+      tanggalUsulan: item.tanggalUsulan,
+      daftarIsi: arsipIds.map((a, idx) => ({
+        no: idx + 1,
+        namaBerkas: a.perihal,
+        kode: a.kode,
+        keterangan: a.tanggalRetensiHabis ? `Retensi habis: ${a.tanggalRetensiHabis}` : '-',
+      })),
+    };
+  }
+
+  /** Data Berita Acara Serah Terima (auto-generate). */
+  async getBeritaAcaraData(transferId: string) {
+    const item = await this.getItem(transferId);
+    const levels = await this.getApprovalLevels(transferId);
+    const firstAtasan = levels[0] ?? null;
+    return {
+      nomorUsulan: item.nomorUsulan,
+      tanggalUsulan: item.tanggalUsulan,
+      keterangan: item.keterangan,
+      atasan: {
+        nama: firstAtasan?.atasanName ?? item.atasanName,
+        jabatan: firstAtasan?.atasanPositionText ?? null,
+        persnum: firstAtasan?.atasanPersnum ?? item.atasanPersnum,
+        divisi: item.divisiName,
+      },
+      pengirim: {
+        nama: item.sekretarisName,
+        jabatan: null,
+        persnum: item.sekretarisPersnum,
+        divisi: item.divisiName,
+      },
+      daftarArsip: item.arsipIds ?? [{ id: item.arsipId, perihal: item.arsipPerihal, kode: item.arsipKode, tanggalRetensiHabis: null }],
+    };
+  }
+
   /**
    * Cek apakah user login sedang giliran verifikasi pada usulan ini.
    */
