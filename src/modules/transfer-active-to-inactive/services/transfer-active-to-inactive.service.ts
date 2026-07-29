@@ -720,10 +720,12 @@ export class TransferActiveToInactiveService {
       throw new BadRequestException(`Status ${item.status} tidak bisa dikirim usul pindah`);
     }
     const old = item.status;
-    item.status = TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM;
+    // Kirim ke TU → status DIKIRIM (Menunggu Verifikasi di TU)
+    item.status = TransferActiveToInactiveStatus.DIKIRIM;
+    item.tanggalDikirim = new Date();
     const saved = await this.repo.save(item);
-    this.logAudit(user, saved, old, saved.status, 'Kirim usul pindah arsip inaktif');
-    await this.notify(saved, null, saved.sekretarisPersnum, 'Usulan siap dikirim ke Unit Tata Naskah');
+    this.logAudit(user, saved, old, saved.status, 'Kirim usulan ke Unit Tata Naskah');
+    await this.notify(saved, '0', null, 'Usulan pemindahan arsip menunggu verifikasi TU');
     return saved;
   }
 
