@@ -413,6 +413,23 @@ export class ArsipDinamisService {
     return this.berkasRepository.save(berkas);
   }
 
+  /** Aktifkan berkas (Draft → Aktif). */
+  async activateBerkas(
+    id: string,
+    userId: number,
+  ): Promise<{ message: string; statusBerkas: string }> {
+    const berkas = await this.findOneBerkas(id);
+    if (berkas.status !== StatusBerkas.DRAFT) {
+      throw new BadRequestException(
+        'Hanya berkas dengan status Draft yang dapat diaktifkan',
+      );
+    }
+    berkas.status = StatusBerkas.AKTIF;
+    berkas.updatedBy = userId;
+    await this.berkasRepository.save(berkas);
+    return { message: 'Berkas berhasil diaktifkan', statusBerkas: berkas.status };
+  }
+
   async softDeleteBerkas(
     id: string,
     userId: number,
