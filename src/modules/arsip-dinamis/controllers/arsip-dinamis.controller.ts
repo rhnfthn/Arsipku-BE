@@ -213,7 +213,7 @@ export class ArsipDinamisController {
   }
 
   /**
-   * Soft delete berkas (hanya Draft)
+   * Soft delete berkas (hanya Terbuka tanpa naskah)
    * DELETE /arsip-dinamis/berkas/:id
    */
   @Delete('berkas/:id')
