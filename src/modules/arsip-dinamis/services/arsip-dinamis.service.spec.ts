@@ -9,6 +9,10 @@ import { BerkasRiwayatRetensi } from '../entities/berkas-riwayat-retensi.entity'
 import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NaskahService } from '../../naskah/services/naskah.service';
+import { NotificationService } from '../../notification/services/notification.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { NotificationType } from '../../notification/entities/notification.entity';
 
 describe('ArsipDinamisService - getRiwayatPersetujuan', () => {
   let service: ArsipDinamisService;
@@ -49,6 +53,9 @@ describe('ArsipDinamisService - getRiwayatPersetujuan', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -142,6 +149,9 @@ describe('ArsipDinamisService - getPersetujuanSaya', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -248,6 +258,9 @@ describe('ArsipDinamisService - softDeleteBerkas', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -288,5 +301,159 @@ describe('ArsipDinamisService - softDeleteBerkas', () => {
     stubBerkas('closed_retensi_aktif');
     await expect(service.softDeleteBerkas('b1', 99)).rejects.toThrow();
     expect(berkasRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
+  let service: ArsipDinamisService;
+  let berkasNaskahRepo: any;
+  let naskahService: any;
+
+  beforeEach(async () => {
+    berkasNaskahRepo = { findOne: jest.fn() };
+    naskahService = { getDetailWithChainForBerkas: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: {} },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: berkasNaskahRepo },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: naskahService },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  it('delegasi ke NaskahService bila naskah tercatat di berkas', async () => {
+    berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1' });
+    naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [{ id: 'n1' }] });
+    const res = await service.getNaskahDetailInBerkas('b1', 'n1');
+    expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
+    expect(res.data[0].id).toBe('n1');
+  });
+
+  it('tolak (NotFound) bila naskah bukan milik berkas — anti enumerasi id', async () => {
+    berkasNaskahRepo.findOne.mockResolvedValue(null);
+    await expect(service.getNaskahDetailInBerkas('b1', 'n1')).rejects.toThrow(
+      /tidak ditemukan di berkas/,
+    );
+    expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
+  });
+});
+describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () => {
+  let service: ArsipDinamisService;
+  let berkasRepo: any;
+  let berkasVerifikasiRepo: any;
+  let berkasRiwayatRepo: any;
+  let notifService: any;
+  let realtimeEmit: any;
+  let query: jest.Mock;
+
+  beforeEach(async () => {
+    query = jest.fn();
+    berkasRepo = { createQueryBuilder: jest.fn(), save: jest.fn() };
+    berkasVerifikasiRepo = {
+      delete: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn((x: any) => x),
+      save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn(),
+    };
+    berkasRiwayatRepo = {
+      create: jest.fn((x: any) => x),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    notifService = { createNotification: jest.fn().mockResolvedValue({}) };
+    realtimeEmit = { emitArsipPersetujuanCountUser: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query } },
+        { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: berkasVerifikasiRepo },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: berkasRiwayatRepo },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: notifService },
+        { provide: RealtimeEmitService, useValue: realtimeEmit },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  const stubBerkas = (status: string) => {
+    const berkas: any = {
+      id: 'b1',
+      status,
+      judulBerkas: 'Berkas A',
+      kodeBerkas: 'KD-1',
+      retensiAktifTahun: null,
+      tanggalDibuat: null,
+    };
+    berkasRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(berkas),
+    });
+    return berkas;
+  };
+
+  it('ajukanTutupBerkas -> emit count + notif BERKAS_VERIFIKASI (sendPush=false) ke verifikator urutan-1', async () => {
+    stubBerkas('aktif');
+    query.mockResolvedValueOnce([{ total: 2 }]); // countMenungguSaya
+    const dto = {
+      verifikator: [
+        { verifikator_persnum: '111', verifikator_position_id: 7, jabatan_verifikator: 'M' },
+        { verifikator_persnum: '222', verifikator_position_id: 8, jabatan_verifikator: 'N' },
+      ],
+      catatan: 'uji',
+    };
+    await service.ajukanTutupBerkas('b1', dto as any, 99);
+    expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(111, 2);
+    expect(notifService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        positionId: '7',
+        userPersnum: 111,
+        type: NotificationType.BERKAS_VERIFIKASI,
+        title: 'Persetujuan penutupan berkas',
+        body: 'Berkas "Berkas A" menunggu persetujuan Anda',
+      }),
+      false,
+    );
+  });
+
+  it('approveVerifikasi -> emit count ke approver & verifikator berikutnya', async () => {
+    stubBerkas('menunggu_verifikasi');
+    const current = { verifikatorPersnum: '111', status: 'pending', urutan: 1 };
+    const next = { verifikatorPersnum: '222', status: 'pending', urutan: 2 };
+    berkasVerifikasiRepo.findOne
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(next);
+    query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([{ total: 1 }]);
+    await service.approveVerifikasi('b1', '111', { catatan: 'ok minimal' } as any);
+    expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(111, 0);
+    expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(222, 1);
+    expect(berkasRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejectVerifikasi -> emit count ke rejecter', async () => {
+    stubBerkas('menunggu_verifikasi');
+    const current = { verifikatorPersnum: '111', status: 'pending', urutan: 1 };
+    berkasVerifikasiRepo.findOne.mockResolvedValueOnce(current);
+    query.mockResolvedValueOnce([{ total: 0 }]);
+    await service.rejectVerifikasi('b1', '111', { catatan: 'tolak' } as any);
+    expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(111, 0);
+    expect(berkasRepo.save).toHaveBeenCalled();
   });
 });

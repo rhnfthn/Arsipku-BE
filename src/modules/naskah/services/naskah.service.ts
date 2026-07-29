@@ -603,6 +603,26 @@ export class NaskahService {
       userSirkulasi = null as NaskahSirkulasi | null;
     }
 
+    return this.buildChainFlow(naskahId, userPosition, userSirkulasi);
+  }
+
+  /**
+   * Chain naskah untuk viewer anggota berkas (pemberkasan/persetujuan), tanpa
+   * cek peserta korespondensi. Akses dikendalikan di layer berk: naskah harus
+   * tercatat di berkas_naskah. user_sirkulasi = null → flag pribadi mati.
+   * userPosition = '' → riwayat konsep (draft pre-final) tidak dimuat; tampilan
+   * berk = arsip naskah final.
+   */
+  async getDetailWithChainForBerkas(naskahId: string): Promise<any> {
+    return this.buildChainFlow(naskahId, '', null, true);
+  }
+
+  private async buildChainFlow(
+    naskahId: string,
+    userPosition: string,
+    userSirkulasi: NaskahSirkulasi | null,
+    singleOnly = false,
+  ): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -656,7 +676,12 @@ export class NaskahService {
       }
     };
 
-    await traceBackwardOnly(naskahId);
+    if (singleOnly) {
+      // Berk: hanya naskah yg dilihat (inti surat), tanpa rangkaian/riwayat.
+      allNaskahInChain.add(naskahId);
+    } else {
+      await traceBackwardOnly(naskahId);
+    }
 
     // ponytail: leak X — forward MILIK USER (naskah yang user kirim) TIDAK
     // dimasukkan ke chain. Sebelumnya forwardOwnChain ikut naskah child yang
