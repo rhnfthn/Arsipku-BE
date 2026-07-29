@@ -69,6 +69,14 @@ export class PermissionGuard implements CanActivate {
   ];
   private readonly VIEW_ONLY_WRITE_ALLOW_EXACT = ['/delegasi/switch-role'];
 
+  /**
+   * SE (Sekretaris yang didelegasikan) diizinkan melakukan aksi tulis pada
+   * resource usulan-akses-berkas (membuat/memilih berkas). VI tetap read-only
+   * penuh. Ini adalah pengecualian khusus karena SE adalah aktor utama fitur
+   * usulan peminjaman berkas.
+   */
+  private readonly SE_WRITE_ALLOW_PREFIX = ['/usulan-akses-berkas'];
+
   private isAllowListedForViewer(path: string): boolean {
     const p = path.split('?')[0];
     if (this.VIEW_ONLY_WRITE_ALLOW_EXACT.includes(p)) return true;
@@ -88,6 +96,13 @@ export class PermissionGuard implements CanActivate {
     if (!req.method || !this.WRITE_METHODS.has(req.method)) return;
     if (allowedStatuses?.includes(ps)) return; // SE di-allow untuk route ini
     if (this.isAllowListedForViewer(req.url || '')) return;
+    // Pengecualian: SE (Sekretaris) boleh write ke /usulan-akses-berkas
+    if (ps === PositionStatus.SE) {
+      const p = (req.url || '').split('?')[0];
+      if (this.SE_WRITE_ALLOW_PREFIX.some((prefix) => p === prefix || p.startsWith(prefix + '/'))) {
+        return;
+      }
+    }
     throw new ForbiddenException(
       'Akses lihat saja (read-only): tidak dapat melakukan aksi tulis dalam delegasi ini.',
     );
@@ -142,8 +157,18 @@ export class PermissionGuard implements CanActivate {
     // delegations) — always authorized by the delegate's OWN perms, never the
     // delegator's, and never VI/SE-stripped. Otherwise a delegated user could not
     // switch back to their original role (locked into the delegation).
+    //
+    // `usulan-akses-berkas` resource: SE (Sekretaris yang didelegasikan) adalah
+    // aktor utama fitur ini. Permission harus dari delegate's OWN persnum (bukan
+    // delegator's), karena delegator (EVP/VP/AVP) mungkin tidak punya role di
+    // rbac_user_role. Delegate (SE) sudah punya role USER/ADMIN yang include
+    // usulan-akses-berkas permissions.
     const isDelegasiResource = permission.resource === 'delegasi';
-    const persnum: number = isDelegasiResource
+    const isUsulanAksesBerkasResource =
+      permission.resource === 'usulan-akses-berkas';
+    const useOwnPersnum =
+      isDelegasiResource || isUsulanAksesBerkasResource;
+    const persnum: number = useOwnPersnum
       ? user.persnum
       : computeEffectivePersnum(user);
     if (!persnum || typeof persnum !== 'number') {
@@ -152,10 +177,10 @@ export class PermissionGuard implements CanActivate {
 
     // Ambil permission live dari DB (dengan cache).
     // Delegated actors on business resources: fail-closed (no JWT fallback).
-    // delegasi control plane (own persnum): use the delegate's own JWT fallback.
+    // delegasi control plane & usulan-akses-berkas (own persnum): use the delegate's own JWT fallback.
     const isActorDelegated = isDelegatedActor(user);
     const jwtFallback =
-      isActorDelegated && !isDelegasiResource
+      isActorDelegated && !useOwnPersnum
         ? undefined
         : Array.isArray(user.activePermissions)
           ? user.activePermissions
@@ -167,8 +192,10 @@ export class PermissionGuard implements CanActivate {
 
     // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
     // resources, NOT the delegasi control plane (so switch/reset still works).
+    // ALSO NOT for usulan-akses-berkas (SE is the main actor: create, verify-pemberi, select-files).
     const isViewOnly =
       !isDelegasiResource &&
+      !isUsulanAksesBerkasResource &&
       !!user.position_status &&
       this.VIEW_ONLY_STATUSES.has(user.position_status as string);
     const effectivePermissions = isViewOnly
@@ -186,6 +213,9 @@ export class PermissionGuard implements CanActivate {
     );
 
     if (!hasPermission) {
+      this.logger.warn(
+        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map(p => p.resource + ':' + p.actions.join(',')))}`,
+      );
       throw new ForbiddenException(
         `Access denied. Required: ${permission.resource}.${permission.action}`,
       );

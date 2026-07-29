@@ -114,6 +114,36 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Endpoint verifikasi (alias approve) — PATCH /:id/verify */
+  @Patch(':id/verify')
+  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  async verify(
+    @Param('id') id: string,
+    @Body() dto: ApproveTransferDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return { success: true, data: await this.service.approve(id, dto, user) };
+  }
+
+  /** Ambil daftar level approval untuk usulan. */
+  @Get(':id/approval-levels')
+  async getApprovalLevels(@Param('id') id: string) {
+    return {
+      success: true,
+      data: await this.service.getApprovalLevels(id),
+    };
+  }
+
+  /** Cek apakah user login sedang giliran verifikasi. */
+  @Get(':id/is-current-turn')
+  async isCurrentTurn(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const isTurn = await this.service.isCurrentTurn(id, Number(user.persnum));
+    return { success: true, data: { isCurrentTurn: isTurn } };
+  }
+
   @Patch(':id/dispatch')
   async dispatch(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.service.dispatch(id, user) };
