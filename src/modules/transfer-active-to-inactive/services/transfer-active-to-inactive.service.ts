@@ -26,6 +26,7 @@ import { AuditModule } from '../../audit/enums/audit-module.enum';
 import { AuditStatus } from '../../audit/enums/audit-status.enum';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
+import { Berkas } from '../../berkas/entities/berkas.entity';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -46,6 +47,8 @@ export class TransferActiveToInactiveService {
     private readonly repo: Repository<TransferActiveToInactiveEntity>,
     @InjectRepository(TransferApprovalLevelEntity)
     private readonly levelRepo: Repository<TransferApprovalLevelEntity>,
+    @InjectRepository(Berkas)
+    private readonly berkasRepo: Repository<Berkas>,
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
   ) {}
@@ -177,6 +180,64 @@ export class TransferActiveToInactiveService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Daftar arsip tersedia untuk pemindahan (dari Berkas Saya user login).
+   * Filter: status Tertutup, retensi aktif habis, belum masuk usulan aktif.
+   */
+  async getArsipTersedia(user: any) {
+    const userId = Number(user.persnum);
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Ambil berkas milik user, status Tertutup, retensi aktif habis
+    const berkasList = await this.berkasRepo
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL')
+      .andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+        userId,
+        userPersnum: String(userId),
+      })
+      .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
+      .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC')
+      .getMany();
+
+    if (berkasList.length === 0) return [];
+
+    // 2. Ambil semua usulan yang belum Selesai (arsipIds JSON berisi id arsip)
+    const activeUsulan = await this.repo
+      .createQueryBuilder('t')
+      .select(['t.id', 't.arsip_ids', 't.arsip_id', 't.status'])
+      .where('t.status != :s', { s: TransferActiveToInactiveStatus.SELESAI })
+      .andWhere('t.sekretaris_persnum = :p', { p: userId })
+      .getMany();
+
+    // Kumpulkan semua arsip id yang sudah masuk usulan aktif
+    const arsipDiproses = new Set<string>();
+    for (const u of activeUsulan) {
+      if (u.arsipIds && Array.isArray(u.arsipIds)) {
+        for (const a of u.arsipIds) arsipDiproses.add(a.id);
+      }
+      arsipDiproses.add(u.arsipId);
+    }
+
+    // 3. Map ke format response, tandai yang sedang diproses
+    return berkasList.map((b) => ({
+      id: b.id,
+      label: `${b.kodeBerkas ?? '-'} — ${b.judulBerkas}`,
+      perihal: b.judulBerkas,
+      kodeBerkas: b.kodeBerkas,
+      klasifikasi: b.klasifikasiTeks ?? b.klasifikasi,
+      retensiAktif: b.retensiAktifTahun,
+      retensiInaktif: b.retensiInaktifTahun,
+      tanggalRetensiAktifHabis: b.tanggalRetensiAktifBerakhir,
+      status: b.status,
+      lokasiFisik: b.lokasi,
+      fileUrl: b.dokumenPendukung ?? b.fotoLokasiFisik ?? null,
+      sedangDiproses: arsipDiproses.has(b.id),
+    }));
   }
 
   async findAll(filter: TransferFilterDto, user: any) {
