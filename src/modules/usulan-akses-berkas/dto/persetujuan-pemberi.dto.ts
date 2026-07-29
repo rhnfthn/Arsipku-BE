@@ -23,8 +23,7 @@ export class PersetujuanPemberiDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(5)
-  catatanRevisi?: string; // wajib jika keputusan=REVISI
+  catatanRevisi?: string; // wajib diisi (min 5 char) jika keputusan=REVISI (dicek di service)
 
   @IsEnum(Keputusan)
   keputusan: Keputusan; // SETUJU | REVISI | TOLAK

@@ -36,14 +36,16 @@ export class BerkasController {
    * Mengambil semua berkas
    * Query params:
    *  - includeInactive: boolean (default: false)
+   *  - status: string (default: undefined) — filter by status berkas
    */
   @Get()
   @RequirePermission('arsip-aktif', 'read')
   async findAll(
     @Query('includeInactive') includeInactive?: string,
+    @Query('status') status?: string,
   ): Promise<Berkas[]> {
     const includeInactiveBool = includeInactive === 'true';
-    return this.berkasService.findAll(includeInactiveBool);
+    return this.berkasService.findAll(includeInactiveBool, status);
   }
 
   /**

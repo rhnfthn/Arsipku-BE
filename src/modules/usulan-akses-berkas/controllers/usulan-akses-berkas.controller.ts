@@ -17,9 +17,16 @@ import {
   PilihBerkasDto,
   PersetujuanPemberiDto,
 } from '../dto';
-import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 
+/**
+ * Controller Usulan Akses Berkas — actor-based access control.
+ *
+ * Tidak ada @RequirePermission decorator. Akses dikontrol sepenuhnya oleh
+ * service layer berdasarkan position_status (SE/Managerial) dan organization
+ * divisi dari JWT. Semua user yang authenticated bisa mengakses endpoint,
+ * tapi service layer yang menentukan apakah aksi diizinkan untuk actor ini.
+ */
 @Controller('usulan-akses-berkas')
 export class UsulanAksesBerkasController {
   constructor(private readonly service: UsulanAksesBerkasService) {}
@@ -28,12 +35,15 @@ export class UsulanAksesBerkasController {
 
   /**
    * GET /usulan-akses-berkas/verifikator
-   * Return semua managerial (chief=1) di divisi yang sama dengan currentUser
+   * Return semua managerial (chief=1) di divisi yang sama dengan currentUser.
+   * Query param:
+   *  - divisiId: number (opsional) — kalau diisi, fetch managerial di divisi ini
+   *    (untuk Pilih Berkas: pakai divisiPemberiId dari usulan, bukan user.organization)
    */
   @Get('verifikator')
-  @RequirePermission('usulan-akses-berkas', 'read')
-  async getVerifikator(@CurrentUser() user: any) {
-    const result = await this.service.getVerifikator(Number(user.organization));
+  async getVerifikator(@CurrentUser() user: any, @Query('divisiId') divisiId?: string) {
+    const orgId = divisiId ? Number(divisiId) : Number(user.organization);
+    const result = await this.service.getVerifikator(orgId);
     return { success: true, data: result, total: result.length };
   }
 
@@ -45,9 +55,56 @@ export class UsulanAksesBerkasController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission('usulan-akses-berkas', 'create')
   async create(@Body() dto: CreateUsulanAksesBerkasDto, @CurrentUser() user: any) {
     return this.service.create(dto, user);
+  }
+
+  // ── READ: My Entitlements (akses berkas yang sudah diterbitkan) ──
+
+  /**
+   * GET /usulan-akses-berkas/my-entitlements
+   * List entitlement (akses berkas) untuk user yang login.
+   * Hanya yang belum revoked. Di-group by berkas.
+   */
+  @Get('my-entitlements')
+  async myEntitlements(@CurrentUser() user: any) {
+    const result = await this.service.getMyEntitlements(user);
+    return { success: true, data: result, total: result.length };
+  }
+
+  /**
+   * GET /usulan-akses-berkas/naskah/:naskahId
+   * Detail naskah untuk SE pengusul yang punya entitlement.
+   * Cek: naskah ada di berkas yang user punya entitlement-nya.
+   */
+  @Get('naskah/:naskahId')
+  async getNaskahDetail(@Param('naskahId') naskahId: string, @CurrentUser() user: any) {
+    const result = await this.service.getNaskahDetailForEntitlement(naskahId, user);
+    return { success: true, data: result };
+  }
+
+  /**
+   * GET /usulan-akses-berkas/berkas/:berkasId
+   * Detail berkas untuk SE pengusul yang punya entitlement.
+   */
+  @Get('berkas/:berkasId')
+  async getBerkasDetail(@Param('berkasId') berkasId: string, @CurrentUser() user: any) {
+    const result = await this.service.getBerkasDetailForEntitlement(berkasId, user);
+    return { success: true, data: result };
+  }
+
+  /**
+   * GET /usulan-akses-berkas/berkas/:berkasId/naskah
+   * List naskah di dalam berkas tertentu (untuk Pemberian).
+   * Cek entitlement user sebelum return.
+   */
+  @Get('berkas/:berkasId/naskah')
+  async getNaskahByBerkas(
+    @Param('berkasId') berkasId: string,
+    @CurrentUser() user: any,
+  ) {
+    const result = await this.service.getNaskahByBerkas(berkasId, user);
+    return { success: true, data: result, total: result.length };
   }
 
   // ── READ: List usulan ─────────────────────────────────────────
@@ -57,7 +114,6 @@ export class UsulanAksesBerkasController {
    * List usulan dengan filter
    */
   @Get()
-  @RequirePermission('usulan-akses-berkas', 'read')
   async findAll(@CurrentUser() user: any, @Query() query: any) {
     return this.service.findAll(user, query);
   }
@@ -69,9 +125,8 @@ export class UsulanAksesBerkasController {
    * Detail usulan + steps + selectedBerkas
    */
   @Get(':id')
-  @RequirePermission('usulan-akses-berkas', 'read')
-  async findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.findOne(id, user);
   }
 
   // ── Verifikasi Pengusul (per jenjang) ─────────────────────────
@@ -81,7 +136,6 @@ export class UsulanAksesBerkasController {
    * Verifikasi AVP pengusul (jenjang 1)
    */
   @Patch(':id/verifikasi-pengusul')
-  @RequirePermission('usulan-akses-berkas', 'verify-pengusul')
   async verifikasiPengusulJ1(
     @Param('id') id: string,
     @Body() dto: VerifikasiPengusulDto,
@@ -95,7 +149,6 @@ export class UsulanAksesBerkasController {
    * Verifikasi VP pengusul (jenjang 2)
    */
   @Patch(':id/verifikasi-pengusul-vp')
-  @RequirePermission('usulan-akses-berkas', 'verify-pengusul')
   async verifikasiPengusulJ2(
     @Param('id') id: string,
     @Body() dto: VerifikasiPengusulDto,
@@ -109,7 +162,6 @@ export class UsulanAksesBerkasController {
    * Verifikasi EVP pengusul (jenjang 3)
    */
   @Patch(':id/verifikasi-pengusul-evp')
-  @RequirePermission('usulan-akses-berkas', 'verify-pengusul')
   async verifikasiPengusulJ3(
     @Param('id') id: string,
     @Body() dto: VerifikasiPengusulDto,
@@ -125,7 +177,6 @@ export class UsulanAksesBerkasController {
    * Verifikasi Sekretaris Pemberi (ketersediaan + durasi)
    */
   @Patch(':id/verifikasi-pemberi')
-  @RequirePermission('usulan-akses-berkas', 'verify-pemberi')
   async verifikasiPemberi(
     @Param('id') id: string,
     @Body() dto: VerifikasiPemberiDto,
@@ -142,7 +193,6 @@ export class UsulanAksesBerkasController {
    */
   @Post(':id/pilih-berkas')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('usulan-akses-berkas', 'select-files')
   async pilihBerkas(
     @Param('id') id: string,
     @Body() dto: PilihBerkasDto,
@@ -158,7 +208,6 @@ export class UsulanAksesBerkasController {
    * Persetujuan AVP pemberi (jenjang 1)
    */
   @Patch(':id/persetujuan-pemberi')
-  @RequirePermission('usulan-akses-berkas', 'approve-pemberi')
   async persetujuanPemberiJ1(
     @Param('id') id: string,
     @Body() dto: PersetujuanPemberiDto,
@@ -172,7 +221,6 @@ export class UsulanAksesBerkasController {
    * Persetujuan VP pemberi (jenjang 2)
    */
   @Patch(':id/persetujuan-pemberi-vp')
-  @RequirePermission('usulan-akses-berkas', 'approve-pemberi')
   async persetujuanPemberiJ2(
     @Param('id') id: string,
     @Body() dto: PersetujuanPemberiDto,
@@ -186,7 +234,6 @@ export class UsulanAksesBerkasController {
    * Persetujuan EVP pemberi (jenjang 3) → terbitkan akses
    */
   @Patch(':id/persetujuan-pemberi-evp')
-  @RequirePermission('usulan-akses-berkas', 'approve-pemberi')
   async persetujuanPemberiJ3(
     @Param('id') id: string,
     @Body() dto: PersetujuanPemberiDto,
@@ -202,8 +249,7 @@ export class UsulanAksesBerkasController {
    * Audit trail verifikasi
    */
   @Get(':id/trail')
-  @RequirePermission('usulan-akses-berkas', 'read')
-  async getTrail(@Param('id') id: string) {
-    return this.service.getTrail(id);
+  async getTrail(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.getTrail(id, user);
   }
 }

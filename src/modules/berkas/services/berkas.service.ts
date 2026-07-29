@@ -47,10 +47,17 @@ export class BerkasService {
 
   /**
    * Mengambil semua berkas
-   * Secara default hanya menampilkan berkas aktif
+   * Query params:
+   *  - includeInactive: boolean (default: false) — jika true, include isAktif=false
+   *  - status: string (default: undefined) — filter by status berkas (e.g. closed_retensi_aktif)
    */
-  async findAll(includeInactive = false): Promise<Berkas[]> {
-    const whereCondition = includeInactive ? {} : { isAktif: true };
+  async findAll(
+    includeInactive = false,
+    status?: string,
+  ): Promise<Berkas[]> {
+    const whereCondition: any = {};
+    if (!includeInactive) whereCondition.isAktif = true;
+    if (status) whereCondition.status = status;
 
     return this.berkasRepository.find({
       where: whereCondition,
