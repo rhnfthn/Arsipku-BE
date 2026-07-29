@@ -153,6 +153,24 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Daftar file dari arsip yang dipilih. */
+  @Get(':id/files')
+  async getFiles(@Param('id') id: string) {
+    return { success: true, data: await this.service.getFiles(id) };
+  }
+
+  /** Daftar isi otomatis. */
+  @Get(':id/daftar-isi')
+  async getDaftarIsi(@Param('id') id: string) {
+    return { success: true, data: await this.service.getDaftarIsi(id) };
+  }
+
+  /** Data Berita Acara Serah Terima (auto-generate). */
+  @Get(':id/berita-acara-data')
+  async getBeritaAcaraData(@Param('id') id: string) {
+    return { success: true, data: await this.service.getBeritaAcaraData(id) };
+  }
+
   /** Cek apakah user login sedang giliran verifikasi. */
   @Get(':id/is-current-turn')
   async isCurrentTurn(
