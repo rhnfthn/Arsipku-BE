@@ -7,8 +7,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransferActiveToInactiveEntity } from '../entities/transfer-active-to-inactive.entity';
+import { TransferApprovalLevelEntity } from '../entities/approval-level.entity';
 import { TransferActiveToInactiveStatus } from '../enums/transfer-status.enum';
-import { CreateTransferDto } from '../dto/transfer.dto';
+import { CreateTransferDto, AtasanItemDto, ArsipItemDto } from '../dto/transfer.dto';
 import {
   VerifyTransferDto,
   ApproveTransferDto,
@@ -26,6 +27,11 @@ import { AuditStatus } from '../../audit/enums/audit-status.enum';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 
+/** Status per-level approval. */
+const LEVEL_MENUNGGU = 'MENUNGGU';
+const LEVEL_DISETUJUI = 'DISETUJUI';
+const LEVEL_DITOLAK = 'DITOLAK';
+
 /**
  * Service untuk pemindahan arsip aktif ke inaktif.
  * 2 Unit: Unit Kerja (Sekretaris + Atasan Managerial)
@@ -38,6 +44,8 @@ export class TransferActiveToInactiveService {
   constructor(
     @InjectRepository(TransferActiveToInactiveEntity)
     private readonly repo: Repository<TransferActiveToInactiveEntity>,
+    @InjectRepository(TransferApprovalLevelEntity)
+    private readonly levelRepo: Repository<TransferApprovalLevelEntity>,
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
   ) {}
@@ -48,10 +56,37 @@ export class TransferActiveToInactiveService {
     dto: CreateTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
+    // ── Validasi ──────────────────────────────────────────────────────
+    if (!dto.atasanList || dto.atasanList.length === 0) {
+      throw new BadRequestException('Minimal pilih 1 atasan');
+    }
+    if (!dto.arsipList || dto.arsipList.length === 0) {
+      throw new BadRequestException('Minimal pilih 1 arsip');
+    }
+    // Cek duplikat atasan
+    const atasanPersnums = dto.atasanList.map((a) => Number(a.persnum));
+    if (new Set(atasanPersnums).size !== atasanPersnums.length) {
+      throw new BadRequestException('Tidak boleh ada atasan duplikat');
+    }
+    // Cek duplikat arsip
+    const arsipIds = dto.arsipList.map((a) => a.id);
+    if (new Set(arsipIds).size !== arsipIds.length) {
+      throw new BadRequestException('Tidak boleh ada arsip duplikat');
+    }
+    // Atasan pertama tidak boleh sama dengan Sekretaris
+    if (atasanPersnums[0] === Number(user.persnum)) {
+      throw new BadRequestException(
+        'Atasan pertama tidak boleh sama dengan Sekretaris (pengusul)',
+      );
+    }
+
     const nomorUsulan = await this.generateNomorUsulan();
     const status = dto.submit
       ? TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN
       : TransferActiveToInactiveStatus.DRAFT;
+
+    const firstAtasan = dto.atasanList[0];
+    const firstArsip = dto.arsipList[0];
 
     const entity = this.repo.create({
       nomorUsulan,
@@ -62,33 +97,62 @@ export class TransferActiveToInactiveService {
       sekretarisName: user.nama ?? String(user.persnum),
       divisiId: user.organization ? Number(user.organization) : null,
       divisiName: user.organizationText ?? null,
-      atasanPersnum: dto.atasanPersnum,
-      atasanName: dto.atasanName ?? String(dto.atasanPersnum),
-      atasanPositionId: dto.atasanPositionId ?? null,
-      arsipId: dto.arsipId,
-      arsipPerihal: dto.arsipPerihal ?? '-',
-      arsipKode: dto.arsipKode ?? null,
-      tanggalRetensiAktifHabis: dto.tanggalRetensiAktifHabis
-        ? new Date(dto.tanggalRetensiAktifHabis)
+      // Kolom legacy (dari atasan pertama)
+      atasanPersnum: Number(firstAtasan.persnum),
+      atasanName: firstAtasan.name ?? String(firstAtasan.persnum),
+      atasanPositionId: firstAtasan.positionId ?? null,
+      // Multi-level tracking
+      currentApprovalLevel: 1,
+      totalApprovalLevels: dto.atasanList.length,
+      // Kolom legacy (dari arsip pertama)
+      arsipId: firstArsip.id,
+      arsipPerihal: firstArsip.perihal ?? '-',
+      arsipKode: firstArsip.kode ?? null,
+      tanggalRetensiAktifHabis: firstArsip.tanggalRetensiHabis
+        ? new Date(firstArsip.tanggalRetensiHabis)
         : null,
+      // Multi-arsip
+      arsipIds: dto.arsipList.map((a) => ({
+        id: a.id,
+        perihal: a.perihal ?? '-',
+        kode: a.kode ?? null,
+        tanggalRetensiHabis: a.tanggalRetensiHabis ?? null,
+      })),
       keterangan: dto.keterangan ?? null,
       status,
     });
 
     const saved = await this.repo.save(entity);
+
+    // ── Simpan daftar atasan ke transfer_approval_levels ────────────
+    const levels: TransferApprovalLevelEntity[] = dto.atasanList.map(
+      (a: AtasanItemDto, idx: number) =>
+        this.levelRepo.create({
+          transferId: saved.id,
+          atasanPersnum: Number(a.persnum),
+          atasanName: a.name ?? String(a.persnum),
+          atasanPositionId: a.positionId ?? null,
+          atasanPositionText: a.positionText ?? null,
+          urutan: idx + 1,
+          status: LEVEL_MENUNGGU,
+        }),
+    );
+    await this.levelRepo.save(levels);
+
     this.logAudit(
       user,
       saved,
       null,
       saved.status,
-      'Membuat usulan pemindahan arsip aktif ke inaktif',
+      `Membuat usulan pemindahan arsip aktif ke inaktif (${dto.atasanList.length} atasan, ${dto.arsipList.length} arsip)`,
     );
 
     if (dto.submit) {
+      // Notifikasi atasan pertama (yang sedang giliran)
       await this.notify(
         saved,
-        saved.atasanPositionId != null ? String(saved.atasanPositionId) : null,
-        saved.atasanPersnum,
+        firstAtasan.positionId != null ? String(firstAtasan.positionId) : null,
+        Number(firstAtasan.persnum),
         'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
       );
     }
@@ -105,9 +169,9 @@ export class TransferActiveToInactiveService {
     try {
       const persnum = Number(user?.persnum);
       if (!persnum || isNaN(persnum)) return false;
-      const count = await this.repo
-        .createQueryBuilder('t')
-        .where('t.atasan_persnum = :p', { p: persnum })
+      const count = await this.levelRepo
+        .createQueryBuilder('l')
+        .where('l.atasan_persnum = :p', { p: persnum })
         .getCount();
       return count > 0;
     } catch {
@@ -128,16 +192,43 @@ export class TransferActiveToInactiveService {
       // Cek apakah user ini pernah dipilih sebagai atasan managerial
       const isAtasan = await this.isAtasanManagerial(user);
       if (isAtasan) {
-        // User adalah atasan managerial (dipilih oleh Sekretaris)
-        // Tampilkan usulan yang ditujukan ke dia sebagai atasan
-        qb.andWhere('t.atasan_persnum = :p', { p: Number(user.persnum) });
+        // User adalah atasan managerial: tampilkan usulan yang ditujukan ke dia
+        // (di salah satu level approval)
+        const transferIds = await this.levelRepo
+          .createQueryBuilder('l')
+          .select('l.transfer_id', 'transferId')
+          .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
+          .getRawMany();
+        const ids = transferIds.map((r) => r.transferId);
+        if (ids.length > 0) {
+          qb.andWhere('t.id IN (:...ids)', { ids });
+        } else {
+          // Tidak punya usulan sebagai atasan → hanya lihat miliknya sebagai sekretaris
+          qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
+        }
       } else {
         // User adalah Sekretaris biasa: hanya lihat usulan miliknya
         qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
       }
     } else if (roleName === 'ADMIN' || roleName === 'SUPERADMIN') {
-      // Atasan Managerial & Superadmin: hanya lihat usulan yang ditujukan ke dia
-      qb.andWhere('t.atasan_persnum = :p', { p: Number(user.persnum) });
+      // Atasan Managerial & Superadmin: lihat usulan yang ditujukan ke dia
+      const transferIds = await this.levelRepo
+        .createQueryBuilder('l')
+        .select('l.transfer_id', 'transferId')
+        .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
+        .getRawMany();
+      const ids = transferIds.map((r) => r.transferId);
+      if (ids.length > 0) {
+        // Untuk SUPERADMIN, tampilkan juga semua usulan (opsional)
+        if (roleName === 'SUPERADMIN') {
+          // Superadmin lihat semua
+        } else {
+          qb.andWhere('t.id IN (:...ids)', { ids });
+        }
+      } else if (roleName === 'ADMIN') {
+        // Admin tanpa usulan → kosong
+        qb.andWhere('1 = 0');
+      }
     }
 
     if (filter.status) qb.andWhere('t.status = :s', { s: filter.status });
@@ -180,11 +271,20 @@ export class TransferActiveToInactiveService {
         'Usulan pemindahan arsip aktif ke inaktif tidak ditemukan',
       );
 
+    // Load approval levels
+    const levels = await this.levelRepo.find({
+      where: { transferId: id },
+      order: { urutan: 'ASC' },
+    });
+    (item as any).approvalLevels = levels;
+
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
     if (roleName === 'USER') {
       // User bisa akses jika dia adalah sekretaris pengusul ATAU atasan managerial dari usulan ini
       const isSekretaris = item.sekretarisPersnum === Number(user.persnum);
-      const isAtasan = item.atasanPersnum === Number(user.persnum);
+      const isAtasan = levels.some(
+        (l) => l.atasanPersnum === Number(user.persnum),
+      );
       if (!isSekretaris && !isAtasan) {
         throw new BadRequestException('Anda tidak memiliki akses ke usulan ini');
       }
@@ -205,24 +305,45 @@ export class TransferActiveToInactiveService {
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN;
     item.rejectedNote = null;
+    item.currentApprovalLevel = 1;
+    // Reset semua level ke MENUNGGU
+    await this.levelRepo
+      .createQueryBuilder()
+      .update(TransferApprovalLevelEntity)
+      .set({ status: LEVEL_MENUNGGU, verifiedAt: null, catatan: null })
+      .where('transfer_id = :tid', { tid: item.id })
+      .execute();
     const saved = await this.repo.save(item);
     this.logAudit(user, saved, old, saved.status, 'Kirim usulan ke atasan');
-    await this.notify(
-      saved,
-      saved.atasanPositionId != null ? String(saved.atasanPositionId) : null,
-      saved.atasanPersnum,
-      'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
-    );
+    // Notifikasi atasan level 1
+    const currentLevel = await this.getLevel(item.id, 1);
+    if (currentLevel) {
+      await this.notify(
+        saved,
+        currentLevel.atasanPositionId != null
+          ? String(currentLevel.atasanPositionId)
+          : null,
+        currentLevel.atasanPersnum,
+        'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
+      );
+    }
     return saved;
   }
 
+  /**
+   * Verifikasi (approve) oleh atasan yang sedang giliran.
+   * - Cek apakah user login = atasan pada currentApprovalLevel.
+   * - Jika ya, update status level → DISETUJUI.
+   * - Jika masih ada level berikutnya → status MENUNGGU_VERIFIKASI_ATASAN, currentApprovalLevel++,
+   *   notifikasi atasan berikutnya.
+   * - Jika sudah level terakhir → DISETUJUI_VERIFIKASI_TERAKHIR (final), notifikasi sekretaris.
+   */
   async approve(
     id: string,
     dto: ApproveTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
     const item = await this.getItem(id);
-    this.checkIntegrity(item, user);
     if (
       item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN
     ) {
@@ -230,120 +351,166 @@ export class TransferActiveToInactiveService {
         `Status ${item.status} tidak bisa disetujui`,
       );
     }
+
+    // Cek giliran atasan
+    const currentLevel = await this.getLevel(item.id, item.currentApprovalLevel);
+    if (!currentLevel) {
+      throw new BadRequestException('Level verifikasi tidak ditemukan');
+    }
+    if (currentLevel.atasanPersnum !== Number(user.persnum)) {
+      throw new BadRequestException(
+        `Bukan giliran Anda. Saat ini giliran atasan urutan ${item.currentApprovalLevel} (${currentLevel.atasanName}).`,
+      );
+    }
+    // Cek integritas: atasan tidak boleh verifikasi usulan yang dia buat sendiri
+    if (item.sekretarisPersnum === Number(user.persnum)) {
+      throw new BadRequestException(
+        'Atasan tidak boleh memverifikasi usulan yang dibuat sendiri sebagai Sekretaris',
+      );
+    }
+
     const old = item.status;
     item.verifyNote = dto.verifyNote ?? null;
     item.approvedBy = Number(user.persnum);
     item.approvedAt = new Date();
-    // Flowchart: DISETUJUI_ATASAN → MENUNGGU_VERIFIKASI_TERAKHIR (otomatis)
-    item.status = TransferActiveToInactiveStatus.DISETUJUI_ATASAN;
-    const approved = await this.repo.save(item);
-    this.logAudit(
-      user,
-      approved,
-      old,
-      approved.status,
-      'Persetujuan usulan oleh atasan',
-    );
-    // Notifikasi ke Sekretaris: usulan disetujui, menunggu verifikasi terakhir
-    await this.notify(
-      approved,
-      null,
-      approved.sekretarisPersnum,
-      'Usulan disetujui atasan, menunggu verifikasi terakhir',
-    );
-    // Auto-transition ke MENUNGGU_VERIFIKASI_TERAKHIR & notifikasi ke Atasan Managerial
-    approved.status =
-      TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
-    const saved = await this.repo.save(approved);
-    this.logAudit(
-      user,
-      saved,
-      TransferActiveToInactiveStatus.DISETUJUI_ATASAN,
-      saved.status,
-      'Otomatis: menunggu verifikasi terakhir atasan',
-    );
-    await this.notify(
-      saved,
-      saved.atasanPositionId != null ? String(saved.atasanPositionId) : null,
-      saved.atasanPersnum,
-      'Verifikasi terakhir usulan pemindahan arsip aktif ke inaktif',
-    );
-    return saved;
+
+    // Update level saat ini → DISETUJUI
+    currentLevel.status = LEVEL_DISETUJUI;
+    currentLevel.verifiedAt = new Date();
+    currentLevel.catatan = dto.verifyNote ?? null;
+    await this.levelRepo.save(currentLevel);
+
+    const nextLevel = await this.getLevel(item.id, item.currentApprovalLevel + 1);
+
+    if (nextLevel) {
+      // Masih ada atasan berikutnya → tetap MENUNGGU_VERIFIKASI_ATASAN, giliran next
+      item.currentApprovalLevel = item.currentApprovalLevel + 1;
+      // Update kolom legacy atasan ke atasan berikutnya
+      item.atasanPersnum = nextLevel.atasanPersnum;
+      item.atasanName = nextLevel.atasanName;
+      item.atasanPositionId = nextLevel.atasanPositionId;
+      const saved = await this.repo.save(item);
+      this.logAudit(
+        user,
+        saved,
+        old,
+        saved.status,
+        `Persetujuan level ${currentLevel.urutan} oleh ${currentLevel.atasanName} — lanjut ke level ${nextLevel.urutan}`,
+      );
+      // Notifikasi atasan berikutnya
+      await this.notify(
+        saved,
+        nextLevel.atasanPositionId != null
+          ? String(nextLevel.atasanPositionId)
+          : null,
+        nextLevel.atasanPersnum,
+        `Verifikasi Usulan (Tahap ${nextLevel.urutan} dari ${item.totalApprovalLevels})`,
+      );
+      // Notifikasi sekretaris
+      await this.notify(
+        saved,
+        null,
+        saved.sekretarisPersnum,
+        `Usulan disetujui atasan tahap ${currentLevel.urutan}, menunggu verifikasi tahap ${nextLevel.urutan}`,
+      );
+      return saved;
+    } else {
+      // Atasan terakhir → DISETUJUI_VERIFIKASI_TERAKHIR (final)
+      item.status = TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
+      item.finalVerifiedBy = Number(user.persnum);
+      item.finalVerifiedAt = new Date();
+      item.finalVerifyNote = dto.verifyNote ?? null;
+      const saved = await this.repo.save(item);
+      this.logAudit(
+        user,
+        saved,
+        old,
+        saved.status,
+        `Persetujuan final (level ${currentLevel.urutan}) oleh ${currentLevel.atasanName}`,
+      );
+      await this.notify(
+        saved,
+        null,
+        saved.sekretarisPersnum,
+        'Usulan telah diverifikasi terakhir — siap dikirim ke Unit Tata Naskah',
+      );
+      return saved;
+    }
   }
 
+  /**
+   * Tolak usulan oleh atasan yang sedang giliran.
+   * - Update level saat ini → DITOLAK.
+   * - Status usulan → DITOLAK_ATASAN (kembali ke Sekretaris).
+   */
   async reject(
     id: string,
     dto: RejectTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
     const item = await this.getItem(id);
-    this.checkIntegrity(item, user);
     if (
-      item.status !==
-        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN &&
-      item.status !==
-        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN
     ) {
       throw new BadRequestException(`Status ${item.status} tidak bisa ditolak`);
     }
+
+    // Cek giliran atasan
+    const currentLevel = await this.getLevel(item.id, item.currentApprovalLevel);
+    if (!currentLevel) {
+      throw new BadRequestException('Level verifikasi tidak ditemukan');
+    }
+    if (currentLevel.atasanPersnum !== Number(user.persnum)) {
+      throw new BadRequestException(
+        `Bukan giliran Anda. Saat ini giliran atasan urutan ${item.currentApprovalLevel} (${currentLevel.atasanName}).`,
+      );
+    }
+    if (item.sekretarisPersnum === Number(user.persnum)) {
+      throw new BadRequestException(
+        'Atasan tidak boleh menolak usulan yang dibuat sendiri sebagai Sekretaris',
+      );
+    }
+
     const old = item.status;
-    item.status =
-      item.status ===
-      TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR
-        ? TransferActiveToInactiveStatus.DITOLAK_VERIFIKASI_TERAKHIR
-        : TransferActiveToInactiveStatus.DITOLAK_ATASAN;
+    item.status = TransferActiveToInactiveStatus.DITOLAK_ATASAN;
     item.rejectedNote = dto.rejectedNote;
+
+    // Update level saat ini → DITOLAK
+    currentLevel.status = LEVEL_DITOLAK;
+    currentLevel.verifiedAt = new Date();
+    currentLevel.catatan = dto.rejectedNote;
+    await this.levelRepo.save(currentLevel);
+
     const saved = await this.repo.save(item);
     this.logAudit(
       user,
       saved,
       old,
       saved.status,
-      'Penolakan usulan oleh atasan',
+      `Penolakan level ${currentLevel.urutan} oleh ${currentLevel.atasanName}`,
     );
     await this.notify(
       saved,
       null,
       saved.sekretarisPersnum,
-      'Usulan pemindahan arsip aktif ke inaktif ditolak atasan',
+      `Usulan ditolak oleh atasan tahap ${currentLevel.urutan} (${currentLevel.atasanName})`,
     );
     return saved;
   }
 
+  /**
+   * Verifikasi terakhir — DEPRECATED untuk multi-level flow.
+   * Pada multi-level, verifikasi final otomatis di-handle oleh approve() saat atasan terakhir.
+   * Method ini dipertahankan untuk kompatibilitas, tapi akan menolak jika dipanggil.
+   */
   async finalVerify(
     id: string,
     dto: FinalVerifyTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
-    const item = await this.getItem(id);    this.checkIntegrity(item, user);    if (
-      item.status !==
-      TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR
-    ) {
-      throw new BadRequestException(
-        `Status ${item.status} tidak bisa diverifikasi terakhir`,
-      );
-    }
-    const old = item.status;
-    item.status =
-      TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
-    item.finalVerifyNote = dto.finalVerifyNote ?? null;
-    item.finalVerifiedBy = Number(user.persnum);
-    item.finalVerifiedAt = new Date();
-    const saved = await this.repo.save(item);
-    this.logAudit(
-      user,
-      saved,
-      old,
-      saved.status,
-      'Verifikasi terakhir unit kerja',
+    throw new BadRequestException(
+      'Verifikasi terakhir tidak diperlukan untuk alur multi-level. Gunakan endpoint approve.',
     );
-    await this.notify(
-      saved,
-      null,
-      saved.sekretarisPersnum,
-      'Usulan telah diverifikasi terakhir — siap dikirim ke Unit Tata Naskah',
-    );
-    return saved;
   }
 
   async dispatch(id: string, user: any): Promise<TransferActiveToInactiveEntity> {
@@ -848,6 +1015,39 @@ export class TransferActiveToInactiveService {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException('Usulan tidak ditemukan');
     return item;
+  }
+
+  /** Ambil level approval berdasarkan urutan (1-based). */
+  private async getLevel(
+    transferId: string,
+    urutan: number,
+  ): Promise<TransferApprovalLevelEntity | null> {
+    return this.levelRepo.findOne({
+      where: { transferId, urutan },
+    });
+  }
+
+  /** Ambil semua level approval untuk transfer (urut by urutan). */
+  async getApprovalLevels(
+    transferId: string,
+  ): Promise<TransferApprovalLevelEntity[]> {
+    return this.levelRepo.find({
+      where: { transferId },
+      order: { urutan: 'ASC' },
+    });
+  }
+
+  /**
+   * Cek apakah user login sedang giliran verifikasi pada usulan ini.
+   */
+  async isCurrentTurn(transferId: string, userPersnum: number): Promise<boolean> {
+    const item = await this.repo.findOne({ where: { id: transferId } });
+    if (!item) return false;
+    if (item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN) {
+      return false;
+    }
+    const level = await this.getLevel(transferId, item.currentApprovalLevel);
+    return level?.atasanPersnum === Number(userPersnum);
   }
 
   /**

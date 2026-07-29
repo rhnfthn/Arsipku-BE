@@ -1,5 +1,50 @@
-import { IsOptional, IsString, IsInt, IsDateString } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  IsDateString,
+  IsArray,
+  ArrayMinSize,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+
+/** Item atasan untuk multi-select (berjenjang, urutan = index array). */
+export class AtasanItemDto {
+  @IsInt()
+  @Type(() => Number)
+  persnum: number;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  positionId?: number;
+
+  @IsOptional()
+  @IsString()
+  positionText?: string;
+}
+
+/** Item arsip untuk multi-select. */
+export class ArsipItemDto {
+  @IsString()
+  id: string;
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  kode?: string;
+
+  @IsOptional()
+  @IsDateString()
+  tanggalRetensiHabis?: string;
+}
 
 /** DTO untuk membuat usulan pemindahan arsip aktif ke inaktif. */
 export class CreateTransferDto {
@@ -7,32 +52,19 @@ export class CreateTransferDto {
   @IsDateString()
   tanggalUsulan?: string;
 
-  @IsInt()
-  @Type(() => Number)
-  atasanPersnum: number;
+  /** Multi-atasan berjenjang (urutan approval = urutan array). */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => AtasanItemDto)
+  atasanList: AtasanItemDto[];
 
-  @IsOptional()
-  @IsString()
-  atasanName?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  atasanPositionId?: number;
-
-  @IsString()
-  arsipId: string;
-
-  @IsOptional()
-  @IsString()
-  arsipPerihal?: string;
-
-  @IsOptional()
-  @IsString()
-  arsipKode?: string;
-
-  @IsOptional()
-  @IsDateString()
-  tanggalRetensiAktifHabis?: string;
+  /** Multi-arsip. */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ArsipItemDto)
+  arsipList: ArsipItemDto[];
 
   @IsOptional()
   @IsString()
