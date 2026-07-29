@@ -54,6 +54,19 @@ export class TransferActiveToInactiveController {
     return { success: true, data: await this.service.getArsipTersedia(user) };
   }
 
+  /** Tabel gabungan: arsip Tertutup belum usulan + usulan sudah dibuat. */
+  @Get('gabungan')
+  async getGabungan(
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.getGabungan(user, { search, status }),
+    };
+  }
+
   @Post()
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async create(
