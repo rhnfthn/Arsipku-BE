@@ -178,6 +178,26 @@ export class ArsipDinamisController {
   }
 
   /**
+   * Daftar berkas milik user dengan retensi aktif habis & status Tertutup.
+   * Dipakai oleh modul Pemindahan Arsip Aktif ke Inaktif.
+   * GET /arsip-dinamis/berkas-saya/retensi-habis
+   */
+  @Get('berkas-saya/retensi-habis')
+  @RequirePermission('pemeliharaan.pemberkasan', 'read')
+  async findBerkasRetensiHabis(
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.arsipDinamisService.findBerkasRetensiHabis(user.persnum, {
+      search,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 100,
+    });
+  }
+
+  /**
    * Statistik berkas (summary cards)
    * GET /arsip-dinamis/berkas/statistik
    */
