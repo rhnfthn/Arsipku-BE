@@ -262,6 +262,34 @@ export class RealtimeGateway
   }
 
   /**
+   * Emit arsip-dinamis persetujuan waiting count change ke satu position.
+   */
+  emitArsipPersetujuanCount(positionId: string, waiting: number) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('arsip:persetujuan-count', { positionId, waiting });
+  }
+
+  /**
+   * Emit arsip-dinamis persetujuan waiting count ke satu user (by persnum).
+   */
+  emitArsipPersetujuanCountUser(persnum: number, waiting: number) {
+    if (!this.server) return;
+    this.server
+      .to(`user:${persnum}`)
+      .emit('arsip:persetujuan-count', { waiting });
+  }
+
+  /**
+   * Broadcast arsip-dinamis persetujuan waiting count ke semua client.
+   */
+  emitArsipPersetujuanCountBroadcast(waiting: number) {
+    if (!this.server) return;
+    this.server.emit('arsip:persetujuan-count', { waiting });
+  }
+
+  /**
    * Emit tracking update (read/follow-up status change) ke pengirim.
    */
   emitTrackingUpdate(pengirimPositionId: string, payload: any) {
