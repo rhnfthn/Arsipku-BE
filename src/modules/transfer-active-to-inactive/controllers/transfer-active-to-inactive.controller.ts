@@ -48,6 +48,12 @@ export class TransferActiveToInactiveController {
     return { success: true, data: { isAtasan } };
   }
 
+  /** Daftar arsip tersedia untuk pemindahan (dari Berkas Saya). */
+  @Get('arsip-tersedia')
+  async getArsipTersedia(@CurrentUser() user: JwtPayload) {
+    return { success: true, data: await this.service.getArsipTersedia(user) };
+  }
+
   @Post()
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async create(
