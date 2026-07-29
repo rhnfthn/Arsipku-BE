@@ -7,6 +7,13 @@ import {
 } from 'typeorm';
 import { TransferActiveToInactiveStatus } from '../enums/transfer-status.enum';
 
+/** Status per-level approval (di tabel transfer_approval_levels). */
+export const ApprovalLevelStatus = {
+  MENUNGGU: 'MENUNGGU',
+  DISETUJUI: 'DISETUJUI',
+  DITOLAK: 'DITOLAK',
+} as const;
+
 /**
  * Entity untuk pemindahan arsip aktif ke inaktif.
  * Flow 2 unit: Unit Kerja (Sekretaris + Atasan Managerial)
@@ -37,6 +44,9 @@ export class TransferActiveToInactiveEntity {
   divisiName: string | null;
 
   // ─── Atasan Managerial Unit Kerja ─────────────────────────────────────
+  // NOTE: Untuk multi-atasan berjenjang, daftar lengkap disimpan di tabel
+  //   transfer_approval_levels. Kolom atasan_* di bawah tetap dipertahankan
+  //   untuk kompatibilitas (diisi dari atasan pertama / current level).
   @Column({ name: 'atasan_persnum', type: 'int' })
   atasanPersnum: number;
 
@@ -45,6 +55,14 @@ export class TransferActiveToInactiveEntity {
 
   @Column({ name: 'atasan_position_id', type: 'int', nullable: true })
   atasanPositionId: number | null;
+
+  /** Urutan atasan yang sedang giliran verifikasi (1-based). 0 = belum mulai. */
+  @Column({ name: 'current_approval_level', type: 'int', default: 1 })
+  currentApprovalLevel: number;
+
+  /** Total level approval (jumlah atasan). */
+  @Column({ name: 'total_approval_levels', type: 'int', default: 1 })
+  totalApprovalLevels: number;
 
   // ─── TU (Unit Tata Naskah) ────────────────────────────────────────────
   @Column({ name: 'tu_persnum', type: 'int', nullable: true })
@@ -66,6 +84,9 @@ export class TransferActiveToInactiveEntity {
   atasanTuName: string | null;
 
   // ─── Arsip ────────────────────────────────────────────────────────────
+  // NOTE: Untuk multi-arsip, daftar lengkap disimpan di kolom arsip_ids (JSON).
+  //   Kolom arsip_id / arsip_perihal / arsip_kode tetap dipertahankan untuk
+  //   kompatibilitas (diisi dari arsip pertama).
   @Column({ name: 'arsip_id', type: 'varchar', length: 36 })
   arsipId: string;
 
@@ -77,6 +98,15 @@ export class TransferActiveToInactiveEntity {
 
   @Column({ name: 'tgl_retensi_aktif_habis', type: 'date', nullable: true })
   tanggalRetensiAktifHabis: Date | null;
+
+  /** Daftar arsip yang diusulkan (multi-arsip). Array of {id, perihal, kode, tanggalRetensiHabis}. */
+  @Column({ name: 'arsip_ids', type: 'json', nullable: true })
+  arsipIds: Array<{
+    id: string;
+    perihal: string;
+    kode: string | null;
+    tanggalRetensiHabis: string | null;
+  }> | null;
 
   // ─── Keterangan & status ──────────────────────────────────────────────
   @Column({ type: 'text', nullable: true })
