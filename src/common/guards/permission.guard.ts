@@ -192,8 +192,10 @@ export class PermissionGuard implements CanActivate {
 
     // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
     // resources, NOT the delegasi control plane (so switch/reset still works).
+    // ALSO NOT for usulan-akses-berkas (SE is the main actor: create, verify-pemberi, select-files).
     const isViewOnly =
       !isDelegasiResource &&
+      !isUsulanAksesBerkasResource &&
       !!user.position_status &&
       this.VIEW_ONLY_STATUSES.has(user.position_status as string);
     const effectivePermissions = isViewOnly
