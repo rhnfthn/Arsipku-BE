@@ -9,6 +9,7 @@ import { BerkasRiwayatRetensi } from '../entities/berkas-riwayat-retensi.entity'
 import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NaskahService } from '../../naskah/services/naskah.service';
 
 describe('ArsipDinamisService - getRiwayatPersetujuan', () => {
   let service: ArsipDinamisService;
@@ -49,6 +50,7 @@ describe('ArsipDinamisService - getRiwayatPersetujuan', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -142,6 +144,7 @@ describe('ArsipDinamisService - getPersetujuanSaya', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -248,6 +251,7 @@ describe('ArsipDinamisService - softDeleteBerkas', () => {
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ArsipDinamisService);
@@ -288,5 +292,47 @@ describe('ArsipDinamisService - softDeleteBerkas', () => {
     stubBerkas('closed_retensi_aktif');
     await expect(service.softDeleteBerkas('b1', 99)).rejects.toThrow();
     expect(berkasRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
+  let service: ArsipDinamisService;
+  let berkasNaskahRepo: any;
+  let naskahService: any;
+
+  beforeEach(async () => {
+    berkasNaskahRepo = { findOne: jest.fn() };
+    naskahService = { getDetailWithChainForBerkas: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: {} },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: berkasNaskahRepo },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: naskahService },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  it('delegasi ke NaskahService bila naskah tercatat di berkas', async () => {
+    berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1' });
+    naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [{ id: 'n1' }] });
+    const res = await service.getNaskahDetailInBerkas('b1', 'n1');
+    expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
+    expect(res.data[0].id).toBe('n1');
+  });
+
+  it('tolak (NotFound) bila naskah bukan milik berkas — anti enumerasi id', async () => {
+    berkasNaskahRepo.findOne.mockResolvedValue(null);
+    await expect(service.getNaskahDetailInBerkas('b1', 'n1')).rejects.toThrow(
+      /tidak ditemukan di berkas/,
+    );
+    expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
   });
 });
