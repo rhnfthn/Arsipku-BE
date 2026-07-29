@@ -517,8 +517,11 @@ export class TransferActiveToInactiveService {
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
     const item = await this.getItem(id);
+    // Bisa approve dari MENUNGGU_VERIFIKASI_ATASAN (persetujuan awal)
+    // atau DISETUJUI_ATASAN (verifikasi berjenjang level 2+)
     if (
-      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN &&
+      item.status !== TransferActiveToInactiveStatus.DISETUJUI_ATASAN
     ) {
       throw new BadRequestException(
         `Status ${item.status} tidak bisa disetujui`,
@@ -556,7 +559,8 @@ export class TransferActiveToInactiveService {
     const nextLevel = await this.getLevel(item.id, item.currentApprovalLevel + 1);
 
     if (nextLevel) {
-      // Masih ada atasan berikutnya → tetap MENUNGGU_VERIFIKASI_ATASAN, giliran next
+      // Masih ada atasan berikutnya → DISETUJUI_ATASAN (Menunggu Verifikasi), giliran next
+      item.status = TransferActiveToInactiveStatus.DISETUJUI_ATASAN;
       item.currentApprovalLevel = item.currentApprovalLevel + 1;
       // Update kolom legacy atasan ke atasan berikutnya
       item.atasanPersnum = nextLevel.atasanPersnum;
@@ -588,7 +592,7 @@ export class TransferActiveToInactiveService {
       );
       return saved;
     } else {
-      // Atasan terakhir → DISETUJUI_VERIFIKASI_TERAKHIR (final)
+      // Atasan terakhir → DISETUJUI_VERIFIKASI_TERAKHIR (Menunggu Penerimaan)
       item.status = TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
       item.finalVerifiedBy = Number(user.persnum);
       item.finalVerifiedAt = new Date();
@@ -623,7 +627,8 @@ export class TransferActiveToInactiveService {
   ): Promise<TransferActiveToInactiveEntity> {
     const item = await this.getItem(id);
     if (
-      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN &&
+      item.status !== TransferActiveToInactiveStatus.DISETUJUI_ATASAN
     ) {
       throw new BadRequestException(`Status ${item.status} tidak bisa ditolak`);
     }
@@ -1250,7 +1255,10 @@ export class TransferActiveToInactiveService {
   async isCurrentTurn(transferId: string, userPersnum: number): Promise<boolean> {
     const item = await this.repo.findOne({ where: { id: transferId } });
     if (!item) return false;
-    if (item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN) {
+    if (
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN &&
+      item.status !== TransferActiveToInactiveStatus.DISETUJUI_ATASAN
+    ) {
       return false;
     }
     const level = await this.getLevel(transferId, item.currentApprovalLevel);
