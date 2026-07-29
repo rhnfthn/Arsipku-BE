@@ -14,6 +14,9 @@ import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity
 import { StorageService } from '../../storage/services/storage.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NaskahService } from '../../naskah/services/naskah.service';
+import { NotificationService } from '../../notification/services/notification.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { NotificationType } from '../../notification/entities/notification.entity';
 import {
   CreateArsipDinamisBerkasDto,
   AddNaskahToBerkasDto,
@@ -38,6 +41,8 @@ export class ArsipDinamisService {
     private readonly storageService: StorageService,
     private readonly orgDataService: OrgDataService,
     private readonly naskahService: NaskahService,
+    private readonly notificationService: NotificationService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   // ── File pendukung berkas (foto lokasi fisik & dokumen pendukung) ──
@@ -518,6 +523,35 @@ export class ArsipDinamisService {
     return { message: 'Naskah berhasil dihapus dari berkas' };
   }
 
+  /** Count berkas yg sedang menunggu persetujuan user ini (giliran dia). */
+  private async countMenungguSaya(persnum: string): Promise<number> {
+    try {
+      const [row] = await this.dataSource.query(
+        `SELECT COUNT(*) AS total FROM berkas_verifikasi bv
+         INNER JOIN berkas b ON b.id = bv.berkas_id
+         WHERE bv.verifikator_persnum = ? AND b.deleted_at IS NULL
+           AND bv.status = 'pending' AND b.status = 'menunggu_verifikasi'
+           AND NOT EXISTS (SELECT 1 FROM berkas_verifikasi earlier
+                           WHERE earlier.berkas_id = bv.berkas_id
+                             AND earlier.status = 'pending'
+                             AND earlier.urutan < bv.urutan)`,
+        [String(persnum)],
+      );
+      return Number(row?.total || 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Emit realtime count "menunggu saya" ke user (by persnum). */
+  private async emitCountForVerifikator(persnum: string) {
+    const waiting = await this.countMenungguSaya(persnum);
+    this.realtimeEmitService.emitArsipPersetujuanCountUser(
+      Number(persnum),
+      waiting,
+    );
+  }
+
   async getDaftarNaskah(
     berkasId: string,
     options: { search?: string; page?: number; limit?: number } = {},
@@ -771,6 +805,30 @@ export class ArsipDinamisService {
     berkas.updatedBy = userId;
     await this.berkasRepository.save(berkas);
 
+    // Realtime + notifikasi ke verifikator aktif (urutan 1). Gagal tidak batalkan pengajuan.
+    try {
+      const aktif = verifikatorEntities[0];
+      if (aktif) {
+        await this.emitCountForVerifikator(aktif.verifikatorPersnum);
+        await this.notificationService.createNotification(
+          {
+            positionId: String(aktif.verifikatorPositionId),
+            userPersnum: Number(aktif.verifikatorPersnum),
+            type: NotificationType.BERKAS_VERIFIKASI,
+            title: 'Persetujuan penutupan berkas',
+            body: `Berkas "${berkas.judulBerkas}" menunggu persetujuan Anda`,
+            data: { berkasId, kodeBerkas: berkas.kodeBerkas },
+          },
+          false, // in-app only, no FCM
+        );
+      }
+    } catch (err: any) {
+      console.warn(
+        '[arsip-dinamis] realtime/notif ajukan gagal:',
+        err?.message,
+      );
+    }
+
     return { message: 'Pengajuan penutupan berkas berhasil dikirim' };
   }
 
@@ -811,6 +869,16 @@ export class ArsipDinamisService {
       where: { berkasId, status: 'pending' },
       order: { urutan: 'ASC' },
     });
+
+    // Realtime count update: approver (−) & next verifikator (+). Gagal tidak batalkan approve.
+    try {
+      await this.emitCountForVerifikator(verifikatorPersnum);
+      if (nextVerifikator) {
+        await this.emitCountForVerifikator(nextVerifikator.verifikatorPersnum);
+      }
+    } catch (err: any) {
+      console.warn('[arsip-dinamis] realtime approve gagal:', err?.message);
+    }
 
     if (nextVerifikator) {
       // Masih ada verifikator berikutnya → status tetap menunggu
@@ -903,6 +971,13 @@ export class ArsipDinamisService {
       keterangan: dto.catatan,
     });
     await this.berkasRiwayatRetensiRepository.save(riwayat);
+
+    // Realtime count update ke rejecter (−). Gagal tidak batalkan reject.
+    try {
+      await this.emitCountForVerifikator(verifikatorPersnum);
+    } catch (err: any) {
+      console.warn('[arsip-dinamis] realtime reject gagal:', err?.message);
+    }
 
     return { message: 'Penutupan berkas ditolak' };
   }
