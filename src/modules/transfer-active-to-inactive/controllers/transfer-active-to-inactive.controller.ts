@@ -76,6 +76,17 @@ export class TransferActiveToInactiveController {
     return { success: true, data: await this.service.create(dto, user) };
   }
 
+  /** Update usulan (hanya DRAFT atau DITOLAK_ATASAN). */
+  @Patch(':id')
+  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  async update(
+    @Param('id') id: string,
+    @Body() dto: CreateTransferDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return { success: true, data: await this.service.update(id, dto, user) };
+  }
+
   @Get()
   async findAll(
     @Query() filter: TransferFilterDto,
