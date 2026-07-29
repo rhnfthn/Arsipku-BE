@@ -50,7 +50,13 @@ export class ArsipDinamisController {
   async getKlasifikasiDenganRetensi() {
     const data = await this.klasifikasiRepository.find({
       where: { active: 1 },
-      select: ['id', 'klasifikasi', 'klasifikasi_text', 'retensi_aktif_tahun', 'retensi_inaktif_tahun'],
+      select: [
+        'id',
+        'klasifikasi',
+        'klasifikasi_text',
+        'retensi_aktif_tahun',
+        'retensi_inaktif_tahun',
+      ],
       order: { klasifikasi: 'ASC' },
     });
     return data;
@@ -228,10 +234,7 @@ export class ArsipDinamisController {
    */
   @Patch('berkas/:id/activate')
   @RequirePermission('pemeliharaan.pemberkasan', 'update')
-  async activateBerkas(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  async activateBerkas(@Param('id') id: string, @CurrentUser() user: any) {
     return this.arsipDinamisService.activateBerkas(id, user.persnum);
   }
 
@@ -242,10 +245,7 @@ export class ArsipDinamisController {
   @Delete('berkas/:id')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('pemeliharaan.pemberkasan', 'delete')
-  async softDeleteBerkas(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  async softDeleteBerkas(@Param('id') id: string, @CurrentUser() user: any) {
     return this.arsipDinamisService.softDeleteBerkas(id, user.persnum);
   }
 
@@ -297,7 +297,11 @@ export class ArsipDinamisController {
     @Param('naskahId') naskahId: string,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.removeNaskahFromBerkas(id, naskahId, user.persnum);
+    return this.arsipDinamisService.removeNaskahFromBerkas(
+      id,
+      naskahId,
+      user.persnum,
+    );
   }
 
   /**
@@ -334,11 +338,15 @@ export class ArsipDinamisController {
     @Query('limit') limit?: number,
   ) {
     const t = tab === 'terkirim' ? 'terkirim' : 'kotak_masuk';
-    return this.arsipDinamisService.getNaskahSaya(user.persnum, t as 'kotak_masuk' | 'terkirim', {
-      search,
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 50,
-    });
+    return this.arsipDinamisService.getNaskahSaya(
+      user.persnum,
+      t as 'kotak_masuk' | 'terkirim',
+      {
+        search,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 50,
+      },
+    );
   }
 
   // ── Penutupan & Verifikasi ──────────────────────────────────────
@@ -380,7 +388,11 @@ export class ArsipDinamisController {
     @Body() dto: VerifikasiBerkasDto,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.approveVerifikasi(id, String(user.persnum), dto);
+    return this.arsipDinamisService.approveVerifikasi(
+      id,
+      String(user.persnum),
+      dto,
+    );
   }
 
   /**
@@ -395,7 +407,11 @@ export class ArsipDinamisController {
     @Body() dto: VerifikasiBerkasDto,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.rejectVerifikasi(id, String(user.persnum), dto);
+    return this.arsipDinamisService.rejectVerifikasi(
+      id,
+      String(user.persnum),
+      dto,
+    );
   }
 
   // ── Manager Views ───────────────────────────────────────────────
@@ -407,7 +423,9 @@ export class ArsipDinamisController {
   @Get('persetujuan/statistik')
   @RequirePermission('pemeliharaan.verifikasi', 'read')
   async getStatistikPersetujuan(@CurrentUser() user: any) {
-    return this.arsipDinamisService.getStatistikPersetujuan(String(user.persnum));
+    return this.arsipDinamisService.getStatistikPersetujuan(
+      String(user.persnum),
+    );
   }
 
   /**
@@ -421,10 +439,13 @@ export class ArsipDinamisController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getPengajuanPenutupan(String(user.persnum), {
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 20,
-    });
+    return this.arsipDinamisService.getPengajuanPenutupan(
+      String(user.persnum),
+      {
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      },
+    );
   }
 
   /**
