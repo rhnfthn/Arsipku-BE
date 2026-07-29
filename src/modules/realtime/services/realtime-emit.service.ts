@@ -162,6 +162,49 @@ export class RealtimeEmitService {
   }
 
   // ──────────────────────────────────────────────
+  // Arsip Dinamis Persetujuan count
+  // ──────────────────────────────────────────────
+
+  /**
+   * Emit arsip-dinamis persetujuan waiting count ke satu position.
+   */
+  emitArsipPersetujuanCount(positionId: string, waiting: number) {
+    try {
+      this.gateway.emitArsipPersetujuanCount(positionId, waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitArsipPersetujuanCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit arsip-dinamis persetujuan waiting count ke satu user (by persnum).
+   */
+  emitArsipPersetujuanCountUser(persnum: number, waiting: number) {
+    try {
+      this.gateway.emitArsipPersetujuanCountUser(persnum, waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitArsipPersetujuanCountUser] failed for persnum ${persnum}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Broadcast arsip-dinamis persetujuan waiting count ke semua client.
+   */
+  emitArsipPersetujuanCountBroadcast(waiting: number) {
+    try {
+      this.gateway.emitArsipPersetujuanCountBroadcast(waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitArsipPersetujuanCountBroadcast] failed: ${err?.message}`,
+      );
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // Tracking update (read status / tindak lanjut)
   // ──────────────────────────────────────────────
 

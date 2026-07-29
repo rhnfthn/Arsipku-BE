@@ -17,6 +17,7 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
 import { LabelModule } from '../label/label.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { NaskahDinasVerifikatorEntity } from '../naskah-dinas/entities/naskah-dinas-verifikator.entity';
+import { BerkasVerifikasi } from '../arsip-dinamis/entities/berkas-verifikasi.entity';
 import { NomorModule } from '../nomor/nomor.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { NomorModule } from '../nomor/nomor.module';
       NomorRequestEntity,
       NomorRequestDetailEntity,
       NaskahDinasVerifikatorEntity,
+      BerkasVerifikasi,
     ]),
     NaskahSirkulasiModule,
     LabelModule,
