@@ -302,7 +302,7 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
 
   beforeEach(async () => {
     berkasNaskahRepo = { findOne: jest.fn() };
-    naskahService = { getDetailInternal: jest.fn() };
+    naskahService = { getDetailWithChainForBerkas: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         ArsipDinamisService,
@@ -322,10 +322,10 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
 
   it('delegasi ke NaskahService bila naskah tercatat di berkas', async () => {
     berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1' });
-    naskahService.getDetailInternal.mockResolvedValue({ success: true, data: { id: 'n1' } });
+    naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [{ id: 'n1' }] });
     const res = await service.getNaskahDetailInBerkas('b1', 'n1');
-    expect(naskahService.getDetailInternal).toHaveBeenCalledWith('n1');
-    expect(res.data.id).toBe('n1');
+    expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
+    expect(res.data[0].id).toBe('n1');
   });
 
   it('tolak (NotFound) bila naskah bukan milik berkas — anti enumerasi id', async () => {
@@ -333,6 +333,6 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
     await expect(service.getNaskahDetailInBerkas('b1', 'n1')).rejects.toThrow(
       /tidak ditemukan di berkas/,
     );
-    expect(naskahService.getDetailInternal).not.toHaveBeenCalled();
+    expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
   });
 });
