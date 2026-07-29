@@ -48,6 +48,25 @@ export class TransferActiveToInactiveController {
     return { success: true, data: { isAtasan } };
   }
 
+  /** Daftar arsip tersedia untuk pemindahan (dari Berkas Saya). */
+  @Get('arsip-tersedia')
+  async getArsipTersedia(@CurrentUser() user: JwtPayload) {
+    return { success: true, data: await this.service.getArsipTersedia(user) };
+  }
+
+  /** Tabel gabungan: arsip Tertutup belum usulan + usulan sudah dibuat. */
+  @Get('gabungan')
+  async getGabungan(
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.getGabungan(user, { search, status }),
+    };
+  }
+
   @Post()
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async create(
@@ -55,6 +74,17 @@ export class TransferActiveToInactiveController {
     @CurrentUser() user: JwtPayload,
   ) {
     return { success: true, data: await this.service.create(dto, user) };
+  }
+
+  /** Update usulan (hanya DRAFT atau DITOLAK_ATASAN). */
+  @Patch(':id')
+  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  async update(
+    @Param('id') id: string,
+    @Body() dto: CreateTransferDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return { success: true, data: await this.service.update(id, dto, user) };
   }
 
   @Get()
@@ -134,6 +164,24 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Daftar file dari arsip yang dipilih. */
+  @Get(':id/files')
+  async getFiles(@Param('id') id: string) {
+    return { success: true, data: await this.service.getFiles(id) };
+  }
+
+  /** Daftar isi otomatis. */
+  @Get(':id/daftar-isi')
+  async getDaftarIsi(@Param('id') id: string) {
+    return { success: true, data: await this.service.getDaftarIsi(id) };
+  }
+
+  /** Data Berita Acara Serah Terima (auto-generate). */
+  @Get(':id/berita-acara-data')
+  async getBeritaAcaraData(@Param('id') id: string) {
+    return { success: true, data: await this.service.getBeritaAcaraData(id) };
+  }
+
   /** Cek apakah user login sedang giliran verifikasi. */
   @Get(':id/is-current-turn')
   async isCurrentTurn(
@@ -153,30 +201,62 @@ export class TransferActiveToInactiveController {
 
   @Patch(':id/kirim-usul-pindah')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
-  async kirimUsulPindah(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return { success: true, data: await this.service.kirimUsulPindah(id, user) };
+  async kirimUsulPindah(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.kirimUsulPindah(id, user),
+    };
   }
 
   @Patch(':id/siapkan-berkas-fisik')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
-  async siapkanBerkasFisik(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return { success: true, data: await this.service.siapkanBerkasFisik(id, user) };
+  async siapkanBerkasFisik(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.siapkanBerkasFisik(id, user),
+    };
   }
 
   @Patch(':id/selesai')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
-  async selesaikanUsulan(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return { success: true, data: await this.service.selesaikanUsulan(id, user) };
+  async selesaikanUsulan(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.selesaikanUsulan(id, user),
+    };
+  }
+
+  /** Atasan Managerial TU menyetujui penerimaan → SELESAI */
+  @Patch(':id/approve-receipt')
+  @Roles(RoleName.ADMIN, RoleName.SUPERADMIN)
+  async approveReceipt(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return { success: true, data: await this.service.approveReceipt(id, user) };
   }
 
   @Patch(':id/upload-berkas')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async uploadBerkas(
     @Param('id') id: string,
-    @Body() dto: { berkasFisikUrl?: string; beritaAcaraSerahTerimaUrl?: string },
+    @Body()
+    dto: { berkasFisikUrl?: string; beritaAcaraSerahTerimaUrl?: string },
     @CurrentUser() user: JwtPayload,
   ) {
-    return { success: true, data: await this.service.uploadBerkas(id, dto, user) };
+    return {
+      success: true,
+      data: await this.service.uploadBerkas(id, dto, user),
+    };
   }
 
   // ─── Unit Tata Naskah ──────────────────────────────────────────────────
