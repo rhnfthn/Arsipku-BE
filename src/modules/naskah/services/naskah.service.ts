@@ -337,18 +337,7 @@ export class NaskahService {
     userPosition: string,
   ): Promise<NaskahDetailResponseDto> {
     await this.assertUserHasAccessToNaskah(naskahId, userPosition);
-    return this.getDetailInternal(naskahId);
-  }
 
-  /**
-   * Bangun detail naskah TUNGGAL (konten + sirkulasi + lampiran + per-jenis)
-   * tanpa cek peserta korespondensi. Dipakai getDetail (setelah cek akses) dan
-   * oleh arsip-dinamis untuk viewer anggota berk (akses dikendalikan di layer
-   * berk: naskah harus tercatat di berkas_naskah).
-   */
-  async getDetailInternal(
-    naskahId: string,
-  ): Promise<NaskahDetailResponseDto> {
     // 1. Get data naskah utama
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -442,7 +431,6 @@ export class NaskahService {
         tanggal: naskah.tanggal,
         perihal: naskah.perihal,
         konten: naskah.konten,
-        final_pdf: naskah.final_pdf,
         lampiran: naskah.lampiran,
         status: naskah.status,
         label_ttd: this.getLabelTtd(naskah.signOption),
@@ -615,6 +603,25 @@ export class NaskahService {
       userSirkulasi = null as NaskahSirkulasi | null;
     }
 
+    return this.buildChainFlow(naskahId, userPosition, userSirkulasi);
+  }
+
+  /**
+   * Chain naskah untuk viewer anggota berkas (pemberkasan/persetujuan), tanpa
+   * cek peserta korespondensi. Akses dikendalikan di layer berk: naskah harus
+   * tercatat di berkas_naskah. user_sirkulasi = null → flag pribadi mati.
+   * userPosition = '' → riwayat konsep (draft pre-final) tidak dimuat; tampilan
+   * berk = arsip naskah final.
+   */
+  async getDetailWithChainForBerkas(naskahId: string): Promise<any> {
+    return this.buildChainFlow(naskahId, '', null);
+  }
+
+  private async buildChainFlow(
+    naskahId: string,
+    userPosition: string,
+    userSirkulasi: NaskahSirkulasi | null,
+  ): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
