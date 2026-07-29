@@ -188,6 +188,13 @@ export class TransferActiveToInactiveController {
     return { success: true, data: await this.service.selesaikanUsulan(id, user) };
   }
 
+  /** Atasan Managerial TU menyetujui penerimaan → SELESAI */
+  @Patch(':id/approve-receipt')
+  @Roles(RoleName.ADMIN, RoleName.SUPERADMIN)
+  async approveReceipt(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return { success: true, data: await this.service.approveReceipt(id, user) };
+  }
+
   @Patch(':id/upload-berkas')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async uploadBerkas(
