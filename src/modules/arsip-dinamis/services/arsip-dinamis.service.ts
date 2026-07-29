@@ -546,10 +546,11 @@ export class ArsipDinamisService {
   }
 
   /**
-   * Detail naskah TUNGGAL dibuka dalam konteks berkas (sebagai anggota pemberkasan/
-   * persetujuan), bukan sebagai peserta korespondensi. Akses sudah dijaga guard
-   * PemeliharaanAccess di controller; di sini cukup pastikan naskah memang tercatat
-   * di berkas ini (anti enumerasi id naskah sembarang oleh pemberkasan).
+   * Detail naskah + rangkaian (chain) dibuka dalam konteks berkas (sebagai
+   * anggota pemberkasan/persetujuan), bukan sebagai peserta korespondensi.
+   * Tampilan sama persis dengan detail naskah di kotak masuk/terkirim.
+   * Akses dijaga guard PemeliharaanAccess di controller; di sini cukup pastikan
+   * naskah memang tercatat di berkas ini (anti enumerasi id naskah sembarang).
    */
   async getNaskahDetailInBerkas(berkasId: string, naskahId: string) {
     const relasi = await this.berkasNaskahRepository.findOne({
@@ -559,7 +560,7 @@ export class ArsipDinamisService {
     if (!relasi) {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
-    return this.naskahService.getDetailInternal(naskahId);
+    return this.naskahService.getDetailWithChainForBerkas(naskahId);
   }
 
   // ── Naskah Siap Arsip (Tab Filtering) ───────────────────────────
