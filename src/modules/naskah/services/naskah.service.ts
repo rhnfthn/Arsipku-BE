@@ -614,13 +614,14 @@ export class NaskahService {
    * berk = arsip naskah final.
    */
   async getDetailWithChainForBerkas(naskahId: string): Promise<any> {
-    return this.buildChainFlow(naskahId, '', null);
+    return this.buildChainFlow(naskahId, '', null, true);
   }
 
   private async buildChainFlow(
     naskahId: string,
     userPosition: string,
     userSirkulasi: NaskahSirkulasi | null,
+    singleOnly = false,
   ): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
@@ -675,7 +676,12 @@ export class NaskahService {
       }
     };
 
-    await traceBackwardOnly(naskahId);
+    if (singleOnly) {
+      // Berk: hanya naskah yg dilihat (inti surat), tanpa rangkaian/riwayat.
+      allNaskahInChain.add(naskahId);
+    } else {
+      await traceBackwardOnly(naskahId);
+    }
 
     // ponytail: leak X — forward MILIK USER (naskah yang user kirim) TIDAK
     // dimasukkan ke chain. Sebelumnya forwardOwnChain ikut naskah child yang
