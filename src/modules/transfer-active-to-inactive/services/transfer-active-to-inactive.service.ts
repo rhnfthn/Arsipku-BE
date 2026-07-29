@@ -166,6 +166,126 @@ export class TransferActiveToInactiveService {
     return saved;
   }
 
+  // ─── UPDATE ────────────────────────────────────────────────────────────
+
+  /** Update usulan (hanya DRAFT atau DITOLAK_ATASAN). */
+  async update(
+    id: string,
+    dto: CreateTransferDto,
+    user: any,
+  ): Promise<TransferActiveToInactiveEntity> {
+    const item = await this.getItem(id);
+    if (
+      item.status !== TransferActiveToInactiveStatus.DRAFT &&
+      item.status !== TransferActiveToInactiveStatus.DITOLAK_ATASAN
+    ) {
+      throw new BadRequestException(
+        `Usulan dengan status ${item.status} tidak bisa diedit`,
+      );
+    }
+
+    // ── Validasi ──────────────────────────────────────────────────────
+    if (!dto.atasanList || dto.atasanList.length === 0) {
+      throw new BadRequestException('Minimal pilih 1 atasan');
+    }
+    if (!dto.arsipList || dto.arsipList.length === 0) {
+      throw new BadRequestException('Minimal pilih 1 arsip');
+    }
+    const atasanPersnums = dto.atasanList.map((a) => Number(a.persnum));
+    if (new Set(atasanPersnums).size !== atasanPersnums.length) {
+      throw new BadRequestException('Tidak boleh ada atasan duplikat');
+    }
+    const arsipIds = dto.arsipList.map((a) => a.id);
+    if (new Set(arsipIds).size !== arsipIds.length) {
+      throw new BadRequestException('Tidak boleh ada arsip duplikat');
+    }
+    if (atasanPersnums[0] === Number(user.persnum)) {
+      throw new BadRequestException(
+        'Atasan pertama tidak boleh sama dengan Sekretaris (pengusul)',
+      );
+    }
+
+    const oldStatus = item.status;
+    const firstAtasan = dto.atasanList[0];
+    const firstArsip = dto.arsipList[0];
+
+    // Update kolom utama
+    item.keterangan = dto.keterangan ?? null;
+    // Kolom legacy (dari atasan pertama)
+    item.atasanPersnum = Number(firstAtasan.persnum);
+    item.atasanName = firstAtasan.name ?? String(firstAtasan.persnum);
+    item.atasanPositionId = firstAtasan.positionId ?? null;
+    item.totalApprovalLevels = dto.atasanList.length;
+    // Kolom legacy (dari arsip pertama)
+    item.arsipId = firstArsip.id;
+    item.arsipPerihal = firstArsip.perihal ?? '-';
+    item.arsipKode = firstArsip.kode ?? null;
+    item.tanggalRetensiAktifHabis = firstArsip.tanggalRetensiHabis
+      ? new Date(firstArsip.tanggalRetensiHabis)
+      : null;
+    // Multi-arsip
+    item.arsipIds = dto.arsipList.map((a) => ({
+      id: a.id,
+      perihal: a.perihal ?? '-',
+      kode: a.kode ?? null,
+      tanggalRetensiHabis: a.tanggalRetensiHabis ?? null,
+    }));
+
+    // Jika submit, kirim ke atasan
+    if (dto.submit) {
+      item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN;
+      item.rejectedNote = null;
+      item.currentApprovalLevel = 1;
+    }
+
+    const saved = await this.repo.save(item);
+
+    // ── Replace approval levels ───────────────────────────────────────
+    await this.levelRepo
+      .createQueryBuilder()
+      .delete()
+      .from(TransferApprovalLevelEntity)
+      .where('transfer_id = :tid', { tid: saved.id })
+      .execute();
+    const levels: TransferApprovalLevelEntity[] = dto.atasanList.map(
+      (a: AtasanItemDto, idx: number) =>
+        this.levelRepo.create({
+          transferId: saved.id,
+          atasanPersnum: Number(a.persnum),
+          atasanName: a.name ?? String(a.persnum),
+          atasanPositionId: a.positionId ?? null,
+          atasanPositionText: a.positionText ?? null,
+          urutan: idx + 1,
+          status: LEVEL_MENUNGGU,
+        }),
+    );
+    await this.levelRepo.save(levels);
+
+    this.logAudit(
+      user,
+      saved,
+      oldStatus,
+      saved.status,
+      `Edit usulan pemindahan arsip aktif ke inaktif (${dto.atasanList.length} atasan, ${dto.arsipList.length} arsip)`,
+    );
+
+    if (dto.submit) {
+      // Notifikasi atasan level 1
+      const currentLevel = await this.getLevel(saved.id, 1);
+      if (currentLevel) {
+        await this.notify(
+          saved,
+          currentLevel.atasanPositionId != null
+            ? String(currentLevel.atasanPositionId)
+            : null,
+          currentLevel.atasanPersnum,
+          'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
+        );
+      }
+    }
+    return saved;
+  }
+
   // ─── READ ─────────────────────────────────────────────────────────────
 
   /**
@@ -609,8 +729,7 @@ export class TransferActiveToInactiveService {
     } else {
       // Atasan terakhir → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
       // Atasan perlu verifikasi terakhir (dengan Daftar Isi + BA) sebelum kirim ke TU
-      item.status =
-        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
+      item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
       item.approvedBy = Number(user.persnum);
       item.approvedAt = new Date();
       item.verifyNote = dto.verifyNote ?? null;
@@ -723,8 +842,7 @@ export class TransferActiveToInactiveService {
       );
     }
     const old = item.status;
-    item.status =
-      TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
+    item.status = TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
     item.finalVerifyNote = dto.finalVerifyNote ?? null;
     item.finalVerifiedBy = Number(user.persnum);
     item.finalVerifiedAt = new Date();
