@@ -748,10 +748,44 @@ export class TransferActiveToInactiveService {
       throw new BadRequestException(`Status ${item.status} tidak bisa diselesaikan`);
     }
     const old = item.status;
-    item.status = TransferActiveToInactiveStatus.SELESAI;
+    // Setelah berkas fisik disiapkan, usulan masuk ke TU → MENUNGGU_PENERIMAAN
+    // (bukan langsung SELESAI — Atasan Managerial TU harus approve)
+    item.status = TransferActiveToInactiveStatus.DIKIRIM;
+    item.tanggalDikirim = new Date();
     const saved = await this.repo.save(item);
-    this.logAudit(user, saved, old, saved.status, 'Usulan selesai');
-    await this.notify(saved, null, saved.sekretarisPersnum, 'Usulan pemindahan arsip selesai');
+    this.logAudit(user, saved, old, saved.status, 'Usulan dikirim ke Unit Tata Naskah — menunggu penerimaan');
+    await this.notify(saved, '0', null, 'Usulan pemindahan arsip menunggu penerimaan TU');
+    return saved;
+  }
+
+  /**
+   * Atasan Managerial TU menyetujui penerimaan usulan → SELESAI.
+   * Endpoint: PATCH /:id/approve-receipt
+   */
+  async approveReceipt(
+    id: string,
+    user: any,
+  ): Promise<TransferActiveToInactiveEntity> {
+    const item = await this.getItem(id);
+    // Bisa approve dari status DIKIRIM (menunggu penerimaan TU)
+    if (
+      item.status !== TransferActiveToInactiveStatus.DIKIRIM &&
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK &&
+      item.status !== TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI &&
+      item.status !== TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU &&
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU
+    ) {
+      throw new BadRequestException(
+        `Status ${item.status} tidak bisa disetujui penerimaan`,
+      );
+    }
+    const old = item.status;
+    item.status = TransferActiveToInactiveStatus.SELESAI;
+    item.tuFinalApprovedBy = Number(user.persnum);
+    item.tuFinalApprovedAt = new Date();
+    const saved = await this.repo.save(item);
+    this.logAudit(user, saved, old, saved.status, 'Persetujuan penerimaan oleh Atasan Managerial TU — usulan selesai');
+    await this.notify(saved, null, saved.sekretarisPersnum, 'Usulan pemindahan arsip disetujui penerimaan oleh Atasan TU — selesai');
     return saved;
   }
 
