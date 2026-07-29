@@ -13,6 +13,7 @@ import { BerkasRiwayatRetensi } from '../entities/berkas-riwayat-retensi.entity'
 import { KlasifikasiEntity } from '../../klasifikasi/entities/klasifikasi.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { NaskahService } from '../../naskah/services/naskah.service';
 import {
   CreateArsipDinamisBerkasDto,
   AddNaskahToBerkasDto,
@@ -36,6 +37,7 @@ export class ArsipDinamisService {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly orgDataService: OrgDataService,
+    private readonly naskahService: NaskahService,
   ) {}
 
   // ── File pendukung berkas (foto lokasi fisik & dokumen pendukung) ──
@@ -541,6 +543,23 @@ export class ArsipDinamisService {
       data,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Detail naskah TUNGGAL dibuka dalam konteks berkas (sebagai anggota pemberkasan/
+   * persetujuan), bukan sebagai peserta korespondensi. Akses sudah dijaga guard
+   * PemeliharaanAccess di controller; di sini cukup pastikan naskah memang tercatat
+   * di berkas ini (anti enumerasi id naskah sembarang oleh pemberkasan).
+   */
+  async getNaskahDetailInBerkas(berkasId: string, naskahId: string) {
+    const relasi = await this.berkasNaskahRepository.findOne({
+      where: { berkasId, naskahId },
+      select: ['naskahId'],
+    });
+    if (!relasi) {
+      throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
+    }
+    return this.naskahService.getDetailInternal(naskahId);
   }
 
   // ── Naskah Siap Arsip (Tab Filtering) ───────────────────────────
