@@ -8,7 +8,9 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { PositionService } from './position.service';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { UpdatePositionDto } from './dto/update-position.dto';
@@ -20,6 +22,8 @@ export class PositionController {
   constructor(private readonly positionService: PositionService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findAll(): Promise<OmPosition[]> {
     return this.positionService.findAll();
   }
@@ -72,6 +76,8 @@ export class PositionController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findOne(@Param('id') id: string): Promise<OmPosition> {
     return this.positionService.findOne(id);
   }

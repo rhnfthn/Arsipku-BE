@@ -7,7 +7,9 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { AreaService } from './area.service';
 import { CreateAreaDto } from './dto/create-area.dto';
 import { UpdateAreaDto } from './dto/update-area.dto';
@@ -19,6 +21,8 @@ export class AreaController {
   constructor(private readonly areaService: AreaService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findAll(): Promise<OmArea[]> {
     return this.areaService.findAll();
   }
@@ -72,6 +76,8 @@ export class AreaController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findOne(@Param('id') id: string): Promise<OmArea> {
     return this.areaService.findOne(id);
   }
