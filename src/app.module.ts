@@ -6,6 +6,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { CacheModule } from '@nestjs/cache-manager';
+import KeyvRedis from '@keyv/redis';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionGuard } from './common/guards/permission.guard';
 import { PemeliharaanAccessGuard } from './common/guards/pemeliharaan-access.guard';
@@ -104,6 +106,23 @@ import { TransferActiveToInactiveModule } from './modules/transfer-active-to-ina
         limit: 5, // BSrE sign — paling ketat (passphrase brute force protection)
       },
     ]),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      useFactory: () => {
+        const store = new KeyvRedis(process.env.REDIS_URL, {
+          throwOnConnectError: false,
+        });
+        store.client.on('error', (err: Error) => {
+          // eslint-disable-next-line no-console
+          console.warn('[RedisCache] connection error:', err?.message ?? err);
+        });
+        return {
+          stores: [store],
+          namespace: 'arsipku',
+          ttl: 120_000,
+        };
+      },
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
