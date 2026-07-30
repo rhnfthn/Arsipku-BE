@@ -47,6 +47,26 @@ export class UsulanAksesBerkasController {
     return { success: true, data: result, total: result.length };
   }
 
+  // ── Verifikator BOD: list BOD/BOD-1/BOD-2/BOD-3 + delegasi aktif (PT/PH/PS) ──
+
+  /**
+   * GET /usulan-akses-berkas/verifikator-bod
+   * Return semua BOD (BOD, BOD-1, BOD-2, BOD-3) di divisi tertentu,
+   * digabung dengan managerial yang sedang didelegasikan (PT/PH/PS aktif)
+   * di divisi tersebut.
+   * Query param:
+   *  - divisiId: number (opsional) — kalau kosong, pakai divisi currentUser
+   */
+  @Get('verifikator-bod')
+  async getVerifikatorBod(
+    @CurrentUser() user: any,
+    @Query('divisiId') divisiId?: string,
+  ) {
+    const orgId = divisiId ? Number(divisiId) : Number(user.organization);
+    const result = await this.service.getVerifikatorBod(orgId);
+    return { success: true, data: result, total: result.length };
+  }
+
   // ── CREATE: Buat usulan baru ──────────────────────────────────
 
   /**
@@ -108,6 +128,32 @@ export class UsulanAksesBerkasController {
   }
 
   // ── READ: List usulan ─────────────────────────────────────────
+
+  /**
+   * GET /usulan-akses-berkas/counts
+   * Hitung jumlah usulan per kategori untuk badge notifikasi sidebar.
+   * Kategori:
+   *  - menungguVerifikasi: usulan yang menunggu verifikasi user (scope=verify-me, status menunggu)
+   *  - pilihBerkas: usulan yang menunggu SE pemberi pilih berkas (scope=verify-pemberi, status PEMILIHAN_BERKAS/MENUNGGU_VERIFIKASI_PEMBERI)
+   *  - aksesDiterbitkanBaru: entitlement baru yang belum dilihat (isRead=false)
+   */
+  @Get('counts')
+  async getCounts(@CurrentUser() user: any) {
+    const result = await this.service.getCounts(user);
+    return { success: true, data: result };
+  }
+
+  /**
+   * PATCH /usulan-akses-berkas/mark-entitlements-read
+   * Tandai semua entitlement user sebagai sudah dibaca (isRead=true).
+   * Dipanggil saat user membuka halaman Pemberian.
+   */
+  @Patch('mark-entitlements-read')
+  @HttpCode(HttpStatus.OK)
+  async markEntitlementsRead(@CurrentUser() user: any) {
+    const result = await this.service.markEntitlementsRead(user);
+    return { success: true, data: result };
+  }
 
   /**
    * GET /usulan-akses-berkas

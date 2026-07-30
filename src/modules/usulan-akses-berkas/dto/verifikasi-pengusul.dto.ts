@@ -2,21 +2,14 @@ import {
   IsEnum,
   IsString,
   IsOptional,
-  MinLength,
-  IsBoolean,
 } from 'class-validator';
 import { Keputusan } from '../enums';
 
 /**
- * DTO untuk verifikasi pengusul (AVP/VP/EVP)
+ * DTO untuk verifikasi pengusul (BOD/BOD-1/BOD-2/BOD-3 berjenjang)
+ * Checkbox checklist dihapus — cukup keputusan + catatan.
  */
 export class VerifikasiPengusulDto {
-  @IsBoolean() kelengkapanBerkas: boolean;
-  @IsBoolean() kesesuaianTujuan: boolean;
-  @IsBoolean() periodeWajar: boolean;
-  @IsBoolean() suratSah: boolean;
-  @IsBoolean() tidakDuplikasi: boolean;
-
   @IsOptional()
   @IsString()
   catatan?: string;
