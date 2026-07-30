@@ -20,6 +20,7 @@ import {
 } from '../dto/tu-verifikasi.dto';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class TuVerifikasiService {
     @InjectRepository(TransferActiveToInactiveEntity)
     private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
     private readonly notificationService: NotificationService,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   /** Status yang relevan untuk TU (notifikasi usulan masuk). */
@@ -245,9 +247,46 @@ export class TuVerifikasiService {
     return saved;
   }
 
-  /** Daftar atasan managerial TU (untuk dropdown pilih atasan TU). */
+  /** Daftar atasan managerial TU (untuk dropdown pilih atasan TU).
+   * Cari di org_data position_json: organization yang mengandung "Corporate Secretary",
+   * ambil yang chief=1 (atasan, bukan staff), punya persnum_person.
+   */
   async getAtasanTuList() {
-    return [];
+    try {
+      const latestOrgData = await this.orgDataService.findLatestOrg();
+      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+        return [];
+      }
+
+      const positions = latestOrgData.position_json as any[];
+
+      // Cari position di organization "Corporate Secretary" dengan chief=1
+      const atasanTu = positions
+        .filter((p) => {
+          const orgText = (p.organization_text || '').toUpperCase();
+          return (
+            orgText.includes('CORPORATE SECRETARY') &&
+            p.chief === 1 &&
+            p.persnum_person
+          );
+        })
+        .map((p) => ({
+          persnum: p.persnum_person,
+          name: p.persnum_person_text,
+          position: p.position,
+          positionText: p.position_text,
+          organization: p.organization_id,
+          organizationText: p.organization_text,
+          displayText: `${p.persnum_person_text} — ${p.position_text} (${p.persnum_person})`,
+        }));
+
+      return atasanTu;
+    } catch (error) {
+      this.logger.warn(
+        `getAtasanTuList failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [];
+    }
   }
 
   // ============================================

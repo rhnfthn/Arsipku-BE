@@ -7,11 +7,13 @@ import { TuVerifikasiService } from './services/tu-verifikasi.service';
 import { TuGuard } from './guards/tu-guard';
 import { AtasanTuGuard } from './guards/atasan-tu-guard';
 import { NotificationModule } from '../notification/notification.module';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([TransferActiveToInactiveEntity]),
     NotificationModule,
+    OrgDataModule,
   ],
   controllers: [TuVerifikasiController, AtasanTuController, TuPenataanController],
   providers: [TuVerifikasiService, TuGuard, AtasanTuGuard],
