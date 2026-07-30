@@ -209,6 +209,9 @@ export class TransferActiveToInactiveService {
     const firstAtasan = dto.atasanList[0];
     const firstArsip = dto.arsipList[0];
 
+    // Debug log
+    this.logger.log(`[update] id=${id} atasanList=${JSON.stringify(dto.atasanList.map(a => ({persnum: a.persnum, name: a.name})))} submit=${dto.submit}`);
+
     // Update kolom utama
     item.keterangan = dto.keterangan ?? null;
     // Kolom legacy (dari atasan pertama)
@@ -371,15 +374,20 @@ export class TransferActiveToInactiveService {
    */
   async getGabungan(user: any, filter?: { search?: string; status?: string }) {
     const userId = Number(user.persnum);
-    const today = new Date().toISOString().split('T')[0];
     const search = filter?.search?.trim() || '';
 
-    // 1. Ambil usulan milik sekretaris login
-    const usulanList = await this.repo
+    // Cek role: ADMIN/SUPERADMIN lihat semua, USER hanya miliknya
+    const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
+    const isPrivileged = roleName === 'ADMIN' || roleName === 'SUPERADMIN';
+
+    // 1. Ambil usulan (semua untuk ADMIN/SUPERADMIN, milik sekretaris login untuk USER)
+    const usulanQb = this.repo
       .createQueryBuilder('t')
-      .where('t.sekretaris_persnum = :p', { p: userId })
-      .orderBy('t.created_at', 'DESC')
-      .getMany();
+      .orderBy('t.created_at', 'DESC');
+    if (!isPrivileged) {
+      usulanQb.where('t.sekretaris_persnum = :p', { p: userId });
+    }
+    const usulanList = await usulanQb.getMany();
 
     // Kumpulkan arsip id yang sudah masuk usulan (semua status)
     const arsipDiUsulan = new Set<string>();
@@ -393,14 +401,16 @@ export class TransferActiveToInactiveService {
     // 2. Ambil berkas Tertutup retensi habis yang BELUM masuk usulan apapun
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
-      .where('b.deleted_at IS NULL')
-      .andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+      .where('b.deleted_at IS NULL');
+    // USER hanya lihat berkas miliknya, ADMIN/SUPERADMIN lihat semua
+    if (!isPrivileged) {
+      berkasQb.andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
         userId,
         userPersnum: String(userId),
-      })
+      });
+    }
+    berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
@@ -510,7 +520,8 @@ export class TransferActiveToInactiveService {
         qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
       }
     } else if (roleName === 'ADMIN' || roleName === 'SUPERADMIN') {
-      // Atasan Managerial & Superadmin: lihat usulan yang ditujukan ke dia
+      // Atasan Managerial: tampilkan usulan yang ditujukan ke dia
+      // (di salah satu level approval)
       const transferIds = await this.levelRepo
         .createQueryBuilder('l')
         .select('l.transfer_id', 'transferId')
@@ -518,14 +529,9 @@ export class TransferActiveToInactiveService {
         .getRawMany();
       const ids = transferIds.map((r) => r.transferId);
       if (ids.length > 0) {
-        // Untuk SUPERADMIN, tampilkan juga semua usulan (opsional)
-        if (roleName === 'SUPERADMIN') {
-          // Superadmin lihat semua
-        } else {
-          qb.andWhere('t.id IN (:...ids)', { ids });
-        }
-      } else if (roleName === 'ADMIN') {
-        // Admin tanpa usulan → kosong
+        qb.andWhere('t.id IN (:...ids)', { ids });
+      } else {
+        // Tidak punya usulan sebagai atasan → kosong
         qb.andWhere('1 = 0');
       }
     }

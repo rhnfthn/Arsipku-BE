@@ -18,6 +18,8 @@ export interface JwtPayload {
   activeRole?: ActiveRoleInfo | null;
   activePermissions?: ActivePermission[];
   roles?: ActiveRoleInfo[];
+  // Role tambahan dari tabel organization_tu (Unit TU): 'tu' | 'sekretaris'
+  tuRoles?: string[];
   // Delegation actor fields (populated during switchRole / PT/PH/PS/VI/SE)
   position_status?: PositionStatus | null;
   delegator_persnum?: number | null;
