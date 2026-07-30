@@ -13,6 +13,10 @@ import {
   VerifikasiBerkasDto,
   AjukanAtasanTuDto,
   KembalikanDto,
+  SetujuiPenerimaanDto,
+  TolakPenerimaanDto,
+  SetujuiTerakhirDto,
+  SelesaiPenataanDto,
 } from '../dto/tu-verifikasi.dto';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
@@ -243,11 +247,266 @@ export class TuVerifikasiService {
 
   /** Daftar atasan managerial TU (untuk dropdown pilih atasan TU). */
   async getAtasanTuList() {
-    // Ambil dari organization_tu dengan role unit_dokumen? Tidak.
-    // Atasan TU = user dengan role atasan_managerial di Unit Tata Naskah.
-    // Untuk sementara, return list dari user_role dengan role ADMIN/SUPERADMIN
-    // yang ada di Unit Tata Naskah. Implementasi sederhana: query org_data.
-    // TODO: Implementasi proper query ke organization_tu / rbac.
     return [];
+  }
+
+  // ============================================
+  // ATASAN MANAGERIAL TU — Verifikasi Persetujuan
+  // ============================================
+
+  /** Status yang relevan untuk Atasan Managerial TU. */
+  private readonly ATASAN_TU_STATUSES = [
+    TransferActiveToInactiveStatus.DIKIRIM,
+    TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU,
+    TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
+    TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
+  ];
+
+  /** Daftar usulan untuk Atasan Managerial TU. */
+  async findAllAtasanTu(filter: TuFilterDto) {
+    const page = Math.max(1, filter.page ?? 1);
+    const limit = Math.max(1, filter.limit ?? 10);
+
+    const qb = this.transferRepo.createQueryBuilder('t');
+
+    // Hanya usulan yang sudah diajukan TU (tuApprovedAt terisi)
+    qb.andWhere('t.tu_approved_at IS NOT NULL');
+
+    if (filter.status) {
+      qb.andWhere('t.status = :status', { status: filter.status });
+    } else {
+      qb.andWhere('t.status IN (:...statuses)', {
+        statuses: this.ATASAN_TU_STATUSES,
+      });
+    }
+
+    if (filter.search) {
+      qb.andWhere(
+        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.sekretaris_name LIKE :search OR t.tu_name LIKE :search)',
+        { search: `%${filter.search}%` },
+      );
+    }
+
+    qb.orderBy('t.tu_approved_at', 'DESC').addOrderBy('t.created_at', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+    return {
+      data,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  /** Setujui penerimaan oleh Atasan TU. */
+  async setujuiPenerimaan(id: string, user: JwtPayload, dto: { catatanVerifikasi?: string }) {
+    const transfer = await this.findOneForTu(id);
+
+    if (
+      transfer.status !== TransferActiveToInactiveStatus.DIKIRIM &&
+      transfer.status !==
+        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU
+    ) {
+      throw new BadRequestException(
+        `Status ${transfer.status} tidak bisa disetujui penerimaan`,
+      );
+    }
+
+    transfer.status =
+      TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
+    transfer.atasanTuPersnum = transfer.atasanTuPersnum ?? Number(user.persnum);
+    transfer.atasanTuName = transfer.atasanTuName ?? user.nama ?? String(user.persnum);
+    transfer.physicalVerificationNote = dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
+
+    const saved = await this.transferRepo.save(transfer);
+
+    // Notifikasi ke TU
+    try {
+      await this.notificationService.createNotification({
+        positionId: '0',
+        userPersnum: transfer.tuPersnum ?? undefined,
+        type: NotificationType.SYSTEM,
+        title: 'Penerimaan Disetujui Atasan TU',
+        body: `Usulan ${saved.nomorUsulan} penerimaan disetujui oleh Atasan TU.`,
+        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+      });
+    } catch (e) {
+      this.logger.warn(`notify failed: ${(e as Error).message}`);
+    }
+
+    return saved;
+  }
+
+  /** Tolak penerimaan oleh Atasan TU. */
+  async tolakPenerimaan(id: string, user: JwtPayload, dto: { alasanPenolakan: string }) {
+    const transfer = await this.findOneForTu(id);
+
+    if (
+      transfer.status !== TransferActiveToInactiveStatus.DIKIRIM &&
+      transfer.status !==
+        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU
+    ) {
+      throw new BadRequestException(
+        `Status ${transfer.status} tidak bisa ditolak penerimaan`,
+      );
+    }
+
+    transfer.status =
+      TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TU;
+    transfer.rejectedNote = dto.alasanPenolakan;
+
+    const saved = await this.transferRepo.save(transfer);
+
+    // Notifikasi ke TU
+    try {
+      await this.notificationService.createNotification({
+        positionId: '0',
+        userPersnum: transfer.tuPersnum ?? undefined,
+        type: NotificationType.SYSTEM,
+        title: 'Penerimaan Ditolak Atasan TU',
+        body: `Usulan ${saved.nomorUsulan} penerimaan ditolak: ${dto.alasanPenolakan}`,
+        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+      });
+    } catch (e) {
+      this.logger.warn(`notify failed: ${(e as Error).message}`);
+    }
+
+    return saved;
+  }
+
+  /** Setujui persetujuan terakhir oleh Atasan TU → ARSIP_INAKTIF_DITERIMA. */
+  async setujuiTerakhir(id: string, user: JwtPayload, dto: { catatanVerifikasi?: string }) {
+    const transfer = await this.findOneForTu(id);
+
+    if (
+      transfer.status !==
+        TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU &&
+      transfer.status !==
+        TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU
+    ) {
+      throw new BadRequestException(
+        `Status ${transfer.status} tidak bisa disetujui terakhir`,
+      );
+    }
+
+    transfer.status =
+      TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
+    transfer.tuFinalApprovedBy = Number(user.persnum);
+    transfer.tuFinalApprovedAt = new Date();
+    transfer.receivedAt = new Date();
+
+    const saved = await this.transferRepo.save(transfer);
+
+    // Notifikasi ke TU untuk penataan arsip
+    try {
+      await this.notificationService.createNotification({
+        positionId: '0',
+        userPersnum: transfer.tuPersnum ?? undefined,
+        type: NotificationType.SYSTEM,
+        title: 'Arsip Diterima — Siap Penataan',
+        body: `Usulan ${saved.nomorUsulan} disetujui terakhir oleh Atasan TU. Silakan lakukan penataan arsip.`,
+        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+      });
+    } catch (e) {
+      this.logger.warn(`notify failed: ${(e as Error).message}`);
+    }
+
+    return saved;
+  }
+
+  // ============================================
+  // TU — Penataan Arsip Inaktif
+  // ============================================
+
+  /** Status untuk penataan arsip. */
+  private readonly PENATAAN_STATUSES = [
+    TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
+    TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF,
+    TransferActiveToInactiveStatus.SELESAI,
+  ];
+
+  /** Daftar usulan untuk penataan arsip di TU. */
+  async findAllPenataan(filter: TuFilterDto) {
+    const page = Math.max(1, filter.page ?? 1);
+    const limit = Math.max(1, filter.limit ?? 10);
+
+    const qb = this.transferRepo.createQueryBuilder('t');
+
+    if (filter.status) {
+      qb.andWhere('t.status = :status', { status: filter.status });
+    } else {
+      qb.andWhere('t.status IN (:...statuses)', {
+        statuses: this.PENATAAN_STATUSES,
+      });
+    }
+
+    if (filter.search) {
+      qb.andWhere(
+        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.sekretaris_name LIKE :search)',
+        { search: `%${filter.search}%` },
+      );
+    }
+
+    qb.orderBy('t.received_at', 'DESC').addOrderBy('t.created_at', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+    return {
+      data,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  /** Selesai penataan arsip → SELESAI. */
+  async selesaiPenataan(
+    id: string,
+    user: JwtPayload,
+    dto: {
+      lokasi?: string;
+      rak?: string;
+      baris?: string;
+      kolom?: string;
+      keterangan?: string;
+    },
+  ) {
+    const transfer = await this.findOneForTu(id);
+
+    if (
+      transfer.status !==
+        TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA &&
+      transfer.status !==
+        TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF
+    ) {
+      throw new BadRequestException(
+        `Status ${transfer.status} tidak bisa diselesaikan penataan`,
+      );
+    }
+
+    transfer.lokasiPenataan = dto.lokasi ?? null;
+    transfer.rak = dto.rak ?? null;
+    transfer.baris = dto.baris ?? null;
+    transfer.kolom = dto.kolom ?? null;
+    transfer.keteranganPenataan = dto.keterangan ?? null;
+    transfer.status = TransferActiveToInactiveStatus.SELESAI;
+    transfer.arrangedAt = new Date();
+
+    const saved = await this.transferRepo.save(transfer);
+
+    // Notifikasi ke sekretaris
+    try {
+      await this.notificationService.createNotification({
+        positionId: '0',
+        userPersnum: transfer.sekretarisPersnum,
+        type: NotificationType.SYSTEM,
+        title: 'Penataan Arsip Selesai',
+        body: `Usulan ${saved.nomorUsulan} arsip telah selesai ditata di ${dto.lokasi || 'lokasi'}.`,
+        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+      });
+    } catch (e) {
+      this.logger.warn(`notify failed: ${(e as Error).message}`);
+    }
+
+    return saved;
   }
 }
