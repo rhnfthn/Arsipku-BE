@@ -763,6 +763,17 @@ export class UsulanAksesBerkasService {
       usulan.status = StatusUsulan.PEMILIHAN_BERKAS;
       if (dto.durasiAksesDisetujui) {
         usulan.durasiAksesDisetujui = dto.durasiAksesDisetujui;
+        // Jadikan durasi disetujui sebagai acuan utama
+        usulan.durasiAkses = dto.durasiAksesDisetujui;
+        if (dto.durasiAksesDisetujui === DurasiPreset.CUSTOM) {
+          // Simpan custom tanggal dari SE pemberi, atau pertahankan dari pengusul
+          if (dto.customTanggalSelesai) {
+            usulan.customTanggalSelesai = new Date(dto.customTanggalSelesai);
+          }
+          // else: pertahankan customTanggalSelesai dari pengusul
+        } else {
+          usulan.customTanggalSelesai = null;
+        }
       }
       usulan.catatanPerubahanDurasi = catatanDurasi;
     }
@@ -917,6 +928,11 @@ export class UsulanAksesBerkasService {
     // Apply durasi adjustment dari verifikator berjenjang
     if (dto.durasiAksesDisetujui) {
       usulan.durasiAksesDisetujui = dto.durasiAksesDisetujui;
+      // Jadikan durasi disetujui sebagai acuan utama
+      usulan.durasiAkses = dto.durasiAksesDisetujui;
+      if (dto.durasiAksesDisetujui !== DurasiPreset.CUSTOM) {
+        usulan.customTanggalSelesai = null;
+      }
       usulan.catatanPerubahanDurasi = catatanDurasiPemberi || usulan.catatanPerubahanDurasi || null;
     }
 
