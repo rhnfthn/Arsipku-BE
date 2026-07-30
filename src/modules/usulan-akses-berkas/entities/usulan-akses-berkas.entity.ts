@@ -65,6 +65,7 @@ export class UsulanAksesBerkasEntity {
     persnum: number;
     levelJabatan: LevelJabatan;
     urutan: number;
+    catatan?: string;
   }[] | null;
 
   // ── Status ─────────────────────────────────────────────────────

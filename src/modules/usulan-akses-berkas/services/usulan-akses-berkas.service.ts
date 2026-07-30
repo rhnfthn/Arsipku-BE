@@ -95,8 +95,8 @@ export class UsulanAksesBerkasService {
   //         [EVP saja] → urutan [1] (bukan [3] lagi)
   //         [AVP, EVP] → urutan [1, 2]
   private sortVerifikator(
-    verifikator: { persnum: number; levelJabatan: LevelJabatan }[],
-  ): { persnum: number; levelJabatan: LevelJabatan; urutan: number }[] {
+    verifikator: { persnum: number; levelJabatan: LevelJabatan; catatan?: string }[],
+  ): { persnum: number; levelJabatan: LevelJabatan; urutan: number; catatan?: string }[] {
     return verifikator
       .map((v) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] ?? 99 }))
       .sort((a, b) => a._levelOrder - b._levelOrder)
@@ -838,11 +838,12 @@ export class UsulanAksesBerkasService {
     );
     await this.usulanBerkasRepo.save(usulanBerkasItems);
 
-    // Auto-sort verifikator pemberi
+    // Auto-sort verifikator pemberi (pertahankan catatan per verifikator)
     const sortedVerifikatorPemberi = this.sortVerifikator(
       dto.verifikatorPemberi.map((v) => ({
         persnum: v.persnum,
         levelJabatan: v.levelJabatan as LevelJabatan,
+        ...(v.catatan ? { catatan: v.catatan } : {}),
       })),
     );
 
