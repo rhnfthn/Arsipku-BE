@@ -16,6 +16,10 @@ export class VerifikasiPemberiDto {
 
   @IsOptional()
   @IsString()
+  customTanggalSelesai?: string; // tanggal berakhir custom (jika durasiAksesDisetujui = CUSTOM)
+
+  @IsOptional()
+  @IsString()
   catatanPerubahanDurasi?: string; // opsional — fallback ke catatan umum
 
   @IsOptional()
