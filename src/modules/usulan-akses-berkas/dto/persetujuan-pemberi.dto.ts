@@ -2,21 +2,16 @@ import {
   IsEnum,
   IsString,
   IsOptional,
-  MinLength,
-  IsBoolean,
+  IsDateString,
 } from 'class-validator';
-import { Keputusan } from '../enums';
+import { Keputusan, DurasiPreset } from '../enums';
 
 /**
- * DTO untuk persetujuan pemberi (AVP/VP/EVP)
+ * DTO untuk persetujuan pemberi (BOD/BOD-1/BOD-2/BOD-3 berjenjang)
+ * Checkbox checklist dihapus — cukup keputusan + catatan.
+ * Verifikator berjenjang bisa adjust durasi.
  */
 export class PersetujuanPemberiDto {
-  @IsBoolean() berkasSesuai: boolean;
-  @IsBoolean() tidakMelanggarKebijakan: boolean;
-  @IsBoolean() peminjamanTidakBerlebihan: boolean;
-  @IsBoolean() sudahDiverifikasiSekretaris: boolean;
-  @IsBoolean() disetujuiDiberikan: boolean;
-
   @IsOptional()
   @IsString()
   catatan?: string;
@@ -27,4 +22,13 @@ export class PersetujuanPemberiDto {
 
   @IsEnum(Keputusan)
   keputusan: Keputusan; // SETUJU | REVISI | TOLAK
+
+  // ── Durasi adjustment (opsional, bisa diisi verifikator berjenjang) ──
+  @IsOptional()
+  @IsEnum(DurasiPreset)
+  durasiAksesDisetujui?: DurasiPreset;
+
+  @IsOptional()
+  @IsString()
+  catatanPerubahanDurasi?: string; // wajib jika durasi diubah
 }

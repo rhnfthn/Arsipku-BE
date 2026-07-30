@@ -243,7 +243,8 @@ export class ArsipDinamisController {
    * PATCH /arsip-dinamis/berkas/:id/activate
    */
   @Patch('berkas/:id/activate')
-  @RequirePermission('pemeliharaan.pemberkasan', 'update')
+  @PemeliharaanAccess('pemberkasan')
+  @AllowViewerWrite(PositionStatus.SE)
   async activateBerkas(@Param('id') id: string, @CurrentUser() user: any) {
     return this.arsipDinamisService.activateBerkas(id, user.persnum);
   }

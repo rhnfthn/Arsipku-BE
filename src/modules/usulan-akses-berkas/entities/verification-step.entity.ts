@@ -27,7 +27,7 @@ export class VerificationStepEntity {
   @Column('varchar', { length: 20 }) keputusan: string; // 'SETUJU'|'TOLAK'|'REVISI'|'LANJUT'
   @Column('text', { nullable: true }) catatan: string | null;
   @Column('text', { nullable: true }) catatanRevisi: string | null; // wajib jika keputusan=REVISI
-  @Column('json') checklist: Record<string, boolean>;
+  @Column('json', { nullable: true, default: '{}' }) checklist: Record<string, boolean> | null;
   @CreateDateColumn() verifiedAt: Date;
 
   @ManyToOne(() => UsulanAksesBerkasEntity, { onDelete: 'CASCADE' })
