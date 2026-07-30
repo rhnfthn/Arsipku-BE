@@ -135,7 +135,16 @@ export class NaskahService {
 
   async remove(id: string): Promise<void> {
     const naskah = await this.findOne(id);
-    await this.naskahRepository.remove(naskah);
+    // App-layer cascade (replaces dropped FK fk_nd_verifikator_naskah ON DELETE CASCADE):
+    // delete verifikator rows then the naskah, atomically. naskah_dinas_verifikator is the
+    // only table that used to reference naskah via a DB FK.
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        'DELETE FROM naskah_dinas_verifikator WHERE id_naskah = ?',
+        [id],
+      );
+      await manager.remove(naskah);
+    });
 
     // Remove from Meilisearch (non-blocking)
     this.meilisearchSyncService.deleteNaskah(id).catch(() => {});
