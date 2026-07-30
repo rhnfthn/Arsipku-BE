@@ -1315,4 +1315,58 @@ export class UsulanAksesBerkasService {
       };
     });
   }
+
+  // ── getCounts: badge notifikasi untuk sidebar ──────────────────
+  async getCounts(user: any): Promise<{
+    menungguVerifikasi: number;
+    pilihBerkas: number;
+    aksesDiterbitkanBaru: number;
+  }> {
+    const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
+
+    // 1. Menunggu verifikasi: usulan yang user jadi verifikator & status menunggu
+    const verifyStatuses: string[] = [
+      StatusUsulan.MENUNGGU_VERIFIKASI_PENGUSUL,
+      StatusUsulan.MENUNGGU_VERIFIKASI_AKHIR_PENGUSUL,
+      StatusUsulan.MENUNGGU_VERIFIKASI_EVP_PENGUSUL,
+      StatusUsulan.MENUNGGU_PERSETUJUAN_PEMBERI,
+      StatusUsulan.MENUNGGU_PERSETUJUAN_AKHIR_PEMBERI,
+      StatusUsulan.MENUNGGU_PERSETUJUAN_EVP_PEMBERI,
+    ];
+    const verifyQb = this.usulanRepo.createQueryBuilder('u');
+    verifyQb.where(
+      '(JSON_CONTAINS(u.verifikatorPengusul, JSON_OBJECT(\'persnum\', :userPersnum)) OR JSON_CONTAINS(u.verifikatorPemberi, JSON_OBJECT(\'persnum\', :userPersnum)))',
+      { userPersnum },
+    );
+    verifyQb.andWhere('u.status IN (:...statuses)', { statuses: verifyStatuses });
+    const menungguVerifikasi = await verifyQb.getCount();
+
+    // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status PEMILIHAN_BERKAS / MENUNGGU_VERIFIKASI_PEMBERI
+    const pilihBerkasStatuses: string[] = [
+      StatusUsulan.PEMILIHAN_BERKAS,
+      StatusUsulan.MENUNGGU_VERIFIKASI_PEMBERI,
+    ];
+    const pilihBerkasQb = this.usulanRepo.createQueryBuilder('u');
+    pilihBerkasQb.where('u.divisiPemberiId = :userOrgId', { userOrgId });
+    pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
+    const pilihBerkas = await pilihBerkasQb.getCount();
+
+    // 3. Akses diterbitkan baru: entitlement user yang isRead=false & belum revoked
+    const aksesDiterbitkanBaru = await this.aksesRepo.count({
+      where: { userPersnum, isRevoked: false, isRead: false },
+    });
+
+    return { menungguVerifikasi, pilihBerkas, aksesDiterbitkanBaru };
+  }
+
+  // ── markEntitlementsRead: tandai entitlement user sebagai sudah dibaca ──
+  async markEntitlementsRead(user: any): Promise<{ updated: number }> {
+    const userPersnum = Number(user.persnum);
+    const result = await this.aksesRepo.update(
+      { userPersnum, isRead: false },
+      { isRead: true },
+    );
+    return { updated: result.affected || 0 };
+  }
 }
