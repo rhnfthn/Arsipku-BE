@@ -467,6 +467,42 @@ export class OrgDataController {
     return rows;
   }
 
+  /**
+   * GET /org-data/divisions
+   * Return flat list of unique divisions (organization id + name + abbreviation).
+   * Ringan — hanya extract divisi dari organization_json, tanpa positions/persons.
+   */
+  @Get('divisions')
+  async getDivisions(@Query() query: OrgFilterQueryDto) {
+    const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
+    const data = await this.orgBuildService.findOrg(tgl);
+    const tree = data.organization_json;
+
+    const seen = new Set<number>();
+    const divisions: any[] = [];
+
+    const extractDivisi = (nodes: any[]) => {
+      for (const node of (nodes || [])) {
+        if (node.id && !seen.has(node.id)) {
+          seen.add(node.id);
+          divisions.push({
+            organization: node.id,
+            shortText: node.name,
+            longText: node.name,
+            abbreviation: node.abbreviation ?? null,
+          });
+        }
+        if (node.children && node.children.length > 0) {
+          extractDivisi(node.children);
+        }
+      }
+    };
+
+    extractDivisi(tree);
+    divisions.sort((a, b) => (a.shortText || '').localeCompare(b.shortText || ''));
+    return divisions;
+  }
+
   @Get('getdata')
   async getOrgs(@Query() query: OrgFilterQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
