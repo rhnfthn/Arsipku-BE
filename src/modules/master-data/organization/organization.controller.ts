@@ -8,7 +8,9 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { OrganizationService } from './organization.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
@@ -20,6 +22,8 @@ export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findAll(): Promise<OmOrganization[]> {
     return this.organizationService.findAll();
   }
@@ -41,6 +45,8 @@ export class OrganizationController {
    * @example GET /organization/company/1/tree?search=finance
    */
   @Get('company/:companyId/tree')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findTreeByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Query('search') search?: string,
@@ -92,6 +98,8 @@ export class OrganizationController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findOne(@Param('id') id: string): Promise<OmOrganization> {
     return this.organizationService.findOne(id);
   }
