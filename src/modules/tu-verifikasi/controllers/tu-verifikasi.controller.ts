@@ -33,6 +33,12 @@ export class TuVerifikasiController {
     return this.service.findAllNotifikasi(filter);
   }
 
+  @Get('atasan-tu-list')
+  @ApiOperation({ summary: 'Daftar atasan managerial TU (Corporate Secretary)' })
+  async getAtasanTuList() {
+    return this.service.getAtasanTuList();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detail usulan untuk TU' })
   async findOne(@Param('id') id: string) {

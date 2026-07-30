@@ -7,7 +7,9 @@ import {
   Put,
   Delete,
   ParseIntPipe,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
@@ -19,6 +21,8 @@ export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findAll(): Promise<OmCompany[]> {
     return this.companyService.findAll();
   }
@@ -29,11 +33,15 @@ export class CompanyController {
    * @example GET /company/1/tree
    */
   @Get(':companyId/tree')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   getCompanyTree(@Param('companyId', ParseIntPipe) companyId: number) {
     return this.companyService.getCompanyTree(companyId);
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findOne(@Param('id') id: string): Promise<OmCompany> {
     return this.companyService.findOne(id);
   }
