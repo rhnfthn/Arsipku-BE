@@ -7,12 +7,14 @@ import { RelationOs } from '../relation_os/entities/relation_os.entity';
 import { RelationOsc } from '../relation_osc/entities/relation_osc.entity';
 import { OmOrganization } from '../organization/entities/om-organization.entity';
 import { DataSource } from 'typeorm';
+import { CacheModule } from '@nestjs/cache-manager';
 
 describe('PositionController', () => {
   let controller: PositionController;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [CacheModule.register({})],
       controllers: [PositionController],
       providers: [
         PositionService,

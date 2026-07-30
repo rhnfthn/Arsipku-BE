@@ -10,6 +10,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JenisService } from '../services/jenis.service';
 import { JenisResponseDto } from '../dto/jenis.dto';
 import { CreateJenisDto } from '../dto/create-jenis.dto';
@@ -25,6 +26,8 @@ export class JenisController {
    * Mengambil semua jenis surat dengan file URLs
    */
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   async findAll(): Promise<any> {
     const result = await this.jenisService.findAll();
 
@@ -115,6 +118,8 @@ export class JenisController {
    * Mengambil jenis by ID dengan file URL
    */
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
     const fileUrl = jenis.fileName

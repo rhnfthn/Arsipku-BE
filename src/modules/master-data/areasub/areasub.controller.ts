@@ -7,7 +7,9 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { AreasubService } from './areasub.service';
 import { CreateAreasubDto } from './dto/create-areasub.dto';
 import { UpdateAreasubDto } from './dto/update-areasub.dto';
@@ -19,6 +21,8 @@ export class AreasubController {
   constructor(private readonly subAreaService: AreasubService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findAll(): Promise<any[]> {
     return this.subAreaService.findAll();
   }
@@ -47,6 +51,8 @@ export class AreasubController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(120_000)
   findOne(@Param('id') id: string): Promise<any> {
     return this.subAreaService.findOne(id);
   }
