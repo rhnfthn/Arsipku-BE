@@ -47,6 +47,26 @@ export class UsulanAksesBerkasController {
     return { success: true, data: result, total: result.length };
   }
 
+  // ── Verifikator BOD: list BOD/BOD-1/BOD-2/BOD-3 + delegasi aktif (PT/PH/PS) ──
+
+  /**
+   * GET /usulan-akses-berkas/verifikator-bod
+   * Return semua BOD (BOD, BOD-1, BOD-2, BOD-3) di divisi tertentu,
+   * digabung dengan managerial yang sedang didelegasikan (PT/PH/PS aktif)
+   * di divisi tersebut.
+   * Query param:
+   *  - divisiId: number (opsional) — kalau kosong, pakai divisi currentUser
+   */
+  @Get('verifikator-bod')
+  async getVerifikatorBod(
+    @CurrentUser() user: any,
+    @Query('divisiId') divisiId?: string,
+  ) {
+    const orgId = divisiId ? Number(divisiId) : Number(user.organization);
+    const result = await this.service.getVerifikatorBod(orgId);
+    return { success: true, data: result, total: result.length };
+  }
+
   // ── CREATE: Buat usulan baru ──────────────────────────────────
 
   /**
