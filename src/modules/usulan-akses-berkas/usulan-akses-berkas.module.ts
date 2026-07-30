@@ -7,6 +7,7 @@ import {
   AksesBerkasEntity,
 } from './entities';
 import { Berkas } from '../berkas/entities/berkas.entity';
+import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
 import { UsulanAksesBerkasController } from './controllers';
 import { UsulanAksesBerkasService } from './services';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
@@ -19,6 +20,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       UsulanBerkasEntity,
       AksesBerkasEntity,
       Berkas,
+      DelegasiEntity,
     ]),
     OrgDataModule,
   ],
