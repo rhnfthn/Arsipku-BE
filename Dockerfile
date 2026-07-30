@@ -5,7 +5,10 @@ FROM node:20-bookworm AS builder
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# npm install (not ci): the committed lockfile is missing nested gcp-metadata@7
+# (mongoose@9.8.0/mongodb@7.5.0 dep) — npm install reconciles it in-image.
+# TODO: regenerate a complete lockfile on Linux (npm 10.1.0) and revert to `npm ci`.
+RUN npm install
 COPY . .
 RUN npm run build
 
@@ -17,7 +20,9 @@ FROM ghcr.io/puppeteer/puppeteer:22.9.0
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+# npm install (not ci): committed lockfile incomplete (missing nested gcp-metadata@7).
+# TODO: regenerate a complete lockfile on Linux (npm 10.1.0) and revert to `npm ci --omit=dev`.
+RUN npm install --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
