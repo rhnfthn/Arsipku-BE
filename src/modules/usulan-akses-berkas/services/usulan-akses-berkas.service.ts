@@ -329,10 +329,12 @@ export class UsulanAksesBerkasService {
     }
 
     // Auto-sort verifikator bottom-to-top (BOD-3 → BOD-2 → BOD-1 → BOD)
+    // Pertahankan catatan per verifikator dari SE pengusul
     const sortedVerifikator = this.sortVerifikator(
       dto.verifikatorPengusul.map((v) => ({
         persnum: v.persnum,
         levelJabatan: v.levelJabatan as LevelJabatan,
+        ...(v.catatan ? { catatan: v.catatan } : {}),
       })),
     );
 
@@ -683,6 +685,7 @@ export class UsulanAksesBerkasService {
       keputusan: dto.keputusan,
       catatan: dto.catatan || null,
       catatanRevisi: dto.catatanRevisi || null,
+      catatanKeSE: dto.catatanKeSE || null,
       checklist: {},
     } as any);
     await this.stepRepo.save(step);
@@ -923,6 +926,7 @@ export class UsulanAksesBerkasService {
     step.keputusan = dto.keputusan;
     step.catatan = dto.catatan || null;
     step.catatanRevisi = dto.catatanRevisi || null;
+    step.catatanKeSE = dto.catatanKeSE || null;
     step.checklist = {};
     await this.stepRepo.save(step);
 

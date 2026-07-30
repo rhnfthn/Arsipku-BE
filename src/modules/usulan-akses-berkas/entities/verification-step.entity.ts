@@ -27,6 +27,7 @@ export class VerificationStepEntity {
   @Column('varchar', { length: 20 }) keputusan: string; // 'SETUJU'|'TOLAK'|'REVISI'|'LANJUT'
   @Column('text', { nullable: true }) catatan: string | null;
   @Column('text', { nullable: true }) catatanRevisi: string | null; // wajib jika keputusan=REVISI
+  @Column('text', { nullable: true }) catatanKeSE: string | null; // catatan khusus dari verifikator ke SE-nya (saat TOLAK/REVISI)
   @Column('json', { nullable: true, default: '{}' }) checklist: Record<string, boolean> | null;
   @CreateDateColumn() verifiedAt: Date;
 
