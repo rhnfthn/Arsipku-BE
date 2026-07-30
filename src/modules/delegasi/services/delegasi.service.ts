@@ -25,6 +25,7 @@ import { PositionService } from '../../master-data/position/position.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities';
+import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 
 // Interface untuk data dari position_json (cached org data)
 interface PositionData {
@@ -81,6 +82,7 @@ export class DelegasiService {
     private readonly positionService: PositionService,
     private readonly orgDataService: OrgDataService,
     private readonly notificationService: NotificationService,
+    private readonly organizationTuService: OrganizationTuService,
   ) {}
 
   /**
@@ -377,6 +379,33 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+
+    // Integrasi organization_tu: jika position_status === SE (Sekretaris),
+    // insert ke tabel organization_tu dengan role sekretaris_delegasi.
+    if (saved.position_status === PositionStatus.SE && saved.as_persnum) {
+      this.organizationTuService
+        .createFromDelegasi({
+          delegasiId: saved.id,
+          persnum: Number(saved.as_persnum),
+          area_id: saved.as_area ?? null,
+          organization_id: saved.as_organization ?? null,
+          sub_area_id: saved.as_sub_area ?? null,
+          valid_from: saved.start_date
+            ? new Date(saved.start_date).toISOString().split('T')[0]
+            : new Date().toISOString().split('T')[0],
+          valid_to: saved.end_date
+            ? new Date(saved.end_date).toISOString().split('T')[0]
+            : null,
+          created_by: user?.persnum ?? null,
+        })
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to sync organization_tu on create:',
+            error?.message,
+          ),
+        );
+    }
+
     this.notifyDelegasi(saved, 'delegate', 'Delegasi baru').catch((error) =>
       console.warn(
         '[DelegasiService] Failed to send create notification:',
@@ -675,6 +704,31 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+
+    // Integrasi organization_tu: sync record organization_tu jika position_status === SE.
+    if (saved.position_status === PositionStatus.SE && saved.as_persnum) {
+      this.organizationTuService
+        .updateFromDelegasi(saved.id, {
+          persnum: Number(saved.as_persnum),
+          area_id: saved.as_area ?? null,
+          organization_id: saved.as_organization ?? null,
+          sub_area_id: saved.as_sub_area ?? null,
+          valid_from: saved.start_date
+            ? new Date(saved.start_date).toISOString().split('T')[0]
+            : undefined,
+          valid_to: saved.end_date
+            ? new Date(saved.end_date).toISOString().split('T')[0]
+            : null,
+          is_active: true,
+        })
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to sync organization_tu on update:',
+            error?.message,
+          ),
+        );
+    }
+
     this.notifyDelegasi(saved, 'delegate', 'Delegasi diperbarui').catch(
       (error) =>
         console.warn(
@@ -693,6 +747,18 @@ export class DelegasiService {
 
     if (!delegasi) {
       throw new NotFoundException('Delegasi tidak ditemukan');
+    }
+
+    // Nonaktifkan record organization_tu yang ter-link sebelum menghapus delegasi.
+    if (delegasi.position_status === PositionStatus.SE) {
+      await this.organizationTuService
+        .deactivateFromDelegasi(delegasi.id)
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to deactivate organization_tu on remove:',
+            error?.message,
+          ),
+        );
     }
 
     await this.delegasiRepository.remove(delegasi);

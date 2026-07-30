@@ -22,6 +22,7 @@ import {
 } from '../interfaces/jwt-payload.interface';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { isDelegatedActor } from '../../../common/helpers/delegasi-rendering.helper';
+import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 
 @Injectable()
 export class AuthService {
@@ -35,6 +36,7 @@ export class AuthService {
     private userRoleRepo: Repository<UserRoleEntity>,
     @Inject(forwardRef(() => RbacService))
     private readonly rbacService: RbacService,
+    private readonly organizationTuService: OrganizationTuService,
   ) {}
 
   // ============================================
@@ -70,6 +72,23 @@ export class AuthService {
         | 'admin'
         | 'superadmin';
       return { activeRole: null, activePermissions: [], roles: [], role };
+    }
+  }
+
+  /**
+   * Build tambahan role dari tabel organization_tu (Unit TU).
+   * Mengembalkan array string: 'tu' (unit_dokumen) dan/atau 'sekretaris' (sekretaris_delegasi).
+   * Hanya assignment aktif & valid berdasarkan tanggal yang dihitung.
+   */
+  private async buildTuRoles(persnum: number): Promise<string[]> {
+    try {
+      return await this.organizationTuService.getActiveRolesForPersnum(persnum);
+    } catch (e) {
+      console.warn(
+        '[AuthService] Failed to build TU roles, fallback to empty:',
+        e?.message,
+      );
+      return [];
     }
   }
 
@@ -242,6 +261,9 @@ export class AuthService {
     const rbacCtx = await this.buildRbacContext(persnum);
     const role = rbacCtx.role || legacyRole;
 
+    // Build tambahan role dari organization_tu (Unit TU)
+    const tuRoles = await this.buildTuRoles(persnum);
+
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
     // ================================================================
@@ -266,6 +288,7 @@ export class AuthService {
       activeRole: rbacCtx.activeRole ?? undefined,
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
+      tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -419,6 +442,9 @@ export class AuthService {
     const role = rbacCtx.role || legacyRole;
     console.log('[AuthService] User role (final):', role);
 
+    // Build tambahan role dari organization_tu (Unit TU)
+    const tuRoles = await this.buildTuRoles(persnum);
+
     // ================================================================
     // 4. Fetch NIK dan noWa dari HR API (parallel)
     // ================================================================
@@ -443,6 +469,7 @@ export class AuthService {
       activeRole: rbacCtx.activeRole ?? undefined,
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
+      tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -623,6 +650,9 @@ export class AuthService {
     const rbacCtx = await this.buildRbacContext(payload.persnum);
     const role = rbacCtx.role || legacyRole;
 
+    // Build fresh TU roles dari organization_tu
+    const tuRoles = await this.buildTuRoles(payload.persnum);
+
     // Fetch fresh NIK dan noWa dari HR API
     const personalData = await this.fetchUserPersonalData(
       payload.persnum,
@@ -660,6 +690,7 @@ export class AuthService {
           activeRole: rbacCtx.activeRole ?? undefined,
           activePermissions: effectiveActivePermissions,
           roles: rbacCtx.roles,
+          tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
           nik: personalData.nik || undefined,
           noWa: personalData.noWa || undefined,
         }
@@ -670,6 +701,7 @@ export class AuthService {
           activeRole: rbacCtx.activeRole ?? undefined,
           activePermissions: rbacCtx.activePermissions,
           roles: rbacCtx.roles,
+          tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
           company: orgData.company?.toString() || '',
           companyText: orgData.companyText || '',
           area: orgData.area || '',
