@@ -25,6 +25,7 @@ export class AksesBerkasEntity {
   @Column('date') tanggalSelesai: Date;
   @Column({ default: false }) isRevoked: boolean;
   @Column({ default: false }) isPenerimaTambahan: boolean; // true jika penerimaAksesTambahan
+  @Column({ default: false }) isRead: boolean; // true jika user sudah membuka halaman Pemberian
 
   @CreateDateColumn() createdAt: Date;
 }

@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { StatusUsulan, JenisBerkas, DurasiPreset } from '../enums';
+import type { LevelJabatan } from '../enums';
 
 /**
  * Entity utama Usulan Akses Berkas
@@ -41,6 +42,7 @@ export class UsulanAksesBerkasEntity {
   catatanPerubahanDurasi: string | null;
   @Column('date', { nullable: true }) tanggalMulai: Date | null; // di-set saat AKSES_DITERBITKAN
   @Column('date', { nullable: true }) tanggalSelesai: Date | null; // = tanggalMulai + durasiAksesDisetujui
+  @Column('date', { nullable: true }) customTanggalSelesai: Date | null; // tanggal berakhir custom dari pengusul (hanya untuk CUSTOM)
   @Column('simple-array') jenisAkses: string[]; // ['LIHAT','UNDUH']
 
   // ── Penerima Akses Tambahan ────────────────────────────────────
@@ -52,16 +54,17 @@ export class UsulanAksesBerkasEntity {
   suratUsulanFileId: string | null; // S3 file ID
 
   // ── Konfigurasi Verifikator (JSON array, auto-sort bottom-to-top) ──
+  // levelJabatan: BOD tags (BOD, BOD-1, BOD-2, BOD-3) atau legacy AVP/VP/EVP
   @Column('json') verifikatorPengusul: {
     persnum: number;
-    levelJabatan: 'AVP' | 'VP' | 'EVP';
-    urutan: 1 | 2 | 3;
+    levelJabatan: LevelJabatan;
+    urutan: number;
   }[];
 
   @Column('json', { nullable: true }) verifikatorPemberi: {
     persnum: number;
-    levelJabatan: 'AVP' | 'VP' | 'EVP';
-    urutan: 1 | 2 | 3;
+    levelJabatan: LevelJabatan;
+    urutan: number;
   }[] | null;
 
   // ── Status ─────────────────────────────────────────────────────

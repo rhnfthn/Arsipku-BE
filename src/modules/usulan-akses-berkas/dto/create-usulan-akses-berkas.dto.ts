@@ -2,7 +2,6 @@ import {
   IsEnum,
   IsNumber,
   IsString,
-  MinLength,
   MaxLength,
   IsArray,
   ArrayMinSize,
@@ -21,7 +20,7 @@ import { JenisBerkas, DurasiPreset, JenisAkses } from '../enums';
  */
 export class VerifikatorDto {
   @IsInt() persnum: number;
-  @IsString() levelJabatan: 'AVP' | 'VP' | 'EVP';
+  @IsString() levelJabatan: string; // BOD | BOD-1 | BOD-2 | BOD-3 (atau AVP/VP/EVP untuk backward compat)
 }
 
 export class CreateUsulanAksesBerkasDto {
@@ -34,8 +33,7 @@ export class CreateUsulanAksesBerkasDto {
   divisiPemberiId?: number; // wajib jika AKTIF; diabaikan jika INAKTIF (backend set otomatis)
 
   @IsString()
-  @MinLength(30)
-  @MaxLength(1000)
+  @MaxLength(2000)
   tujuanAkses: string;
 
   @IsEnum(DurasiPreset)
