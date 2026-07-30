@@ -282,6 +282,27 @@ export class TuVerifikasiService {
           displayText: `${p.persnum_person_text} — ${p.position_text} (${p.persnum_person})`,
         }));
 
+      // Fallback: pastikan HERMANA & PRIYO selalu ada di dropdown
+      const FALLBACK_ATASAN_TU = [
+        { persnum: 10010123, name: 'HERMANA SOEGIJANTORO', positionText: 'EVP Corporate Secretary' },
+        { persnum: 10010970, name: 'PRIYO HUTOMO PUTRA', positionText: 'VP Corporate Secretary' },
+      ];
+      for (const fb of FALLBACK_ATASAN_TU) {
+        const exists = atasanTu.some((a) => Number(a.persnum) === fb.persnum);
+        if (!exists) {
+          const posData = positions.find((p) => Number(p.persnum_person) === fb.persnum);
+          atasanTu.push({
+            persnum: fb.persnum,
+            name: fb.name,
+            position: posData?.position ?? null,
+            positionText: posData?.position_text ?? fb.positionText,
+            organization: posData?.organization_id ?? null,
+            organizationText: posData?.organization_text ?? 'Corporate Secretary',
+            displayText: `${fb.name} — ${posData?.position_text ?? fb.positionText} (${fb.persnum})`,
+          });
+        }
+      }
+
       return atasanTu;
     } catch (error) {
       this.logger.warn(
