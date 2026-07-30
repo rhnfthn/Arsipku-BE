@@ -257,6 +257,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.OK)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'delete')
   async softDeleteBerkas(
     @Param('id') id: string,
     @CurrentUser() user: any,

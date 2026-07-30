@@ -478,6 +478,178 @@ export class TransferActiveToInactiveService {
     return rows;
   }
 
+  /**
+   * Daftar arsip tersedia untuk pemindahan (dari Berkas Saya user login).
+   * Filter: status Tertutup, retensi aktif habis, belum masuk usulan aktif.
+   */
+  async getArsipTersedia(user: any) {
+    const userId = Number(user.persnum);
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. Ambil berkas milik user, status Tertutup, retensi aktif habis
+    const berkasList = await this.berkasRepo
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL')
+      .andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+        userId,
+        userPersnum: String(userId),
+      })
+      .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
+      .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC')
+      .getMany();
+
+    if (berkasList.length === 0) return [];
+
+    // 2. Ambil semua usulan yang belum Selesai (arsipIds JSON berisi id arsip)
+    const activeUsulan = await this.repo
+      .createQueryBuilder('t')
+      .select(['t.id', 't.arsip_ids', 't.arsip_id', 't.status'])
+      .where('t.status != :s', { s: TransferActiveToInactiveStatus.SELESAI })
+      .andWhere('t.sekretaris_persnum = :p', { p: userId })
+      .getMany();
+
+    // Kumpulkan semua arsip id yang sudah masuk usulan aktif
+    const arsipDiproses = new Set<string>();
+    for (const u of activeUsulan) {
+      if (u.arsipIds && Array.isArray(u.arsipIds)) {
+        for (const a of u.arsipIds) arsipDiproses.add(a.id);
+      }
+      arsipDiproses.add(u.arsipId);
+    }
+
+    // 3. Map ke format response, tandai yang sedang diproses
+    return berkasList.map((b) => ({
+      id: b.id,
+      label: `${b.kodeBerkas ?? '-'} — ${b.judulBerkas}`,
+      perihal: b.judulBerkas,
+      kodeBerkas: b.kodeBerkas,
+      klasifikasi: b.klasifikasiTeks ?? b.klasifikasi,
+      retensiAktif: b.retensiAktifTahun,
+      retensiInaktif: b.retensiInaktifTahun,
+      tanggalRetensiAktifHabis: b.tanggalRetensiAktifBerakhir,
+      status: b.status,
+      lokasiFisik: b.lokasi,
+      fileUrl: b.dokumenPendukung ?? b.fotoLokasiFisik ?? null,
+      sedangDiproses: arsipDiproses.has(b.id),
+    }));
+  }
+
+  /**
+   * Tabel gabungan: arsip Tertutup dari Berkas Saya (belum jadi usulan)
+   * + usulan pemindahan yang sudah dibuat.
+   * Return satu array dengan flag isUsulan.
+   */
+  async getGabungan(user: any, filter?: { search?: string; status?: string }) {
+    const userId = Number(user.persnum);
+    const today = new Date().toISOString().split('T')[0];
+    const search = filter?.search?.trim() || '';
+
+    // 1. Ambil usulan milik sekretaris login
+    const usulanList = await this.repo
+      .createQueryBuilder('t')
+      .where('t.sekretaris_persnum = :p', { p: userId })
+      .orderBy('t.created_at', 'DESC')
+      .getMany();
+
+    // Kumpulkan arsip id yang sudah masuk usulan (semua status)
+    const arsipDiUsulan = new Set<string>();
+    for (const u of usulanList) {
+      if (u.arsipIds && Array.isArray(u.arsipIds)) {
+        for (const a of u.arsipIds) arsipDiUsulan.add(a.id);
+      }
+      arsipDiUsulan.add(u.arsipId);
+    }
+
+    // 2. Ambil berkas Tertutup retensi habis yang BELUM masuk usulan apapun
+    const berkasQb = this.berkasRepo
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL')
+      .andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+        userId,
+        userPersnum: String(userId),
+      })
+      .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
+      .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
+
+    const berkasList = await berkasQb.getMany();
+    const berkasBelumUsulan = berkasList.filter(
+      (b) => !arsipDiUsulan.has(b.id),
+    );
+
+    // 3. Gabungkan: arsip belum usulan (isUsulan=false) + usulan (isUsulan=true)
+    const rows: any[] = [];
+
+    // Arsip belum jadi usulan → status "Draft"
+    for (const b of berkasBelumUsulan) {
+      if (search) {
+        const q = search.toLowerCase();
+        const match =
+          (b.kodeBerkas ?? '').toLowerCase().includes(q) ||
+          b.judulBerkas.toLowerCase().includes(q);
+        if (!match) continue;
+      }
+      rows.push({
+        id: b.id,
+        isUsulan: false,
+        kodeBerkas: b.kodeBerkas,
+        perihal: b.judulBerkas,
+        klasifikasi: b.klasifikasiTeks ?? b.klasifikasi,
+        tanggalRetensiAktifHabis: b.tanggalRetensiAktifBerakhir,
+        atasanName: null,
+        status: 'DRAFT',
+        tanggal: b.tanggalRetensiAktifBerakhir,
+        lokasiFisik: b.lokasi,
+      });
+    }
+
+    // Usulan yang sudah dibuat
+    for (const u of usulanList) {
+      if (search) {
+        const q = search.toLowerCase();
+        const match =
+          (u.arsipKode ?? '').toLowerCase().includes(q) ||
+          u.arsipPerihal.toLowerCase().includes(q) ||
+          (u.atasanName ?? '').toLowerCase().includes(q) ||
+          u.nomorUsulan.toLowerCase().includes(q);
+        if (!match) continue;
+      }
+      if (filter?.status && u.status !== filter.status) continue;
+
+      rows.push({
+        id: u.id,
+        isUsulan: true,
+        nomorUsulan: u.nomorUsulan,
+        kodeBerkas: u.arsipKode,
+        perihal: u.arsipPerihal,
+        klasifikasi: null,
+        tanggalRetensiAktifHabis: u.tanggalRetensiAktifHabis
+          ? new Date(u.tanggalRetensiAktifHabis).toISOString().split('T')[0]
+          : null,
+        atasanName: u.atasanName,
+        status: u.status,
+        tanggal: u.tanggalUsulan,
+        currentApprovalLevel: u.currentApprovalLevel,
+        totalApprovalLevels: u.totalApprovalLevels,
+      });
+    }
+
+    // Sort: usulan (by tanggal DESC) dulu, lalu arsip belum usulan (by retensi ASC)
+    rows.sort((a, b) => {
+      if (a.isUsulan && !b.isUsulan) return -1;
+      if (!a.isUsulan && b.isUsulan) return 1;
+      if (a.isUsulan) {
+        return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
+      }
+      return new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
+    });
+
+    return rows;
+  }
+
   async findAll(filter: TransferFilterDto, user: any) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
