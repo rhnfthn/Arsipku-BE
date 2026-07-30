@@ -107,7 +107,7 @@ export class NaskahDinasVerifikatorEntity {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => NaskahEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => NaskahEntity, { createForeignKeyConstraints: false })
   @JoinColumn({ name: 'id_naskah' })
   naskah: NaskahEntity;
 }
