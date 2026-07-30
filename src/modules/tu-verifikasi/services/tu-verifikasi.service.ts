@@ -260,12 +260,14 @@ export class TuVerifikasiService {
 
       const positions = latestOrgData.position_json as any[];
 
-      // Cari position di organization "Corporate Secretary" dengan chief=1
+      // Cari position di organization "Corporate Secretary" / "Tata Naskah" dengan chief=1
       const atasanTu = positions
         .filter((p) => {
           const orgText = (p.organization_text || '').toUpperCase();
           return (
-            orgText.includes('CORPORATE SECRETARY') &&
+            (orgText.includes('CORPORATE SECRETARY') ||
+             orgText.includes('TATA NASKAH') ||
+             orgText.includes('CORPORATE SEC')) &&
             p.chief === 1 &&
             p.persnum_person
           );
