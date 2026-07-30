@@ -59,13 +59,14 @@ export class UsulanAksesBerkasEntity {
     persnum: number;
     levelJabatan: LevelJabatan;
     urutan: number;
+    catatan?: string; // catatan personal dari SE pengusul (hanya terlihat oleh verifikator ini & SE pengusul)
   }[];
 
   @Column('json', { nullable: true }) verifikatorPemberi: {
     persnum: number;
     levelJabatan: LevelJabatan;
     urutan: number;
-    catatan?: string;
+    catatan?: string; // catatan personal dari SE pemberi (hanya terlihat oleh verifikator ini & SE pemberi)
   }[] | null;
 
   // ── Status ─────────────────────────────────────────────────────
