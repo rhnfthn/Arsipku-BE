@@ -146,15 +146,14 @@ export class TuVerifikasiService {
   }
 
   /** Ajukan ke Atasan Managerial TU (setelah berkas fisik sesuai).
-   *  Bisa menerima dari status BERKAS_FISIK_SESUAI (sudah diverifikasi)
-   *  atau DIKIRIM/MENUNGGU_VERIFIKASI_BERKAS_FISIK (belum diverifikasi —
-   *  verifikasi sesuai + ajukan dalam satu operasi).
+   *  Status tetap DIKIRIM (Menunggu Verifikasi) — hanya tandai field verifikasi
+   *  & atasan TU. Tidak ubah status agar di halaman TU tetap terlihat sebagai
+   *  "Menunggu Verifikasi".
    */
   async ajukanAtasanTu(id: string, user: JwtPayload, dto: AjukanAtasanTuDto) {
     const transfer = await this.findOneForTu(id);
 
     const allowedStatuses = [
-      TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
       TransferActiveToInactiveStatus.DIKIRIM,
       TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK,
     ];
@@ -164,24 +163,15 @@ export class TuVerifikasiService {
       );
     }
 
-    // Jika belum diverifikasi, lakukan verifikasi sesuai sekaligus
-    if (
-      transfer.status === TransferActiveToInactiveStatus.DIKIRIM ||
-      transfer.status ===
-        TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK
-    ) {
-      transfer.physicalVerifiedBy = Number(user.persnum);
-      transfer.physicalVerifiedAt = new Date();
-      transfer.tuPersnum = Number(user.persnum);
-      transfer.tuName = user.nama ?? String(user.persnum);
-    }
-
-    const oldStatus = transfer.status;
-    transfer.status =
-      TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
+    // Tandai verifikasi berkas fisik sesuai + ajukan ke atasan TU
+    transfer.physicalVerifiedBy = Number(user.persnum);
+    transfer.physicalVerifiedAt = new Date();
+    transfer.tuPersnum = Number(user.persnum);
+    transfer.tuName = user.nama ?? String(user.persnum);
     transfer.atasanTuPersnum = Number(dto.atasanTuPersnum);
     transfer.tuApprovedBy = Number(user.persnum);
     transfer.tuApprovedAt = new Date();
+    // Status tetap DIKIRIM (Menunggu Verifikasi) — tidak diubah
 
     const saved = await this.transferRepo.save(transfer);
 
