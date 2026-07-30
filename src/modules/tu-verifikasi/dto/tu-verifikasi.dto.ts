@@ -48,3 +48,52 @@ export class KembalikanDto {
   @IsString()
   alasan: string;
 }
+
+// ─── Atasan Managerial TU DTO ──────────────────────────────────────
+export class SetujuiPenerimaanDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  catatanVerifikasi?: string;
+}
+
+export class TolakPenerimaanDto {
+  @ApiProperty({ description: 'Alasan penolakan penerimaan' })
+  @IsString()
+  alasanPenolakan: string;
+}
+
+export class SetujuiTerakhirDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  catatanVerifikasi?: string;
+}
+
+// ─── Penataan Arsip DTO ────────────────────────────────────────────
+export class SelesaiPenataanDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  lokasi?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  rak?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  baris?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  kolom?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  keterangan?: string;
+}

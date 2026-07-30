@@ -194,6 +194,22 @@ export class TransferActiveToInactiveEntity {
   @Column({ name: 'arranged_at', type: 'datetime', nullable: true })
   arrangedAt: Date | null;
 
+  // ─── Penataan arsip (lokasi penyimpanan fisik) ────────────────────────
+  @Column({ name: 'lokasi_penataan', type: 'varchar', length: 255, nullable: true })
+  lokasiPenataan: string | null;
+
+  @Column({ name: 'rak', type: 'varchar', length: 100, nullable: true })
+  rak: string | null;
+
+  @Column({ name: 'baris', type: 'varchar', length: 50, nullable: true })
+  baris: string | null;
+
+  @Column({ name: 'kolom', type: 'varchar', length: 50, nullable: true })
+  kolom: string | null;
+
+  @Column({ name: 'keterangan_penataan', type: 'text', nullable: true })
+  keteranganPenataan: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
