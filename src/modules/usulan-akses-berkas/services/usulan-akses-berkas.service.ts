@@ -28,6 +28,7 @@ import {
   Keputusan,
 } from '../enums';
 import { StatusBerkas, Berkas } from '../../berkas/entities/berkas.entity';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 
@@ -38,10 +39,21 @@ import { PositionStatus } from '../../../common/enums/position-status.enum';
 export const CORPORATE_SECRETARY_ORG_ID = 10002098;
 
 /**
- * Level jabatan mapping (diparse dari position_text di position_json)
+ * Level jabatan mapping — support BOD tags (BOD, BOD-1, BOD-2, BOD-3)
+ * dan legacy AVP/VP/EVP. Sort bottom-to-top: BOD-3 → BOD-2 → BOD-1 → BOD.
  */
-type LevelJabatan = 'AVP' | 'VP' | 'EVP';
-const LEVEL_ORDER: Record<LevelJabatan, number> = { AVP: 1, VP: 2, EVP: 3 };
+type LevelJabatan = 'AVP' | 'VP' | 'EVP' | 'BOD' | 'BOD-1' | 'BOD-2' | 'BOD-3';
+const LEVEL_ORDER: Record<LevelJabatan, number> = {
+  // BOD tags (baru) — bottom-to-top
+  'BOD-3': 1,
+  'BOD-2': 2,
+  'BOD-1': 3,
+  BOD: 4,
+  // Legacy AVP/VP/EVP (backward compat)
+  AVP: 5,
+  VP: 6,
+  EVP: 7,
+};
 
 @Injectable()
 export class UsulanAksesBerkasService {
@@ -58,6 +70,8 @@ export class UsulanAksesBerkasService {
     private readonly aksesRepo: Repository<AksesBerkasEntity>,
     @InjectRepository(Berkas)
     private readonly berkasRepo: Repository<Berkas>,
+    @InjectRepository(DelegasiEntity)
+    private readonly delegasiRepo: Repository<DelegasiEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
   ) {}
@@ -82,14 +96,14 @@ export class UsulanAksesBerkasService {
   //         [AVP, EVP] → urutan [1, 2]
   private sortVerifikator(
     verifikator: { persnum: number; levelJabatan: LevelJabatan }[],
-  ): { persnum: number; levelJabatan: LevelJabatan; urutan: 1 | 2 | 3 }[] {
+  ): { persnum: number; levelJabatan: LevelJabatan; urutan: number }[] {
     return verifikator
-      .map((v) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] }))
+      .map((v) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] ?? 99 }))
       .sort((a, b) => a._levelOrder - b._levelOrder)
       .slice(0, 3) // max 3 jenjang
       .map((v, index) => {
         const { _levelOrder, ...rest } = v;
-        return { ...rest, urutan: (index + 1) as 1 | 2 | 3 };
+        return { ...rest, urutan: index + 1 };
       });
   }
 
@@ -158,6 +172,111 @@ export class UsulanAksesBerkasService {
     return this.getManagerialInDivisi(userOrgId);
   }
 
+  // ── Endpoint: GET /verifikator-bod ──────────────────────────────
+  // Return BOD (BOD, BOD-1, BOD-2, BOD-3) di divisi tertentu dari position_json,
+  // digabung dengan managerial yang sedang didelegasikan (PT/PH/PS aktif) di
+  // divisi tersebut. Sort: BOD → BOD-1 → BOD-2 → BOD-3.
+
+  private static readonly BOD_TAG_ORDER: Record<string, number> = {
+    BOD: 1,
+    'BOD-1': 2,
+    'BOD-2': 3,
+    'BOD-3': 4,
+  };
+
+  async getVerifikatorBod(divisiId: number): Promise<any[]> {
+    const orgData = await this.orgDataService.findLatestOrg();
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException('Data organisasi tidak ditemukan');
+    }
+
+    const positionJson =
+      typeof orgData.position_json === 'string'
+        ? JSON.parse(orgData.position_json)
+        : orgData.position_json;
+
+    if (!Array.isArray(positionJson)) {
+      throw new BadRequestException('Format data organisasi tidak valid');
+    }
+
+    // 1. Filter BOD dari position_json: bod_tag IN (BOD, BOD-1, BOD-2, BOD-3)
+    //    AND divisi_id (atau organization_id) = divisiId
+    const bodList = positionJson
+      .filter((x: any) => {
+        const tag = x.bod_tag || '';
+        const isBod = !!UsulanAksesBerkasService.BOD_TAG_ORDER[tag];
+        const xDivisi = Number(x.divisi_id ?? x.organization_id);
+        return isBod && xDivisi === Number(divisiId);
+      })
+      .map((v: any) => ({
+        persnum: v.persnum_person,
+        nama: v.persnum_person_text,
+        positionId: v.position,
+        jabatan: v.position_text,
+        bodTag: v.bod_tag,
+        levelJabatan: v.bod_tag,
+        divisiId: v.divisi_id ?? v.organization_id,
+        divisiNama: v.divisi_name ?? v.organization_text,
+        isDelegasi: false,
+        positionStatus: null,
+        _order: UsulanAksesBerkasService.BOD_TAG_ORDER[v.bod_tag] ?? 99,
+      }));
+
+    // 2. Fetch delegasi aktif (PT/PH/PS) di divisi target
+    const today = new Date();
+    const delegasiAktif = await this.delegasiRepo
+      .createQueryBuilder('d')
+      .where('d.as_organization = :divisiId', { divisiId: String(divisiId) })
+      .andWhere('d.start_date <= :today', { today })
+      .andWhere('d.end_date >= :today', { today })
+      .andWhere('d.position_status IN (:...statuses)', {
+        statuses: [PositionStatus.PT, PositionStatus.PH, PositionStatus.PS],
+      })
+      .getMany();
+
+    // Lookup bod_tag untuk setiap delegasi dari position_json by as_position
+    const delegasiMapped = delegasiAktif
+      .map((d) => {
+        const posMatch = positionJson.find(
+          (p: any) => String(p.position) === String(d.as_position),
+        );
+        const bodTag = posMatch?.bod_tag ?? null;
+        const order = UsulanAksesBerkasService.BOD_TAG_ORDER[bodTag] ?? 99;
+        // Skip jika bukan BOD (delegasi non-managerial tidak masuk verifikator)
+        if (!order || order === 99) return null;
+        return {
+          persnum: Number(d.as_persnum),
+          nama: d.as_name,
+          positionId: Number(d.as_position),
+          jabatan: d.as_position_text,
+          bodTag,
+          levelJabatan: bodTag,
+          divisiId: Number(d.as_organization),
+          divisiNama: d.as_organization_text,
+          isDelegasi: true,
+          positionStatus: d.position_status,
+          _order: order,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 3. Gabung + dedup by persnum (BOD definitif prioritas, delegasi sebagai tambahan)
+    const seen = new Set<number>();
+    const merged = [...bodList, ...delegasiMapped].filter((v) => {
+      if (seen.has(v.persnum)) return false;
+      seen.add(v.persnum);
+      return true;
+    });
+
+    // 4. Sort by BOD tag order, reassign urutan
+    return merged
+      .sort((a, b) => a._order - b._order)
+      .map((v, index) => {
+        const { _order, ...rest } = v;
+        return { ...rest, urutan: index + 1 };
+      });
+  }
+
   // ── CREATE: Buat usulan baru ───────────────────────────────────
 
   async create(
@@ -198,18 +317,18 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    // Validasi: verifikator harus dari divisi yang sama dengan pengusul
-    const managerialInDivisi = await this.getManagerialInDivisi(userOrgId);
-    const validPersnums = new Set(managerialInDivisi.map((m) => m.persnum));
+    // Validasi: verifikator harus dari divisi yang sama dengan pengusul (BOD tags)
+    const bodInDivisi = await this.getVerifikatorBod(userOrgId);
+    const validPersnums = new Set(bodInDivisi.map((m) => m.persnum));
     for (const v of dto.verifikatorPengusul) {
       if (!validPersnums.has(v.persnum)) {
         throw new BadRequestException(
-          `Verifikator persnum ${v.persnum} tidak ada di divisi Anda atau bukan managerial`,
+          `Verifikator persnum ${v.persnum} tidak ada di divisi Anda atau bukan BOD`,
         );
       }
     }
 
-    // Auto-sort verifikator bottom-to-top
+    // Auto-sort verifikator bottom-to-top (BOD-3 → BOD-2 → BOD-1 → BOD)
     const sortedVerifikator = this.sortVerifikator(
       dto.verifikatorPengusul.map((v) => ({
         persnum: v.persnum,
@@ -227,6 +346,7 @@ export class UsulanAksesBerkasService {
       divisiPemberiId,
       tujuanAkses: dto.tujuanAkses,
       durasiAkses: dto.durasiAkses,
+      customTanggalSelesai: dto.customTanggalSelesai ? new Date(dto.customTanggalSelesai) : null,
       jenisAkses: dto.jenisAkses as string[],
       penerimaAksesTambahan: dto.penerimaAksesTambahan || [],
       suratUsulanFileId: dto.suratUsulanFileId ?? null,
@@ -242,7 +362,7 @@ export class UsulanAksesBerkasService {
   // ── READ: List usulan ─────────────────────────────────────────
 
   async findAll(user: any, params?: any): Promise<any> {
-    const { status, page = 1, limit = 20, scope } = params || {};
+    const { status, page = 1, limit = 20, scope, search, sortBy, sortDir } = params || {};
     const userPersnum = Number(user.persnum);
     const userOrgId = Number(user.organization);
 
@@ -274,7 +394,20 @@ export class UsulanAksesBerkasService {
       qb.andWhere('u.status = :status', { status });
     }
 
-    qb.orderBy('u.updatedAt', 'DESC');
+    // Search: cari di nomorUsulan, tujuanAkses, jenisBerkas
+    if (search) {
+      qb.andWhere(
+        '(u.nomorUsulan LIKE :search OR u.tujuanAkses LIKE :search OR u.jenisBerkas LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    // Sort
+    const allowedSortFields = ['nomorUsulan', 'jenisBerkas', 'tujuanAkses', 'durasiAkses', 'status', 'createdAt', 'updatedAt'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'updatedAt';
+    const sortDirection = sortDir === 'asc' ? 'ASC' : 'DESC';
+    qb.orderBy(`u.${sortField}`, sortDirection);
+
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -351,6 +484,27 @@ export class UsulanAksesBerkasService {
     const selectedBerkas = await this.usulanBerkasRepo.find({
       where: { usulanId: id },
     });
+
+    // ── Enrich selectedBerkas dengan judulBerkas, kodeBerkas, klasifikasiTeks ──
+    let enrichedSelectedBerkas: any[] = [];
+    if (selectedBerkas.length > 0) {
+      const berkasIds = selectedBerkas.map((b) => b.berkasId);
+      const berkasRecords = await this.berkasRepo.find({
+        where: { id: In(berkasIds) },
+        select: ['id', 'judulBerkas', 'kodeBerkas', 'klasifikasiTeks', 'status'] as any,
+      });
+      const berkasMap = new Map(berkasRecords.map((b) => [b.id, b]));
+      enrichedSelectedBerkas = selectedBerkas.map((ub) => {
+        const b = berkasMap.get(ub.berkasId);
+        return {
+          ...ub,
+          judulBerkas: b?.judulBerkas || null,
+          kodeBerkas: b?.kodeBerkas || null,
+          klasifikasiTeks: b?.klasifikasiTeks || null,
+          berkasStatus: b?.status || null,
+        };
+      });
+    }
 
     // ── Enrich: tambah nama & posisi untuk pengusul, divisi, verifikator ──
     const orgData = await this.orgDataService.findLatestOrg();
@@ -469,7 +623,7 @@ export class UsulanAksesBerkasService {
     return {
       ...usulan,
       steps: enrichedSteps,
-      selectedBerkas,
+      selectedBerkas: enrichedSelectedBerkas,
       pengusulInfo,
       divisiPengusulNama,
       divisiPemberiNama,
@@ -520,7 +674,7 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    // Simpan verification step
+    // Simpan verification step (checklist dihapus — cukup keputusan + catatan)
     const step = this.stepRepo.create({
       usulanId: id,
       verifierPersnum: userPersnum,
@@ -529,13 +683,7 @@ export class UsulanAksesBerkasService {
       keputusan: dto.keputusan,
       catatan: dto.catatan || null,
       catatanRevisi: dto.catatanRevisi || null,
-      checklist: {
-        kelengkapanBerkas: dto.kelengkapanBerkas,
-        kesesuaianTujuan: dto.kesesuaianTujuan,
-        periodeWajar: dto.periodeWajar,
-        suratSah: dto.suratSah,
-        tidakDuplikasi: dto.tidakDuplikasi,
-      },
+      checklist: {},
     } as any);
     await this.stepRepo.save(step);
 
@@ -593,17 +741,12 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    // Validasi: catatanPerubahanDurasi wajib jika durasi berubah
-    if (
-      dto.durasiAksesDisetujui !== usulan.durasiAkses &&
-      !dto.catatanPerubahanDurasi?.trim()
-    ) {
-      throw new BadRequestException(
-        'catatanPerubahanDurasi wajib diisi jika durasi diubah',
-      );
-    }
+    // Validasi: catatanPerubahanDurasi opsional — jika durasi berubah dan tidak diisi,
+    // pakai catatan umum sebagai fallback.
+    const catatanDurasi =
+      dto.catatanPerubahanDurasi?.trim() || dto.catatan?.trim() || null;
 
-    // Simpan step
+    // Simpan step (checklist dihapus — cukup keputusan + catatan + durasi)
     const step = this.stepRepo.create();
     step.usulanId = id;
     step.verifierPersnum = Number(user.persnum);
@@ -611,21 +754,17 @@ export class UsulanAksesBerkasService {
     step.urutanJenjang = 0; // sekretaris bukan jenjang managerial
     step.keputusan = dto.keputusan;
     step.catatan = dto.catatan || null;
-    step.checklist = {
-      berkasTersedia: dto.berkasTersedia,
-      tidakAdaPembatasan: dto.tidakAdaPembatasan,
-      tujuanMemadai: dto.tujuanMemadai,
-      tidakBentrokRetensi: dto.tidakBentrokRetensi,
-      disetujuiLanjut: dto.disetujuiLanjut,
-    };
+    step.checklist = {};
     await this.stepRepo.save(step);
 
     if (dto.keputusan === Keputusan.TOLAK) {
       usulan.status = StatusUsulan.DITOLAK_PEMBERI;
     } else if (dto.keputusan === Keputusan.LANJUT) {
       usulan.status = StatusUsulan.PEMILIHAN_BERKAS;
-      usulan.durasiAksesDisetujui = dto.durasiAksesDisetujui;
-      usulan.catatanPerubahanDurasi = dto.catatanPerubahanDurasi || null;
+      if (dto.durasiAksesDisetujui) {
+        usulan.durasiAksesDisetujui = dto.durasiAksesDisetujui;
+      }
+      usulan.catatanPerubahanDurasi = catatanDurasi;
     }
 
     const saved = await this.usulanRepo.save(usulan);
@@ -696,9 +835,9 @@ export class UsulanAksesBerkasService {
       })),
     );
 
-    // Validasi: verifikator pemberi harus dari divisi pemberi
-    const managerialPemberi = await this.getManagerialInDivisi(usulan.divisiPemberiId);
-    const validPersnumsPemberi = new Set(managerialPemberi.map((m) => m.persnum));
+    // Validasi: verifikator pemberi harus dari divisi pemberi (BOD tags)
+    const bodPemberi = await this.getVerifikatorBod(usulan.divisiPemberiId);
+    const validPersnumsPemberi = new Set(bodPemberi.map((m) => m.persnum));
     for (const v of sortedVerifikatorPemberi) {
       if (!validPersnumsPemberi.has(v.persnum)) {
         throw new BadRequestException(
@@ -759,7 +898,11 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    // Simpan step
+    // catatanPerubahanDurasi opsional — fallback ke catatan umum
+    const catatanDurasiPemberi =
+      dto.catatanPerubahanDurasi?.trim() || dto.catatan?.trim() || null;
+
+    // Simpan step (checklist dihapus — cukup keputusan + catatan + durasi)
     const step = this.stepRepo.create();
     step.usulanId = id;
     step.verifierPersnum = userPersnum;
@@ -768,14 +911,14 @@ export class UsulanAksesBerkasService {
     step.keputusan = dto.keputusan;
     step.catatan = dto.catatan || null;
     step.catatanRevisi = dto.catatanRevisi || null;
-    step.checklist = {
-      berkasSesuai: dto.berkasSesuai,
-      tidakMelanggarKebijakan: dto.tidakMelanggarKebijakan,
-      peminjamanTidakBerlebihan: dto.peminjamanTidakBerlebihan,
-      sudahDiverifikasiSekretaris: dto.sudahDiverifikasiSekretaris,
-      disetujuiDiberikan: dto.disetujuiDiberikan,
-    };
+    step.checklist = {};
     await this.stepRepo.save(step);
+
+    // Apply durasi adjustment dari verifikator berjenjang
+    if (dto.durasiAksesDisetujui) {
+      usulan.durasiAksesDisetujui = dto.durasiAksesDisetujui;
+      usulan.catatanPerubahanDurasi = catatanDurasiPemberi || usulan.catatanPerubahanDurasi || null;
+    }
 
     const totalJenjang = usulan.verifikatorPemberi.length;
 
@@ -808,13 +951,23 @@ export class UsulanAksesBerkasService {
 
   private async terbitkanAkses(usulan: UsulanAksesBerkasEntity): Promise<void> {
     const tanggalMulai = new Date();
-    const durasiHari =
-      usulan.durasiAksesDisetujui &&
-      usulan.durasiAksesDisetujui !== DurasiPreset.CUSTOM
-        ? DURASI_PRESET_HARI[usulan.durasiAksesDisetujui]
-        : 14; // default 14 hari
-    const tanggalSelesai = new Date(tanggalMulai);
-    tanggalSelesai.setDate(tanggalSelesai.getDate() + durasiHari);
+    let tanggalSelesai: Date;
+
+    if (
+      usulan.durasiAksesDisetujui === DurasiPreset.CUSTOM &&
+      usulan.customTanggalSelesai
+    ) {
+      // Custom: pakai tanggal selesai yang dipilih pengusul
+      tanggalSelesai = new Date(usulan.customTanggalSelesai);
+    } else {
+      const durasiHari =
+        usulan.durasiAksesDisetujui &&
+        usulan.durasiAksesDisetujui !== DurasiPreset.CUSTOM
+          ? DURASI_PRESET_HARI[usulan.durasiAksesDisetujui]
+          : 365; // default 1 tahun
+      tanggalSelesai = new Date(tanggalMulai);
+      tanggalSelesai.setDate(tanggalSelesai.getDate() + durasiHari);
+    }
 
     usulan.tanggalMulai = tanggalMulai;
     usulan.tanggalSelesai = tanggalSelesai;
@@ -965,6 +1118,9 @@ export class UsulanAksesBerkasService {
         // Ambil tanggalMulai terbaru
         if (new Date(e.tanggalMulai) > new Date(existing.tanggalMulai)) {
           existing.tanggalMulai = e.tanggalMulai;
+          // Update nomorUsulanTerbaru ke usulan dengan tanggalMulai terbaru
+          const usulanFromMap = usulanMap.get(e.usulanId);
+          if (usulanFromMap?.nomorUsulan) existing.nomorUsulanTerbaru = usulanFromMap.nomorUsulan;
         }
         // Ambil tanggalSelesai terlama (yang masih aktif)
         if (new Date(e.tanggalSelesai) < new Date(existing.tanggalSelesai)) {
