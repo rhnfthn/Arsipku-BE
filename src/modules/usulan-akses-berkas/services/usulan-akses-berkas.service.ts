@@ -694,7 +694,9 @@ export class UsulanAksesBerkasService {
     const totalJenjang = usulan.verifikatorPengusul.length;
 
     if (dto.keputusan === Keputusan.TOLAK) {
-      usulan.status = StatusUsulan.DITOLAK_PENGUSUL;
+      // Verifikator pengusul menolak = revisi untuk SE pengusul (bukan closed)
+      usulan.status = StatusUsulan.REVISI_PENGUSUL;
+      usulan.catatanRevisiPengusul = dto.catatanKeSE || dto.catatan || null;
     } else if (dto.keputusan === Keputusan.REVISI) {
       usulan.status = StatusUsulan.REVISI_PENGUSUL;
       usulan.catatanRevisiPengusul = dto.catatanRevisi || null;
@@ -944,7 +946,9 @@ export class UsulanAksesBerkasService {
     const totalJenjang = usulan.verifikatorPemberi.length;
 
     if (dto.keputusan === Keputusan.TOLAK) {
-      usulan.status = StatusUsulan.DITOLAK_PEMBERI;
+      // Verifikator pemberi menolak = revisi untuk SE pemberi (bukan closed)
+      usulan.status = StatusUsulan.REVISI_PEMBERI;
+      usulan.catatanRevisiPemberi = dto.catatanKeSE || dto.catatan || null;
     } else if (dto.keputusan === Keputusan.REVISI) {
       usulan.status = StatusUsulan.REVISI_PEMBERI;
       usulan.catatanRevisiPemberi = dto.catatanRevisi || null;
