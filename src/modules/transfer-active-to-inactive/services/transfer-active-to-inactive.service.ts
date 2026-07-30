@@ -102,11 +102,17 @@ export class TransferActiveToInactiveService {
    * Jika ya, user berhak melihat menu "Verifikasi Usulan" meskipun role-nya USER.
    */
   async isAtasanManagerial(user: any): Promise<boolean> {
-    const count = await this.repo
-      .createQueryBuilder('t')
-      .where('t.atasan_persnum = :p', { p: Number(user.persnum) })
-      .getCount();
-    return count > 0;
+    try {
+      const persnum = Number(user?.persnum);
+      if (!persnum || isNaN(persnum)) return false;
+      const count = await this.repo
+        .createQueryBuilder('t')
+        .where('t.atasan_persnum = :p', { p: persnum })
+        .getCount();
+      return count > 0;
+    } catch {
+      return false;
+    }
   }
 
   async findAll(filter: TransferFilterDto, user: any) {
