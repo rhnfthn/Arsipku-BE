@@ -1,6 +1,7 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 
 @Entity('naskah_sirkulasi')
+@Index('idx_naskah_sirkulasi_id_naskah', ['idNaskah'])
 export class NaskahSirkulasi {
   @Column('char', { primary: true, name: 'id', length: 36 })
   id: string;

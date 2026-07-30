@@ -1,6 +1,7 @@
-import { Entity, PrimaryColumn, Column } from 'typeorm';
+import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
 
 @Entity('naskah')
+@Index('idx_naskah_tanggal', ['tanggal'])
 export class NaskahEntity {
   @PrimaryColumn('char', { length: 36 })
   id: string;
@@ -27,7 +28,7 @@ export class NaskahEntity {
   @Column('varchar', { length: 100, nullable: true })
   nomor: string | null;
 
-  @Column('date')
+  @PrimaryColumn('date')
   tanggal: Date;
 
   @Column('varchar', { length: 100, nullable: true })
