@@ -95,8 +95,8 @@ export class UsulanAksesBerkasService {
   //         [EVP saja] → urutan [1] (bukan [3] lagi)
   //         [AVP, EVP] → urutan [1, 2]
   private sortVerifikator(
-    verifikator: { persnum: number; levelJabatan: LevelJabatan }[],
-  ): { persnum: number; levelJabatan: LevelJabatan; urutan: number }[] {
+    verifikator: { persnum: number; levelJabatan: LevelJabatan; catatan?: string }[],
+  ): { persnum: number; levelJabatan: LevelJabatan; urutan: number; catatan?: string }[] {
     return verifikator
       .map((v) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] ?? 99 }))
       .sort((a, b) => a._levelOrder - b._levelOrder)
@@ -329,10 +329,12 @@ export class UsulanAksesBerkasService {
     }
 
     // Auto-sort verifikator bottom-to-top (BOD-3 → BOD-2 → BOD-1 → BOD)
+    // Pertahankan catatan per verifikator dari SE pengusul
     const sortedVerifikator = this.sortVerifikator(
       dto.verifikatorPengusul.map((v) => ({
         persnum: v.persnum,
         levelJabatan: v.levelJabatan as LevelJabatan,
+        ...(v.catatan ? { catatan: v.catatan } : {}),
       })),
     );
 
@@ -446,6 +448,13 @@ export class UsulanAksesBerkasService {
           }
         }
       }
+    }
+
+    // Inject isViewedByMe per item (untuk penanda icon mata biru/abu di FE)
+    const userPersnumKey = String(user?.persnum);
+    for (const item of data as any[]) {
+      const viewed = item.viewedBy as Record<string, string> | null;
+      (item as any).isViewedByMe = !!(viewed && viewed[userPersnumKey]);
     }
 
     return { data, total, page: Number(page), limit: Number(limit) };
@@ -629,6 +638,7 @@ export class UsulanAksesBerkasService {
       divisiPemberiNama,
       verifikatorPengusul: enrichedVerifikatorPengusul,
       verifikatorPemberi: enrichedVerifikatorPemberi,
+      isViewedByMe: !!(usulan.viewedBy && (usulan.viewedBy as Record<string, string>)[String(user.persnum)]),
     };
   }
 
@@ -683,6 +693,7 @@ export class UsulanAksesBerkasService {
       keputusan: dto.keputusan,
       catatan: dto.catatan || null,
       catatanRevisi: dto.catatanRevisi || null,
+      catatanKeSE: dto.catatanKeSE || null,
       checklist: {},
     } as any);
     await this.stepRepo.save(step);
@@ -691,7 +702,9 @@ export class UsulanAksesBerkasService {
     const totalJenjang = usulan.verifikatorPengusul.length;
 
     if (dto.keputusan === Keputusan.TOLAK) {
-      usulan.status = StatusUsulan.DITOLAK_PENGUSUL;
+      // Verifikator pengusul menolak = revisi untuk SE pengusul (bukan closed)
+      usulan.status = StatusUsulan.REVISI_PENGUSUL;
+      usulan.catatanRevisiPengusul = dto.catatanKeSE || dto.catatan || null;
     } else if (dto.keputusan === Keputusan.REVISI) {
       usulan.status = StatusUsulan.REVISI_PENGUSUL;
       usulan.catatanRevisiPengusul = dto.catatanRevisi || null;
@@ -735,7 +748,7 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    if (usulan.status !== StatusUsulan.TERKIRIM_KE_PEMBERI) {
+    if (usulan.status !== StatusUsulan.TERKIRIM_KE_PEMBERI && usulan.status !== StatusUsulan.REVISI_PEMBERI) {
       throw new BadRequestException(
         'Status usulan tidak valid untuk verifikasi pemberi',
       );
@@ -800,7 +813,7 @@ export class UsulanAksesBerkasService {
       throw new ForbiddenException('Anda bukan Sekretaris di divisi pemberi');
     }
 
-    if (usulan.status !== StatusUsulan.PEMILIHAN_BERKAS) {
+    if (usulan.status !== StatusUsulan.PEMILIHAN_BERKAS && usulan.status !== StatusUsulan.REVISI_PEMBERI) {
       throw new BadRequestException('Status tidak valid untuk pemilihan berkas');
     }
 
@@ -821,7 +834,7 @@ export class UsulanAksesBerkasService {
           `Berkas "${b.judulBerkas}" tidak dapat dipilih karena statusnya "${b.status}". Hanya berkas berstatus "closed_retensi_aktif" yang boleh dipinjamkan.`,
         );
       }
-      // TODO: validasi kepemilikan lebih ketat setelah ada kolom divisi_id di berkas
+      // Validasi kepemilikan per unit bisa ditambahkan setelah ada kolom divisi_id di berkas
     }
 
     // Hapus berkas lama jika ada (revisi case)
@@ -838,11 +851,12 @@ export class UsulanAksesBerkasService {
     );
     await this.usulanBerkasRepo.save(usulanBerkasItems);
 
-    // Auto-sort verifikator pemberi
+    // Auto-sort verifikator pemberi (pertahankan catatan per verifikator)
     const sortedVerifikatorPemberi = this.sortVerifikator(
       dto.verifikatorPemberi.map((v) => ({
         persnum: v.persnum,
         levelJabatan: v.levelJabatan as LevelJabatan,
+        ...(v.catatan ? { catatan: v.catatan } : {}),
       })),
     );
 
@@ -863,6 +877,42 @@ export class UsulanAksesBerkasService {
     const saved = await this.usulanRepo.save(usulan);
     this.logger.log(`Pilih berkas: ${dto.berkasIds.length} berkas by persnum=${user.persnum}`);
     return saved;
+  }
+
+  // ── Eligible berkas untuk modal Pilih Berkas (SE Pemberi) ──
+
+  /**
+   * Daftar berkas yang eligible untuk dipilih SE Pemberi pada modal
+   * "Pilih Berkas & Verifikator".
+   *
+   * Aturan sederhana: hanya berkas berstatus closed_retensi_aktif (tertutup).
+   * Tidak ada filter unit — SE Pemberi bisa memilih berkas tertutup mana saja
+   * yang eligible.
+   */
+  async getEligibleBerkasForPemberi(
+    user: any,
+    jenisBerkas?: string,
+    divisiPemberiId?: number,
+  ): Promise<any[]> {
+    const rows = await this.berkasRepo.find({
+      where: {
+        status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        deletedAt: undefined,
+      } as any,
+      order: { judulBerkas: 'ASC' },
+    });
+    return rows.map((b: any) => ({
+      id: b.id,
+      judulBerkas: b.judulBerkas,
+      kodeBerkas: b.kodeBerkas,
+      klasifikasi: b.klasifikasi,
+      klasifikasiText: b.klasifikasiText,
+      jenis: b.jenis,
+      status: b.status,
+      unitPenciptaId: b.unitPenciptaId,
+      retensiAktifTahun: b.retensiAktifTahun,
+      retensiInaktifTahun: b.retensiInaktifTahun,
+    }));
   }
 
   // ── Persetujuan Pemberi (AVP/VP/EVP) ───────────────────────────
@@ -922,6 +972,7 @@ export class UsulanAksesBerkasService {
     step.keputusan = dto.keputusan;
     step.catatan = dto.catatan || null;
     step.catatanRevisi = dto.catatanRevisi || null;
+    step.catatanKeSE = dto.catatanKeSE || null;
     step.checklist = {};
     await this.stepRepo.save(step);
 
@@ -939,7 +990,9 @@ export class UsulanAksesBerkasService {
     const totalJenjang = usulan.verifikatorPemberi.length;
 
     if (dto.keputusan === Keputusan.TOLAK) {
-      usulan.status = StatusUsulan.DITOLAK_PEMBERI;
+      // Verifikator pemberi menolak = kembali ke SE pemberi untuk verifikasi ulang
+      usulan.status = StatusUsulan.TERKIRIM_KE_PEMBERI;
+      usulan.catatanRevisiPemberi = dto.catatanKeSE || dto.catatan || null;
     } else if (dto.keputusan === Keputusan.REVISI) {
       usulan.status = StatusUsulan.REVISI_PEMBERI;
       usulan.catatanRevisiPemberi = dto.catatanRevisi || null;
@@ -1078,6 +1131,7 @@ export class UsulanAksesBerkasService {
    */
   async getMyEntitlements(user: any): Promise<any[]> {
     const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
     const now = new Date();
 
     // Ambil entitlements yang belum revoked
@@ -1102,9 +1156,18 @@ export class UsulanAksesBerkasService {
     });
     const usulanMap = new Map(usulanList.map((u) => [u.id, u]));
 
+    // Filter: hanya entitlement dari divisi pemberi LAIN (bukan divisi user sendiri)
+    const filteredEntitlements = entitlements.filter((e) => {
+      const usulan = usulanMap.get(e.usulanId);
+      if (!usulan) return false;
+      return Number(usulan.divisiPemberiId) !== userOrgId;
+    });
+
+    if (filteredEntitlements.length === 0) return [];
+
     // Group by berkasId — gabungkan entitlements untuk berkas yang sama
     const berkasGroups = new Map<string, any>();
-    for (const e of entitlements) {
+    for (const e of filteredEntitlements) {
       const existing = berkasGroups.get(e.berkasId);
       const isExpired = e.tanggalSelesai && new Date(e.tanggalSelesai) < now;
       if (!existing) {
@@ -1154,12 +1217,50 @@ export class UsulanAksesBerkasService {
       }
     }
 
+    // Enrich dengan divisi pemberi (dari position_json, sama seperti findAll)
+    const enrichedUsulanIds = [...new Set(Array.from(berkasGroups.values()).flatMap((g: any) => g.usulanIds))];
+    if (enrichedUsulanIds.length > 0) {
+      // Ambil divisiPemberiId dari usulan
+      const usulanRows = await this.usulanRepo.find({
+        where: { id: In(enrichedUsulanIds) },
+      });
+      const usulanDivisiMap = new Map(usulanRows.map((u) => [u.id, u.divisiPemberiId]));
+
+      // Ambil nama divisi dari position_json (orgDataService)
+      const orgData = await this.orgDataService.findLatestOrg();
+      let divisiNamaMap = new Map<number, string>();
+      if (orgData?.position_json) {
+        const positionJson =
+          typeof orgData.position_json === 'string'
+            ? JSON.parse(orgData.position_json)
+            : orgData.position_json;
+        if (Array.isArray(positionJson)) {
+          for (const p of positionJson) {
+            if (p.organization_id && p.organization_text) {
+              divisiNamaMap.set(Number(p.organization_id), p.organization_text);
+            }
+          }
+        }
+      }
+
+      for (const group of berkasGroups.values()) {
+        const firstUsulanId = group.usulanIds[0];
+        const divisiPemberiId = usulanDivisiMap.get(firstUsulanId);
+        if (divisiPemberiId) {
+          (group as any).divisiPemberiId = divisiPemberiId;
+          (group as any).divisiPemberiNama = divisiNamaMap.get(Number(divisiPemberiId)) || null;
+        }
+      }
+    }
+
     return Array.from(berkasGroups.values());
   }
 
   /**
    * Detail naskah untuk SE pengusul yang punya entitlement.
    * Cek: naskah ini ada di berkas yang user punya entitlement-nya.
+   * Mengembalikan rich detail (pengirim, penerima, tembusan, lampiran)
+   * agar FE bisa render dengan komponen DetailNaskah yang sama dengan halaman kelola.
    */
   async getNaskahDetailForEntitlement(naskahId: string, user: any): Promise<any> {
     const userPersnum = Number(user.persnum);
@@ -1199,8 +1300,82 @@ export class UsulanAksesBerkasService {
     }
 
     const naskah = naskahRows[0] as any;
+
+    // Pengirim (sirkulasi.sirkuler = 'pengirim')
+    const pengirimRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'pengirim'
+       ORDER BY created_at ASC LIMIT 1`,
+      [naskahId],
+    );
+    const pengirim = pengirimRows[0] || null;
+
+    // Penerima & Tembusan
+    const penerimaRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'penerima'
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+    const tembusanRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'tembusan'
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+
+    // Lampiran files
+    const lampiranRows = await this.dataSource.query(
+      `SELECT id, id_naskah, file_name, file_pdf, jenis, created_at
+       FROM naskah_lampiran
+       WHERE id_naskah = ? AND is_temporary = 0
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+
     return {
       ...naskah,
+      pengirim: pengirim
+        ? {
+            id: pengirim.id,
+            position_id: pengirim.position,
+            position_text: pengirim.position_text,
+            organization_text: pengirim.organization_text,
+            nama_sirkuler: pengirim.nama_sirkuler,
+          }
+        : null,
+      penerima: penerimaRows.map((p: any) => ({
+        id: p.id,
+        position_id: p.position,
+        position_text: p.position_text,
+        organization_text: p.organization_text,
+        nama_sirkuler: p.nama_sirkuler,
+      })),
+      tembusan: tembusanRows.map((t: any) => ({
+        id: t.id,
+        position_id: t.position,
+        position_text: t.position_text,
+        organization_text: t.organization_text,
+        nama_sirkuler: t.nama_sirkuler,
+      })),
+      lampiran_files: lampiranRows.map((l: any) => ({
+        id: l.id,
+        file_name: l.file_name,
+        file_pdf: l.file_pdf,
+        file_url: l.file_pdf
+          ? l.file_pdf.startsWith('http')
+            ? l.file_pdf
+            : `/files/${l.file_pdf.replace(/^\/?files\//, '')}`
+          : null,
+      })),
+      // Final pdf URL untuk preview iframe — konsisten dengan DetailNaskah
+      final_pdf_url: naskah.final_pdf
+        ? naskah.final_pdf.startsWith('http')
+          ? naskah.final_pdf
+          : `/files/${String(naskah.final_pdf).replace(/^\/?files\//, '')}`
+        : null,
+      // Siapkan juga 'jenis_label' untuk konsistensi dengan halaman kelola
+      jenis_label: naskah.jenis || null,
       permissions: entitlement.permissions,
     };
   }
@@ -1342,6 +1517,7 @@ export class UsulanAksesBerkasService {
     const userOrgId = Number(user.organization);
 
     // 1. Menunggu verifikasi: usulan yang user jadi verifikator & status menunggu
+    //    Exclude usulan yang sudah dibuka user (ada di viewedBy[persnum])
     const verifyStatuses: string[] = [
       StatusUsulan.MENUNGGU_VERIFIKASI_PENGUSUL,
       StatusUsulan.MENUNGGU_VERIFIKASI_AKHIR_PENGUSUL,
@@ -1356,16 +1532,24 @@ export class UsulanAksesBerkasService {
       { userPersnum },
     );
     verifyQb.andWhere('u.status IN (:...statuses)', { statuses: verifyStatuses });
+    // Exclude yang sudah viewed: viewedBy[persnum] tidak ada / null
+    verifyQb.andWhere(
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+    );
     const menungguVerifikasi = await verifyQb.getCount();
 
-    // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status PEMILIHAN_BERKAS / MENUNGGU_VERIFIKASI_PEMBERI
+    // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status
+    //    PEMILIHAN_BERKAS / REVISI_PEMBERI. Exclude yang sudah dibuka user.
     const pilihBerkasStatuses: string[] = [
       StatusUsulan.PEMILIHAN_BERKAS,
-      StatusUsulan.MENUNGGU_VERIFIKASI_PEMBERI,
+      StatusUsulan.REVISI_PEMBERI,
     ];
     const pilihBerkasQb = this.usulanRepo.createQueryBuilder('u');
     pilihBerkasQb.where('u.divisiPemberiId = :userOrgId', { userOrgId });
     pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
+    pilihBerkasQb.andWhere(
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+    );
     const pilihBerkas = await pilihBerkasQb.getCount();
 
     // 3. Akses diterbitkan baru: entitlement user yang isRead=false & belum revoked
@@ -1384,5 +1568,22 @@ export class UsulanAksesBerkasService {
       { isRead: true },
     );
     return { updated: result.affected || 0 };
+  }
+
+  // ── markViewed: tandai usulan sebagai sudah dibuka/dilihat oleh user ──
+  // Disimpan di viewedBy[persnum] = ISO timestamp.
+  // Dipanggil dari FE saat user masuk ke halaman detail usulan.
+  // Counts badge akan auto-exclude usulan ini pada next fetchCounts.
+  async markViewed(usulanId: string, user: any): Promise<{ success: boolean }> {
+    const userPersnum = Number(user.persnum);
+    const usulan = await this.usulanRepo.findOne({ where: { id: usulanId } });
+    if (!usulan) {
+      throw new NotFoundException('Usulan tidak ditemukan');
+    }
+    const existing = (usulan.viewedBy as Record<string, string>) || {};
+    existing[String(userPersnum)] = new Date().toISOString();
+    usulan.viewedBy = existing;
+    await this.usulanRepo.save(usulan);
+    return { success: true };
   }
 }

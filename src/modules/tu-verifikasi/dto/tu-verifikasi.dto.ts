@@ -96,4 +96,9 @@ export class SelesaiPenataanDto {
   @IsOptional()
   @IsString()
   keterangan?: string;
+
+  @ApiPropertyOptional({ description: 'MinIO key foto lampiran penataan' })
+  @IsOptional()
+  @IsString()
+  fotoPenataan?: string;
 }

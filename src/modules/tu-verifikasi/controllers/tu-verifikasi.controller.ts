@@ -34,7 +34,9 @@ export class TuVerifikasiController {
   }
 
   @Get('atasan-tu-list')
-  @ApiOperation({ summary: 'Daftar atasan managerial TU (Corporate Secretary)' })
+  @ApiOperation({
+    summary: 'Daftar atasan managerial TU (Corporate Secretary)',
+  })
   async getAtasanTuList() {
     return this.service.getAtasanTuList();
   }
