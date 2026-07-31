@@ -59,12 +59,14 @@ export class UsulanAksesBerkasEntity {
     persnum: number;
     levelJabatan: LevelJabatan;
     urutan: number;
+    catatan?: string; // catatan personal dari SE pengusul (hanya terlihat oleh verifikator ini & SE pengusul)
   }[];
 
   @Column('json', { nullable: true }) verifikatorPemberi: {
     persnum: number;
     levelJabatan: LevelJabatan;
     urutan: number;
+    catatan?: string; // catatan personal dari SE pemberi (hanya terlihat oleh verifikator ini & SE pemberi)
   }[] | null;
 
   // ── Status ─────────────────────────────────────────────────────
@@ -80,6 +82,13 @@ export class UsulanAksesBerkasEntity {
   catatanRevisiPengusul: string | null; // catatan dari managerial pengusul saat REVISI
   @Column('text', { nullable: true })
   catatanRevisiPemberi: string | null; // catatan dari managerial pemberi saat REVISI
+
+  // ── Tracking Viewed (untuk badge notifikasi) ──────────────────────
+  // Map persnum (string) → ISO timestamp. Di-set saat user (SE/managerial)
+  // membuka detail usulan. Counts badge akan exclude usulan yang sudah
+  // viewed oleh user tsb (sama dengan pola send_read_time di naskah_sirkulasi).
+  @Column('json', { nullable: true })
+  viewedBy: { [persnum: string]: string } | null;
 
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;
