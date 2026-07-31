@@ -1215,6 +1215,8 @@ export class UsulanAksesBerkasService {
   /**
    * Detail naskah untuk SE pengusul yang punya entitlement.
    * Cek: naskah ini ada di berkas yang user punya entitlement-nya.
+   * Mengembalikan rich detail (pengirim, penerima, tembusan, lampiran)
+   * agar FE bisa render dengan komponen DetailNaskah yang sama dengan halaman kelola.
    */
   async getNaskahDetailForEntitlement(naskahId: string, user: any): Promise<any> {
     const userPersnum = Number(user.persnum);
@@ -1254,8 +1256,82 @@ export class UsulanAksesBerkasService {
     }
 
     const naskah = naskahRows[0] as any;
+
+    // Pengirim (sirkulasi.sirkuler = 'pengirim')
+    const pengirimRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'pengirim'
+       ORDER BY created_at ASC LIMIT 1`,
+      [naskahId],
+    );
+    const pengirim = pengirimRows[0] || null;
+
+    // Penerima & Tembusan
+    const penerimaRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'penerima'
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+    const tembusanRows = await this.dataSource.query(
+      `SELECT * FROM naskah_sirkulasi
+       WHERE id_naskah = ? AND sirkuler = 'tembusan'
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+
+    // Lampiran files
+    const lampiranRows = await this.dataSource.query(
+      `SELECT id, id_naskah, file_name, file_pdf, jenis, created_at
+       FROM naskah_lampiran
+       WHERE id_naskah = ? AND is_temporary = 0
+       ORDER BY created_at ASC`,
+      [naskahId],
+    );
+
     return {
       ...naskah,
+      pengirim: pengirim
+        ? {
+            id: pengirim.id,
+            position_id: pengirim.position,
+            position_text: pengirim.position_text,
+            organization_text: pengirim.organization_text,
+            nama_sirkuler: pengirim.nama_sirkuler,
+          }
+        : null,
+      penerima: penerimaRows.map((p: any) => ({
+        id: p.id,
+        position_id: p.position,
+        position_text: p.position_text,
+        organization_text: p.organization_text,
+        nama_sirkuler: p.nama_sirkuler,
+      })),
+      tembusan: tembusanRows.map((t: any) => ({
+        id: t.id,
+        position_id: t.position,
+        position_text: t.position_text,
+        organization_text: t.organization_text,
+        nama_sirkuler: t.nama_sirkuler,
+      })),
+      lampiran_files: lampiranRows.map((l: any) => ({
+        id: l.id,
+        file_name: l.file_name,
+        file_pdf: l.file_pdf,
+        file_url: l.file_pdf
+          ? l.file_pdf.startsWith('http')
+            ? l.file_pdf
+            : `/files/${l.file_pdf.replace(/^\/?files\//, '')}`
+          : null,
+      })),
+      // Final pdf URL untuk preview iframe — konsisten dengan DetailNaskah
+      final_pdf_url: naskah.final_pdf
+        ? naskah.final_pdf.startsWith('http')
+          ? naskah.final_pdf
+          : `/files/${String(naskah.final_pdf).replace(/^\/?files\//, '')}`
+        : null,
+      // Siapkan juga 'jenis_label' untuk konsistensi dengan halaman kelola
+      jenis_label: naskah.jenis || null,
       permissions: entitlement.permissions,
     };
   }
