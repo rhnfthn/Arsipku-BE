@@ -450,6 +450,13 @@ export class UsulanAksesBerkasService {
       }
     }
 
+    // Inject isViewedByMe per item (untuk penanda icon mata biru/abu di FE)
+    const userPersnumKey = String(user?.persnum);
+    for (const item of data as any[]) {
+      const viewed = item.viewedBy as Record<string, string> | null;
+      (item as any).isViewedByMe = !!(viewed && viewed[userPersnumKey]);
+    }
+
     return { data, total, page: Number(page), limit: Number(limit) };
   }
 
@@ -631,6 +638,7 @@ export class UsulanAksesBerkasService {
       divisiPemberiNama,
       verifikatorPengusul: enrichedVerifikatorPengusul,
       verifikatorPemberi: enrichedVerifikatorPemberi,
+      isViewedByMe: !!(usulan.viewedBy && (usulan.viewedBy as Record<string, string>)[String(user.persnum)]),
     };
   }
 
@@ -826,7 +834,7 @@ export class UsulanAksesBerkasService {
           `Berkas "${b.judulBerkas}" tidak dapat dipilih karena statusnya "${b.status}". Hanya berkas berstatus "closed_retensi_aktif" yang boleh dipinjamkan.`,
         );
       }
-      // TODO: validasi kepemilikan lebih ketat setelah ada kolom divisi_id di berkas
+      // Validasi kepemilikan per unit bisa ditambahkan setelah ada kolom divisi_id di berkas
     }
 
     // Hapus berkas lama jika ada (revisi case)
@@ -869,6 +877,42 @@ export class UsulanAksesBerkasService {
     const saved = await this.usulanRepo.save(usulan);
     this.logger.log(`Pilih berkas: ${dto.berkasIds.length} berkas by persnum=${user.persnum}`);
     return saved;
+  }
+
+  // ── Eligible berkas untuk modal Pilih Berkas (SE Pemberi) ──
+
+  /**
+   * Daftar berkas yang eligible untuk dipilih SE Pemberi pada modal
+   * "Pilih Berkas & Verifikator".
+   *
+   * Aturan sederhana: hanya berkas berstatus closed_retensi_aktif (tertutup).
+   * Tidak ada filter unit — SE Pemberi bisa memilih berkas tertutup mana saja
+   * yang eligible.
+   */
+  async getEligibleBerkasForPemberi(
+    user: any,
+    jenisBerkas?: string,
+    divisiPemberiId?: number,
+  ): Promise<any[]> {
+    const rows = await this.berkasRepo.find({
+      where: {
+        status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        deletedAt: undefined,
+      } as any,
+      order: { judulBerkas: 'ASC' },
+    });
+    return rows.map((b: any) => ({
+      id: b.id,
+      judulBerkas: b.judulBerkas,
+      kodeBerkas: b.kodeBerkas,
+      klasifikasi: b.klasifikasi,
+      klasifikasiText: b.klasifikasiText,
+      jenis: b.jenis,
+      status: b.status,
+      unitPenciptaId: b.unitPenciptaId,
+      retensiAktifTahun: b.retensiAktifTahun,
+      retensiInaktifTahun: b.retensiInaktifTahun,
+    }));
   }
 
   // ── Persetujuan Pemberi (AVP/VP/EVP) ───────────────────────────
@@ -1473,6 +1517,7 @@ export class UsulanAksesBerkasService {
     const userOrgId = Number(user.organization);
 
     // 1. Menunggu verifikasi: usulan yang user jadi verifikator & status menunggu
+    //    Exclude usulan yang sudah dibuka user (ada di viewedBy[persnum])
     const verifyStatuses: string[] = [
       StatusUsulan.MENUNGGU_VERIFIKASI_PENGUSUL,
       StatusUsulan.MENUNGGU_VERIFIKASI_AKHIR_PENGUSUL,
@@ -1487,16 +1532,24 @@ export class UsulanAksesBerkasService {
       { userPersnum },
     );
     verifyQb.andWhere('u.status IN (:...statuses)', { statuses: verifyStatuses });
+    // Exclude yang sudah viewed: viewedBy[persnum] tidak ada / null
+    verifyQb.andWhere(
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+    );
     const menungguVerifikasi = await verifyQb.getCount();
 
-    // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status PEMILIHAN_BERKAS / MENUNGGU_VERIFIKASI_PEMBERI
+    // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status
+    //    PEMILIHAN_BERKAS / REVISI_PEMBERI. Exclude yang sudah dibuka user.
     const pilihBerkasStatuses: string[] = [
       StatusUsulan.PEMILIHAN_BERKAS,
-      StatusUsulan.MENUNGGU_VERIFIKASI_PEMBERI,
+      StatusUsulan.REVISI_PEMBERI,
     ];
     const pilihBerkasQb = this.usulanRepo.createQueryBuilder('u');
     pilihBerkasQb.where('u.divisiPemberiId = :userOrgId', { userOrgId });
     pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
+    pilihBerkasQb.andWhere(
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+    );
     const pilihBerkas = await pilihBerkasQb.getCount();
 
     // 3. Akses diterbitkan baru: entitlement user yang isRead=false & belum revoked
@@ -1515,5 +1568,22 @@ export class UsulanAksesBerkasService {
       { isRead: true },
     );
     return { updated: result.affected || 0 };
+  }
+
+  // ── markViewed: tandai usulan sebagai sudah dibuka/dilihat oleh user ──
+  // Disimpan di viewedBy[persnum] = ISO timestamp.
+  // Dipanggil dari FE saat user masuk ke halaman detail usulan.
+  // Counts badge akan auto-exclude usulan ini pada next fetchCounts.
+  async markViewed(usulanId: string, user: any): Promise<{ success: boolean }> {
+    const userPersnum = Number(user.persnum);
+    const usulan = await this.usulanRepo.findOne({ where: { id: usulanId } });
+    if (!usulan) {
+      throw new NotFoundException('Usulan tidak ditemukan');
+    }
+    const existing = (usulan.viewedBy as Record<string, string>) || {};
+    existing[String(userPersnum)] = new Date().toISOString();
+    usulan.viewedBy = existing;
+    await this.usulanRepo.save(usulan);
+    return { success: true };
   }
 }
