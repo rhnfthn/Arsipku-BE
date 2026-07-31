@@ -177,12 +177,20 @@ export class OrgDataService {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    // Get cached org data from org_data service
-    const orgData = await this.findOrg(tanggal);
+    // Cari org_data untuk tanggal spesifik; fallback ke data terbaru jika
+    // tidak ada row untuk tanggal tersebut (org_data hanya di-generate untuk
+    // tanggal tertentu, default 2025-01-01). Tanpa fallback, dropdown atasan
+    // managerial di form usulan pindah selalu kosong.
+    let orgData: any = null;
+    try {
+      orgData = await this.findOrg(tanggal);
+    } catch {
+      orgData = await this.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException(
-        `Data organisasi untuk tanggal ${tanggal} tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
+        `Data organisasi tidak ditemukan. Silakan generate data org terlebih dahulu via GET /org-data?tgl=${tanggal}`,
       );
     }
 

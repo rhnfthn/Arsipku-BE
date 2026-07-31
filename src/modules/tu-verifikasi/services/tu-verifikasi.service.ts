@@ -21,6 +21,7 @@ import {
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
@@ -32,6 +33,7 @@ export class TuVerifikasiService {
     private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
     private readonly notificationService: NotificationService,
     private readonly orgDataService: OrgDataService,
+    private readonly storageService: StorageService,
   ) {}
 
   /** Status yang relevan untuk TU (notifikasi usulan masuk). */
@@ -254,7 +256,10 @@ export class TuVerifikasiService {
   async getAtasanTuList() {
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (!latestOrgData?.position_json || !Array.isArray(latestOrgData.position_json)) {
+      if (
+        !latestOrgData?.position_json ||
+        !Array.isArray(latestOrgData.position_json)
+      ) {
         return [];
       }
 
@@ -266,8 +271,8 @@ export class TuVerifikasiService {
           const orgText = (p.organization_text || '').toUpperCase();
           return (
             (orgText.includes('CORPORATE SECRETARY') ||
-             orgText.includes('TATA NASKAH') ||
-             orgText.includes('CORPORATE SEC')) &&
+              orgText.includes('TATA NASKAH') ||
+              orgText.includes('CORPORATE SEC')) &&
             p.chief === 1 &&
             p.persnum_person
           );
@@ -284,20 +289,31 @@ export class TuVerifikasiService {
 
       // Fallback: pastikan HERMANA & PRIYO selalu ada di dropdown
       const FALLBACK_ATASAN_TU = [
-        { persnum: 10010123, name: 'HERMANA SOEGIJANTORO', positionText: 'EVP Corporate Secretary' },
-        { persnum: 10010970, name: 'PRIYO HUTOMO PUTRA', positionText: 'VP Corporate Secretary' },
+        {
+          persnum: 10010123,
+          name: 'HERMANA SOEGIJANTORO',
+          positionText: 'EVP Corporate Secretary',
+        },
+        {
+          persnum: 10010970,
+          name: 'PRIYO HUTOMO PUTRA',
+          positionText: 'VP Corporate Secretary',
+        },
       ];
       for (const fb of FALLBACK_ATASAN_TU) {
         const exists = atasanTu.some((a) => Number(a.persnum) === fb.persnum);
         if (!exists) {
-          const posData = positions.find((p) => Number(p.persnum_person) === fb.persnum);
+          const posData = positions.find(
+            (p) => Number(p.persnum_person) === fb.persnum,
+          );
           atasanTu.push({
             persnum: fb.persnum,
             name: fb.name,
             position: posData?.position ?? null,
             positionText: posData?.position_text ?? fb.positionText,
             organization: posData?.organization_id ?? null,
-            organizationText: posData?.organization_text ?? 'Corporate Secretary',
+            organizationText:
+              posData?.organization_text ?? 'Corporate Secretary',
             displayText: `${fb.name} — ${posData?.position_text ?? fb.positionText} (${fb.persnum})`,
           });
         }
@@ -362,7 +378,11 @@ export class TuVerifikasiService {
   }
 
   /** Setujui penerimaan oleh Atasan TU. */
-  async setujuiPenerimaan(id: string, user: JwtPayload, dto: { catatanVerifikasi?: string }) {
+  async setujuiPenerimaan(
+    id: string,
+    user: JwtPayload,
+    dto: { catatanVerifikasi?: string },
+  ) {
     const transfer = await this.findOneForTu(id);
 
     if (
@@ -375,11 +395,12 @@ export class TuVerifikasiService {
       );
     }
 
-    transfer.status =
-      TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
+    transfer.status = TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
     transfer.atasanTuPersnum = transfer.atasanTuPersnum ?? Number(user.persnum);
-    transfer.atasanTuName = transfer.atasanTuName ?? user.nama ?? String(user.persnum);
-    transfer.physicalVerificationNote = dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
+    transfer.atasanTuName =
+      transfer.atasanTuName ?? user.nama ?? String(user.persnum);
+    transfer.physicalVerificationNote =
+      dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
 
     const saved = await this.transferRepo.save(transfer);
 
@@ -391,7 +412,11 @@ export class TuVerifikasiService {
         type: NotificationType.SYSTEM,
         title: 'Penerimaan Disetujui Atasan TU',
         body: `Usulan ${saved.nomorUsulan} penerimaan disetujui oleh Atasan TU.`,
-        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+        data: {
+          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          id: saved.id,
+          nomorUsulan: saved.nomorUsulan,
+        },
       });
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
@@ -401,7 +426,11 @@ export class TuVerifikasiService {
   }
 
   /** Tolak penerimaan oleh Atasan TU. */
-  async tolakPenerimaan(id: string, user: JwtPayload, dto: { alasanPenolakan: string }) {
+  async tolakPenerimaan(
+    id: string,
+    user: JwtPayload,
+    dto: { alasanPenolakan: string },
+  ) {
     const transfer = await this.findOneForTu(id);
 
     if (
@@ -414,8 +443,7 @@ export class TuVerifikasiService {
       );
     }
 
-    transfer.status =
-      TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TU;
+    transfer.status = TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TU;
     transfer.rejectedNote = dto.alasanPenolakan;
 
     const saved = await this.transferRepo.save(transfer);
@@ -428,7 +456,11 @@ export class TuVerifikasiService {
         type: NotificationType.SYSTEM,
         title: 'Penerimaan Ditolak Atasan TU',
         body: `Usulan ${saved.nomorUsulan} penerimaan ditolak: ${dto.alasanPenolakan}`,
-        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+        data: {
+          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          id: saved.id,
+          nomorUsulan: saved.nomorUsulan,
+        },
       });
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
@@ -438,7 +470,11 @@ export class TuVerifikasiService {
   }
 
   /** Setujui persetujuan terakhir oleh Atasan TU → ARSIP_INAKTIF_DITERIMA. */
-  async setujuiTerakhir(id: string, user: JwtPayload, dto: { catatanVerifikasi?: string }) {
+  async setujuiTerakhir(
+    id: string,
+    user: JwtPayload,
+    dto: { catatanVerifikasi?: string },
+  ) {
     const transfer = await this.findOneForTu(id);
 
     if (
@@ -452,8 +488,7 @@ export class TuVerifikasiService {
       );
     }
 
-    transfer.status =
-      TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
+    transfer.status = TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
     transfer.tuFinalApprovedBy = Number(user.persnum);
     transfer.tuFinalApprovedAt = new Date();
     transfer.receivedAt = new Date();
@@ -468,7 +503,11 @@ export class TuVerifikasiService {
         type: NotificationType.SYSTEM,
         title: 'Arsip Diterima — Siap Penataan',
         body: `Usulan ${saved.nomorUsulan} disetujui terakhir oleh Atasan TU. Silakan lakukan penataan arsip.`,
-        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+        data: {
+          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          id: saved.id,
+          nomorUsulan: saved.nomorUsulan,
+        },
       });
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
@@ -520,6 +559,33 @@ export class TuVerifikasiService {
     };
   }
 
+  /** Upload foto lampiran penataan arsip (Max 5MB, image only). */
+  async uploadFotoPenataan(file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+  }): Promise<{ key: string }> {
+    const result = await this.storageService.uploadBuffer(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+      'penataan',
+    );
+    return { key: result.key };
+  }
+
+  /** Ambil foto lampiran penataan arsip. */
+  async getFotoPenataan(
+    key: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    if (!key || !key.startsWith('penataan/') || key.includes('..')) {
+      throw new BadRequestException('Akses ditolak: key file tidak valid');
+    }
+    const { buffer, contentType } =
+      await this.storageService.getFileWithMetadata(key);
+    return { buffer, contentType };
+  }
+
   /** Selesai penataan arsip → SELESAI. */
   async selesaiPenataan(
     id: string,
@@ -530,6 +596,7 @@ export class TuVerifikasiService {
       baris?: string;
       kolom?: string;
       keterangan?: string;
+      fotoPenataan?: string;
     },
   ) {
     const transfer = await this.findOneForTu(id);
@@ -537,8 +604,7 @@ export class TuVerifikasiService {
     if (
       transfer.status !==
         TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA &&
-      transfer.status !==
-        TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF
+      transfer.status !== TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF
     ) {
       throw new BadRequestException(
         `Status ${transfer.status} tidak bisa diselesaikan penataan`,
@@ -550,6 +616,7 @@ export class TuVerifikasiService {
     transfer.baris = dto.baris ?? null;
     transfer.kolom = dto.kolom ?? null;
     transfer.keteranganPenataan = dto.keterangan ?? null;
+    transfer.fotoPenataan = dto.fotoPenataan ?? null;
     transfer.status = TransferActiveToInactiveStatus.SELESAI;
     transfer.arrangedAt = new Date();
 
@@ -563,7 +630,11 @@ export class TuVerifikasiService {
         type: NotificationType.SYSTEM,
         title: 'Penataan Arsip Selesai',
         body: `Usulan ${saved.nomorUsulan} arsip telah selesai ditata di ${dto.lokasi || 'lokasi'}.`,
-        data: { action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE', id: saved.id, nomorUsulan: saved.nomorUsulan },
+        data: {
+          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          id: saved.id,
+          nomorUsulan: saved.nomorUsulan,
+        },
       });
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error).message}`);

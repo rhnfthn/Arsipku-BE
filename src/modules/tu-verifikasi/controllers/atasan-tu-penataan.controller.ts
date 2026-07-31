@@ -2,11 +2,19 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Param,
   Body,
   Query,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
+  BadRequestException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { TuVerifikasiService } from '../services/tu-verifikasi.service';
 import {
@@ -21,6 +29,7 @@ import { AtasanTuGuard } from '../guards/atasan-tu-guard';
 import { TuGuard } from '../guards/tu-guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import type { Response } from 'express';
 
 // ─── Atasan Managerial TU ───────────────────────────────────────────
 @ApiTags('Atasan TU Verifikasi')
@@ -101,5 +110,44 @@ export class TuPenataanController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.selesaiPenataan(id, user, dto);
+  }
+
+  /** Upload foto lampiran penataan arsip (Max 5MB, image only). */
+  @Post('upload-foto')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Upload foto lampiran penataan arsip' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (allowed.includes(file.mimetype)) cb(null, true);
+        else
+          cb(
+            new BadRequestException(
+              `Tipe file tidak diizinkan: ${file.mimetype}. Hanya JPEG, PNG, WebP, GIF.`,
+            ),
+            false,
+          );
+      },
+    }),
+  )
+  async uploadFotoPenataan(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('File tidak ditemukan');
+    const data = await this.service.uploadFotoPenataan(file);
+    return { success: true, data };
+  }
+
+  /** Ambil/preview foto lampiran penataan arsip (inline). */
+  @Get('foto')
+  @ApiOperation({ summary: 'Ambil foto lampiran penataan arsip' })
+  async getFotoPenataan(@Query('key') key: string, @Res() res: Response) {
+    const { buffer, contentType } = await this.service.getFotoPenataan(key);
+    const filename = key.split('/').pop() || 'foto-penataan';
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
+    res.send(buffer);
   }
 }
