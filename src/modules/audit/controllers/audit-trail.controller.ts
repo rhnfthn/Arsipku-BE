@@ -7,7 +7,9 @@ import {
   Res,
   BadRequestException,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuditTrailService } from '../services/audit-trail.service';
@@ -78,6 +80,8 @@ export class AuditTrailController {
    * GET /audit/report/summary — ringkasan dashboard.
    */
   @Get('report/summary')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async getSummary(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -101,6 +105,8 @@ export class AuditTrailController {
    * GET /audit/report/daily-activity — aktivitas harian untuk chart (default 7 hari).
    */
   @Get('report/daily-activity')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async getDailyActivity(@Query('days') days?: string) {
     const parsedDays = days ? parseInt(days, 10) : 7;
     const safeDays =

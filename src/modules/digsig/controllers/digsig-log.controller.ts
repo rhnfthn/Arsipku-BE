@@ -10,7 +10,9 @@ import {
   UseGuards,
   ParseUUIDPipe,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import type { Request } from 'express';
 import { DigsigLogService } from '../services/digsig-log.service';
 import { BsreAlertService } from '../services/bsre-alert.service';
@@ -85,6 +87,8 @@ export class DigsigLogController {
    * Used for "Gangguan BsrE" indicator in UI
    */
   @Get('bsre-health')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
   async checkBsreHealth() {
@@ -97,6 +101,8 @@ export class DigsigLogController {
    * Frontend harus poll endpoint ini untuk menampilkan banner alert
    */
   @Get('bsre-alert')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
   async getBsreAlertStatus() {
