@@ -127,6 +127,32 @@ export class UsulanAksesBerkasController {
     return { success: true, data: result, total: result.length };
   }
 
+  /**
+   * GET /usulan-akses-berkas/eligible-berkas
+   * List berkas yang eligible untuk dipilih SE Pemberi pada modal
+   * "Pilih Berkas & Verifikator".
+   *
+   * - Untuk jenisBerkas AKTIF: hanya berkas milik divisi pemberi
+   *   (unit_pencipta_id = divisiPemberiId) dengan status "closed_retensi_aktif".
+   * - Untuk jenisBerkas INAKTIF: semua berkas status "closed_retensi_aktif"
+   *   di divisi TU (Corporate Secretary).
+   *
+   * Filter unit dilakukan di BE — FE hanya menampilkan list ini.
+   */
+  @Get('eligible-berkas')
+  async getEligibleBerkas(
+    @CurrentUser() user: any,
+    @Query('jenisBerkas') jenisBerkas?: string,
+    @Query('divisiPemberiId') divisiPemberiId?: string,
+  ) {
+    const result = await this.service.getEligibleBerkasForPemberi(
+      user,
+      jenisBerkas,
+      divisiPemberiId ? Number(divisiPemberiId) : undefined,
+    );
+    return { success: true, data: result, total: result.length };
+  }
+
   // ── READ: List usulan ─────────────────────────────────────────
 
   /**
@@ -152,6 +178,19 @@ export class UsulanAksesBerkasController {
   @HttpCode(HttpStatus.OK)
   async markEntitlementsRead(@CurrentUser() user: any) {
     const result = await this.service.markEntitlementsRead(user);
+    return { success: true, data: result };
+  }
+
+  /**
+   * PATCH /usulan-akses-berkas/:id/mark-viewed
+   * Tandai usulan sebagai sudah dibuka/dilihat oleh user (SE/managerial).
+   * User disimpan di viewedBy[persnum] dengan timestamp ISO.
+   * Counts badge notifikasi akan exclude usulan ini untuk user tsb.
+   */
+  @Patch(':id/mark-viewed')
+  @HttpCode(HttpStatus.OK)
+  async markViewed(@Param('id') id: string, @CurrentUser() user: any) {
+    const result = await this.service.markViewed(id, user);
     return { success: true, data: result };
   }
 
