@@ -604,6 +604,52 @@ export class UsulanAksesBerkasService {
         select: ['id', 'judulBerkas', 'kodeBerkas', 'klasifikasiTeks', 'status'] as any,
       });
       const berkasMap = new Map(berkasRecords.map((b) => [b.id, b]));
+
+      // ── Enrich naskah per berkas dari berkas_naskah table ──
+      let naskahByBerkas = new Map<string, any[]>();
+      if (berkasIds.length > 0) {
+        const berkasNaskahRows = await this.dataSource.query(
+          `SELECT bn.id, bn.berkas_id, bn.naskah_id, bn.naskah_tipe, bn.sumber,
+                  bn.perihal, bn.nomor_surat, bn.tanggal_naskah, bn.urutan
+           FROM berkas_naskah bn
+           WHERE bn.berkas_id IN (?)
+           ORDER BY bn.urutan ASC, bn.created_at DESC`,
+          [berkasIds],
+        );
+
+        if (berkasNaskahRows && berkasNaskahRows.length > 0) {
+          // Ambil info naskah dari tabel naskah
+          const naskahIds = [...new Set(berkasNaskahRows.map((bn: any) => bn.naskah_id))];
+          const naskahRows = await this.dataSource.query(
+            `SELECT id, jenis, sifat, perihal, nomor, tanggal, status
+             FROM naskah
+             WHERE id IN (?)`,
+            [naskahIds],
+          );
+          const naskahMap = new Map<string, any>(naskahRows.map((n: any) => [n.id, n]));
+
+          // Group naskah by berkas_id
+          for (const bn of berkasNaskahRows) {
+            if (!naskahByBerkas.has(bn.berkas_id)) {
+              naskahByBerkas.set(bn.berkas_id, []);
+            }
+            const naskah = naskahMap.get(bn.naskah_id);
+            naskahByBerkas.get(bn.berkas_id)!.push({
+              naskahId: bn.naskah_id,
+              naskahTipe: bn.naskah_tipe,
+              sumber: bn.sumber,
+              perihal: bn.perihal || naskah?.perihal || null,
+              nomorSurat: bn.nomor_surat || naskah?.nomor || null,
+              tanggalNaskah: bn.tanggal_naskah || naskah?.tanggal || null,
+              urutan: bn.urutan,
+              jenis: naskah?.jenis || null,
+              sifat: naskah?.sifat || null,
+              status: naskah?.status || null,
+            });
+          }
+        }
+      }
+
       enrichedSelectedBerkas = selectedBerkas.map((ub) => {
         const b = berkasMap.get(ub.berkasId);
         return {
@@ -612,6 +658,7 @@ export class UsulanAksesBerkasService {
           kodeBerkas: b?.kodeBerkas || null,
           klasifikasiTeks: b?.klasifikasiTeks || null,
           berkasStatus: b?.status || null,
+          naskahList: naskahByBerkas.get(ub.berkasId) || [],
         };
       });
     }
