@@ -6,7 +6,9 @@ import {
   Body,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AuditAnomalyService } from '../services/audit-anomaly.service';
 import { AnomalyFilterDto } from '../dto/anomaly-filter.dto';
@@ -44,6 +46,8 @@ export class AuditAnomalyController {
    * agar tidak tertangkap sebagai :id="summary".
    */
   @Get('anomalies/summary')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async getAnomalySummary() {
     const summary = await this.anomalyService.getSummary();
     return { success: true, data: summary };
