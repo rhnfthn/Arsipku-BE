@@ -740,7 +740,7 @@ export class UsulanAksesBerkasService {
       );
     }
 
-    if (usulan.status !== StatusUsulan.TERKIRIM_KE_PEMBERI) {
+    if (usulan.status !== StatusUsulan.TERKIRIM_KE_PEMBERI && usulan.status !== StatusUsulan.REVISI_PEMBERI) {
       throw new BadRequestException(
         'Status usulan tidak valid untuk verifikasi pemberi',
       );
@@ -805,7 +805,7 @@ export class UsulanAksesBerkasService {
       throw new ForbiddenException('Anda bukan Sekretaris di divisi pemberi');
     }
 
-    if (usulan.status !== StatusUsulan.PEMILIHAN_BERKAS) {
+    if (usulan.status !== StatusUsulan.PEMILIHAN_BERKAS && usulan.status !== StatusUsulan.REVISI_PEMBERI) {
       throw new BadRequestException('Status tidak valid untuk pemilihan berkas');
     }
 
@@ -946,8 +946,8 @@ export class UsulanAksesBerkasService {
     const totalJenjang = usulan.verifikatorPemberi.length;
 
     if (dto.keputusan === Keputusan.TOLAK) {
-      // Verifikator pemberi menolak = revisi untuk SE pemberi (bukan closed)
-      usulan.status = StatusUsulan.REVISI_PEMBERI;
+      // Verifikator pemberi menolak = kembali ke SE pemberi untuk verifikasi ulang
+      usulan.status = StatusUsulan.TERKIRIM_KE_PEMBERI;
       usulan.catatanRevisiPemberi = dto.catatanKeSE || dto.catatan || null;
     } else if (dto.keputusan === Keputusan.REVISI) {
       usulan.status = StatusUsulan.REVISI_PEMBERI;
@@ -1087,6 +1087,7 @@ export class UsulanAksesBerkasService {
    */
   async getMyEntitlements(user: any): Promise<any[]> {
     const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
     const now = new Date();
 
     // Ambil entitlements yang belum revoked
@@ -1111,9 +1112,18 @@ export class UsulanAksesBerkasService {
     });
     const usulanMap = new Map(usulanList.map((u) => [u.id, u]));
 
+    // Filter: hanya entitlement dari divisi pemberi LAIN (bukan divisi user sendiri)
+    const filteredEntitlements = entitlements.filter((e) => {
+      const usulan = usulanMap.get(e.usulanId);
+      if (!usulan) return false;
+      return Number(usulan.divisiPemberiId) !== userOrgId;
+    });
+
+    if (filteredEntitlements.length === 0) return [];
+
     // Group by berkasId — gabungkan entitlements untuk berkas yang sama
     const berkasGroups = new Map<string, any>();
-    for (const e of entitlements) {
+    for (const e of filteredEntitlements) {
       const existing = berkasGroups.get(e.berkasId);
       const isExpired = e.tanggalSelesai && new Date(e.tanggalSelesai) < now;
       if (!existing) {
@@ -1160,6 +1170,42 @@ export class UsulanAksesBerkasService {
           existing.usulanIds.push(e.usulanId);
         }
         existing.entitlementCount++;
+      }
+    }
+
+    // Enrich dengan divisi pemberi (dari position_json, sama seperti findAll)
+    const enrichedUsulanIds = [...new Set(Array.from(berkasGroups.values()).flatMap((g: any) => g.usulanIds))];
+    if (enrichedUsulanIds.length > 0) {
+      // Ambil divisiPemberiId dari usulan
+      const usulanRows = await this.usulanRepo.find({
+        where: { id: In(enrichedUsulanIds) },
+      });
+      const usulanDivisiMap = new Map(usulanRows.map((u) => [u.id, u.divisiPemberiId]));
+
+      // Ambil nama divisi dari position_json (orgDataService)
+      const orgData = await this.orgDataService.findLatestOrg();
+      let divisiNamaMap = new Map<number, string>();
+      if (orgData?.position_json) {
+        const positionJson =
+          typeof orgData.position_json === 'string'
+            ? JSON.parse(orgData.position_json)
+            : orgData.position_json;
+        if (Array.isArray(positionJson)) {
+          for (const p of positionJson) {
+            if (p.organization_id && p.organization_text) {
+              divisiNamaMap.set(Number(p.organization_id), p.organization_text);
+            }
+          }
+        }
+      }
+
+      for (const group of berkasGroups.values()) {
+        const firstUsulanId = group.usulanIds[0];
+        const divisiPemberiId = usulanDivisiMap.get(firstUsulanId);
+        if (divisiPemberiId) {
+          (group as any).divisiPemberiId = divisiPemberiId;
+          (group as any).divisiPemberiNama = divisiNamaMap.get(Number(divisiPemberiId)) || null;
+        }
       }
     }
 
