@@ -175,15 +175,14 @@ export class UsulanAksesBerkasService {
   // ── Eligible penerima akses tambahan (orang di divisi pengusul) ──
 
   /**
-   * List semua orang di divisi pengusul (orgId) yang eligible sebagai
-   * penerima akses tambahan.
+   * List semua orang di DIREKTORAT yang sama dengan pengusul yang eligible
+   * sebagai penerima akses tambahan.
    *
-   * Data diambil dari position_json (orgDataService). Return semua
-   * posisi di divisi yang ada persnum, kecuali BOD (BOD/BOD-1/BOD-2/BOD-3)
-   * karena mereka sudah masuk verifikator pemberi.
-   *
-   * Query param divisiId di FE harus = user organization (divisi pengusul)
-   * sehingga data yang tampil hanya orang di divisi yang sama.
+   * Logic:
+   * 1. Cari pengusul di position_json → dapatkan direktorat_id
+   * 2. Ambil SEMUA orang dengan direktorat_id yang sama
+   * 3. Sertakan BOD juga (BOD, BOD-1, BOD-2, BOD-3)
+   * 4. Exclude pengusul sendiri dari list
    */
   async getEligiblePenerimaTambahan(orgId: number, currentUser: any): Promise<any[]> {
     const orgData = await this.orgDataService.findLatestOrg();
@@ -200,18 +199,52 @@ export class UsulanAksesBerkasService {
       throw new BadRequestException('Format data organisasi tidak valid');
     }
 
-    // Ambil semua orang di divisi ini (organization_id = orgId)
-    // kecuali BOD (mereka sudah masuk di dropdown verifikator pemberi)
-    const BOD_TAGS = new Set(['BOD', 'BOD-1', 'BOD-2', 'BOD-3']);
+    const userPersnum = Number(currentUser.persnum);
 
+    // Step 1: Cari direktorat_id pengusul dari position_json
+    // Cari orang yang organization_id = orgId → ambil direktorat_id-nya
+    const pengusulEntry = positionJson.find(
+      (x: any) => Number(x.organization_id) === Number(orgId) && Number(x.persnum_person) === userPersnum,
+    );
+
+    // Fallback: jika pengusul tidak ditemukan langsung, cari anyone di orgId yang punya direktorat_id
+    const direktoratId = pengusulEntry?.direktorat_id
+      ? Number(pengusulEntry.direktorat_id)
+      : positionJson.find((x: any) => Number(x.organization_id) === Number(orgId) && x.direktorat_id)?.direktorat_id;
+
+    if (!direktoratId) {
+      // Fallback: jika tidak ada direktorat_id, kembalikan semua orang di divisi yang sama (orgId)
+      // (backward compatibility untuk data lama)
+      const peopleFallback = positionJson
+        .filter((x: any) => {
+          const xDivisi = Number(x.organization_id ?? x.divisi_id);
+          if (xDivisi !== Number(orgId)) return false;
+          if (!x.persnum_person) return false;
+          if (Number(x.persnum_person) === userPersnum) return false;
+          return true;
+        })
+        .map((v: any) => ({
+          persnum: Number(v.persnum_person),
+          nama: v.persnum_person_text || v.name || '',
+          positionId: v.position,
+          positionText: v.position_text || '',
+          organizationId: Number(v.organization_id),
+          organizationText: v.organization_text || v.divisi_name || '',
+        }))
+        .filter((item: any, idx: number, arr: any[]) =>
+          arr.findIndex((x: any) => x.persnum === item.persnum) === idx,
+        )
+        .sort((a: any, b: any) => (a.nama || '').localeCompare(b.nama || ''));
+      return peopleFallback;
+    }
+
+    // Step 2: Ambil SEMUA orang dengan direktorat_id yang sama
     const people = positionJson
       .filter((x: any) => {
-        const xDivisi = Number(x.organization_id ?? x.divisi_id);
-        if (xDivisi !== Number(orgId)) return false;
-        // Harus punya persnum
+        if (Number(x.direktorat_id) !== Number(direktoratId)) return false;
         if (!x.persnum_person) return false;
-        // Exclude BOD (mereka sudah di dropdown verifikator pemberi)
-        if (BOD_TAGS.has(x.bod_tag || '')) return false;
+        // Exclude pengusul sendiri
+        if (Number(x.persnum_person) === userPersnum) return false;
         return true;
       })
       .map((v: any) => ({
@@ -221,14 +254,21 @@ export class UsulanAksesBerkasService {
         positionText: v.position_text || '',
         organizationId: Number(v.organization_id),
         organizationText: v.organization_text || v.divisi_name || '',
+        direktoratId: Number(v.direktorat_id),
+        // Tambahkan flag BOD untuk di-highlight di FE
+        isBod: !!(v.bod_tag && ['BOD', 'BOD-1', 'BOD-2', 'BOD-3'].includes(v.bod_tag)),
       }))
       // Dedup by persnum
       .filter(
         (item: any, idx: number, arr: any[]) =>
           arr.findIndex((x: any) => x.persnum === item.persnum) === idx,
       )
-      // Sort by nama
-      .sort((a: any, b: any) => (a.nama || '').localeCompare(b.nama || ''));
+      // Sort: BOD dulu (by BOD tag), lalu by nama
+      .sort((a: any, b: any) => {
+        if (a.isBod && !b.isBod) return -1;
+        if (!a.isBod && b.isBod) return 1;
+        return (a.nama || '').localeCompare(b.nama || '');
+      });
 
     return people;
   }
