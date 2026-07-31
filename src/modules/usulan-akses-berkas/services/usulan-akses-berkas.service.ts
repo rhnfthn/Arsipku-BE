@@ -172,6 +172,107 @@ export class UsulanAksesBerkasService {
     return this.getManagerialInDivisi(userOrgId);
   }
 
+  // ── Eligible penerima akses tambahan (orang di divisi pengusul) ──
+
+  /**
+   * List semua orang di DIREKTORAT yang sama dengan pengusul yang eligible
+   * sebagai penerima akses tambahan.
+   *
+   * Logic:
+   * 1. Cari pengusul di position_json → dapatkan direktorat_id
+   * 2. Ambil SEMUA orang dengan direktorat_id yang sama
+   * 3. Sertakan BOD juga (BOD, BOD-1, BOD-2, BOD-3)
+   * 4. Exclude pengusul sendiri dari list
+   */
+  async getEligiblePenerimaTambahan(orgId: number, currentUser: any): Promise<any[]> {
+    const orgData = await this.orgDataService.findLatestOrg();
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException('Data organisasi tidak ditemukan');
+    }
+
+    const positionJson =
+      typeof orgData.position_json === 'string'
+        ? JSON.parse(orgData.position_json)
+        : orgData.position_json;
+
+    if (!Array.isArray(positionJson)) {
+      throw new BadRequestException('Format data organisasi tidak valid');
+    }
+
+    const userPersnum = Number(currentUser.persnum);
+
+    // Step 1: Cari direktorat_id pengusul dari position_json
+    // Cari orang yang organization_id = orgId → ambil direktorat_id-nya
+    const pengusulEntry = positionJson.find(
+      (x: any) => Number(x.organization_id) === Number(orgId) && Number(x.persnum_person) === userPersnum,
+    );
+
+    // Fallback: jika pengusul tidak ditemukan langsung, cari anyone di orgId yang punya direktorat_id
+    const direktoratId = pengusulEntry?.direktorat_id
+      ? Number(pengusulEntry.direktorat_id)
+      : positionJson.find((x: any) => Number(x.organization_id) === Number(orgId) && x.direktorat_id)?.direktorat_id;
+
+    if (!direktoratId) {
+      // Fallback: jika tidak ada direktorat_id, kembalikan semua orang di divisi yang sama (orgId)
+      // (backward compatibility untuk data lama)
+      const peopleFallback = positionJson
+        .filter((x: any) => {
+          const xDivisi = Number(x.organization_id ?? x.divisi_id);
+          if (xDivisi !== Number(orgId)) return false;
+          if (!x.persnum_person) return false;
+          if (Number(x.persnum_person) === userPersnum) return false;
+          return true;
+        })
+        .map((v: any) => ({
+          persnum: Number(v.persnum_person),
+          nama: v.persnum_person_text || v.name || '',
+          positionId: v.position,
+          positionText: v.position_text || '',
+          organizationId: Number(v.organization_id),
+          organizationText: v.organization_text || v.divisi_name || '',
+        }))
+        .filter((item: any, idx: number, arr: any[]) =>
+          arr.findIndex((x: any) => x.persnum === item.persnum) === idx,
+        )
+        .sort((a: any, b: any) => (a.nama || '').localeCompare(b.nama || ''));
+      return peopleFallback;
+    }
+
+    // Step 2: Ambil SEMUA orang dengan direktorat_id yang sama
+    const people = positionJson
+      .filter((x: any) => {
+        if (Number(x.direktorat_id) !== Number(direktoratId)) return false;
+        if (!x.persnum_person) return false;
+        // Exclude pengusul sendiri
+        if (Number(x.persnum_person) === userPersnum) return false;
+        return true;
+      })
+      .map((v: any) => ({
+        persnum: Number(v.persnum_person),
+        nama: v.persnum_person_text || v.name || '',
+        positionId: v.position,
+        positionText: v.position_text || '',
+        organizationId: Number(v.organization_id),
+        organizationText: v.organization_text || v.divisi_name || '',
+        direktoratId: Number(v.direktorat_id),
+        // Tambahkan flag BOD untuk di-highlight di FE
+        isBod: !!(v.bod_tag && ['BOD', 'BOD-1', 'BOD-2', 'BOD-3'].includes(v.bod_tag)),
+      }))
+      // Dedup by persnum
+      .filter(
+        (item: any, idx: number, arr: any[]) =>
+          arr.findIndex((x: any) => x.persnum === item.persnum) === idx,
+      )
+      // Sort: BOD dulu (by BOD tag), lalu by nama
+      .sort((a: any, b: any) => {
+        if (a.isBod && !b.isBod) return -1;
+        if (!a.isBod && b.isBod) return 1;
+        return (a.nama || '').localeCompare(b.nama || '');
+      });
+
+    return people;
+  }
+
   // ── Endpoint: GET /verifikator-bod ──────────────────────────────
   // Return BOD (BOD, BOD-1, BOD-2, BOD-3) di divisi tertentu dari position_json,
   // digabung dengan managerial yang sedang didelegasikan (PT/PH/PS aktif) di
@@ -503,6 +604,52 @@ export class UsulanAksesBerkasService {
         select: ['id', 'judulBerkas', 'kodeBerkas', 'klasifikasiTeks', 'status'] as any,
       });
       const berkasMap = new Map(berkasRecords.map((b) => [b.id, b]));
+
+      // ── Enrich naskah per berkas dari berkas_naskah table ──
+      let naskahByBerkas = new Map<string, any[]>();
+      if (berkasIds.length > 0) {
+        const berkasNaskahRows = await this.dataSource.query(
+          `SELECT bn.id, bn.berkas_id, bn.naskah_id, bn.naskah_tipe, bn.sumber,
+                  bn.perihal, bn.nomor_surat, bn.tanggal_naskah, bn.urutan
+           FROM berkas_naskah bn
+           WHERE bn.berkas_id IN (?)
+           ORDER BY bn.urutan ASC, bn.created_at DESC`,
+          [berkasIds],
+        );
+
+        if (berkasNaskahRows && berkasNaskahRows.length > 0) {
+          // Ambil info naskah dari tabel naskah
+          const naskahIds = [...new Set(berkasNaskahRows.map((bn: any) => bn.naskah_id))];
+          const naskahRows = await this.dataSource.query(
+            `SELECT id, jenis, sifat, perihal, nomor, tanggal, status
+             FROM naskah
+             WHERE id IN (?)`,
+            [naskahIds],
+          );
+          const naskahMap = new Map<string, any>(naskahRows.map((n: any) => [n.id, n]));
+
+          // Group naskah by berkas_id
+          for (const bn of berkasNaskahRows) {
+            if (!naskahByBerkas.has(bn.berkas_id)) {
+              naskahByBerkas.set(bn.berkas_id, []);
+            }
+            const naskah = naskahMap.get(bn.naskah_id);
+            naskahByBerkas.get(bn.berkas_id)!.push({
+              naskahId: bn.naskah_id,
+              naskahTipe: bn.naskah_tipe,
+              sumber: bn.sumber,
+              perihal: bn.perihal || naskah?.perihal || null,
+              nomorSurat: bn.nomor_surat || naskah?.nomor || null,
+              tanggalNaskah: bn.tanggal_naskah || naskah?.tanggal || null,
+              urutan: bn.urutan,
+              jenis: naskah?.jenis || null,
+              sifat: naskah?.sifat || null,
+              status: naskah?.status || null,
+            });
+          }
+        }
+      }
+
       enrichedSelectedBerkas = selectedBerkas.map((ub) => {
         const b = berkasMap.get(ub.berkasId);
         return {
@@ -511,6 +658,7 @@ export class UsulanAksesBerkasService {
           kodeBerkas: b?.kodeBerkas || null,
           klasifikasiTeks: b?.klasifikasiTeks || null,
           berkasStatus: b?.status || null,
+          naskahList: naskahByBerkas.get(ub.berkasId) || [],
         };
       });
     }
@@ -1264,6 +1412,7 @@ export class UsulanAksesBerkasService {
    */
   async getNaskahDetailForEntitlement(naskahId: string, user: any): Promise<any> {
     const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
 
     // Cari berkas_naskah yang berisi naskah ini
     const berkasNaskahRows = await this.dataSource.query(
@@ -1275,19 +1424,22 @@ export class UsulanAksesBerkasService {
       throw new NotFoundException('Naskah tidak ditemukan di berkas manapun');
     }
 
-    // Cek apakah user punya entitlement untuk salah satu berkas ini
+    // Cek akses: entitlement atau role dalam usulan
     const berkasIds = berkasNaskahRows.map((bn: any) => bn.berkas_id);
-    const entitlement = await this.aksesRepo.findOne({
-      where: {
-        userPersnum,
-        berkasId: In(berkasIds),
-        isRevoked: false,
-      },
-    });
+    let accessResult = { allowed: false, usulanId: null as string | null };
+    for (const bid of berkasIds) {
+      accessResult = await this.hasUsulanBerkasAccess(bid, userPersnum, userOrgId);
+      if (accessResult.allowed) break;
+    }
 
-    if (!entitlement) {
+    if (!accessResult.allowed) {
       throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
     }
+
+    // Ambil entitlement untuk permissions (jika ada)
+    const entitlement = await this.aksesRepo.findOne({
+      where: { userPersnum, berkasId: In(berkasIds), isRevoked: false },
+    });
 
     // Ambil detail naskah
     const naskahRows = await this.dataSource.query(
@@ -1376,7 +1528,7 @@ export class UsulanAksesBerkasService {
         : null,
       // Siapkan juga 'jenis_label' untuk konsistensi dengan halaman kelola
       jenis_label: naskah.jenis || null,
-      permissions: entitlement.permissions,
+      permissions: entitlement?.permissions || ['LIHAT'],
     };
   }
 
@@ -1388,14 +1540,18 @@ export class UsulanAksesBerkasService {
    */
   async getBerkasDetailForEntitlement(berkasId: string, user: any): Promise<any> {
     const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
 
-    // Cek entitlement
+    // Cek akses: entitlement atau role dalam usulan
+    const accessResult = await this.hasUsulanBerkasAccess(berkasId, userPersnum, userOrgId);
+    if (!accessResult.allowed) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
+    }
+
+    // Ambil entitlement untuk permissions (jika ada)
     const entitlement = await this.aksesRepo.findOne({
       where: { userPersnum, berkasId, isRevoked: false },
     });
-    if (!entitlement) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
-    }
 
     // Ambil detail berkas
     const berkas = await this.berkasRepo.findOne({ where: { id: berkasId } });
@@ -1404,7 +1560,10 @@ export class UsulanAksesBerkasService {
     }
 
     // Ambil info usulan (untuk nomorUsulan, divisiPemberi, dll)
-    const usulan = await this.usulanRepo.findOne({ where: { id: entitlement.usulanId } });
+    const resolvedUsulanId = entitlement?.usulanId || accessResult.usulanId;
+    const usulan = resolvedUsulanId
+      ? await this.usulanRepo.findOne({ where: { id: resolvedUsulanId } })
+      : null;
 
     // Ambil nama divisi pemberi dari org_data
     let divisiPemberiNama: string | null = null;
@@ -1433,10 +1592,10 @@ export class UsulanAksesBerkasService {
 
     return {
       ...berkas,
-      permissions: entitlement.permissions,
-      tanggalMulai: entitlement.tanggalMulai,
-      tanggalSelesai: entitlement.tanggalSelesai,
-      usulanId: entitlement.usulanId,
+      permissions: entitlement?.permissions || ['LIHAT'],
+      tanggalMulai: entitlement?.tanggalMulai || usulan?.tanggalMulai || null,
+      tanggalSelesai: entitlement?.tanggalSelesai || usulan?.tanggalSelesai || null,
+      usulanId: resolvedUsulanId,
       nomorUsulan: usulan?.nomorUsulan || null,
       divisiPemberiId: usulan?.divisiPemberiId || null,
       divisiPemberiNama,
@@ -1453,14 +1612,18 @@ export class UsulanAksesBerkasService {
    */
   async getNaskahByBerkas(berkasId: string, user: any): Promise<any[]> {
     const userPersnum = Number(user.persnum);
+    const userOrgId = Number(user.organization);
 
-    // Cek apakah user punya entitlement untuk berkas ini
+    // Cek akses: entitlement atau role dalam usulan
+    const accessResult = await this.hasUsulanBerkasAccess(berkasId, userPersnum, userOrgId);
+    if (!accessResult.allowed) {
+      throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
+    }
+
+    // Ambil entitlement untuk permissions (jika ada)
     const entitlement = await this.aksesRepo.findOne({
       where: { userPersnum, berkasId, isRevoked: false },
     });
-    if (!entitlement) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
-    }
 
     // Ambil naskah dari berkas_naskah via raw query (lebih reliable)
     const berkasNaskahRows = await this.dataSource.query(
@@ -1502,9 +1665,54 @@ export class UsulanAksesBerkasService {
         sifat: naskah?.sifat || null,
         finalPdf: naskah?.final_pdf || null,
         status: naskah?.status || null,
-        permissions: entitlement.permissions,
+        permissions: entitlement?.permissions || ['LIHAT'],
       };
     });
+  }
+
+  // ── Helper: cek apakah user punya akses ke berkas dalam konteks usulan ──
+  // Selain entitlement langsung, izinkan: verifikator pemberi, SE pemberi, pengusul, verifikator pengusul
+  private async hasUsulanBerkasAccess(
+    berkasId: string,
+    userPersnum: number,
+    userOrgId: number,
+  ): Promise<{ allowed: boolean; usulanId: string | null }> {
+    // 1. Cek entitlement langsung
+    const entitlement = await this.aksesRepo.findOne({
+      where: { userPersnum, berkasId, isRevoked: false },
+    });
+    if (entitlement) return { allowed: true, usulanId: entitlement.usulanId };
+
+    // 2. Cari usulan yang memilih berkas ini
+    const ub = await this.usulanBerkasRepo.findOne({ where: { berkasId } });
+    if (!ub) return { allowed: false, usulanId: null };
+
+    const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulanId } });
+    if (!usulan) return { allowed: false, usulanId: null };
+
+    // 2a. Verifikator pemberi
+    const vpb = Array.isArray(usulan.verifikatorPemberi) ? usulan.verifikatorPemberi : [];
+    if (vpb.some((v: any) => v.persnum === userPersnum)) {
+      return { allowed: true, usulanId: usulan.id };
+    }
+
+    // 2b. SE pemberi (organisasi user == divisiPemberiId)
+    if (userOrgId && Number(usulan.divisiPemberiId) === userOrgId) {
+      return { allowed: true, usulanId: usulan.id };
+    }
+
+    // 2c. Pengusul
+    if (usulan.pengusulPersnum === userPersnum) {
+      return { allowed: true, usulanId: usulan.id };
+    }
+
+    // 2d. Verifikator pengusul
+    const vpg = Array.isArray(usulan.verifikatorPengusul) ? usulan.verifikatorPengusul : [];
+    if (vpg.some((v: any) => v.persnum === userPersnum)) {
+      return { allowed: true, usulanId: usulan.id };
+    }
+
+    return { allowed: false, usulanId: null };
   }
 
   // ── getCounts: badge notifikasi untuk sidebar ──────────────────
