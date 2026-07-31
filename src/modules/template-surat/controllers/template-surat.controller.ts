@@ -9,7 +9,9 @@ import {
   Query,
   HttpStatus,
   HttpException,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { TemplateSuratService } from '../services/template-surat.service';
 import { CreateTemplateSuratDto } from '../dto/create-template-surat.dto';
 import { UpdateTemplateSuratDto } from '../dto/update-template-surat.dto';
@@ -50,6 +52,8 @@ export class TemplateSuratController {
   }
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findAll(
     @Query('nama_template') nama_template?: string,
   ): Promise<TemplateSuratListResponseDto> {
@@ -59,6 +63,8 @@ export class TemplateSuratController {
   }
 
   @Get('global')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findGlobal(): Promise<TemplateSuratListResponseDto> {
     const list = await this.templateSuratService.findGlobal();
     const mapped = this.templateSuratService.toDtoList(list);
@@ -66,6 +72,8 @@ export class TemplateSuratController {
   }
 
   @Get('position/:id_position')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findByPosition(
     @Param('id_position') id_position: string,
   ): Promise<TemplateSuratListResponseDto> {
@@ -75,6 +83,8 @@ export class TemplateSuratController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findOne(
     @Param('id') id: string,
   ): Promise<TemplateSuratItemResponseDto> {
