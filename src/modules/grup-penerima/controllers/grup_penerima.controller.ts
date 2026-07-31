@@ -7,7 +7,9 @@ import {
   Delete,
   Param,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { GrupPenerimaService } from '../services/grup_penerima.service';
 import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
@@ -41,6 +43,8 @@ export class GrupPenerimaController {
    * GET /persuratan/grup-penerima?company=10000&jenis=SDI
    */
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findAll(
     @Query('company') company?: string,
     @Query('tgl') tgl?: string,
@@ -58,6 +62,8 @@ export class GrupPenerimaController {
    * Get single grup penerima with enriched position detail
    */
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findOne(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.findOneWithPositionDetail(id, tgl);
   }
@@ -99,6 +105,8 @@ export class GrupPenerimaController {
    * Get members with enriched position detail from org_data
    */
   @Get(':id/members')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   getMembers(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.getMembersWithPositionDetail(id, tgl);
   }
@@ -109,6 +117,8 @@ export class GrupPenerimaController {
    * Returns array of OrgDataPositionDto for all positions in the grup
    */
   @Get(':id/expand')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   expandGrup(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.expandGrupToPositions(id, tgl);
   }
