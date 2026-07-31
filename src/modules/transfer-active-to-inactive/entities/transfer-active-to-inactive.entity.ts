@@ -195,7 +195,12 @@ export class TransferActiveToInactiveEntity {
   arrangedAt: Date | null;
 
   // ─── Penataan arsip (lokasi penyimpanan fisik) ────────────────────────
-  @Column({ name: 'lokasi_penataan', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'lokasi_penataan',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   lokasiPenataan: string | null;
 
   @Column({ name: 'rak', type: 'varchar', length: 100, nullable: true })
@@ -209,6 +214,15 @@ export class TransferActiveToInactiveEntity {
 
   @Column({ name: 'keterangan_penataan', type: 'text', nullable: true })
   keteranganPenataan: string | null;
+
+  // Foto lampiran penataan (MinIO key, e.g. "penataan/uuid-filename.jpg")
+  @Column({
+    name: 'foto_penataan',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
+  fotoPenataan: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
