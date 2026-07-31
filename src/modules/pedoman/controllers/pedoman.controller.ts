@@ -20,6 +20,7 @@ import {
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { PedomanService } from '../services/pedoman.service';
 import { CreatePedomanDto } from '../dto/create-pedoman.dto';
@@ -52,6 +53,8 @@ export class PedomanController {
   //  Akses: semua user login
   // ================================================================
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @UseGuards(JwtAuthGuard)
   @RequirePermission('pedoman', 'read')
   async findAll(
@@ -237,6 +240,8 @@ export class PedomanController {
   //  Akses: semua user login
   // ================================================================
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @UseGuards(JwtAuthGuard)
   @RequirePermission('pedoman', 'read')
   async findOne(@Param('id') id: string): Promise<PedomanResponseDto> {

@@ -7,7 +7,9 @@ import {
   Delete,
   Param,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { SubAreaAlamatService } from '../services/sub_area_alamat.service';
 import { CreateSubAreaAlamatDto } from '../dto/sub_area_alamat/create_sub_area_alamat.dto';
 import { UpdateSubAreaAlamatDto } from '../dto/sub_area_alamat/update_sub_area_alamat.dto';
@@ -24,11 +26,15 @@ export class SubAreaAlamatController {
   }
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findAll(@Query('company') company?: string, @Query('area') area?: string) {
     return this.subAreaAlamatService.findAll(company, area);
   }
 
   @Get('by-location/:company/:area/:sub_area')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findBySubArea(
     @Param('company') company: string,
     @Param('area') area: string,
@@ -38,6 +44,8 @@ export class SubAreaAlamatController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   findOne(@Param('id') id: string) {
     return this.subAreaAlamatService.findOne(id);
   }
