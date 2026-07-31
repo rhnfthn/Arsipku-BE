@@ -9,7 +9,9 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { FaqKategoriService } from '../services/faq-kategori.service';
 import { CreateFaqKategoriDto } from '../dto/create-faq-kategori.dto';
 import { UpdateFaqKategoriDto } from '../dto/update-faq-kategori.dto';
@@ -26,6 +28,8 @@ export class FaqKategoriController {
    * Mendapatkan semua kategori FAQ
    */
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @RequirePermission('faq', 'read')
   async findAll(): Promise<FaqKategoriResponseDto> {
     try {
@@ -47,6 +51,8 @@ export class FaqKategoriController {
    * Mendapatkan kategori berdasarkan ID
    */
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   @RequirePermission('faq', 'read')
   async findOne(@Param('id') id: string): Promise<FaqKategoriResponseDto> {
     try {
