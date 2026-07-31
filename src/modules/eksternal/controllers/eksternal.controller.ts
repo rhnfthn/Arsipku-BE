@@ -9,7 +9,9 @@ import {
   Query,
   HttpStatus,
   HttpException,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { EksternalService } from '../services/eksternal.service';
 import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
 import { UpdateEksternalDto } from '../dto/eksternal/update_eksternal.dto';
@@ -44,6 +46,8 @@ export class EksternalController {
   }
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findAll(
     @Query('company') company?: string,
     @Query('area') area?: string,
@@ -57,6 +61,8 @@ export class EksternalController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findOne(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const eksternal = await this.eksternalService.findOne(id);
     return {

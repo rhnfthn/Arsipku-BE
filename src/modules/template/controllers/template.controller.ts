@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dto/create-template.dto';
@@ -60,6 +61,8 @@ export class TemplateController {
   }
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findAll(
     @Query('nama_template') nama_template?: string,
   ): Promise<TemplateListResponseDto> {
@@ -69,6 +72,8 @@ export class TemplateController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findOne(@Param('id') id: string): Promise<TemplateItemResponseDto> {
     const t = await this.templateService.findOne(id);
     return { success: true, data: await this.templateService.toDto(t) };

@@ -10,7 +10,9 @@ import {
   ParseUUIDPipe,
   HttpException,
   HttpStatus,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { TitelaturEnService } from '../services/titelatur-en.service';
 import { CreateTitelaturEnDto } from '../dto/create-titelatur-en.dto';
 import { UpdateTitelaturEnDto } from '../dto/update-titelatur-en.dto';
@@ -39,6 +41,8 @@ export class TitelaturEnController {
   }
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findAll(
     @Query('company') company: string,
     @Query('object_type') object_type: string,
@@ -48,6 +52,8 @@ export class TitelaturEnController {
   }
 
   @Get(':id')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
   async findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
     const r = await this.service.findOne(id);
     return { success: true, data: r };
