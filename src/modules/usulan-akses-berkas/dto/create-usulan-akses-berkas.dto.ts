@@ -21,6 +21,11 @@ import { JenisBerkas, DurasiPreset, JenisAkses } from '../enums';
 export class VerifikatorDto {
   @IsInt() persnum: number;
   @IsString() levelJabatan: string; // BOD | BOD-1 | BOD-2 | BOD-3 (atau AVP/VP/EVP untuk backward compat)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  catatan?: string; // catatan personal untuk verifikator ini (hanya terlihat oleh verifikator itu sendiri)
 }
 
 export class CreateUsulanAksesBerkasDto {

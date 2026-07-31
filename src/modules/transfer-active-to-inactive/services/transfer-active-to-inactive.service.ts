@@ -210,7 +210,9 @@ export class TransferActiveToInactiveService {
     const firstArsip = dto.arsipList[0];
 
     // Debug log
-    this.logger.log(`[update] id=${id} atasanList=${JSON.stringify(dto.atasanList.map(a => ({persnum: a.persnum, name: a.name})))} submit=${dto.submit}`);
+    this.logger.log(
+      `[update] id=${id} atasanList=${JSON.stringify(dto.atasanList.map((a) => ({ persnum: a.persnum, name: a.name })))} submit=${dto.submit}`,
+    );
 
     // Update kolom utama
     item.keterangan = dto.keterangan ?? null;
@@ -317,14 +319,27 @@ export class TransferActiveToInactiveService {
     const userId = Number(user.persnum);
     const today = new Date().toISOString().split('T')[0];
 
+    // Cek role: ADMIN/SUPERADMIN lihat semua berkas, USER hanya miliknya.
+    // Konsisten dengan getGabungan() — tanpa bypass ini, admin/superadmin
+    // yang login sebagai sekretaris tidak melihat arsip dummy (persnum ≠
+    // 10011066) sehingga dropdown arsip di form usulan pindah kosong.
+    const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
+    const isPrivileged = roleName === 'ADMIN' || roleName === 'SUPERADMIN';
+
     // 1. Ambil berkas milik user, status Tertutup, retensi aktif habis
-    const berkasList = await this.berkasRepo
+    const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
-      .where('b.deleted_at IS NULL')
-      .andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
-        userId,
-        userPersnum: String(userId),
-      })
+      .where('b.deleted_at IS NULL');
+    if (!isPrivileged) {
+      berkasQb.andWhere(
+        '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+        {
+          userId,
+          userPersnum: String(userId),
+        },
+      );
+    }
+    const berkasList = await berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
       .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
       .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
@@ -398,16 +413,36 @@ export class TransferActiveToInactiveService {
       arsipDiUsulan.add(u.arsipId);
     }
 
+    // Ambil klasifikasi berkas untuk usulan (lookup by arsipId)
+    const usulanArsipIds = usulanList.map((u) => u.arsipId);
+    const berkasKlasifikasiMap = new Map<string, string>();
+    if (usulanArsipIds.length > 0) {
+      const berkasForUsulan = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .where('b.id IN (:...ids)', { ids: usulanArsipIds })
+        .getMany();
+      for (const b of berkasForUsulan) {
+        berkasKlasifikasiMap.set(
+          b.id,
+          b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+        );
+      }
+    }
+
     // 2. Ambil berkas Tertutup retensi habis yang BELUM masuk usulan apapun
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
     // USER hanya lihat berkas miliknya, ADMIN/SUPERADMIN lihat semua
     if (!isPrivileged) {
-      berkasQb.andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
-        userId,
-        userPersnum: String(userId),
-      });
+      berkasQb.andWhere(
+        '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+        {
+          userId,
+          userPersnum: String(userId),
+        },
+      );
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
@@ -463,7 +498,7 @@ export class TransferActiveToInactiveService {
         nomorUsulan: u.nomorUsulan,
         kodeBerkas: u.arsipKode,
         perihal: u.arsipPerihal,
-        klasifikasi: null,
+        klasifikasi: berkasKlasifikasiMap.get(u.arsipId) ?? null,
         tanggalRetensiAktifHabis: u.tanggalRetensiAktifHabis
           ? new Date(u.tanggalRetensiAktifHabis).toISOString().split('T')[0]
           : null,
@@ -590,7 +625,10 @@ export class TransferActiveToInactiveService {
       const isAtasan = levels.some(
         (l) => l.atasanPersnum === Number(user.persnum),
       );
-      if (!isSekretaris && !isAtasan) {
+      // Atasan Managerial TU (HERMANA 10010123 / PRIYO 10010970) juga boleh
+      // akses detail usulan — mereka verifikasi penerimaan dari TU.
+      const isAtasanTu = [10010123, 10010970].includes(Number(user.persnum));
+      if (!isSekretaris && !isAtasan && !isAtasanTu) {
         throw new BadRequestException(
           'Anda tidak memiliki akses ke usulan ini',
         );
