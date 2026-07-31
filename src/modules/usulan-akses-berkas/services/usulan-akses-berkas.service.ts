@@ -1433,7 +1433,23 @@ export class UsulanAksesBerkasService {
       },
     });
 
+    // Fallback: cek apakah user adalah verifikator pemberi dari usulan yang memilih berkas ini
+    let isVerifikatorPemberi = false;
+    let usulanIdForPemberi: string | null = null;
     if (!entitlement) {
+      // Cari usulan yang memilih salah satu berkas ini
+      const ub = await this.usulanBerkasRepo.findOne({ where: { berkasId: In(berkasIds) } });
+      if (ub) {
+        const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulanId } });
+        if (usulan?.verifikatorPemberi) {
+          const vpb = Array.isArray(usulan.verifikatorPemberi) ? usulan.verifikatorPemberi : [];
+          isVerifikatorPemberi = vpb.some((v: any) => v.persnum === userPersnum);
+          if (isVerifikatorPemberi) usulanIdForPemberi = usulan.id;
+        }
+      }
+    }
+
+    if (!entitlement && !isVerifikatorPemberi) {
       throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
     }
 
@@ -1524,7 +1540,7 @@ export class UsulanAksesBerkasService {
         : null,
       // Siapkan juga 'jenis_label' untuk konsistensi dengan halaman kelola
       jenis_label: naskah.jenis || null,
-      permissions: entitlement.permissions,
+      permissions: entitlement?.permissions || ['LIHAT'],
     };
   }
 
@@ -1541,7 +1557,23 @@ export class UsulanAksesBerkasService {
     const entitlement = await this.aksesRepo.findOne({
       where: { userPersnum, berkasId, isRevoked: false },
     });
+
+    // Fallback: cek apakah user adalah verifikator pemberi dari usulan yang memilih berkas ini
+    let isVerifikatorPemberi = false;
+    let usulanIdForPemberi: string | null = null;
     if (!entitlement) {
+      const ub = await this.usulanBerkasRepo.findOne({ where: { berkasId } });
+      if (ub) {
+        const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulanId } });
+        if (usulan?.verifikatorPemberi) {
+          const vpb = Array.isArray(usulan.verifikatorPemberi) ? usulan.verifikatorPemberi : [];
+          isVerifikatorPemberi = vpb.some((v: any) => v.persnum === userPersnum);
+          if (isVerifikatorPemberi) usulanIdForPemberi = usulan.id;
+        }
+      }
+    }
+
+    if (!entitlement && !isVerifikatorPemberi) {
       throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
     }
 
@@ -1552,7 +1584,10 @@ export class UsulanAksesBerkasService {
     }
 
     // Ambil info usulan (untuk nomorUsulan, divisiPemberi, dll)
-    const usulan = await this.usulanRepo.findOne({ where: { id: entitlement.usulanId } });
+    const resolvedUsulanId = entitlement?.usulanId || usulanIdForPemberi;
+    const usulan = resolvedUsulanId
+      ? await this.usulanRepo.findOne({ where: { id: resolvedUsulanId } })
+      : null;
 
     // Ambil nama divisi pemberi dari org_data
     let divisiPemberiNama: string | null = null;
@@ -1581,10 +1616,10 @@ export class UsulanAksesBerkasService {
 
     return {
       ...berkas,
-      permissions: entitlement.permissions,
-      tanggalMulai: entitlement.tanggalMulai,
-      tanggalSelesai: entitlement.tanggalSelesai,
-      usulanId: entitlement.usulanId,
+      permissions: entitlement?.permissions || ['LIHAT'],
+      tanggalMulai: entitlement?.tanggalMulai || usulan?.tanggalMulai || null,
+      tanggalSelesai: entitlement?.tanggalSelesai || usulan?.tanggalSelesai || null,
+      usulanId: resolvedUsulanId,
       nomorUsulan: usulan?.nomorUsulan || null,
       divisiPemberiId: usulan?.divisiPemberiId || null,
       divisiPemberiNama,
@@ -1606,7 +1641,21 @@ export class UsulanAksesBerkasService {
     const entitlement = await this.aksesRepo.findOne({
       where: { userPersnum, berkasId, isRevoked: false },
     });
+
+    // Fallback: cek apakah user adalah verifikator pemberi dari usulan yang memilih berkas ini
+    let isVerifikatorPemberi = false;
     if (!entitlement) {
+      const ub = await this.usulanBerkasRepo.findOne({ where: { berkasId } });
+      if (ub) {
+        const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulanId } });
+        if (usulan?.verifikatorPemberi) {
+          const vpb = Array.isArray(usulan.verifikatorPemberi) ? usulan.verifikatorPemberi : [];
+          isVerifikatorPemberi = vpb.some((v: any) => v.persnum === userPersnum);
+        }
+      }
+    }
+
+    if (!entitlement && !isVerifikatorPemberi) {
       throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
     }
 
@@ -1650,7 +1699,7 @@ export class UsulanAksesBerkasService {
         sifat: naskah?.sifat || null,
         finalPdf: naskah?.final_pdf || null,
         status: naskah?.status || null,
-        permissions: entitlement.permissions,
+        permissions: entitlement?.permissions || ['LIHAT'],
       };
     });
   }
