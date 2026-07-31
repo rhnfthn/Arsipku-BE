@@ -172,6 +172,67 @@ export class UsulanAksesBerkasService {
     return this.getManagerialInDivisi(userOrgId);
   }
 
+  // ── Eligible penerima akses tambahan (orang di divisi pengusul) ──
+
+  /**
+   * List semua orang di divisi pengusul (orgId) yang eligible sebagai
+   * penerima akses tambahan.
+   *
+   * Data diambil dari position_json (orgDataService). Return semua
+   * posisi di divisi yang ada persnum, kecuali BOD (BOD/BOD-1/BOD-2/BOD-3)
+   * karena mereka sudah masuk verifikator pemberi.
+   *
+   * Query param divisiId di FE harus = user organization (divisi pengusul)
+   * sehingga data yang tampil hanya orang di divisi yang sama.
+   */
+  async getEligiblePenerimaTambahan(orgId: number, currentUser: any): Promise<any[]> {
+    const orgData = await this.orgDataService.findLatestOrg();
+    if (!orgData || !orgData.position_json) {
+      throw new NotFoundException('Data organisasi tidak ditemukan');
+    }
+
+    const positionJson =
+      typeof orgData.position_json === 'string'
+        ? JSON.parse(orgData.position_json)
+        : orgData.position_json;
+
+    if (!Array.isArray(positionJson)) {
+      throw new BadRequestException('Format data organisasi tidak valid');
+    }
+
+    // Ambil semua orang di divisi ini (organization_id = orgId)
+    // kecuali BOD (mereka sudah masuk di dropdown verifikator pemberi)
+    const BOD_TAGS = new Set(['BOD', 'BOD-1', 'BOD-2', 'BOD-3']);
+
+    const people = positionJson
+      .filter((x: any) => {
+        const xDivisi = Number(x.organization_id ?? x.divisi_id);
+        if (xDivisi !== Number(orgId)) return false;
+        // Harus punya persnum
+        if (!x.persnum_person) return false;
+        // Exclude BOD (mereka sudah di dropdown verifikator pemberi)
+        if (BOD_TAGS.has(x.bod_tag || '')) return false;
+        return true;
+      })
+      .map((v: any) => ({
+        persnum: Number(v.persnum_person),
+        nama: v.persnum_person_text || v.name || '',
+        positionId: v.position,
+        positionText: v.position_text || '',
+        organizationId: Number(v.organization_id),
+        organizationText: v.organization_text || v.divisi_name || '',
+      }))
+      // Dedup by persnum
+      .filter(
+        (item: any, idx: number, arr: any[]) =>
+          arr.findIndex((x: any) => x.persnum === item.persnum) === idx,
+      )
+      // Sort by nama
+      .sort((a: any, b: any) => (a.nama || '').localeCompare(b.nama || ''));
+
+    return people;
+  }
+
   // ── Endpoint: GET /verifikator-bod ──────────────────────────────
   // Return BOD (BOD, BOD-1, BOD-2, BOD-3) di divisi tertentu dari position_json,
   // digabung dengan managerial yang sedang didelegasikan (PT/PH/PS aktif) di
