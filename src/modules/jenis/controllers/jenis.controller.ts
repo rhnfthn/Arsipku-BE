@@ -27,7 +27,7 @@ export class JenisController {
    */
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   async findAll(): Promise<any> {
     const result = await this.jenisService.findAll();
 
@@ -119,7 +119,7 @@ export class JenisController {
    */
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
     const fileUrl = jenis.fileName

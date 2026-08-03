@@ -67,6 +67,26 @@ export class UsulanAksesBerkasController {
     return { success: true, data: result, total: result.length };
   }
 
+  // ── Eligible penerima akses tambahan (orang di divisi pengusul) ──
+
+  /**
+   * GET /usulan-akses-berkas/eligible-penerima-tambahan
+   * List orang-orang yang eligible sebagai penerima akses tambahan di form
+   * usulan. Hanya user yang ada di divisi pengusul (orgId dari token user,
+   * atau override via query param divisiId).
+   *
+   * Return: { persnum, nama, positionId, positionText, organizationText }
+   */
+  @Get('eligible-penerima-tambahan')
+  async getEligiblePenerimaTambahan(
+    @CurrentUser() user: any,
+    @Query('divisiId') divisiId?: string,
+  ) {
+    const orgId = divisiId ? Number(divisiId) : Number(user.organization);
+    const result = await this.service.getEligiblePenerimaTambahan(orgId, user);
+    return { success: true, data: result, total: result.length };
+  }
+
   // ── CREATE: Buat usulan baru ──────────────────────────────────
 
   /**

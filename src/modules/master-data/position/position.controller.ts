@@ -23,7 +23,7 @@ export class PositionController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(): Promise<OmPosition[]> {
     return this.positionService.findAll();
   }
@@ -77,7 +77,7 @@ export class PositionController {
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string): Promise<OmPosition> {
     return this.positionService.findOne(id);
   }

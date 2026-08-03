@@ -26,6 +26,7 @@ import { PermissionCacheService } from '../../../common/guards/permission-cache.
 import { VerifyTokenDto } from '../dto/verify-token.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
+import { SwitchProfileDto } from '../dto/switch-profile.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
@@ -531,6 +532,71 @@ export class AuthController {
         activeRole: newPayload.activeRole,
         activePermissions: newPayload.activePermissions,
         role: newPayload.role,
+      },
+    };
+  }
+
+  /**
+   * POST /auth/switch-profile
+   * Ganti profile aktif user antara 'akun_asli' dan 'sekretaris' (delegasi sekretaris).
+   * Hanya valid jika user punya assignment aktif `sekretaris_delegasi` di organization_tu.
+   * Re-sign JWT baru dengan active_profile terbaru (tanpa logout-login ulang).
+   */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('switch-profile')
+  @ApiOperation({
+    summary: 'Switch active profile',
+    description:
+      'Ganti profile aktif user antara akun asli dan sekretaris (delegasi sekretaris).',
+  })
+  async switchProfile(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SwitchProfileDto,
+  ) {
+    if (!user.persnum) {
+      throw new UnauthorizedException('User identity missing');
+    }
+
+    // Hanya boleh switch ke 'sekretaris' jika user memang punya delegasi sekretaris aktif.
+    const tuRoles = await this.authService.getTuRolesForPersnum(user.persnum);
+    const hasSecretary = tuRoles.includes('sekretaris');
+    if (dto.profile === 'sekretaris' && !hasSecretary) {
+      throw new BadRequestException(
+        'Anda tidak memiliki delegasi sekretaris untuk profile ini',
+      );
+    }
+
+    const { exp, iat, ...base } = user as any;
+    const newPayload: JwtPayload = {
+      ...base,
+      has_secretary_delegation: hasSecretary,
+      available_profiles: hasSecretary
+        ? ['akun_asli', 'sekretaris']
+        : ['akun_asli'],
+      active_profile: dto.profile,
+    };
+
+    const expiresIn =
+      exp && typeof exp === 'number'
+        ? Math.max(Math.floor((exp * 1000 - Date.now()) / 1000), 3600)
+        : 86400;
+
+    const accessToken = await this.jwtService.signAsync(newPayload, {
+      expiresIn,
+    });
+
+    return {
+      success: true,
+      message:
+        dto.profile === 'sekretaris'
+          ? 'Profile dialihkan ke Sekretaris'
+          : 'Profile dialihkan ke Akun Asli',
+      data: {
+        accessToken,
+        active_profile: newPayload.active_profile,
+        has_secretary_delegation: newPayload.has_secretary_delegation,
+        available_profiles: newPayload.available_profiles,
       },
     };
   }
