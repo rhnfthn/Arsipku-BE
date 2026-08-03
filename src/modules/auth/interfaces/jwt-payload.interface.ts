@@ -24,6 +24,14 @@ export interface JwtPayload {
   position_status?: PositionStatus | null;
   delegator_persnum?: number | null;
 
+  // Profile switching (sekretaris delegasi)
+  // has_secretary_delegation: true jika user punya assignment sekretaris_delegasi aktif
+  // available_profiles: daftar profile yang bisa dipilih user
+  // active_profile: profile yang sedang aktif ('akun_asli' default | 'sekretaris')
+  has_secretary_delegation?: boolean;
+  available_profiles?: string[];
+  active_profile?: 'akun_asli' | 'sekretaris';
+
   // Organization data from org_data
   company: string;
   companyText: string;
