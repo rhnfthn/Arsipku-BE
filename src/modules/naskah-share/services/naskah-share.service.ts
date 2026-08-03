@@ -15,7 +15,8 @@ import { ShareStatus } from '../enums/share-status.enum';
 import { RecipientStatus } from '../enums/recipient-status.enum';
 import { ShareLogAksi } from '../enums/share-log-aksi.enum';
 import { ShareAccessType } from '../enums/share-access-type.enum';
-import { CreateNaskahShareDto, NaskahShareQueryDto } from '../dto';
+import { ReopenRequestStatus } from '../enums/reopen-request-status.enum';
+import { CreateNaskahShareDto, NaskahShareQueryDto, ApproveReopenDto } from '../dto';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
@@ -412,6 +413,8 @@ export class NaskahShareService {
             orgText: r.recipientOrgText,
             status: r.status,
             openedAt: r.openedAt,
+            requestedAt: r.requestedAt,
+            requestStatus: r.requestStatus,
           })),
         };
       }),
@@ -491,6 +494,8 @@ export class NaskahShareService {
           orgText: r.recipientOrgText,
           status: r.status,
           openedAt: r.openedAt,
+          requestedAt: r.requestedAt,
+          requestStatus: r.requestStatus,
         })),
       },
     };
@@ -962,6 +967,287 @@ export class NaskahShareService {
       .filter(Boolean);
 
     return { success: true, data: results };
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // POST /naskah-share/:id/request-reopen — Penerima minta akses ulang
+  // ────────────────────────────────────────────────────────────────
+
+  async requestReopen(user: JwtPayload, id: string) {
+    const share = await this.shareRepo.findOne({
+      where: { id },
+      relations: ['recipients'],
+    });
+    if (!share) throw new NotFoundException('Share tidak ditemukan');
+
+    // Hanya penerima yang bisa request
+    const recipientRecord = share.recipients.find(
+      (r) => r.recipientId === user.position,
+    );
+    if (!recipientRecord) {
+      throw new ForbiddenException('Anda bukan penerima share ini');
+    }
+
+    // Hanya untuk SEKALI_LIHAT yang sudah BERAKHIR
+    if (share.accessType !== ShareAccessType.SEKALI_LIHAT) {
+      throw new BadRequestException(
+        'Request akses ulang hanya untuk share sekali lihat',
+      );
+    }
+    if (recipientRecord.status !== RecipientStatus.BERAKHIR) {
+      throw new BadRequestException(
+        'Akses Anda masih aktif, tidak perlu request ulang',
+      );
+    }
+
+    // Cegah request ganda yang masih MENUNGGU
+    if (recipientRecord.requestStatus === ReopenRequestStatus.MENUNGGU) {
+      throw new BadRequestException(
+        'Permintaan akses ulang sudah dikirim dan menunggu persetujuan',
+      );
+    }
+
+    // Set request
+    recipientRecord.requestedAt = new Date();
+    recipientRecord.requestStatus = ReopenRequestStatus.MENUNGGU;
+    await this.recipientRepo.save(recipientRecord);
+
+    // Notifikasi ke pemberi
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
+    try {
+      await this.notificationService.createNotification(
+        {
+          positionId: share.pemberiId,
+          userPersnum: share.pemberiPersnum,
+          type: NotificationType.NASKAH_SHARE_REOPEN_REQUEST,
+          title: `${user.nama} meminta akses ulang naskah`,
+          body: naskah?.perihal || 'Lihat detail di menu Berbagi',
+          data: {
+            naskahId: share.naskahId,
+            shareId: id,
+            recipientName: user.nama,
+            perihal: naskah?.perihal || '',
+            action: 'OPEN_SHARE',
+          },
+        },
+        true,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ Failed to send reopen request notification: ${err?.message}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Permintaan akses ulang terkirim ke pemberi',
+      data: {
+        shareId: id,
+        requestedAt: recipientRecord.requestedAt,
+        requestStatus: recipientRecord.requestStatus,
+      },
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // POST /naskah-share/:id/approve-reopen — Pemberi setujui request
+  // ────────────────────────────────────────────────────────────────
+
+  async approveReopen(user: JwtPayload, id: string, dto: ApproveReopenDto) {
+    const share = await this.shareRepo.findOne({
+      where: { id },
+      relations: ['recipients'],
+    });
+    if (!share) throw new NotFoundException('Share tidak ditemukan');
+
+    // Hanya pemberi yang bisa approve
+    if (share.pemberiId !== user.position) {
+      throw new ForbiddenException('Hanya pemberi yang dapat menyetujui');
+    }
+
+    // Cari recipient yang punya request MENUNGGU
+    const pendingRecipient = share.recipients.find(
+      (r) => r.requestStatus === ReopenRequestStatus.MENUNGGU,
+    );
+    if (!pendingRecipient) {
+      throw new BadRequestException('Tidak ada permintaan akses ulang');
+    }
+
+    // Buat share baru (naskah sama, penerima sama) dengan akses baru
+    const accessType = dto.accessType as ShareAccessType;
+    let expiresAt: Date | null = null;
+    if (accessType === ShareAccessType.RENTANG_WAKTU && dto.durationDays) {
+      expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + dto.durationDays);
+    }
+
+    const newShareId = uuidv4();
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const newShare = this.shareRepo.create({
+        id: newShareId,
+        naskahId: share.naskahId,
+        pemberiId: share.pemberiId,
+        pemberiPersnum: share.pemberiPersnum,
+        pemberiNama: share.pemberiNama,
+        pemberiPositionText: share.pemberiPositionText,
+        catatan: dto.catatan || share.catatan || null,
+        accessType,
+        durationDays:
+          accessType === ShareAccessType.RENTANG_WAKTU
+            ? dto.durationDays || null
+            : null,
+        expiresAt,
+        status: ShareStatus.AKTIF,
+      });
+      await queryRunner.manager.save(newShare);
+
+      // Recipient baru (reset status ke TERKIRIM)
+      await queryRunner.manager.save(
+        this.recipientRepo.create({
+          id: uuidv4(),
+          shareId: newShareId,
+          recipientId: pendingRecipient.recipientId,
+          recipientPersnum: pendingRecipient.recipientPersnum,
+          recipientNama: pendingRecipient.recipientNama,
+          recipientPositionText: pendingRecipient.recipientPositionText,
+          recipientOrgText: pendingRecipient.recipientOrgText,
+          status: RecipientStatus.TERKIRIM,
+        }),
+      );
+
+      // Log audit
+      await queryRunner.manager.save(
+        this.logRepo.create({
+          id: uuidv4(),
+          shareId: newShareId,
+          naskahId: share.naskahId,
+          aksi: ShareLogAksi.SHARE,
+          actorPersnum: user.persnum,
+          actorNama: user.nama,
+          actorPositionText: user.positionText,
+          catatan: `Akses ulang disetujui (${accessType})`,
+        }),
+      );
+
+      // Tandai request lama sebagai DISETUJUI
+      pendingRecipient.requestStatus = ReopenRequestStatus.DISETUJUI;
+      await queryRunner.manager.save(pendingRecipient);
+
+      await queryRunner.commitTransaction();
+
+      // Notifikasi ke penerima
+      const naskah = await this.naskahRepo.findOne({
+        where: { id: share.naskahId },
+      });
+      try {
+        await this.notificationService.createNotification(
+          {
+            positionId: pendingRecipient.recipientId,
+            userPersnum: pendingRecipient.recipientPersnum,
+            type: NotificationType.NASKAH_SHARE_REOPEN_APPROVED,
+            title: `Akses ulang naskah disetujui oleh ${user.nama}`,
+            body: naskah?.perihal || 'Lihat detail di menu Berbagi',
+            data: {
+              naskahId: share.naskahId,
+              shareId: newShareId,
+              pemberiName: user.nama,
+              perihal: naskah?.perihal || '',
+              action: 'OPEN_SHARE',
+            },
+          },
+          true,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `⚠️ Failed to send reopen approved notification: ${err?.message}`,
+        );
+      }
+
+      return {
+        success: true,
+        message: 'Akses ulang berhasil disetujui',
+        data: {
+          newShareId,
+          accessType,
+          durationDays: newShare.durationDays,
+          expiresAt: newShare.expiresAt,
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // POST /naskah-share/:id/reject-reopen — Pemberi tolak request
+  // ────────────────────────────────────────────────────────────────
+
+  async rejectReopen(user: JwtPayload, id: string) {
+    const share = await this.shareRepo.findOne({
+      where: { id },
+      relations: ['recipients'],
+    });
+    if (!share) throw new NotFoundException('Share tidak ditemukan');
+
+    if (share.pemberiId !== user.position) {
+      throw new ForbiddenException('Hanya pemberi yang dapat menolak');
+    }
+
+    const pendingRecipient = share.recipients.find(
+      (r) => r.requestStatus === ReopenRequestStatus.MENUNGGU,
+    );
+    if (!pendingRecipient) {
+      throw new BadRequestException('Tidak ada permintaan akses ulang');
+    }
+
+    pendingRecipient.requestStatus = ReopenRequestStatus.DITOLAK;
+    await this.recipientRepo.save(pendingRecipient);
+
+    // Notifikasi ke penerima
+    const naskah = await this.naskahRepo.findOne({
+      where: { id: share.naskahId },
+    });
+    try {
+      await this.notificationService.createNotification(
+        {
+          positionId: pendingRecipient.recipientId,
+          userPersnum: pendingRecipient.recipientPersnum,
+          type: NotificationType.NASKAH_SHARE_REOPEN_REJECTED,
+          title: `Permintaan akses ulang ditolak oleh ${user.nama}`,
+          body: naskah?.perihal || 'Lihat detail di menu Berbagi',
+          data: {
+            naskahId: share.naskahId,
+            shareId: id,
+            pemberiName: user.nama,
+            perihal: naskah?.perihal || '',
+            action: 'OPEN_SHARE',
+          },
+        },
+        true,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ Failed to send reopen rejected notification: ${err?.message}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Permintaan akses ulang ditolak',
+      data: {
+        shareId: id,
+        requestStatus: pendingRecipient.requestStatus,
+      },
+    };
   }
 
   // ────────────────────────────────────────────────────────────────

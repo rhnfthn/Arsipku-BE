@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { NaskahShareEntity } from './naskah-share.entity';
 import { RecipientStatus } from '../enums/recipient-status.enum';
+import { ReopenRequestStatus } from '../enums/reopen-request-status.enum';
 
 @Entity('naskah_share_recipient')
 export class NaskahShareRecipientEntity {
@@ -49,6 +50,17 @@ export class NaskahShareRecipientEntity {
 
   @Column('timestamp', { name: 'opened_at', nullable: true })
   openedAt: Date | null;
+
+  // Request akses ulang (khusus SEKALI_LIHAT yang sudah BERAKHIR)
+  @Column('timestamp', { name: 'requested_at', nullable: true })
+  requestedAt: Date | null;
+
+  @Column('enum', {
+    enum: ReopenRequestStatus,
+    name: 'request_status',
+    nullable: true,
+  })
+  requestStatus: ReopenRequestStatus | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
