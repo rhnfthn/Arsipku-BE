@@ -22,7 +22,7 @@ export class AreaController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(): Promise<OmArea[]> {
     return this.areaService.findAll();
   }
@@ -77,7 +77,7 @@ export class AreaController {
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string): Promise<OmArea> {
     return this.areaService.findOne(id);
   }
