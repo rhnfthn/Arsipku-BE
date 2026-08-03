@@ -268,11 +268,13 @@ describe('ArsipDinamisService - softDeleteBerkas', () => {
   });
 
   // Mock findOneBerkas yang memakai createQueryBuilder('b').where().andWhere().getOne()
+  // getMany dipakai tutupBerkasRetensiHabis (evaluasi retensi on-demand sebelum findOneBerkas).
   const stubBerkas = (status: string) => {
     const berkas: any = { id: 'b1', status, deletedAt: null };
     berkasRepo.createQueryBuilder.mockReturnValue({
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
       getOne: jest.fn().mockResolvedValue(berkas),
     });
     return berkas;
@@ -405,6 +407,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
     berkasRepo.createQueryBuilder.mockReturnValue({
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]), // tutupBerkasRetensiHabis (on-demand, sebelum findOneBerkas)
       getOne: jest.fn().mockResolvedValue(berkas),
     });
     return berkas;
@@ -475,5 +478,67 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
     await service.rejectVerifikasi('b1', '111', { catatan: 'tolak' } as any);
     expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(111, 0);
     expect(berkasRepo.save).toHaveBeenCalled();
+  });
+});
+
+describe('ArsipDinamisService - tutupBerkasRetensiHabis (on-demand retensi)', () => {
+  let service: ArsipDinamisService;
+  let berkasRepo: any;
+  let riwayatRepo: any;
+
+  beforeEach(async () => {
+    berkasRepo = { createQueryBuilder: jest.fn(), update: jest.fn() };
+    riwayatRepo = { insert: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: riwayatRepo },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  const stubExpired = (list: any[]) => {
+    berkasRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(list),
+    });
+  };
+
+  it('flip aktif → closed_retensi_aktif + insert riwayat untuk berkas yang retensinya habis', async () => {
+    stubExpired([{ id: 'b1' }, { id: 'b2' }]);
+    const count = await service.tutupBerkasRetensiHabis();
+    expect(count).toBe(2);
+    expect(berkasRepo.update).toHaveBeenCalledWith(
+      { id: 'b1' },
+      { status: 'closed_retensi_aktif' },
+    );
+    expect(berkasRepo.update).toHaveBeenCalledWith(
+      { id: 'b2' },
+      { status: 'closed_retensi_aktif' },
+    );
+    expect(riwayatRepo.insert).toHaveBeenCalledTimes(2);
+    expect(riwayatRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ berkasId: 'b1', statusBaru: 'closed_retensi_aktif' }),
+    );
+  });
+
+  it('tanpa berkas expired → 0, tidak ada update/insert', async () => {
+    stubExpired([]);
+    const count = await service.tutupBerkasRetensiHabis();
+    expect(count).toBe(0);
+    expect(berkasRepo.update).not.toHaveBeenCalled();
+    expect(riwayatRepo.insert).not.toHaveBeenCalled();
   });
 });
