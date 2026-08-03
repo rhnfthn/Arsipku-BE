@@ -119,7 +119,9 @@ export class AuthService {
       : ['akun_asli'];
     // Default 'akun_asli'; hanya valid jika user memang punya delegasi sekretaris.
     const resolved =
-      hasSecretary && activeProfile === 'sekretaris' ? 'sekretaris' : 'akun_asli';
+      hasSecretary && activeProfile === 'sekretaris'
+        ? 'sekretaris'
+        : 'akun_asli';
     return {
       has_secretary_delegation: hasSecretary,
       available_profiles: availableProfiles,

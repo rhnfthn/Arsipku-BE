@@ -71,11 +71,14 @@ export class PermissionGuard implements CanActivate {
 
   /**
    * SE (Sekretaris yang didelegasikan) diizinkan melakukan aksi tulis pada
-   * resource usulan-akses-berkas (membuat/memilih berkas). VI tetap read-only
-   * penuh. Ini adalah pengecualian khusus karena SE adalah aktor utama fitur
-   * usulan peminjaman berkas.
+   * resource usulan-akses-berkas (membuat/memilih berkas) dan
+   * transfer-active-to-inactive (membuat/mengedit usulan pemindahan arsip).
+   * VI tetap read-only penuh.
    */
-  private readonly SE_WRITE_ALLOW_PREFIX = ['/usulan-akses-berkas'];
+  private readonly SE_WRITE_ALLOW_PREFIX = [
+    '/usulan-akses-berkas',
+    '/transfer-active-to-inactive',
+  ];
 
   private isAllowListedForViewer(path: string): boolean {
     const p = path.split('?')[0];

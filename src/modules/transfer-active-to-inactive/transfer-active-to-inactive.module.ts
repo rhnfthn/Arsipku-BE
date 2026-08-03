@@ -7,6 +7,7 @@ import { TransferActiveToInactiveController } from './controllers/transfer-activ
 import { AuditModule } from '../audit/audit.module';
 import { Berkas } from '../berkas/entities/berkas.entity';
 import { ArsipDinamisModule } from '../arsip-dinamis/arsip-dinamis.module';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ArsipDinamisModule } from '../arsip-dinamis/arsip-dinamis.module';
     ]),
     AuditModule,
     ArsipDinamisModule,
+    OrgDataModule,
   ],
   controllers: [TransferActiveToInactiveController],
   providers: [TransferActiveToInactiveService],

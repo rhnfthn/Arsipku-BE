@@ -32,6 +32,7 @@ import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
 import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -57,9 +58,47 @@ export class TransferActiveToInactiveService {
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
     private readonly arsipDinamisService: ArsipDinamisService,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   // ─── CREATE ────────────────────────────────────────────────────────────
+
+  /**
+   * Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+   * Dipakai di findAll untuk memastikan nama sekretaris tampil benar.
+   */
+  private async resolveSekretarisNames(
+    items: TransferActiveToInactiveEntity[],
+  ): Promise<void> {
+    // Cari item yang sekretarisName-nya berupa angka (persnum, bukan nama).
+    const needsResolve = items.filter(
+      (item) =>
+        item.sekretarisName &&
+        /^\d+$/.test(String(item.sekretarisName).trim()),
+    );
+    if (needsResolve.length === 0) return;
+
+    try {
+      const latestOrg = await this.orgDataService.findLatestOrg();
+      if (!latestOrg?.position_json) return;
+      const positions = latestOrg.position_json as any[];
+
+      for (const item of needsResolve) {
+        const pos = positions.find(
+          (p) =>
+            p.persnum_person != null &&
+            String(p.persnum_person) === String(item.sekretarisName),
+        );
+        if (pos?.persnum_person_text) {
+          item.sekretarisName = pos.persnum_person_text;
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Failed to resolve sekretaris names from org_data: ${e?.message}`,
+      );
+    }
+  }
 
   async create(
     dto: CreateTransferDto,
@@ -698,6 +737,10 @@ export class TransferActiveToInactiveService {
     qb.skip(skip).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum.
+    await this.resolveSekretarisNames(data);
+
     return {
       data,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
