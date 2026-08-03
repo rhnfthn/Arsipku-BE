@@ -80,6 +80,7 @@ import { SentryModule } from './modules/sentry/sentry.module';
 import { UsulanPindahModule } from './modules/usulan-pindah/usulan-pindah.module';
 import { TransferInactiveFileModule } from './modules/transfer-inactive-file/transfer-inactive-file.module';
 import { TransferActiveToInactiveModule } from './modules/transfer-active-to-inactive/transfer-active-to-inactive.module';
+import { OrganizationTuModule } from './modules/organization-tu/organization-tu.module';
 
 @Module({
   imports: [
@@ -199,6 +200,7 @@ import { TransferActiveToInactiveModule } from './modules/transfer-active-to-ina
     UsulanPindahModule,
     TransferInactiveFileModule,
     TransferActiveToInactiveModule,
+    OrganizationTuModule,
   ],
   controllers: [AppController],
   providers: [
