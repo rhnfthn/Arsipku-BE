@@ -25,6 +25,7 @@ import { PositionService } from '../../master-data/position/position.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities';
+import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 
 // Interface untuk data dari position_json (cached org data)
 interface PositionData {
@@ -81,7 +82,20 @@ export class DelegasiService {
     private readonly positionService: PositionService,
     private readonly orgDataService: OrgDataService,
     private readonly notificationService: NotificationService,
+    private readonly organizationTuService: OrganizationTuService,
   ) {}
+
+  /**
+   * Format Date ke string YYYY-MM-DD (untuk kolom date organization_tu).
+   */
+  private toDateStr(d: Date | string): string {
+    const date = typeof d === 'string' ? new Date(d) : d;
+    if (isNaN(date.getTime())) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
 
   /**
    * Calculate delegation status based on dates
@@ -383,6 +397,31 @@ export class DelegasiService {
         error?.message,
       ),
     );
+
+    // Integrasi organization_tu: jika position_status === SE (Sekretaris),
+    // sync ke tabel organization_tu sebagai sekretaris_delegasi.
+    if (saved.position_status === PositionStatus.SE && saved.as_persnum) {
+      this.organizationTuService
+        .createFromDelegasi({
+          delegasiId: saved.id,
+          persnum: Number(saved.as_persnum),
+          area_id: saved.as_area ?? null,
+          organization_id: saved.as_organization
+            ? String(saved.as_organization)
+            : null,
+          sub_area_id: saved.as_sub_area ? String(saved.as_sub_area) : null,
+          valid_from: this.toDateStr(saved.start_date),
+          valid_to: saved.end_date ? this.toDateStr(saved.end_date) : null,
+          created_by: saved.persnum ? Number(saved.persnum) : null,
+        })
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to sync organization_tu on create:',
+            error?.message,
+          ),
+        );
+    }
+
     return this.addStatus(saved);
   }
 
@@ -682,6 +721,29 @@ export class DelegasiService {
           error?.message,
         ),
     );
+
+    // Integrasi organization_tu: sync record jika position_status === SE.
+    if (saved.position_status === PositionStatus.SE && saved.as_persnum) {
+      this.organizationTuService
+        .updateFromDelegasi(saved.id, {
+          persnum: Number(saved.as_persnum),
+          area_id: saved.as_area ?? null,
+          organization_id: saved.as_organization
+            ? String(saved.as_organization)
+            : null,
+          sub_area_id: saved.as_sub_area ? String(saved.as_sub_area) : null,
+          valid_from: this.toDateStr(saved.start_date),
+          valid_to: saved.end_date ? this.toDateStr(saved.end_date) : null,
+          updated_by: saved.persnum ? Number(saved.persnum) : null,
+        })
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to sync organization_tu on update:',
+            error?.message,
+          ),
+        );
+    }
+
     return this.addStatus(saved);
   }
 
@@ -693,6 +755,18 @@ export class DelegasiService {
 
     if (!delegasi) {
       throw new NotFoundException('Delegasi tidak ditemukan');
+    }
+
+    // Integrasi organization_tu: deactivate record jika delegasi SE dihapus.
+    if (delegasi.position_status === PositionStatus.SE) {
+      this.organizationTuService
+        .deactivateFromDelegasi(delegasi.id)
+        .catch((error) =>
+          console.warn(
+            '[DelegasiService] Failed to deactivate organization_tu on remove:',
+            error?.message,
+          ),
+        );
     }
 
     await this.delegasiRepository.remove(delegasi);

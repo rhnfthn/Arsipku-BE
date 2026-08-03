@@ -11,6 +11,7 @@ import { OmOrganization } from '../master-data/organization/entities/om-organiza
 import { OrgDatum } from '../master-data/org_data/entities/org_datum.entity';
 import { OrgDataService } from '../master-data/org_data/org_data.service';
 import { AuthModule } from '../auth/auth.module';
+import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from '../auth/auth.module';
       OrgDatum,
     ]),
     forwardRef(() => AuthModule),
+    OrganizationTuModule,
   ],
   controllers: [DelegasiController],
   providers: [DelegasiService, PositionService, OrgDataService],
