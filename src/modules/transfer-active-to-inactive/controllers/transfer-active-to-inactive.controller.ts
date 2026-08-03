@@ -67,6 +67,17 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /**
+   * Auto-sync: berkas Tertutup dengan retensi aktif habis → buat usulan DRAFT
+   * otomatis. Dipanggil dari halaman pemberkasan agar berkas yang retensinya
+   * habis langsung muncul di pemindahan arsip sebagai DRAFT.
+   */
+  @Post('sync-draft')
+  async syncDraft(@CurrentUser() _user: JwtPayload) {
+    const count = await this.service.syncDraftUsulanOtomatis();
+    return { success: true, data: { count } };
+  }
+
   @Post()
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
   async create(
