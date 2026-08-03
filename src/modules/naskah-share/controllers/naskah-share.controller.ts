@@ -22,10 +22,7 @@ export class NaskahShareController {
   private readonly logger = new Logger(NaskahShareController.name);
   constructor(private readonly shareService: NaskahShareService) {}
 
-  /**
-   * POST /naskah-share
-   * Buat share baru (bagikan naskah)
-   */
+  /** POST /naskah-share — Create share (single or multi naskah) */
   @Post()
   @RequirePermission('naskah-share', 'create')
   async createShare(
@@ -48,10 +45,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * GET /naskah-share
-   * List share (tab: shared-by-me / shared-to-me)
-   */
+  /** GET /naskah-share — List shares (tab: shared-by-me | shared-to-me) */
   @Get()
   @RequirePermission('naskah-share', 'read')
   async getShares(
@@ -73,10 +67,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * GET /naskah-share/search-user?q=...
-   * Search user untuk dropdown penerima
-   */
+  /** GET /naskah-share/search-user?q=... — Search user for recipient dropdown */
   @Get('search-user')
   @RequirePermission('naskah-share', 'read')
   async searchUsers(
@@ -94,10 +85,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * GET /naskah-share/:id
-   * Detail share
-   */
+  /** GET /naskah-share/:id — Share detail (with auto-expire check) */
   @Get(':id')
   @RequirePermission('naskah-share', 'read')
   async getShareDetail(
@@ -119,10 +107,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * DELETE /naskah-share/:shareId/recipients/:recipientId
-   * Cabut akses satu penerima
-   */
+  /** DELETE /naskah-share/:shareId/recipients/:recipientId — Revoke single recipient */
   @Delete(':shareId/recipients/:recipientId')
   @RequirePermission('naskah-share', 'delete')
   async revokeRecipient(
@@ -155,10 +140,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * DELETE /naskah-share/:id
-   * Cabut akses share (semua penerima)
-   */
+  /** DELETE /naskah-share/:id — Revoke entire share (all recipients) */
   @Delete(':id')
   @RequirePermission('naskah-share', 'delete')
   async revokeShare(
@@ -181,10 +163,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * POST /naskah-share/:id/open
-   * Konfirmasi buka naskah (penerima)
-   */
+  /** POST /naskah-share/:id/open — Open naskah (returns PDF URL, SEKALI_LIHAT auto-revoke) */
   @Post(':id/open')
   @RequirePermission('naskah-share', 'open')
   async openNaskah(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
@@ -203,10 +182,7 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * PATCH /naskah-share/:id/read
-   * Tandai share sudah dibaca
-   */
+  /** PATCH /naskah-share/:id/read — Mark share as read */
   @Patch(':id/read')
   @RequirePermission('naskah-share', 'read')
   async markAsRead(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
