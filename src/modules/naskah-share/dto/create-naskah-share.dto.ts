@@ -12,8 +12,18 @@ import {
 import { Type } from 'class-transformer';
 
 export class CreateNaskahShareDto {
+  // Single naskah (backward compat)
+  @IsOptional()
   @IsString()
-  naskahId: string;
+  naskahId?: string;
+
+  // Multi naskah (baru) — jika diisi, share dibuat untuk setiap naskah
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  naskahIds?: string[];
 
   @IsArray()
   @ArrayMinSize(1)
