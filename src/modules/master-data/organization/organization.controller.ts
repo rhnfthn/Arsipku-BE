@@ -23,7 +23,7 @@ export class OrganizationController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(): Promise<OmOrganization[]> {
     return this.organizationService.findAll();
   }
@@ -46,7 +46,7 @@ export class OrganizationController {
    */
   @Get('company/:companyId/tree')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
+  @CacheTTL(86_400_000)
   findTreeByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Query('search') search?: string,
@@ -99,7 +99,7 @@ export class OrganizationController {
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string): Promise<OmOrganization> {
     return this.organizationService.findOne(id);
   }
