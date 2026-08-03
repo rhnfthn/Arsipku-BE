@@ -1741,8 +1741,9 @@ export class UsulanAksesBerkasService {
     );
     verifyQb.andWhere('u.status IN (:...statuses)', { statuses: verifyStatuses });
     // Exclude yang sudah viewed: viewedBy[persnum] tidak ada / null
+    // Catatan: key numerik di JSON path harus diapit kutip ('$."10010123"')
     verifyQb.andWhere(
-      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$."${userPersnum}"')) IS NULL)`,
     );
     const menungguVerifikasi = await verifyQb.getCount();
 
@@ -1756,7 +1757,7 @@ export class UsulanAksesBerkasService {
     pilihBerkasQb.where('u.divisiPemberiId = :userOrgId', { userOrgId });
     pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
     pilihBerkasQb.andWhere(
-      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$.${userPersnum}')) IS NULL)`,
+      `(u.viewedBy IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewedBy, '$."${userPersnum}"')) IS NULL)`,
     );
     const pilihBerkas = await pilihBerkasQb.getCount();
 
