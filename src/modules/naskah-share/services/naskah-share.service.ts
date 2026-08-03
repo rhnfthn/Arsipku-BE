@@ -240,54 +240,10 @@ export class NaskahShareService {
       `[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`,
     );
 
-    // Auto-fix legacy data: migrate old enum values to new ones
-    // Share: DICABUT → BERAKHIR
-    await this.shareRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: ShareStatus.BERAKHIR })
-      .where('status = :legacy', { legacy: 'DICABUT' })
-      .execute()
-      .catch(() => {});
-
-    // Recipient: DICABUT → BERAKHIR, BELUM_DIBACA → TERKIRIM, DIBUKA → DIBACA
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.BERAKHIR })
-      .where('status = :legacy', { legacy: 'DICABUT' })
-      .execute()
-      .catch(() => {});
-
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.TERKIRIM })
-      .where('status = :legacy', { legacy: 'BELUM_DIBACA' })
-      .execute()
-      .catch(() => {});
-
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.DIBACA })
-      .where('status = :legacy', { legacy: 'DIBUKA' })
-      .execute()
-      .catch(() => {});
-
-    // Auto-expire: mark expired shares as BERAKHIR BEFORE querying
-    await this.shareRepo
-      .createQueryBuilder()
-      .update()
-      .set({
-        status: ShareStatus.BERAKHIR,
-        revokedAt: new Date(),
-        revokedReason: 'Akses kedaluwarsa',
-      })
-      .where('status = :aktif', { aktif: ShareStatus.AKTIF })
-      .andWhere('expiresAt IS NOT NULL')
-      .andWhere('expiresAt < :now', { now: new Date() })
-      .execute();
+    // NOTE: Legacy enum migration (DICABUT→BERAKHIR, BELUM_DIBACA→TERKIRIM, DIBUKA→DIBACA)
+    // dan auto-expire sudah dihapus dari getShares untuk menghindari 5 UPDATE query
+    // per request. Migrasi enum dilakukan sekali via script migrate-share-enums.ts.
+    // Auto-expire ditangani lazy di getShareDetail() dan openNaskah().
 
     const qb = this.shareRepo
       .createQueryBuilder('share')
@@ -391,6 +347,11 @@ export class NaskahShareService {
       shares.map(async (share) => {
         const naskah = naskahMap.get(share.naskahId);
 
+        // In-memory auto-expire: jika AKTIF tapi sudah lewat expiresAt, tampilkan BERAKHIR
+        const isExpired = share.status === ShareStatus.AKTIF &&
+          share.expiresAt &&
+          new Date() > new Date(share.expiresAt);
+
         return {
           id: share.id,
           naskahId: share.naskahId,
@@ -404,7 +365,7 @@ export class NaskahShareService {
           accessType: share.accessType,
           durationDays: share.durationDays,
           expiresAt: share.expiresAt,
-          status: share.status,
+          status: isExpired ? ShareStatus.BERAKHIR : share.status,
           createdAt: share.createdAt,
           recipients: share.recipients.map((r) => ({
             id: r.id,
