@@ -93,6 +93,43 @@ export class AuthService {
   }
 
   /**
+   * Public helper untuk mengambil role tambahan dari organization_tu.
+   * Dipakai endpoint switch-profile untuk memvalidasi delegasi sekretaris.
+   */
+  async getTuRolesForPersnum(persnum: number): Promise<string[]> {
+    return this.buildTuRoles(persnum);
+  }
+
+  /**
+   * Build context profile switching untuk delegasi sekretaris.
+   * Jika user punya assignment aktif `sekretaris_delegasi` di organization_tu,
+   * maka user bisa beralih antara profile "Akun Asli" dan "Sekretaris".
+   */
+  private buildSecretaryProfileContext(
+    tuRoles: string[],
+    activeProfile?: 'akun_asli' | 'sekretaris',
+  ): {
+    has_secretary_delegation: boolean;
+    available_profiles: string[];
+    active_profile: 'akun_asli' | 'sekretaris';
+  } {
+    const hasSecretary = tuRoles.includes('sekretaris');
+    const availableProfiles = hasSecretary
+      ? ['akun_asli', 'sekretaris']
+      : ['akun_asli'];
+    // Default 'akun_asli'; hanya valid jika user memang punya delegasi sekretaris.
+    const resolved =
+      hasSecretary && activeProfile === 'sekretaris'
+        ? 'sekretaris'
+        : 'akun_asli';
+    return {
+      has_secretary_delegation: hasSecretary,
+      available_profiles: availableProfiles,
+      active_profile: resolved,
+    };
+  }
+
+  /**
    * Get NIK/KTP user dari HR API berdasarkan persnum
    * @param persnum - Persnum user
    * @param accessToken - AirNav access token untuk authorization
@@ -281,6 +318,7 @@ export class AuthService {
     // ================================================================
     // 5. Build JWT payload
     // ================================================================
+    const secretaryCtx = this.buildSecretaryProfileContext(tuRoles);
     const payload: JwtPayload = {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
@@ -289,6 +327,9 @@ export class AuthService {
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
       tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
+      has_secretary_delegation: secretaryCtx.has_secretary_delegation,
+      available_profiles: secretaryCtx.available_profiles,
+      active_profile: secretaryCtx.active_profile,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -462,6 +503,7 @@ export class AuthService {
     // ================================================================
     // 5. Build JWT payload
     // ================================================================
+    const secretaryCtx = this.buildSecretaryProfileContext(tuRoles);
     const payload: JwtPayload = {
       persnum: orgData.persnum,
       nama: orgData.nama || '',
@@ -470,6 +512,9 @@ export class AuthService {
       activePermissions: rbacCtx.activePermissions,
       roles: rbacCtx.roles,
       tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
+      has_secretary_delegation: secretaryCtx.has_secretary_delegation,
+      available_profiles: secretaryCtx.available_profiles,
+      active_profile: secretaryCtx.active_profile,
 
       company: orgData.company?.toString() || '',
       companyText: orgData.companyText || '',
@@ -691,6 +736,7 @@ export class AuthService {
           activePermissions: effectiveActivePermissions,
           roles: rbacCtx.roles,
           tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
+          ...this.buildSecretaryProfileContext(tuRoles, payload.active_profile),
           nik: personalData.nik || undefined,
           noWa: personalData.noWa || undefined,
         }
@@ -702,6 +748,7 @@ export class AuthService {
           activePermissions: rbacCtx.activePermissions,
           roles: rbacCtx.roles,
           tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
+          ...this.buildSecretaryProfileContext(tuRoles, payload.active_profile),
           company: orgData.company?.toString() || '',
           companyText: orgData.companyText || '',
           area: orgData.area || '',
