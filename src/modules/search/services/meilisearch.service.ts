@@ -8,6 +8,7 @@ import { MeiliSearch, Index, SearchResponse, SearchParams } from 'meilisearch';
 export interface NaskahDocument {
   id: string;
   perihal: string | null;
+  konten: string | null;
   nomor: string | null;
   jenis: string;
   sifat: string;
@@ -136,6 +137,7 @@ export class MeilisearchService implements OnModuleInit {
     // Searchable attributes - order matters for relevance
     await index.updateSearchableAttributes([
       'perihal',
+      'konten',
       'searchable_text',
       'nomor',
       'pengirim_nama',
