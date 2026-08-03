@@ -525,27 +525,22 @@ export class UsulanAksesBerkasService {
             : orgData.position_json;
 
         if (Array.isArray(positionJson)) {
+          // Build lookup maps sekali untuk O(1) per usulan
+          const orgMap = new Map<number, string>(); // orgId → organization_text
+          const evpMap = new Map<number, string>(); // orgId → EVP nama
+          for (const p of positionJson) {
+            if (p.organization_id) {
+              orgMap.set(Number(p.organization_id), p.organization_text);
+              if (p.chief === 1 && (p.position_text || '').toUpperCase().includes('EVP')) {
+                evpMap.set(Number(p.organization_id), p.persnum_person_text);
+              }
+            }
+          }
+
           for (const usulan of data) {
-            // Nama divisi pemberi
-            const divisiPemberi = positionJson.find(
-              (p: any) => Number(p.organization_id) === Number(usulan.divisiPemberiId),
-            );
-            (usulan as any).divisiPemberiNama = divisiPemberi?.organization_text || null;
-
-            // Nama EVP pemberi (chief=1 di divisi pemberi, level EVP)
-            const evpPemberi = positionJson.find(
-              (p: any) =>
-                Number(p.organization_id) === Number(usulan.divisiPemberiId) &&
-                p.chief === 1 &&
-                (p.position_text || '').toUpperCase().includes('EVP'),
-            );
-            (usulan as any).evpPemberiNama = evpPemberi?.persnum_person_text || null;
-
-            // Nama divisi pengusul
-            const divisiPengusul = positionJson.find(
-              (p: any) => Number(p.organization_id) === Number(usulan.divisiPengusulId),
-            );
-            (usulan as any).divisiPengusulNama = divisiPengusul?.organization_text || null;
+            (usulan as any).divisiPemberiNama = orgMap.get(Number(usulan.divisiPemberiId)) || null;
+            (usulan as any).evpPemberiNama = evpMap.get(Number(usulan.divisiPemberiId)) || null;
+            (usulan as any).divisiPengusulNama = orgMap.get(Number(usulan.divisiPengusulId)) || null;
           }
         }
       }
@@ -664,10 +659,14 @@ export class UsulanAksesBerkasService {
     }
 
     // ── Enrich: tambah nama & posisi untuk pengusul, divisi, verifikator ──
+    // Parse position_json sekali, build Map untuk lookup O(1)
     const orgData = await this.orgDataService.findLatestOrg();
     let pengusulInfo: any = null;
     let divisiPengusulNama: string | null = null;
     let divisiPemberiNama: string | null = null;
+
+    let personMap = new Map<number, any>(); // persnum → position entry
+    let orgMap = new Map<number, string>(); // orgId → organization_text
 
     if (orgData?.position_json) {
       const positionJson =
@@ -676,10 +675,14 @@ export class UsulanAksesBerkasService {
           : orgData.position_json;
 
       if (Array.isArray(positionJson)) {
+        // Build lookup maps sekali
+        for (const p of positionJson) {
+          if (p.persnum_person) personMap.set(Number(p.persnum_person), p);
+          if (p.organization_id) orgMap.set(Number(p.organization_id), p.organization_text);
+        }
+
         // Cari info pengusul
-        const pengusulPos = positionJson.find(
-          (p: any) => Number(p.persnum_person) === Number(usulan.pengusulPersnum),
-        );
+        const pengusulPos = personMap.get(Number(usulan.pengusulPersnum));
         if (pengusulPos) {
           pengusulInfo = {
             nama: pengusulPos.persnum_person_text,
@@ -690,89 +693,48 @@ export class UsulanAksesBerkasService {
         }
 
         // Cari nama divisi pengusul & pemberi
-        const divisiPengusul = positionJson.find(
-          (p: any) => Number(p.organization_id) === Number(usulan.divisiPengusulId),
-        );
-        if (divisiPengusul) {
-          divisiPengusulNama = divisiPengusul.organization_text;
-        }
-
-        const divisiPemberi = positionJson.find(
-          (p: any) => Number(p.organization_id) === Number(usulan.divisiPemberiId),
-        );
-        if (divisiPemberi) {
-          divisiPemberiNama = divisiPemberi.organization_text;
-        }
+        divisiPengusulNama = orgMap.get(Number(usulan.divisiPengusulId)) || null;
+        divisiPemberiNama = orgMap.get(Number(usulan.divisiPemberiId)) || null;
       }
     }
 
     // Enrich verifikator pengusul dengan nama & jabatan
     const enrichedVerifikatorPengusul = (usulan.verifikatorPengusul || []).map((v: any) => {
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          const person = positionJson.find(
-            (p: any) => Number(p.persnum_person) === Number(v.persnum),
-          );
-          if (person) {
-            return {
-              ...v,
-              nama: person.persnum_person_text,
-              jabatan: person.position_text,
-              divisiNama: person.organization_text,
-            };
-          }
-        }
+      const person = personMap.get(Number(v.persnum));
+      if (person) {
+        return {
+          ...v,
+          nama: person.persnum_person_text,
+          jabatan: person.position_text,
+          divisiNama: person.organization_text,
+        };
       }
       return v;
     });
 
     // Enrich verifikator pemberi dengan nama & jabatan
     const enrichedVerifikatorPemberi = (usulan.verifikatorPemberi || []).map((v: any) => {
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          const person = positionJson.find(
-            (p: any) => Number(p.persnum_person) === Number(v.persnum),
-          );
-          if (person) {
-            return {
-              ...v,
-              nama: person.persnum_person_text,
-              jabatan: person.position_text,
-              divisiNama: person.organization_text,
-            };
-          }
-        }
+      const person = personMap.get(Number(v.persnum));
+      if (person) {
+        return {
+          ...v,
+          nama: person.persnum_person_text,
+          jabatan: person.position_text,
+          divisiNama: person.organization_text,
+        };
       }
       return v;
     });
 
     // Enrich steps dengan nama verifier
     const enrichedSteps = steps.map((step: any) => {
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          const person = positionJson.find(
-            (p: any) => Number(p.persnum_person) === Number(step.verifierPersnum),
-          );
-          if (person) {
-            return {
-              ...step,
-              verifierNama: person.persnum_person_text,
-              verifierJabatan: person.position_text,
-            };
-          }
-        }
+      const person = personMap.get(Number(step.verifierPersnum));
+      if (person) {
+        return {
+          ...step,
+          verifierNama: person.persnum_person_text,
+          verifierJabatan: person.position_text,
+        };
       }
       return step;
     });
@@ -902,6 +864,13 @@ export class UsulanAksesBerkasService {
       );
     }
 
+    // Validasi: keputusan untuk verifikasi pemberi hanya boleh TOLAK atau LANJUT
+    if (dto.keputusan !== Keputusan.TOLAK && dto.keputusan !== Keputusan.LANJUT) {
+      throw new BadRequestException(
+        'Keputusan untuk verifikasi pemberi hanya boleh TOLAK atau LANJUT',
+      );
+    }
+
     // Validasi: catatanPerubahanDurasi opsional — jika durasi berubah dan tidak diisi,
     // pakai catatan umum sebagai fallback.
     const catatanDurasi =
@@ -988,13 +957,13 @@ export class UsulanAksesBerkasService {
     // Hapus berkas lama jika ada (revisi case)
     await this.usulanBerkasRepo.delete({ usulanId: id });
 
-    // Simpan berkas baru
+    // Simpan berkas baru — berlakuHingga null sampai akses diterbitkan
     const usulanBerkasItems = dto.berkasIds.map((berkasId) =>
       this.usulanBerkasRepo.create({
         usulanId: id,
         berkasId,
         jenisAksesGranted: usulan.jenisAkses,
-        berlakuHingga: new Date(), // akan di-update saat akses diterbitkan
+        berlakuHingga: null as any, // di-update saat terbitkanAkses()
       }),
     );
     await this.usulanBerkasRepo.save(usulanBerkasItems);
@@ -1033,20 +1002,29 @@ export class UsulanAksesBerkasService {
    * Daftar berkas yang eligible untuk dipilih SE Pemberi pada modal
    * "Pilih Berkas & Verifikator".
    *
-   * Aturan sederhana: hanya berkas berstatus closed_retensi_aktif (tertutup).
-   * Tidak ada filter unit — SE Pemberi bisa memilih berkas tertutup mana saja
-   * yang eligible.
+   * Aturan:
+   * - Semua berkas berstatus closed_retensi_aktif (tertutup).
+   * - Jika jenisBerkas = AKTIF: filter unitPenciptaId = divisiPemberiId
+   *   (hanya berkas milik divisi pemberi).
+   * - Jika jenisBerkas = INAKTIF: tidak ada filter unit (semua berkas tertutup).
    */
   async getEligibleBerkasForPemberi(
     user: any,
     jenisBerkas?: string,
     divisiPemberiId?: number,
   ): Promise<any[]> {
+    const where: any = {
+      status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+      deletedAt: undefined,
+    };
+
+    // Filter by unit untuk jenis AKTIF — hanya berkas milik divisi pemberi
+    if (jenisBerkas === JenisBerkas.AKTIF && divisiPemberiId) {
+      where.unitPenciptaId = divisiPemberiId;
+    }
+
     const rows = await this.berkasRepo.find({
-      where: {
-        status: StatusBerkas.CLOSED_RETENSI_AKTIF,
-        deletedAt: undefined,
-      } as any,
+      where,
       order: { judulBerkas: 'ASC' },
     });
     return rows.map((b: any) => ({
@@ -1304,7 +1282,8 @@ export class UsulanAksesBerkasService {
     });
     const usulanMap = new Map(usulanList.map((u) => [u.id, u]));
 
-    // Filter: hanya entitlement dari divisi pemberi LAIN (bukan divisi user sendiri)
+    // Filter: hanya entitlement dari divisi pemberi LAIN (bukan divisi user sendiri).
+    // Halaman Pemberian = akses yang diterima dari divisi lain, bukan dari divisi sendiri.
     const filteredEntitlements = entitlements.filter((e) => {
       const usulan = usulanMap.get(e.usulanId);
       if (!usulan) return false;
@@ -1365,39 +1344,30 @@ export class UsulanAksesBerkasService {
       }
     }
 
-    // Enrich dengan divisi pemberi (dari position_json, sama seperti findAll)
-    const enrichedUsulanIds = [...new Set(Array.from(berkasGroups.values()).flatMap((g: any) => g.usulanIds))];
-    if (enrichedUsulanIds.length > 0) {
-      // Ambil divisiPemberiId dari usulan
-      const usulanRows = await this.usulanRepo.find({
-        where: { id: In(enrichedUsulanIds) },
-      });
-      const usulanDivisiMap = new Map(usulanRows.map((u) => [u.id, u.divisiPemberiId]));
-
-      // Ambil nama divisi dari position_json (orgDataService)
-      const orgData = await this.orgDataService.findLatestOrg();
-      let divisiNamaMap = new Map<number, string>();
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          for (const p of positionJson) {
-            if (p.organization_id && p.organization_text) {
-              divisiNamaMap.set(Number(p.organization_id), p.organization_text);
-            }
+    // Enrich dengan divisi pemberi — pakai usulanMap yang sudah ada (hindari query ulang)
+    const orgData = await this.orgDataService.findLatestOrg();
+    let divisiNamaMap = new Map<number, string>();
+    if (orgData?.position_json) {
+      const positionJson =
+        typeof orgData.position_json === 'string'
+          ? JSON.parse(orgData.position_json)
+          : orgData.position_json;
+      if (Array.isArray(positionJson)) {
+        for (const p of positionJson) {
+          if (p.organization_id && p.organization_text) {
+            divisiNamaMap.set(Number(p.organization_id), p.organization_text);
           }
         }
       }
+    }
 
-      for (const group of berkasGroups.values()) {
-        const firstUsulanId = group.usulanIds[0];
-        const divisiPemberiId = usulanDivisiMap.get(firstUsulanId);
-        if (divisiPemberiId) {
-          (group as any).divisiPemberiId = divisiPemberiId;
-          (group as any).divisiPemberiNama = divisiNamaMap.get(Number(divisiPemberiId)) || null;
-        }
+    for (const group of berkasGroups.values()) {
+      const firstUsulanId = group.usulanIds[0];
+      const usulan = usulanMap.get(firstUsulanId);
+      const divisiPemberiId = usulan?.divisiPemberiId;
+      if (divisiPemberiId) {
+        (group as any).divisiPemberiId = divisiPemberiId;
+        (group as any).divisiPemberiNama = divisiNamaMap.get(Number(divisiPemberiId)) || null;
       }
     }
 
