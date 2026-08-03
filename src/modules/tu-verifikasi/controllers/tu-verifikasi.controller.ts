@@ -22,18 +22,20 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('TU Verifikasi')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, TuGuard)
 @Controller('tu/notifikasi-usulan')
 export class TuVerifikasiController {
   constructor(private readonly service: TuVerifikasiService) {}
 
+  /** GET: semua user login bisa lihat daftar notifikasi (tidak dibatasi TuGuard). */
   @Get()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Daftar notifikasi usulan pindah arsip untuk TU' })
   async findAll(@Query() filter: TuFilterDto) {
     return this.service.findAllNotifikasi(filter);
   }
 
   @Get('atasan-tu-list')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Daftar atasan managerial TU (Corporate Secretary)',
   })
@@ -42,12 +44,14 @@ export class TuVerifikasiController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Detail usulan untuk TU' })
   async findOne(@Param('id') id: string) {
     return this.service.findOneForTu(id);
   }
 
   @Patch(':id/verifikasi-berkas')
+  @UseGuards(JwtAuthGuard, TuGuard)
   @ApiOperation({ summary: 'Verifikasi berkas fisik oleh TU' })
   async verifikasiBerkas(
     @Param('id') id: string,
@@ -58,6 +62,7 @@ export class TuVerifikasiController {
   }
 
   @Patch(':id/ajukan-atasan-tu')
+  @UseGuards(JwtAuthGuard, TuGuard)
   @ApiOperation({ summary: 'Ajukan ke Atasan Managerial TU' })
   async ajukanAtasanTu(
     @Param('id') id: string,
@@ -68,6 +73,7 @@ export class TuVerifikasiController {
   }
 
   @Patch(':id/kembalikan')
+  @UseGuards(JwtAuthGuard, TuGuard)
   @ApiOperation({ summary: 'Kembalikan berkas ke Atasan/Sekretaris' })
   async kembalikan(
     @Param('id') id: string,

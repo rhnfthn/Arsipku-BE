@@ -38,6 +38,8 @@ export class TuVerifikasiService {
 
   /** Status yang relevan untuk TU (notifikasi usulan masuk). */
   private readonly TU_STATUSES = [
+    TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
+    TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
     TransferActiveToInactiveStatus.DIKIRIM,
     TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK,
     TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
