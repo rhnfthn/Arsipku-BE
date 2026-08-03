@@ -30,7 +30,7 @@ import { AuditModule } from '../../audit/enums/audit-module.enum';
 import { AuditStatus } from '../../audit/enums/audit-status.enum';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
-import { Berkas } from '../../berkas/entities/berkas.entity';
+import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -1052,6 +1052,20 @@ export class TransferActiveToInactiveService {
     item.tuFinalApprovedBy = Number(user.persnum);
     item.tuFinalApprovedAt = new Date();
     const saved = await this.repo.save(item);
+
+    // Fix: update berkas status from closed_retensi_aktif → retensi_inaktif
+    if (saved.arsipIds && saved.arsipIds.length > 0) {
+      const berkasIds = saved.arsipIds.map((a) => a.id);
+      await this.berkasRepo
+        .createQueryBuilder()
+        .update(Berkas)
+        .set({ status: StatusBerkas.RETAIL_INAKTIF })
+        .where('id IN (:...ids)', { ids: berkasIds })
+        .andWhere('status = :status', { status: StatusBerkas.CLOSED_RETENSI_AKTIF })
+        .execute();
+      this.logger.log(`Berkas status updated to retensi_inaktif for ${berkasIds.length} berkas.`);
+    }
+
     this.logAudit(
       user,
       saved,

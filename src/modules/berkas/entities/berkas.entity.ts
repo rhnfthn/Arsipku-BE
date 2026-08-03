@@ -23,6 +23,7 @@ export enum StatusBerkas {
   MENUNGGU_VERIFIKASI = 'menunggu_verifikasi',
   DITOLAK = 'ditolak',
   CLOSED_RETENSI_AKTIF = 'closed_retensi_aktif',
+  RETAIL_INAKTIF = 'retensi_inaktif',
 }
 
 @Entity('berkas', { schema: 'navmail' })
