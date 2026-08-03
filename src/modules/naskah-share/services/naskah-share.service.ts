@@ -49,11 +49,11 @@ export class NaskahShareService {
   ) {}
 
   // ────────────────────────────────────────────────────────────────
-  // POST /naskah-share — Create share
+  // POST /naskah-share — Create share (single or multi naskah)
   // ────────────────────────────────────────────────────────────────
 
   async createShare(user: JwtPayload, dto: CreateNaskahShareDto) {
-    // Resolve naskahIds: support single (naskahId) dan multi (naskahIds)
+    // Resolve naskahIds: support single (naskahId) and multi (naskahIds)
     const naskahIds = dto.naskahIds?.length
       ? dto.naskahIds
       : dto.naskahId
@@ -63,7 +63,7 @@ export class NaskahShareService {
       throw new BadRequestException('naskahId atau naskahIds wajib diisi');
     }
 
-    // 1. Validasi semua naskah exists
+    // 1. Validate all naskah exist
     const naskahs = await this.naskahRepo.find({
       where: { id: In(naskahIds) },
     });
@@ -74,7 +74,7 @@ export class NaskahShareService {
     }
     const naskahMap = new Map(naskahs.map((n) => [n.id, n]));
 
-    // 2. Validasi pemberi memiliki akses ke SEMUA naskah
+    // 2. Validate sender has access to ALL naskah
     for (const naskahId of naskahIds) {
       const hasAccess = await this.sirkulasiRepo.findOne({
         where: {
@@ -89,20 +89,20 @@ export class NaskahShareService {
       }
     }
 
-    // 3. Validasi penerima tidak include pemberi sendiri
+    // 3. Prevent sharing to self
     if (dto.recipientIds.includes(user.position)) {
       throw new BadRequestException(
         'Tidak dapat membagikan naskah kepada diri sendiri',
       );
     }
 
-    // 4. Fetch data penerima dari org_data + person
+    // 4. Fetch recipient data from org_data + person
     const recipients = await this.fetchRecipientData(dto.recipientIds);
     if (recipients.length === 0) {
       throw new BadRequestException('Tidak ada penerima valid yang ditemukan');
     }
 
-    // 5. Validasi penerima tidak duplikat (per naskah)
+    // 5. Prevent duplicate recipients (per naskah)
     const existingShares = await this.shareRepo.find({
       where: { naskahId: In(naskahIds), status: ShareStatus.AKTIF },
       relations: ['recipients'],
@@ -125,7 +125,7 @@ export class NaskahShareService {
       }
     }
 
-    // 6. Create share + recipients + log dalam transaction (untuk setiap naskah)
+    // 6. Create share + recipients + log in transaction (per naskah)
     const accessType =
       (dto.accessType as ShareAccessType) || ShareAccessType.RENTANG_WAKTU;
     let expiresAt: Date | null = null;
@@ -207,7 +207,7 @@ export class NaskahShareService {
 
       await queryRunner.commitTransaction();
 
-      // 7. Kirim notifikasi ke setiap penerima (di luar transaction)
+      // 7. Send notification to each recipient (outside transaction)
       for (const recipient of recipients) {
         try {
           await this.notificationService.createNotification(
@@ -264,7 +264,7 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // GET /naskah-share — List shares
+  // GET /naskah-share — List shares (tab: shared-by-me | shared-to-me)
   // ────────────────────────────────────────────────────────────────
 
   async getShares(user: JwtPayload, query: NaskahShareQueryDto) {
@@ -277,10 +277,9 @@ export class NaskahShareService {
       `[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`,
     );
 
-    // NOTE: Legacy enum migration (DICABUT→BERAKHIR, BELUM_DIBACA→TERKIRIM, DIBUKA→DIBACA)
-    // dan auto-expire sudah dihapus dari getShares untuk menghindari 5 UPDATE query
-    // per request. Migrasi enum dilakukan sekali via script migrate-share-enums.ts.
-    // Auto-expire ditangani lazy di getShareDetail() dan openNaskah().
+    // NOTE: Legacy enum migration and auto-expire removed from getShares
+    // to avoid 5 UPDATE queries per request. Auto-expire handled lazily
+    // in getShareDetail() and openNaskah().
 
     const qb = this.shareRepo
       .createQueryBuilder('share')
@@ -326,7 +325,7 @@ export class NaskahShareService {
     );
 
     // Auto-mark as DIBACA when viewing shared-to-me tab
-    // BUT: skip SEKALI_LIHAT shares — those should only change to DIBACA when actually opened
+    // Skip SEKALI_LIHAT — those only change on actual open
     if (tab === 'shared-to-me') {
       const unreadShareIds = shares
         .filter((s) =>
@@ -366,7 +365,7 @@ export class NaskahShareService {
       }
     }
 
-    // Batch-fetch naskah data to avoid N+1 queries
+    // Batch-fetch naskah data to avoid N+1
     const naskahIds = [...new Set(shares.map((s) => s.naskahId))];
     const naskahMap = new Map<string, NaskahEntity>();
     if (naskahIds.length > 0) {
@@ -384,7 +383,7 @@ export class NaskahShareService {
       shares.map(async (share) => {
         const naskah = naskahMap.get(share.naskahId);
 
-        // In-memory auto-expire: jika AKTIF tapi sudah lewat expiresAt, tampilkan BERAKHIR
+        // In-memory auto-expire: show BERAKHIR if past expiresAt (no DB write)
         const isExpired = share.status === ShareStatus.AKTIF &&
           share.expiresAt &&
           new Date() > new Date(share.expiresAt);
@@ -427,7 +426,7 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // GET /naskah-share/:id — Detail share
+  // GET /naskah-share/:id — Share detail (with auto-expire check)
   // ────────────────────────────────────────────────────────────────
 
   async getShareDetail(user: JwtPayload, id: string) {
@@ -439,7 +438,7 @@ export class NaskahShareService {
       throw new NotFoundException('Share tidak ditemukan');
     }
 
-    // Auto-expire check: if expired, update status to BERAKHIR
+    // Auto-expire: persist BERAKHIR if past expiresAt
     if (
       share.status === ShareStatus.AKTIF &&
       share.expiresAt &&
@@ -497,8 +496,7 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // DELETE /naskah-share/:shareId/recipients/:recipientId
-  // Revoke single recipient
+  // DELETE /naskah-share/:shareId/recipients/:recipientId — Revoke single recipient
   // ────────────────────────────────────────────────────────────────
 
   async revokeRecipient(
@@ -534,7 +532,7 @@ export class NaskahShareService {
     recipient.status = RecipientStatus.BERAKHIR;
     await this.recipientRepo.save(recipient);
 
-    // Check if all recipients revoked → mark share as BERAKHIR
+    // If all recipients revoked → mark share as BERAKHIR
     const allRevoked = share.recipients.every(
       (r) => r.id === recipient.id || r.status === RecipientStatus.BERAKHIR,
     );
@@ -602,7 +600,7 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // DELETE /naskah-share/:id — Revoke share
+  // DELETE /naskah-share/:id — Revoke entire share (all recipients)
   // ────────────────────────────────────────────────────────────────
 
   async revokeShare(user: JwtPayload, id: string, reason?: string) {
@@ -692,7 +690,8 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // POST /naskah-share/:id/open — Open naskah
+  // POST /naskah-share/:id/open — Open naskah (returns PDF URL)
+  // SEKALI_LIHAT: auto-revoke after first open
   // ────────────────────────────────────────────────────────────────
 
   async openNaskah(user: JwtPayload, id: string) {
@@ -704,7 +703,7 @@ export class NaskahShareService {
       throw new NotFoundException('Share tidak ditemukan');
     }
 
-    // Check if user is the sender (pemberi) or a recipient
+    // Check if user is sender or recipient
     const isPemberi = share.pemberiId === user.position;
     const recipientRecord = share.recipients.find(
       (r) => r.recipientId === user.position,
@@ -714,7 +713,7 @@ export class NaskahShareService {
       throw new ForbiddenException('Anda tidak memiliki akses ke share ini');
     }
 
-    // Must be AKTIF — but pemberi can always open (even if share is BERAKHIR)
+    // Must be AKTIF — pemberi can always open (even if BERAKHIR)
     if (share.status !== ShareStatus.AKTIF && !isPemberi) {
       throw new BadRequestException('Share tidak aktif atau sudah berakhir');
     }
@@ -773,7 +772,7 @@ export class NaskahShareService {
         recipientRecord.status = RecipientStatus.BERAKHIR;
         await this.recipientRepo.save(recipientRecord);
 
-        // Check if all recipients are now BERAKHIR → close the entire share
+        // If all recipients BERAKHIR → close the entire share
         const allRevoked = share.recipients.every(
           (r) =>
             r.id === recipientRecord.id || r.status === RecipientStatus.BERAKHIR,
@@ -792,12 +791,6 @@ export class NaskahShareService {
       }
 
       // Log audit trail
-      await this.logRepo.save(
-        this.logRepo.create({
-          id: uuidv4(),
-          shareId: id,
-          naskahId: share.naskahId,
-          aksi: ShareLogAksi.OPENED,
           actorPersnum: user.persnum,
           actorNama: user.nama,
           actorPositionText: user.positionText,
