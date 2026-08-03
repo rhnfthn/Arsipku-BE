@@ -21,7 +21,7 @@ export class KlasifikasiController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(@Query('company') company?: string) {
     return this.klasifikasiService.findAll(company);
   }
@@ -39,7 +39,7 @@ export class KlasifikasiController {
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string) {
     return this.klasifikasiService.findOne(id);
   }

@@ -5,6 +5,7 @@ import { KlasifikasiEntity } from '../klasifikasi/entities/klasifikasi.entity';
 import { BerkasNaskah, BerkasVerifikasi, BerkasRiwayatRetensi } from './entities';
 import { ArsipDinamisController } from './controllers';
 import { ArsipDinamisService } from './services';
+import { RetensiSchedulerService } from './services/retensi-scheduler.service';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NaskahModule } from '../naskah/naskah.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -23,7 +24,7 @@ import { NotificationModule } from '../notification/notification.module';
     NotificationModule,
   ],
   controllers: [ArsipDinamisController],
-  providers: [ArsipDinamisService],
+  providers: [ArsipDinamisService, RetensiSchedulerService],
   exports: [ArsipDinamisService, TypeOrmModule],
 })
 export class ArsipDinamisModule {}
