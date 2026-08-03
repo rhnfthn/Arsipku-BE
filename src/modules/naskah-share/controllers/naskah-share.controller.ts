@@ -15,7 +15,7 @@ import { NaskahShareService } from '../services/naskah-share.service';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
-import { CreateNaskahShareDto, NaskahShareQueryDto, ApproveReopenDto } from '../dto';
+import { CreateNaskahShareDto, NaskahShareQueryDto } from '../dto';
 
 @Controller('naskah-share')
 export class NaskahShareController {
@@ -225,73 +225,4 @@ export class NaskahShareController {
     }
   }
 
-  /**
-   * POST /naskah-share/:id/request-reopen
-   * Penerima minta akses ulang (khusus SEKALI_LIHAT yang sudah BERAKHIR)
-   */
-  @Post(':id/request-reopen')
-  @RequirePermission('naskah-share', 'open')
-  async requestReopen(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    try {
-      return await this.shareService.requestReopen(user, id);
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal mengirim permintaan akses ulang',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * POST /naskah-share/:id/approve-reopen
-   * Pemberi setujui request akses ulang (buat share baru)
-   */
-  @Post(':id/approve-reopen')
-  @RequirePermission('naskah-share', 'create')
-  async approveReopen(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-    @Body() dto: ApproveReopenDto,
-  ) {
-    try {
-      return await this.shareService.approveReopen(user, id, dto);
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal menyetujui akses ulang',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * POST /naskah-share/:id/reject-reopen
-   * Pemberi tolak request akses ulang
-   */
-  @Post(':id/reject-reopen')
-  @RequirePermission('naskah-share', 'delete')
-  async rejectReopen(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    try {
-      return await this.shareService.rejectReopen(user, id);
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal menolak permintaan akses ulang',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
 }
