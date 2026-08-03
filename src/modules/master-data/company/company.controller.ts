@@ -22,7 +22,7 @@ export class CompanyController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(): Promise<OmCompany[]> {
     return this.companyService.findAll();
   }
@@ -34,14 +34,14 @@ export class CompanyController {
    */
   @Get(':companyId/tree')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
+  @CacheTTL(86_400_000)
   getCompanyTree(@Param('companyId', ParseIntPipe) companyId: number) {
     return this.companyService.getCompanyTree(companyId);
   }
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string): Promise<OmCompany> {
     return this.companyService.findOne(id);
   }
