@@ -37,7 +37,6 @@ export class OrganizationTuController {
 
   @Get('check-user/:persnum')
   @ApiOperation({ summary: 'Cek role Unit TU aktif untuk user (persnum)' })
-  @RequirePermission('konfigurasi', 'read')
   checkUser(@Param('persnum') persnum: string) {
     return this.service.checkUser(parseInt(persnum, 10));
   }
