@@ -71,12 +71,13 @@ export class PermissionGuard implements CanActivate {
 
   /**
    * SE (Sekretaris yang didelegasikan) diizinkan melakukan aksi tulis pada
-   * resource usulan-akses-berkas (membuat/memilih berkas) dan
-   * transfer-active-to-inactive (membuat/mengedit usulan pemindahan arsip).
-   * VI tetap read-only penuh.
+   * resource usulan-akses-berkas (membuat/memilih berkas), naskah-share
+   * (membagikan/mencabut akses naskah), dan transfer-active-to-inactive
+   * (membuat/mengedit usulan pemindahan arsip). VI tetap read-only penuh.
    */
   private readonly SE_WRITE_ALLOW_PREFIX = [
     '/usulan-akses-berkas',
+    '/naskah-share',
     '/transfer-active-to-inactive',
   ];
 
@@ -169,10 +170,15 @@ export class PermissionGuard implements CanActivate {
     // delegator's), karena delegator (EVP/VP/AVP) mungkin tidak punya role di
     // rbac_user_role. Delegate (SE) sudah punya role USER/ADMIN yang include
     // usulan-akses-berkas permissions.
+    //
+    // `naskah-share` resource: SE juga aktor utama (membagikan/mencabut akses
+    // naskah). Sama — pakai delegate's OWN persnum.
     const isDelegasiResource = permission.resource === 'delegasi';
     const isUsulanAksesBerkasResource =
       permission.resource === 'usulan-akses-berkas';
-    const useOwnPersnum = isDelegasiResource || isUsulanAksesBerkasResource;
+    const isNaskahShareResource = permission.resource === 'naskah-share';
+    const useOwnPersnum =
+      isDelegasiResource || isUsulanAksesBerkasResource || isNaskahShareResource;
     const persnum: number = useOwnPersnum
       ? user.persnum
       : computeEffectivePersnum(user);
@@ -197,10 +203,12 @@ export class PermissionGuard implements CanActivate {
 
     // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
     // resources, NOT the delegasi control plane (so switch/reset still works).
-    // ALSO NOT for usulan-akses-berkas (SE is the main actor: create, verify-pemberi, select-files).
+    // ALSO NOT for usulan-akses-berkas & naskah-share (SE is the main actor:
+    // create/verify/select-files, share/revoke).
     const isViewOnly =
       !isDelegasiResource &&
       !isUsulanAksesBerkasResource &&
+      !isNaskahShareResource &&
       !!user.position_status &&
       this.VIEW_ONLY_STATUSES.has(user.position_status as string);
     const effectivePermissions = isViewOnly
