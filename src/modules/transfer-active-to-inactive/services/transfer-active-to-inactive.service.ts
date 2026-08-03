@@ -73,8 +73,7 @@ export class TransferActiveToInactiveService {
     // Cari item yang sekretarisName-nya berupa angka (persnum, bukan nama).
     const needsResolve = items.filter(
       (item) =>
-        item.sekretarisName &&
-        /^\d+$/.test(String(item.sekretarisName).trim()),
+        item.sekretarisName && /^\d+$/.test(String(item.sekretarisName).trim()),
     );
     if (needsResolve.length === 0) return;
 
@@ -1207,9 +1206,13 @@ export class TransferActiveToInactiveService {
         .update(Berkas)
         .set({ status: StatusBerkas.RETAIL_INAKTIF })
         .where('id IN (:...ids)', { ids: berkasIds })
-        .andWhere('status = :status', { status: StatusBerkas.CLOSED_RETENSI_AKTIF })
+        .andWhere('status = :status', {
+          status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        })
         .execute();
-      this.logger.log(`Berkas status updated to retensi_inaktif for ${berkasIds.length} berkas.`);
+      this.logger.log(
+        `Berkas status updated to retensi_inaktif for ${berkasIds.length} berkas.`,
+      );
     }
 
     this.logAudit(
