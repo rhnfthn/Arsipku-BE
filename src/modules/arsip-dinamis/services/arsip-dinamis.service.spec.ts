@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -350,6 +351,7 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
 describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () => {
   let service: ArsipDinamisService;
   let berkasRepo: any;
+  let berkasNaskahRepo: any;
   let berkasVerifikasiRepo: any;
   let berkasRiwayatRepo: any;
   let notifService: any;
@@ -359,6 +361,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
   beforeEach(async () => {
     query = jest.fn();
     berkasRepo = { createQueryBuilder: jest.fn(), save: jest.fn() };
+    berkasNaskahRepo = { count: jest.fn() };
     berkasVerifikasiRepo = {
       delete: jest.fn().mockResolvedValue(undefined),
       create: jest.fn((x: any) => x),
@@ -376,7 +379,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
         ArsipDinamisService,
         { provide: DataSource, useValue: { query } },
         { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
-        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: berkasNaskahRepo },
         { provide: getRepositoryToken(BerkasVerifikasi), useValue: berkasVerifikasiRepo },
         { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: berkasRiwayatRepo },
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
@@ -409,6 +412,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
 
   it('ajukanTutupBerkas -> emit count + notif BERKAS_VERIFIKASI (sendPush=false) ke verifikator urutan-1', async () => {
     stubBerkas('aktif');
+    berkasNaskahRepo.count.mockResolvedValue(3); // berkas punya naskah
     query.mockResolvedValueOnce([{ total: 2 }]); // countMenungguSaya
     const dto = {
       verifikator: [
@@ -429,6 +433,22 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
       }),
       false,
     );
+  });
+
+  it('ajukanTutupBerkas -> tolak jika berkas belum punya naskah (count = 0)', async () => {
+    stubBerkas('aktif');
+    berkasNaskahRepo.count.mockResolvedValue(0);
+    const dto = {
+      verifikator: [
+        { verifikator_persnum: '111', verifikator_position_id: 7, jabatan_verifikator: 'M' },
+      ],
+      catatan: 'uji',
+    };
+    await expect(service.ajukanTutupBerkas('b1', dto as any, 99)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(berkasVerifikasiRepo.save).not.toHaveBeenCalled();
+    expect(berkasRepo.save).not.toHaveBeenCalled();
   });
 
   it('approveVerifikasi -> emit count ke approver & verifikator berikutnya', async () => {

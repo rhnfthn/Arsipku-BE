@@ -839,6 +839,16 @@ export class ArsipDinamisService {
       );
     }
 
+    // Validasi: minimal 1 naskah sebelum penutupan
+    const naskahCount = await this.berkasNaskahRepository.count({
+      where: { berkasId } as any,
+    });
+    if (naskahCount < 1) {
+      throw new BadRequestException(
+        'Berkas belum memiliki naskah. Tambahkan minimal 1 naskah sebelum mengajukan penutupan.',
+      );
+    }
+
     // Validasi: minimal 1, maksimal 3 verifikator
     if (dto.verifikator.length < 1 || dto.verifikator.length > 3) {
       throw new BadRequestException('Jumlah verifikator harus 1-3 orang');
