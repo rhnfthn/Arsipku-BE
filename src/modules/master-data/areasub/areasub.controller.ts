@@ -22,7 +22,7 @@ export class AreasubController {
 
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findAll(): Promise<any[]> {
     return this.subAreaService.findAll();
   }
@@ -52,7 +52,7 @@ export class AreasubController {
 
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(120_000)
+  @CacheTTL(86_400_000)
   findOne(@Param('id') id: string): Promise<any> {
     return this.subAreaService.findOne(id);
   }
