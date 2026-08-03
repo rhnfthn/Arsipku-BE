@@ -219,6 +219,9 @@ export class ArsipDinamisService {
       sortDir,
     } = options;
 
+    // Evaluasi retensi on-demand agar status di list selalu segar
+    await this.tutupBerkasRetensiHabis();
+
     const qb = this.berkasRepository
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
@@ -277,6 +280,10 @@ export class ArsipDinamisService {
   ) {
     const { search, page = 1, limit = 100 } = options;
 
+    // Evaluasi retensi on-demand: berkas yang baru habis retensinya langsung
+    // ikut masuk daftar, tanpa menunggu cron 2AM.
+    await this.tutupBerkasRetensiHabis();
+
     const qb = this.berkasRepository
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
@@ -317,6 +324,9 @@ export class ArsipDinamisService {
   }
 
   async findOneBerkas(id: string): Promise<Berkas> {
+    // Evaluasi retensi on-demand: status berkas yang retensi aktifnya habis
+    // langsung jadi closed_retensi_aktif, tidak menunggu cron 2AM.
+    await this.tutupBerkasRetensiHabis();
     const berkas = await this.berkasRepository
       .createQueryBuilder('b')
       .where('b.id = :id', { id })
@@ -326,6 +336,44 @@ export class ArsipDinamisService {
       throw new NotFoundException(`Berkas dengan ID ${id} tidak ditemukan`);
     }
     return berkas;
+  }
+
+  /**
+   * Tutup otomatis berkas aktif yang masa retensi aktifnya sudah habis.
+   * Dipanggil on-demand di jalur read retensi (status langsung segar, tanpa
+   * menunggu cron 2AM) dan oleh RetensiSchedulerService sebagai safety net.
+   * Idempotent: setelah status berubah jadi closed_retensi_aktif, tidak lagi
+   * cocok dengan query, jadi tidak ada double-insert riwayat.
+   */
+  async tutupBerkasRetensiHabis(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
+
+    const expired = await this.berkasRepository
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL')
+      .andWhere('b.status = :status', { status: StatusBerkas.AKTIF })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
+      .getMany();
+
+    if (expired.length === 0) return 0;
+
+    for (const berkas of expired) {
+      await this.berkasRepository.update(
+        { id: berkas.id },
+        { status: StatusBerkas.CLOSED_RETENSI_AKTIF },
+      );
+      await this.berkasRiwayatRetensiRepository.insert({
+        berkasId: berkas.id,
+        statusSebelumnya: StatusBerkas.AKTIF,
+        statusBaru: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        tanggalPerubahan: today,
+        diprosesOleh: 0,
+        keterangan: 'Auto-close: masa retensi aktif berakhir',
+      });
+    }
+
+    return expired.length;
   }
 
   /**
@@ -836,6 +884,16 @@ export class ArsipDinamisService {
     ) {
       throw new BadRequestException(
         'Hanya berkas Aktif atau Ditolak yang bisa diajukan penutupan',
+      );
+    }
+
+    // Validasi: minimal 1 naskah sebelum penutupan
+    const naskahCount = await this.berkasNaskahRepository.count({
+      where: { berkasId } as any,
+    });
+    if (naskahCount < 1) {
+      throw new BadRequestException(
+        'Berkas belum memiliki naskah. Tambahkan minimal 1 naskah sebelum mengajukan penutupan.',
       );
     }
 
