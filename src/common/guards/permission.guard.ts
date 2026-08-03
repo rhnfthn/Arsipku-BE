@@ -71,13 +71,14 @@ export class PermissionGuard implements CanActivate {
 
   /**
    * SE (Sekretaris yang didelegasikan) diizinkan melakukan aksi tulis pada
-   * resource usulan-akses-berkas (membuat/memilih berkas) dan naskah-share
-   * (membagikan/mencabut akses naskah). VI tetap read-only penuh. Ini adalah
-   * pengecualian khusus karena SE adalah aktor utama fitur-fitur tersebut.
+   * resource usulan-akses-berkas (membuat/memilih berkas), naskah-share
+   * (membagikan/mencabut akses naskah), dan transfer-active-to-inactive
+   * (membuat/mengedit usulan pemindahan arsip). VI tetap read-only penuh.
    */
   private readonly SE_WRITE_ALLOW_PREFIX = [
     '/usulan-akses-berkas',
     '/naskah-share',
+    '/transfer-active-to-inactive',
   ];
 
   private isAllowListedForViewer(path: string): boolean {
@@ -102,7 +103,11 @@ export class PermissionGuard implements CanActivate {
     // Pengecualian: SE (Sekretaris) boleh write ke /usulan-akses-berkas
     if (ps === PositionStatus.SE) {
       const p = (req.url || '').split('?')[0];
-      if (this.SE_WRITE_ALLOW_PREFIX.some((prefix) => p === prefix || p.startsWith(prefix + '/'))) {
+      if (
+        this.SE_WRITE_ALLOW_PREFIX.some(
+          (prefix) => p === prefix || p.startsWith(prefix + '/'),
+        )
+      ) {
         return;
       }
     }
@@ -123,10 +128,9 @@ export class PermissionGuard implements CanActivate {
     const req = context
       .switchToHttp()
       .getRequest<{ user?: JwtPayload; method?: string; url?: string }>();
-    const allowedViewerStatuses = this.reflector.getAllAndOverride<string[] | undefined>(
-      ALLOW_VIEWER_WRITE_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const allowedViewerStatuses = this.reflector.getAllAndOverride<
+      string[] | undefined
+    >(ALLOW_VIEWER_WRITE_KEY, [context.getHandler(), context.getClass()]);
     this.blockViewerWrite(req.user, req, allowedViewerStatuses);
 
     const permission = this.reflector.get<RequiredPermission>(
@@ -223,7 +227,7 @@ export class PermissionGuard implements CanActivate {
 
     if (!hasPermission) {
       this.logger.warn(
-        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map(p => p.resource + ':' + p.actions.join(',')))}`,
+        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map((p) => p.resource + ':' + p.actions.join(',')))}`,
       );
       throw new ForbiddenException(
         `Access denied. Required: ${permission.resource}.${permission.action}`,

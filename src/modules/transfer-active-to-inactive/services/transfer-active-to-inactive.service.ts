@@ -31,6 +31,8 @@ import { AuditStatus } from '../../audit/enums/audit-status.enum';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
+import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -55,9 +57,47 @@ export class TransferActiveToInactiveService {
     private readonly berkasRepo: Repository<Berkas>,
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
+    private readonly arsipDinamisService: ArsipDinamisService,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   // ─── CREATE ────────────────────────────────────────────────────────────
+
+  /**
+   * Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+   * Dipakai di findAll untuk memastikan nama sekretaris tampil benar.
+   */
+  private async resolveSekretarisNames(
+    items: TransferActiveToInactiveEntity[],
+  ): Promise<void> {
+    // Cari item yang sekretarisName-nya berupa angka (persnum, bukan nama).
+    const needsResolve = items.filter(
+      (item) =>
+        item.sekretarisName && /^\d+$/.test(String(item.sekretarisName).trim()),
+    );
+    if (needsResolve.length === 0) return;
+
+    try {
+      const latestOrg = await this.orgDataService.findLatestOrg();
+      if (!latestOrg?.position_json) return;
+      const positions = latestOrg.position_json as any[];
+
+      for (const item of needsResolve) {
+        const pos = positions.find(
+          (p) =>
+            p.persnum_person != null &&
+            String(p.persnum_person) === String(item.sekretarisName),
+        );
+        if (pos?.persnum_person_text) {
+          item.sekretarisName = pos.persnum_person_text;
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Failed to resolve sekretaris names from org_data: ${e?.message}`,
+      );
+    }
+  }
 
   async create(
     dto: CreateTransferDto,
@@ -319,6 +359,10 @@ export class TransferActiveToInactiveService {
     const userId = Number(user.persnum);
     const today = new Date().toISOString().split('T')[0];
 
+    // Evaluasi retensi on-demand: berkas yang retensinya habis langsung
+    // tersedia untuk dipindahkan, tanpa menunggu cron 2AM.
+    await this.arsipDinamisService.tutupBerkasRetensiHabis();
+
     // Cek role: ADMIN/SUPERADMIN lihat semua berkas, USER hanya miliknya.
     // Konsisten dengan getGabungan() — tanpa bypass ini, admin/superadmin
     // yang login sebagai sekretaris tidak melihat arsip dummy (persnum ≠
@@ -351,7 +395,7 @@ export class TransferActiveToInactiveService {
     // 2. Ambil semua usulan yang belum Selesai (arsipIds JSON berisi id arsip)
     const activeUsulan = await this.repo
       .createQueryBuilder('t')
-      .select(['t.id', 't.arsip_ids', 't.arsip_id', 't.status'])
+      .select(['t.id', 't.arsipIds', 't.arsipId', 't.status'])
       .where('t.status != :s', { s: TransferActiveToInactiveStatus.SELESAI })
       .andWhere('t.sekretaris_persnum = :p', { p: userId })
       .getMany();
@@ -383,6 +427,92 @@ export class TransferActiveToInactiveService {
   }
 
   /**
+   * Auto-integrasi retensi: berkas yang statusnya closed_retensi_aktif dan
+   * belum punya usulan pemindahan apa pun → langsung dibuatkan usulan DRAFT
+   * otomatis (atasan masih kosong, diisi user lewat tombol "Kirim").
+   * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
+   */
+  async syncDraftUsulanOtomatis(): Promise<number> {
+    // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis. Berkas
+    // closed_retensi_aktif dengan retensi masih berlaku (mis. "Sejak Berkas
+    // Ditutup", tanggal berakhir di masa depan) belum waktunya dipindahkan.
+    const today = new Date().toISOString().split('T')[0];
+    const berkasList = await this.berkasRepo
+      .createQueryBuilder('b')
+      .where('b.deleted_at IS NULL')
+      .andWhere('b.status = :status', {
+        status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+      })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
+      .getMany();
+    if (berkasList.length === 0) return 0;
+
+    // Semua arsip yang sudah terdaftar di usulan (status apapun, termasuk
+    // SELESAI — berkas yang pernah diusulkan tidak di-draft ulang).
+    // NOTE: select() pakai nama PROPERTI (bukan kolom) agar TypeORM memetakannya.
+    const usulans = await this.repo
+      .createQueryBuilder('t')
+      .select(['t.id', 't.arsipId', 't.arsipIds'])
+      .getMany();
+    const arsipSudahUsulan = new Set<string>();
+    for (const u of usulans) {
+      if (u.arsipIds && Array.isArray(u.arsipIds)) {
+        for (const a of u.arsipIds) arsipSudahUsulan.add(a.id);
+      }
+      arsipSudahUsulan.add(u.arsipId);
+    }
+
+    let count = 0;
+    for (const b of berkasList) {
+      if (arsipSudahUsulan.has(b.id)) continue;
+
+      // Insert SQL mentah dengan kolom EKSPLISIT: repo.save()/insert() TypeORM
+      // meng-generate SEMUA kolom entity (yang tidak diisi jadi DEFAULT) dan
+      // gagal bila tabel DB ketinggalan kolom entity (mis. kolom penataan).
+      await this.repo.manager.query(
+        `INSERT INTO transfer_active_to_inactive
+          (id, nomor_usulan, tgl_usulan, sekretaris_persnum, sekretaris_name,
+           atasan_persnum, atasan_name, atasan_position_id,
+           current_approval_level, total_approval_levels,
+           arsip_id, arsip_perihal, arsip_kode, tgl_retensi_aktif_habis,
+           arsip_ids, keterangan, status)
+         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          await this.generateNomorUsulan(),
+          new Date(),
+          Number(b.createdBy) || Number(b.picPersnum) || 0,
+          String(b.picPersnum ?? b.createdBy ?? ''),
+          // Atasan dilengkapi user saat mengirim (kolom NOT NULL, sentinel dulu)
+          0,
+          '-',
+          null,
+          0,
+          0,
+          b.id,
+          b.judulBerkas,
+          b.kodeBerkas,
+          b.tanggalRetensiAktifBerakhir ?? null,
+          JSON.stringify([
+            {
+              id: b.id,
+              perihal: b.judulBerkas,
+              kode: b.kodeBerkas ?? null,
+              tanggalRetensiHabis: b.tanggalRetensiAktifBerakhir ?? null,
+            },
+          ]),
+          'Dibuat otomatis: masa retensi aktif berkas telah habis',
+          TransferActiveToInactiveStatus.DRAFT,
+        ],
+      );
+      // Cegah duplikat dalam satu run
+      arsipSudahUsulan.add(b.id);
+      count++;
+    }
+    return count;
+  }
+
+  /**
    * Tabel gabungan: arsip Tertutup dari Berkas Saya (belum jadi usulan)
    * + usulan pemindahan yang sudah dibuat.
    * Return satu array dengan flag isUsulan.
@@ -390,6 +520,11 @@ export class TransferActiveToInactiveService {
   async getGabungan(user: any, filter?: { search?: string; status?: string }) {
     const userId = Number(user.persnum);
     const search = filter?.search?.trim() || '';
+
+    // Evaluasi retensi on-demand: status berkas di tabel gabungan selalu segar.
+    await this.arsipDinamisService.tutupBerkasRetensiHabis();
+    // Auto-integrasi: berkas yang retensinya habis langsung jadi usulan DRAFT.
+    await this.syncDraftUsulanOtomatis();
 
     // Cek role: ADMIN/SUPERADMIN lihat semua, USER hanya miliknya
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
@@ -446,6 +581,12 @@ export class TransferActiveToInactiveService {
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      // Baris "belum jadi usulan" hanya untuk berkas yang retensi aktifnya
+      // sudah habis (konsisten dengan syncDraftUsulanOtomatis & findBerkasRetensiHabis).
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', {
+        today: new Date().toISOString().split('T')[0],
+      })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
@@ -595,6 +736,10 @@ export class TransferActiveToInactiveService {
     qb.skip(skip).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum.
+    await this.resolveSekretarisNames(data);
+
     return {
       data,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -1680,6 +1825,7 @@ export class TransferActiveToInactiveService {
     const year = new Date().getFullYear();
     const last = await this.repo
       .createQueryBuilder('t')
+      .select('t.nomorUsulan') // select eksplisit (nama properti) + hindari kolom entity yang belum ada di DB
       .where('t.nomor_usulan LIKE :p', { p: `UPAI/%/${year}` })
       .orderBy('t.nomor_usulan', 'DESC')
       .getOne();
