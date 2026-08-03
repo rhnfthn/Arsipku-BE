@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Like } from 'typeorm';
+import { Repository, DataSource, Like, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahShareEntity } from '../entities/naskah-share.entity';
 import { NaskahShareRecipientEntity } from '../entities/naskah-share-recipient.entity';
@@ -53,26 +53,40 @@ export class NaskahShareService {
   // ────────────────────────────────────────────────────────────────
 
   async createShare(user: JwtPayload, dto: CreateNaskahShareDto) {
-    // 1. Validasi naskah exists
-    const naskah = await this.naskahRepo.findOne({
-      where: { id: dto.naskahId },
-    });
-    if (!naskah) {
-      throw new NotFoundException('Naskah tidak ditemukan');
+    // Resolve naskahIds: support single (naskahId) dan multi (naskahIds)
+    const naskahIds = dto.naskahIds?.length
+      ? dto.naskahIds
+      : dto.naskahId
+        ? [dto.naskahId]
+        : [];
+    if (naskahIds.length === 0) {
+      throw new BadRequestException('naskahId atau naskahIds wajib diisi');
     }
 
-    // 2. Validasi pemberi memiliki akses ke naskah
-    const hasAccess = await this.sirkulasiRepo.findOne({
-      where: {
-        idNaskah: dto.naskahId,
-        position: user.position,
-      },
+    // 1. Validasi semua naskah exists
+    const naskahs = await this.naskahRepo.find({
+      where: { id: In(naskahIds) },
     });
-    this.logger.log(
-      `[createShare] Access check: naskahId=${dto.naskahId}, position=${user.position}, hasAccess=${!!hasAccess}`,
-    );
-    if (!hasAccess) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    if (naskahs.length !== naskahIds.length) {
+      const foundIds = new Set(naskahs.map((n) => n.id));
+      const missing = naskahIds.filter((id) => !foundIds.has(id));
+      throw new NotFoundException(`Naskah tidak ditemukan: ${missing.join(', ')}`);
+    }
+    const naskahMap = new Map(naskahs.map((n) => [n.id, n]));
+
+    // 2. Validasi pemberi memiliki akses ke SEMUA naskah
+    for (const naskahId of naskahIds) {
+      const hasAccess = await this.sirkulasiRepo.findOne({
+        where: {
+          idNaskah: naskahId,
+          position: user.position,
+        },
+      });
+      if (!hasAccess) {
+        throw new ForbiddenException(
+          `Anda tidak memiliki akses ke naskah ${naskahId}`,
+        );
+      }
     }
 
     // 3. Validasi penerima tidak include pemberi sendiri
@@ -88,25 +102,30 @@ export class NaskahShareService {
       throw new BadRequestException('Tidak ada penerima valid yang ditemukan');
     }
 
-    // 5. Validasi penerima tidak duplikat
+    // 5. Validasi penerima tidak duplikat (per naskah)
     const existingShares = await this.shareRepo.find({
-      where: { naskahId: dto.naskahId, status: ShareStatus.AKTIF },
+      where: { naskahId: In(naskahIds), status: ShareStatus.AKTIF },
       relations: ['recipients'],
     });
-    const existingRecipientPositions = existingShares.flatMap((s) =>
-      s.recipients.map((r) => r.recipientId),
-    );
-    const duplicates = recipients.filter((r) =>
-      existingRecipientPositions.includes(r.id),
-    );
-    if (duplicates.length > 0) {
-      throw new BadRequestException(
-        `${duplicates.map((d) => d.nama).join(', ')} sudah menerima share naskah ini`,
+    const existingByNaskah = new Map<string, string[]>();
+    for (const s of existingShares) {
+      const positions = s.recipients.map((r) => r.recipientId);
+      existingByNaskah.set(s.naskahId, positions);
+    }
+    for (const naskahId of naskahIds) {
+      const existingPositions = existingByNaskah.get(naskahId) || [];
+      const duplicates = recipients.filter((r) =>
+        existingPositions.includes(r.id),
       );
+      if (duplicates.length > 0) {
+        const naskah = naskahMap.get(naskahId);
+        throw new BadRequestException(
+          `${duplicates.map((d) => d.nama).join(', ')} sudah menerima share naskah "${naskah?.perihal || naskahId}"`,
+        );
+      }
     }
 
-    // 6. Create share + recipients + log dalam transaction
-    const shareId = uuidv4();
+    // 6. Create share + recipients + log dalam transaction (untuk setiap naskah)
     const accessType =
       (dto.accessType as ShareAccessType) || ShareAccessType.RENTANG_WAKTU;
     let expiresAt: Date | null = null;
@@ -118,53 +137,73 @@ export class NaskahShareService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    const createdShares: any[] = [];
+
     try {
-      const share = this.shareRepo.create({
-        id: shareId,
-        naskahId: dto.naskahId,
-        pemberiId: user.position,
-        pemberiPersnum: user.persnum,
-        pemberiNama: user.nama,
-        pemberiPositionText: user.positionText,
-        catatan: dto.catatan || null,
-        accessType,
-        durationDays:
-          accessType === ShareAccessType.RENTANG_WAKTU
-            ? dto.durationDays || null
-            : null,
-        expiresAt,
-        status: ShareStatus.AKTIF,
-      });
-      await queryRunner.manager.save(share);
+      for (const naskahId of naskahIds) {
+        const naskah = naskahMap.get(naskahId)!;
+        const shareId = uuidv4();
 
-      // Create recipient records
-      const recipientEntities = recipients.map((r) =>
-        this.recipientRepo.create({
-          id: uuidv4(),
-          shareId,
-          recipientId: r.id,
-          recipientPersnum: r.persnum,
-          recipientNama: r.nama,
-          recipientPositionText: r.positionText,
-          recipientOrgText: r.organizationText,
-          status: RecipientStatus.TERKIRIM,
-        }),
-      );
-      await queryRunner.manager.save(recipientEntities);
-
-      // Log audit trail
-      await queryRunner.manager.save(
-        this.logRepo.create({
-          id: uuidv4(),
-          shareId,
-          naskahId: dto.naskahId,
-          aksi: ShareLogAksi.SHARE,
-          actorPersnum: user.persnum,
-          actorNama: user.nama,
-          actorPositionText: user.positionText,
+        const share = this.shareRepo.create({
+          id: shareId,
+          naskahId,
+          pemberiId: user.position,
+          pemberiPersnum: user.persnum,
+          pemberiNama: user.nama,
+          pemberiPositionText: user.positionText,
           catatan: dto.catatan || null,
-        }),
-      );
+          accessType,
+          durationDays:
+            accessType === ShareAccessType.RENTANG_WAKTU
+              ? dto.durationDays || null
+              : null,
+          expiresAt,
+          status: ShareStatus.AKTIF,
+        });
+        await queryRunner.manager.save(share);
+
+        // Create recipient records
+        const recipientEntities = recipients.map((r) =>
+          this.recipientRepo.create({
+            id: uuidv4(),
+            shareId,
+            recipientId: r.id,
+            recipientPersnum: r.persnum,
+            recipientNama: r.nama,
+            recipientPositionText: r.positionText,
+            recipientOrgText: r.organizationText,
+            status: RecipientStatus.TERKIRIM,
+          }),
+        );
+        await queryRunner.manager.save(recipientEntities);
+
+        // Log audit trail
+        await queryRunner.manager.save(
+          this.logRepo.create({
+            id: uuidv4(),
+            shareId,
+            naskahId,
+            aksi: ShareLogAksi.SHARE,
+            actorPersnum: user.persnum,
+            actorNama: user.nama,
+            actorPositionText: user.positionText,
+            catatan: dto.catatan || null,
+          }),
+        );
+
+        createdShares.push({
+          id: shareId,
+          naskahId,
+          naskahPerihal: naskah.perihal || '',
+          recipients: recipientEntities.map((r) => ({
+            id: r.id,
+            recipientId: r.recipientId,
+            nama: r.recipientNama,
+            positionText: r.recipientPositionText,
+            status: r.status,
+          })),
+        });
+      }
 
       await queryRunner.commitTransaction();
 
@@ -176,14 +215,16 @@ export class NaskahShareService {
               positionId: recipient.id,
               userPersnum: recipient.persnum,
               type: NotificationType.NASKAH_SHARE_DITERIMA,
-              title: `Anda mendapat akses naskah dari ${user.nama}`,
+              title: `Anda mendapat akses ${naskahIds.length} naskah dari ${user.nama}`,
               body:
-                naskah.perihal || dto.catatan || 'Lihat detail di menu Berbagi',
+                naskahs.map((n) => n.perihal).filter(Boolean).join(', ') ||
+                dto.catatan ||
+                'Lihat detail di menu Berbagi',
               data: {
-                naskahId: dto.naskahId,
-                shareId,
+                naskahId: naskahIds[0],
+                shareId: createdShares[0]?.id,
                 pemberiName: user.nama,
-                perihal: naskah.perihal || '',
+                perihal: naskahs.map((n) => n.perihal).filter(Boolean).join(', ') || '',
                 action: 'OPEN_SHARE',
               },
             },
@@ -199,23 +240,19 @@ export class NaskahShareService {
       return {
         success: true,
         statusCode: 201,
-        message: 'Naskah berhasil dibagikan',
+        message:
+          naskahIds.length > 1
+            ? `${naskahIds.length} naskah berhasil dibagikan`
+            : 'Naskah berhasil dibagikan',
         data: {
-          id: shareId,
-          naskahId: dto.naskahId,
+          shares: createdShares,
+          count: createdShares.length,
           pemberiId: user.position,
           status: ShareStatus.AKTIF,
           accessType,
-          durationDays: share.durationDays,
-          expiresAt: share.expiresAt,
+          durationDays: dto.durationDays || null,
+          expiresAt,
           createdAt: new Date(),
-          recipients: recipientEntities.map((r) => ({
-            id: r.id,
-            recipientId: r.recipientId,
-            nama: r.recipientNama,
-            positionText: r.recipientPositionText,
-            status: r.status,
-          })),
         },
       };
     } catch (error) {
@@ -240,54 +277,10 @@ export class NaskahShareService {
       `[getShares] tab=${tab}, position=${user.position}, page=${page}, limit=${limit}`,
     );
 
-    // Auto-fix legacy data: migrate old enum values to new ones
-    // Share: DICABUT → BERAKHIR
-    await this.shareRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: ShareStatus.BERAKHIR })
-      .where('status = :legacy', { legacy: 'DICABUT' })
-      .execute()
-      .catch(() => {});
-
-    // Recipient: DICABUT → BERAKHIR, BELUM_DIBACA → TERKIRIM, DIBUKA → DIBACA
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.BERAKHIR })
-      .where('status = :legacy', { legacy: 'DICABUT' })
-      .execute()
-      .catch(() => {});
-
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.TERKIRIM })
-      .where('status = :legacy', { legacy: 'BELUM_DIBACA' })
-      .execute()
-      .catch(() => {});
-
-    await this.recipientRepo
-      .createQueryBuilder()
-      .update()
-      .set({ status: RecipientStatus.DIBACA })
-      .where('status = :legacy', { legacy: 'DIBUKA' })
-      .execute()
-      .catch(() => {});
-
-    // Auto-expire: mark expired shares as BERAKHIR BEFORE querying
-    await this.shareRepo
-      .createQueryBuilder()
-      .update()
-      .set({
-        status: ShareStatus.BERAKHIR,
-        revokedAt: new Date(),
-        revokedReason: 'Akses kedaluwarsa',
-      })
-      .where('status = :aktif', { aktif: ShareStatus.AKTIF })
-      .andWhere('expiresAt IS NOT NULL')
-      .andWhere('expiresAt < :now', { now: new Date() })
-      .execute();
+    // NOTE: Legacy enum migration (DICABUT→BERAKHIR, BELUM_DIBACA→TERKIRIM, DIBUKA→DIBACA)
+    // dan auto-expire sudah dihapus dari getShares untuk menghindari 5 UPDATE query
+    // per request. Migrasi enum dilakukan sekali via script migrate-share-enums.ts.
+    // Auto-expire ditangani lazy di getShareDetail() dan openNaskah().
 
     const qb = this.shareRepo
       .createQueryBuilder('share')
@@ -391,6 +384,11 @@ export class NaskahShareService {
       shares.map(async (share) => {
         const naskah = naskahMap.get(share.naskahId);
 
+        // In-memory auto-expire: jika AKTIF tapi sudah lewat expiresAt, tampilkan BERAKHIR
+        const isExpired = share.status === ShareStatus.AKTIF &&
+          share.expiresAt &&
+          new Date() > new Date(share.expiresAt);
+
         return {
           id: share.id,
           naskahId: share.naskahId,
@@ -404,7 +402,7 @@ export class NaskahShareService {
           accessType: share.accessType,
           durationDays: share.durationDays,
           expiresAt: share.expiresAt,
-          status: share.status,
+          status: isExpired ? ShareStatus.BERAKHIR : share.status,
           createdAt: share.createdAt,
           recipients: share.recipients.map((r) => ({
             id: r.id,
@@ -965,6 +963,7 @@ export class NaskahShareService {
 
     return { success: true, data: results };
   }
+
 
   // ────────────────────────────────────────────────────────────────
   // Helpers
