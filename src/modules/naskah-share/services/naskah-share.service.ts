@@ -791,6 +791,12 @@ export class NaskahShareService {
       }
 
       // Log audit trail
+      await this.logRepo.save(
+        this.logRepo.create({
+          id: uuidv4(),
+          shareId: id,
+          naskahId: share.naskahId,
+          aksi: ShareLogAksi.OPENED,
           actorPersnum: user.persnum,
           actorNama: user.nama,
           actorPositionText: user.positionText,
