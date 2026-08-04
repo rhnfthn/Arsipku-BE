@@ -281,6 +281,8 @@ export class TransferActiveToInactiveService {
       item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN;
       item.rejectedNote = null;
       item.currentApprovalLevel = 1;
+      // Reset tanggal usulan ke sekarang agar muncul di paling atas tabel
+      item.tanggalUsulan = new Date();
     }
 
     const saved = await this.repo.save(item);
@@ -427,24 +429,18 @@ export class TransferActiveToInactiveService {
   }
 
   /**
-   * Auto-integrasi retensi: berkas yang statusnya closed_retensi_aktif dan
-   * belum punya usulan pemindahan apa pun → langsung dibuatkan usulan DRAFT
+   * Auto-integrasi: berkas yang statusnya closed_retensi_aktif dan belum
+   * punya usulan pemindahan apa pun → langsung dibuatkan usulan DRAFT
    * otomatis (atasan masih kosong, diisi user lewat tombol "Kirim").
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
   async syncDraftUsulanOtomatis(): Promise<number> {
-    // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis. Berkas
-    // closed_retensi_aktif dengan retensi masih berlaku (mis. "Sejak Berkas
-    // Ditutup", tanggal berakhir di masa depan) belum waktunya dipindahkan.
-    const today = new Date().toISOString().split('T')[0];
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
       .andWhere('b.status = :status', {
         status: StatusBerkas.CLOSED_RETENSI_AKTIF,
       })
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .getMany();
     if (berkasList.length === 0) return 0;
 
@@ -565,7 +561,7 @@ export class TransferActiveToInactiveService {
       }
     }
 
-    // 2. Ambil berkas Tertutup retensi habis yang BELUM masuk usulan apapun
+    // 2. Ambil berkas Tertutup yang BELUM masuk usulan apapun
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
@@ -581,12 +577,6 @@ export class TransferActiveToInactiveService {
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
-      // Baris "belum jadi usulan" hanya untuk berkas yang retensi aktifnya
-      // sudah habis (konsisten dengan syncDraftUsulanOtomatis & findBerkasRetensiHabis).
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', {
-        today: new Date().toISOString().split('T')[0],
-      })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
@@ -646,17 +636,20 @@ export class TransferActiveToInactiveService {
         atasanName: u.atasanName,
         status: u.status,
         tanggal: u.tanggalUsulan,
+        updatedAt: u.updatedAt,
         currentApprovalLevel: u.currentApprovalLevel,
         totalApprovalLevels: u.totalApprovalLevels,
       });
     }
 
-    // Sort: usulan (by tanggal DESC) dulu, lalu arsip belum usulan (by retensi ASC)
+    // Sort: usulan (by updatedAt DESC) dulu, lalu arsip belum usulan (by retensi ASC)
     rows.sort((a, b) => {
       if (a.isUsulan && !b.isUsulan) return -1;
       if (!a.isUsulan && b.isUsulan) return 1;
       if (a.isUsulan) {
-        return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
+        const aTime = new Date((a as any).updatedAt ?? a.tanggal).getTime();
+        const bTime = new Date((b as any).updatedAt ?? b.tanggal).getTime();
+        return bTime - aTime;
       }
       return new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
     });
@@ -677,16 +670,28 @@ export class TransferActiveToInactiveService {
       // Cek apakah user ini pernah dipilih sebagai atasan managerial
       const isAtasan = await this.isAtasanManagerial(user);
       if (isAtasan) {
-        // User adalah atasan managerial: tampilkan usulan yang ditujukan ke dia
-        // (di salah satu level approval)
-        const transferIds = await this.levelRepo
+        // User adalah atasan managerial: tampilkan usulan yang SUDAH giliran dia
+        // (currentApprovalLevel = urutan dia di transfer_approval_levels)
+        // + usulan miliknya sebagai sekretaris
+        const myLevels = await this.levelRepo
           .createQueryBuilder('l')
-          .select('l.transfer_id', 'transferId')
+          .select(['l.transfer_id AS transferId', 'l.urutan AS urutan'])
           .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
           .getRawMany();
-        const ids = transferIds.map((r) => r.transferId);
-        if (ids.length > 0) {
-          qb.andWhere('t.id IN (:...ids)', { ids });
+        // Filter usulan di mana currentApprovalLevel = urutan dia
+        const readyIds = myLevels
+          .filter((r) => r.urutan !== null)
+          .map((r) => r.transferId);
+        if (readyIds.length > 0) {
+          // Usulan yang sudah giliran dia (currentApprovalLevel = urutan dia)
+          qb.andWhere(
+            '(t.id IN (:...readyIds) AND t.current_approval_level IN (:...myUrutans)) OR t.sekretaris_persnum = :p',
+            {
+              readyIds,
+              myUrutans: myLevels.map((r) => r.urutan),
+              p: Number(user.persnum),
+            },
+          );
         } else {
           // Tidak punya usulan sebagai atasan → hanya lihat miliknya sebagai sekretaris
           qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
@@ -696,16 +701,21 @@ export class TransferActiveToInactiveService {
         qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
       }
     } else if (roleName === 'ADMIN' || roleName === 'SUPERADMIN') {
-      // Atasan Managerial: tampilkan usulan yang ditujukan ke dia
-      // (di salah satu level approval)
-      const transferIds = await this.levelRepo
+      // Atasan Managerial: tampilkan usulan yang SUDAH giliran dia
+      // (currentApprovalLevel = urutan dia di transfer_approval_levels)
+      const myLevels = await this.levelRepo
         .createQueryBuilder('l')
-        .select('l.transfer_id', 'transferId')
+        .select(['l.transfer_id AS transferId', 'l.urutan AS urutan'])
         .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
         .getRawMany();
-      const ids = transferIds.map((r) => r.transferId);
-      if (ids.length > 0) {
-        qb.andWhere('t.id IN (:...ids)', { ids });
+      const readyIds = myLevels
+        .filter((r) => r.urutan !== null)
+        .map((r) => r.transferId);
+      if (readyIds.length > 0) {
+        qb.andWhere(
+          't.id IN (:...readyIds) AND t.current_approval_level IN (:...myUrutans)',
+          { readyIds, myUrutans: myLevels.map((r) => r.urutan) },
+        );
       } else {
         // Tidak punya usulan sebagai atasan → kosong
         qb.andWhere('1 = 0');
@@ -796,6 +806,8 @@ export class TransferActiveToInactiveService {
     item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_ATASAN;
     item.rejectedNote = null;
     item.currentApprovalLevel = 1;
+    // Reset tanggal usulan ke sekarang agar muncul di paling atas tabel
+    item.tanggalUsulan = new Date();
     // Reset semua level ke MENUNGGU
     await this.levelRepo
       .createQueryBuilder()
@@ -919,6 +931,8 @@ export class TransferActiveToInactiveService {
       // Atasan terakhir → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
       // Atasan perlu verifikasi terakhir (dengan Daftar Isi + BA) sebelum kirim ke TU
       item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
+      // Reset currentApprovalLevel ke 1 — verifikasi final dilakukan oleh atasan level 1
+      item.currentApprovalLevel = 1;
       item.approvedBy = Number(user.persnum);
       item.approvedAt = new Date();
       item.verifyNote = dto.verifyNote ?? null;
@@ -930,11 +944,29 @@ export class TransferActiveToInactiveService {
         saved.status,
         `Persetujuan level ${currentLevel.urutan} oleh ${currentLevel.atasanName} — menunggu verifikasi terakhir`,
       );
+      // Notifikasi atasan level 1 untuk verifikasi final (Pindah Usulan)
+      const firstLevel = await this.getLevel(item.id, 1);
+      if (firstLevel) {
+        // Update kolom legacy atasan ke atasan level 1
+        item.atasanPersnum = firstLevel.atasanPersnum;
+        item.atasanName = firstLevel.atasanName;
+        item.atasanPositionId = firstLevel.atasanPositionId;
+        await this.repo.save(item);
+        await this.notify(
+          saved,
+          firstLevel.atasanPositionId != null
+            ? String(firstLevel.atasanPositionId)
+            : null,
+          firstLevel.atasanPersnum,
+          'Verifikasi Terakhir Usulan Pemindahan Arsip Aktif ke Inaktif',
+        );
+      }
+      // Notifikasi sekretaris bahwa semua atasan sudah approve
       await this.notify(
         saved,
         null,
         saved.sekretarisPersnum,
-        'Usulan disetujui atasan, menunggu verifikasi terakhir',
+        'Usulan disetujui semua atasan, menunggu verifikasi terakhir oleh atasan pertama',
       );
       return saved;
     }
@@ -1028,6 +1060,13 @@ export class TransferActiveToInactiveService {
     if (item.sekretarisPersnum === Number(user.persnum)) {
       throw new BadRequestException(
         'Atasan tidak boleh memverifikasi usulan yang dibuat sendiri sebagai Sekretaris',
+      );
+    }
+    // Hanya atasan level 1 (urutan=1) yang bisa verifikasi final
+    const firstLevel = await this.getLevel(id, 1);
+    if (!firstLevel || firstLevel.atasanPersnum !== Number(user.persnum)) {
+      throw new BadRequestException(
+        'Hanya atasan pertama yang dapat melakukan verifikasi terakhir',
       );
     }
     const old = item.status;
@@ -1206,9 +1245,13 @@ export class TransferActiveToInactiveService {
         .update(Berkas)
         .set({ status: StatusBerkas.RETAIL_INAKTIF })
         .where('id IN (:...ids)', { ids: berkasIds })
-        .andWhere('status = :status', { status: StatusBerkas.CLOSED_RETENSI_AKTIF })
+        .andWhere('status = :status', {
+          status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        })
         .execute();
-      this.logger.log(`Berkas status updated to retensi_inaktif for ${berkasIds.length} berkas.`);
+      this.logger.log(
+        `Berkas status updated to retensi_inaktif for ${berkasIds.length} berkas.`,
+      );
     }
 
     this.logAudit(
