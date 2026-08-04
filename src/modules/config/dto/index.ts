@@ -7,3 +7,4 @@ export {
   UpdateMessageDto,
   ToggleBannerDto,
 } from './message.dto';
+export { UpdateSearchConfigDto } from './update-search-config.dto';

@@ -7,6 +7,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { SearchV3Service } from '../services/search-v3.service';
+import { MeilisearchSearchService } from '../services/meilisearch-search.service';
 import { GlobalSearchDto, SearchV3ResponseDto } from '../dto/search-v3.dto';
 import {
   SearchSuggestionDto,
@@ -15,15 +16,15 @@ import {
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { ConfigSearchService } from '../../config/services/config-search.service';
+import { SearchEngineMode } from '../../config/entities/config-search.entity';
 
 /**
  * Controller for Search V3
  *
- * SQL-only search with Meilisearch-like features:
- * - Typo tolerance (LIKE-based)
- * - Relevance ranking
- * - Highlighting
- * - Faceted search
+ * Search engine yang bisa dikonfigurasi (superadmin):
+ * - mode 'v3'   → Search V3 (SQL-based, default)
+ * - mode 'meili' → Meilisearch (full-text, typo-tolerant)
  *
  * Endpoints:
  * - GET /search/v3 - Main search
@@ -32,13 +33,17 @@ import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 @Controller('search')
 @UseGuards(JwtAuthGuard)
 export class SearchV3Controller {
-  constructor(private readonly searchV3Service: SearchV3Service) {}
+  constructor(
+    private readonly searchV3Service: SearchV3Service,
+    private readonly meilisearchSearchService: MeilisearchSearchService,
+    private readonly configSearchService: ConfigSearchService,
+  ) {}
 
   /**
    * GET /search/v3
    *
-   * Search naskah with all filters and Meilisearch-like features.
-   * Same query parameters as /search/v2 (Meilisearch)
+   * Search naskah dengan semua filter. Mesin pencarian ditentukan oleh
+   * konfigurasi superadmin (mode 'v3' atau 'meili').
    *
    * @param dto - GlobalSearchDto with all filter options
    * @param user - JWT payload with user info
@@ -51,6 +56,17 @@ export class SearchV3Controller {
     @CurrentUser() user: JwtPayload,
   ): Promise<SearchV3ResponseDto> {
     const positionId = dto.position_id || user.position;
+
+    // Route ke Meilisearch jika mode aktif = meili
+    const mode = await this.configSearchService.getMode();
+    if (mode === SearchEngineMode.MEILI) {
+      return (await this.meilisearchSearchService.search(
+        dto,
+        positionId,
+        user.persnum,
+      )) as unknown as SearchV3ResponseDto;
+    }
+
     return this.searchV3Service.search(dto, positionId, user.persnum);
   }
 

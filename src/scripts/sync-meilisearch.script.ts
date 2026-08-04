@@ -29,6 +29,7 @@ interface NaskahRow {
   nomor: string | null;
   tanggal: Date;
   perihal: string | null;
+  konten: string | null;
   klasifikasi: string | null;
   lampiran: string | null;
   final_pdf: string | null;
@@ -50,6 +51,7 @@ interface SirkulasiRow {
 interface NaskahDocument {
   id: string;
   perihal: string | null;
+  konten: string | null;
   nomor: string | null;
   jenis: string;
   sifat: string;
@@ -139,6 +141,7 @@ async function bootstrap() {
     console.log('⚙️  Configuring index settings...');
     await index.updateSearchableAttributes([
       'perihal',
+      'konten',
       'searchable_text',
       'nomor',
       'pengirim_nama',
@@ -228,6 +231,7 @@ async function bootstrap() {
 
       const searchableText = [
         naskah.perihal,
+        naskah.konten,
         naskah.nomor,
         naskah.klasifikasi,
         pengirim?.nama_sirkuler,
@@ -242,6 +246,7 @@ async function bootstrap() {
       const doc: NaskahDocument = {
         id: naskah.id,
         perihal: naskah.perihal,
+        konten: naskah.konten,
         nomor: naskah.nomor,
         jenis: naskah.jenis,
         sifat: naskah.sifat,
