@@ -78,6 +78,11 @@ export class TuVerifikasiService {
 
     const [data, total] = await qb.getManyAndCount();
 
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+    // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
+    // alih-alih nama. Logika sama dengan transfer-active-to-inactive service.
+    await this.resolveSekretarisNames(data);
+
     return {
       data,
       meta: {
@@ -87,6 +92,41 @@ export class TuVerifikasiService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+   * Dipakai di findAllNotifikasi untuk memastikan nama sekretaris tampil benar.
+   */
+  private async resolveSekretarisNames(
+    items: TransferActiveToInactiveEntity[],
+  ): Promise<void> {
+    const needsResolve = items.filter(
+      (item) =>
+        item.sekretarisName && /^\d+$/.test(String(item.sekretarisName).trim()),
+    );
+    if (needsResolve.length === 0) return;
+
+    try {
+      const latestOrg = await this.orgDataService.findLatestOrg();
+      if (!latestOrg?.position_json) return;
+      const positions = latestOrg.position_json as any[];
+
+      for (const item of needsResolve) {
+        const pos = positions.find(
+          (p) =>
+            p.persnum_person != null &&
+            String(p.persnum_person) === String(item.sekretarisName),
+        );
+        if (pos?.persnum_person_text) {
+          item.sekretarisName = pos.persnum_person_text;
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Failed to resolve sekretaris names from org_data: ${e?.message}`,
+      );
+    }
   }
 
   /** Detail usulan untuk TU. */
@@ -373,6 +413,12 @@ export class TuVerifikasiService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+    // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
+    // alih-alih nama. Logika sama dengan findAllNotifikasi di service ini.
+    await this.resolveSekretarisNames(data);
+
     return {
       data,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
@@ -555,6 +601,12 @@ export class TuVerifikasiService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
+    // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
+    // alih-alih nama. Logika sama dengan findAllNotifikasi di service ini.
+    await this.resolveSekretarisNames(data);
+
     return {
       data,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
