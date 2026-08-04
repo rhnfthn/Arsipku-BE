@@ -28,6 +28,7 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { AtasanTuGuard } from '../guards/atasan-tu-guard';
 import { TuGuard } from '../guards/tu-guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { Public } from '../../../common/decorators/public.decorator';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import type { Response } from 'express';
 
@@ -139,6 +140,7 @@ export class TuPenataanController {
   }
 
   /** Ambil/preview foto lampiran penataan arsip (inline). */
+  @Public()
   @Get('foto')
   @ApiOperation({ summary: 'Ambil foto lampiran penataan arsip' })
   async getFotoPenataan(@Query('key') key: string, @Res() res: Response) {
