@@ -447,6 +447,7 @@ export class UsulanAksesBerkasService {
       pengusulPersnum: userPersnum,
       divisiPengusulId: userOrgId,
       divisiPemberiId,
+      judulUsulan: dto.judulUsulan,
       tujuanAkses: dto.tujuanAkses,
       durasiAkses: dto.durasiAkses,
       customTanggalSelesai: dto.customTanggalSelesai ? new Date(dto.customTanggalSelesai) : null,
@@ -478,6 +479,8 @@ export class UsulanAksesBerkasService {
     // - default: semua usulan yang user bisa lihat (pengusul + pemberi + verifikator)
     if (scope === 'mine') {
       qb.where('u.pengusulPersnum = :userPersnum', { userPersnum });
+      // Hide AKSES_DITERBITKAN from "Usulan Saya" — only visible in Pemberian page
+      qb.andWhere('u.status != :excludedStatus', { excludedStatus: StatusUsulan.AKSES_DITERBITKAN });
     } else if (scope === 'verify-pemberi') {
       qb.where('u.divisiPemberiId = :userOrgId', { userOrgId });
     } else if (scope === 'verify-me') {
@@ -497,16 +500,16 @@ export class UsulanAksesBerkasService {
       qb.andWhere('u.status = :status', { status });
     }
 
-    // Search: cari di nomorUsulan, tujuanAkses, jenisBerkas
+    // Search: cari di nomorUsulan, judulUsulan, tujuanAkses, jenisBerkas
     if (search) {
       qb.andWhere(
-        '(u.nomorUsulan LIKE :search OR u.tujuanAkses LIKE :search OR u.jenisBerkas LIKE :search)',
+        '(u.nomorUsulan LIKE :search OR u.judulUsulan LIKE :search OR u.tujuanAkses LIKE :search OR u.jenisBerkas LIKE :search)',
         { search: `%${search}%` },
       );
     }
 
     // Sort
-    const allowedSortFields = ['nomorUsulan', 'jenisBerkas', 'tujuanAkses', 'durasiAkses', 'status', 'createdAt', 'updatedAt'];
+    const allowedSortFields = ['nomorUsulan', 'judulUsulan', 'jenisBerkas', 'tujuanAkses', 'durasiAkses', 'status', 'createdAt', 'updatedAt'];
     const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'updatedAt';
     const sortDirection = sortDir === 'asc' ? 'ASC' : 'DESC';
     qb.orderBy(`u.${sortField}`, sortDirection);
@@ -739,6 +742,20 @@ export class UsulanAksesBerkasService {
       return step;
     });
 
+    // Enrich penerima akses tambahan dengan nama & jabatan
+    const enrichedPenerimaTambahan = (usulan.penerimaAksesTambahan || []).map((persnum: number) => {
+      const person = personMap.get(Number(persnum));
+      if (person) {
+        return {
+          persnum,
+          nama: person.persnum_person_text,
+          jabatan: person.position_text,
+          divisiNama: person.organization_text,
+        };
+      }
+      return { persnum, nama: null, jabatan: null, divisiNama: null };
+    });
+
     return {
       ...usulan,
       steps: enrichedSteps,
@@ -748,6 +765,7 @@ export class UsulanAksesBerkasService {
       divisiPemberiNama,
       verifikatorPengusul: enrichedVerifikatorPengusul,
       verifikatorPemberi: enrichedVerifikatorPemberi,
+      penerimaAksesTambahan: enrichedPenerimaTambahan,
       isViewedByMe: !!(usulan.viewedBy && (usulan.viewedBy as Record<string, string>)[String(user.persnum)]),
     };
   }
@@ -1306,6 +1324,9 @@ export class UsulanAksesBerkasService {
           klasifikasi: berkas?.klasifikasi || null,
           klasifikasiTeks: berkas?.klasifikasiTeks || null,
           lokasi: berkas?.lokasi || null,
+          // Info dari usulan (judul usulan & jenis berkas)
+          judulUsulan: usulan?.judulUsulan || null,
+          jenisBerkas: usulan?.jenisBerkas || null,
           // Gabungkan permissions dari semua entitlement untuk berkas ini
           permissions: [...new Set([...(e.permissions || [])])],
           // Ambil tanggalMulai terbaru dan tanggalSelesai terlama
