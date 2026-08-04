@@ -33,6 +33,8 @@ export class UsulanAksesBerkasEntity {
   @Column('int') divisiPemberiId: number; // organization_id divisi pemberi (auto Corporate Secretary jika INAKTIF)
 
   // ── Detail Usulan ──────────────────────────────────────────────
+  @Column('varchar', { length: 255, nullable: true })
+  judulUsulan: string | null; // judul usulan (opsional)
   @Column('text') tujuanAkses: string;
   @Column({ type: 'enum', enum: DurasiPreset })
   durasiAkses: DurasiPreset; // usulan dari pengusul
