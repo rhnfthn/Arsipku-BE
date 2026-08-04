@@ -19,6 +19,7 @@ import { SearchV3Service } from './services/search-v3.service';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { LabelEntity, NaskahLabelEntity } from '../label/entities';
+import { ConfigAdminModule } from '../config/config.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { LabelEntity, NaskahLabelEntity } from '../label/entities';
       LabelEntity,
       NaskahLabelEntity,
     ]),
+    ConfigAdminModule,
   ],
   controllers: [
     GlobalSearchController, // /search (SQL-based)
