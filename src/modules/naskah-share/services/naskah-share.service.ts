@@ -70,7 +70,9 @@ export class NaskahShareService {
     if (naskahs.length !== naskahIds.length) {
       const foundIds = new Set(naskahs.map((n) => n.id));
       const missing = naskahIds.filter((id) => !foundIds.has(id));
-      throw new NotFoundException(`Naskah tidak ditemukan: ${missing.join(', ')}`);
+      throw new NotFoundException(
+        `Naskah tidak ditemukan: ${missing.join(', ')}`,
+      );
     }
     const naskahMap = new Map(naskahs.map((n) => [n.id, n]));
 
@@ -217,14 +219,21 @@ export class NaskahShareService {
               type: NotificationType.NASKAH_SHARE_DITERIMA,
               title: `Anda mendapat akses ${naskahIds.length} naskah dari ${user.nama}`,
               body:
-                naskahs.map((n) => n.perihal).filter(Boolean).join(', ') ||
+                naskahs
+                  .map((n) => n.perihal)
+                  .filter(Boolean)
+                  .join(', ') ||
                 dto.catatan ||
                 'Lihat detail di menu Berbagi',
               data: {
                 naskahId: naskahIds[0],
                 shareId: createdShares[0]?.id,
                 pemberiName: user.nama,
-                perihal: naskahs.map((n) => n.perihal).filter(Boolean).join(', ') || '',
+                perihal:
+                  naskahs
+                    .map((n) => n.perihal)
+                    .filter(Boolean)
+                    .join(', ') || '',
                 action: 'OPEN_SHARE',
               },
             },
@@ -328,13 +337,14 @@ export class NaskahShareService {
     // Skip SEKALI_LIHAT — those only change on actual open
     if (tab === 'shared-to-me') {
       const unreadShareIds = shares
-        .filter((s) =>
-          s.accessType !== ShareAccessType.SEKALI_LIHAT &&
-          s.recipients.some(
-            (r) =>
-              r.recipientId === user.position &&
-              r.status === RecipientStatus.TERKIRIM,
-          ),
+        .filter(
+          (s) =>
+            s.accessType !== ShareAccessType.SEKALI_LIHAT &&
+            s.recipients.some(
+              (r) =>
+                r.recipientId === user.position &&
+                r.status === RecipientStatus.TERKIRIM,
+            ),
         )
         .map((s) => s.id);
 
@@ -384,7 +394,8 @@ export class NaskahShareService {
         const naskah = naskahMap.get(share.naskahId);
 
         // In-memory auto-expire: show BERAKHIR if past expiresAt (no DB write)
-        const isExpired = share.status === ShareStatus.AKTIF &&
+        const isExpired =
+          share.status === ShareStatus.AKTIF &&
           share.expiresAt &&
           new Date() > new Date(share.expiresAt);
 
@@ -719,7 +730,11 @@ export class NaskahShareService {
     }
 
     // Check expiry for time-limited shares (pemberi always allowed)
-    if (!isPemberi && share.accessType === ShareAccessType.RENTANG_WAKTU && share.expiresAt) {
+    if (
+      !isPemberi &&
+      share.accessType === ShareAccessType.RENTANG_WAKTU &&
+      share.expiresAt
+    ) {
       if (new Date() > new Date(share.expiresAt)) {
         throw new BadRequestException('Akses share sudah kedaluwarsa');
       }
@@ -775,7 +790,8 @@ export class NaskahShareService {
         // If all recipients BERAKHIR → close the entire share
         const allRevoked = share.recipients.every(
           (r) =>
-            r.id === recipientRecord.id || r.status === RecipientStatus.BERAKHIR,
+            r.id === recipientRecord.id ||
+            r.status === RecipientStatus.BERAKHIR,
         );
         if (allRevoked) {
           share.status = ShareStatus.BERAKHIR;
@@ -791,6 +807,12 @@ export class NaskahShareService {
       }
 
       // Log audit trail
+      await this.logRepo.save(
+        this.logRepo.create({
+          id: uuidv4(),
+          shareId: id,
+          naskahId: share.naskahId,
+          aksi: ShareLogAksi.OPENED,
           actorPersnum: user.persnum,
           actorNama: user.nama,
           actorPositionText: user.positionText,
@@ -868,7 +890,10 @@ export class NaskahShareService {
 
     // Only update if still TERKIRIM
     // Skip SEKALI_LIHAT — status should only change when actually opening the PDF
-    if (recipientRecord.status === RecipientStatus.TERKIRIM && share.accessType !== ShareAccessType.SEKALI_LIHAT) {
+    if (
+      recipientRecord.status === RecipientStatus.TERKIRIM &&
+      share.accessType !== ShareAccessType.SEKALI_LIHAT
+    ) {
       recipientRecord.status = RecipientStatus.DIBACA;
       await this.recipientRepo.save(recipientRecord);
     }
@@ -956,7 +981,6 @@ export class NaskahShareService {
 
     return { success: true, data: results };
   }
-
 
   // ────────────────────────────────────────────────────────────────
   // Helpers

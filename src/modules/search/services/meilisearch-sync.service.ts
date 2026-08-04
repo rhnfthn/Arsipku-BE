@@ -157,6 +157,7 @@ export class MeilisearchSyncService {
     // Build searchable text (combine all text fields for full-text search)
     const searchableText = [
       naskah.perihal,
+      naskah.konten,
       naskah.nomor,
       naskah.klasifikasi,
       pengirim?.namaSirkuler,
@@ -171,6 +172,7 @@ export class MeilisearchSyncService {
     const doc: NaskahDocument = {
       id: naskah.id,
       perihal: naskah.perihal,
+      konten: naskah.konten,
       nomor: naskah.nomor,
       jenis: naskah.jenis,
       sifat: naskah.sifat,
