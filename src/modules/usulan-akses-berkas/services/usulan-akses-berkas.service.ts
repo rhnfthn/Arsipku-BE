@@ -587,7 +587,11 @@ export class UsulanAksesBerkasService {
     const isVerifikatorPemberi = (usulan.verifikatorPemberi || []).some(
       (v: any) => Number(v.persnum) === userPersnum,
     );
-    if (!isPengusul && !isPemberiDivisi && !isVerifikatorPengusul && !isVerifikatorPemberi) {
+    // Penerima akses tambahan — user yang terdaftar di penerimaAksesTambahan
+    const isPenerimaTambahan = (usulan.penerimaAksesTambahan || []).some(
+      (p: any) => Number(p) === userPersnum,
+    );
+    if (!isPengusul && !isPemberiDivisi && !isVerifikatorPengusul && !isVerifikatorPemberi && !isPenerimaTambahan) {
       throw new ForbiddenException('Anda tidak terlibat dalam usulan ini');
     }
 
@@ -1326,7 +1330,11 @@ export class UsulanAksesBerkasService {
     const isVerifikatorPemberi = (usulan.verifikatorPemberi || []).some(
       (v: any) => Number(v.persnum) === userPersnum,
     );
-    if (!isPengusul && !isPemberiDivisi && !isVerifikatorPengusul && !isVerifikatorPemberi) {
+    // Penerima akses tambahan
+    const isPenerimaTambahan = (usulan.penerimaAksesTambahan || []).some(
+      (p: any) => Number(p) === userPersnum,
+    );
+    if (!isPengusul && !isPemberiDivisi && !isVerifikatorPengusul && !isVerifikatorPemberi && !isPenerimaTambahan) {
       throw new ForbiddenException('Anda tidak terlibat dalam usulan ini');
     }
 
@@ -1739,39 +1747,20 @@ export class UsulanAksesBerkasService {
     userPersnum: number,
     userOrgId: number,
   ): Promise<{ allowed: boolean; usulanId: string | null }> {
-    // 1. Cek entitlement langsung
+    const now = new Date();
+
+    // Hanya pemegang entitlement yang boleh mengakses berkas/naskah.
+    // Verifikator pemberi, SE pemberi, pengusul, dan verifikator pengusul
+    // TIDAK otomatis dapat akses — mereka hanya mengelola usulan, bukan peminjam.
+    // Akses juga terbatas durasi: jika tanggalSelesai sudah lewat, akses habis.
     const entitlement = await this.aksesRepo.findOne({
       where: { userPersnum, berkasId, isRevoked: false },
     });
-    if (entitlement) return { allowed: true, usulanId: entitlement.usulanId };
-
-    // 2. Cari usulan yang memilih berkas ini
-    const ub = await this.usulanBerkasRepo.findOne({ where: { berkasId } });
-    if (!ub) return { allowed: false, usulanId: null };
-
-    const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulanId } });
-    if (!usulan) return { allowed: false, usulanId: null };
-
-    // 2a. Verifikator pemberi
-    const vpb = Array.isArray(usulan.verifikatorPemberi) ? usulan.verifikatorPemberi : [];
-    if (vpb.some((v: any) => v.persnum === userPersnum)) {
-      return { allowed: true, usulanId: usulan.id };
-    }
-
-    // 2b. SE pemberi (organisasi user == divisiPemberiId)
-    if (userOrgId && Number(usulan.divisiPemberiId) === userOrgId) {
-      return { allowed: true, usulanId: usulan.id };
-    }
-
-    // 2c. Pengusul
-    if (usulan.pengusulPersnum === userPersnum) {
-      return { allowed: true, usulanId: usulan.id };
-    }
-
-    // 2d. Verifikator pengusul
-    const vpg = Array.isArray(usulan.verifikatorPengusul) ? usulan.verifikatorPengusul : [];
-    if (vpg.some((v: any) => v.persnum === userPersnum)) {
-      return { allowed: true, usulanId: usulan.id };
+    if (entitlement) {
+      if (entitlement.tanggalSelesai && new Date(entitlement.tanggalSelesai) < now) {
+        return { allowed: false, usulanId: entitlement.usulanId };
+      }
+      return { allowed: true, usulanId: entitlement.usulanId };
     }
 
     return { allowed: false, usulanId: null };
