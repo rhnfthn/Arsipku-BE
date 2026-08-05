@@ -1638,6 +1638,8 @@ export class UsulanAksesBerkasService {
     // Ambil nama divisi pemberi dari org_data
     let divisiPemberiNama: string | null = null;
     let evpPemberiNama: string | null = null;
+    let pengusulInfo: any = null;
+    let divisiPengusulNama: string | null = null;
     const orgData = await this.orgDataService.findLatestOrg();
     if (orgData?.position_json) {
       const positionJson =
@@ -1657,6 +1659,22 @@ export class UsulanAksesBerkasService {
             (p.position_text || '').toUpperCase().includes('EVP'),
         );
         evpPemberiNama = evp?.persnum_person_text || null;
+
+        // Info pengusul (nama & jabatan)
+        const pengusulPos = positionJson.find(
+          (p: any) => Number(p.persnum_person) === Number(usulan?.pengusulPersnum),
+        );
+        if (pengusulPos) {
+          pengusulInfo = {
+            nama: pengusulPos.persnum_person_text || null,
+            jabatan: pengusulPos.position_text || null,
+          };
+        }
+        // Nama divisi pengusul
+        const divisiPengusul = positionJson.find(
+          (p: any) => Number(p.organization_id) === Number(usulan?.divisiPengusulId),
+        );
+        divisiPengusulNama = divisiPengusul?.organization_text || null;
       }
     }
 
@@ -1671,6 +1689,11 @@ export class UsulanAksesBerkasService {
       divisiPemberiNama,
       evpPemberiNama,
       tujuanAkses: usulan?.tujuanAkses || null,
+      // Info pengusul
+      pengusulInfo,
+      divisiPengusulNama,
+      judulUsulan: usulan?.judulUsulan || null,
+      jenisBerkas: usulan?.jenisBerkas || null,
     };
   }
 
