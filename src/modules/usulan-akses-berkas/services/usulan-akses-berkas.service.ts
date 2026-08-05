@@ -30,6 +30,7 @@ import {
 import { StatusBerkas, Berkas } from '../../berkas/entities/berkas.entity';
 import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { StorageService } from '../../storage/services/storage.service';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 /**
@@ -81,6 +82,7 @@ export class UsulanAksesBerkasService {
     private readonly delegasiRepo: Repository<DelegasiEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
+    private readonly storageService: StorageService,
   ) {}
 
   // ── Helper: Generate Nomor Usulan ──────────────────────────────
@@ -1741,26 +1743,33 @@ export class UsulanAksesBerkasService {
 
     const naskahMap = new Map<string, any>(naskahRows.map((n: any) => [n.id, n]));
 
-    // Gabungkan
-    return berkasNaskahRows.map((bn: any) => {
-      const naskah = naskahMap.get(bn.naskah_id);
-      return {
-        id: bn.id,
-        naskahId: bn.naskah_id,
-        berkasId: bn.berkas_id,
-        naskahTipe: bn.naskah_tipe,
-        sumber: bn.sumber,
-        perihal: bn.perihal || naskah?.perihal || null,
-        nomorSurat: bn.nomor_surat || naskah?.nomor || null,
-        tanggalNaskah: bn.tanggal_naskah || naskah?.tanggal || null,
-        urutan: bn.urutan,
-        jenis: naskah?.jenis || null,
-        sifat: naskah?.sifat || null,
-        finalPdf: naskah?.final_pdf || null,
-        status: naskah?.status || null,
-        permissions: entitlement?.permissions || ['LIHAT'],
-      };
-    });
+    // Gabungkan — ubah final_pdf (key MinIO) jadi URL yang bisa diakses langsung
+    const result = await Promise.all(
+      berkasNaskahRows.map(async (bn: any) => {
+        const naskah = naskahMap.get(bn.naskah_id);
+        const finalPdfKey = naskah?.final_pdf || null;
+        const finalPdf = finalPdfKey
+          ? await this.storageService.getFileUrl(finalPdfKey)
+          : null;
+        return {
+          id: bn.id,
+          naskahId: bn.naskah_id,
+          berkasId: bn.berkas_id,
+          naskahTipe: bn.naskah_tipe,
+          sumber: bn.sumber,
+          perihal: bn.perihal || naskah?.perihal || null,
+          nomorSurat: bn.nomor_surat || naskah?.nomor || null,
+          tanggalNaskah: bn.tanggal_naskah || naskah?.tanggal || null,
+          urutan: bn.urutan,
+          jenis: naskah?.jenis || null,
+          sifat: naskah?.sifat || null,
+          finalPdf,
+          status: naskah?.status || null,
+          permissions: entitlement?.permissions || ['LIHAT'],
+        };
+      }),
+    );
+    return result;
   }
 
   // ── Helper: cek apakah user punya akses ke berkas dalam konteks usulan ──
