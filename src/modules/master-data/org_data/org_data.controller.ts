@@ -482,7 +482,7 @@ export class OrgDataController {
     const divisions: any[] = [];
 
     const extractDivisi = (nodes: any[]) => {
-      for (const node of (nodes || [])) {
+      for (const node of nodes || []) {
         if (node.id && !seen.has(node.id)) {
           seen.add(node.id);
           divisions.push({
@@ -499,7 +499,9 @@ export class OrgDataController {
     };
 
     extractDivisi(tree);
-    divisions.sort((a, b) => (a.shortText || '').localeCompare(b.shortText || ''));
+    divisions.sort((a, b) =>
+      (a.shortText || '').localeCompare(b.shortText || ''),
+    );
     return divisions;
   }
 
@@ -654,7 +656,17 @@ export class OrgDataController {
   @Get('my-position')
   async getMyPosition(@Query() query: OrgDataQueryDto) {
     const tgl = query.tgl ?? new Date().toISOString().split('T')[0];
-    const data = await this.orgBuildService.findOrg(tgl);
+
+    // Cari org_data untuk tanggal spesifik; fallback ke data terbaru jika
+    // tidak ada row untuk tanggal tersebut (org_data belum di-generate untuk
+    // hari ini). Tanpa fallback, my-position selalu 404 di hari baru.
+    let data: any = null;
+    try {
+      data = await this.orgBuildService.findOrg(tgl);
+    } catch {
+      data = await this.orgBuildService.findLatestOrg();
+    }
+    if (!data) return;
     const barisData = data.position_json;
     if (query.position_id) {
       const position_id = query.position_id;

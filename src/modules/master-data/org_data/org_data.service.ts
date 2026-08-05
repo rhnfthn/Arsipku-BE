@@ -224,7 +224,16 @@ export class OrgDataService {
     tanggal: string;
   }> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-    const orgData = await this.findOrg(tanggal);
+
+    // Cari org_data untuk tanggal spesifik; fallback ke data terbaru jika
+    // tidak ada row untuk tanggal tersebut (org_data belum di-generate untuk
+    // hari ini). Tanpa fallback, atasan selalu 404 di hari baru.
+    let orgData: any = null;
+    try {
+      orgData = await this.findOrg(tanggal);
+    } catch {
+      orgData = await this.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException(
@@ -304,7 +313,16 @@ export class OrgDataService {
     tanggal: string;
   }> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
-    const orgData = await this.findOrg(tanggal);
+
+    // Cari org_data untuk tanggal spesifik; fallback ke data terbaru jika
+    // tidak ada row untuk tanggal tersebut (org_data belum di-generate untuk
+    // hari ini). Tanpa fallback, atasan-managerial selalu 404 di hari baru.
+    let orgData: any = null;
+    try {
+      orgData = await this.findOrg(tanggal);
+    } catch {
+      orgData = await this.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException(
