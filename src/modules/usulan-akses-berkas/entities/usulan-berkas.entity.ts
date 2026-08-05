@@ -22,6 +22,13 @@ export class UsulanBerkasEntity {
   @Column('uuid') usulanId: string;
   @Column('uuid') berkasId: string;
   @Column('simple-array') jenisAksesGranted: string[];
+  /**
+   * NOT NULL di DB.
+   * Pakai sentinel BERLAKU_HINGGA_SENTINEL ('9999-12-31') saat berkas baru dipilih
+   * sebelum akses diterbitkan. Di-overwrite dengan tanggal sebenarnya
+   * saat `terbitkanAkses()` jalan (lihat usulan-akses-berkas.service.ts).
+   * Alasan: user DB aplikasi tidak punya ALTER privilege, jadi kolom tidak bisa dibuat nullable.
+   */
   @Column('date') berlakuHingga: Date;
 
   @CreateDateColumn() createdAt: Date;

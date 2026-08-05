@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, IsNull } from 'typeorm';
 import {
   UsulanAksesBerkasEntity,
   VerificationStepEntity,
@@ -37,6 +37,13 @@ import { PositionStatus } from '../../../common/enums/position-status.enum';
  * Jika jenisBerkas = INAKTIF, divisi pemberi otomatis di-set ke divisi ini
  */
 export const CORPORATE_SECRETARY_ORG_ID = 10002098;
+
+/**
+ * Sentinel date untuk `usulan_berkas.berlaku_hingga` saat berkas baru dipilih.
+ * Dipakai karena kolom NOT NULL dan user DB tidak punya privilege ALTER.
+ * Saat akses diterbitkan (`terbitkanAkses`), nilai ini di-overwrite dengan tanggal sebenarnya.
+ */
+export const BERLAKU_HINGGA_SENTINEL = '9999-12-31';
 
 /**
  * Level jabatan mapping — support BOD tags (BOD, BOD-1, BOD-2, BOD-3)
@@ -975,13 +982,15 @@ export class UsulanAksesBerkasService {
     // Hapus berkas lama jika ada (revisi case)
     await this.usulanBerkasRepo.delete({ usulanId: id });
 
-    // Simpan berkas baru — berlakuHingga null sampai akses diterbitkan
+    // Simpan berkas baru — berlakuHingga pakai sentinel sampai akses diterbitkan.
+    // Kolom DB NOT NULL, jadi kita tidak bisa null-kan (user tidak punya ALTER privilege).
+    // Sentinel akan di-overwrite dengan tanggal sebenarnya saat terbitkanAkses().
     const usulanBerkasItems = dto.berkasIds.map((berkasId) =>
       this.usulanBerkasRepo.create({
         usulanId: id,
         berkasId,
         jenisAksesGranted: usulan.jenisAkses,
-        berlakuHingga: null as any, // di-update saat terbitkanAkses()
+        berlakuHingga: BERLAKU_HINGGA_SENTINEL as any,
       }),
     );
     await this.usulanBerkasRepo.save(usulanBerkasItems);
@@ -1033,18 +1042,78 @@ export class UsulanAksesBerkasService {
   ): Promise<any[]> {
     const where: any = {
       status: StatusBerkas.CLOSED_RETENSI_AKTIF,
-      deletedAt: undefined,
+      deletedAt: IsNull(),
     };
 
-    // Filter by unit untuk jenis AKTIF — hanya berkas milik divisi pemberi
+    // Filter by unit untuk jenis AKTIF — hanya berkas milik divisi pemberi.
+    // unit_pencipta_id sering NULL di data lama, jadi fallback ke created_by:
+    // cari semua persnum di divisi pemberi, lalu filter berkas by created_by.
     if (jenisBerkas === JenisBerkas.AKTIF && divisiPemberiId) {
-      where.unitPenciptaId = divisiPemberiId;
+      // Cari semua persnum di divisi pemberi dari position_json
+      const orgData = await this.orgDataService.findLatestOrg();
+      let divisiPersnums: number[] = [];
+      if (orgData?.position_json) {
+        const positionJson =
+          typeof orgData.position_json === 'string'
+            ? JSON.parse(orgData.position_json)
+            : orgData.position_json;
+        if (Array.isArray(positionJson)) {
+          divisiPersnums = positionJson
+            .filter((p: any) => Number(p.organization_id) === divisiPemberiId && p.persnum_person)
+            .map((p: any) => Number(p.persnum_person));
+        }
+      }
+
+      // Filter: unitPenciptaId = divisiPemberiId OR created_by IN divisiPersnums
+      const orConditions: any[] = [{ unitPenciptaId: divisiPemberiId }];
+      if (divisiPersnums.length > 0) {
+        orConditions.push({ createdBy: In(divisiPersnums) });
+      }
+      where.__or = orConditions;
     }
 
-    const rows = await this.berkasRepo.find({
-      where,
-      order: { judulBerkas: 'ASC' },
-    });
+    this.logger.log(
+      `[getEligibleBerkasForPemberi] jenisBerkas=${jenisBerkas}, divisiPemberiId=${divisiPemberiId}`,
+    );
+
+    // Build query — TypeORM find doesn't support __or, use QueryBuilder
+    const qb = this.berkasRepo.createQueryBuilder('b');
+    qb.where('b.status = :status', { status: StatusBerkas.CLOSED_RETENSI_AKTIF });
+    qb.andWhere('b.deleted_at IS NULL');
+
+    if (jenisBerkas === JenisBerkas.AKTIF && divisiPemberiId) {
+      const orgData = await this.orgDataService.findLatestOrg();
+      let divisiPersnums: number[] = [];
+      if (orgData?.position_json) {
+        const positionJson =
+          typeof orgData.position_json === 'string'
+            ? JSON.parse(orgData.position_json)
+            : orgData.position_json;
+        if (Array.isArray(positionJson)) {
+          divisiPersnums = positionJson
+            .filter((p: any) => Number(p.organization_id) === divisiPemberiId && p.persnum_person)
+            .map((p: any) => Number(p.persnum_person));
+        }
+      }
+      this.logger.log(
+        `[getEligibleBerkasForPemberi] divisiPersnums=${JSON.stringify(divisiPersnums)}`,
+      );
+
+      if (divisiPersnums.length > 0) {
+        qb.andWhere(
+          '(b.unit_pencipta_id = :divisiPemberiId OR b.created_by IN (:...persnums))',
+          { divisiPemberiId, persnums: divisiPersnums },
+        );
+      } else {
+        qb.andWhere('b.unit_pencipta_id = :divisiPemberiId', { divisiPemberiId });
+      }
+    }
+
+    qb.orderBy('b.judul_berkas', 'ASC');
+    const rows = await qb.getMany();
+    this.logger.log(
+      `[getEligibleBerkasForPemberi] Found ${rows.length} berkas`,
+    );
     return rows.map((b: any) => ({
       id: b.id,
       judulBerkas: b.judulBerkas,
@@ -1173,10 +1242,12 @@ export class UsulanAksesBerkasService {
       // Custom: pakai tanggal selesai yang dipilih pengusul
       tanggalSelesai = new Date(usulan.customTanggalSelesai);
     } else {
+      // Jika verifikator mengubah durasi (durasiAksesDisetujui), pakai itu.
+      // Jika tidak (null), pakai durasi asli pengusul (durasiAkses).
+      const durasiPreset = usulan.durasiAksesDisetujui || usulan.durasiAkses;
       const durasiHari =
-        usulan.durasiAksesDisetujui &&
-        usulan.durasiAksesDisetujui !== DurasiPreset.CUSTOM
-          ? DURASI_PRESET_HARI[usulan.durasiAksesDisetujui]
+        durasiPreset && durasiPreset !== DurasiPreset.CUSTOM
+          ? DURASI_PRESET_HARI[durasiPreset as Exclude<DurasiPreset, 'CUSTOM'>]
           : 365; // default 1 tahun
       tanggalSelesai = new Date(tanggalMulai);
       tanggalSelesai.setDate(tanggalSelesai.getDate() + durasiHari);
