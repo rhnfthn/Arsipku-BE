@@ -4451,8 +4451,14 @@ export class NotaDinasService {
     // Use today's date if not provided
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
-    // Get cached org data from org_data service
-    const orgData = await this.orgDataService.findOrg(tanggal);
+    // Get cached org data from org_data service; fallback ke data terbaru
+    // jika tanggal hari ini belum di-generate.
+    let orgData: any = null;
+    try {
+      orgData = await this.orgDataService.findOrg(tanggal);
+    } catch {
+      orgData = await this.orgDataService.findLatestOrg();
+    }
 
     if (!orgData || !orgData.position_json) {
       throw new NotFoundException(
