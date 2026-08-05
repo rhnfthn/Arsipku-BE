@@ -1785,6 +1785,7 @@ export class TransferActiveToInactiveService {
       tanggalUsulan: item.tanggalUsulan,
       daftarIsi: arsipIds.map((a, idx) => ({
         no: idx + 1,
+        id: a.id,
         namaBerkas: a.perihal,
         kode: a.kode,
         keterangan: a.tanggalRetensiHabis
