@@ -17,7 +17,6 @@ export type NaskahDinasVerifikatorStatus =
   | 'rejected';
 
 @Entity('naskah_dinas_verifikator')
-@Index('idx_nd_verifikator_naskah', ['idNaskah'])
 @Index('idx_nd_verifikator_persnum', ['persnum'])
 @Index('idx_nd_verifikator_status', ['status'])
 export class NaskahDinasVerifikatorEntity {
