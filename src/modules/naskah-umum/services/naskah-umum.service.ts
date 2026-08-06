@@ -201,6 +201,7 @@ export class NaskahUmumService {
       const pengirim = queryRunner.manager.create(NaskahSirkulasi, {
         id: uuidv4(),
         idNaskah: naskahId,
+        tanggal: naskah.tanggal, // partisi RANGE(YEAR(tanggal))
         sirkuler: 'pengirim',
         positionText: fields.dari ?? '',
         namaSirkuler: fields.namapengirim ?? '',
@@ -254,6 +255,7 @@ export class NaskahUmumService {
         const penerima = queryRunner.manager.create(NaskahSirkulasi, {
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal, // partisi RANGE(YEAR(tanggal))
           sirkuler: 'penerima',
           position: String(posId),
         });
@@ -264,6 +266,7 @@ export class NaskahUmumService {
         const tembusan = queryRunner.manager.create(NaskahSirkulasi, {
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal, // partisi RANGE(YEAR(tanggal))
           sirkuler: 'tembusan',
           position: String(posId),
         });

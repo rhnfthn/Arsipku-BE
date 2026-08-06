@@ -730,6 +730,7 @@ export class DisposisiService {
         id_naskah: null, // Belum ada naskah
         file_name: file.originalname,
         file_pdf: uploadResult.key,
+        tanggal: new Date(), // Kunci partisi — temp upload tanpa parent naskah
         jenis: 'DI', // Disposisi
         is_temporary: 1,
         temp_folder_id: tempFolderId,
@@ -1465,6 +1466,7 @@ export class DisposisiService {
           const naskahReferensi = new NaskahReferensiEntity();
           naskahReferensi.id = uuidv4();
           naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
           naskahReferensi.ref_jenis = naskahSebelumnya.jenis || 'DI';
           naskahReferensi.ref_pengirim = null;
           naskahReferensi.ref_tanggal = naskahSebelumnya.tanggal || null;
@@ -1488,6 +1490,7 @@ export class DisposisiService {
           const naskahReferensi = new NaskahReferensiEntity();
           naskahReferensi.id = uuidv4();
           naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
           naskahReferensi.ref_jenis = refJenis;
           naskahReferensi.ref_pengirim = null;
           naskahReferensi.ref_tanggal = naskahRef.tanggal || null;
@@ -1527,6 +1530,7 @@ export class DisposisiService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: isPending, // ttd_basah stays pending/tertunda
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1556,6 +1560,7 @@ export class DisposisiService {
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: isPending, // ttd_basah stays pending/tertunda
           urutan: i, // urutan sesuai input form
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -1634,6 +1639,7 @@ export class DisposisiService {
           const lampiran = this.naskahLampiranRepository.create({
             id: lampiranId,
             id_naskah: naskahId,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
             jenis: 'DI',
@@ -1951,6 +1957,7 @@ export class DisposisiService {
           const naskahReferensi = new NaskahReferensiEntity();
           naskahReferensi.id = uuidv4();
           naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
           naskahReferensi.ref_jenis = naskahSebelumnya.jenis || 'DI';
           naskahReferensi.ref_pengirim = null;
           naskahReferensi.ref_tanggal = naskahSebelumnya.tanggal || null;
@@ -1974,6 +1981,7 @@ export class DisposisiService {
           const naskahReferensi = new NaskahReferensiEntity();
           naskahReferensi.id = uuidv4();
           naskahReferensi.id_naskah = naskahId;
+          naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
           naskahReferensi.ref_jenis = refJenis;
           naskahReferensi.ref_pengirim = null;
           naskahReferensi.ref_tanggal = naskahRef.tanggal || null;
@@ -2018,6 +2026,7 @@ export class DisposisiService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: true, // saveDraft = draft
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -2046,6 +2055,7 @@ export class DisposisiService {
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true, // saveDraft = draft
           urutan: i, // urutan sesuai input form
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -2089,6 +2099,7 @@ export class DisposisiService {
           const lampiran = this.naskahLampiranRepository.create({
             id: lampiranId,
             id_naskah: naskahId,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
             jenis: 'DI',
@@ -2552,6 +2563,7 @@ export class DisposisiService {
             const naskahReferensi = new NaskahReferensiEntity();
             naskahReferensi.id = uuidv4();
             naskahReferensi.id_naskah = naskahId;
+            naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
             naskahReferensi.ref_jenis = naskahSebelumnya.jenis || 'DI';
             naskahReferensi.ref_pengirim = null;
             naskahReferensi.ref_tanggal = naskahSebelumnya.tanggal || null;
@@ -2613,6 +2625,7 @@ export class DisposisiService {
             namaSirkuler: penerima.persnum_person_text || '',
             isDraft: isDraft, // isDraft based on action
             urutan: i, // urutan sesuai input form
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
           });
           await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -2700,6 +2713,7 @@ export class DisposisiService {
             const lampiran = new NaskahLampiranEntity();
             lampiran.id = uuidv4();
             lampiran.id_naskah = naskahId;
+            lampiran.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
             lampiran.file_name = lamp.nama_file;
             lampiran.file_pdf = lamp.url;
             lampiran.jenis = 'DI';
@@ -3351,6 +3365,7 @@ export class DisposisiService {
       const naskahReferensi = new NaskahReferensiEntity();
       naskahReferensi.id = uuidv4();
       naskahReferensi.id_naskah = naskahId;
+      naskahReferensi.tanggal = naskah.tanggal; // Kunci partisi — dari naskah induk
       naskahReferensi.ref_jenis = naskahDiterima.jenis || 'DI';
       naskahReferensi.ref_pengirim = sirkulasiPenerima.namaSirkuler || null; // Pengirim asli
       naskahReferensi.ref_tanggal = naskahDiterima.tanggal || null;
@@ -3380,6 +3395,7 @@ export class DisposisiService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: false,
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -3408,6 +3424,7 @@ export class DisposisiService {
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
           urutan: i, // urutan sesuai input form
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
 
@@ -3463,6 +3480,7 @@ export class DisposisiService {
             const newLampiran = this.naskahLampiranRepository.create({
               id: newLampiranId,
               id_naskah: naskahId,
+              tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
               file_name: prevLamp.file_name,
               file_pdf: prevLamp.file_pdf, // Reference ke file yang sama, tidak perlu copy file
               jenis: 'DI',
@@ -3516,6 +3534,7 @@ export class DisposisiService {
           const lampiran = this.naskahLampiranRepository.create({
             id: lampiranId,
             id_naskah: naskahId,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
             jenis: 'DI',
