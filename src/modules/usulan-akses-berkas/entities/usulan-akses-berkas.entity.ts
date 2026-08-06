@@ -2,8 +2,10 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { StatusUsulan, JenisBerkas, DurasiPreset } from '../enums';
 import type { LevelJabatan } from '../enums';
@@ -16,11 +18,16 @@ import type { LevelJabatan } from '../enums';
  *      → akses diterbitkan
  */
 @Entity('usulan_akses_berkas', { schema: 'navmail' })
+// PK komposit (id, tanggal) — tanggal adalah partition key (tabel dipartisi per tahun)
+@Index('uq_usulan_akses_nomor', ['nomorUsulan', 'tanggal'], { unique: true })
 export class UsulanAksesBerkasEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
+
+  @Column()
   nomorUsulan: string; // "UAB-2026-0045"
 
   // ── Jenis Berkas (BARU) ─────────────────────────────────────────

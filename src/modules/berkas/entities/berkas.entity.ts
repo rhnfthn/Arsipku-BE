@@ -1,9 +1,11 @@
 import {
   Column,
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 export enum HitungWaktuRetensiDari {
@@ -83,7 +85,8 @@ export class Berkas {
 
   // ── Kolom Baru — Arsip Dinamis Phase 1 ─────────────────────────
 
-  @Column('varchar', { name: 'kode_berkas', length: 100, unique: true, nullable: true })
+  @Index('uk_berkas_kode_berkas', ['kodeBerkas', 'tanggalDibuat'], { unique: true })
+  @Column('varchar', { name: 'kode_berkas', length: 100, nullable: true })
   kodeBerkas: string;
 
   @Column('varchar', { name: 'kategori_berkas', length: 100, nullable: true })
@@ -114,7 +117,7 @@ export class Berkas {
   @Column('int', { name: 'pic_position_id', nullable: true })
   picPositionId: number;
 
-  @Column('date', { name: 'tanggal_dibuat', nullable: true })
+  @PrimaryColumn('date', { name: 'tanggal_dibuat' })
   tanggalDibuat: string;
 
   @Column('date', { name: 'tanggal_ditutup', nullable: true })
