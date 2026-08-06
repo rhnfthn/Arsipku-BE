@@ -15,6 +15,7 @@ import {
   QueryLabelNaskahDto,
 } from '../dto';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 
 type DatePreset = '7_hari' | '30_hari' | '60_hari' | '1_tahun' | 'semua';
 
@@ -306,6 +307,14 @@ export class LabelService {
     console.log('Final source:', source);
     console.log('=================================');
 
+    // Ambil tanggal dari naskah induk (kunci partisi tabel naskah_label)
+    let tanggal: Date = new Date();
+    const parentNaskah = await this.dataSource.manager.findOne(NaskahEntity, {
+      where: { id: naskahId },
+      select: { tanggal: true },
+    });
+    if (parentNaskah) tanggal = parentNaskah.tanggal;
+
     for (const labelId of addNaskahToLabelDto.labelIds) {
       // Validasi label exists
       const label = await this.labelRepository.findOne({
@@ -341,6 +350,7 @@ export class LabelService {
         naskahId,
         labelId,
         source,
+        tanggal,
         createdBy: userId,
       });
 
