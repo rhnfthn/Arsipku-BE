@@ -104,6 +104,12 @@ export class ArsipDinamisService {
 
   // ── Helper: Hitung Tanggal Retensi ──────────────────────────────
 
+  /** Kunci partisi tanggal tabel anak arsip-dinamis = tanggal_dibuat berkas.
+   *  Fallback hari ini untuk berkas lama (tanggal_dibuat masih NULL). */
+  private tanggalBerkas(berkas: Berkas): Date {
+    return berkas.tanggalDibuat ? new Date(berkas.tanggalDibuat) : new Date();
+  }
+
   private hitungTanggalRetensi(
     tanggalDibuat: string,
     tanggalDitutup: string | null,
@@ -377,6 +383,7 @@ export class ArsipDinamisService {
       );
       await this.berkasRiwayatRetensiRepository.insert({
         berkasId: berkas.id,
+        tanggal: this.tanggalBerkas(berkas),
         statusSebelumnya: StatusBerkas.AKTIF,
         statusBaru: StatusBerkas.CLOSED_RETENSI_AKTIF,
         tanggalPerubahan: today,
@@ -594,6 +601,7 @@ export class ArsipDinamisService {
       const meta = metaMap.get(naskahId) as any;
       return this.berkasNaskahRepository.create({
         berkasId,
+        tanggal: this.tanggalBerkas(berkas),
         naskahId,
         naskahTipe: meta?.jenis || 'unknown',
         sumber: dto.sumber,
@@ -932,6 +940,7 @@ export class ArsipDinamisService {
     const verifikatorEntities = dto.verifikator.map((v, idx) =>
       this.berkasVerifikasiRepository.create({
         berkasId,
+        tanggal: this.tanggalBerkas(berkas),
         urutan: idx + 1,
         verifikatorPersnum: v.verifikator_persnum,
         verifikatorPositionId: v.verifikator_position_id,
@@ -1053,6 +1062,7 @@ export class ArsipDinamisService {
     // Catat riwayat retensi
     const riwayat = this.berkasRiwayatRetensiRepository.create({
       berkasId,
+      tanggal: this.tanggalBerkas(berkas),
       statusSebelumnya: StatusBerkas.MENUNGGU_VERIFIKASI,
       statusBaru: StatusBerkas.CLOSED_RETENSI_AKTIF,
       tanggalPerubahan: new Date().toISOString().split('T')[0],
@@ -1106,6 +1116,7 @@ export class ArsipDinamisService {
     // Catat riwayat
     const riwayat = this.berkasRiwayatRetensiRepository.create({
       berkasId,
+      tanggal: this.tanggalBerkas(berkas),
       statusSebelumnya: StatusBerkas.MENUNGGU_VERIFIKASI,
       statusBaru: StatusBerkas.DITOLAK,
       tanggalPerubahan: new Date().toISOString().split('T')[0],

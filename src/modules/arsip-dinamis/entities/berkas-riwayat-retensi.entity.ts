@@ -1,6 +1,7 @@
 import {
   Column,
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   CreateDateColumn,
   ManyToOne,
@@ -16,6 +17,9 @@ export class BerkasRiwayatRetensi {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })
   id: string;
+
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
 
   @Column('char', { name: 'berkas_id', length: 36 })
   berkasId: string;
