@@ -1445,6 +1445,7 @@ export class UsulanAksesBerkasService {
           usulanIds: [e.usulanId],
           nomorUsulanTerbaru: usulan?.nomorUsulan || null,
           isPenerimaTambahan: e.isPenerimaTambahan,
+          isRead: e.isRead,
           entitlementCount: 1,
         });
       } else {
@@ -1464,6 +1465,10 @@ export class UsulanAksesBerkasService {
         // Update isExpired — kalau ada satu yang aktif, berkas ini aktif
         if (!isExpired) {
           existing.isExpired = false;
+        }
+        // isRead: true hanya jika SEMUA entitlement di group sudah dibaca
+        if (!e.isRead) {
+          existing.isRead = false;
         }
         // Tambah usulan
         if (!existing.usulanIds.includes(e.usulanId)) {
@@ -1884,6 +1889,19 @@ export class UsulanAksesBerkasService {
     const userPersnum = Number(user.persnum);
     const result = await this.aksesRepo.update(
       { userPersnum, isRead: false },
+      { isRead: true },
+    );
+    return { updated: result.affected || 0 };
+  }
+
+  // ── markBerkasRead: tandai entitlement user untuk satu berkas sebagai dibaca ──
+  async markBerkasRead(
+    berkasId: string,
+    user: any,
+  ): Promise<{ updated: number }> {
+    const userPersnum = Number(user.persnum);
+    const result = await this.aksesRepo.update(
+      { userPersnum, berkasId, isRead: false },
       { isRead: true },
     );
     return { updated: result.affected || 0 };

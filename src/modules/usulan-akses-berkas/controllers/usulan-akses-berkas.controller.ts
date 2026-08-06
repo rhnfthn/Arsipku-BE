@@ -202,6 +202,21 @@ export class UsulanAksesBerkasController {
   }
 
   /**
+   * PATCH /usulan-akses-berkas/berkas/:berkasId/mark-read
+   * Tandai entitlement user untuk satu berkas sebagai sudah dibaca (isRead=true).
+   * Dipanggil saat user membuka detail berkas di halaman Pemberian.
+   */
+  @Patch('berkas/:berkasId/mark-read')
+  @HttpCode(HttpStatus.OK)
+  async markBerkasRead(
+    @Param('berkasId') berkasId: string,
+    @CurrentUser() user: any,
+  ) {
+    const result = await this.service.markBerkasRead(berkasId, user);
+    return { success: true, data: result };
+  }
+
+  /**
    * PATCH /usulan-akses-berkas/:id/mark-viewed
    * Tandai usulan sebagai sudah dibuka/dilihat oleh user (SE/managerial).
    * User disimpan di viewedBy[persnum] dengan timestamp ISO.
