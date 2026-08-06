@@ -82,11 +82,23 @@ export class ArsipDinamisService {
     const rows = await manager
       .getRepository(Berkas)
       .createQueryBuilder('b')
-      .select('b.id', 'id')
+      .select('b.kode_berkas', 'kode_berkas')
       .where('b.kode_berkas LIKE :pattern', { pattern: `ARK-${year}-%` })
       .setLock('pessimistic_write')
       .getRawMany();
-    const seq = String(rows.length + 1).padStart(4, '0');
+
+    // Hitung MAX nomor urut, bukan count — kalau ada berkas dihapus di tengah
+    // (gap), count tidak sesuai dengan nomor terbesar dan bisa duplicate.
+    let maxSeq = 0;
+    for (const row of rows) {
+      const kode = String(row?.kode_berkas || '');
+      const match = kode.match(/^ARK-\d+-(\d+)$/);
+      if (match) {
+        const n = Number(match[1]);
+        if (n > maxSeq) maxSeq = n;
+      }
+    }
+    const seq = String(maxSeq + 1).padStart(4, '0');
     return `ARK-${year}-${seq}`;
   }
 

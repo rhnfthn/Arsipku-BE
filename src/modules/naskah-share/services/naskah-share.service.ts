@@ -91,6 +91,17 @@ export class NaskahShareService {
       }
     }
 
+    // 2b. Validate all naskah have final_pdf (must be finalized before sharing)
+    const naskahsWithoutPdf = naskahs.filter((n) => !n.final_pdf);
+    if (naskahsWithoutPdf.length > 0) {
+      const missingTitles = naskahsWithoutPdf
+        .map((n) => n.perihal || n.id)
+        .join(', ');
+      throw new BadRequestException(
+        `Naskah belum memiliki PDF final (belum ditandatangani): ${missingTitles}. Finalisasi naskah terlebih dahulu sebelum membagikan.`,
+      );
+    }
+
     // 3. Prevent sharing to self
     if (dto.recipientIds.includes(user.position)) {
       throw new BadRequestException(
@@ -399,6 +410,16 @@ export class NaskahShareService {
           share.expiresAt &&
           new Date() > new Date(share.expiresAt);
 
+        // SEKALI_LIHAT: show BERAKHIR if all recipients already BERAKHIR (opened)
+        const isAllRecipientsEnded = share.status === ShareStatus.AKTIF &&
+          share.accessType === ShareAccessType.SEKALI_LIHAT &&
+          share.recipients?.length > 0 &&
+          share.recipients.every((r) => r.status === RecipientStatus.BERAKHIR);
+
+        const displayStatus = (isExpired || isAllRecipientsEnded)
+          ? ShareStatus.BERAKHIR
+          : share.status;
+
         return {
           id: share.id,
           naskahId: share.naskahId,
@@ -412,7 +433,7 @@ export class NaskahShareService {
           accessType: share.accessType,
           durationDays: share.durationDays,
           expiresAt: share.expiresAt,
-          status: isExpired ? ShareStatus.BERAKHIR : share.status,
+          status: displayStatus,
           createdAt: share.createdAt,
           recipients: share.recipients.map((r) => ({
             id: r.id,
@@ -760,7 +781,7 @@ export class NaskahShareService {
     // If no PDF available, reject before changing status
     if (!pdfUrl) {
       throw new BadRequestException(
-        'Dokumen PDF tidak tersedia untuk naskah ini',
+        'Dokumen PDF tidak tersedia. Naskah mungkin belum difinalisasi atau ditandatangani.',
       );
     }
 

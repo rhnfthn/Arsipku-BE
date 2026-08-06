@@ -7,6 +7,7 @@ import { Berkas } from '../../berkas/entities/berkas.entity';
 import { AuditTrailService } from '../../audit/services/audit-trail.service';
 import { NotificationService } from '../../notification/services';
 import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
   let service: TransferActiveToInactiveService;
@@ -25,11 +26,15 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
           provide: getRepositoryToken(TransferActiveToInactiveEntity),
           useValue: repo,
         },
-        { provide: getRepositoryToken(TransferApprovalLevelEntity), useValue: {} },
+        {
+          provide: getRepositoryToken(TransferApprovalLevelEntity),
+          useValue: {},
+        },
         { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
         { provide: AuditTrailService, useValue: {} },
         { provide: NotificationService, useValue: {} },
         { provide: ArsipDinamisService, useValue: arsipDinamisService },
+        { provide: OrgDataService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(TransferActiveToInactiveService);
@@ -56,7 +61,9 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     };
     berkasRepo.createQueryBuilder.mockReturnValue(chain([berkas]));
     // usulan list kosong → generateNomorUsulan (getOne null → UPAI/001)
-    repo.createQueryBuilder.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([], null));
+    repo.createQueryBuilder
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([], null));
 
     const count = await service.syncDraftUsulanOtomatis();
 
@@ -78,28 +85,59 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     );
   });
 
-  it('query berkas mensyaratkan retensi aktif sudah habis (NULL/masa depan tersaring di SQL)', async () => {
+  it('query berkas hanya mensyaratkan status closed_retensi_aktif', async () => {
     const berkasChain = chain([]);
     berkasRepo.createQueryBuilder.mockReturnValue(berkasChain);
     repo.createQueryBuilder.mockReturnValue(chain([]));
 
     await service.syncDraftUsulanOtomatis();
 
-    expect(berkasChain.andWhere).toHaveBeenCalledWith(
+    expect(berkasChain.andWhere).toHaveBeenCalledWith('b.status = :status', {
+      status: expect.any(String),
+    });
+    expect(berkasChain.andWhere).not.toHaveBeenCalledWith(
       'b.tanggal_retensi_aktif_berakhir IS NOT NULL',
     );
-    expect(berkasChain.andWhere).toHaveBeenCalledWith(
+    expect(berkasChain.andWhere).not.toHaveBeenCalledWith(
       'b.tanggal_retensi_aktif_berakhir <= :today',
       expect.any(Object),
     );
     expect(repo.manager.query).not.toHaveBeenCalled();
   });
 
+  it('berkas closed_retensi_aktif tanpa tanggal retensi tetap dibuatkan usulan DRAFT otomatis', async () => {
+    const berkas = {
+      id: 'b1',
+      judulBerkas: 'Berkas A',
+      kodeBerkas: 'KD-1',
+      tanggalRetensiAktifBerakhir: null,
+      createdBy: 99,
+      picPersnum: '99',
+    };
+    berkasRepo.createQueryBuilder.mockReturnValue(chain([berkas]));
+    repo.createQueryBuilder
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([], null));
+
+    const count = await service.syncDraftUsulanOtomatis();
+
+    expect(count).toBe(1);
+    expect(repo.manager.query).toHaveBeenCalledTimes(1);
+  });
+
   it('berkas yang sudah punya usulan (arsip_id) → dilewati', async () => {
     berkasRepo.createQueryBuilder.mockReturnValue(
-      chain([{ id: 'b1', judulBerkas: 'Berkas A', tanggalRetensiAktifBerakhir: '2026-01-01' }]),
+      chain([
+        {
+          id: 'b1',
+          judulBerkas: 'Berkas A',
+          tanggalRetensiAktifBerakhir: '2026-01-01',
+        },
+      ]),
     );
-    repo.createQueryBuilder.mockReturnValue(chain([{ arsipId: 'b1', arsipIds: null }]));
+    repo.createQueryBuilder.mockReturnValue(
+      chain([{ arsipId: 'b1', arsipIds: null }]),
+    );
 
     const count = await service.syncDraftUsulanOtomatis();
 
@@ -109,13 +147,21 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
 
   it('berkas yang sudah diusulkan lewat arsip_ids JSON → dilewati', async () => {
     berkasRepo.createQueryBuilder.mockReturnValue(
-      chain([{ id: 'b2', judulBerkas: 'Berkas B', tanggalRetensiAktifBerakhir: '2026-01-01' }]),
+      chain([
+        {
+          id: 'b2',
+          judulBerkas: 'Berkas B',
+          tanggalRetensiAktifBerakhir: '2026-01-01',
+        },
+      ]),
     );
     repo.createQueryBuilder.mockReturnValue(
       chain([
         {
           arsipId: 'other',
-          arsipIds: [{ id: 'b2', perihal: 'x', kode: null, tanggalRetensiHabis: null }],
+          arsipIds: [
+            { id: 'b2', perihal: 'x', kode: null, tanggalRetensiHabis: null },
+          ],
         },
       ]),
     );
