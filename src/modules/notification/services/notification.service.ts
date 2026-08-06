@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -483,6 +484,23 @@ export class NotificationService {
 
     const result = await this.notificationRepository.delete(criteria);
     return result.affected ?? 0;
+  }
+
+  /**
+   * Cleanup terjadwal: hapus notifikasi yang sudah dibaca > 30 hari (tiap hari 03:30).
+   * Mencegah tabel notification menumpuk tanpa batas.
+   */
+  @Cron('30 3 * * *')
+  async cleanupOldNotifications(): Promise<void> {
+    try {
+      const deleted = await this.deleteOldNotifications(30);
+      this.logger.log(`🧹 [CRON] Notifikasi lama dihapus: ${deleted}`);
+    } catch (error) {
+      this.logger.error(
+        '❌ [CRON] Gagal cleanup notifikasi:',
+        error?.message || error,
+      );
+    }
   }
 
   /**
