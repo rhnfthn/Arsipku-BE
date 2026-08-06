@@ -16,7 +16,9 @@ export class DigsigLogEntity {
   id: string;
 
   @Index('idx_digsig_log_tanggal')
-  @Column('datetime', { name: 'tanggal', default: () => 'CURRENT_TIMESTAMP' })
+  // Tanggal penandatanganan — kunci partisi RANGE(YEAR(tanggal)), bagian PK komposit (id, tanggal).
+  // Pakai tanggal existing (bukan naskah.tanggal): log audit diarsipkan per tahun kejadiannya.
+  @PrimaryColumn('datetime', { name: 'tanggal', default: () => 'CURRENT_TIMESTAMP' })
   tanggal: Date;
 
   @Column('varchar', { name: 'ip_address', length: 50, nullable: true })

@@ -156,7 +156,7 @@ export class KonsepService {
       // 3. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
       // ==========================================
       // Pengirim konsep (pembuat)
-      const sirkulasiKonsepPengirim = this.createSirkulasi(
+      const sirkulasiKonsepPengirim = await this.createSirkulasi(
         naskahKonsepId,
         'pengirim',
         fromPos,
@@ -165,7 +165,7 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiKonsepPengirim);
 
       // Penerima konsep (reviewer/atasan)
-      const sirkulasiKonsepPenerima = this.createSirkulasi(
+      const sirkulasiKonsepPenerima = await this.createSirkulasi(
         naskahKonsepId,
         'penerima',
         toPos,
@@ -180,7 +180,7 @@ export class KonsepService {
       const pengirimPosId = dto.from_position_id; // Bisa juga dari field pengirim_position_id jika ada
       const pengirimPos = this.findByPosition(barisData, pengirimPosId);
       if (pengirimPos) {
-        const sirkulasiNaskahPengirim = this.createSirkulasi(
+        const sirkulasiNaskahPengirim = await this.createSirkulasi(
           naskahAsliId,
           'pengirim',
           pengirimPos,
@@ -194,7 +194,7 @@ export class KonsepService {
         for (const posId of dto.penerima_position_ids) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahAsliId,
             'penerima',
             pos,
@@ -209,7 +209,7 @@ export class KonsepService {
         for (const posId of dto.tembusan_position_ids) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahAsliId,
             'tembusan',
             pos,
@@ -244,6 +244,7 @@ export class KonsepService {
         for (const lamp of dto.lampiran) {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
+            tanggal: naskahAsli.tanggal,
             id_naskah: naskahAsliId,
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
@@ -304,14 +305,23 @@ export class KonsepService {
   // HELPER METHODS
   // ==========================================
 
-  private createSirkulasi(
+  private async createSirkulasi(
     naskahId: string,
     type: 'pengirim' | 'penerima' | 'tembusan',
     posData: PositionData,
     isKonsep: boolean,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (naskahId) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: naskahId },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = new NaskahSirkulasi();
     sirkulasi.id = uuidv4();
+    sirkulasi.tanggal = tanggal;
     sirkulasi.idNaskah = naskahId;
     sirkulasi.sirkuler = type;
     sirkulasi.company = String(COMPANY_ID);

@@ -5,20 +5,34 @@ import { v4 as uuidv4 } from 'uuid';
 import { NaskahLampiranEntity } from '../entities/naskah_lampiran.entity';
 import { CreateNaskahLampiranDto } from '../dto/naskah_lampiran/create_naskah_lampiran.dto';
 import { UpdateNaskahLampiranDto } from '../dto/naskah_lampiran/update_naskah_lampiran.dto';
+import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 
 @Injectable()
 export class NaskahLampiranService {
   constructor(
     @InjectRepository(NaskahLampiranEntity)
     private naskahLampiranRepository: Repository<NaskahLampiranEntity>,
+    @InjectRepository(NaskahEntity)
+    private naskahRepository: Repository<NaskahEntity>,
   ) {}
 
   async create(
     createNaskahLampiranDto: CreateNaskahLampiranDto,
   ): Promise<NaskahLampiranEntity> {
+    // Ambil tanggal dari naskah induk (kunci partisi tabel naskah_lampiran)
+    let tanggal: Date = new Date();
+    if (createNaskahLampiranDto.id_naskah) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: createNaskahLampiranDto.id_naskah },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
+
     const lampiran = this.naskahLampiranRepository.create({
       id: uuidv4(),
       ...createNaskahLampiranDto,
+      tanggal,
     });
 
     return await this.naskahLampiranRepository.save(lampiran);

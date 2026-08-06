@@ -35,8 +35,9 @@ export class DiEntity {
   @Column('varchar', { name: 'surat_dari', length: 150, nullable: true })
   suratDari: string | null;
 
-  @Column('date', { name: 'tanggal', nullable: true })
-  tanggal: Date | null;
+  // Tanggal disposisi (= naskah.tanggal) — kunci partisi RANGE(YEAR(tanggal)), bagian PK komposit (id, tanggal)
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
 
   @Column('varchar', { name: 'nomor', length: 100, nullable: true })
   nomor: string | null;
