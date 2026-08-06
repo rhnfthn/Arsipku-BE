@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UsulanPindahArsipInaktifEntity } from '../entities/usulan-pindah.entity';
+import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
 import { UsulanPindahStatus } from '../enums/usulan-status.enum';
 import { CreateUsulanPindahDto } from '../dto/create-usulan.dto';
 import {
@@ -41,6 +42,8 @@ export class UsulanPindahService {
   constructor(
     @InjectRepository(UsulanPindahArsipInaktifEntity)
     private readonly repo: Repository<UsulanPindahArsipInaktifEntity>,
+    @InjectRepository(TransferActiveToInactiveEntity)
+    private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
   ) {}
@@ -60,8 +63,15 @@ export class UsulanPindahService {
       ? UsulanPindahStatus.MENUNGGU_VERIFIKASI_ATASAN
       : UsulanPindahStatus.DRAFT;
 
+    // Tanggal partisi: ambil dari transfer terkait (by nomor usulan), fallback sekarang.
+    const transferInduk = await this.transferRepo.findOne({
+      where: { nomorUsulan },
+      select: ['tanggal'],
+    });
+
     const entity = this.repo.create({
       nomorUsulan,
+      tanggal: transferInduk?.tanggal ?? new Date(),
       tanggalUsulan: dto.tanggalUsulan
         ? new Date(dto.tanggalUsulan)
         : new Date(),
