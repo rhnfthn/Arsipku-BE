@@ -38,6 +38,10 @@ export class CreateUsulanAksesBerkasDto {
   divisiPemberiId?: number; // wajib jika AKTIF; diabaikan jika INAKTIF (backend set otomatis)
 
   @IsString()
+  @MaxLength(255)
+  judulUsulan: string; // judul usulan (wajib, ditampilkan di tabel & keyword pencarian)
+
+  @IsString()
   @MaxLength(2000)
   tujuanAkses: string;
 
