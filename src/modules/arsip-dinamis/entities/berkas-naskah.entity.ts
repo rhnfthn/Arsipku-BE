@@ -1,6 +1,7 @@
 import {
   Column,
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   CreateDateColumn,
   ManyToOne,
@@ -13,10 +14,14 @@ import { Berkas } from '../../berkas/entities/berkas.entity';
 @Index('idx_berkas_naskah_berkas', ['berkasId'])
 @Index('idx_berkas_naskah_naskah', ['naskahId'])
 @Index('idx_berkas_naskah_sumber', ['sumber'])
+@Index('uk_berkas_naskah', ['berkasId', 'naskahId', 'tanggal'], { unique: true })
 export class BerkasNaskah {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })
   id: string;
+
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
 
   @Column('char', { name: 'berkas_id', length: 36 })
   berkasId: string;
