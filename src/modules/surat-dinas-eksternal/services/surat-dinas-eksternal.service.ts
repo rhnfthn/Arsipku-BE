@@ -769,16 +769,25 @@ export class SuratDinasEksternalService {
   /**
    * Helper: Create sirkulasi from SdeOrgDataPositionDto (for pengirim only)
    */
-  private createSirkulasiFromOrgData(
+  private async createSirkulasiFromOrgData(
     idNaskah: string,
     sirkuler: 'pengirim' | 'tembusan',
     pos: SdeOrgDataPositionDto,
     isDraft: boolean = false,
     urutan: number = 0,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (idNaskah) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: idNaskah },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
+      tanggal,
       sirkuler,
       company: String(COMPANY_ID),
       companyText: 'PERUM LPPNPI',
@@ -810,15 +819,24 @@ export class SuratDinasEksternalService {
    * Helper: Create NaskahSirkulasi record from EksternalEntity
    * For penerima eksternal - stores external recipient data with urutan
    */
-  private createSirkulasiFromEksternal(
+  private async createSirkulasiFromEksternal(
     naskahId: string,
     eksternal: EksternalEntity,
     isDraft: boolean = false,
     urutan: number = 0,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (naskahId) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: naskahId },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah: naskahId,
+      tanggal,
       sirkuler: 'penerima',
       company: null, // Penerima eksternal tidak punya company internal
       companyText: eksternal.nama, // Gunakan nama sebagai company text
@@ -1335,6 +1353,7 @@ export class SuratDinasEksternalService {
           const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             ref_jenis: naskahRef.jenis || 'SDE',
             ref_pengirim: null,
             ref_tanggal: naskahRef.tanggal || null,
@@ -1354,7 +1373,7 @@ export class SuratDinasEksternalService {
       }
 
       // PHASE 6: Insert sirkulasi - pengirim dan tembusan
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+      const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
         pengirim,
@@ -1368,7 +1387,7 @@ export class SuratDinasEksternalService {
       if (tembusanList && tembusanList.length > 0) {
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+          const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
@@ -1414,7 +1433,7 @@ export class SuratDinasEksternalService {
       if (penerimaList && penerimaList.length > 0) {
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromEksternal(
+          const penerimaSirkulasi = await this.createSirkulasiFromEksternal(
             naskahId,
             penerima,
             isDraft,
@@ -1449,6 +1468,7 @@ export class SuratDinasEksternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDE',
@@ -1819,6 +1839,7 @@ export class SuratDinasEksternalService {
           const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             ref_jenis: naskahRef.jenis || 'SDE',
             ref_pengirim: null,
             ref_tanggal: naskahRef.tanggal || null,
@@ -1839,7 +1860,7 @@ export class SuratDinasEksternalService {
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
       const isPending = status === 'pending';
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+      const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
         pengirim,
@@ -1852,7 +1873,7 @@ export class SuratDinasEksternalService {
       const penerimaResponses: any[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromEksternal(
+        const penerimaSirkulasi = await this.createSirkulasiFromEksternal(
           naskahId,
           penerima,
           isPending,
@@ -1868,7 +1889,7 @@ export class SuratDinasEksternalService {
       const tembusanResponses: SdeSirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+        const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'tembusan',
           tembusan,
@@ -2433,6 +2454,8 @@ export class SuratDinasEksternalService {
       const lampiranEntity = this.naskahLampiranRepository.create({
         id: uuidv4(),
         id_naskah: id_naskah || null, // Null untuk temporary upload, akan diupdate nanti
+        tanggal: new Date(),
+
         file_name: file.originalname,
         file_pdf: uploadResult.key, // Set file path from upload
         jenis: jenis || 'SDE', // Default SDE
@@ -2611,7 +2634,7 @@ export class SuratDinasEksternalService {
         });
 
         // Re-insert pengirim with is_draft = true
-        const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+        const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'pengirim',
           pengirimPosition,
@@ -2660,7 +2683,7 @@ export class SuratDinasEksternalService {
               (x: any) => Number(x.position) === Number(posId),
             );
             if (tembusanPos) {
-              const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+              const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
                 naskahId,
                 'tembusan',
                 tembusanPos,
@@ -2684,7 +2707,7 @@ export class SuratDinasEksternalService {
       if (penerimaList && penerimaList.length > 0) {
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromEksternal(
+          const penerimaSirkulasi = await this.createSirkulasiFromEksternal(
             naskahId,
             penerima,
             true,
@@ -2707,6 +2730,7 @@ export class SuratDinasEksternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDE',
@@ -3092,7 +3116,7 @@ export class SuratDinasEksternalService {
 
         // Re-insert pengirim (isDraft stays true for pending/TTD basah)
         const isPending = newStatus === 'pending';
-        const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+        const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'pengirim',
           pengirimPosition,
@@ -3152,7 +3176,7 @@ export class SuratDinasEksternalService {
               (x: any) => Number(x.position) === Number(posId),
             );
             if (tembusanPos) {
-              const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+              const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
                 naskahId,
                 'tembusan',
                 tembusanPos,
@@ -3209,7 +3233,7 @@ export class SuratDinasEksternalService {
       if (penerimaList && penerimaList.length > 0) {
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromEksternal(
+          const penerimaSirkulasi = await this.createSirkulasiFromEksternal(
             naskahId,
             penerima,
             false,
@@ -3229,6 +3253,7 @@ export class SuratDinasEksternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDE',
@@ -4476,6 +4501,7 @@ export class SuratDinasEksternalService {
         {
           id: uuidv4(),
           id_naskah: naskahId,
+          tanggal: naskah.tanggal,
           ref_jenis: naskahDiterima.jenis as any,
           ref_pengirim: null,
           ref_tanggal: naskahDiterima.tanggal || null,
@@ -4521,6 +4547,7 @@ export class SuratDinasEksternalService {
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
+        tanggal: naskah.tanggal,
         sirkuler: 'pengirim',
         company: String(pengirim.company || COMPANY_ID),
         companyText: 'PERUM LPPNPI',
@@ -4548,6 +4575,7 @@ export class SuratDinasEksternalService {
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal,
           sirkuler: 'penerima',
           company: String(penerima.company || COMPANY_ID),
           companyText: 'PERUM LPPNPI',
@@ -4589,6 +4617,7 @@ export class SuratDinasEksternalService {
         const tembusanSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal,
           sirkuler: 'tembusan',
           company: String(tembusan.company || COMPANY_ID),
           companyText: 'PERUM LPPNPI',
@@ -4638,6 +4667,7 @@ export class SuratDinasEksternalService {
             const newLampiran = this.naskahLampiranRepository.create({
               id: uuidv4(),
               id_naskah: naskahId,
+              tanggal: naskah.tanggal,
               file_name: prevLamp.file_name,
               file_pdf: prevLamp.file_pdf,
               jenis: dto.jenis,

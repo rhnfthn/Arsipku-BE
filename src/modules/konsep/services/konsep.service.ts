@@ -338,6 +338,7 @@ export class KonsepService {
           // Simpan referensi ke disposisi LANGSUNG (yang diterima dari B)
           const naskahReferensiLangsung = new NaskahReferensiEntity();
           naskahReferensiLangsung.id = uuidv4();
+          naskahReferensiLangsung.tanggal = naskahKonsep.tanggal;
           naskahReferensiLangsung.id_naskah = naskahKonsepId;
           naskahReferensiLangsung.ref_jenis = 'DI';
           naskahReferensiLangsung.ref_nomor = disposisiRef.nomor;
@@ -351,6 +352,7 @@ export class KonsepService {
           if (rootId !== dto.id_disposisi_referensi && rootNaskah) {
             const naskahReferensiRoot = new NaskahReferensiEntity();
             naskahReferensiRoot.id = uuidv4();
+            naskahReferensiRoot.tanggal = naskahKonsep.tanggal;
             naskahReferensiRoot.id_naskah = naskahKonsepId;
             naskahReferensiRoot.ref_jenis = 'DI'; // Masih DI, tapi ini root
             naskahReferensiRoot.ref_nomor = rootNaskah.nomor;
@@ -384,7 +386,7 @@ export class KonsepService {
       // 3. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
       // ==========================================
       // Pengirim konsep (pembuat) - is_konsep=0 untuk workflow K
-      const sirkulasiKonsepPengirim = this.createSirkulasi(
+      const sirkulasiKonsepPengirim = await this.createSirkulasi(
         naskahKonsepId,
         'pengirim',
         fromPos,
@@ -393,7 +395,7 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiKonsepPengirim);
 
       // Penerima konsep (reviewer/atasan) - is_konsep=0 untuk workflow K
-      const sirkulasiKonsepPenerima = this.createSirkulasi(
+      const sirkulasiKonsepPenerima = await this.createSirkulasi(
         naskahKonsepId,
         'penerima',
         toPos,
@@ -409,7 +411,7 @@ export class KonsepService {
       const pengirimPosId = dto.pengirim_position_id || dto.to_position_id;
       const pengirimPos = this.findByPosition(barisData, pengirimPosId);
       if (pengirimPos) {
-        const sirkulasiNaskahPengirim = this.createSirkulasi(
+        const sirkulasiNaskahPengirim = await this.createSirkulasi(
           naskahAsliId,
           'pengirim',
           pengirimPos,
@@ -418,7 +420,7 @@ export class KonsepService {
         await queryRunner.manager.save(sirkulasiNaskahPengirim);
       } else {
         // Fallback: gunakan toPos (penerima konsep) sebagai pengirim naskah final
-        const sirkulasiNaskahPengirim = this.createSirkulasi(
+        const sirkulasiNaskahPengirim = await this.createSirkulasi(
           naskahAsliId,
           'pengirim',
           toPos,
@@ -445,7 +447,7 @@ export class KonsepService {
         for (const posId of expandedPenerimaIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahAsliId,
             'penerima',
             pos,
@@ -458,6 +460,7 @@ export class KonsepService {
         // Fallback: Jika tidak ada penerima_position_ids/grup tapi kepada_yth ada (text input)
         const sirkulasiPenerima = new NaskahSirkulasi();
         sirkulasiPenerima.id = uuidv4();
+        sirkulasiPenerima.tanggal = naskahAsli.tanggal;
         sirkulasiPenerima.idNaskah = naskahAsliId;
         sirkulasiPenerima.sirkuler = 'penerima';
         sirkulasiPenerima.company = String(COMPANY_ID);
@@ -475,7 +478,7 @@ export class KonsepService {
           where: { id: In(dto.penerima_eksternal) },
         });
         for (let i = 0; i < eksternalList.length; i++) {
-          const sirkulasi = this.createSirkulasiFromEksternal(
+          const sirkulasi = await this.createSirkulasiFromEksternal(
             naskahAsliId,
             eksternalList[i],
             true,
@@ -502,7 +505,7 @@ export class KonsepService {
         for (const posId of expandedTembusanIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahAsliId,
             'tembusan',
             pos,
@@ -515,6 +518,7 @@ export class KonsepService {
         // Fallback: Jika tidak ada tembusan_position_ids/grup tapi tembusan text ada
         const sirkulasiTembusan = new NaskahSirkulasi();
         sirkulasiTembusan.id = uuidv4();
+        sirkulasiTembusan.tanggal = naskahAsli.tanggal;
         sirkulasiTembusan.idNaskah = naskahAsliId;
         sirkulasiTembusan.sirkuler = 'tembusan';
         sirkulasiTembusan.company = String(COMPANY_ID);
@@ -535,7 +539,7 @@ export class KonsepService {
           Number(dto.atas_nama_position_id),
         );
         if (atasNamaPos) {
-          const sirkulasiAtasNama = this.createSirkulasi(
+          const sirkulasiAtasNama = await this.createSirkulasi(
             naskahAsliId,
             'tembusan',
             atasNamaPos,
@@ -573,6 +577,7 @@ export class KonsepService {
         for (const lamp of dto.lampiran) {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
+            tanggal: naskahAsli.tanggal,
             id_naskah: naskahAsliId,
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
@@ -679,15 +684,24 @@ export class KonsepService {
   // HELPER METHODS
   // ==========================================
 
-  private createSirkulasi(
+  private async createSirkulasi(
     naskahId: string,
     type: 'pengirim' | 'penerima' | 'tembusan',
     posData: PositionData,
     isKonsep: boolean,
     grupPenerimaId?: string,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (naskahId) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: naskahId },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = new NaskahSirkulasi();
     sirkulasi.id = uuidv4();
+    sirkulasi.tanggal = tanggal;
     sirkulasi.idNaskah = naskahId;
     sirkulasi.sirkuler = type;
     sirkulasi.company = String(COMPANY_ID);
@@ -711,14 +725,23 @@ export class KonsepService {
 
   // ponytail: createSirkulasiFromEksternal — untuk SDE penerima eksternal.
   // Mirror SDE service: position=null, idSirkuler=eksternal.id, positionStatus='ext'.
-  private createSirkulasiFromEksternal(
+  private async createSirkulasiFromEksternal(
     naskahId: string,
     eksternal: EksternalEntity,
     isKonsep: boolean = false,
     urutan: number = 0,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (naskahId) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: naskahId },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = new NaskahSirkulasi();
     sirkulasi.id = uuidv4();
+    sirkulasi.tanggal = tanggal;
     sirkulasi.idNaskah = naskahId;
     sirkulasi.sirkuler = 'penerima';
     sirkulasi.company = null;
@@ -1014,6 +1037,7 @@ export class KonsepService {
 
       const lampiranEntity = this.naskahLampiranRepository.create({
         id: uuidv4(),
+        tanggal: new Date(),
         id_naskah: undefined,
         file_name: file.originalname,
         file_pdf: uploadResult.key,
@@ -1815,7 +1839,7 @@ export class KonsepService {
       // 4. CREATE SIRKULASI FOR NEW NASKAH K
       // ==========================================
       // Pengirim = forwarder (from)
-      const sirkulasiPengirim = this.createSirkulasi(
+      const sirkulasiPengirim = await this.createSirkulasi(
         newNaskahKonsepId,
         'pengirim',
         fromPos,
@@ -1824,7 +1848,7 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiPengirim);
 
       // Penerima = new receiver (to)
-      const sirkulasiPenerima = this.createSirkulasi(
+      const sirkulasiPenerima = await this.createSirkulasi(
         newNaskahKonsepId,
         'penerima',
         toPos,
@@ -1845,6 +1869,7 @@ export class KonsepService {
       if (rootRef) {
         const refCopy = new NaskahReferensiEntity();
         refCopy.id = uuidv4();
+        refCopy.tanggal = newNaskahKonsep.tanggal;
         refCopy.id_naskah = newNaskahKonsepId;
         refCopy.ref_jenis = rootRef.ref_jenis;
         refCopy.ref_nomor = rootRef.ref_nomor;
@@ -1903,7 +1928,7 @@ export class KonsepService {
             for (const posId of expandedPenerimaIds) {
               const pos = this.findByPosition(barisData, posId);
               if (!pos) continue;
-              const sirkulasi = this.createSirkulasi(
+              const sirkulasi = await this.createSirkulasi(
                 naskahAsliId,
                 'penerima',
                 pos,
@@ -1937,7 +1962,7 @@ export class KonsepService {
             for (const posId of expandedTembusanIds) {
               const pos = this.findByPosition(barisData, posId);
               if (!pos) continue;
-              const sirkulasi = this.createSirkulasi(
+              const sirkulasi = await this.createSirkulasi(
                 naskahAsliId,
                 'tembusan',
                 pos,
@@ -2249,7 +2274,7 @@ export class KonsepService {
 
       // 7. CREATE SIRKULASI untuk K baru
       // Pengirim = finalizer (fromPos)
-      const sirkulasiKonsepPengirim = this.createSirkulasi(
+      const sirkulasiKonsepPengirim = await this.createSirkulasi(
         newNaskahKonsepId,
         'pengirim',
         fromPos,
@@ -2310,7 +2335,7 @@ export class KonsepService {
           for (const posId of expandedPenerimaIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(
+            const sirkulasi = await this.createSirkulasi(
               naskahAsliId,
               'penerima',
               pos,
@@ -2388,7 +2413,7 @@ export class KonsepService {
           for (const posId of expandedTembusanIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(
+            const sirkulasi = await this.createSirkulasi(
               naskahAsliId,
               'tembusan',
               pos,
@@ -2662,7 +2687,7 @@ export class KonsepService {
       // 5. CREATE SIRKULASI FOR NEW NASKAH K
       // ==========================================
       // Pengirim = rejector (from)
-      const sirkulasiPengirim = this.createSirkulasi(
+      const sirkulasiPengirim = await this.createSirkulasi(
         newNaskahKonsepId,
         'pengirim',
         fromPos,
@@ -2671,7 +2696,7 @@ export class KonsepService {
       await queryRunner.manager.save(sirkulasiPengirim);
 
       // Penerima = return_to position
-      const sirkulasiPenerima = this.createSirkulasi(
+      const sirkulasiPenerima = await this.createSirkulasi(
         newNaskahKonsepId,
         'penerima',
         returnToPos,
@@ -2694,6 +2719,7 @@ export class KonsepService {
       if (rootRefReject) {
         const refCopyReject = new NaskahReferensiEntity();
         refCopyReject.id = uuidv4();
+        refCopyReject.tanggal = newNaskahKonsep.tanggal;
         refCopyReject.id_naskah = newNaskahKonsepId;
         refCopyReject.ref_jenis = rootRefReject.ref_jenis;
         refCopyReject.ref_nomor = rootRefReject.ref_nomor;
@@ -4596,8 +4622,17 @@ export class KonsepService {
     createdBy: string | null,
     pdfSnapshot: string | null = null,
   ): Promise<void> {
+    let tanggal: Date = new Date();
+    if (idNaskahKonsep) {
+      const parentNaskah = await queryRunner.manager.findOne(NaskahEntity, {
+        where: { id: idNaskahKonsep },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const riwayat = this.konsepRiwayatRepository.create({
       id: uuidv4(),
+      tanggal,
       idNaskahKonsep,
       urutan,
       fromPositionId,
@@ -4786,7 +4821,7 @@ export class KonsepService {
       );
 
       // Create sirkulasi pengirim naskah draft
-      const sirkulasiPengirim = this.createSirkulasi(
+      const sirkulasiPengirim = await this.createSirkulasi(
         naskahDraftId,
         'pengirim',
         pengirimPos!,
@@ -4811,7 +4846,7 @@ export class KonsepService {
         for (const posId of expandedPenerimaIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahDraftId,
             'penerima',
             pos,
@@ -4824,6 +4859,7 @@ export class KonsepService {
         // Penerima text untuk SDE
         const sirkulasiPenerima = new NaskahSirkulasi();
         sirkulasiPenerima.id = uuidv4();
+        sirkulasiPenerima.tanggal = naskahDraft.tanggal;
         sirkulasiPenerima.idNaskah = naskahDraftId;
         sirkulasiPenerima.sirkuler = 'penerima';
         sirkulasiPenerima.company = String(COMPANY_ID);
@@ -4851,7 +4887,7 @@ export class KonsepService {
         for (const posId of expandedTembusanIds) {
           const pos = this.findByPosition(barisData, posId);
           if (!pos) continue;
-          const sirkulasi = this.createSirkulasi(
+          const sirkulasi = await this.createSirkulasi(
             naskahDraftId,
             'tembusan',
             pos,
@@ -4863,6 +4899,7 @@ export class KonsepService {
       } else if (dto.tembusan) {
         const sirkulasiTembusan = new NaskahSirkulasi();
         sirkulasiTembusan.id = uuidv4();
+        sirkulasiTembusan.tanggal = naskahDraft.tanggal;
         sirkulasiTembusan.idNaskah = naskahDraftId;
         sirkulasiTembusan.sirkuler = 'tembusan';
         sirkulasiTembusan.company = String(COMPANY_ID);
@@ -4892,6 +4929,7 @@ export class KonsepService {
         for (const lamp of dto.lampiran) {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
+            tanggal: naskahDraft.tanggal,
             id_naskah: naskahDraftId,
             file_name: lamp.nama_file,
             file_pdf: lamp.url,
@@ -4917,6 +4955,7 @@ export class KonsepService {
         if (disposisiRef) {
           const naskahReferensi = new NaskahReferensiEntity();
           naskahReferensi.id = uuidv4();
+          naskahReferensi.tanggal = naskahDraft.tanggal;
           naskahReferensi.id_naskah = naskahDraftId;
           naskahReferensi.ref_jenis = 'DI';
           naskahReferensi.ref_nomor = disposisiRef.nomor;
@@ -5530,7 +5569,7 @@ export class KonsepService {
         // ==========================================
         // 2. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
         // ==========================================
-        const sirkulasiKonsepPengirim = this.createSirkulasi(
+        const sirkulasiKonsepPengirim = await this.createSirkulasi(
           naskahKonsepId,
           'pengirim',
           fromPos,
@@ -5538,7 +5577,7 @@ export class KonsepService {
         );
         await queryRunner.manager.save(sirkulasiKonsepPengirim);
 
-        const sirkulasiKonsepPenerima = this.createSirkulasi(
+        const sirkulasiKonsepPenerima = await this.createSirkulasi(
           naskahKonsepId,
           'penerima',
           toPos,
@@ -5655,7 +5694,7 @@ export class KonsepService {
           sirkuler: 'pengirim',
         });
 
-        const sirkulasiPengirim = this.createSirkulasi(
+        const sirkulasiPengirim = await this.createSirkulasi(
           idDraft,
           'pengirim',
           pengirimPos,
@@ -5692,7 +5731,7 @@ export class KonsepService {
           for (const posId of expandedPenerimaIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(
+            const sirkulasi = await this.createSirkulasi(
               idDraft,
               'penerima',
               pos,
@@ -5705,6 +5744,7 @@ export class KonsepService {
         } else if (dto.kepada_yth) {
           const sirkulasiPenerima = new NaskahSirkulasi();
           sirkulasiPenerima.id = uuidv4();
+          sirkulasiPenerima.tanggal = naskah.tanggal;
           sirkulasiPenerima.idNaskah = idDraft;
           sirkulasiPenerima.sirkuler = 'penerima';
           sirkulasiPenerima.company = String(COMPANY_ID);
@@ -5745,7 +5785,7 @@ export class KonsepService {
           for (const posId of expandedTembusanIds) {
             const pos = this.findByPosition(barisData, posId);
             if (!pos) continue;
-            const sirkulasi = this.createSirkulasi(
+            const sirkulasi = await this.createSirkulasi(
               idDraft,
               'tembusan',
               pos,
@@ -5758,6 +5798,7 @@ export class KonsepService {
         } else if (dto.tembusan) {
           const sirkulasiTembusan = new NaskahSirkulasi();
           sirkulasiTembusan.id = uuidv4();
+          sirkulasiTembusan.tanggal = naskah.tanggal;
           sirkulasiTembusan.idNaskah = idDraft;
           sirkulasiTembusan.sirkuler = 'tembusan';
           sirkulasiTembusan.company = String(COMPANY_ID);
