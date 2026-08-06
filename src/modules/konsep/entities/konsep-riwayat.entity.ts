@@ -5,6 +5,10 @@ export class KonsepRiwayatEntity {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
 
+  // Denormalisasi naskah.tanggal — kunci partisi RANGE(YEAR(tanggal)), bagian PK komposit (id, tanggal)
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
+
   @Column({ type: 'char', length: 36, name: 'id_naskah_konsep' })
   idNaskahKonsep: string;
 

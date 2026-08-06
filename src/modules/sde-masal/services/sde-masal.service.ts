@@ -688,6 +688,7 @@ export class SdeMasalService {
         if (pengirimPos) {
           const sirkulasiPengirim = new NaskahSirkulasi();
           sirkulasiPengirim.id = uuidv4();
+          sirkulasiPengirim.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
           sirkulasiPengirim.idNaskah = naskahId;
           sirkulasiPengirim.sirkuler = 'pengirim';
           sirkulasiPengirim.company = String(COMPANY_ID);
@@ -711,6 +712,7 @@ export class SdeMasalService {
         // Buat sirkulasi penerima eksternal
         const sirkulasiPenerima = new NaskahSirkulasi();
         sirkulasiPenerima.id = uuidv4();
+        sirkulasiPenerima.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
         sirkulasiPenerima.idNaskah = naskahId;
         sirkulasiPenerima.sirkuler = 'penerima';
         sirkulasiPenerima.company = null;
@@ -747,6 +749,7 @@ export class SdeMasalService {
 
           const sirkulasiCreator = new NaskahSirkulasi();
           sirkulasiCreator.id = uuidv4();
+          sirkulasiCreator.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
           sirkulasiCreator.idNaskah = naskahId;
           sirkulasiCreator.sirkuler = 'pengirim';
           sirkulasiCreator.company = String(COMPANY_ID);

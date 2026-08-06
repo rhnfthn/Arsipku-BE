@@ -13,6 +13,10 @@ export class NaskahLabelEntity {
   @PrimaryColumn('char', { length: 36 })
   id: string;
 
+  // Denormalisasi naskah.tanggal — kunci partisi RANGE(YEAR(tanggal)), bagian PK komposit (id, tanggal)
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
+
   @Column('varchar', { length: 36, name: 'naskah_id' })
   naskahId: string;
 

@@ -7,12 +7,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import axios, { AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { SendMailDto } from '../dto';
 import { MailLogEntity } from '../entities';
 import { Session } from '../../auth/entities/session.entity';
+import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 
 export interface MailLogContext {
   naskah_id?: string;
@@ -34,6 +35,7 @@ export class MailServiceService {
     private readonly mailLogRepository: Repository<MailLogEntity>,
     @InjectRepository(Session)
     private readonly sessionRepository: Repository<Session>,
+    private readonly dataSource: DataSource,
   ) {
     this.baseUrl = this.normalizeBaseUrl(
       this.configService.get<string>('MAIL_API_BASE_URL') || '',
@@ -166,9 +168,23 @@ export class MailServiceService {
     context?: MailLogContext,
   ) {
     try {
+      // Ambil tanggal dari naskah induk (kunci partisi tabel mail_log)
+      let tanggal: Date = new Date();
+      if (context?.naskah_id) {
+        const parentNaskah = await this.dataSource.manager.findOne(
+          NaskahEntity,
+          {
+            where: { id: context.naskah_id },
+            select: { tanggal: true },
+          },
+        );
+        tanggal = parentNaskah?.tanggal ?? new Date();
+      }
+
       const log = this.mailLogRepository.create({
         id: uuidv4(),
         naskah_id: context?.naskah_id || null,
+        tanggal,
         jenis_naskah: context?.jenis_naskah || null,
         nomor_surat: context?.nomor_surat || null,
         perihal: context?.perihal || null,
