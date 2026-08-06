@@ -2,6 +2,7 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
@@ -19,6 +20,9 @@ export class UsulanBerkasEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
+
   @Column('uuid') usulanId: string;
   @Column('uuid') berkasId: string;
   @Column('simple-array') jenisAksesGranted: string[];
@@ -33,7 +37,10 @@ export class UsulanBerkasEntity {
 
   @CreateDateColumn() createdAt: Date;
 
-  @ManyToOne(() => UsulanAksesBerkasEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => UsulanAksesBerkasEntity, {
+    onDelete: 'CASCADE',
+    createForeignKeyConstraints: false, // FK di-drop utk partisi; cascade via app (usulan tak pernah dihapus)
+  })
   @JoinColumn({ name: 'usulanId' })
   usulan: UsulanAksesBerkasEntity;
 }

@@ -2,6 +2,7 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
@@ -19,6 +20,9 @@ export class VerificationStepEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @PrimaryColumn('date')
+  tanggal: Date;
+
   @Column('uuid') usulanId: string;
   @Column('int') verifierPersnum: number;
   @Column('varchar', { length: 50 }) roleTahap: string; // 'AVP_PENGUSUL', 'EVP_PEMBERI', dll
@@ -31,7 +35,10 @@ export class VerificationStepEntity {
   @Column('json', { nullable: true, default: '{}' }) checklist: Record<string, boolean> | null;
   @CreateDateColumn() verifiedAt: Date;
 
-  @ManyToOne(() => UsulanAksesBerkasEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => UsulanAksesBerkasEntity, {
+    onDelete: 'CASCADE',
+    createForeignKeyConstraints: false, // FK di-drop utk partisi; cascade via app (usulan tak pernah dihapus)
+  })
   @JoinColumn({ name: 'usulanId' })
   usulan: UsulanAksesBerkasEntity;
 }
