@@ -2,6 +2,20 @@ import { IsOptional, IsString, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class AtasanTuItemDto {
+  @ApiProperty()
+  @IsString()
+  persnum: string;
+
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
+  jabatan: string;
+}
+
 export class TuFilterDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -38,9 +52,14 @@ export class VerifikasiBerkasDto {
 }
 
 export class AjukanAtasanTuDto {
-  @ApiProperty({ description: 'Persnum Atasan Managerial TU' })
+  @ApiProperty({ description: 'Persnum Atasan Managerial TU (legacy, single)' })
+  @IsOptional()
   @IsString()
-  atasanTuPersnum: string;
+  atasanTuPersnum?: string;
+
+  @ApiProperty({ description: 'Daftar atasan TU berjenjang (multi-level)', type: [AtasanTuItemDto] })
+  @IsOptional()
+  atasanTuList?: AtasanTuItemDto[];
 }
 
 export class KembalikanDto {
