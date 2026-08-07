@@ -890,39 +890,6 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
-  // PATCH /naskah-share/:id/read — Mark as read
-  // ────────────────────────────────────────────────────────────────
-
-  async markAsRead(user: JwtPayload, id: string) {
-    const share = await this.shareRepo.findOne({
-      where: { id },
-      relations: ['recipients'],
-    });
-    if (!share) {
-      throw new NotFoundException('Share tidak ditemukan');
-    }
-
-    const recipientRecord = share.recipients.find(
-      (r) => r.recipientId === user.position,
-    );
-    if (!recipientRecord) {
-      throw new ForbiddenException('Anda bukan penerima share ini');
-    }
-
-    // Only update if still TERKIRIM
-    // Skip SEKALI_LIHAT — status should only change when actually opening the PDF
-    if (
-      recipientRecord.status === RecipientStatus.TERKIRIM &&
-      share.accessType !== ShareAccessType.SEKALI_LIHAT
-    ) {
-      recipientRecord.status = RecipientStatus.DIBACA;
-      await this.recipientRepo.save(recipientRecord);
-    }
-
-    return { success: true, message: 'Share ditandai sudah dibaca' };
-  }
-
-  // ────────────────────────────────────────────────────────────────
   // GET /naskah-share/search-user — Search user
   // ────────────────────────────────────────────────────────────────
 
