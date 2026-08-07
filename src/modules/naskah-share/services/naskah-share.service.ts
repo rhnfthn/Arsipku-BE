@@ -890,6 +890,21 @@ export class NaskahShareService {
   }
 
   // ────────────────────────────────────────────────────────────────
+  // GET /naskah-share/unread-count — Jumlah share diterima yang belum dibaca
+  // ────────────────────────────────────────────────────────────────
+
+  async getUnreadCount(user: JwtPayload): Promise<number> {
+    const count = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(NaskahShareEntity, 'share', 'share.id = r.shareId')
+      .where('r.recipientId = :positionId', { positionId: user.position })
+      .andWhere('r.status = :status', { status: RecipientStatus.TERKIRIM })
+      .andWhere('share.status = :shareStatus', { shareStatus: ShareStatus.AKTIF })
+      .getCount();
+    return count;
+  }
+
+  // ────────────────────────────────────────────────────────────────
   // GET /naskah-share/search-user — Search user
   // ────────────────────────────────────────────────────────────────
 
