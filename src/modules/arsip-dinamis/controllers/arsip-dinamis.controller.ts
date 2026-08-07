@@ -313,7 +313,12 @@ export class ArsipDinamisController {
     @Body() dto: AddNaskahToBerkasDto,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.addNaskahToBerkas(id, dto, user.persnum);
+    return this.arsipDinamisService.addNaskahToBerkas(
+      id,
+      dto,
+      user.persnum,
+      user.position,
+    );
   }
 
   /**

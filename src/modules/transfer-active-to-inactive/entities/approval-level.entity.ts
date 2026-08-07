@@ -2,6 +2,7 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
@@ -17,6 +18,10 @@ import {
 export class TransferApprovalLevelEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /** Kunci partisi (per tahun). */
+  @PrimaryColumn('date')
+  tanggal: Date;
 
   @Column({ name: 'transfer_id', type: 'char', length: 36 })
   transferId: string;
