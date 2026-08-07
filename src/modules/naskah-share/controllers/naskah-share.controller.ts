@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Delete,
-  Patch,
   Param,
   Query,
   Body,
@@ -175,25 +174,6 @@ export class NaskahShareController {
         {
           success: false,
           message: 'Gagal membuka naskah',
-          error: error.message,
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /** PATCH /naskah-share/:id/read — Mark share as read */
-  @Patch(':id/read')
-  @RequirePermission('naskah-share', 'read')
-  async markAsRead(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    try {
-      return await this.shareService.markAsRead(user, id);
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Gagal menandai sudah dibaca',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
