@@ -2,6 +2,8 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
+  Unique,
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -14,11 +16,16 @@ import { UsulanPindahStatus } from '../enums/usulan-status.enum';
  * Flow status lihat `UsulanPindahStatus`.
  */
 @Entity('usulan_pindah_arsip_inaktif', { schema: 'navmail' })
+@Unique(['nomorUsulan', 'tanggal'])
 export class UsulanPindahArsipInaktifEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'nomor_usulan', type: 'varchar', length: 50, unique: true })
+  /** Kunci partisi (per tahun). */
+  @PrimaryColumn('date')
+  tanggal: Date;
+
+  @Column({ name: 'nomor_usulan', type: 'varchar', length: 50 })
   nomorUsulan: string;
 
   @Column({ name: 'tgl_usulan', type: 'date' })

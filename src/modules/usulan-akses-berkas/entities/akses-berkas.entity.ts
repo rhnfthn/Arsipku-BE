@@ -2,6 +2,7 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
+  PrimaryColumn,
   CreateDateColumn,
   Index,
 } from 'typeorm';
@@ -16,6 +17,9 @@ import {
 export class AksesBerkasEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @PrimaryColumn('date')
+  tanggal: Date;
 
   @Column('uuid') usulanId: string;
   @Column('int') userPersnum: number; // persnum user yang dapat akses

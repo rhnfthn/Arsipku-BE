@@ -135,8 +135,15 @@ export class TransferActiveToInactiveService {
     const firstAtasan = dto.atasanList[0];
     const firstArsip = dto.arsipList[0];
 
+    // Tanggal partisi: tanggal_dibuat berkas pertama, fallback sekarang.
+    const berkasPembuat = await this.berkasRepo.findOne({
+      where: { id: firstArsip.id },
+      select: ['tanggalDibuat'],
+    });
+
     const entity = this.repo.create({
       nomorUsulan,
+      tanggal: berkasPembuat?.tanggalDibuat ?? new Date(),
       tanggalUsulan: dto.tanggalUsulan
         ? new Date(dto.tanggalUsulan)
         : new Date(),
@@ -176,6 +183,7 @@ export class TransferActiveToInactiveService {
       (a: AtasanItemDto, idx: number) =>
         this.levelRepo.create({
           transferId: saved.id,
+          tanggal: saved.tanggal ?? new Date(),
           atasanPersnum: Number(a.persnum),
           atasanName: a.name ?? String(a.persnum),
           atasanPositionId: a.positionId ?? null,
@@ -298,6 +306,7 @@ export class TransferActiveToInactiveService {
       (a: AtasanItemDto, idx: number) =>
         this.levelRepo.create({
           transferId: saved.id,
+          tanggal: saved.tanggal ?? new Date(),
           atasanPersnum: Number(a.persnum),
           atasanName: a.name ?? String(a.persnum),
           atasanPositionId: a.positionId ?? null,
@@ -472,8 +481,8 @@ export class TransferActiveToInactiveService {
            atasan_persnum, atasan_name, atasan_position_id,
            current_approval_level, total_approval_levels,
            arsip_id, arsip_perihal, arsip_kode, tgl_retensi_aktif_habis,
-           arsip_ids, keterangan, status)
-         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           arsip_ids, keterangan, status, tanggal)
+         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           await this.generateNomorUsulan(),
           new Date(),
@@ -499,6 +508,7 @@ export class TransferActiveToInactiveService {
           ]),
           'Dibuat otomatis: masa retensi aktif berkas telah habis',
           TransferActiveToInactiveStatus.DRAFT,
+          b.tanggalDibuat ?? new Date(),
         ],
       );
       // Cegah duplikat dalam satu run
