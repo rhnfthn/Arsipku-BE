@@ -155,6 +155,14 @@ export class NaskahSirkulasiService {
 
   async create(dto: CreateNaskahSirkulasiDto): Promise<NaskahSirkulasi> {
     const newNaskahSirkulasi = this.naskahSirkulasiRepo.create(dto);
+    // Partisi: isi tanggal dari naskah induk (kunci partisi RANGE(YEAR(tanggal)))
+    if (!newNaskahSirkulasi.tanggal && dto.idNaskah) {
+      const naskah = await this.naskahRepo.findOne({
+        where: { id: dto.idNaskah },
+        select: { tanggal: true },
+      });
+      newNaskahSirkulasi.tanggal = naskah?.tanggal ?? new Date();
+    }
     const saved = await this.naskahSirkulasiRepo.save(newNaskahSirkulasi);
 
     // Sync to Meilisearch when sirkulasi changes (affects pengirim/penerima info)

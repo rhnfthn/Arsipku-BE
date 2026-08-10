@@ -1172,7 +1172,7 @@ export class SuratDinasInternalService {
   /**
    * Helper: Create sirkulasi from SdiOrgDataPositionDto
    */
-  private createSirkulasiFromOrgData(
+  private async createSirkulasiFromOrgData(
     idNaskah: string,
     sirkuler: 'pengirim' | 'penerima' | 'tembusan',
     pos: SdiOrgDataPositionDto,
@@ -1180,7 +1180,16 @@ export class SuratDinasInternalService {
     urutan: number = 0,
     grupPenerimaId?: string,
     actorUser?: { position_status?: string | null; nama?: string } | null,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    // Partisi per tahun: sirkulasi wajib bawa tanggal dari naskah induk
+    let tanggal: Date = new Date();
+    if (idNaskah) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: idNaskah },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
     const _pf = delegatedPengirimFields(
       actorUser ?? { position_status: null, nama: '' },
@@ -1190,6 +1199,7 @@ export class SuratDinasInternalService {
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
+      tanggal,
       sirkuler,
       company: String(COMPANY_ID),
       companyText: 'PERUM LPPNPI',
@@ -1733,6 +1743,7 @@ export class SuratDinasInternalService {
           const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             ref_jenis: naskahRef.jenis || 'SDI',
             ref_pengirim: null, // Bisa diisi dari sirkulasi pengirim jika perlu
             ref_tanggal: naskahRef.tanggal || null,
@@ -1752,7 +1763,7 @@ export class SuratDinasInternalService {
       }
 
       // PHASE 8: Insert sirkulasi - pengirim
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+      const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
         pengirim,
@@ -1770,7 +1781,7 @@ export class SuratDinasInternalService {
       const pendingNotifications: Array<() => Promise<any>> = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(
+        const penerimaSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'penerima',
           penerima,
@@ -1814,7 +1825,7 @@ export class SuratDinasInternalService {
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+        const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'tembusan',
           tembusan,
@@ -1882,6 +1893,7 @@ export class SuratDinasInternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
@@ -2232,6 +2244,7 @@ export class SuratDinasInternalService {
           const referensi = queryRunner.manager.create(NaskahReferensiEntity, {
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             ref_jenis: naskahRef.jenis || 'SDI',
             ref_pengirim: null,
             ref_tanggal: naskahRef.tanggal || null,
@@ -2252,7 +2265,7 @@ export class SuratDinasInternalService {
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
       const isPending = status === 'pending';
-      const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+      const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
         pengirim,
@@ -2268,7 +2281,7 @@ export class SuratDinasInternalService {
       const penerimaResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < penerimaList.length; i++) {
         const penerima = penerimaList[i];
-        const penerimaSirkulasi = this.createSirkulasiFromOrgData(
+        const penerimaSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'penerima',
           penerima,
@@ -2317,7 +2330,7 @@ export class SuratDinasInternalService {
       const tembusanResponses: SirkulasiInfoDto[] = [];
       for (let i = 0; i < tembusanList.length; i++) {
         const tembusan = tembusanList[i];
-        const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+        const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'tembusan',
           tembusan,
@@ -2947,6 +2960,7 @@ export class SuratDinasInternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: crypto.randomUUID(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
@@ -3079,7 +3093,7 @@ export class SuratDinasInternalService {
         // Re-insert pengirim (isDraft stays true for pending/TTD basah)
         const isPending = newStatus === 'pending';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+          const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'pengirim',
             fullPengirimPosition,
@@ -3099,7 +3113,7 @@ export class SuratDinasInternalService {
         // Re-insert penerima (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(
+          const penerimaSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'penerima',
             penerima,
@@ -3115,7 +3129,7 @@ export class SuratDinasInternalService {
         // Re-insert tembusan (isDraft stays true for pending/TTD basah)
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+          const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
@@ -3150,6 +3164,7 @@ export class SuratDinasInternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
@@ -3812,7 +3827,7 @@ export class SuratDinasInternalService {
 
         // Re-insert pengirim with is_draft = true
         if (pengirimPosition) {
-          const pengirimSirkulasi = this.createSirkulasiFromOrgData(
+          const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'pengirim',
             pengirimPosition,
@@ -3832,7 +3847,7 @@ export class SuratDinasInternalService {
         // Re-insert penerima with is_draft = true and urutan
         for (let i = 0; i < penerimaList.length; i++) {
           const penerima = penerimaList[i];
-          const penerimaSirkulasi = this.createSirkulasiFromOrgData(
+          const penerimaSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'penerima',
             penerima,
@@ -3847,7 +3862,7 @@ export class SuratDinasInternalService {
         // Re-insert tembusan with is_draft = true and urutan (only if there are any)
         for (let i = 0; i < tembusanList.length; i++) {
           const tembusan = tembusanList[i];
-          const tembusanSirkulasi = this.createSirkulasiFromOrgData(
+          const tembusanSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
             'tembusan',
             tembusan,
@@ -3873,6 +3888,7 @@ export class SuratDinasInternalService {
           const lampiran = this.naskahLampiranRepository.create({
             id: uuidv4(),
             id_naskah: naskahId,
+            tanggal: naskah.tanggal,
             file_name: fileName,
             file_pdf: filePath,
             jenis: 'SDI',
@@ -4670,6 +4686,7 @@ export class SuratDinasInternalService {
         {
           id: uuidv4(),
           id_naskah: naskahId,
+          tanggal: naskah.tanggal,
           ref_jenis: naskahDiterima.jenis as any,
           ref_pengirim: sirkulasiPenerima.namaSirkuler || null,
           ref_tanggal: naskahDiterima.tanggal || null,
@@ -4688,6 +4705,7 @@ export class SuratDinasInternalService {
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
+        tanggal: naskah.tanggal,
         sirkuler: 'pengirim',
         company: String(pengirim.company || COMPANY_ID),
         companyText: 'PERUM LPPNPI',
@@ -4715,6 +4733,7 @@ export class SuratDinasInternalService {
         const penerimaSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal,
           sirkuler: 'penerima',
           company: String(penerima.company || COMPANY_ID),
           companyText: 'PERUM LPPNPI',
@@ -4780,6 +4799,7 @@ export class SuratDinasInternalService {
         const tembusanSirkulasi = this.naskahSirkulasiRepository.create({
           id: uuidv4(),
           idNaskah: naskahId,
+          tanggal: naskah.tanggal,
           sirkuler: 'tembusan',
           company: String(tembusan.company || COMPANY_ID),
           companyText: 'PERUM LPPNPI',
@@ -4852,6 +4872,7 @@ export class SuratDinasInternalService {
             const newLampiran = this.naskahLampiranRepository.create({
               id: uuidv4(),
               id_naskah: naskahId,
+              tanggal: naskah.tanggal,
               file_name: prevLamp.file_name,
               file_pdf: prevLamp.file_pdf,
               jenis: dto.jenis,

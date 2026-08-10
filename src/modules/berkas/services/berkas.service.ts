@@ -40,6 +40,7 @@ export class BerkasService {
       lokasi: createBerkasDto.lokasi,
       isiRingkas: createBerkasDto.isi_ringkas,
       isAktif: createBerkasDto.is_aktif ?? true, // Default true jika tidak diisi
+      tanggalDibuat: new Date().toISOString().split('T')[0],
     });
 
     return this.berkasRepository.save(berkas);

@@ -371,14 +371,23 @@ export class NaskahDinasService {
   /**
    * Helper: Create sirkulasi for penerima (internal from org_data)
    */
-  private createSirkulasiFromOrgData(
+  private async createSirkulasiFromOrgData(
     idNaskah: string,
     sirkuler: 'penerima',
     pos: NdOrgDataPositionDto,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (idNaskah) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: idNaskah },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
+      tanggal,
       sirkuler,
       company: String(COMPANY_ID),
       companyText: 'PERUM LPPNPI',
@@ -405,13 +414,22 @@ export class NaskahDinasService {
   /**
    * Helper: Create sirkulasi for pengirim (eksternal)
    */
-  private createSirkulasiFromEksternal(
+  private async createSirkulasiFromEksternal(
     idNaskah: string,
     eksternal: EksternalEntity,
-  ): NaskahSirkulasi {
+  ): Promise<NaskahSirkulasi> {
+    let tanggal: Date = new Date();
+    if (idNaskah) {
+      const parentNaskah = await this.naskahRepository.findOne({
+        where: { id: idNaskah },
+        select: { tanggal: true },
+      });
+      tanggal = parentNaskah?.tanggal ?? new Date();
+    }
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
+      tanggal,
       sirkuler: 'pengirim',
       company: eksternal.company ?? null,
       companyText: null,
@@ -670,7 +688,7 @@ export class NaskahDinasService {
       await queryRunner.manager.save(naskah);
 
       // 5. Create sirkulasi untuk pengirim (eksternal)
-      const sirkulasiPengirim = this.createSirkulasiFromEksternal(
+      const sirkulasiPengirim = await this.createSirkulasiFromEksternal(
         naskahId,
         pengirimEksternal,
       );
@@ -679,7 +697,7 @@ export class NaskahDinasService {
       // 6. Create sirkulasi untuk penerima (internal user)
       const penerimaResponses: NdPenerimaInfoDto[] = [];
       for (const pos of penerimaPositions) {
-        const sirkulasiPenerima = this.createSirkulasiFromOrgData(
+        const sirkulasiPenerima = await this.createSirkulasiFromOrgData(
           naskahId,
           'penerima',
           pos,
@@ -1306,12 +1324,12 @@ export class NaskahDinasService {
 
       await queryRunner.manager.delete(NaskahSirkulasi, { idNaskah: id });
       await queryRunner.manager.save(
-        this.createSirkulasiFromEksternal(id, pengirimEksternal),
+        await this.createSirkulasiFromEksternal(id, pengirimEksternal),
       );
 
       for (const pos of penerimaPositions) {
         await queryRunner.manager.save(
-          this.createSirkulasiFromOrgData(id, 'penerima', pos),
+          await this.createSirkulasiFromOrgData(id, 'penerima', pos),
         );
       }
 

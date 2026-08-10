@@ -1,6 +1,7 @@
 import {
   Column,
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   CreateDateColumn,
   ManyToOne,
@@ -13,10 +14,14 @@ import { Berkas } from '../../berkas/entities/berkas.entity';
 @Index('idx_berkas_naskah_berkas', ['berkasId'])
 @Index('idx_berkas_naskah_naskah', ['naskahId'])
 @Index('idx_berkas_naskah_sumber', ['sumber'])
+@Index('uk_berkas_naskah', ['berkasId', 'naskahId', 'idSirkuler', 'tanggal'], { unique: true })
 export class BerkasNaskah {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })
   id: string;
+
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
 
   @Column('char', { name: 'berkas_id', length: 36 })
   berkasId: string;
@@ -26,6 +31,18 @@ export class BerkasNaskah {
 
   @Column('varchar', { name: 'naskah_tipe', length: 50 })
   naskahTipe: string;
+
+  // Konteks sirkulasi saat naskah ditambahkan — memungkinkan naskah yang sama
+  // masuk ke berkas unit berbeda (penerima/pengirim), unique per id_sirkuler.
+  @Column('enum', {
+    name: 'sirkuler',
+    enum: ['pengirim', 'penerima'],
+    nullable: true,
+  })
+  sirkuler: 'pengirim' | 'penerima' | null;
+
+  @Column('varchar', { name: 'id_sirkuler', length: 100, nullable: true })
+  idSirkuler: string | null;
 
   @Column('varchar', { name: 'sumber', length: 20 })
   sumber: string;

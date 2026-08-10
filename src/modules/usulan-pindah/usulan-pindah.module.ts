@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsulanPindahArsipInaktifEntity } from './entities/usulan-pindah.entity';
+import { TransferActiveToInactiveEntity } from '../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
 import { UsulanPindahService } from './services/usulan-pindah.service';
 import { UsulanPindahController } from './controllers/usulan-pindah.controller';
 import { AuditModule } from '../audit/audit.module';
@@ -14,7 +15,10 @@ import { AuditModule } from '../audit/audit.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UsulanPindahArsipInaktifEntity]),
+    TypeOrmModule.forFeature([
+      UsulanPindahArsipInaktifEntity,
+      TransferActiveToInactiveEntity,
+    ]),
     AuditModule,
   ],
   controllers: [UsulanPindahController],

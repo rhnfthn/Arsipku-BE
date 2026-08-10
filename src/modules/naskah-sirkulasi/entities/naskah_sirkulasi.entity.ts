@@ -1,10 +1,13 @@
-import { Column, Entity, Index } from 'typeorm';
+import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 @Entity('naskah_sirkulasi')
-@Index('idx_naskah_sirkulasi_id_naskah', ['idNaskah'])
 export class NaskahSirkulasi {
-  @Column('char', { primary: true, name: 'id', length: 36 })
+  @PrimaryColumn('char', { primary: true, name: 'id', length: 36 })
   id: string;
+
+  // Denormalisasi naskah.tanggal — kunci partisi RANGE(YEAR(tanggal)), bagian PK komposit (id, tanggal)
+  @PrimaryColumn('date', { name: 'tanggal' })
+  tanggal: Date;
 
   @Column('char', { name: 'id_naskah', nullable: true, length: 36 })
   idNaskah: string | null;

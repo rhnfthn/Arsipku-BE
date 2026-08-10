@@ -452,6 +452,8 @@ export class UsulanAksesBerkasService {
 
     const usulan = this.usulanRepo.create({
       nomorUsulan,
+      // Partition key — belum ada item berkas saat usulan dibuat, fallback ke hari ini
+      tanggal: new Date(),
       jenisBerkas: dto.jenisBerkas,
       pengusulPersnum: userPersnum,
       divisiPengusulId: userOrgId,
@@ -828,6 +830,7 @@ export class UsulanAksesBerkasService {
     // Simpan verification step (checklist dihapus — cukup keputusan + catatan)
     const step = this.stepRepo.create({
       usulanId: id,
+      tanggal: usulan.tanggal ?? new Date(), // partition key, ikut tanggal usulan
       verifierPersnum: userPersnum,
       roleTahap: `VERIFIKATOR_PENGUSUL_J${jenjang}`,
       urutanJenjang: jenjang,
@@ -910,6 +913,7 @@ export class UsulanAksesBerkasService {
     // Simpan step (checklist dihapus — cukup keputusan + catatan + durasi)
     const step = this.stepRepo.create();
     step.usulanId = id;
+    step.tanggal = usulan.tanggal ?? new Date(); // partition key, ikut tanggal usulan
     step.verifierPersnum = Number(user.persnum);
     step.roleTahap = 'SEKRETARIS_PEMBERI';
     step.urutanJenjang = 0; // sekretaris bukan jenjang managerial
@@ -991,14 +995,20 @@ export class UsulanAksesBerkasService {
     // Simpan berkas baru — berlakuHingga pakai sentinel sampai akses diterbitkan.
     // Kolom DB NOT NULL, jadi kita tidak bisa null-kan (user tidak punya ALTER privilege).
     // Sentinel akan di-overwrite dengan tanggal sebenarnya saat terbitkanAkses().
-    const usulanBerkasItems = dto.berkasIds.map((berkasId) =>
-      this.usulanBerkasRepo.create({
+    // Partition key `tanggal` mengikuti tanggal_dibuat berkas (berkasList sudah ada di scope).
+    const tanggalDibuatByBerkas = new Map(
+      berkasList.map((b) => [b.id, b.tanggalDibuat] as const),
+    );
+    const usulanBerkasItems = dto.berkasIds.map((berkasId) => {
+      const tanggalDibuat = tanggalDibuatByBerkas.get(berkasId);
+      return this.usulanBerkasRepo.create({
         usulanId: id,
         berkasId,
+        tanggal: tanggalDibuat ? new Date(tanggalDibuat) : new Date(),
         jenisAksesGranted: usulan.jenisAkses,
         berlakuHingga: BERLAKU_HINGGA_SENTINEL as any,
-      }),
-    );
+      });
+    });
     await this.usulanBerkasRepo.save(usulanBerkasItems);
 
     // Auto-sort verifikator pemberi (pertahankan catatan per verifikator)
@@ -1185,6 +1195,7 @@ export class UsulanAksesBerkasService {
     // Simpan step (checklist dihapus — cukup keputusan + catatan + durasi)
     const step = this.stepRepo.create();
     step.usulanId = id;
+    step.tanggal = usulan.tanggal ?? new Date(); // partition key, ikut tanggal usulan
     step.verifierPersnum = userPersnum;
     step.roleTahap = `VERIFIKATOR_PEMBERI_J${jenjang}`;
     step.urutanJenjang = jenjang;
@@ -1268,14 +1279,29 @@ export class UsulanAksesBerkasService {
       where: { usulanId: usulan.id },
     });
 
+    // Partition key entitlement: tanggal_dibuat dari berkas terkait (lookup sekali untuk semua entitlement)
+    const berkasTanggalIds = usulanBerkas.map((ub) => ub.berkasId);
+    const berkasUntukTanggal = berkasTanggalIds.length
+      ? await this.berkasRepo.find({
+          where: { id: In(berkasTanggalIds) },
+          select: ['id', 'tanggalDibuat'] as any,
+        })
+      : [];
+    const tanggalDibuatByBerkas = new Map(
+      berkasUntukTanggal.map((b) => [b.id, b.tanggalDibuat] as const),
+    );
+
     // Buat entitlement untuk Sekretaris Pengusul (wajib)
     const entitlements: AksesBerkasEntity[] = [];
 
     for (const ub of usulanBerkas) {
+      const tanggalDibuat = tanggalDibuatByBerkas.get(ub.berkasId);
+      const tanggal = tanggalDibuat ? new Date(tanggalDibuat) : new Date();
       // Sekretaris Pengusul
       entitlements.push(
         this.aksesRepo.create({
           usulanId: usulan.id,
+          tanggal,
           userPersnum: usulan.pengusulPersnum,
           berkasId: ub.berkasId,
           permissions: ub.jenisAksesGranted,
@@ -1292,6 +1318,7 @@ export class UsulanAksesBerkasService {
           entitlements.push(
             this.aksesRepo.create({
               usulanId: usulan.id,
+              tanggal,
               userPersnum: persnum,
               berkasId: ub.berkasId,
               permissions: ub.jenisAksesGranted,
@@ -1418,6 +1445,7 @@ export class UsulanAksesBerkasService {
           usulanIds: [e.usulanId],
           nomorUsulanTerbaru: usulan?.nomorUsulan || null,
           isPenerimaTambahan: e.isPenerimaTambahan,
+          isRead: e.isRead,
           entitlementCount: 1,
         });
       } else {
@@ -1437,6 +1465,10 @@ export class UsulanAksesBerkasService {
         // Update isExpired — kalau ada satu yang aktif, berkas ini aktif
         if (!isExpired) {
           existing.isExpired = false;
+        }
+        // isRead: true hanya jika SEMUA entitlement di group sudah dibaca
+        if (!e.isRead) {
+          existing.isRead = false;
         }
         // Tambah usulan
         if (!existing.usulanIds.includes(e.usulanId)) {
@@ -1857,6 +1889,19 @@ export class UsulanAksesBerkasService {
     const userPersnum = Number(user.persnum);
     const result = await this.aksesRepo.update(
       { userPersnum, isRead: false },
+      { isRead: true },
+    );
+    return { updated: result.affected || 0 };
+  }
+
+  // ── markBerkasRead: tandai entitlement user untuk satu berkas sebagai dibaca ──
+  async markBerkasRead(
+    berkasId: string,
+    user: any,
+  ): Promise<{ updated: number }> {
+    const userPersnum = Number(user.persnum);
+    const result = await this.aksesRepo.update(
+      { userPersnum, berkasId, isRead: false },
       { isRead: true },
     );
     return { updated: result.affected || 0 };

@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, EntityManager } from 'typeorm';
 import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
+import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { BerkasNaskah } from '../entities/berkas-naskah.entity';
 import { BerkasVerifikasi } from '../entities/berkas-verifikasi.entity';
 import { BerkasRiwayatRetensi } from '../entities/berkas-riwayat-retensi.entity';
@@ -103,6 +104,12 @@ export class ArsipDinamisService {
   }
 
   // ── Helper: Hitung Tanggal Retensi ──────────────────────────────
+
+  /** Kunci partisi tanggal tabel anak arsip-dinamis = tanggal_dibuat berkas.
+   *  Fallback hari ini untuk berkas lama (tanggal_dibuat masih NULL). */
+  private tanggalBerkas(berkas: Berkas): Date {
+    return berkas.tanggalDibuat ? new Date(berkas.tanggalDibuat) : new Date();
+  }
 
   private hitungTanggalRetensi(
     tanggalDibuat: string,
@@ -377,6 +384,7 @@ export class ArsipDinamisService {
       );
       await this.berkasRiwayatRetensiRepository.insert({
         berkasId: berkas.id,
+        tanggal: this.tanggalBerkas(berkas),
         statusSebelumnya: StatusBerkas.AKTIF,
         statusBaru: StatusBerkas.CLOSED_RETENSI_AKTIF,
         tanggalPerubahan: today,
@@ -553,7 +561,13 @@ export class ArsipDinamisService {
     berkasId: string,
     dto: AddNaskahToBerkasDto,
     userId: number,
-  ): Promise<{ message: string; count: number }> {
+    userPosition?: string,
+  ): Promise<{
+    message: string;
+    count: number;
+    rejected?: string[];
+    alreadyExists?: string[];
+  }> {
     const berkas = await this.findOneBerkas(berkasId);
 
     if (
@@ -565,37 +579,88 @@ export class ArsipDinamisService {
       );
     }
 
-    // Cek duplikasi: naskah yang sudah ada di berkas ini
     const requestedIds = [...new Set(dto.naskah_ids.filter(Boolean))];
+    if (requestedIds.length === 0) {
+      return { message: 'Tidak ada naskah yang dipilih', count: 0 };
+    }
+
+    // Konteks sirkulasi: naskah yang user (position) adalah pengirim/penerima.
+    // Naskah yang sama boleh masuk ke berkas unit berbeda (per id_sirkuler).
+    const sirkulasiRows = userPosition
+      ? await this.dataSource.manager.find(NaskahSirkulasi, {
+          where: {
+            idNaskah: In(requestedIds),
+            position: userPosition,
+            sirkuler: In(['pengirim', 'penerima']),
+          },
+        })
+      : [];
+    const sirkulasiByNaskah = new Map<string, NaskahSirkulasi>();
+    for (const s of sirkulasiRows) {
+      if (!s.idNaskah) continue; // query filter idNaskah IN, guard null utk TS
+      const existing = sirkulasiByNaskah.get(s.idNaskah);
+      // prefer penerima, lalu pengirim (satu position bisa punya >1 sirkulasi)
+      if (
+        !existing ||
+        (existing.sirkuler === 'pengirim' && s.sirkuler === 'penerima')
+      ) {
+        sirkulasiByNaskah.set(s.idNaskah, s);
+      }
+    }
+
+    const allowedIds = requestedIds.filter((id) => sirkulasiByNaskah.has(id));
+    const rejectedIds = requestedIds.filter((id) => !sirkulasiByNaskah.has(id));
+
+    if (allowedIds.length === 0) {
+      return {
+        message:
+          'Tidak ada naskah yang bisa ditambahkan: user bukan pengirim/penerima dari naskah yang dipilih',
+        count: 0,
+        rejected: rejectedIds,
+      };
+    }
+
+    // Cek duplikasi per (berkas, naskah, id_sirkuler) — bukan per naskah saja
     const existing = await this.berkasNaskahRepository.find({
       where: {
         berkasId,
-        naskahId: In(requestedIds),
+        naskahId: In(allowedIds),
       },
     });
-    const existingIds = new Set(existing.map((e) => e.naskahId));
-    const newIds = requestedIds.filter((id) => !existingIds.has(id));
+    const existingKeys = new Set(
+      existing.map((e) => `${e.naskahId}|${e.idSirkuler ?? ''}`),
+    );
+    const newEntries = allowedIds
+      .map((naskahId) => {
+        const s = sirkulasiByNaskah.get(naskahId)!;
+        return { naskahId, s, key: `${naskahId}|${s.idSirkuler ?? ''}` };
+      })
+      .filter((e) => !existingKeys.has(e.key));
 
-    if (newIds.length === 0) {
+    if (newEntries.length === 0) {
       return {
         message: 'Semua naskah sudah ada di berkas ini',
         count: 0,
+        rejected: rejectedIds,
       };
     }
 
     // Ambil metadata naskah dari tabel naskah (raw query karena tidak ada FK)
     const naskahMeta: any[] = await this.dataSource.query(
       `SELECT id, perihal, nomor, tanggal, jenis FROM naskah WHERE id IN (?)`,
-      [newIds],
+      [newEntries.map((e) => e.naskahId)],
     );
     const metaMap = new Map<string, any>(naskahMeta.map((n: any) => [n.id, n]));
 
-    const entities = newIds.map((naskahId, idx) => {
+    const entities = newEntries.map(({ naskahId, s }, idx) => {
       const meta = metaMap.get(naskahId) as any;
       return this.berkasNaskahRepository.create({
         berkasId,
+        tanggal: this.tanggalBerkas(berkas),
         naskahId,
         naskahTipe: meta?.jenis || 'unknown',
+        sirkuler: s.sirkuler as 'pengirim' | 'penerima', // query filter sirkuler IN (pengirim,penerima)
+        idSirkuler: s.idSirkuler,
         sumber: dto.sumber,
         perihal: meta?.perihal || null,
         nomorSurat: meta?.nomor || null,
@@ -614,17 +679,25 @@ export class ArsipDinamisService {
       .execute();
 
     const insertedCount = Number(insertResult.raw?.affectedRows ?? 0);
+    const alreadyExistsCount = newEntries.length - insertedCount;
 
-    if (insertedCount === 0) {
-      return {
-        message: 'Semua naskah sudah ada di berkas ini',
-        count: 0,
-      };
-    }
+    const message = [
+      insertedCount > 0 ? `${insertedCount} naskah berhasil ditambahkan` : null,
+      alreadyExistsCount > 0
+        ? `${alreadyExistsCount} sudah ada di berkas`
+        : null,
+      rejectedIds.length > 0
+        ? `${rejectedIds.length} ditolak (bukan pengirim/penerima)`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
 
     return {
-      message: `${insertedCount} naskah berhasil ditambahkan ke berkas`,
+      message: message || 'Tidak ada perubahan',
       count: insertedCount,
+      rejected: rejectedIds,
+      alreadyExists: alreadyExistsCount > 0 ? [] : undefined,
     };
   }
 
@@ -932,6 +1005,7 @@ export class ArsipDinamisService {
     const verifikatorEntities = dto.verifikator.map((v, idx) =>
       this.berkasVerifikasiRepository.create({
         berkasId,
+        tanggal: this.tanggalBerkas(berkas),
         urutan: idx + 1,
         verifikatorPersnum: v.verifikator_persnum,
         verifikatorPositionId: v.verifikator_position_id,
@@ -1053,6 +1127,7 @@ export class ArsipDinamisService {
     // Catat riwayat retensi
     const riwayat = this.berkasRiwayatRetensiRepository.create({
       berkasId,
+      tanggal: this.tanggalBerkas(berkas),
       statusSebelumnya: StatusBerkas.MENUNGGU_VERIFIKASI,
       statusBaru: StatusBerkas.CLOSED_RETENSI_AKTIF,
       tanggalPerubahan: new Date().toISOString().split('T')[0],
@@ -1106,6 +1181,7 @@ export class ArsipDinamisService {
     // Catat riwayat
     const riwayat = this.berkasRiwayatRetensiRepository.create({
       berkasId,
+      tanggal: this.tanggalBerkas(berkas),
       statusSebelumnya: StatusBerkas.MENUNGGU_VERIFIKASI,
       statusBaru: StatusBerkas.DITOLAK,
       tanggalPerubahan: new Date().toISOString().split('T')[0],
