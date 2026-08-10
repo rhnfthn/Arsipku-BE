@@ -248,9 +248,10 @@ export class ArsipDinamisService {
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
 
-    // Scope: user biasa hanya melihat berkas miliknya/unitnya, dan tidak melihat
-    // berkas tertutup (retensi aktif habis) — itu hanya tampil & dikelola TU
-    // (unit_dokumen). TU melihat semua berkas tertutup + berkas miliknya.
+    // Scope: user biasa hanya melihat berkas miliknya/unitnya. Berkas Tertutup
+    // yang retensi aktifnya SUDAH habis disembunyikan (pindah ke TU/pemindahan
+    // arsip); yang baru ditutup (retensi aktif masih berjalan) tetap tampil.
+    // TU (unit_dokumen) melihat semua berkas tertutup + berkas miliknya.
     if (isTu) {
       qb.andWhere(
         '(b.status = :closed OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
@@ -265,9 +266,13 @@ export class ArsipDinamisService {
         userId,
         userPersnum: String(userId),
       });
-      qb.andWhere('b.status != :closed', {
-        closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
-      });
+      qb.andWhere(
+        '(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR b.tanggal_retensi_aktif_berakhir > :today)',
+        {
+          closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
+          today: new Date().toISOString().split('T')[0],
+        },
+      );
     }
 
     if (status) {
@@ -755,10 +760,12 @@ export class ArsipDinamisService {
       );
     }
 
-    const relasi = await this.berkasNaskahRepository.findOne({
+    // Naskah yang sama bisa tercatat >1 baris (id_sirkuler berbeda, unique
+    // (berkas_id, naskah_id, id_sirkuler, tanggal)) — hapus semua, bukan satu.
+    const relasi = await this.berkasNaskahRepository.find({
       where: { berkasId, naskahId },
     });
-    if (!relasi) {
+    if (relasi.length === 0) {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
 
@@ -858,19 +865,39 @@ export class ArsipDinamisService {
 
   /**
    * Posisi yang boleh dilihat user pada pemilihan naskah (modal Tambah Naskah):
-   * - Sekretaris (organization_tu 'sekretaris' / delegasi position_status SE):
+   * - Delegasi SE (sekretaris bertindak atas nama delegator, mis. EVP):
+   *   SEMUA posisi di org delegator sendiri (termasuk posisi delegator) DAN
+   *   SEMUA posisi di unit/divisi yang BERADA DI BAWAH delegator (descendant
+   *   orgs dari org tempat delegator duduk) — sekretaris dapat memilih semua
+   *   naskah dari divisi tersebut.
+   * - Sekretaris role biasa (organization_tu 'sekretaris', non-delegasi):
    *   SEMUA posisi di divisi/unit yang sama (BOD, BOD-1, BOD-2, BOD-3, STAFF).
    * - Selain itu: undefined → query memakai subquery posisi pribadi (perilaku lama).
    */
   async resolveScopePositions(user: any): Promise<number[] | undefined> {
-    const isSekretaris =
-      (Array.isArray(user?.tuRoles) && user.tuRoles.includes('sekretaris')) ||
-      user?.position_status === 'SE';
+    const isDelegatedSekretaris = user?.position_status === 'SE';
+    const isRoleSekretaris =
+      !isDelegatedSekretaris &&
+      Array.isArray(user?.tuRoles) &&
+      user.tuRoles.includes('sekretaris');
+    if (!isDelegatedSekretaris && !isRoleSekretaris) return undefined;
     const selfPosition = Number(user?.position);
-    if (!isSekretaris || !Number.isFinite(selfPosition)) return undefined;
+    if (!Number.isFinite(selfPosition)) return undefined;
 
     try {
       const orgData = await this.orgDataService.findLatestOrg();
+
+      // Delegasi SE: scope = descendant orgs dari org tempat delegator duduk.
+      // Contoh: delegator = "EVP of Air Navigation Information Management"
+      // (chief divisi) → scope = posisi di unit/divisi di bawah divisi tersebut,
+      // BUKAN posisi di divisi delegator sendiri.
+      if (isDelegatedSekretaris) {
+        const scope = this.collectScopeTree(orgData, selfPosition);
+        if (!scope || scope.positions.length === 0) return undefined;
+        return [...new Set(scope.positions)];
+      }
+
+      // Sekretaris role biasa (non-delegasi): scope divisi sendiri (perilaku lama).
       const rows = Array.isArray(orgData?.position_json)
         ? orgData.position_json
         : typeof orgData?.position_json === 'string'
@@ -878,9 +905,8 @@ export class ArsipDinamisService {
           : [];
       if (!Array.isArray(rows)) return undefined;
 
-      // Unit sekretaris = divisi posisinya (fallback organization_id), pola sama
-      // dengan getVerifikatorBod di usulan-akses-berkas.
       const self = rows.find((x: any) => Number(x.position) === selfPosition);
+      if (!self) return undefined;
       const divisiId = Number(self?.divisi_id ?? self?.organization_id);
       if (!Number.isFinite(divisiId)) return undefined;
 
@@ -892,6 +918,86 @@ export class ArsipDinamisService {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Nama org (divisi/unit) dalam scope delegasi SE — untuk filter divisi modal
+   * Tambah Naskah agar semua unit tampil walau tanpa naskah. Bukan SE → [].
+   */
+  async getScopeDivisi(user: any): Promise<string[]> {
+    if (user?.position_status !== 'SE') return [];
+    const selfPosition = Number(user?.position);
+    if (!Number.isFinite(selfPosition)) return [];
+    try {
+      const orgData = await this.orgDataService.findLatestOrg();
+      const scope = this.collectScopeTree(orgData, selfPosition);
+      return scope ? [...new Set(scope.orgNames)] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Cari node org tempat delegator duduk lalu kumpulkan posisi & nama org
+   * keturunan (descendants). Dipakai resolveScopePositions (posisi) dan
+   * getScopeDivisi (nama divisi filter). Undefined bila posisi tidak ditemukan.
+   */
+  private collectScopeTree(
+    orgData: any,
+    selfPosition: number,
+  ): { positions: number[]; orgNames: string[] } | undefined {
+    const tree = Array.isArray(orgData?.organization_json)
+      ? orgData.organization_json
+      : typeof orgData?.organization_json === 'string'
+        ? JSON.parse(orgData.organization_json)
+        : [];
+    if (!Array.isArray(tree)) return undefined;
+
+    const findNode = (nodes: any[]): any | null => {
+      for (const node of nodes) {
+        if (
+          Array.isArray(node?.positions) &&
+          node.positions.some((p: any) => Number(p?.position) === selfPosition)
+        ) {
+          return node;
+        }
+        const found = findNode(Array.isArray(node?.children) ? node.children : []);
+        if (found) return found;
+      }
+      return null;
+    };
+    const delegatorNode = findNode(tree);
+    if (!delegatorNode) return undefined;
+
+    const positions: number[] = [];
+    const orgNames: string[] = [];
+
+    // SEMUA posisi di org delegator sendiri ikut scope (termasuk posisi delegator
+    // sendiri) — sekretaris bisa memilih semua naskah dari divisi tersebut.
+    for (const p of Array.isArray(delegatorNode?.positions)
+      ? delegatorNode.positions
+      : []) {
+      const pid = Number(p?.position);
+      if (Number.isFinite(pid)) positions.push(pid);
+    }
+    if (typeof delegatorNode?.name === 'string' && delegatorNode.name.trim()) {
+      orgNames.push(delegatorNode.name);
+    }
+
+    const collectDescendants = (node: any) => {
+      for (const child of Array.isArray(node?.children) ? node.children : []) {
+        if (typeof child?.name === 'string' && child.name.trim()) {
+          orgNames.push(child.name);
+        }
+        for (const p of Array.isArray(child?.positions) ? child.positions : []) {
+          const pid = Number(p?.position);
+          if (Number.isFinite(pid)) positions.push(pid);
+        }
+        collectDescendants(child);
+      }
+    };
+    collectDescendants(delegatorNode);
+    return { positions, orgNames };
   }
 
   /**
@@ -961,9 +1067,11 @@ export class ArsipDinamisService {
         n.jenis AS naskah_tipe,
         n.status,
         n.final_pdf,
+        -- Prefiks delegasi sementara (PT./PH.) dibuang agar naskah tampil atas
+        -- nama jabatan utama (mis. "EVP of ..."), bukan varian pelaksana.
         COALESCE(
-          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.position_text END),
-          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.position_text END)
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END)
         ) AS jabatan,
         COALESCE(
           MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.nama_sirkuler END),
@@ -1072,9 +1180,11 @@ export class ArsipDinamisService {
         n.jenis AS naskah_tipe,
         n.status,
         n.final_pdf,
+        -- Prefiks delegasi sementara (PT./PH.) dibuang agar naskah tampil atas
+        -- nama jabatan utama (mis. "EVP of ..."), bukan varian pelaksana.
         COALESCE(
-          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.position_text END),
-          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.position_text END)
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END)
         ) AS jabatan,
         COALESCE(
           MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.nama_sirkuler END),

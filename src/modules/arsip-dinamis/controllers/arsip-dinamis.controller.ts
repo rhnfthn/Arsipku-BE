@@ -384,7 +384,7 @@ export class ArsipDinamisController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getNaskahSiapArsip(
+    const data = await this.arsipDinamisService.getNaskahSiapArsip(
       this.effectivePersnum(user),
       id,
       {
@@ -394,6 +394,15 @@ export class ArsipDinamisController {
       },
       await this.arsipDinamisService.resolveScopePositions(user),
     );
+    // Semua org dalam scope (divisi/unit delegator) — dipakai filter divisi FE
+    // agar unit tanpa naskah tetap tampil.
+    return {
+      ...data,
+      meta: {
+        ...data.meta,
+        scopeDivisi: await this.arsipDinamisService.getScopeDivisi(user),
+      },
+    };
   }
 
   /**
