@@ -26,11 +26,17 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
  * memasang @AuditLog() di setiap controller method.
  */
 @Module({
+  // forFeature ikut env MONGODB_ENABLED (sama dengan forRootAsync di AppModule).
+  // Saat nonaktif, model di-inject @Optional() sehingga service jadi no-op.
   imports: [
-    MongooseModule.forFeature([
-      { name: AuditTrail.name, schema: AuditTrailSchema },
-      { name: AuditAnomaly.name, schema: AuditAnomalySchema },
-    ]),
+    ...(process.env.MONGODB_ENABLED === 'true'
+      ? [
+          MongooseModule.forFeature([
+            { name: AuditTrail.name, schema: AuditTrailSchema },
+            { name: AuditAnomaly.name, schema: AuditAnomalySchema },
+          ]),
+        ]
+      : []),
   ],
   controllers: [AuditTrailController, AuditAnomalyController],
   providers: [

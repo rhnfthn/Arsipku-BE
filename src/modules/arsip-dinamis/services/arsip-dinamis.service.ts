@@ -216,9 +216,11 @@ export class ArsipDinamisService {
 
   async findAllBerkas(
     userId: number,
+    isTu: boolean,
     options: {
       status?: string;
       klasifikasi?: string;
+      kategori?: string;
       tahun?: string;
       search?: string;
       page?: number;
@@ -230,6 +232,7 @@ export class ArsipDinamisService {
     const {
       status,
       klasifikasi,
+      kategori,
       tahun,
       search,
       page = 1,
@@ -245,17 +248,41 @@ export class ArsipDinamisService {
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
 
-    // Scope: user hanya melihat berkas miliknya / unitnya
-    qb.andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
-      userId,
-      userPersnum: String(userId),
-    });
+    // Scope: user biasa hanya melihat berkas miliknya/unitnya. Berkas Tertutup
+    // yang retensi aktifnya SUDAH habis disembunyikan (pindah ke TU/pemindahan
+    // arsip); yang baru ditutup (retensi aktif masih berjalan) tetap tampil.
+    // TU (unit_dokumen) melihat semua berkas tertutup + berkas miliknya.
+    if (isTu) {
+      qb.andWhere(
+        '(b.status = :closed OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+        {
+          closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
+          userId,
+          userPersnum: String(userId),
+        },
+      );
+    } else {
+      qb.andWhere('(b.created_by = :userId OR b.pic_persnum = :userPersnum)', {
+        userId,
+        userPersnum: String(userId),
+      });
+      qb.andWhere(
+        '(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR b.tanggal_retensi_aktif_berakhir > :today)',
+        {
+          closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
+          today: new Date().toISOString().split('T')[0],
+        },
+      );
+    }
 
     if (status) {
       qb.andWhere('b.status = :status', { status });
     }
     if (klasifikasi) {
       qb.andWhere('b.klasifikasi = :klasifikasi', { klasifikasi });
+    }
+    if (kategori) {
+      qb.andWhere('b.kategori_berkas = :kategori', { kategori });
     }
     if (tahun) {
       qb.andWhere('YEAR(b.tanggal_dibuat) = :tahun', { tahun });
@@ -381,6 +408,11 @@ export class ArsipDinamisService {
       await this.berkasRepository.update(
         { id: berkas.id },
         { status: StatusBerkas.CLOSED_RETENSI_AKTIF },
+      );
+      // Naskah dalam berkas yang ditutup → inaktif (disembunyikan dari user biasa)
+      await this.berkasNaskahRepository.update(
+        { berkasId: berkas.id, status: 'aktif' },
+        { status: 'inaktif' },
       );
       await this.berkasRiwayatRetensiRepository.insert({
         berkasId: berkas.id,
@@ -523,7 +555,7 @@ export class ArsipDinamisService {
 
   // ── Statistik Berkas ────────────────────────────────────────────
 
-  async getStatistikBerkas(userId: number) {
+  async getStatistikBerkas(userId: number, isTu: boolean) {
     const base = this.berkasRepository
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
@@ -532,6 +564,8 @@ export class ArsipDinamisService {
         userPersnum: String(userId),
       });
 
+    // Berkas tertutup hanya dihitung untuk TU (unit_dokumen); user biasa
+    // tidak melihatnya sama sekali.
     const [draft, aktif, menunggu, ditolak, closed] = await Promise.all([
       base.clone().andWhere('b.status = :s', { s: 'draft' }).getCount(),
       base.clone().andWhere('b.status = :s', { s: 'aktif' }).getCount(),
@@ -540,10 +574,12 @@ export class ArsipDinamisService {
         .andWhere('b.status = :s', { s: 'menunggu_verifikasi' })
         .getCount(),
       base.clone().andWhere('b.status = :s', { s: 'ditolak' }).getCount(),
-      base
-        .clone()
-        .andWhere('b.status = :s', { s: 'closed_retensi_aktif' })
-        .getCount(),
+      isTu
+        ? base
+            .clone()
+            .andWhere('b.status = :s', { s: 'closed_retensi_aktif' })
+            .getCount()
+        : Promise.resolve(0),
     ]);
 
     return {
@@ -562,6 +598,7 @@ export class ArsipDinamisService {
     dto: AddNaskahToBerkasDto,
     userId: number,
     userPosition?: string,
+    positions?: number[],
   ): Promise<{
     message: string;
     count: number;
@@ -586,12 +623,19 @@ export class ArsipDinamisService {
 
     // Konteks sirkulasi: naskah yang user (position) adalah pengirim/penerima.
     // Naskah yang sama boleh masuk ke berkas unit berbeda (per id_sirkuler).
-    const sirkulasiRows = userPosition
+    // Sekretaris (positions dari divisi/unitnya) boleh menambah atas nama seluruh
+    // anggota unit — konsisten dengan daftar kandidat yang mereka lihat.
+    // 'tembusan' ikut diterima: kandidat tampil di modal (sirkuler tembusan),
+    // jadi harus bisa ditambahkan juga, bukan ditolak diam-diam.
+    const scopePosition = positions?.length
+      ? In(positions.map(String))
+      : userPosition;
+    const sirkulasiRows = scopePosition
       ? await this.dataSource.manager.find(NaskahSirkulasi, {
           where: {
             idNaskah: In(requestedIds),
-            position: userPosition,
-            sirkuler: In(['pengirim', 'penerima']),
+            position: scopePosition,
+            sirkuler: In(['pengirim', 'penerima', 'tembusan']),
           },
         })
       : [];
@@ -599,11 +643,10 @@ export class ArsipDinamisService {
     for (const s of sirkulasiRows) {
       if (!s.idNaskah) continue; // query filter idNaskah IN, guard null utk TS
       const existing = sirkulasiByNaskah.get(s.idNaskah);
-      // prefer penerima, lalu pengirim (satu position bisa punya >1 sirkulasi)
-      if (
-        !existing ||
-        (existing.sirkuler === 'pengirim' && s.sirkuler === 'penerima')
-      ) {
+      // prefer penerima, lalu pengirim, lalu tembusan (satu position bisa punya >1 sirkulasi)
+      const rank = (v?: string | null) =>
+        v === 'penerima' ? 3 : v === 'pengirim' ? 2 : 1;
+      if (!existing || rank(s.sirkuler) > rank(existing.sirkuler)) {
         sirkulasiByNaskah.set(s.idNaskah, s);
       }
     }
@@ -717,10 +760,12 @@ export class ArsipDinamisService {
       );
     }
 
-    const relasi = await this.berkasNaskahRepository.findOne({
+    // Naskah yang sama bisa tercatat >1 baris (id_sirkuler berbeda, unique
+    // (berkas_id, naskah_id, id_sirkuler, tanggal)) — hapus semua, bukan satu.
+    const relasi = await this.berkasNaskahRepository.find({
       where: { berkasId, naskahId },
     });
-    if (!relasi) {
+    if (relasi.length === 0) {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
 
@@ -759,6 +804,7 @@ export class ArsipDinamisService {
 
   async getDaftarNaskah(
     berkasId: string,
+    isTu: boolean,
     options: { search?: string; page?: number; limit?: number } = {},
   ) {
     const { search, page = 1, limit = 20 } = options;
@@ -766,6 +812,11 @@ export class ArsipDinamisService {
     const qb = this.berkasNaskahRepository
       .createQueryBuilder('bn')
       .where('bn.berkas_id = :berkasId', { berkasId });
+
+    // Naskah inaktif (berkas ditutup, retensi aktif habis) hanya tampil untuk TU
+    if (!isTu) {
+      qb.andWhere('bn.status = :s', { s: 'aktif' });
+    }
 
     if (search) {
       qb.andWhere('(bn.perihal LIKE :search OR bn.nomor_surat LIKE :search)', {
@@ -791,12 +842,20 @@ export class ArsipDinamisService {
    * Akses dijaga guard PemeliharaanAccess di controller; di sini cukup pastikan
    * naskah memang tercatat di berkas ini (anti enumerasi id naskah sembarang).
    */
-  async getNaskahDetailInBerkas(berkasId: string, naskahId: string) {
+  async getNaskahDetailInBerkas(
+    berkasId: string,
+    naskahId: string,
+    isTu: boolean,
+  ) {
     const relasi = await this.berkasNaskahRepository.findOne({
       where: { berkasId, naskahId },
-      select: ['naskahId'],
+      select: ['naskahId', 'status'],
     });
     if (!relasi) {
+      throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
+    }
+    // Naskah inaktif (berkas ditutup) tidak bisa dibuka user biasa — hanya TU
+    if (!isTu && relasi.status === 'inaktif') {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
     return this.naskahService.getDetailWithChainForBerkas(naskahId);
@@ -804,12 +863,187 @@ export class ArsipDinamisService {
 
   // ── Naskah Siap Arsip (Tab Filtering) ───────────────────────────
 
+  /**
+   * Posisi yang boleh dilihat user pada pemilihan naskah (modal Tambah Naskah):
+   * - Delegasi SE (sekretaris bertindak atas nama delegator, mis. EVP):
+   *   SEMUA posisi di org delegator sendiri (termasuk posisi delegator) DAN
+   *   SEMUA posisi di unit/divisi yang BERADA DI BAWAH delegator (descendant
+   *   orgs dari org tempat delegator duduk) — sekretaris dapat memilih semua
+   *   naskah dari divisi tersebut.
+   * - Sekretaris role biasa (organization_tu 'sekretaris', non-delegasi):
+   *   SEMUA posisi di divisi/unit yang sama (BOD, BOD-1, BOD-2, BOD-3, STAFF).
+   * - Selain itu: undefined → query memakai subquery posisi pribadi (perilaku lama).
+   */
+  async resolveScopePositions(user: any): Promise<number[] | undefined> {
+    const isDelegatedSekretaris = user?.position_status === 'SE';
+    const isRoleSekretaris =
+      !isDelegatedSekretaris &&
+      Array.isArray(user?.tuRoles) &&
+      user.tuRoles.includes('sekretaris');
+    if (!isDelegatedSekretaris && !isRoleSekretaris) return undefined;
+    const selfPosition = Number(user?.position);
+    if (!Number.isFinite(selfPosition)) return undefined;
+
+    try {
+      const orgData = await this.orgDataService.findLatestOrg();
+
+      // Delegasi SE: scope = descendant orgs dari org tempat delegator duduk.
+      // Contoh: delegator = "EVP of Air Navigation Information Management"
+      // (chief divisi) → scope = posisi di unit/divisi di bawah divisi tersebut,
+      // BUKAN posisi di divisi delegator sendiri.
+      if (isDelegatedSekretaris) {
+        const scope = this.collectScopeTree(orgData, selfPosition);
+        if (!scope || scope.positions.length === 0) return undefined;
+        return [...new Set(scope.positions)];
+      }
+
+      // Sekretaris role biasa (non-delegasi): scope divisi sendiri (perilaku lama).
+      const rows = Array.isArray(orgData?.position_json)
+        ? orgData.position_json
+        : typeof orgData?.position_json === 'string'
+          ? JSON.parse(orgData.position_json)
+          : [];
+      if (!Array.isArray(rows)) return undefined;
+
+      const self = rows.find((x: any) => Number(x.position) === selfPosition);
+      if (!self) return undefined;
+      const divisiId = Number(self?.divisi_id ?? self?.organization_id);
+      if (!Number.isFinite(divisiId)) return undefined;
+
+      const positions = rows
+        .filter((x: any) => Number(x.divisi_id ?? x.organization_id) === divisiId)
+        .map((x: any) => Number(x.position))
+        .filter((p: number) => Number.isFinite(p));
+      return positions.length > 0 ? [...new Set(positions)] : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Nama org (divisi/unit) dalam scope delegasi SE — untuk filter divisi modal
+   * Tambah Naskah agar semua unit tampil walau tanpa naskah. Bukan SE → [].
+   */
+  async getScopeDivisi(user: any): Promise<string[]> {
+    if (user?.position_status !== 'SE') return [];
+    const selfPosition = Number(user?.position);
+    if (!Number.isFinite(selfPosition)) return [];
+    try {
+      const orgData = await this.orgDataService.findLatestOrg();
+      const scope = this.collectScopeTree(orgData, selfPosition);
+      return scope ? [...new Set(scope.orgNames)] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Cari node org tempat delegator duduk lalu kumpulkan posisi & nama org
+   * keturunan (descendants). Dipakai resolveScopePositions (posisi) dan
+   * getScopeDivisi (nama divisi filter). Undefined bila posisi tidak ditemukan.
+   */
+  private collectScopeTree(
+    orgData: any,
+    selfPosition: number,
+  ): { positions: number[]; orgNames: string[] } | undefined {
+    const tree = Array.isArray(orgData?.organization_json)
+      ? orgData.organization_json
+      : typeof orgData?.organization_json === 'string'
+        ? JSON.parse(orgData.organization_json)
+        : [];
+    if (!Array.isArray(tree)) return undefined;
+
+    const findNode = (nodes: any[]): any | null => {
+      for (const node of nodes) {
+        if (
+          Array.isArray(node?.positions) &&
+          node.positions.some((p: any) => Number(p?.position) === selfPosition)
+        ) {
+          return node;
+        }
+        const found = findNode(Array.isArray(node?.children) ? node.children : []);
+        if (found) return found;
+      }
+      return null;
+    };
+    const delegatorNode = findNode(tree);
+    if (!delegatorNode) return undefined;
+
+    const positions: number[] = [];
+    const orgNames: string[] = [];
+
+    // SEMUA posisi di org delegator sendiri ikut scope (termasuk posisi delegator
+    // sendiri) — sekretaris bisa memilih semua naskah dari divisi tersebut.
+    for (const p of Array.isArray(delegatorNode?.positions)
+      ? delegatorNode.positions
+      : []) {
+      const pid = Number(p?.position);
+      if (Number.isFinite(pid)) positions.push(pid);
+    }
+    if (typeof delegatorNode?.name === 'string' && delegatorNode.name.trim()) {
+      orgNames.push(delegatorNode.name);
+    }
+
+    const collectDescendants = (node: any) => {
+      for (const child of Array.isArray(node?.children) ? node.children : []) {
+        if (typeof child?.name === 'string' && child.name.trim()) {
+          orgNames.push(child.name);
+        }
+        for (const p of Array.isArray(child?.positions) ? child.positions : []) {
+          const pid = Number(p?.position);
+          if (Number.isFinite(pid)) positions.push(pid);
+        }
+        collectDescendants(child);
+      }
+    };
+    collectDescendants(delegatorNode);
+    return { positions, orgNames };
+  }
+
+  /**
+   * Posisi yang dipakai untuk menentukan atasan-managerial (verifikator) pengaju.
+   * Delegasi SE (Sekretaris): user.position adalah jabatan yang didelegasikan
+   * (mis. EVP), BUKAN jabatan asli pengaju — resolve jabatan asli via persnum,
+   * sama seperti FE (GET /org-data/my-position). Delegasi lain (PT/PH/PS/VI)
+   * tetap pakai jabatan yang didelegasikan.
+   */
+  private async resolvePengajuPositionId(user: any): Promise<number> {
+    if (user?.position_status === 'SE') {
+      try {
+        const orgData = await this.orgDataService.findLatestOrg();
+        const rows = Array.isArray(orgData?.position_json)
+          ? orgData.position_json
+          : typeof orgData?.position_json === 'string'
+            ? JSON.parse(orgData.position_json)
+            : [];
+        const myRow = rows.find(
+          (x: any) => Number(x.persnum_person) === Number(user?.persnum),
+        );
+        if (myRow?.position) return Number(myRow.position);
+      } catch {
+        // fallback ke posisi delegasi di bawah
+      }
+    }
+    const position = Number(user?.position);
+    return Number.isFinite(position) && position > 0 ? position : 0;
+  }
+
   async getNaskahSiapArsip(
     userId: number,
     berkasId: string,
     options: { search?: string; page?: number; limit?: number } = {},
+    positions?: number[],
   ) {
     const { search, page = 1, limit = 20 } = options;
+
+    // Scope posisi: sekretaris → seluruh posisi divisi/unit; lainnya → posisi
+    // pribadi (subquery pa_personal, perilaku lama).
+    const positionClause = positions?.length
+      ? `ns.position IN (${positions.map(() => '?').join(',')})`
+      : `ns.position = (SELECT position FROM pa_personal WHERE persnum = ?)`;
+    const positionParams: any[] = positions?.length
+      ? positions.map(String)
+      : [String(userId)];
 
     // Naskah yang sudah masuk berkas ini → exclude
     const existingNaskah = await this.berkasNaskahRepository.find({
@@ -820,6 +1054,10 @@ export class ArsipDinamisService {
 
     // Satu baris per naskah. Kotak masuk minimal sudah dibaca, sedangkan
     // seluruh naskah terkirim yang final dapat dipilih.
+    // Sekretaris: scope = seluruh posisi divisi/unitnya (resolveScopePositions),
+    // bukan hanya posisi pribadi. Identitas partisipan utama (jabatan/nama/divisi)
+    // diambil dari sirkulasi pengirim (fallback penerima/tembusan) — dipakai kolom
+    // & filter di modal Tambah Naskah.
     let query = `
       SELECT
         n.id,
@@ -829,6 +1067,20 @@ export class ArsipDinamisService {
         n.jenis AS naskah_tipe,
         n.status,
         n.final_pdf,
+        -- Prefiks delegasi sementara (PT./PH.) dibuang agar naskah tampil atas
+        -- nama jabatan utama (mis. "EVP of ..."), bukan varian pelaksana.
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END)
+        ) AS jabatan,
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.nama_sirkuler END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.nama_sirkuler END)
+        ) AS nama,
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.organization_text END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.organization_text END)
+        ) AS divisi,
         CASE
           WHEN MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN 1 ELSE 0 END) = 1
             THEN 'pengirim'
@@ -841,9 +1093,7 @@ export class ArsipDinamisService {
         END AS sumber
       FROM naskah n
       INNER JOIN naskah_sirkulasi ns ON ns.id_naskah = n.id
-      WHERE ns.position = (
-        SELECT position FROM pa_personal WHERE persnum = ?
-      )
+      WHERE ${positionClause}
         AND n.status IN ('final', 'final_tte')
         AND n.final_pdf IS NOT NULL
         AND ns.is_konsep = 0
@@ -854,7 +1104,7 @@ export class ArsipDinamisService {
           OR (ns.sirkuler IN ('penerima', 'tembusan') AND ns.send_read_time IS NOT NULL)
         )
     `;
-    const params: any[] = [String(userId)];
+    const params: any[] = positionParams;
 
     // Exclude naskah yang sudah di berkas ini
     if (excludeIds.length > 0) {
@@ -864,8 +1114,8 @@ export class ArsipDinamisService {
     }
 
     if (search) {
-      query += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`);
+      query += ` AND (n.perihal LIKE ? OR n.nomor LIKE ? OR ns.nama_sirkuler LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     query += ` GROUP BY n.id, n.nomor, n.perihal, n.tanggal, n.jenis, n.status, n.final_pdf`;
@@ -896,13 +1146,30 @@ export class ArsipDinamisService {
   async getNaskahSaya(
     userId: number,
     tab: 'kotak_masuk' | 'terkirim',
+    isTu: boolean,
     options: { search?: string; page?: number; limit?: number } = {},
+    positions?: number[],
   ) {
     const { search, page = 1, limit = 50 } = options;
     const sirkulerFilter =
       tab === 'terkirim'
         ? `ns.sirkuler = 'pengirim'`
         : `ns.sirkuler IN ('penerima', 'tembusan')`;
+
+    // Scope posisi: sekretaris → seluruh posisi divisi/unit; lainnya → posisi
+    // pribadi (subquery pa_personal, perilaku lama).
+    const positionClause = positions?.length
+      ? `ns.position IN (${positions.map(() => '?').join(',')})`
+      : `ns.position = (SELECT position FROM pa_personal WHERE persnum = ?)`;
+    const positionParams: any[] = positions?.length
+      ? positions.map(String)
+      : [String(userId)];
+
+    // Naskah inaktif (berkas ditutup) tidak menampilkan status berkasnya ke
+    // user biasa — hanya TU yang melihat asosiasi berkas tertutup.
+    const joinBerkasNaskah = isTu
+      ? 'LEFT JOIN berkas_naskah bn ON bn.naskah_id = n.id'
+      : "LEFT JOIN berkas_naskah bn ON bn.naskah_id = n.id AND bn.status = 'aktif'";
 
     let query = `
       SELECT
@@ -913,24 +1180,36 @@ export class ArsipDinamisService {
         n.jenis AS naskah_tipe,
         n.status,
         n.final_pdf,
+        -- Prefiks delegasi sementara (PT./PH.) dibuang agar naskah tampil atas
+        -- nama jabatan utama (mis. "EVP of ..."), bukan varian pelaksana.
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN REGEXP_REPLACE(ns.position_text, '^(PT|PH)\\.\\s*', '') END)
+        ) AS jabatan,
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.nama_sirkuler END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.nama_sirkuler END)
+        ) AS nama,
+        COALESCE(
+          MAX(CASE WHEN ns.sirkuler = 'pengirim' THEN ns.organization_text END),
+          MAX(CASE WHEN ns.sirkuler IN ('penerima', 'tembusan') THEN ns.organization_text END)
+        ) AS divisi,
         MAX(CASE WHEN bn.naskah_id IS NOT NULL THEN 1 ELSE 0 END) AS sudah_masuk_berkas,
         GROUP_CONCAT(DISTINCT b.kode_berkas) AS kode_berkas,
         GROUP_CONCAT(DISTINCT b.status) AS berkas_status
       FROM naskah n
       INNER JOIN naskah_sirkulasi ns ON ns.id_naskah = n.id
-      LEFT JOIN berkas_naskah bn ON bn.naskah_id = n.id
+      ${joinBerkasNaskah}
       LEFT JOIN berkas b ON b.id = bn.berkas_id AND b.deleted_at IS NULL
-      WHERE ns.position = (
-        SELECT position FROM pa_personal WHERE persnum = ?
-      )
+      WHERE ${positionClause}
         AND ${sirkulerFilter}
         AND ns.is_konsep = 0
     `;
-    const params: any[] = [String(userId)];
+    const params: any[] = positionParams;
 
     if (search) {
-      query += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`);
+      query += ` AND (n.perihal LIKE ? OR n.nomor LIKE ? OR ns.nama_sirkuler LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     query += ` GROUP BY n.id, n.nomor, n.perihal, n.tanggal, n.jenis, n.status, n.final_pdf`;
@@ -959,8 +1238,9 @@ export class ArsipDinamisService {
   async ajukanTutupBerkas(
     berkasId: string,
     dto: AjukanTutupBerkasDto,
-    userId: number,
+    user: any,
   ): Promise<{ message: string }> {
+    const userId = Number(user?.persnum);
     const berkas = await this.findOneBerkas(berkasId);
 
     if (
@@ -994,6 +1274,32 @@ export class ArsipDinamisService {
 
     if (persnums.includes(String(userId))) {
       throw new BadRequestException('Pengaju tidak dapat menjadi verifikator');
+    }
+
+    // Validasi ulang: verifikator wajib atasan managerial pengaju (pola sama
+    // dengan dropdown FE — getAtasanManagerial). Mencegah request termanipulasi
+    // memasukkan verifikator di luar garis pelaporan.
+    const pengajuPositionId = await this.resolvePengajuPositionId(user);
+    if (pengajuPositionId <= 0) {
+      throw new BadRequestException(
+        'Posisi pengaju tidak ditemukan, tidak dapat memvalidasi verifikator',
+      );
+    }
+    const atasanRes = await this.orgDataService.getAtasanManagerial(
+      pengajuPositionId,
+    );
+    const validPersnums = new Set(
+      (atasanRes?.data ?? []).map((v: any) => String(v.persnum_person)),
+    );
+    const invalid = dto.verifikator.filter(
+      (v) => !validPersnums.has(String(v.verifikator_persnum)),
+    );
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Verifikator ${invalid
+          .map((v) => v.verifikator_persnum)
+          .join(', ')} bukan atasan managerial pengaju`,
+      );
     }
 
     // Hapus baris verifikasi lama (penolakan sebelumnya) agar timeline pengajuan
@@ -1666,9 +1972,12 @@ export class ArsipDinamisService {
 
   // ── Status Berkas per Naskah (untuk kolom Status Berkas KM/Terkirim) ──
 
-  async getBerkasStatusByNaskah(naskahIds: string[]) {
+  async getBerkasStatusByNaskah(naskahIds: string[], isTu: boolean) {
     const ids = [...new Set(naskahIds.filter(Boolean))];
     if (ids.length === 0) return [];
+    // Naskah inaktif (berkas ditutup) tidak menampilkan status berkas ke user
+    // biasa — hanya TU yang melihatnya.
+    const statusFilter = isTu ? '' : " AND bn.status = 'aktif'";
     const rows: any[] = await this.dataSource.query(
       `SELECT
          bn.naskah_id AS naskah_id,
@@ -1679,7 +1988,7 @@ export class ArsipDinamisService {
          b.pic_persnum
        FROM berkas_naskah bn
        INNER JOIN berkas b ON b.id = bn.berkas_id
-       WHERE bn.naskah_id IN (?)
+       WHERE bn.naskah_id IN (?)${statusFilter}
          AND b.deleted_at IS NULL`,
       [ids],
     );

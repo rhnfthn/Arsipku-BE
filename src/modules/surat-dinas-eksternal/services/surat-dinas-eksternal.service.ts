@@ -552,6 +552,12 @@ export class SuratDinasEksternalService {
       );
     }
 
+    // Kunci partisi: sinkronkan tanggal lampiran ke tanggal naskah induk
+    // supaya lampiran final berada di partisi tahun yang sama dengan naskah.
+    const parentNaskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
     // Move each file and update database
     for (const lampiran of tempLampiran) {
       const fileName = lampiran.file_name;
@@ -572,6 +578,7 @@ export class SuratDinasEksternalService {
         lampiran.jenis = 'SDE';
         lampiran.is_temporary = 0;
         lampiran.temp_folder_id = null;
+        lampiran.tanggal = parentNaskah?.tanggal ?? lampiran.tanggal;
 
         await this.naskahLampiranRepository.save(lampiran);
       } catch (error) {
@@ -2442,6 +2449,13 @@ export class SuratDinasEksternalService {
     const tempFolderId = uuidv4();
     const lampiranIds: string[] = [];
 
+    // Kunci partisi: bila id_naskah diberikan, tanggal lampiran temp mengikuti
+    // tanggal naskah induk supaya tetap selaras dengan partisi tahun naskah
+    // (bukan tanggal upload). Tanpa id_naskah → tanggal upload (temp murni).
+    const parentNaskah = id_naskah
+      ? await this.naskahRepository.findOne({ where: { id: id_naskah } })
+      : null;
+
     for (const file of files) {
       // Upload file first to get the path
       const uploadResult = await this.storageService.uploadFile(
@@ -2454,7 +2468,7 @@ export class SuratDinasEksternalService {
       const lampiranEntity = this.naskahLampiranRepository.create({
         id: uuidv4(),
         id_naskah: id_naskah || null, // Null untuk temporary upload, akan diupdate nanti
-        tanggal: new Date(),
+        tanggal: parentNaskah?.tanggal ?? new Date(),
 
         file_name: file.originalname,
         file_pdf: uploadResult.key, // Set file path from upload

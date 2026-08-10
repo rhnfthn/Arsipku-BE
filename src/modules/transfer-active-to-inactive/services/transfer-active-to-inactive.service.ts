@@ -444,12 +444,18 @@ export class TransferActiveToInactiveService {
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
   async syncDraftUsulanOtomatis(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
       .andWhere('b.status = :status', {
         status: StatusBerkas.CLOSED_RETENSI_AKTIF,
       })
+      // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis yang
+      // di-draft ke pemindahan arsip. Berkas yang baru ditutup (retensi aktif
+      // baru mulai) tidak boleh langsung masuk alur pemindahan.
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .getMany();
     if (berkasList.length === 0) return 0;
 
@@ -523,9 +529,19 @@ export class TransferActiveToInactiveService {
    * + usulan pemindahan yang sudah dibuat.
    * Return satu array dengan flag isUsulan.
    */
-  async getGabungan(user: any, filter?: { search?: string; status?: string }) {
+  async getGabungan(
+    user: any,
+    filter?: {
+      search?: string;
+      status?: string;
+      klasifikasi?: string;
+      tahun?: string;
+    },
+  ) {
     const userId = Number(user.persnum);
     const search = filter?.search?.trim() || '';
+    const filterKlasifikasi = filter?.klasifikasi?.trim() || '';
+    const filterTahun = filter?.tahun?.trim() || '';
 
     // Evaluasi retensi on-demand: status berkas di tabel gabungan selalu segar.
     await this.arsipDinamisService.tutupBerkasRetensiHabis();
@@ -556,7 +572,10 @@ export class TransferActiveToInactiveService {
 
     // Ambil klasifikasi berkas untuk usulan (lookup by arsipId)
     const usulanArsipIds = usulanList.map((u) => u.arsipId);
-    const berkasKlasifikasiMap = new Map<string, string>();
+    const berkasKlasifikasiMap = new Map<
+      string,
+      { kode: string; teks: string }
+    >();
     if (usulanArsipIds.length > 0) {
       const berkasForUsulan = await this.berkasRepo
         .createQueryBuilder('b')
@@ -564,10 +583,10 @@ export class TransferActiveToInactiveService {
         .where('b.id IN (:...ids)', { ids: usulanArsipIds })
         .getMany();
       for (const b of berkasForUsulan) {
-        berkasKlasifikasiMap.set(
-          b.id,
-          b.klasifikasiTeks ?? b.klasifikasi ?? '-',
-        );
+        berkasKlasifikasiMap.set(b.id, {
+          kode: b.klasifikasi ?? '',
+          teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+        });
       }
     }
 
@@ -606,6 +625,21 @@ export class TransferActiveToInactiveService {
           b.judulBerkas.toLowerCase().includes(q);
         if (!match) continue;
       }
+      if (filterKlasifikasi) {
+        const bk = (b.klasifikasi ?? '').toLowerCase();
+        const bkt = (b.klasifikasiTeks ?? '').toLowerCase();
+        if (
+          bk !== filterKlasifikasi.toLowerCase() &&
+          !bkt.includes(filterKlasifikasi.toLowerCase())
+        )
+          continue;
+      }
+      if (filterTahun) {
+        const tgl = b.tanggalRetensiAktifBerakhir
+          ? new Date(b.tanggalRetensiAktifBerakhir).getFullYear().toString()
+          : '';
+        if (tgl !== filterTahun) continue;
+      }
       rows.push({
         id: b.id,
         isUsulan: false,
@@ -632,6 +666,19 @@ export class TransferActiveToInactiveService {
         if (!match) continue;
       }
       if (filter?.status && u.status !== filter.status) continue;
+      if (filterKlasifikasi) {
+        const fk = filterKlasifikasi.toLowerCase();
+        const entry = berkasKlasifikasiMap.get(u.arsipId);
+        const kode = (entry?.kode ?? '').toLowerCase();
+        const teks = (entry?.teks ?? '').toLowerCase();
+        if (kode !== fk && !teks.includes(fk) && !kode.includes(fk)) continue;
+      }
+      if (filterTahun) {
+        const tgl = u.tanggalUsulan
+          ? new Date(u.tanggalUsulan).getFullYear().toString()
+          : '';
+        if (tgl !== filterTahun) continue;
+      }
 
       rows.push({
         id: u.id,
@@ -639,7 +686,7 @@ export class TransferActiveToInactiveService {
         nomorUsulan: u.nomorUsulan,
         kodeBerkas: u.arsipKode,
         perihal: u.arsipPerihal,
-        klasifikasi: berkasKlasifikasiMap.get(u.arsipId) ?? null,
+        klasifikasi: berkasKlasifikasiMap.get(u.arsipId)?.teks ?? null,
         tanggalRetensiAktifHabis: u.tanggalRetensiAktifHabis
           ? new Date(u.tanggalRetensiAktifHabis).toISOString().split('T')[0]
           : null,
@@ -760,6 +807,23 @@ export class TransferActiveToInactiveService {
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum.
     await this.resolveSekretarisNames(data);
 
+    // Load klasifikasi berkas untuk setiap usulan (lookup by arsipId)
+    const arsipIds = data.map((d) => d.arsipId).filter(Boolean);
+    if (arsipIds.length > 0) {
+      const berkasList = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .where('b.id IN (:...ids)', { ids: arsipIds })
+        .getMany();
+      const klasifikasiMap = new Map<string, string>();
+      for (const b of berkasList) {
+        klasifikasiMap.set(b.id, b.klasifikasiTeks ?? b.klasifikasi ?? null);
+      }
+      for (const d of data) {
+        (d as any).arsipKlasifikasi = klasifikasiMap.get(d.arsipId) ?? null;
+      }
+    }
+
     return {
       data,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -782,6 +846,19 @@ export class TransferActiveToInactiveService {
       order: { urutan: 'ASC' },
     });
     (item as any).approvalLevels = levels;
+
+    // Load klasifikasi berkas dari tabel berkas (untuk ditampilkan di detail)
+    if (item.arsipId) {
+      const berkas = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .where('b.id = :id', { id: item.arsipId })
+        .getOne();
+      if (berkas) {
+        (item as any).arsipKlasifikasi =
+          berkas.klasifikasiTeks ?? berkas.klasifikasi ?? null;
+      }
+    }
 
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
     if (roleName === 'USER') {
