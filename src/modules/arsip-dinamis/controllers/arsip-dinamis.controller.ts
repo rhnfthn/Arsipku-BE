@@ -42,6 +42,18 @@ export class ArsipDinamisController {
     private readonly klasifikasiRepository: Repository<KlasifikasiEntity>,
   ) {}
 
+  /** User dengan role unit_dokumen (TU) — satu-satunya yang melihat/mengelola
+   *  berkas tertutup (retensi aktif habis) & naskah inaktif. */
+  private isTu(user: any): boolean {
+    return Array.isArray(user?.tuRoles) && user.tuRoles.includes('tu');
+  }
+
+  /** Persnum efektif untuk lookup posisi naskah: saat bertindak atas nama
+   *  delegator (posisi global), pakai persnum delegator — bukan persnum pribadi. */
+  private effectivePersnum(user: any): number {
+    return user?.delegator_persnum ?? user?.persnum;
+  }
+
   // ── Klasifikasi (untuk auto-fill retensi) ───────────────────────
 
   /**
@@ -71,12 +83,18 @@ export class ArsipDinamisController {
    */
   @Get('berkas-naskah')
   @RequirePermission('pemeliharaan.pemberkasan', 'read')
-  async getBerkasStatusByNaskah(@Query('naskah_ids') naskahIds?: string) {
+  async getBerkasStatusByNaskah(
+    @Query('naskah_ids') naskahIds?: string,
+    @CurrentUser() user?: any,
+  ) {
     const ids = (naskahIds || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    return this.arsipDinamisService.getBerkasStatusByNaskah(ids);
+    return this.arsipDinamisService.getBerkasStatusByNaskah(
+      ids,
+      this.isTu(user),
+    );
   }
 
   // ── Berkas CRUD ─────────────────────────────────────────────────
@@ -164,6 +182,7 @@ export class ArsipDinamisController {
     @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('klasifikasi') klasifikasi?: string,
+    @Query('kategori') kategori?: string,
     @Query('tahun') tahun?: string,
     @Query('search') search?: string,
     @Query('page') page?: number,
@@ -171,9 +190,10 @@ export class ArsipDinamisController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
-    return this.arsipDinamisService.findAllBerkas(user.persnum, {
+    return this.arsipDinamisService.findAllBerkas(user.persnum, this.isTu(user), {
       status,
       klasifikasi,
+      kategori,
       tahun,
       search,
       page: page ? Number(page) : 1,
@@ -210,7 +230,10 @@ export class ArsipDinamisController {
   @Get('berkas/statistik')
   @PemeliharaanAccess('pemberkasan')
   async getStatistikBerkas(@CurrentUser() user: any) {
-    return this.arsipDinamisService.getStatistikBerkas(user.persnum);
+    return this.arsipDinamisService.getStatistikBerkas(
+      user.persnum,
+      this.isTu(user),
+    );
   }
 
   /**
@@ -275,11 +298,12 @@ export class ArsipDinamisController {
   @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async getDaftarNaskah(
     @Param('id') id: string,
+    @CurrentUser() user: any,
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getDaftarNaskah(id, {
+    return this.arsipDinamisService.getDaftarNaskah(id, this.isTu(user), {
       search,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
@@ -296,8 +320,13 @@ export class ArsipDinamisController {
   async getNaskahDetailInBerkas(
     @Param('id') id: string,
     @Param('naskahId') naskahId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.getNaskahDetailInBerkas(id, naskahId);
+    return this.arsipDinamisService.getNaskahDetailInBerkas(
+      id,
+      naskahId,
+      this.isTu(user),
+    );
   }
 
   /**
@@ -318,6 +347,7 @@ export class ArsipDinamisController {
       dto,
       user.persnum,
       user.position,
+      await this.arsipDinamisService.resolveScopePositions(user),
     );
   }
 
@@ -354,11 +384,16 @@ export class ArsipDinamisController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getNaskahSiapArsip(user.persnum, id, {
-      search,
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 20,
-    });
+    return this.arsipDinamisService.getNaskahSiapArsip(
+      this.effectivePersnum(user),
+      id,
+      {
+        search,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      },
+      await this.arsipDinamisService.resolveScopePositions(user),
+    );
   }
 
   /**
@@ -376,13 +411,15 @@ export class ArsipDinamisController {
   ) {
     const t = tab === 'terkirim' ? 'terkirim' : 'kotak_masuk';
     return this.arsipDinamisService.getNaskahSaya(
-      user.persnum,
+      this.effectivePersnum(user),
       t as 'kotak_masuk' | 'terkirim',
+      this.isTu(user),
       {
         search,
         page: page ? Number(page) : 1,
         limit: limit ? Number(limit) : 50,
       },
+      await this.arsipDinamisService.resolveScopePositions(user),
     );
   }
 
@@ -401,7 +438,7 @@ export class ArsipDinamisController {
     @Body() dto: AjukanTutupBerkasDto,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.ajukanTutupBerkas(id, dto, user.persnum);
+    return this.arsipDinamisService.ajukanTutupBerkas(id, dto, user);
   }
 
   /**
