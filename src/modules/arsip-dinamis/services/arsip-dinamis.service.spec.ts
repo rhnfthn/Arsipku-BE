@@ -370,6 +370,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
   let berkasRiwayatRepo: any;
   let notifService: any;
   let realtimeEmit: any;
+  let orgDataService: any;
   let query: jest.Mock;
 
   beforeEach(async () => {
@@ -388,6 +389,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
     };
     notifService = { createNotification: jest.fn().mockResolvedValue({}) };
     realtimeEmit = { emitArsipPersetujuanCountUser: jest.fn() };
+    orgDataService = { getAtasanManagerial: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         ArsipDinamisService,
@@ -398,7 +400,7 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
         { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: berkasRiwayatRepo },
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
         { provide: StorageService, useValue: {} },
-        { provide: OrgDataService, useValue: {} },
+        { provide: OrgDataService, useValue: orgDataService },
         { provide: NaskahService, useValue: {} },
         { provide: NotificationService, useValue: notifService },
         { provide: RealtimeEmitService, useValue: realtimeEmit },
@@ -436,7 +438,11 @@ describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () =>
       ],
       catatan: 'uji',
     };
-    await service.ajukanTutupBerkas('b1', dto as any, 99);
+    // Validasi verifikator: atasan managerial pengaju (position 7) = 111 & 222
+    orgDataService.getAtasanManagerial.mockResolvedValue({
+      data: [{ persnum_person: '111' }, { persnum_person: '222' }],
+    });
+    await service.ajukanTutupBerkas('b1', dto as any, { persnum: 99, position: 7 });
     expect(realtimeEmit.emitArsipPersetujuanCountUser).toHaveBeenCalledWith(111, 2);
     expect(notifService.createNotification).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -552,5 +558,340 @@ describe('ArsipDinamisService - tutupBerkasRetensiHabis (on-demand retensi)', ()
     expect(count).toBe(0);
     expect(berkasRepo.update).not.toHaveBeenCalled();
     expect(riwayatRepo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('ArsipDinamisService - resolveScopePositions', () => {
+  let service: ArsipDinamisService;
+  let findLatestOrg: jest.Mock;
+
+  // organization_json: tree org bersarang. Delegator duduk di:
+  //  - 100 (EVP, chief) di divisi 20 → staf 101 + anaknya unit 201 (102, 103)
+  //  - 104 (Manager, chief) di direktorat 10 → anaknya divisi 20 & 21
+  //  - 105 (Manager, chief) di divisi 21 → 106 (chief) — tanpa anak
+  const tree = [
+    {
+      id: 10,
+      level: 'direktorat',
+      name: 'Direktorat A',
+      positions: [{ position: 104, chief: 1 }],
+      children: [
+        {
+          id: 20,
+          level: 'divisi',
+          name: 'Divisi 20',
+          positions: [
+            { position: 100, chief: 1 },
+            { position: 101, chief: 0 },
+          ],
+          children: [
+            {
+              id: 201,
+              level: 'unit',
+              name: 'Unit A',
+              positions: [
+                { position: 102, chief: 1 },
+                { position: 103, chief: 0 },
+              ],
+            },
+          ],
+        },
+        {
+          id: 21,
+          level: 'divisi',
+          name: 'Divisi 21',
+          positions: [
+            { position: 105, chief: 1 },
+            { position: 106, chief: 1 },
+          ],
+        },
+      ],
+    },
+  ];
+
+  // position_json: dipakai branch sekretaris role biasa (scope divisi).
+  const rows = [
+    { position: 100, position_text: 'EVP PMO', direktorat_id: 10, divisi_id: 20, organization_id: 20 },
+    { position: 101, position_text: 'VP PMO', direktorat_id: 10, divisi_id: 20, organization_id: 20 },
+    { position: 102, position_text: 'Manager Unit A', direktorat_id: 10, divisi_id: 20, organization_id: 201 },
+    { position: 103, position_text: 'Staff Unit A', direktorat_id: 10, divisi_id: 20, organization_id: 201 },
+    { position: 104, position_text: 'Manager Direktorat A', direktorat_id: 10, divisi_id: null, organization_id: 10 },
+    { position: 105, position_text: 'Manager Divisi 21', direktorat_id: 10, divisi_id: 21, organization_id: 21 },
+    { position: 106, position_text: 'Staff Divisi 21', direktorat_id: 10, divisi_id: 21, organization_id: 21 },
+  ];
+
+  beforeEach(async () => {
+    findLatestOrg = jest.fn();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: {} },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: { findLatestOrg } },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  it('delegasi SE (EVP di divisi 20) → seluruh divisi sendiri + unit di bawah, termasuk EVP', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 100, // EVP delegator (chief)
+      position_status: 'SE',
+      tuRoles: ['sekretaris'],
+    });
+    // Semua posisi divisi 20 (100 EVP, 101 staf) + anak unit 201 (102, 103).
+    // Divisi lain (105, 106) TIDAK termasuk.
+    expect(scope).toEqual([100, 101, 102, 103]);
+  });
+
+  it('delegasi SE (Manager direktorat 10) → seluruh divisi/unit di bawahnya + posisinya sendiri', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 104,
+      position_status: 'SE',
+    });
+    expect(scope).toEqual([104, 100, 101, 102, 103, 105, 106]);
+  });
+
+  it('delegasi SE tanpa anak (Manager divisi 21) → scope divisi sendiri (semua posisi)', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 105,
+      position_status: 'SE',
+    });
+    expect(scope).toEqual([105, 106]);
+  });
+
+  it('sekretaris role biasa (non-delegasi) → scope divisi sendiri, bukan direktorat', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 102,
+      position_status: null,
+      tuRoles: ['sekretaris'],
+    });
+    expect(scope).toEqual([100, 101, 102, 103]); // divisi 20 saja
+  });
+
+  it('user biasa (bukan sekretaris) → undefined (scope pribadi)', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 102,
+      position_status: null,
+      tuRoles: [],
+    });
+    expect(scope).toBeUndefined();
+  });
+
+  it('posisi tidak ditemukan di tree/position_json → undefined', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const scope = await service.resolveScopePositions({
+      position: 999,
+      position_status: 'SE',
+    });
+    expect(scope).toBeUndefined();
+  });
+
+  it('getScopeDivisi (SE) → divisi sendiri + org keturunan', async () => {
+    findLatestOrg.mockResolvedValue({ organization_json: tree, position_json: rows });
+    const divisi = await service.getScopeDivisi({
+      position: 100,
+      position_status: 'SE',
+    });
+    expect(divisi).toEqual(['Divisi 20', 'Unit A']);
+  });
+
+  it('getScopeDivisi non-SE → [] (filter tetap dari daftar kandidat)', async () => {
+    const divisi = await service.getScopeDivisi({
+      position: 100,
+      position_status: null,
+      tuRoles: ['sekretaris'],
+    });
+    expect(divisi).toEqual([]);
+  });
+});
+
+describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', () => {
+  let service: ArsipDinamisService;
+  let berkasRepo: any;
+
+  beforeEach(async () => {
+    berkasRepo = { createQueryBuilder: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  // Chain untuk tutupBerkasRetensiHabis() yang dipanggil di awal findAllBerkas
+  const expiredChain = () => ({
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue([]),
+  });
+
+  const listChain = (rows: any[]) => ({
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getManyAndCount: jest.fn().mockResolvedValue([rows, rows.length]),
+  });
+
+  it('user biasa (non-TU): berkas Tertutup retensi masih berjalan tetap tampil — pengecualian hanya yang retensinya habis', async () => {
+    const chain = listChain([{ id: 'b1', status: 'closed_retensi_aktif' }]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, false, {});
+
+    expect(res.data).toHaveLength(1);
+    // Tidak lagi menyembunyikan SEMUA berkas tertutup dari user biasa
+    expect(chain.andWhere).not.toHaveBeenCalledWith(
+      'b.status != :closed',
+      expect.any(Object),
+    );
+    // Pengecualian berbasis tanggal retensi aktif (hanya yang sudah habis)
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.tanggal_retensi_aktif_berakhir'),
+      expect.any(Object),
+    );
+  });
+
+  it('user biasa (non-TU): berkas Tertutup retensi aktif sudah habis → disembunyikan', async () => {
+    const chain = listChain([]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, false, {});
+
+    expect(res.data).toHaveLength(0);
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.tanggal_retensi_aktif_berakhir'),
+      expect.any(Object),
+    );
+  });
+
+  it('TU: berkas Tertutup tetap tampil (semua)', async () => {
+    const chain = listChain([{ id: 'b1', status: 'closed_retensi_aktif' }]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, true, {});
+
+    expect(res.data).toHaveLength(1);
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.status = :closed'),
+      expect.any(Object),
+    );
+  });
+});
+
+describe('ArsipDinamisService - removeNaskahFromBerkas (multi id_sirkuler)', () => {
+  let service: ArsipDinamisService;
+  let berkasRepo: any;
+  let berkasNaskahRepo: any;
+
+  beforeEach(async () => {
+    berkasRepo = { createQueryBuilder: jest.fn() };
+    berkasNaskahRepo = { find: jest.fn(), remove: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ArsipDinamisService,
+        { provide: DataSource, useValue: { query: jest.fn() } },
+        { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: berkasNaskahRepo },
+        { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
+        { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: {} },
+        { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },
+        { provide: StorageService, useValue: {} },
+        { provide: OrgDataService, useValue: {} },
+        { provide: NaskahService, useValue: {} },
+        { provide: NotificationService, useValue: {} },
+        { provide: RealtimeEmitService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ArsipDinamisService);
+  });
+
+  // Chain untuk tutupBerkasRetensiHabis() yang dipanggil di awal findOneBerkas
+  const expiredChain = () => ({
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue([]),
+  });
+
+  const berkasChain = (berkas: any) => ({
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(berkas),
+  });
+
+  it('menghapus SEMUA baris naskah yang sama (multi id_sirkuler) dari berkas', async () => {
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain()) // tutupBerkasRetensiHabis
+      .mockReturnValueOnce(berkasChain({ id: 'b1', status: 'aktif' })); // findOneBerkas
+    const rows = [
+      { id: 'r1', berkasId: 'b1', naskahId: 'n1', idSirkuler: 's1' },
+      { id: 'r2', berkasId: 'b1', naskahId: 'n1', idSirkuler: 's2' },
+    ];
+    berkasNaskahRepo.find.mockResolvedValue(rows);
+    berkasNaskahRepo.remove.mockResolvedValue(undefined);
+
+    const res = await service.removeNaskahFromBerkas('b1', 'n1', 99);
+
+    expect(res.message).toContain('berhasil dihapus');
+    expect(berkasNaskahRepo.find).toHaveBeenCalledWith({
+      where: { berkasId: 'b1', naskahId: 'n1' },
+    });
+    expect(berkasNaskahRepo.remove).toHaveBeenCalledWith(rows);
+  });
+
+  it('tolak (NotFound) bila naskah tidak ada di berkas', async () => {
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(berkasChain({ id: 'b1', status: 'aktif' }));
+    berkasNaskahRepo.find.mockResolvedValue([]);
+
+    await expect(service.removeNaskahFromBerkas('b1', 'n1', 99)).rejects.toThrow(
+      /tidak ditemukan di berkas/,
+    );
+    expect(berkasNaskahRepo.remove).not.toHaveBeenCalled();
+  });
+
+  it('tolak (BadRequest) bila berkas bukan Aktif/Ditolak', async () => {
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(berkasChain({ id: 'b1', status: 'closed_retensi_aktif' }));
+
+    await expect(service.removeNaskahFromBerkas('b1', 'n1', 99)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(berkasNaskahRepo.find).not.toHaveBeenCalled();
   });
 });
