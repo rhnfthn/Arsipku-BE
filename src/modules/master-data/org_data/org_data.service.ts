@@ -351,8 +351,20 @@ export class OrgDataService {
       return 0;
     };
 
-    const signerDivisi = current.divisi_id ?? null;
+    // Normalisasi divisi dengan fallback organization_id — konsisten dengan
+    // getVerifikatorBod & resolveScopePositions. Tanpa fallback, pengaju yang
+    // barisnya tidak punya divisi_id (null) mencocokkan SEMUA baris ber-divisi
+    // null di company → daftar verifikator melebar ke seluruh BOD.
+    const signerDivisi = Number(
+      current.divisi_id ?? current.organization_id ?? null,
+    );
+    const signerDivisiSafe = Number.isFinite(signerDivisi) && signerDivisi > 0
+      ? signerDivisi
+      : null;
     const signerDir = Number(current.direktorat_id ?? null);
+    const signerDirSafe = Number.isFinite(signerDir) && signerDir > 0
+      ? signerDir
+      : null;
     const signerCompany = Number(current.company ?? null);
     const signerRank = rankOf(current.position_text);
 
@@ -364,9 +376,23 @@ export class OrgDataService {
         const r = rankOf(x.position_text);
         if (r === 0 || r <= signerRank) return false;
         // Managerial di divisi sama (AVP/VP/EVP), ATAU Direktur (rank 4) di
-        // direktorat yang sama dengan pengaju meskipun beda divisi.
-        if ((x.divisi_id ?? null) === signerDivisi) return true;
-        return r === 4 && Number(x.direktorat_id ?? null) === signerDir;
+        // direktorat yang sama dengan pengaju meskipun beda divisi. Kedua
+        // pembanding dinormalisasi ke null agar Number(null)=0 tidak menyamakan
+        // baris yang memang tidak punya divisi/direktorat.
+        const xDivisi = Number(x.divisi_id ?? x.organization_id ?? null);
+        if (
+          signerDivisiSafe !== null &&
+          Number.isFinite(xDivisi) &&
+          xDivisi > 0 &&
+          xDivisi === signerDivisiSafe
+        ) {
+          return true;
+        }
+        return (
+          r === 4 &&
+          signerDirSafe !== null &&
+          Number(x.direktorat_id ?? null) === signerDirSafe
+        );
       })
       .sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
 

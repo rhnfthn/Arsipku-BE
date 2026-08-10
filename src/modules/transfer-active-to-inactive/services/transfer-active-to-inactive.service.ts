@@ -444,12 +444,18 @@ export class TransferActiveToInactiveService {
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
   async syncDraftUsulanOtomatis(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
       .andWhere('b.status = :status', {
         status: StatusBerkas.CLOSED_RETENSI_AKTIF,
       })
+      // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis yang
+      // di-draft ke pemindahan arsip. Berkas yang baru ditutup (retensi aktif
+      // baru mulai) tidak boleh langsung masuk alur pemindahan.
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .getMany();
     if (berkasList.length === 0) return 0;
 
