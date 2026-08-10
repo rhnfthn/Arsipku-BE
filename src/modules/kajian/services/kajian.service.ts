@@ -967,6 +967,7 @@ export class KajianService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: false,
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -992,6 +993,7 @@ export class KajianService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: false,
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -1024,6 +1026,7 @@ export class KajianService {
                 : '',
               namaSirkuler: tembusanData.persnum_person_text || '',
               isDraft: false,
+              tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
             });
             await queryRunner.manager.save(tembusanSirkulasi);
             tembusanResponses.push(this.toSirkulasiInfo(tembusanData));
@@ -1308,6 +1311,7 @@ export class KajianService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: isPending,
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1335,6 +1339,7 @@ export class KajianService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: isPending,
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -1391,6 +1396,7 @@ export class KajianService {
             : '',
           namaSirkuler: tembusan.persnum_person_text || '',
           isDraft: isPending,
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(tembusanSirkulasi);
         tembusanResponses.push(this.toSirkulasiInfo(tembusan));
@@ -1838,6 +1844,7 @@ export class KajianService {
           : '',
         namaSirkuler: _pf.namaSirkuler,
         isDraft: true,
+        tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
       });
       await queryRunner.manager.save(pengirimSirkulasi);
 
@@ -1863,6 +1870,7 @@ export class KajianService {
             : '',
           namaSirkuler: penerima.persnum_person_text || '',
           isDraft: true,
+          tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
         });
         await queryRunner.manager.save(penerimaSirkulasi);
         penerimaResponses.push(this.toSirkulasiInfo(penerima));
@@ -1895,6 +1903,7 @@ export class KajianService {
                 : '',
               namaSirkuler: tembusanData.persnum_person_text || '',
               isDraft: true,
+              tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
             });
             await queryRunner.manager.save(tembusanSirkulasi);
             tembusanResponses.push(this.toSirkulasiInfo(tembusanData));
@@ -2236,6 +2245,7 @@ export class KajianService {
               : '',
             namaSirkuler: penerimaData.persnum_person_text || '',
             isDraft: true,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
           });
           await queryRunner.manager.save(penerimaSirkulasi);
         }
@@ -2272,6 +2282,7 @@ export class KajianService {
               : '',
             namaSirkuler: tembusanData.persnum_person_text || '',
             isDraft: true,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
           });
           await queryRunner.manager.save(tembusanSirkulasi);
         }
@@ -2500,6 +2511,7 @@ export class KajianService {
               : '',
             namaSirkuler: penerimaData.persnum_person_text || '',
             isDraft: false,
+            tanggal: naskah.tanggal, // Kunci partisi — dari naskah induk
           });
           await queryRunner.manager.save(penerimaSirkulasi);
         }
