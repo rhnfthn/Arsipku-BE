@@ -36,7 +36,8 @@ export class TuVerifikasiService {
     private readonly storageService: StorageService,
   ) {}
 
-  /** Status yang relevan untuk TU (notifikasi usulan masuk). */
+  /** Status yang relevan untuk TU (notifikasi usulan masuk).
+   *  Mencakup SELURUH siklus TU: dari diterima sampai selesai penataan. */
   private readonly TU_STATUSES = [
     TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
     TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
@@ -45,6 +46,12 @@ export class TuVerifikasiService {
     TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
     TransferActiveToInactiveStatus.BERKAS_FISIK_TIDAK_SESUAI,
     TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU,
+    TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
+    TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
+    TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF,
+    TransferActiveToInactiveStatus.SELESAI,
   ];
 
   /**
@@ -242,21 +249,24 @@ export class TuVerifikasiService {
     } else if (dto.atasanTuPersnum) {
       // Legacy: single atasan TU
       transfer.atasanTuPersnum = Number(dto.atasanTuPersnum);
-      transfer.tuApprovalLevels = [{
-        persnum: Number(dto.atasanTuPersnum),
-        name: '',
-        jabatan: '',
-        urutan: 1,
-        status: 'MENUNGGU' as const,
-        verifiedAt: null,
-        catatan: null,
-      }];
+      transfer.tuApprovalLevels = [
+        {
+          persnum: Number(dto.atasanTuPersnum),
+          name: '',
+          jabatan: '',
+          urutan: 1,
+          status: 'MENUNGGU' as const,
+          verifiedAt: null,
+          catatan: null,
+        },
+      ];
       transfer.totalTuApprovalLevels = 1;
       transfer.currentTuApprovalLevel = 1;
     }
 
     // Status → MENUNGGU_VERIFIKASI_PERSETUJUAN_TU (menunggu persetujuan TU level 1)
-    transfer.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
+    transfer.status =
+      TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
 
     const saved = await this.transferRepo.save(transfer);
 
@@ -277,7 +287,9 @@ export class TuVerifikasiService {
           },
         });
       } catch (e) {
-        this.logger.warn(`Failed to send notification: ${(e as Error).message}`);
+        this.logger.warn(
+          `Failed to send notification: ${(e as Error).message}`,
+        );
       }
     }
 
@@ -329,6 +341,41 @@ export class TuVerifikasiService {
     return saved;
   }
 
+  /** Cek apakah user login terdaftar sebagai atasan TU di usulan apapun.
+   *  Return { isAtasanTu: boolean } — dipakai sidebar untuk menampilkan menu
+   *  "Verifikasi Persetujuan" hanya jika user memang ada di tuApprovalLevels.
+   */
+  async isAtasanTu(user: JwtPayload): Promise<{ isAtasanTu: boolean }> {
+    try {
+      const persnum = Number(user.persnum);
+      if (!persnum) return { isAtasanTu: false };
+
+      // Cek di kolom JSON tu_approval_levels: cari semua usulan yang
+      // tu_approval_levels tidak NULL, lalu filter di aplikasi (JSON array).
+      const transfers = await this.transferRepo
+        .createQueryBuilder('t')
+        .select(['t.id', 't.tuApprovalLevels'])
+        .where('t.tu_approval_levels IS NOT NULL')
+        .getMany();
+
+      for (const t of transfers) {
+        const levels = t.tuApprovalLevels;
+        if (
+          Array.isArray(levels) &&
+          levels.some((l) => Number(l.persnum) === persnum)
+        ) {
+          return { isAtasanTu: true };
+        }
+      }
+      return { isAtasanTu: false };
+    } catch (error) {
+      this.logger.warn(
+        `isAtasanTu failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { isAtasanTu: false };
+    }
+  }
+
   /** Daftar atasan managerial TU (untuk dropdown pilih atasan TU).
    * Cari di org_data position_json: organization yang mengandung "Corporate Secretary",
    * ambil yang chief=1 (atasan, bukan staff), punya persnum_person.
@@ -345,15 +392,19 @@ export class TuVerifikasiService {
 
       const positions = latestOrgData.position_json as any[];
 
-      // Cari position di organization "Corporate Secretary" / "Tata Naskah" dengan chief=1
+      // Corporate Secretary Division org ID (sama dengan yang dipakai modul
+      // usulan-akses-berkas). Filter semua position yang divisi-nya Corporate
+      // Secretary, ambil yang punya persnum (termasuk staff, bukan hanya BOD).
+      const CORPORATE_SECRETARY_DIVISI_ID = 10002098;
       const atasanTu = positions
         .filter((p) => {
+          const divisiId = Number(p.divisi_id ?? 0);
           const orgText = (p.organization_text || '').toUpperCase();
           return (
-            (orgText.includes('CORPORATE SECRETARY') ||
+            (divisiId === CORPORATE_SECRETARY_DIVISI_ID ||
+              orgText.includes('CORPORATE SECRETARY') ||
               orgText.includes('TATA NASKAH') ||
               orgText.includes('CORPORATE SEC')) &&
-            p.chief === 1 &&
             p.persnum_person
           );
         })
@@ -510,7 +561,8 @@ export class TuVerifikasiService {
         transfer.currentTuApprovalLevel = transfer.currentTuApprovalLevel + 1;
         transfer.atasanTuPersnum = nextLevel.persnum;
         transfer.atasanTuName = nextLevel.name;
-        transfer.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
+        transfer.status =
+          TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
         transfer.tuApprovalLevels = [...levels];
         const saved = await this.transferRepo.save(transfer);
 
@@ -535,7 +587,8 @@ export class TuVerifikasiService {
       } else {
         // Level terakhir approve → reset ke level 1 untuk persetujuan terakhir
         transfer.currentTuApprovalLevel = 1;
-        transfer.status = TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
+        transfer.status =
+          TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
         transfer.tuApprovalLevels = [...levels];
         transfer.physicalVerificationNote =
           dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
@@ -761,19 +814,22 @@ export class TuVerifikasiService {
     };
   }
 
-  /** Upload foto lampiran penataan arsip (Max 5MB, image only). */
+  /** Upload foto lampiran penataan arsip (Max 5MB, image only).
+   *  Return key + signed URL (URL langsung dari MinIO, bisa dipakai di <img>). */
   async uploadFotoPenataan(file: {
     buffer: Buffer;
     originalname: string;
     mimetype: string;
-  }): Promise<{ key: string }> {
+  }): Promise<{ key: string; url: string }> {
     const result = await this.storageService.uploadBuffer(
       file.buffer,
       file.originalname,
       file.mimetype,
       'penataan',
     );
-    return { key: result.key };
+    // Dapatkan signed URL (valid 7 hari) agar frontend bisa langsung tampilkan
+    const url = await this.storageService.getFileUrl(result.key, 7 * 24 * 3600);
+    return { key: result.key, url };
   }
 
   /** Ambil foto lampiran penataan arsip. */
@@ -818,7 +874,15 @@ export class TuVerifikasiService {
     transfer.baris = dto.baris ?? null;
     transfer.kolom = dto.kolom ?? null;
     transfer.keteranganPenataan = dto.keterangan ?? null;
-    transfer.fotoPenataan = dto.fotoPenataan ?? null;
+    // Simpan signed URL (bukan key) agar frontend bisa langsung tampilkan
+    if (dto.fotoPenataan) {
+      transfer.fotoPenataan = await this.storageService.getFileUrl(
+        dto.fotoPenataan,
+        7 * 24 * 3600,
+      );
+    } else {
+      transfer.fotoPenataan = null;
+    }
     transfer.status = TransferActiveToInactiveStatus.SELESAI;
     transfer.arrangedAt = new Date();
 
@@ -843,5 +907,20 @@ export class TuVerifikasiService {
     }
 
     return saved;
+  }
+
+  /** Update foto penataan saja (tanpa ubah status) — untuk edit foto
+   *  setelah penataan selesai. Simpan signed URL ke kolom foto_penataan
+   *  agar frontend bisa langsung tampilkan via <img src>.
+   */
+  async updateFotoPenataan(id: string, fotoKey: string) {
+    const transfer = await this.findOneForTu(id);
+    if (!fotoKey) {
+      throw new BadRequestException('Key file tidak valid');
+    }
+    // Dapatkan signed URL (valid 7 hari) dan simpan ke DB
+    const url = await this.storageService.getFileUrl(fotoKey, 7 * 24 * 3600);
+    transfer.fotoPenataan = url;
+    return this.transferRepo.save(transfer);
   }
 }
