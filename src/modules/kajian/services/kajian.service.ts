@@ -314,6 +314,12 @@ export class KajianService {
       );
     }
 
+    // Kunci partisi: sinkronkan tanggal lampiran ke tanggal naskah induk
+    // supaya lampiran final berada di partisi tahun yang sama dengan naskah.
+    const parentNaskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
     // Process each lampiran
     for (const lampiran of allLampiran) {
       // Skip if already linked to this naskah and not temporary
@@ -343,6 +349,7 @@ export class KajianService {
       lampiran.id_naskah = naskahId;
       lampiran.jenis = 'KA';
       lampiran.is_temporary = 0;
+      lampiran.tanggal = parentNaskah?.tanggal ?? lampiran.tanggal;
 
       await this.naskahLampiranRepository.save(lampiran);
     }

@@ -44,6 +44,15 @@ export class BerkasNaskah {
   @Column('varchar', { name: 'id_sirkuler', length: 100, nullable: true })
   idSirkuler: string | null;
 
+  // Status naskah dalam berkas: inaktif = berkas ditutup (retensi aktif habis),
+  // disembunyikan dari user biasa, hanya TU (unit_dokumen) yang melihat/mengelola.
+  @Column('enum', {
+    name: 'status',
+    enum: ['aktif', 'inaktif'],
+    default: 'aktif',
+  })
+  status: 'aktif' | 'inaktif';
+
   @Column('varchar', { name: 'sumber', length: 20 })
   sumber: string;
 
