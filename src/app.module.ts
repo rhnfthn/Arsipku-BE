@@ -144,13 +144,19 @@ import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module
     }),
     // ─── Audit Trail DB (MongoDB: arsipku_audit) ────────────────────────────
     // Database audit trail pindah ke MongoDB. Data utama Arsipku tetap di MySQL.
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGODB_URI'),
-      }),
-    }),
+    // Aktif/nonaktif via env: MONGODB_ENABLED=true|false (default: nonaktif).
+    // Saat nonaktif, audit service no-op (model di-inject @Optional).
+    ...(process.env.MONGODB_ENABLED === 'true'
+      ? [
+          MongooseModule.forRootAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: (config: ConfigService) => ({
+              uri: config.get<string>('MONGODB_URI'),
+            }),
+          }),
+        ]
+      : []),
     CompanyModule,
     AreaModule,
     AreasubModule,

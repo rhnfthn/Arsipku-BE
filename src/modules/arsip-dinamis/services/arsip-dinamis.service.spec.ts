@@ -335,19 +335,31 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
   });
 
   it('delegasi ke NaskahService bila naskah tercatat di berkas', async () => {
-    berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1' });
+    berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1', status: 'aktif' });
     naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [{ id: 'n1' }] });
-    const res = await service.getNaskahDetailInBerkas('b1', 'n1');
+    const res = await service.getNaskahDetailInBerkas('b1', 'n1', false);
     expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
     expect(res.data[0].id).toBe('n1');
   });
 
   it('tolak (NotFound) bila naskah bukan milik berkas — anti enumerasi id', async () => {
     berkasNaskahRepo.findOne.mockResolvedValue(null);
-    await expect(service.getNaskahDetailInBerkas('b1', 'n1')).rejects.toThrow(
+    await expect(service.getNaskahDetailInBerkas('b1', 'n1', false)).rejects.toThrow(
       /tidak ditemukan di berkas/,
     );
     expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
+  });
+
+  it('tolak (NotFound) naskah inaktif untuk user biasa, izinkan untuk TU', async () => {
+    berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1', status: 'inaktif' });
+    naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [] });
+    await expect(service.getNaskahDetailInBerkas('b1', 'n1', false)).rejects.toThrow(
+      /tidak ditemukan di berkas/,
+    );
+    expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
+    const res = await service.getNaskahDetailInBerkas('b1', 'n1', true);
+    expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
+    expect(res.data).toEqual([]);
   });
 });
 describe('ArsipDinamisService - realtime & notif (ajukan/approve/reject)', () => {
@@ -494,7 +506,7 @@ describe('ArsipDinamisService - tutupBerkasRetensiHabis (on-demand retensi)', ()
         ArsipDinamisService,
         { provide: DataSource, useValue: { query: jest.fn() } },
         { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
-        { provide: getRepositoryToken(BerkasNaskah), useValue: {} },
+        { provide: getRepositoryToken(BerkasNaskah), useValue: { update: jest.fn() } },
         { provide: getRepositoryToken(BerkasVerifikasi), useValue: {} },
         { provide: getRepositoryToken(BerkasRiwayatRetensi), useValue: riwayatRepo },
         { provide: getRepositoryToken(KlasifikasiEntity), useValue: {} },

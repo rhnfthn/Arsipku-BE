@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuditTrail, AuditTrailDocument } from '../schemas/audit-trail.schema';
@@ -19,15 +19,19 @@ export class AuditTrailService {
   private readonly logger = new Logger(AuditTrailService.name);
 
   constructor(
+    // @Optional: MongoDB bisa nonaktif (MONGODB_URI kosong) — model undefined,
+    // semua method jadi no-op. Aktifkan kembali via forRootAsync + forFeature.
+    @Optional()
     @InjectModel(AuditTrail.name)
-    private readonly model: Model<AuditTrailDocument>,
+    private readonly model?: Model<AuditTrailDocument>,
   ) {}
 
   /**
    * Insert log audit secara synchronous (menunggu selesai).
    * Hanya dipakai ketika caller benar-benar butuh menunggu hasil.
    */
-  async create(data: CreateAuditTrailDto): Promise<AuditTrail> {
+  async create(data: CreateAuditTrailDto): Promise<AuditTrail | null> {
+    if (!this.model) return null; // MongoDB nonaktif — lewati log
     try {
       const created = new this.model({
         userId: data.userId ?? null,
@@ -97,6 +101,9 @@ export class AuditTrailService {
   async findAll(filter: AuditFilterDto) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
+    if (!this.model) {
+      return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+    }
     const skip = (page - 1) * limit;
 
     const query: any = {};
@@ -177,6 +184,9 @@ export class AuditTrailService {
   ) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
+    if (!this.model) {
+      return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+    }
     const skip = (page - 1) * limit;
 
     const query: any = {};
@@ -253,6 +263,7 @@ export class AuditTrailService {
    * Detail satu log.
    */
   async findOne(id: string): Promise<AuditTrail | null> {
+    if (!this.model) return null;
     return this.model.findById(id).exec();
   }
 
@@ -265,6 +276,7 @@ export class AuditTrailService {
     userId: string | null,
     persnum: number | null,
   ) {
+    if (!this.model) return null;
     const doc = await this.model.findById(id).exec();
     if (!doc) return null;
 
@@ -322,6 +334,19 @@ export class AuditTrailService {
     userRole?: string,
     search?: string,
   ) {
+    if (!this.model) {
+      return {
+        total: 0,
+        today: 0,
+        errorCount: 0,
+        lastLogAt: null,
+        byStatus: [],
+        byAction: [],
+        byModule: [],
+        daily: [],
+        recentLogs: [],
+      };
+    }
     // Helper: bangun query filter MongoDB
     const buildQuery = (): any => {
       const q: any = {};
@@ -491,6 +516,7 @@ export class AuditTrailService {
    * Endpoint: GET /audit/report/daily-activity
    */
   async getDailyActivity(days = 7) {
+    if (!this.model) return [];
     const result: { date: string; count: number }[] = [];
     const today = new Date();
 
