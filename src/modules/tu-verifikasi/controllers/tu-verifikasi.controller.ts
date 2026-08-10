@@ -43,6 +43,16 @@ export class TuVerifikasiController {
     return this.service.getAtasanTuList();
   }
 
+  @Get('is-atasan-tu')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'Cek apakah user login terdaftar sebagai atasan TU di usulan apapun',
+  })
+  async isAtasanTu(@CurrentUser() user: JwtPayload) {
+    return this.service.isAtasanTu(user);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Detail usulan untuk TU' })

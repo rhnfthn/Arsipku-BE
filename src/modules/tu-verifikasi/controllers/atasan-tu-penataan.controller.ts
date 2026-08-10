@@ -113,6 +113,17 @@ export class TuPenataanController {
     return this.service.selesaiPenataan(id, user, dto);
   }
 
+  /** Update foto penataan saja (tanpa ubah status) — untuk edit foto. */
+  @Patch(':id/update-foto')
+  @ApiOperation({ summary: 'Update foto penataan arsip (tanpa ubah status)' })
+  async updateFotoPenataan(
+    @Param('id') id: string,
+    @Body('fotoPenataan') fotoKey: string,
+  ) {
+    const data = await this.service.updateFotoPenataan(id, fotoKey);
+    return { success: true, data };
+  }
+
   /** Upload foto lampiran penataan arsip (Max 5MB, image only). */
   @Post('upload-foto')
   @HttpCode(HttpStatus.CREATED)
