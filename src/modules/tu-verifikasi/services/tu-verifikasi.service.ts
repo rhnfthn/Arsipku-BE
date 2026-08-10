@@ -135,6 +135,8 @@ export class TuVerifikasiService {
     if (!transfer) {
       throw new NotFoundException('Usulan tidak ditemukan');
     }
+    // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum
+    await this.resolveSekretarisNames([transfer]);
     return transfer;
   }
 
@@ -218,29 +220,65 @@ export class TuVerifikasiService {
     transfer.physicalVerifiedAt = new Date();
     transfer.tuPersnum = Number(user.persnum);
     transfer.tuName = user.nama ?? String(user.persnum);
-    transfer.atasanTuPersnum = Number(dto.atasanTuPersnum);
     transfer.tuApprovedBy = Number(user.persnum);
     transfer.tuApprovedAt = new Date();
-    // Status tetap DIKIRIM (Menunggu Verifikasi) — tidak diubah
+
+    // Multi-level TU approval: simpan daftar atasan TU berjenjang
+    if (dto.atasanTuList && dto.atasanTuList.length > 0) {
+      transfer.tuApprovalLevels = dto.atasanTuList.map((a, idx) => ({
+        persnum: Number(a.persnum),
+        name: a.name,
+        jabatan: a.jabatan,
+        urutan: idx + 1,
+        status: 'MENUNGGU' as const,
+        verifiedAt: null,
+        catatan: null,
+      }));
+      transfer.totalTuApprovalLevels = dto.atasanTuList.length;
+      transfer.currentTuApprovalLevel = 1;
+      // Legacy: simpan atasan TU pertama
+      transfer.atasanTuPersnum = Number(dto.atasanTuList[0].persnum);
+      transfer.atasanTuName = dto.atasanTuList[0].name;
+    } else if (dto.atasanTuPersnum) {
+      // Legacy: single atasan TU
+      transfer.atasanTuPersnum = Number(dto.atasanTuPersnum);
+      transfer.tuApprovalLevels = [{
+        persnum: Number(dto.atasanTuPersnum),
+        name: '',
+        jabatan: '',
+        urutan: 1,
+        status: 'MENUNGGU' as const,
+        verifiedAt: null,
+        catatan: null,
+      }];
+      transfer.totalTuApprovalLevels = 1;
+      transfer.currentTuApprovalLevel = 1;
+    }
+
+    // Status → MENUNGGU_VERIFIKASI_PERSETUJUAN_TU (menunggu persetujuan TU level 1)
+    transfer.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
 
     const saved = await this.transferRepo.save(transfer);
 
-    // Notifikasi ke Atasan Managerial TU
-    try {
-      await this.notificationService.createNotification({
-        positionId: '0',
-        userPersnum: Number(dto.atasanTuPersnum),
-        type: NotificationType.SYSTEM,
-        title: 'Usulan Pindah Arsip Menunggu Persetujuan',
-        body: `Usulan ${saved.nomorUsulan} telah diverifikasi TU dan menunggu persetujuan Anda.`,
-        data: {
-          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
-          id: saved.id,
-          nomorUsulan: saved.nomorUsulan,
-        },
-      });
-    } catch (e) {
-      this.logger.warn(`Failed to send notification: ${(e as Error).message}`);
+    // Notifikasi ke Atasan Managerial TU level 1
+    const firstLevel = transfer.tuApprovalLevels?.[0];
+    if (firstLevel) {
+      try {
+        await this.notificationService.createNotification({
+          positionId: '0',
+          userPersnum: firstLevel.persnum,
+          type: NotificationType.SYSTEM,
+          title: 'Usulan Pindah Arsip Menunggu Persetujuan',
+          body: `Usulan ${saved.nomorUsulan} telah diverifikasi TU dan menunggu persetujuan Anda.`,
+          data: {
+            action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+            id: saved.id,
+            nomorUsulan: saved.nomorUsulan,
+          },
+        });
+      } catch (e) {
+        this.logger.warn(`Failed to send notification: ${(e as Error).message}`);
+      }
     }
 
     return saved;
@@ -425,7 +463,7 @@ export class TuVerifikasiService {
     };
   }
 
-  /** Setujui penerimaan oleh Atasan TU. */
+  /** Setujui penerimaan oleh Atasan TU (multi-level berjenjang). */
   async setujuiPenerimaan(
     id: string,
     user: JwtPayload,
@@ -443,6 +481,91 @@ export class TuVerifikasiService {
       );
     }
 
+    // Multi-level: cek giliran atasan TU
+    const levels = transfer.tuApprovalLevels;
+    if (levels && levels.length > 0) {
+      const currentLevel = levels.find(
+        (l) => l.urutan === transfer.currentTuApprovalLevel,
+      );
+      if (!currentLevel) {
+        throw new BadRequestException('Level verifikasi TU tidak ditemukan');
+      }
+      if (currentLevel.persnum !== Number(user.persnum)) {
+        throw new BadRequestException(
+          `Bukan giliran Anda. Saat ini giliran atasan TU urutan ${transfer.currentTuApprovalLevel} (${currentLevel.name}).`,
+        );
+      }
+
+      // Update level saat ini → DISETUJUI
+      currentLevel.status = 'DISETUJUI';
+      currentLevel.verifiedAt = new Date().toISOString();
+      currentLevel.catatan = dto.catatanVerifikasi ?? null;
+
+      // Cek apakah ada level berikutnya
+      const nextLevel = levels.find(
+        (l) => l.urutan === transfer.currentTuApprovalLevel + 1,
+      );
+      if (nextLevel) {
+        // Masih ada level berikutnya → tetap MENUNGGU_VERIFIKASI_PERSETUJUAN_TU
+        transfer.currentTuApprovalLevel = transfer.currentTuApprovalLevel + 1;
+        transfer.atasanTuPersnum = nextLevel.persnum;
+        transfer.atasanTuName = nextLevel.name;
+        transfer.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU;
+        transfer.tuApprovalLevels = [...levels];
+        const saved = await this.transferRepo.save(transfer);
+
+        // Notifikasi ke atasan TU berikutnya
+        try {
+          await this.notificationService.createNotification({
+            positionId: '0',
+            userPersnum: nextLevel.persnum,
+            type: NotificationType.SYSTEM,
+            title: 'Usulan Pindah Arsip Menunggu Persetujuan',
+            body: `Usulan ${saved.nomorUsulan} menunggu persetujuan Anda (Tahap ${nextLevel.urutan} dari ${transfer.totalTuApprovalLevels}).`,
+            data: {
+              action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+              id: saved.id,
+              nomorUsulan: saved.nomorUsulan,
+            },
+          });
+        } catch (e) {
+          this.logger.warn(`notify failed: ${(e as Error).message}`);
+        }
+        return saved;
+      } else {
+        // Level terakhir approve → reset ke level 1 untuk persetujuan terakhir
+        transfer.currentTuApprovalLevel = 1;
+        transfer.status = TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
+        transfer.tuApprovalLevels = [...levels];
+        transfer.physicalVerificationNote =
+          dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
+        const saved = await this.transferRepo.save(transfer);
+
+        // Notifikasi ke atasan TU level 1 untuk persetujuan terakhir
+        const firstLevel = levels.find((l) => l.urutan === 1);
+        if (firstLevel) {
+          try {
+            await this.notificationService.createNotification({
+              positionId: '0',
+              userPersnum: firstLevel.persnum,
+              type: NotificationType.SYSTEM,
+              title: 'Persetujuan Terakhir Diperlukan',
+              body: `Usulan ${saved.nomorUsulan} telah disetujui semua level. Berikan persetujuan terakhir.`,
+              data: {
+                action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+                id: saved.id,
+                nomorUsulan: saved.nomorUsulan,
+              },
+            });
+          } catch (e) {
+            this.logger.warn(`notify failed: ${(e as Error).message}`);
+          }
+        }
+        return saved;
+      }
+    }
+
+    // Legacy: single atasan TU (tanpa tuApprovalLevels)
     transfer.status = TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
     transfer.atasanTuPersnum = transfer.atasanTuPersnum ?? Number(user.persnum);
     transfer.atasanTuName =
@@ -491,6 +614,20 @@ export class TuVerifikasiService {
       );
     }
 
+    // Multi-level: update level saat ini → DITOLAK
+    const levels = transfer.tuApprovalLevels;
+    if (levels && levels.length > 0) {
+      const currentLevel = levels.find(
+        (l) => l.urutan === transfer.currentTuApprovalLevel,
+      );
+      if (currentLevel) {
+        currentLevel.status = 'DITOLAK';
+        currentLevel.verifiedAt = new Date().toISOString();
+        currentLevel.catatan = dto.alasanPenolakan;
+        transfer.tuApprovalLevels = [...levels];
+      }
+    }
+
     transfer.status = TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TU;
     transfer.rejectedNote = dto.alasanPenolakan;
 
@@ -517,7 +654,7 @@ export class TuVerifikasiService {
     return saved;
   }
 
-  /** Setujui persetujuan terakhir oleh Atasan TU → ARSIP_INAKTIF_DITERIMA. */
+  /** Setujui persetujuan terakhir oleh Atasan TU level 1 → ARSIP_INAKTIF_DITERIMA. */
   async setujuiTerakhir(
     id: string,
     user: JwtPayload,
@@ -534,6 +671,17 @@ export class TuVerifikasiService {
       throw new BadRequestException(
         `Status ${transfer.status} tidak bisa disetujui terakhir`,
       );
+    }
+
+    // Multi-level: hanya atasan TU level 1 yang bisa persetujuan terakhir
+    const levels = transfer.tuApprovalLevels;
+    if (levels && levels.length > 0) {
+      const firstLevel = levels.find((l) => l.urutan === 1);
+      if (!firstLevel || firstLevel.persnum !== Number(user.persnum)) {
+        throw new BadRequestException(
+          'Hanya atasan TU pertama yang dapat melakukan persetujuan terakhir',
+        );
+      }
     }
 
     transfer.status = TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
