@@ -765,6 +765,12 @@ export class SuratDinasInternalService {
       );
     }
 
+    // Kunci partisi: sinkronkan tanggal lampiran ke tanggal naskah induk
+    // supaya lampiran final berada di partisi tahun yang sama dengan naskah.
+    const parentNaskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
     // Move each file and update database
     for (const lampiran of tempLampiran) {
       const fileName = lampiran.file_name;
@@ -785,6 +791,7 @@ export class SuratDinasInternalService {
         lampiran.jenis = 'SDI';
         lampiran.is_temporary = 0;
         lampiran.temp_folder_id = null;
+        lampiran.tanggal = parentNaskah?.tanggal ?? lampiran.tanggal;
 
         await this.naskahLampiranRepository.save(lampiran);
       } catch (error) {

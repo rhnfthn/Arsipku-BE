@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -37,8 +37,14 @@ export class AuditAnomalyService {
   private readonly logger = new Logger(AuditAnomalyService.name);
 
   constructor(
+    // @Optional: MongoDB bisa nonaktif (MONGODB_URI kosong) — model undefined
+    // saat runtime, semua method jadi no-op. Aktifkan kembali via forRootAsync
+    // + forFeature. Tipe sengaja non-optional agar method private tidak perlu
+    // null-check (guard runtime ada di detect() & method publik).
+    @Optional()
     @InjectModel(AuditAnomaly.name)
     private readonly model: Model<AuditAnomalyDocument>,
+    @Optional()
     @InjectModel(AuditTrail.name)
     private readonly trailModel: Model<AuditTrailDocument>,
   ) {}
@@ -46,7 +52,8 @@ export class AuditAnomalyService {
   /**
    * Insert anomali baru.
    */
-  async create(data: Partial<AuditAnomaly>): Promise<AuditAnomaly> {
+  async create(data: Partial<AuditAnomaly>): Promise<AuditAnomaly | null> {
+    if (!this.model) return null; // MongoDB nonaktif — lewati
     try {
       const created = new this.model({
         anomalyType: data.anomalyType,
@@ -84,6 +91,7 @@ export class AuditAnomalyService {
    * Dipanggil setelah setiap insert audit trail (fire-and-forget).
    */
   async detect(trail: AuditTrail): Promise<void> {
+    if (!this.model || !this.trailModel) return; // MongoDB nonaktif — lewati
     try {
       await this.detectLoginBruteForce(trail);
       await this.detectAccessDeniedRepeated(trail);
@@ -427,6 +435,9 @@ export class AuditAnomalyService {
   async findAll(filter: AnomalyFilterDto) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
+    if (!this.model) {
+      return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
+    }
     const skip = (page - 1) * limit;
 
     const query: any = {};
@@ -469,6 +480,7 @@ export class AuditAnomalyService {
    * Detail satu anomali.
    */
   async findOne(id: string): Promise<AuditAnomaly | null> {
+    if (!this.model) return null;
     return this.model.findById(id).exec();
   }
 
@@ -485,6 +497,7 @@ export class AuditAnomalyService {
       handlingNote: dto.handlingNote ?? null,
     };
     if (handledBy) update.handledBy = handledBy;
+    if (!this.model) return null;
 
     if (
       dto.status === AnomalyStatus.RESOLVED ||
@@ -500,6 +513,7 @@ export class AuditAnomalyService {
    * Tandai notifikasi anomali sudah terkirim.
    */
   async markAsNotified(id: string): Promise<void> {
+    if (!this.model) return;
     await this.model
       .findByIdAndUpdate(id, {
         notificationSent: true,
@@ -533,6 +547,7 @@ export class AuditAnomalyService {
    * Notifikasi terbaru untuk Super Admin (anomali status NEW).
    */
   async getRecentNotifications(limit = 10) {
+    if (!this.model) return [];
     return this.model
       .find({ status: AnomalyStatus.NEW })
       .sort({ createdAt: -1 })
@@ -546,6 +561,7 @@ export class AuditAnomalyService {
    * notifikasi topbar Super Admin.
    */
   async getUnreadCount(): Promise<number> {
+    if (!this.model) return 0;
     return this.model.countDocuments({ status: AnomalyStatus.NEW }).exec();
   }
 
@@ -553,6 +569,16 @@ export class AuditAnomalyService {
    * Ringkasan count anomali untuk dashboard.
    */
   async getSummary() {
+    if (!this.model) {
+      return {
+        total: 0,
+        new: 0,
+        reviewing: 0,
+        resolved: 0,
+        ignored: 0,
+        bySeverity: [],
+      };
+    }
     const total = await this.model.countDocuments().exec();
     const newCount = await this.model
       .countDocuments({ status: AnomalyStatus.NEW })
