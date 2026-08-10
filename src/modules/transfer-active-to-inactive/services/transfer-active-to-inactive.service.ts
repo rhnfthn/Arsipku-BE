@@ -970,11 +970,22 @@ export class TransferActiveToInactiveService {
     item.approvedBy = Number(user.persnum);
     item.approvedAt = new Date();
 
-    // Update level saat ini → DISETUJUI
-    currentLevel.status = LEVEL_DISETUJUI;
-    currentLevel.verifiedAt = new Date();
-    currentLevel.catatan = dto.verifyNote ?? null;
-    await this.levelRepo.save(currentLevel);
+    // Update level saat ini → DISETUJUI (query eksplisit agar hanya level
+    // ini yang berubah, bukan semua level — composite PK id+tanggal bisa
+    // menyebabkan levelRepo.save() salah target).
+    await this.levelRepo
+      .createQueryBuilder()
+      .update(TransferApprovalLevelEntity)
+      .set({
+        status: LEVEL_DISETUJUI,
+        verifiedAt: new Date(),
+        catatan: dto.verifyNote ?? null,
+      })
+      .where('transfer_id = :tid AND urutan = :urutan', {
+        tid: item.id,
+        urutan: item.currentApprovalLevel,
+      })
+      .execute();
 
     const nextLevel = await this.getLevel(
       item.id,
@@ -1101,11 +1112,20 @@ export class TransferActiveToInactiveService {
     item.status = TransferActiveToInactiveStatus.DITOLAK_ATASAN;
     item.rejectedNote = dto.rejectedNote;
 
-    // Update level saat ini → DITOLAK
-    currentLevel.status = LEVEL_DITOLAK;
-    currentLevel.verifiedAt = new Date();
-    currentLevel.catatan = dto.rejectedNote;
-    await this.levelRepo.save(currentLevel);
+    // Update level saat ini → DITOLAK (query eksplisit, sama seperti approve)
+    await this.levelRepo
+      .createQueryBuilder()
+      .update(TransferApprovalLevelEntity)
+      .set({
+        status: LEVEL_DITOLAK,
+        verifiedAt: new Date(),
+        catatan: dto.rejectedNote,
+      })
+      .where('transfer_id = :tid AND urutan = :urutan', {
+        tid: item.id,
+        urutan: item.currentApprovalLevel,
+      })
+      .execute();
 
     const saved = await this.repo.save(item);
     this.logAudit(
