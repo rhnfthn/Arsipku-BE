@@ -106,7 +106,11 @@ export class NaskahDinasVerifikatorEntity {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
+  // NaskahEntity punya composite PK (id + tanggal) — tanpa referencedColumnName,
+  // TypeORM menurunkan kondisi join dari SEMUA kolom PK target sehingga jadi
+  // "naskah.tanggal = id_naskah" (tanggal vs UUID, selalu false) → join kosong.
+  // referencedColumnName memaksa join hanya ke kolom id.
   @ManyToOne(() => NaskahEntity, { createForeignKeyConstraints: false })
-  @JoinColumn({ name: 'id_naskah' })
+  @JoinColumn({ name: 'id_naskah', referencedColumnName: 'id' })
   naskah: NaskahEntity;
 }
