@@ -40,15 +40,36 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     service = moduleRef.get(TransferActiveToInactiveService);
   });
 
-  /** Chain mock: query biasa (select/where/orderBy → getMany/getOne). */
-  const chain = (getMany: any[], getOne: any = null) => ({
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    select: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue(getMany),
-    getOne: jest.fn().mockResolvedValue(getOne),
-  });
+  /** Chain mock: query biasa (select/where/orderBy → getMany/getOne).
+   *  Mensimulasikan filter retensi: bila query memuat klausa
+   *  `tanggal_retensi_aktif_berakhir <= :today`, hanya berkas yang tanggalnya
+   *  sudah lewat (atau hari ini) yang lolos — berkas retensi masa depan tidak. */
+  const chain = (getMany: any[], getOne: any = null) => {
+    const andWheres: string[] = [];
+    const qb: any = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn((sql: string) => {
+        andWheres.push(sql);
+        return qb;
+      }),
+      select: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockImplementation(() => {
+        if (
+          andWheres.some((s) => s.includes('tanggal_retensi_aktif_berakhir <= :today'))
+        ) {
+          const today = new Date().toISOString().split('T')[0];
+          return getMany.filter(
+            (b: any) =>
+              b.tanggalRetensiAktifBerakhir && b.tanggalRetensiAktifBerakhir <= today,
+          );
+        }
+        return getMany;
+      }),
+      getOne: jest.fn().mockResolvedValue(getOne),
+    };
+    return qb;
+  };
 
   it('berkas closed_retensi_aktif tanpa usulan → dibuatkan usulan DRAFT otomatis', async () => {
     const berkas = {
@@ -85,7 +106,7 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     );
   });
 
-  it('query berkas hanya mensyaratkan status closed_retensi_aktif', async () => {
+  it('query berkas mensyaratkan status closed_retensi_aktif DAN retensi aktif sudah habis', async () => {
     const berkasChain = chain([]);
     berkasRepo.createQueryBuilder.mockReturnValue(berkasChain);
     repo.createQueryBuilder.mockReturnValue(chain([]));
@@ -95,17 +116,17 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     expect(berkasChain.andWhere).toHaveBeenCalledWith('b.status = :status', {
       status: expect.any(String),
     });
-    expect(berkasChain.andWhere).not.toHaveBeenCalledWith(
+    expect(berkasChain.andWhere).toHaveBeenCalledWith(
       'b.tanggal_retensi_aktif_berakhir IS NOT NULL',
     );
-    expect(berkasChain.andWhere).not.toHaveBeenCalledWith(
+    expect(berkasChain.andWhere).toHaveBeenCalledWith(
       'b.tanggal_retensi_aktif_berakhir <= :today',
       expect.any(Object),
     );
     expect(repo.manager.query).not.toHaveBeenCalled();
   });
 
-  it('berkas closed_retensi_aktif tanpa tanggal retensi tetap dibuatkan usulan DRAFT otomatis', async () => {
+  it('berkas closed_retensi_aktif tanpa tanggal retensi → TIDAK dibuatkan usulan DRAFT', async () => {
     const berkas = {
       id: 'b1',
       judulBerkas: 'Berkas A',
@@ -115,14 +136,33 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
       picPersnum: '99',
     };
     berkasRepo.createQueryBuilder.mockReturnValue(chain([berkas]));
-    repo.createQueryBuilder
-      .mockReturnValueOnce(chain([]))
-      .mockReturnValueOnce(chain([], null));
+    repo.createQueryBuilder.mockReturnValue(chain([]));
 
     const count = await service.syncDraftUsulanOtomatis();
 
-    expect(count).toBe(1);
-    expect(repo.manager.query).toHaveBeenCalledTimes(1);
+    expect(count).toBe(0);
+    expect(repo.manager.query).not.toHaveBeenCalled();
+  });
+
+  it('berkas closed_retensi_aktif dengan retensi aktif MASIH BERJALAN (masa depan) → TIDAK dibuatkan usulan', async () => {
+    // Regresi: berkas baru disetujui verifikator (retensi aktif baru mulai,
+    // tanggal berakhir masih bertahun-tahun lagi) tidak boleh langsung masuk
+    // ke pemindahan arsip.
+    const berkas = {
+      id: 'b1',
+      judulBerkas: 'Berkas A',
+      kodeBerkas: 'KD-1',
+      tanggalRetensiAktifBerakhir: '2030-01-01',
+      createdBy: 99,
+      picPersnum: '99',
+    };
+    berkasRepo.createQueryBuilder.mockReturnValue(chain([berkas]));
+    repo.createQueryBuilder.mockReturnValue(chain([]));
+
+    const count = await service.syncDraftUsulanOtomatis();
+
+    expect(count).toBe(0);
+    expect(repo.manager.query).not.toHaveBeenCalled();
   });
 
   it('berkas yang sudah punya usulan (arsip_id) → dilewati', async () => {

@@ -308,9 +308,18 @@ export class DelegasiService {
     // Di sini hanya auto-fill data posisi (as_position_text, as_organization, dll)
     if (delegasiData.as_position) {
       try {
-        // Get position data from org_data (position_json has complete data)
-        const today = new Date().toISOString().split('T')[0];
-        const orgData = await this.orgDataService.findOrg(today);
+        // Get position data from org_data (position_json has complete data).
+        // Fallback ke data terbaru jika tidak ada row untuk tanggal hari ini
+        // (org_data hanya di-generate untuk tanggal tertentu) — tanpa fallback,
+        // seluruh field as_* tersimpan null.
+        let orgData: any;
+        try {
+          orgData = await this.orgDataService.findOrg(
+            new Date().toISOString().split('T')[0],
+          );
+        } catch {
+          orgData = await this.orgDataService.findLatestOrg();
+        }
 
         if (orgData && orgData.position_json) {
           const positionJsonData = orgData.position_json as PositionData[];
@@ -918,11 +927,19 @@ export class DelegasiService {
       activeDelegations.length,
     );
 
-    // Lookup bod_tag from org_data position_json
+    // Lookup bod_tag from org_data position_json.
+    // Fallback ke data terbaru jika tidak ada row untuk tanggal hari ini
+    // (org_data hanya di-generate untuk tanggal tertentu).
     let positionJsonData: PositionData[] = [];
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const orgData = await this.orgDataService.findOrg(today);
+      let orgData: any;
+      try {
+        orgData = await this.orgDataService.findOrg(
+          new Date().toISOString().split('T')[0],
+        );
+      } catch {
+        orgData = await this.orgDataService.findLatestOrg();
+      }
       if (orgData && orgData.position_json) {
         positionJsonData = orgData.position_json as PositionData[];
       }
