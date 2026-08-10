@@ -194,6 +194,26 @@ export class TransferActiveToInactiveEntity {
   @Column({ name: 'tu_final_approved_at', type: 'datetime', nullable: true })
   tuFinalApprovedAt: Date | null;
 
+  /** Multi-level TU approval: daftar atasan TU berjenjang. */
+  @Column({ name: 'tu_approval_levels', type: 'json', nullable: true })
+  tuApprovalLevels: Array<{
+    persnum: number;
+    name: string;
+    jabatan: string;
+    urutan: number;
+    status: 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK';
+    verifiedAt: string | null;
+    catatan: string | null;
+  }> | null;
+
+  /** Urutan atasan TU yang sedang giliran (1-based). */
+  @Column({ name: 'current_tu_approval_level', type: 'int', default: 1 })
+  currentTuApprovalLevel: number;
+
+  /** Total level approval TU. */
+  @Column({ name: 'total_tu_approval_levels', type: 'int', default: 1 })
+  totalTuApprovalLevels: number;
+
   // ─── Penerimaan & penataan ────────────────────────────────────────────
   @Column({ name: 'received_at', type: 'datetime', nullable: true })
   receivedAt: Date | null;
