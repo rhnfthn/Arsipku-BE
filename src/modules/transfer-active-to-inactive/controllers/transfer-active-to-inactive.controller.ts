@@ -59,11 +59,18 @@ export class TransferActiveToInactiveController {
   async getGabungan(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('klasifikasi') klasifikasi?: string,
+    @Query('tahun') tahun?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     return {
       success: true,
-      data: await this.service.getGabungan(user, { search, status }),
+      data: await this.service.getGabungan(user, {
+        search,
+        status,
+        klasifikasi,
+        tahun,
+      }),
     };
   }
 
