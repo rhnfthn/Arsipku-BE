@@ -1,5 +1,9 @@
 process.env.TZ = 'Asia/Jakarta';
 
+// Load .env SEBELUM modul dievaluasi — dipakai untuk conditional module
+// registration (mis. MONGODB_ENABLED di AppModule/AuditModule).
+import 'dotenv/config';
+
 // ─── Sentry inisialisasi (SEBELUM NestFactory agar error bootstrap tertangkap) ───
 // initSentry() no-op jika SENTRY_DSN tidak di-set → tidak mengubah behavior lama.
 import { initSentry } from './config/sentry.config';

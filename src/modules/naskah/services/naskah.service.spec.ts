@@ -34,3 +34,35 @@ describe('NaskahService.remove (app-layer cascade)', () => {
     expect(deleteNaskah).toHaveBeenCalledWith('n1');
   });
 });
+describe('NaskahService.create (PK komposit tanggal)', () => {
+  const buildService = (save: jest.Mock) =>
+    new NaskahService(
+      { save } as any, // naskahRepository
+      {} as any, {} as any, {} as any, {} as any, // sirkulasi/lampiran/referensi/di repos
+      {} as any, // storageService
+      { syncNaskah: jest.fn().mockResolvedValue(undefined) } as any, // meilisearchSyncService
+      {} as any, // grupPenerimaService
+      {} as any, // notificationService
+      {} as any, // dataSource
+    );
+
+  it('mengisi tanggal default hari ini saat DTO tidak menyertakan tanggal', async () => {
+    const save = jest.fn(async (n: any) => n);
+    const service = buildService(save);
+
+    const result = await service.create({ jenis: 'ND' } as any);
+
+    expect(result.tanggal).toBeInstanceOf(Date);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('memakai tanggal dari DTO saat disertakan', async () => {
+    const save = jest.fn(async (n: any) => n);
+    const service = buildService(save);
+    const tgl = new Date('2026-01-15');
+
+    const result = await service.create({ jenis: 'ND', tanggal: tgl } as any);
+
+    expect(result.tanggal).toBe(tgl);
+  });
+});

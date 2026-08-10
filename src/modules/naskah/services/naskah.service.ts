@@ -67,6 +67,8 @@ export class NaskahService {
     const naskah = new NaskahEntity();
     naskah.id = uuidv4();
     Object.assign(naskah, createNaskahDto);
+    // tanggal adalah bagian PK komposit (id, tanggal) — wajib terisi.
+    if (!naskah.tanggal) naskah.tanggal = new Date();
 
     const saved = await this.naskahRepository.save(naskah);
 
