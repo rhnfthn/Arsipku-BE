@@ -810,6 +810,52 @@ describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', ()
       expect.any(Object),
     );
   });
+
+  it('user biasa (non-TU): berkas Retensi Inaktif retensi inaktif masih berjalan → tetap tampil', async () => {
+    const chain = listChain([{ id: 'b1', status: 'retensi_inaktif' }]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, false, {});
+
+    expect(res.data).toHaveLength(1);
+    // Pengecualian berbasis tanggal retensi inaktif (hanya yang sudah habis)
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.tanggal_retensi_inaktif_berakhir'),
+      expect.any(Object),
+    );
+  });
+
+  it('user biasa (non-TU): berkas Retensi Inaktif retensi inaktif sudah habis → disembunyikan', async () => {
+    const chain = listChain([]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, false, {});
+
+    expect(res.data).toHaveLength(0);
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.tanggal_retensi_inaktif_berakhir'),
+      expect.any(Object),
+    );
+  });
+
+  it('TU: berkas Retensi Inaktif tetap tampil (semua, termasuk yang retensi inaktifnya habis)', async () => {
+    const chain = listChain([{ id: 'b1', status: 'retensi_inaktif' }]);
+    berkasRepo.createQueryBuilder
+      .mockReturnValueOnce(expiredChain())
+      .mockReturnValueOnce(chain);
+
+    const res = await service.findAllBerkas(99, true, {});
+
+    expect(res.data).toHaveLength(1);
+    expect(chain.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('b.status = :inaktif'),
+      expect.any(Object),
+    );
+  });
 });
 
 describe('ArsipDinamisService - removeNaskahFromBerkas (multi id_sirkuler)', () => {
