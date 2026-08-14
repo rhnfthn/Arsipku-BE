@@ -17,7 +17,11 @@ import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TransferActiveToInactiveEntity, Berkas, TransferApprovalLevelEntity]),
+    TypeOrmModule.forFeature([
+      TransferActiveToInactiveEntity,
+      Berkas,
+      TransferApprovalLevelEntity,
+    ]),
     NotificationModule,
     OrgDataModule,
     StorageModule,
