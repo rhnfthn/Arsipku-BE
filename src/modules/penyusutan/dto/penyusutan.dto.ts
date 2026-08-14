@@ -95,15 +95,4 @@ export class SimpanPenataanDto {
 export class PemusnahanDto {
   @IsString()
   beritaAcara: string;
-
-  @IsOptional()
-  @IsString()
-  catatan?: string;
-}
-
-/** DTO untuk backup data arsip (jenis musnah). */
-export class BackupDataDto {
-  @IsOptional()
-  @IsString()
-  catatan?: string;
 }

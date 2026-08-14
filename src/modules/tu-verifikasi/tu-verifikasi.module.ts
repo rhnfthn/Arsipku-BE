@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TransferActiveToInactiveEntity } from '../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
-import { TransferApprovalLevelEntity } from '../transfer-active-to-inactive/entities/approval-level.entity';
 import { Berkas } from '../berkas/entities/berkas.entity';
 import { TuVerifikasiController } from './controllers/tu-verifikasi.controller';
 import {
@@ -17,11 +16,7 @@ import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      TransferActiveToInactiveEntity,
-      Berkas,
-      TransferApprovalLevelEntity,
-    ]),
+    TypeOrmModule.forFeature([TransferActiveToInactiveEntity, Berkas]),
     NotificationModule,
     OrgDataModule,
     StorageModule,
