@@ -14,7 +14,6 @@ import {
   VerifyPenyusutanDto,
   SimpanPenataanDto,
   PemusnahanDto,
-  BackupDataDto,
 } from '../dto/penyusutan.dto';
 import { AuditTrailService } from '../../audit/services/audit-trail.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
@@ -23,7 +22,6 @@ import { AuditStatus } from '../../audit/enums/audit-status.enum';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { StorageService } from '../../storage/services/storage.service';
-import { ArsipService } from '../../arsip/services/arsip.service';
 
 const LEVEL_MENUNGGU = 'MENUNGGU';
 const LEVEL_DISETUJUI = 'DISETUJUI';
@@ -46,7 +44,6 @@ export class PenyusutanService {
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
     private readonly storageService: StorageService,
-    private readonly arsipService: ArsipService,
   ) {}
 
   // ─── AJUKAN (CREATE) ──────────────────────────────────────────────
@@ -285,11 +282,6 @@ export class PenyusutanService {
     user: any,
   ): Promise<PenyusutanEntity> {
     const item = await this.getItem(id);
-    if (item.tuPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Anda tidak memiliki akses untuk melakukan penataan arsip ini',
-      );
-    }
     if (item.status !== PenyusutanStatus.DITERIMA) {
       throw new BadRequestException(
         'Penataan hanya bisa dilakukan untuk penyusutan yang sudah diterima',
@@ -304,48 +296,8 @@ export class PenyusutanService {
     item.lokasiSimpan = dto.lokasiSimpan;
     item.beritaAcara = dto.beritaAcara;
     item.fotoDokumentasi = dto.fotoDokumentasi || null;
-
-    // Arsipkan ke database arsipku_arsip_local (Permanen) SEBELUM set SELESAI.
-    // Jika berkas sudah diarsipkan (mis. oleh penyusutan musnah lain untuk
-    // berkas yang sama), lewati insert — tidak perlu duplikat snapshot.
-    const alreadyArchived = await this.arsipService.isBerkasArchived(
-      item.berkasId,
-    );
-    if (!alreadyArchived) {
-      await this.arsipService.arsipkanBerkas(item.berkasId, {
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        jenisPenyusutan: 'permanen',
-        statusSebelumnya: old,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: dto.beritaAcara,
-        fotoDokumentasiUrl: dto.fotoDokumentasi,
-        catatan: dto.lokasiSimpan,
-      });
-    } else {
-      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
-      await this.arsipService.logPenyusutanArchived({
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        sourceBerkasId: item.berkasId,
-        jenisPenyusutan: 'permanen',
-        statusSebelumnya: old,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: dto.beritaAcara,
-        fotoDokumentasiUrl: dto.fotoDokumentasi,
-        catatan: dto.lokasiSimpan,
-      });
-    }
-
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
-
     this.logAudit(
       user,
       saved,
@@ -362,11 +314,6 @@ export class PenyusutanService {
     user: any,
   ): Promise<PenyusutanEntity> {
     const item = await this.getItem(id);
-    if (item.tuPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Anda tidak memiliki akses untuk melakukan pemusnahan arsip ini',
-      );
-    }
     if (item.status !== PenyusutanStatus.DITERIMA) {
       throw new BadRequestException(
         'Pemusnahan hanya bisa dilakukan untuk penyusutan yang sudah diterima',
@@ -379,56 +326,8 @@ export class PenyusutanService {
     }
     const old = item.status;
     item.beritaAcara = dto.beritaAcara;
-
-    // Arsipkan ke database arsipku_arsip_local (Musnah) SEBELUM set SELESAI.
-    // Jika berkas sudah diarsipkan (mis. oleh penyusutan lain untuk berkas
-    // yang sama), lewati insert — tidak perlu duplikat snapshot.
-    const alreadyArchived = await this.arsipService.isBerkasArchived(
-      item.berkasId,
-    );
-    if (!alreadyArchived) {
-      await this.arsipService.arsipkanBerkas(item.berkasId, {
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        jenisPenyusutan: 'musnah',
-        statusSebelumnya: old,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: dto.beritaAcara,
-        catatan: dto.catatan,
-      });
-    } else {
-      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
-      await this.arsipService.logPenyusutanArchived({
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        sourceBerkasId: item.berkasId,
-        jenisPenyusutan: 'musnah',
-        statusSebelumnya: old,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: dto.beritaAcara,
-        catatan: dto.catatan,
-      });
-    }
-
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
-
-    // Soft-delete master berkas dari DB inti — arsip musnah tidak bisa
-    // dilihat lagi, hanya berita acara yang tersisa.
-    try {
-      await this.arsipService.softDeleteBerkas(item.berkasId);
-    } catch (e: any) {
-      this.logger.warn(
-        `Pemusnahan sukses tapi gagal hapus berkas inti: ${e?.message}`,
-      );
-    }
-
     this.logAudit(
       user,
       saved,
@@ -439,141 +338,6 @@ export class PenyusutanService {
     return saved;
   }
 
-  /**
-   * Backup data arsip musnah ke database arsipku_arsip_local, lalu
-   * hapus master berkas dari database inti (soft delete).
-   *
-   * Urutan WAJIB: insert ke DB arsip dulu (transaction), baru hapus dari DB inti.
-   * Jika insert gagal → rollback, berkas inti TIDAK dihapus, error dilempar.
-   */
-  async backupData(
-    id: string,
-    dto: BackupDataDto,
-    user: any,
-  ): Promise<{
-    penyusutanId: string;
-    sourceBerkasId: string;
-    arsipBerkasId: number;
-    isMusnah: boolean;
-    deletedAt: Date | null;
-  }> {
-    const item = await this.getItem(id);
-
-    // ── Validasi ───────────────────────────────────────────────────
-    if (item.tuPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Anda tidak memiliki akses untuk melakukan backup data arsip ini',
-      );
-    }
-    // Status boleh DITERIMA (belum diproses) atau SELESAI (pemusnahan sudah
-    // dijalankan tapi backup gagal/terlewat). arsipkanBerkas mencegah duplikat.
-    if (
-      item.status !== PenyusutanStatus.DITERIMA &&
-      item.status !== PenyusutanStatus.SELESAI
-    ) {
-      throw new BadRequestException(
-        'Backup data hanya bisa dilakukan untuk penyusutan yang sudah diterima',
-      );
-    }
-    if (
-      item.jenisPenyusutan !== 'musnah' &&
-      item.jenisPenyusutan !== 'permanen'
-    ) {
-      throw new BadRequestException(
-        'Backup data hanya untuk jenis penyusutan Musnah atau Permanen',
-      );
-    }
-    if (!item.beritaAcara) {
-      throw new BadRequestException(
-        'Berita acara harus diupload sebelum backup data',
-      );
-    }
-
-    // ── 1. Insert ke DB arsip (transaction) ─────────────────────────
-    // Jika berkas sudah diarsipkan (mis. oleh pemusnahan), lewati insert.
-    let arsipBerkasId: number;
-    const alreadyArchived = await this.arsipService.isBerkasArchived(
-      item.berkasId,
-    );
-    if (alreadyArchived) {
-      arsipBerkasId = 0;
-      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
-      await this.arsipService.logPenyusutanArchived({
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        sourceBerkasId: item.berkasId,
-        jenisPenyusutan: item.jenisPenyusutan,
-        statusSebelumnya: item.status,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: item.beritaAcara,
-        fotoDokumentasiUrl: item.fotoDokumentasi ?? undefined,
-        catatan: dto.catatan ?? undefined,
-      });
-    } else {
-      try {
-        const arsipBerkas = await this.arsipService.arsipkanBerkas(
-          item.berkasId,
-          {
-            user: {
-              persnum: Number(user.persnum),
-              nama: user.nama ?? String(user.persnum),
-            },
-            penyusutanId: item.id,
-            jenisPenyusutan: item.jenisPenyusutan,
-            statusSebelumnya: item.status,
-            statusBaru: PenyusutanStatus.SELESAI,
-            beritaAcaraUrl: item.beritaAcara,
-            fotoDokumentasiUrl: item.fotoDokumentasi ?? undefined,
-            catatan: dto.catatan ?? undefined,
-          },
-        );
-        arsipBerkasId = arsipBerkas.id;
-      } catch (e: any) {
-        // Insert gagal → rollback otomatis oleh transaction, berkas inti TIDAK dihapus
-        this.logger.error(`Backup data gagal: ${e?.message}`);
-        throw new BadRequestException(`Backup gagal: ${e?.message}`);
-      }
-    }
-
-    // ── 2. Update status penyusutan → SELESAI ──────────────────────
-    const old = item.status;
-    item.status = PenyusutanStatus.SELESAI;
-    const saved = await this.repo.save(item);
-
-    // ── 3. Hapus master berkas dari DB inti (soft delete) ───────────
-    // Hanya untuk musnah — permanen tetap bisa dilihat di DB inti.
-    let deletedAt: Date | null = null;
-    if (item.jenisPenyusutan === 'musnah') {
-      try {
-        await this.arsipService.softDeleteBerkas(item.berkasId);
-        deletedAt = new Date();
-      } catch (e: any) {
-        this.logger.warn(
-          `Backup sukses tapi gagal hapus berkas inti: ${e?.message}`,
-        );
-      }
-    }
-
-    this.logAudit(
-      user,
-      saved,
-      old,
-      saved.status,
-      `Backup data arsip ${item.jenisPenyusutan} — berkas ${item.berkasId} dipindahkan ke DB arsip`,
-    );
-
-    return {
-      penyusutanId: saved.id,
-      sourceBerkasId: item.berkasId,
-      arsipBerkasId,
-      isMusnah: item.jenisPenyusutan === 'musnah',
-      deletedAt,
-    };
-  }
-
   /** Update foto dokumentasi (untuk edit setelah penataan selesai). */
   async updateFotoDokumentasi(
     id: string,
@@ -581,11 +345,6 @@ export class PenyusutanService {
     user: any,
   ): Promise<PenyusutanEntity> {
     const item = await this.getItem(id);
-    if (item.tuPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Anda tidak memiliki akses untuk memperbarui foto dokumentasi arsip ini',
-      );
-    }
     item.fotoDokumentasi = fotoUrl || null;
     const saved = await this.repo.save(item);
     this.logAudit(
@@ -605,11 +364,6 @@ export class PenyusutanService {
     user: any,
   ): Promise<PenyusutanEntity> {
     const item = await this.getItem(id);
-    if (item.tuPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Anda tidak memiliki akses untuk memperbarui berita acara arsip ini',
-      );
-    }
     item.beritaAcara = beritaAcaraUrl || null;
     const saved = await this.repo.save(item);
     this.logAudit(
@@ -689,12 +443,6 @@ export class PenyusutanService {
     });
     if (levels.length === 0) return [];
 
-    // Map penyusutanId -> urutan level user (untuk cek giliran)
-    const userLevelByPenyusutan = new Map<string, number>();
-    for (const l of levels) {
-      userLevelByPenyusutan.set(l.penyusutanId, l.urutan);
-    }
-
     const penyusutanIds = levels.map((l) => l.penyusutanId);
     const qb = this.repo
       .createQueryBuilder('p')
@@ -711,21 +459,7 @@ export class PenyusutanService {
     }
     qb.orderBy('p.created_at', 'DESC');
     const items = await qb.getMany();
-
-    // Hanya tampilkan item yang sedang giliran user (urutan user = currentVerifikatorUrutan),
-    // ATAU item yang sudah disetujui/ditolak/selesai (untuk riwayat).
-    const visibleItems = items.filter((item) => {
-      const userUrutan = userLevelByPenyusutan.get(item.id);
-      if (userUrutan === undefined) return false;
-      // Status DIAJUKAN: tampil jika user sudah/giliran (urutan user <= currentVerifikatorUrutan)
-      if (item.status === PenyusutanStatus.DIAJUKAN) {
-        return item.currentVerifikatorUrutan >= userUrutan;
-      }
-      // Status lain (DITERIMA/DITOLAK/SELESAI): tampil untuk semua verifikator
-      return true;
-    });
-
-    const result = await this.attachVerifikators(visibleItems);
+    const result = await this.attachVerifikators(items);
     return result;
   }
 
@@ -760,16 +494,7 @@ export class PenyusutanService {
       where: { penyusutanId: id },
       order: { urutan: 'ASC' },
     });
-    // Cek apakah penyusutan ini sudah dibackup ke DB arsip (berdasarkan log
-    // per penyusutan, bukan per berkas — berkas bisa diarsipkan oleh
-    // penyusutan lain untuk berkas yang sama).
-    let isBackedUp = false;
-    try {
-      isBackedUp = await this.arsipService.isPenyusutanArchived(item.id);
-    } catch {
-      isBackedUp = false;
-    }
-    return { ...item, verifikators: levels, isBackedUp };
+    return { ...item, verifikators: levels };
   }
 
   /** Ambil daftar verifikator untuk penyusutan. */

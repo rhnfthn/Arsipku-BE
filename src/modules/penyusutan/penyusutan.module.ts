@@ -5,13 +5,11 @@ import { PenyusutanVerifikatorEntity } from './entities/penyusutan-verifikator.e
 import { PenyusutanService } from './services/penyusutan.service';
 import { PenyusutanController } from './controllers/penyusutan.controller';
 import { AuditModule } from '../audit/audit.module';
-import { ArsipModule } from '../arsip/arsip.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PenyusutanEntity, PenyusutanVerifikatorEntity]),
     AuditModule,
-    ArsipModule,
   ],
   controllers: [PenyusutanController],
   providers: [PenyusutanService],

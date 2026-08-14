@@ -15,7 +15,6 @@ import {
   VerifyPenyusutanDto,
   SimpanPenataanDto,
   PemusnahanDto,
-  BackupDataDto,
 } from '../dto/penyusutan.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { CurrentUser, Roles, Public } from '../../../common/decorators';
@@ -169,21 +168,6 @@ export class PenyusutanController {
     return {
       success: true,
       data: await this.service.pemusnahan(id, dto, user),
-    };
-  }
-
-  /** Backup data arsip musnah ke DB arsip + hapus master berkas dari DB inti. */
-  @Post(':id/backup-data')
-  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
-  async backupData(
-    @Param('id') id: string,
-    @Body() dto: BackupDataDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return {
-      status: 'success',
-      message: 'Data berhasil dibackup dan berkas telah dimusnahkan',
-      data: await this.service.backupData(id, dto, user),
     };
   }
 
