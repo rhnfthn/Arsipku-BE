@@ -475,7 +475,10 @@ export class PenyusutanService {
         'Backup data hanya bisa dilakukan untuk penyusutan yang sudah diterima',
       );
     }
-    if (item.jenisPenyusutan !== 'musnah' && item.jenisPenyusutan !== 'permanen') {
+    if (
+      item.jenisPenyusutan !== 'musnah' &&
+      item.jenisPenyusutan !== 'permanen'
+    ) {
       throw new BadRequestException(
         'Backup data hanya untuk jenis penyusutan Musnah atau Permanen',
       );
