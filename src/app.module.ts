@@ -85,7 +85,6 @@ import { TransferInactiveFileModule } from './modules/transfer-inactive-file/tra
 import { TransferActiveToInactiveModule } from './modules/transfer-active-to-inactive/transfer-active-to-inactive.module';
 import { OrganizationTuModule } from './modules/organization-tu/organization-tu.module';
 import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module';
-import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
 
 @Module({
   imports: [
@@ -230,7 +229,6 @@ import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
     TransferActiveToInactiveModule,
     OrganizationTuModule,
     TuVerifikasiModule,
-    PenyusutanModule,
   ],
   controllers: [AppController],
   providers: [
