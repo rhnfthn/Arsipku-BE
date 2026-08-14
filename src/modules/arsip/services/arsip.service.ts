@@ -20,6 +20,7 @@ export interface ArsipkanBerkasInput {
     nama: string;
   };
   penyusutanId: string;
+  sourceBerkasId?: string;
   jenisPenyusutan: 'musnah' | 'permanen';
   statusSebelumnya: string;
   statusBaru: string;
@@ -284,6 +285,49 @@ export class ArsipService {
   }
 
   /**
+   * Cek apakah sebuah penyusutan sudah dibackup ke DB arsip (berdasarkan
+   * log per penyusutan, bukan per berkas). Berkas bisa diarsipkan oleh
+   * penyusutan lain untuk berkas yang sama.
+   */
+  async isPenyusutanArchived(penyusutanId: string): Promise<boolean> {
+    const logRepo = this.archiveDataSource.getRepository(
+      ArsipPenyusutanLogEntity,
+    );
+    const existing = await logRepo.findOne({
+      where: { source_penyusutan_id: penyusutanId },
+    });
+    return !!existing;
+  }
+
+  /**
+   * Catat log backup penyusutan tanpa insert ulang berkas (untuk kasus
+   * berkas sudah diarsipkan oleh penyusutan lain). Dipakai oleh backupData
+   * dan simpanPenataan/pemusnahan saat alreadyArchived.
+   */
+  async logPenyusutanArchived(input: ArsipkanBerkasInput): Promise<void> {
+    const archivedYear = this.getArchivedYear();
+    const tanggalMasuk = this.getCurrentDateStr();
+    const logRepo = this.archiveDataSource.getRepository(
+      ArsipPenyusutanLogEntity,
+    );
+    await logRepo.save(
+      logRepo.create({
+        archived_year: archivedYear,
+        source_penyusutan_id: input.penyusutanId,
+        source_berkas_id: input.sourceBerkasId,
+        jenis_penyusutan: input.jenisPenyusutan,
+        status_sebelumnya: input.statusSebelumnya,
+        status_baru: input.statusBaru,
+        diproses_oleh_persnum: input.user.persnum,
+        diproses_oleh_name: input.user.nama,
+        catatan: input.catatan ?? null,
+        berita_acara_url: input.beritaAcaraUrl ?? null,
+        foto_dokumentasi: input.fotoDokumentasiUrl ?? null,
+      }),
+    );
+  }
+
+  /**
    * Ambil detail berkas + naskah dari DB arsip (fallback saat berkas sudah
    * soft-deleted di DB inti, mis. jenis musnah). Dipakai preview-berkas.
    */
@@ -371,7 +415,7 @@ export class ArsipService {
         judulBerkas: berkas?.judul_berkas ?? '-',
         klasifikasi: berkas?.klasifikasi ?? null,
         klasifikasiText: berkas?.klasifikasi_text ?? null,
-        isMusnah: berkas?.is_musnah ?? false,
+        isMusnah: log.jenis_penyusutan === 'musnah',
         diprosesOlehName: log.diproses_oleh_name,
         catatan: log.catatan,
         beritaAcaraUrl: log.berita_acara_url,

@@ -306,20 +306,42 @@ export class PenyusutanService {
     item.fotoDokumentasi = dto.fotoDokumentasi || null;
 
     // Arsipkan ke database arsipku_arsip_local (Permanen) SEBELUM set SELESAI.
-    // Jika gagal → lempar error, status tetap DITERIMA (tidak jadi SELESAI).
-    await this.arsipService.arsipkanBerkas(item.berkasId, {
-      user: {
-        persnum: Number(user.persnum),
-        nama: user.nama ?? String(user.persnum),
-      },
-      penyusutanId: item.id,
-      jenisPenyusutan: 'permanen',
-      statusSebelumnya: old,
-      statusBaru: PenyusutanStatus.SELESAI,
-      beritaAcaraUrl: dto.beritaAcara,
-      fotoDokumentasiUrl: dto.fotoDokumentasi,
-      catatan: dto.lokasiSimpan,
-    });
+    // Jika berkas sudah diarsipkan (mis. oleh penyusutan musnah lain untuk
+    // berkas yang sama), lewati insert — tidak perlu duplikat snapshot.
+    const alreadyArchived = await this.arsipService.isBerkasArchived(
+      item.berkasId,
+    );
+    if (!alreadyArchived) {
+      await this.arsipService.arsipkanBerkas(item.berkasId, {
+        user: {
+          persnum: Number(user.persnum),
+          nama: user.nama ?? String(user.persnum),
+        },
+        penyusutanId: item.id,
+        jenisPenyusutan: 'permanen',
+        statusSebelumnya: old,
+        statusBaru: PenyusutanStatus.SELESAI,
+        beritaAcaraUrl: dto.beritaAcara,
+        fotoDokumentasiUrl: dto.fotoDokumentasi,
+        catatan: dto.lokasiSimpan,
+      });
+    } else {
+      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
+      await this.arsipService.logPenyusutanArchived({
+        user: {
+          persnum: Number(user.persnum),
+          nama: user.nama ?? String(user.persnum),
+        },
+        penyusutanId: item.id,
+        sourceBerkasId: item.berkasId,
+        jenisPenyusutan: 'permanen',
+        statusSebelumnya: old,
+        statusBaru: PenyusutanStatus.SELESAI,
+        beritaAcaraUrl: dto.beritaAcara,
+        fotoDokumentasiUrl: dto.fotoDokumentasi,
+        catatan: dto.lokasiSimpan,
+      });
+    }
 
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
@@ -359,22 +381,53 @@ export class PenyusutanService {
     item.beritaAcara = dto.beritaAcara;
 
     // Arsipkan ke database arsipku_arsip_local (Musnah) SEBELUM set SELESAI.
-    // Jika gagal → lempar error, status tetap DITERIMA (tidak jadi SELESAI).
-    await this.arsipService.arsipkanBerkas(item.berkasId, {
-      user: {
-        persnum: Number(user.persnum),
-        nama: user.nama ?? String(user.persnum),
-      },
-      penyusutanId: item.id,
-      jenisPenyusutan: 'musnah',
-      statusSebelumnya: old,
-      statusBaru: PenyusutanStatus.SELESAI,
-      beritaAcaraUrl: dto.beritaAcara,
-      catatan: dto.catatan,
-    });
+    // Jika berkas sudah diarsipkan (mis. oleh penyusutan lain untuk berkas
+    // yang sama), lewati insert — tidak perlu duplikat snapshot.
+    const alreadyArchived = await this.arsipService.isBerkasArchived(
+      item.berkasId,
+    );
+    if (!alreadyArchived) {
+      await this.arsipService.arsipkanBerkas(item.berkasId, {
+        user: {
+          persnum: Number(user.persnum),
+          nama: user.nama ?? String(user.persnum),
+        },
+        penyusutanId: item.id,
+        jenisPenyusutan: 'musnah',
+        statusSebelumnya: old,
+        statusBaru: PenyusutanStatus.SELESAI,
+        beritaAcaraUrl: dto.beritaAcara,
+        catatan: dto.catatan,
+      });
+    } else {
+      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
+      await this.arsipService.logPenyusutanArchived({
+        user: {
+          persnum: Number(user.persnum),
+          nama: user.nama ?? String(user.persnum),
+        },
+        penyusutanId: item.id,
+        sourceBerkasId: item.berkasId,
+        jenisPenyusutan: 'musnah',
+        statusSebelumnya: old,
+        statusBaru: PenyusutanStatus.SELESAI,
+        beritaAcaraUrl: dto.beritaAcara,
+        catatan: dto.catatan,
+      });
+    }
 
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
+
+    // Soft-delete master berkas dari DB inti — arsip musnah tidak bisa
+    // dilihat lagi, hanya berita acara yang tersisa.
+    try {
+      await this.arsipService.softDeleteBerkas(item.berkasId);
+    } catch (e: any) {
+      this.logger.warn(
+        `Pemusnahan sukses tapi gagal hapus berkas inti: ${e?.message}`,
+      );
+    }
 
     this.logAudit(
       user,
@@ -422,9 +475,9 @@ export class PenyusutanService {
         'Backup data hanya bisa dilakukan untuk penyusutan yang sudah diterima',
       );
     }
-    if (item.jenisPenyusutan !== 'musnah') {
+    if (item.jenisPenyusutan !== 'musnah' && item.jenisPenyusutan !== 'permanen') {
       throw new BadRequestException(
-        'Backup data hanya untuk jenis penyusutan Musnah',
+        'Backup data hanya untuk jenis penyusutan Musnah atau Permanen',
       );
     }
     if (!item.beritaAcara) {
@@ -441,6 +494,21 @@ export class PenyusutanService {
     );
     if (alreadyArchived) {
       arsipBerkasId = 0;
+      // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
+      await this.arsipService.logPenyusutanArchived({
+        user: {
+          persnum: Number(user.persnum),
+          nama: user.nama ?? String(user.persnum),
+        },
+        penyusutanId: item.id,
+        sourceBerkasId: item.berkasId,
+        jenisPenyusutan: item.jenisPenyusutan,
+        statusSebelumnya: item.status,
+        statusBaru: PenyusutanStatus.SELESAI,
+        beritaAcaraUrl: item.beritaAcara,
+        fotoDokumentasiUrl: item.fotoDokumentasi ?? undefined,
+        catatan: dto.catatan ?? undefined,
+      });
     } else {
       try {
         const arsipBerkas = await this.arsipService.arsipkanBerkas(
@@ -451,7 +519,7 @@ export class PenyusutanService {
               nama: user.nama ?? String(user.persnum),
             },
             penyusutanId: item.id,
-            jenisPenyusutan: 'musnah',
+            jenisPenyusutan: item.jenisPenyusutan,
             statusSebelumnya: item.status,
             statusBaru: PenyusutanStatus.SELESAI,
             beritaAcaraUrl: item.beritaAcara,
@@ -473,14 +541,17 @@ export class PenyusutanService {
     const saved = await this.repo.save(item);
 
     // ── 3. Hapus master berkas dari DB inti (soft delete) ───────────
+    // Hanya untuk musnah — permanen tetap bisa dilihat di DB inti.
     let deletedAt: Date | null = null;
-    try {
-      await this.arsipService.softDeleteBerkas(item.berkasId);
-      deletedAt = new Date();
-    } catch (e: any) {
-      this.logger.warn(
-        `Backup sukses tapi gagal hapus berkas inti: ${e?.message}`,
-      );
+    if (item.jenisPenyusutan === 'musnah') {
+      try {
+        await this.arsipService.softDeleteBerkas(item.berkasId);
+        deletedAt = new Date();
+      } catch (e: any) {
+        this.logger.warn(
+          `Backup sukses tapi gagal hapus berkas inti: ${e?.message}`,
+        );
+      }
     }
 
     this.logAudit(
@@ -488,14 +559,14 @@ export class PenyusutanService {
       saved,
       old,
       saved.status,
-      `Backup data arsip musnah — berkas ${item.berkasId} dipindahkan ke DB arsip`,
+      `Backup data arsip ${item.jenisPenyusutan} — berkas ${item.berkasId} dipindahkan ke DB arsip`,
     );
 
     return {
       penyusutanId: saved.id,
       sourceBerkasId: item.berkasId,
       arsipBerkasId,
-      isMusnah: true,
+      isMusnah: item.jenisPenyusutan === 'musnah',
       deletedAt,
     };
   }
@@ -686,10 +757,12 @@ export class PenyusutanService {
       where: { penyusutanId: id },
       order: { urutan: 'ASC' },
     });
-    // Cek apakah berkas sudah dibackup ke DB arsip (untuk sembunyikan tombol backup)
+    // Cek apakah penyusutan ini sudah dibackup ke DB arsip (berdasarkan log
+    // per penyusutan, bukan per berkas — berkas bisa diarsipkan oleh
+    // penyusutan lain untuk berkas yang sama).
     let isBackedUp = false;
     try {
-      isBackedUp = await this.arsipService.isBerkasArchived(item.berkasId);
+      isBackedUp = await this.arsipService.isPenyusutanArchived(item.id);
     } catch {
       isBackedUp = false;
     }
