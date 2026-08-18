@@ -8,7 +8,7 @@ import {
 /**
  * Entity snapshot lampiran naskah di database arsipku_arsip_local.
  */
-@Entity('arsip_naskah_lampiran', { database: 'arsipku_arsip_local' })
+@Entity('arsip_naskah_lampiran')
 export class ArsipNaskahLampiranEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;

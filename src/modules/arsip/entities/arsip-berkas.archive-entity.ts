@@ -9,7 +9,7 @@ import {
 /**
  * Entity master snapshot berkas inaktif di database arsipku_arsip_local.
  */
-@Entity('arsip_berkas', { database: 'arsipku_arsip_local' })
+@Entity('arsip_berkas')
 export class ArsipBerkasEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;
