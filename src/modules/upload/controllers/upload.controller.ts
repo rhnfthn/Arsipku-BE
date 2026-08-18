@@ -29,6 +29,7 @@ export class UploadController {
    * Body: form-data with key 'file'
    */
   @Post('file')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -57,6 +58,7 @@ export class UploadController {
    * Body: form-data with key 'file'
    */
   @Post('file/:folder')
+  @RequirePermission('naskah-dinas', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -116,6 +118,7 @@ export class UploadController {
    * GET /upload/url/:key
    */
   @Get('url/*key')
+  @RequirePermission('naskah-dinas', 'read')
   async getFileUrl(
     @Param('key') key: string,
   ): Promise<{ success: boolean; url: string }> {

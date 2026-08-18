@@ -143,10 +143,6 @@ export class StorageService implements OnModuleInit {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         ['.docx'],
       'application/msword': ['.doc'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-      'image/gif': ['.gif'],
-      'image/webp': ['.webp'],
     };
 
     const ext = path.extname(file.originalname).toLowerCase();
