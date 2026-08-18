@@ -652,7 +652,7 @@ export class TransferActiveToInactiveService {
         tanggalRetensiAktifHabis: b.tanggalRetensiAktifBerakhir,
         atasanName: null,
         status: 'DRAFT',
-        tanggal: b.tanggalRetensiAktifBerakhir,
+        tanggal: b.createdAt,
         lokasiFisik: b.lokasi,
       });
     }
@@ -702,16 +702,12 @@ export class TransferActiveToInactiveService {
       });
     }
 
-    // Sort: usulan (by updatedAt DESC) dulu, lalu arsip belum usulan (by retensi ASC)
+    // Sort: paling baru di atas (by date DESC) untuk semua baris.
+    // Usulan memakai updatedAt (perubahan terakhir), arsip belum usulan memakai tanggal retensi.
     rows.sort((a, b) => {
-      if (a.isUsulan && !b.isUsulan) return -1;
-      if (!a.isUsulan && b.isUsulan) return 1;
-      if (a.isUsulan) {
-        const aTime = new Date((a as any).updatedAt ?? a.tanggal).getTime();
-        const bTime = new Date((b as any).updatedAt ?? b.tanggal).getTime();
-        return bTime - aTime;
-      }
-      return new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
+      const aTime = new Date((a as any).updatedAt ?? a.tanggal).getTime();
+      const bTime = new Date((b as any).updatedAt ?? b.tanggal).getTime();
+      return bTime - aTime;
     });
 
     return rows;
@@ -1029,7 +1025,40 @@ export class TransferActiveToInactiveService {
       );
       return saved;
     } else {
-      // Atasan terakhir → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
+      // Atasan terakhir.
+      // Single-atasan (totalApprovalLevels <= 1): skip MENUNGGU_VERIFIKASI_TERAKHIR
+      // — langsung DISETUJUI_VERIFIKASI_TERAKHIR supaya tombol "Pindah Usulan"
+      // (kirim ke TU) muncul tanpa langkah approve ganda yang membingungkan.
+      // Multi-atasan: tetap perlu verifikasi terakhir oleh atasan level 1.
+      const isSingleAtasan = (item.totalApprovalLevels ?? 1) <= 1;
+      if (isSingleAtasan) {
+        item.status =
+          TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
+        item.currentApprovalLevel = 1;
+        item.approvedBy = Number(user.persnum);
+        item.approvedAt = new Date();
+        item.verifyNote = dto.verifyNote ?? null;
+        item.finalVerifyNote = dto.verifyNote ?? null;
+        item.finalVerifiedBy = Number(user.persnum);
+        item.finalVerifiedAt = new Date();
+        const saved = await this.repo.save(item);
+        this.logAudit(
+          user,
+          saved,
+          old,
+          saved.status,
+          `Persetujuan (single-atasan) oleh ${currentLevel.atasanName} — siap kirim ke TU`,
+        );
+        await this.notify(
+          saved,
+          null,
+          saved.sekretarisPersnum,
+          'Usulan disetujui atasan — siap dikirim ke Unit Tata Naskah',
+        );
+        return saved;
+      }
+
+      // Multi-atasan → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
       // Atasan perlu verifikasi terakhir (dengan Daftar Isi + BA) sebelum kirim ke TU
       item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
       // Reset currentApprovalLevel ke 1 — verifikasi final dilakukan oleh atasan level 1
