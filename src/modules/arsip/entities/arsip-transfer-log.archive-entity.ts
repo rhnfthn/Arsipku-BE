@@ -8,7 +8,7 @@ import {
 /**
  * Entity log transfer arsip di database arsipku_arsip_local.
  */
-@Entity('arsip_transfer_log', { database: 'arsipku_arsip_local' })
+@Entity('arsip_transfer_log')
 export class ArsipTransferLogEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;
