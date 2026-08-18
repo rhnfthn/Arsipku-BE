@@ -87,6 +87,8 @@ import { TransferInactiveFileModule } from './modules/transfer-inactive-file/tra
 import { TransferActiveToInactiveModule } from './modules/transfer-active-to-inactive/transfer-active-to-inactive.module';
 import { OrganizationTuModule } from './modules/organization-tu/organization-tu.module';
 import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module';
+import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
+import { ArsipModule } from './modules/arsip/arsip.module';
 
 @Module({
   imports: [
@@ -142,6 +144,25 @@ import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module
         migrationsRun: true,
         synchronize: false,
         timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
+      }),
+    }),
+    // ─── Archive DB (MySQL: arsipku_arsip_local) ──────────────────────────
+    // Koneksi kedua untuk backup arsip inaktif/musnah/permanen.
+    // Entity-nya pakai pattern *.archive-entity.ts agar tidak ikut ke DB utama.
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      name: 'archiveConnection',
+      useFactory: (config: ConfigService) => ({
+        type: 'mysql',
+        host: config.get('ARCHIVE_DB_HOST') ?? config.get('DB_HOST'),
+        port: config.get<number>('ARCHIVE_DB_PORT') ?? config.get<number>('DB_PORT'),
+        username: config.get('ARCHIVE_DB_USER') ?? config.get('DB_USER'),
+        password: config.get('ARCHIVE_DB_PASS') ?? config.get('DB_PASS'),
+        database: config.get('ARCHIVE_DB_NAME') ?? 'arsipku_arsip_local',
+        entities: [__dirname + '/**/*.archive-entity{.ts,.js}'],
+        synchronize: false,
+        timezone: '+07:00',
       }),
     }),
     // ─── Audit Trail DB (MongoDB: arsipku_audit) ────────────────────────────
@@ -233,6 +254,8 @@ import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module
     TransferActiveToInactiveModule,
     OrganizationTuModule,
     TuVerifikasiModule,
+    PenyusutanModule,
+    ArsipModule,
   ],
   controllers: [AppController],
   providers: [

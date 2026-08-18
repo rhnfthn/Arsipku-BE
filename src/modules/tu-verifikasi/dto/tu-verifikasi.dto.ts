@@ -27,6 +27,11 @@ export class TuFilterDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by kode klasifikasi berkas' })
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -57,7 +62,10 @@ export class AjukanAtasanTuDto {
   @IsString()
   atasanTuPersnum?: string;
 
-  @ApiProperty({ description: 'Daftar atasan TU berjenjang (multi-level)', type: [AtasanTuItemDto] })
+  @ApiProperty({
+    description: 'Daftar atasan TU berjenjang (multi-level)',
+    type: [AtasanTuItemDto],
+  })
   @IsOptional()
   atasanTuList?: AtasanTuItemDto[];
 }

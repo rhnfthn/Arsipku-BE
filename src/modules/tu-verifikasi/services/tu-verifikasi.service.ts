@@ -7,7 +7,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
+import { TransferApprovalLevelEntity } from '../../transfer-active-to-inactive/entities/approval-level.entity';
 import { TransferActiveToInactiveStatus } from '../../transfer-active-to-inactive/enums/transfer-status.enum';
+import { Berkas } from '../../berkas/entities/berkas.entity';
 import {
   TuFilterDto,
   VerifikasiBerkasDto,
@@ -31,6 +33,10 @@ export class TuVerifikasiService {
   constructor(
     @InjectRepository(TransferActiveToInactiveEntity)
     private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
+    @InjectRepository(Berkas)
+    private readonly berkasRepo: Repository<Berkas>,
+    @InjectRepository(TransferApprovalLevelEntity)
+    private readonly levelRepo: Repository<TransferApprovalLevelEntity>,
     private readonly notificationService: NotificationService,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
@@ -74,21 +80,63 @@ export class TuVerifikasiService {
 
     if (filter.search) {
       qb.andWhere(
-        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.sekretaris_name LIKE :search OR t.atasan_name LIKE :search)',
+        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.arsip_kode LIKE :search OR t.sekretaris_name LIKE :search OR t.atasan_name LIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
     qb.orderBy('t.tgl_dikirim', 'DESC').addOrderBy('t.created_at', 'DESC');
 
-    qb.skip((page - 1) * limit).take(limit);
+    // Klasifikasi berada di tabel berkas (bukan di tabel transfer), jadi
+    // filter klasifikasi dilakukan post-fetch. Ambil semua dulu (tanpa
+    // pagination) jika ada filter klasifikasi ATAU search (agar klasifikasi
+    // & status bisa ikut dicari), lalu paginate manual.
+    const hasKlasifikasiFilter = !!filter.klasifikasi;
+    const hasSearch = !!filter.search;
+    if (!hasKlasifikasiFilter && !hasSearch) {
+      qb.skip((page - 1) * limit).take(limit);
+    }
 
-    const [data, total] = await qb.getManyAndCount();
+    const [allData, allTotal] = await qb.getManyAndCount();
 
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
     // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
     // alih-alih nama. Logika sama dengan transfer-active-to-inactive service.
-    await this.resolveSekretarisNames(data);
+    await this.resolveSekretarisNames(allData);
+
+    // Attach klasifikasi berkas (lookup by arsipId) untuk kolom Klasifikasi di frontend.
+    await this.attachKlasifikasi(allData);
+
+    let data = allData;
+    let total = allTotal;
+
+    // Post-filter by search (klasifikasi & status tidak ada di tabel transfer)
+    if (hasSearch) {
+      const q = filter.search!.toLowerCase();
+      data = allData.filter((d: any) => {
+        const klasifikasi = (d.arsipKlasifikasi ?? '').toLowerCase();
+        const status = (d.status ?? '').toLowerCase();
+        return klasifikasi.includes(q) || status.includes(q);
+      });
+      total = data.length;
+    }
+
+    // Post-filter by klasifikasi (karena klasifikasi ada di tabel berkas)
+    if (hasKlasifikasiFilter) {
+      const fk = filter.klasifikasi!.toLowerCase();
+      data = data.filter((d: any) => {
+        const kode = (d.arsipKlasifikasiKode ?? '').toLowerCase();
+        const teks = (d.arsipKlasifikasi ?? '').toLowerCase();
+        return kode === fk || teks.includes(fk) || kode.includes(fk);
+      });
+      total = data.length;
+    }
+
+    // Paginate manual jika ada post-filter (search/klasifikasi)
+    if (hasSearch || hasKlasifikasiFilter) {
+      const start = (page - 1) * limit;
+      data = data.slice(start, start + limit);
+    }
 
     return {
       data,
@@ -99,6 +147,41 @@ export class TuVerifikasiService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Attach klasifikasi berkas ke setiap usulan (lookup by arsipId).
+   * Dipakai di findAllNotifikasi agar kolom Klasifikasi tampil di frontend.
+   */
+  private async attachKlasifikasi(
+    items: TransferActiveToInactiveEntity[],
+  ): Promise<void> {
+    const arsipIds = items
+      .map((i) => i.arsipId)
+      .filter((id): id is string => !!id);
+    if (arsipIds.length === 0) return;
+
+    try {
+      const berkasList = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .where('b.id IN (:...ids)', { ids: arsipIds })
+        .getMany();
+      const map = new Map<string, { kode: string; teks: string }>();
+      for (const b of berkasList) {
+        map.set(b.id, {
+          kode: b.klasifikasi ?? '',
+          teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+        });
+      }
+      for (const item of items) {
+        const entry = map.get(item.arsipId);
+        (item as any).arsipKlasifikasi = entry?.teks ?? '-';
+        (item as any).arsipKlasifikasiKode = entry?.kode ?? '';
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to attach klasifikasi: ${e?.message}`);
+    }
   }
 
   /**
@@ -142,6 +225,12 @@ export class TuVerifikasiService {
     if (!transfer) {
       throw new NotFoundException('Usulan tidak ditemukan');
     }
+    // Load approval levels (daftar atasan verifikasi berjenjang)
+    const levels = await this.levelRepo.find({
+      where: { transferId: id },
+      order: { urutan: 'ASC' },
+    });
+    (transfer as any).approvalLevels = levels;
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum
     await this.resolveSekretarisNames([transfer]);
     return transfer;
@@ -793,20 +882,61 @@ export class TuVerifikasiService {
 
     if (filter.search) {
       qb.andWhere(
-        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.sekretaris_name LIKE :search)',
+        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.arsip_kode LIKE :search OR t.sekretaris_name LIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
     qb.orderBy('t.received_at', 'DESC').addOrderBy('t.created_at', 'DESC');
-    qb.skip((page - 1) * limit).take(limit);
 
-    const [data, total] = await qb.getManyAndCount();
+    // Klasifikasi & status tidak selalu ada di tabel transfer, jadi jika ada
+    // search/klasifikasi filter, ambil semua dulu lalu post-filter manual.
+    const hasSearch = !!filter.search;
+    const hasKlasifikasiFilter = !!filter.klasifikasi;
+    if (!hasSearch && !hasKlasifikasiFilter) {
+      qb.skip((page - 1) * limit).take(limit);
+    }
+
+    const [allData, allTotal] = await qb.getManyAndCount();
 
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
     // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
     // alih-alih nama. Logika sama dengan findAllNotifikasi di service ini.
-    await this.resolveSekretarisNames(data);
+    await this.resolveSekretarisNames(allData);
+
+    // Attach klasifikasi berkas (lookup by arsipId) untuk kolom Klasifikasi di frontend.
+    await this.attachKlasifikasi(allData);
+
+    let data = allData;
+    let total = allTotal;
+
+    // Post-filter by search (klasifikasi & status tidak ada di tabel transfer)
+    if (hasSearch) {
+      const q = filter.search!.toLowerCase();
+      data = allData.filter((d: any) => {
+        const klasifikasi = (d.arsipKlasifikasi ?? '').toLowerCase();
+        const status = (d.status ?? '').toLowerCase();
+        return klasifikasi.includes(q) || status.includes(q);
+      });
+      total = data.length;
+    }
+
+    // Post-filter by klasifikasi
+    if (hasKlasifikasiFilter) {
+      const fk = filter.klasifikasi!.toLowerCase();
+      data = data.filter((d: any) => {
+        const kode = (d.arsipKlasifikasiKode ?? '').toLowerCase();
+        const teks = (d.arsipKlasifikasi ?? '').toLowerCase();
+        return kode === fk || teks.includes(fk) || kode.includes(fk);
+      });
+      total = data.length;
+    }
+
+    // Paginate manual jika ada post-filter
+    if (hasSearch || hasKlasifikasiFilter) {
+      const start = (page - 1) * limit;
+      data = data.slice(start, start + limit);
+    }
 
     return {
       data,
