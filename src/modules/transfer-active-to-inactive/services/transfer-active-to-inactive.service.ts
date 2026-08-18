@@ -368,7 +368,6 @@ export class TransferActiveToInactiveService {
    */
   async getArsipTersedia(user: any) {
     const userId = Number(user.persnum);
-    const today = new Date().toISOString().split('T')[0];
 
     // Evaluasi retensi on-demand: berkas yang retensinya habis langsung
     // tersedia untuk dipindahkan, tanpa menunggu cron 2AM.
@@ -396,8 +395,6 @@ export class TransferActiveToInactiveService {
     }
     const berkasList = await berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC')
       .getMany();
 
@@ -444,18 +441,12 @@ export class TransferActiveToInactiveService {
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
   async syncDraftUsulanOtomatis(): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
       .andWhere('b.status = :status', {
         status: StatusBerkas.CLOSED_RETENSI_AKTIF,
       })
-      // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis yang
-      // di-draft ke pemindahan arsip. Berkas yang baru ditutup (retensi aktif
-      // baru mulai) tidak boleh langsung masuk alur pemindahan.
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .getMany();
     if (berkasList.length === 0) return 0;
 
@@ -606,14 +597,6 @@ export class TransferActiveToInactiveService {
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
-      // Konsisten dengan getArsipTersedia & syncDraftUsulanOtomatis: hanya
-      // berkas yang retensinya BENAR-BENAR sudah habis yang tampil di tabel
-      // gabungan. Berkas closed_retensi_aktif dengan tanggal_retensi_aktif_berakhir
-      // NULL atau masih di masa depan belum siap dipindahkan.
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', {
-        today: new Date().toISOString().split('T')[0],
-      })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
