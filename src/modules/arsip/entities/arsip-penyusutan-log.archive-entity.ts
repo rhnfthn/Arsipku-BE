@@ -8,7 +8,7 @@ import {
 /**
  * Entity log penyusutan di database arsipku_arsip_local.
  */
-@Entity('arsip_penyusutan_log', { database: 'arsipku_arsip_local' })
+@Entity('arsip_penyusutan_log')
 export class ArsipPenyusutanLogEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;
