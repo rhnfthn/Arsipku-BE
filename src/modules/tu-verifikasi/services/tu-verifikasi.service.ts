@@ -130,10 +130,14 @@ export class TuVerifikasiService {
             // Legacy: tidak ada multi-level → tampilkan (TU biasa)
             return true;
           }
-          const myLevel = levels.find((l: any) => Number(l.persnum) === userPersnum);
+          const myLevel = levels.find(
+            (l: any) => Number(l.persnum) === userPersnum,
+          );
           if (!myLevel) return true; // User bukan atasan TU di usulan ini → tampilkan (sebagai TU biasa)
           // User adalah atasan TU di usulan ini → hanya tampilkan jika gilirannya
-          if (d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU) {
+          if (
+            d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU
+          ) {
             return myLevel.urutan === 1;
           }
           return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
@@ -649,10 +653,14 @@ export class TuVerifikasiService {
           return Number(d.atasanTuPersnum) === userPersnum;
         }
         // Multi-level: cek apakah user ada di levels dan giliran dia
-        const myLevel = levels.find((l: any) => Number(l.persnum) === userPersnum);
+        const myLevel = levels.find(
+          (l: any) => Number(l.persnum) === userPersnum,
+        );
         if (!myLevel) return false; // User bukan atasan TU di usulan ini
         // Untuk DISETUJUI_PERSETUJUAN_TU (persetujuan terakhir), level direset ke 1
-        if (d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU) {
+        if (
+          d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU
+        ) {
           return myLevel.urutan === 1;
         }
         return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
