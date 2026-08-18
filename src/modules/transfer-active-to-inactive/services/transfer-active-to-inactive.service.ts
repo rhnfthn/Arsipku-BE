@@ -710,7 +710,14 @@ export class TransferActiveToInactiveService {
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
 
     // Role-based filter
-    if (roleName === 'USER') {
+    // TU (Unit Dokumen) dengan tuRoles bisa melihat semua usulan SELESAI
+    // (untuk pengajuan penyusutan).
+    const tuRoles: string[] = Array.isArray(user.tuRoles) ? user.tuRoles : [];
+    const isTu = tuRoles.includes('tu');
+
+    if (isTu && filter.status === 'SELESAI') {
+      // TU melihat semua usulan SELESAI — tidak ada filter sekretaris/atasan
+    } else if (roleName === 'USER') {
       // Cek apakah user ini pernah dipilih sebagai atasan managerial
       const isAtasan = await this.isAtasanManagerial(user);
       if (isAtasan) {
