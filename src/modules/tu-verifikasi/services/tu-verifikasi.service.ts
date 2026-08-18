@@ -65,7 +65,7 @@ export class TuVerifikasiService {
    * Status: DIKIRIM, MENUNGGU_VERIFIKASI_BERKAS_FISIK, BERKAS_FISIK_SESUAI,
    * BERKAS_FISIK_TIDAK_SESUAI, MENUNGGU_VERIFIKASI_PERSETUJUAN_TU.
    */
-  async findAllNotifikasi(filter: TuFilterDto) {
+  async findAllNotifikasi(filter: TuFilterDto, _user?: JwtPayload) {
     const page = Math.max(1, filter.page ?? 1);
     const limit = Math.max(1, filter.limit ?? 10);
 
@@ -562,8 +562,8 @@ export class TuVerifikasiService {
     TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
   ];
 
-  /** Daftar usulan untuk Atasan Managerial TU. */
-  async findAllAtasanTu(filter: TuFilterDto) {
+  /** Daftar usulan untuk Atasan Managerial TU (berjenjang). */
+  async findAllAtasanTu(filter: TuFilterDto, user?: JwtPayload) {
     const page = Math.max(1, filter.page ?? 1);
     const limit = Math.max(1, filter.limit ?? 10);
 
@@ -588,14 +588,49 @@ export class TuVerifikasiService {
     }
 
     qb.orderBy('t.tu_approved_at', 'DESC').addOrderBy('t.created_at', 'DESC');
-    qb.skip((page - 1) * limit).take(limit);
 
-    const [data, total] = await qb.getManyAndCount();
+    // Filter berjenjang: hanya tampilkan usulan yang giliran user login.
+    // tu_approval_levels adalah JSON array berisi {persnum, urutan, status}.
+    // Karena TypeORM tidak bisa query JSON array langsung, ambil semua dulu
+    // lalu filter di aplikasi.
+    const hasUserFilter = !!user?.persnum;
+    if (!hasUserFilter) {
+      qb.skip((page - 1) * limit).take(limit);
+    }
+
+    const [allData, allTotal] = await qb.getManyAndCount();
 
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
-    // Tanpa ini, kolom Sekretaris di frontend menampilkan persnum (mis. 10011066)
-    // alih-alih nama. Logika sama dengan findAllNotifikasi di service ini.
-    await this.resolveSekretarisNames(data);
+    await this.resolveSekretarisNames(allData);
+
+    let data = allData;
+    let total = allTotal;
+
+    // Filter berjenjang: hanya usulan di mana user login adalah atasan TU
+    // yang sedang giliran (currentTuApprovalLevel = urutan dia di tuApprovalLevels)
+    if (hasUserFilter) {
+      const userPersnum = Number(user.persnum);
+      data = allData.filter((d: any) => {
+        const levels = d.tuApprovalLevels;
+        if (!levels || !Array.isArray(levels) || levels.length === 0) {
+          // Legacy: tidak ada multi-level → cek atasan_tu_persnum
+          return Number(d.atasanTuPersnum) === userPersnum;
+        }
+        // Multi-level: cek apakah user ada di levels dan giliran dia
+        const myLevel = levels.find((l: any) => Number(l.persnum) === userPersnum);
+        if (!myLevel) return false; // User bukan atasan TU di usulan ini
+        // Untuk DISETUJUI_PERSETUJUAN_TU (persetujuan terakhir), level direset ke 1
+        if (d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU) {
+          return myLevel.urutan === 1;
+        }
+        return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
+      });
+      total = data.length;
+
+      // Paginate manual
+      const start = (page - 1) * limit;
+      data = data.slice(start, start + limit);
+    }
 
     return {
       data,

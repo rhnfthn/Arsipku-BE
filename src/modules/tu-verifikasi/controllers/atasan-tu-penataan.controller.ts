@@ -42,8 +42,8 @@ export class AtasanTuController {
 
   @Get()
   @ApiOperation({ summary: 'Daftar usulan untuk Atasan Managerial TU' })
-  async findAll(@Query() filter: TuFilterDto) {
-    return this.service.findAllAtasanTu(filter);
+  async findAll(@Query() filter: TuFilterDto, @CurrentUser() user: JwtPayload) {
+    return this.service.findAllAtasanTu(filter, user);
   }
 
   @Get(':id')
