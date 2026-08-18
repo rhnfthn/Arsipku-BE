@@ -867,7 +867,7 @@ export class DigsigDocumentService {
    * @param userArea - Area of the current user
    * @returns List of users with chief = 1 and area = userArea
    */
-  async getVerifikator(userArea: string) {
+  async getVerifikator(userArea: string, chiefOnly = true) {
     try {
       // Get latest org data
       const orgData = await this.orgDataService.findLatestOrg();
@@ -882,9 +882,10 @@ export class DigsigDocumentService {
         throw new BadRequestException('Format data organisasi tidak valid');
       }
 
-      // Filter: chief = 1 AND area = userArea
+      // Filter: area = userArea. chiefOnly=true → hanya chief=1 (default, untuk naskah-dinas).
+      // chiefOnly=false → semua orang di area (staff + managerial, untuk naskah-lainnya).
       const verifikator = positionJson.filter((x: any) => {
-        return x.chief === 1 && x.area === userArea;
+        return x.area === userArea && (!chiefOnly || x.chief === 1);
       });
 
       console.log(

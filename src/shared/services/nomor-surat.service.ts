@@ -72,7 +72,7 @@ const BULAN_ROMAWI: Record<number, string> = {
  * Parameter untuk generate nomor surat
  */
 export interface GenerateNomorParams {
-  jenis: 'DI' | 'ND' | 'SDI' | 'SDE' | 'KA';
+  jenis: 'DI' | 'ND' | 'SDI' | 'SDE' | 'KA' | 'PER' | 'KEP' | 'INS' | 'PKS' | 'BA';
   positionText: string;
   positionAbbreviation?: string; // Abbreviation dari org_data (untuk semua jenis surat)
   areaText: string;
@@ -143,6 +143,7 @@ export class NomorSuratService {
    * Mendapatkan bulan dalam format Romawi
    */
   private getBulanRomawi(tanggal: Date): string {
+    if (!tanggal || isNaN(tanggal.getTime())) return BULAN_ROMAWI[new Date().getMonth() + 1] || 'I';
     const bulan = tanggal.getMonth() + 1; // getMonth() returns 0-11
     return BULAN_ROMAWI[bulan] || 'I';
   }
