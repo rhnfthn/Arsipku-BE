@@ -9,7 +9,7 @@ import {
 /**
  * Entity relasi naskah dalam berkas di database arsipku_arsip_local.
  */
-@Entity('arsip_berkas_naskah', { database: 'arsipku_arsip_local' })
+@Entity('arsip_berkas_naskah')
 export class ArsipBerkasNaskahEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;

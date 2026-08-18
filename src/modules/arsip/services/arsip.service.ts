@@ -261,7 +261,8 @@ export class ArsipService {
 
   /**
    * Soft delete master berkas di database inti (set deleted_at).
-   * Tabel transaksi (naskah, sirkulasi, lampiran, dll) TETAP dipertahankan.
+   * Juga hapus relasi berkas_naskah agar naskah tidak bisa dibuka lagi
+   * (arsip sudah dimusnahkan / dibackup ke DB arsip).
    */
   async softDeleteBerkas(sourceBerkasId: string): Promise<void> {
     const berkas = await this.sourceBerkasRepo.findOne({
@@ -272,6 +273,10 @@ export class ArsipService {
     }
     berkas.deletedAt = new Date();
     await this.sourceBerkasRepo.save(berkas);
+
+    // Hapus relasi berkas_naskah agar naskah tidak bisa diakses lagi
+    // (naskah sudah di-backup ke DB arsip, DB inti tidak perlu lagi)
+    await this.sourceBerkasNaskahRepo.delete({ berkasId: sourceBerkasId });
   }
 
   /**

@@ -9,7 +9,7 @@ import {
 /**
  * Entity snapshot detail naskah di database arsipku_arsip_local.
  */
-@Entity('arsip_naskah', { database: 'arsipku_arsip_local' })
+@Entity('arsip_naskah')
 export class ArsipNaskahEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;
