@@ -7,7 +7,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
-import { TransferApprovalLevelEntity } from '../../transfer-active-to-inactive/entities/approval-level.entity';
 import { TransferActiveToInactiveStatus } from '../../transfer-active-to-inactive/enums/transfer-status.enum';
 import { Berkas } from '../../berkas/entities/berkas.entity';
 import {
@@ -35,8 +34,6 @@ export class TuVerifikasiService {
     private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
     @InjectRepository(Berkas)
     private readonly berkasRepo: Repository<Berkas>,
-    @InjectRepository(TransferApprovalLevelEntity)
-    private readonly levelRepo: Repository<TransferApprovalLevelEntity>,
     private readonly notificationService: NotificationService,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
@@ -225,12 +222,6 @@ export class TuVerifikasiService {
     if (!transfer) {
       throw new NotFoundException('Usulan tidak ditemukan');
     }
-    // Load approval levels (daftar atasan verifikasi berjenjang)
-    const levels = await this.levelRepo.find({
-      where: { transferId: id },
-      order: { urutan: 'ASC' },
-    });
-    (transfer as any).approvalLevels = levels;
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum
     await this.resolveSekretarisNames([transfer]);
     return transfer;
