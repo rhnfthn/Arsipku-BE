@@ -368,7 +368,6 @@ export class TransferActiveToInactiveService {
    */
   async getArsipTersedia(user: any) {
     const userId = Number(user.persnum);
-    const today = new Date().toISOString().split('T')[0];
 
     // Evaluasi retensi on-demand: berkas yang retensinya habis langsung
     // tersedia untuk dipindahkan, tanpa menunggu cron 2AM.
@@ -396,8 +395,6 @@ export class TransferActiveToInactiveService {
     }
     const berkasList = await berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC')
       .getMany();
 
@@ -444,18 +441,12 @@ export class TransferActiveToInactiveService {
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
   async syncDraftUsulanOtomatis(): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
       .andWhere('b.status = :status', {
         status: StatusBerkas.CLOSED_RETENSI_AKTIF,
       })
-      // Hanya berkas yang retensi aktifnya BENAR-BENAR sudah habis yang
-      // di-draft ke pemindahan arsip. Berkas yang baru ditutup (retensi aktif
-      // baru mulai) tidak boleh langsung masuk alur pemindahan.
-      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
-      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .getMany();
     if (berkasList.length === 0) return 0;
 
@@ -649,7 +640,7 @@ export class TransferActiveToInactiveService {
         tanggalRetensiAktifHabis: b.tanggalRetensiAktifBerakhir,
         atasanName: null,
         status: 'DRAFT',
-        tanggal: b.tanggalRetensiAktifBerakhir,
+        tanggal: b.createdAt,
         lokasiFisik: b.lokasi,
       });
     }
@@ -699,16 +690,12 @@ export class TransferActiveToInactiveService {
       });
     }
 
-    // Sort: usulan (by updatedAt DESC) dulu, lalu arsip belum usulan (by retensi ASC)
+    // Sort: paling baru di atas (by date DESC) untuk semua baris.
+    // Usulan memakai updatedAt (perubahan terakhir), arsip belum usulan memakai tanggal retensi.
     rows.sort((a, b) => {
-      if (a.isUsulan && !b.isUsulan) return -1;
-      if (!a.isUsulan && b.isUsulan) return 1;
-      if (a.isUsulan) {
-        const aTime = new Date((a as any).updatedAt ?? a.tanggal).getTime();
-        const bTime = new Date((b as any).updatedAt ?? b.tanggal).getTime();
-        return bTime - aTime;
-      }
-      return new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
+      const aTime = new Date((a as any).updatedAt ?? a.tanggal).getTime();
+      const bTime = new Date((b as any).updatedAt ?? b.tanggal).getTime();
+      return bTime - aTime;
     });
 
     return rows;
@@ -1026,7 +1013,40 @@ export class TransferActiveToInactiveService {
       );
       return saved;
     } else {
-      // Atasan terakhir → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
+      // Atasan terakhir.
+      // Single-atasan (totalApprovalLevels <= 1): skip MENUNGGU_VERIFIKASI_TERAKHIR
+      // — langsung DISETUJUI_VERIFIKASI_TERAKHIR supaya tombol "Pindah Usulan"
+      // (kirim ke TU) muncul tanpa langkah approve ganda yang membingungkan.
+      // Multi-atasan: tetap perlu verifikasi terakhir oleh atasan level 1.
+      const isSingleAtasan = (item.totalApprovalLevels ?? 1) <= 1;
+      if (isSingleAtasan) {
+        item.status =
+          TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
+        item.currentApprovalLevel = 1;
+        item.approvedBy = Number(user.persnum);
+        item.approvedAt = new Date();
+        item.verifyNote = dto.verifyNote ?? null;
+        item.finalVerifyNote = dto.verifyNote ?? null;
+        item.finalVerifiedBy = Number(user.persnum);
+        item.finalVerifiedAt = new Date();
+        const saved = await this.repo.save(item);
+        this.logAudit(
+          user,
+          saved,
+          old,
+          saved.status,
+          `Persetujuan (single-atasan) oleh ${currentLevel.atasanName} — siap kirim ke TU`,
+        );
+        await this.notify(
+          saved,
+          null,
+          saved.sekretarisPersnum,
+          'Usulan disetujui atasan — siap dikirim ke Unit Tata Naskah',
+        );
+        return saved;
+      }
+
+      // Multi-atasan → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
       // Atasan perlu verifikasi terakhir (dengan Daftar Isi + BA) sebelum kirim ke TU
       item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
       // Reset currentApprovalLevel ke 1 — verifikasi final dilakukan oleh atasan level 1
