@@ -606,6 +606,14 @@ export class TransferActiveToInactiveService {
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      // Konsisten dengan getArsipTersedia & syncDraftUsulanOtomatis: hanya
+      // berkas yang retensinya BENAR-BENAR sudah habis yang tampil di tabel
+      // gabungan. Berkas closed_retensi_aktif dengan tanggal_retensi_aktif_berakhir
+      // NULL atau masih di masa depan belum siap dipindahkan.
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', {
+        today: new Date().toISOString().split('T')[0],
+      })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
