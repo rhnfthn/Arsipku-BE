@@ -1589,6 +1589,30 @@ export class UsulanAksesBerkasService {
       [naskahId],
     );
 
+    // Resolve file URL via signed MinIO URL (konsisten dengan getBerkasNaskah),
+    // bukan path relative /files/ yang butuh reverse proxy eksternal.
+    const resolveFileUrl = async (key: string | null): Promise<string | null> => {
+      if (!key) return null;
+      if (key.startsWith('http')) return key;
+      try {
+        return await this.storageService.getFileUrl(key);
+      } catch (e) {
+        this.logger.warn(`[getNaskahDetailForEntitlement] Gagal resolve file URL untuk ${key}: ${e}`);
+        return null;
+      }
+    };
+
+    const lampiranFiles = await Promise.all(
+      lampiranRows.map(async (l: any) => ({
+        id: l.id,
+        file_name: l.file_name,
+        file_pdf: l.file_pdf,
+        file_url: await resolveFileUrl(l.file_pdf),
+      })),
+    );
+
+    const finalPdfUrl = await resolveFileUrl(naskah.final_pdf);
+
     return {
       ...naskah,
       pengirim: pengirim
@@ -1614,22 +1638,9 @@ export class UsulanAksesBerkasService {
         organization_text: t.organization_text,
         nama_sirkuler: t.nama_sirkuler,
       })),
-      lampiran_files: lampiranRows.map((l: any) => ({
-        id: l.id,
-        file_name: l.file_name,
-        file_pdf: l.file_pdf,
-        file_url: l.file_pdf
-          ? l.file_pdf.startsWith('http')
-            ? l.file_pdf
-            : `/files/${l.file_pdf.replace(/^\/?files\//, '')}`
-          : null,
-      })),
-      // Final pdf URL untuk preview iframe — konsisten dengan DetailNaskah
-      final_pdf_url: naskah.final_pdf
-        ? naskah.final_pdf.startsWith('http')
-          ? naskah.final_pdf
-          : `/files/${String(naskah.final_pdf).replace(/^\/?files\//, '')}`
-        : null,
+      lampiran_files: lampiranFiles,
+      // Final pdf URL untuk preview iframe — signed URL MinIO (bisa diakses langsung)
+      final_pdf_url: finalPdfUrl,
       // Siapkan juga 'jenis_label' untuk konsistensi dengan halaman kelola
       jenis_label: naskah.jenis || null,
       permissions: entitlement?.permissions || ['LIHAT'],

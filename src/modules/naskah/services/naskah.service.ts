@@ -586,7 +586,13 @@ export class NaskahService {
   async getDetailWithChain(
     naskahId: string,
     userPosition: string,
+    user?: any,
   ): Promise<any> {
+    // 🛡️ SUPERADMIN bypass — bisa akses semua naskah tanpa sirkulasi
+    const isSuperadmin =
+      user?.activeRole?.name?.toUpperCase() === 'SUPERADMIN' ||
+      user?.role?.toUpperCase() === 'SUPERADMIN';
+
     // Fetch user's sirkulasi record once — reuse for access check & flag extraction
     let userSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: {
@@ -606,7 +612,7 @@ export class NaskahService {
         [naskahId, String(userPosition)],
       );
 
-      if (!shareRows || shareRows.length === 0) {
+      if ((!shareRows || shareRows.length === 0) && !isSuperadmin) {
         throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
       }
 
