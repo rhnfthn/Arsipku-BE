@@ -1018,18 +1018,42 @@ export class NaskahLainnyaService {
   private async findDokumen(n: NaskahEntity) {
     const docs: any[] = [];
 
-    // 'naskah' — file naskah asli dari lampiran (MinIO key).
-    if (n.lampiran) {
-      // Ambil nama file asli dari MinIO key (bagian terakhir setelah '/')
-      const fileName = n.lampiran.split('/').pop() || 'naskah.docx';
+    // 'naskah' — riwayat versi naskah dari baris dokumen (urut terbaru di atas).
+    const versiRows = await this.dokumenRepo.find({
+      where: { naskahId: n.id, tipe: 'naskah' },
+      order: { createdAt: 'DESC' },
+    });
+    if (versiRows.length > 0) {
+      for (const v of versiRows) {
+        docs.push({
+          id: v.id,
+          nama: v.nama,
+          tipe: 'naskah',
+          ukuran: v.ukuran ? `${v.ukuran}` : '-',
+          tanggal: v.createdAt.toISOString(),
+          status: (v.status as 'terbaca' | 'final' | 'revisi' | 'belum_diunggah' | 'draf' | 'dittd') ?? 'final',
+          uploaderNama: v.uploaderNama ?? undefined,
+          uploaderJabatan: v.uploaderJabatan ?? undefined,
+          fase: v.tahapan ?? undefined,
+        });
+      }
+    } else if (n.lampiran) {
+      // Fallback legacy: naskah pre-feature tanpa baris history.
       docs.push({
-        id: n.id, nama: fileName, tipe: 'naskah',
-        ukuran: '-', tanggal: n.createdAt.toISOString(), status: 'final',
+        id: n.id,
+        nama: n.lampiran.split('/').pop() || 'naskah.docx',
+        tipe: 'naskah',
+        ukuran: '-',
+        tanggal: n.createdAt.toISOString(),
+        status: 'final',
       });
     }
 
     // 'naskah_fisik' & 'pendukung' — dari naskah_lainnya_dokumen.
-    const dokRows = await this.dokumenRepo.find({ where: { naskahId: n.id }, order: { createdAt: 'ASC' } });
+    const dokRows = await this.dokumenRepo.find({
+      where: { naskahId: n.id, tipe: In(['naskah_fisik', 'pendukung']) },
+      order: { createdAt: 'ASC' },
+    });
     for (const d of dokRows) {
       docs.push({
         id: d.id, nama: d.nama, tipe: d.tipe,
@@ -1085,6 +1109,10 @@ export class NaskahLainnyaService {
   async deleteDokumenTambahan(id: string, dokumenId: string) {
     const doc = await this.dokumenRepo.findOne({ where: { id: dokumenId, naskahId: id } });
     if (!doc) throw new NotFoundException('Dokumen tidak ditemukan');
+
+    if (doc.tipe === 'naskah') {
+      throw new BadRequestException('Riwayat naskah tidak dapat dihapus per versi');
+    }
 
     // Hapus file dari MinIO
     try { await this.storage.deleteFile(doc.minioKey); } catch { /* abaikan */ }
