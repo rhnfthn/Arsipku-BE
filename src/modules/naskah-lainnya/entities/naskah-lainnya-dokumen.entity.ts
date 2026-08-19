@@ -15,7 +15,7 @@ export class NaskahLainnyaDokumenEntity {
   naskahId: string;
 
   @Column('varchar', { length: 32 })
-  tipe: string; // 'naskah_fisik' | 'pendukung'
+  tipe: string; // 'naskah' | 'naskah_fisik' | 'pendukung'
 
   @Column('varchar', { length: 255 })
   nama: string; // nama file asli
@@ -28,6 +28,22 @@ export class NaskahLainnyaDokumenEntity {
 
   @Column('bigint', { nullable: true })
   ukuran: number | null; // bytes
+
+  // Versi naskah (hanya untuk tipe='naskah'); NULL untuk naskah_fisik/pendukung.
+  @Column('varchar', { length: 32, nullable: true })
+  tahapan: string | null;
+
+  @Column('varchar', { name: 'uploader_nama', length: 255, nullable: true })
+  uploaderNama: string | null;
+
+  @Column('varchar', { name: 'uploader_jabatan', length: 255, nullable: true })
+  uploaderJabatan: string | null;
+
+  @Column('int', { name: 'uploader_persnum', nullable: true })
+  uploaderPersnum: number | null;
+
+  @Column('varchar', { length: 16, nullable: true })
+  status: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
