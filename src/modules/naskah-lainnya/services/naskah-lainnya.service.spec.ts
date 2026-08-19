@@ -408,4 +408,64 @@ describe('NaskahLainnyaService', () => {
       uploaderNama: 'Budi', uploaderJabatan: 'Kabag', uploaderPersnum: 1,
     }));
   });
+
+  it('getDetail menampilkan versi naskah dari baris tipe=naskah urut DESC', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n1', jenis: 'PER', tahapan: 'selesai', lampiran: 'k1', signedLampiran: 's1',
+      tanggal: new Date('2026-08-11'), createdAt: new Date('2026-08-11'),
+    });
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.find.mockReset();
+    dokumenRepo.find
+      .mockResolvedValueOnce([
+        { id: 'v2', naskahId: 'n1', tipe: 'naskah', nama: 'v2.docx', minioKey: 'k2',
+          mimetype: 'x', ukuran: 10, tahapan: 'legal_drafting', status: 'draf',
+          uploaderNama: 'Sari', uploaderJabatan: 'Legal', uploaderPersnum: 9,
+          createdAt: new Date('2026-08-12') },
+        { id: 'v1', naskahId: 'n1', tipe: 'naskah', nama: 'v1.docx', minioKey: 'k1',
+          mimetype: 'x', ukuran: 8, tahapan: 'konsep', status: 'draf',
+          uploaderNama: 'Budi', uploaderJabatan: 'Kabag', uploaderPersnum: 1,
+          createdAt: new Date('2026-08-11') },
+      ])
+      .mockResolvedValueOnce([]); // fisik/pendukung
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([]);
+    (svc as any).blankoRepo.find.mockResolvedValue([]);
+
+    const res = await svc.getDetail('n1', { positionText: 'X' } as any);
+    const naskahDocs = res.data.dokumen.filter((d: any) => d.tipe === 'naskah');
+    expect(naskahDocs).toHaveLength(2);
+    expect(naskahDocs[0].id).toBe('v2'); // DESC: v2 (Aug 12) dulu
+    expect(naskahDocs[0]).toMatchObject({ uploaderNama: 'Sari', fase: 'legal_drafting', status: 'draf' });
+  });
+
+  it('getDetail fallback: tanpa baris naskah tapi n.lampiran ada → 1 node legacy', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n1', jenis: 'PER', tahapan: 'selesai',
+      lampiran: 'naskah-lainnya/PER/n1/naskah/legacy.docx', signedLampiran: null,
+      tanggal: new Date('2026-08-11'), createdAt: new Date('2026-08-11'),
+    });
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.find.mockReset();
+    dokumenRepo.find.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([]);
+    (svc as any).blankoRepo.find.mockResolvedValue([]);
+
+    const res = await svc.getDetail('n1', { positionText: 'X' } as any);
+    const naskahDocs = res.data.dokumen.filter((d: any) => d.tipe === 'naskah');
+    expect(naskahDocs).toHaveLength(1);
+    expect(naskahDocs[0]).toMatchObject({ status: 'final' });
+    expect(naskahDocs[0].nama).toBe('legacy.docx');
+  });
+
+  it('deleteDokumenTambahan menolak hapus baris tipe=naskah (riwayat immutable)', async () => {
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.findOne.mockResolvedValue({ id: 'd1', naskahId: 'n1', tipe: 'naskah', minioKey: 'k1' });
+    await expect(svc.deleteDokumenTambahan('n1', 'd1')).rejects.toThrow(
+      'Riwayat naskah tidak dapat dihapus per versi',
+    );
+  });
 });
