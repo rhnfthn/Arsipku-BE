@@ -114,7 +114,7 @@ export class NaskahController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ): Promise<any> {
-    return this.naskahService.getDetailWithChain(id, user.position);
+    return this.naskahService.getDetailWithChain(id, user.position, user);
   }
 
   @Put(':id')
