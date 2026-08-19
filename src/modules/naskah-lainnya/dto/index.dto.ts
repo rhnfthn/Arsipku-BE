@@ -68,3 +68,10 @@ export class BlankoDto {
 export class TandaTanganDto {
   @IsString() @IsOptional() passphrase?: string;
 }
+
+// Pemberi persetujuan legal drafting — drafter legal memilih approver dari unit legal
+// (GET /konfigurasi/unit-legal). Urutan array = urutan persetujuan berjenjang.
+export class KirimApprovalLegalDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ApprovalDto)
+  approval: ApprovalDto[];
+}

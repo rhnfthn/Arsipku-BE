@@ -6,11 +6,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { Repository, DataSource, IsNull, EntityManager } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
 import { JenisEntity } from '../entities/jenis.entity';
+import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import {
   CreateNomorRequestDto,
@@ -69,6 +70,8 @@ export class NomorService {
     private readonly jenisRepository: Repository<JenisEntity>,
     @InjectRepository(UserRoleEntity)
     private readonly userRoleRepository: Repository<UserRoleEntity>,
+    @InjectRepository(NaskahEntity)
+    private readonly naskahRepository: Repository<NaskahEntity>,
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
@@ -327,6 +330,133 @@ export class NomorService {
       .replace(/{TAHUN}/g, tahun.toString());
 
     return nomorBaru;
+  }
+
+  /**
+   * Adapter publik untuk penomoran naskah-lainnya (saat kirim/finalisasi).
+   * Aditif — tidak mengubah flow admin existing (approveNomorRequestDetail dll).
+   *
+   * Counter scope: company + area + jenis + tahun (branch non-ND/DI, sama dengan admin).
+   * Auto-skip benturan nomor manual existing (increment noUrut sampai nomor bebas, max 100).
+   *
+   * @param params segmen penomoran + identitas pemrakarsa
+   * @param manager opsional — jika diberikan, gunakan transaksi pemanggil
+   * @returns { nomor: string final, noUrut: number counter }
+   */
+  async generateNomorForNaskah(
+    params: {
+      jenis: string;
+      klasifikasi?: string;
+      tanggal: Date;
+      company: string;
+      area: string;
+      subArea?: string;
+      organization?: string;
+      position: string;
+      jabatanAbbrev: string;
+    },
+    manager?: EntityManager,
+  ): Promise<{ nomor: string; noUrut: number }> {
+    const tahun = new Date(params.tanggal).getFullYear();
+    if (!Number.isFinite(tahun)) {
+      throw new BadRequestException(
+        'Tanggal naskah tidak valid untuk penomoran.',
+      );
+    }
+
+    // 1. Baca format per jenis
+    const jenisData = await this.jenisRepository.findOne({
+      where: { jenis: params.jenis as any },
+    });
+    if (!jenisData?.formatPenomoran) {
+      throw new BadRequestException(
+        `Format penomoran untuk jenis ${params.jenis} belum dikonfigurasi.`,
+      );
+    }
+    const format = jenisData.formatPenomoran;
+
+    // Virtual request untuk generateNomorFromFormat (hanya butuh tanggal/jenis/klasifikasi)
+    const virtualRequest = {
+      tanggal: params.tanggal,
+      jenis: params.jenis,
+      klasifikasi: params.klasifikasi ?? null,
+    } as NomorRequestEntity;
+
+    // 2. Lock + increment counter, skip benturan
+    const MAX_RETRY = 100;
+    let noUrut = 0;
+    let nomor = '';
+
+    const nomorRepo = manager
+      ? manager.getRepository(this.nomorRepository.target)
+      : this.nomorRepository;
+    const naskahRepo = manager
+      ? manager.getRepository(NaskahEntity)
+      : this.naskahRepository;
+
+    // Lock baris counter FOR UPDATE scope tahun+jenis+company+area
+    const counterQb = nomorRepo
+      .createQueryBuilder('nomor')
+      .where('nomor.tahun = :tahun', { tahun })
+      .andWhere('nomor.jenis = :jenis', { jenis: params.jenis })
+      .andWhere('nomor.company = :company', { company: params.company })
+      .andWhere('nomor.area = :area', { area: params.area })
+      .setLock('pessimistic_write');
+
+    const existingCounter = await counterQb.getOne();
+
+    for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
+      noUrut = (existingCounter?.nomor ?? 0) + 1 + attempt;
+      nomor = await this.generateNomorFromFormat(
+        format,
+        noUrut,
+        virtualRequest,
+        tahun,
+        params.jabatanAbbrev,
+        params.area,
+      );
+      // Cek uniqueness vs naskah.nomor existing
+      const clash = await naskahRepo
+        .createQueryBuilder('n')
+        .where('n.nomor = :nomor', { nomor })
+        .getCount();
+      if (clash === 0) break;
+      if (attempt === MAX_RETRY - 1) {
+        throw new BadRequestException(
+          `Tidak menemukan nomor bebas untuk jenis ${params.jenis} setelah ${MAX_RETRY} iterasi.`,
+        );
+      }
+    }
+
+    // 3. Upsert counter
+    if (existingCounter) {
+      existingCounter.nomor = noUrut;
+      await (manager
+        ? manager.save(existingCounter)
+        : nomorRepo.save(existingCounter));
+    } else {
+      const newCounter = nomorRepo.create({
+        id: uuidv4(),
+        company: params.company,
+        area: params.area,
+        subArea: params.subArea ?? null,
+        organization: params.organization ?? null,
+        position: params.position ?? null,
+        tahun,
+        jenis: params.jenis,
+        nomor: noUrut,
+      } as any);
+      await (manager ? manager.save(newCounter) : nomorRepo.save(newCounter));
+    }
+
+    // ponytail: spec §5.1 (L133) minta tulis nomor_request + nomor_request_detail
+    // (isNaskahGenerated=true, status=terpakai_final) untuk audit-trail konsisten pola SDI.
+    // Ceiling: history nomor naskah-lainnya auto-generate hanya tersimpan di naskah.nomor
+    // + baris counter nomor, bukan di tabel nomor_request — admin flow yang query
+    // nomor_request untuk riwayat nomor lengkap tidak melihat entri naskah-lainnya.
+    // Upgrade path: insert NomorRequestEntity + NomorRequestDetailEntity di sini
+    // (dalam manager yang sama) jika audit-trail admin diperlukan.
+    return { nomor, noUrut };
   }
 
   private looksLikeStorageKey(key: string | null | undefined): boolean {

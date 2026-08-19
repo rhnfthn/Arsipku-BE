@@ -1,8 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import PizZip from 'pizzip';
 
 export interface DocxParameter {
-  nomor?: string;
   perihal?: string;
   tanggal?: string;
 }
@@ -10,7 +9,7 @@ export interface DocxParameter {
 @Injectable()
 export class DocxReaderService {
   /** Ekstrak teks polos dari word/document.xml. */
-  private extractText(buffer: Buffer): string {
+  public extractText(buffer: Buffer): string {
     const zip = new PizZip(buffer);
     const xml = zip.file('word/document.xml')?.asText() ?? '';
     return xml
@@ -24,17 +23,30 @@ export class DocxReaderService {
       .replace(/\r/g, '');
   }
 
+  /**
+   * Deteksi slot penandatangan dari placeholder {{tanda_tangan_N}} di docx.
+   * Return count + slot berurutan 1..N. Throw jika indeks tidak contiguous.
+   */
+  readSignerSlots(buffer: Buffer): { count: number; slots: { index: number }[] } {
+    const text = this.extractText(buffer);
+    const matches = [...text.matchAll(/{{\s*tanda_tangan_(\d+)\s*}}/gi)];
+    const indices = [...new Set(matches.map((m) => Number(m[1])))].sort((a, b) => a - b);
+    const count = indices.length;
+    // Validasi contiguous 1..N
+    for (let i = 0; i < count; i++) {
+      if (indices[i] !== i + 1) {
+        throw new BadRequestException(
+          `Indeks {{tanda_tangan_*}} tidak berurutan: ditemukan ${indices.join(',')}, diharapkan 1..${count}.`,
+        );
+      }
+    }
+    return { count, slots: indices.map((index) => ({ index })) };
+  }
+
   /** Baca parameter nomor/perihal/tanggal dari buffer .docx. */
   async readParameters(buffer: Buffer): Promise<DocxParameter> {
     const text = this.extractText(buffer);
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-
-    // NOMOR: cari baris yang diawali "NOMOR" lalu ambil sisanya.
-    // Format template: "NOMOR: KEP/123/TEST/456" atau "NOMOR: PER.012/DS.00.02/2026"
-    const nomorLine = lines.find((l) => /^NOMOR\s*[:.]?\s*\S/i.test(l));
-    const nomor = nomorLine
-      ?.replace(/^NOMOR\s*[:.]?\s*/i, '')
-      .trim() || undefined;
 
     // PERIHAL/TENTANG: cari baris yang diawali "perihal" atau "tentang".
     // Pada template KEP, "TENTANG" di baris sendiri, content di baris berikutnya.
@@ -69,6 +81,6 @@ export class DocxReaderService {
       }
     }
 
-    return { nomor, perihal, tanggal };
+    return { perihal, tanggal };
   }
 }

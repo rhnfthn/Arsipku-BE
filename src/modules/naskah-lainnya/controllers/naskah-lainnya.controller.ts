@@ -7,6 +7,7 @@ import { NaskahLainnyaService } from '../services/naskah-lainnya.service';
 import type { CurrentUser as CurrentUserType } from '../services/naskah-lainnya.service';
 import {
   BuatNaskahDto, UpdateNaskahDto, ApprovalActionDto, EvaluasiDto, BlankoDto, TandaTanganDto,
+  KirimApprovalLegalDto,
 } from '../dto/index.dto';
 import { CurrentUser } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
@@ -28,13 +29,23 @@ export class NaskahLainnyaController {
   }
 
   @Get('persetujuan')
-  getPersetujuan(@CurrentUser() user: CurrentUserType) {
-    return this.service.getPersetujuan(user);
+  getPersetujuan(@Query('status') status: string, @CurrentUser() user: CurrentUserType) {
+    return this.service.getPersetujuan(user, status);
+  }
+
+  @Get('legal-drafting')
+  getLegalDrafting(@Query('status') status: string, @CurrentUser() user: CurrentUserType) {
+    return this.service.getLegalDrafting(user, status);
   }
 
   @Get('template/:jenis')
   getTemplate(@Param('jenis') jenis: string) {
     return this.service.getTemplateUrl(jenis);
+  }
+
+  @Get('template-signers/:jenis')
+  getTemplateSigners(@Param('jenis') jenis: string) {
+    return this.service.getTemplateSigners(jenis);
   }
 
   @Get(':id')
@@ -123,8 +134,8 @@ export class NaskahLainnyaController {
   }
 
   @Post(':id/legal-drafting/kirim-approval')
-  kirimApprovalLegal(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
-    return this.service.kirimApprovalLegal(id, user);
+  kirimApprovalLegal(@Param('id') id: string, @Body() dto: KirimApprovalLegalDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.kirimApprovalLegal(id, dto.approval, user);
   }
 
   @Post(':id/legal-drafting/kembalikan')
@@ -150,5 +161,15 @@ export class NaskahLainnyaController {
   @Post(':id/tanda-tangan')
   tandaTangan(@Param('id') id: string, @Body() dto: TandaTanganDto, @CurrentUser() user: CurrentUserType) {
     return this.service.tandaTangan(id, dto.passphrase, user);
+  }
+
+  @Post(':id/unggah-ttd-fisik')
+  @UseInterceptors(FileInterceptor('file'))
+  unggahTtdFisik(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.unggahTtdFisik(id, file, user);
   }
 }
