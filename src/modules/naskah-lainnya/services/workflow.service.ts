@@ -160,6 +160,12 @@ export class WorkflowService {
     const row = rows.find((r) => r.id === approvalId);
     if (!row) throw new BadRequestException('Baris approval tidak ditemukan');
     if (row.status !== 'waiting') throw new BadRequestException('Baris approval sudah diproses');
+    // Berjenjang: hanya urutan terendah yang masih waiting yang boleh diproses.
+    // Urutan lebih tinggi tunggu hingga urutan sebelumnya verified.
+    const lowerWaiting = rows.some(
+      (r) => r.tahap === row.tahap && r.urutan < row.urutan && r.status === 'waiting',
+    );
+    if (lowerWaiting) throw new BadRequestException('Urutan approval sebelumnya belum selesai');
     if (row.tahap === 'approval_penandatangan' && aksi === 'kembalikan') {
       // kembalikan pada tahap penandatangan → balik ke blanko_verbal
       row.status = 'waiting';

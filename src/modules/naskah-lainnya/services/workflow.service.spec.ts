@@ -63,6 +63,19 @@ describe('WorkflowService', () => {
     expect(next).toBe('persetujuan');
   });
 
+  it('applyApproval menolak aksi urutan 2 bila urutan 1 masih waiting (berjenjang)', async () => {
+    const naskah = { id: 'n5', tahapan: 'persetujuan', butuhLegal: true } as NaskahEntity;
+    const approval = [
+      { id: 'a1', tahap: 'persetujuan', urutan: 1, status: 'waiting' },
+      { id: 'a2', tahap: 'persetujuan', urutan: 2, status: 'waiting' },
+    ] as NaskahLainnyaApprovalEntity[];
+    const manager = { save: jest.fn((e) => e) };
+    await expect(
+      svc.applyApproval(naskah, approval, 'a2', 'setuju', { aktor: 'Test', catatan: undefined, manager: manager as any }),
+    ).rejects.toThrow('Urutan approval sebelumnya belum selesai');
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
   it('tolak → perlu_perbaikan', async () => {
     const naskah = { id: 'n4', tahapan: 'persetujuan', butuhLegal: true } as NaskahEntity;
     const approval = [{ id: 'a1', tahap: 'persetujuan', urutan: 1, status: 'waiting' }] as NaskahLainnyaApprovalEntity[];
