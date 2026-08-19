@@ -658,6 +658,9 @@ export class NaskahLainnyaService {
     if (Object.keys(patch).length > 0) {
       await this.naskahRepo.update({ id: n.id, tanggal: n.tanggal as any }, patch);
     }
+    await this.catatVersiNaskah(
+      n.id, n.tahapan, key, file.originalname, file.mimetype, file.size, user,
+    );
     return { success: true, data: { parameter: params } };
   }
 
@@ -989,6 +992,27 @@ export class NaskahLainnyaService {
         `Nomor "${nomor}" tidak sesuai format ${jenis}: ${format}. Contoh valid untuk ${jenis}: lihat Standar Format Penomoran.`,
       );
     }
+  }
+
+  /** Status timeline berdasarkan tahapan saat upload. perlu_perbaikan → revisi, lainnya → draf. */
+  private mapStatusUpload(tahapan: string | null): string {
+    return tahapan === 'perlu_perbaikan' ? 'revisi' : 'draf';
+  }
+
+  /** Catat satu baris history versi naskah (tipe='naskah'). Dipakai uploadDokumen & kirim. */
+  private async catatVersiNaskah(
+    naskahId: string, tahapan: string | null, minioKey: string,
+    nama: string, mimetype: string, ukuran: number | null, user: CurrentUser,
+  ): Promise<void> {
+    const doc = this.dokumenRepo.create({
+      id: uuidv4(), naskahId, tipe: 'naskah',
+      nama, minioKey, mimetype, ukuran,
+      tahapan, status: this.mapStatusUpload(tahapan),
+      uploaderNama: user.nama,
+      uploaderJabatan: user.positionText ?? null,
+      uploaderPersnum: user.persnum,
+    });
+    await this.dokumenRepo.save(doc);
   }
 
   private async findDokumen(n: NaskahEntity) {
