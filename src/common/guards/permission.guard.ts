@@ -95,6 +95,16 @@ export class PermissionGuard implements CanActivate {
     allowedStatuses?: string[],
   ): void {
     if (!user) return;
+    // 🛡️ SUPERADMIN bypass — tidak diblokir oleh VI/SE guard
+    const activeRoleName =
+      user.activeRole?.name ??
+      (user.role ? String(user.role).toUpperCase() : undefined);
+    if (
+      activeRoleName &&
+      activeRoleName.toUpperCase() === String(RoleName.SUPERADMIN)
+    ) {
+      return;
+    }
     const ps = user.position_status as string | undefined;
     if (!ps || !this.VIEW_ONLY_STATUSES.has(ps)) return;
     if (!req.method || !this.WRITE_METHODS.has(req.method)) return;
