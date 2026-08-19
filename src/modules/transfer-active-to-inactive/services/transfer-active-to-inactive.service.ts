@@ -33,6 +33,7 @@ import { NotificationType } from '../../notification/entities/notification.entit
 import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
 import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -59,6 +60,7 @@ export class TransferActiveToInactiveService {
     private readonly notificationService: NotificationService,
     private readonly arsipDinamisService: ArsipDinamisService,
     private readonly orgDataService: OrgDataService,
+    private readonly organizationTuService: OrganizationTuService,
   ) {}
 
   // ─── CREATE ────────────────────────────────────────────────────────────
@@ -710,7 +712,25 @@ export class TransferActiveToInactiveService {
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
 
     // Role-based filter
-    if (roleName === 'USER') {
+    // TU (Unit Dokumen) dengan tuRoles bisa melihat semua usulan SELESAI
+    // (untuk pengajuan penyusutan). Cek dari JWT tuRoles DAN dari organization_tu
+    // (fallback jika JWT belum di-refresh).
+    const tuRoles: string[] = Array.isArray(user.tuRoles) ? user.tuRoles : [];
+    let isTu = tuRoles.includes('tu');
+
+    // Fallback: cek organization_tu jika tuRoles tidak ada di JWT
+    if (!isTu && user.persnum) {
+      try {
+        const activeRoles = await this.organizationTuService.getActiveRolesForPersnum(Number(user.persnum));
+        isTu = activeRoles.includes('tu');
+      } catch {
+        // ignore
+      }
+    }
+
+    if (isTu && filter.status === 'SELESAI') {
+      // TU melihat semua usulan SELESAI — tidak ada filter sekretaris/atasan
+    } else if (roleName === 'USER') {
       // Cek apakah user ini pernah dipilih sebagai atasan managerial
       const isAtasan = await this.isAtasanManagerial(user);
       if (isAtasan) {
