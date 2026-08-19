@@ -262,6 +262,34 @@ describe('NaskahLainnyaService', () => {
     expect(aqb.setParameters).toHaveBeenCalledWith(expect.objectContaining({ status: 'waiting' }));
   });
 
+  it('getPersetujuan(menunggu): berjenjang — query approval menambah gate urutan MIN', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    const aqb = makeQb([], [{ naskahId: 'n3' }]);
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(aqb);
+    const naskahRepo = (await svc as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([
+      { id: 'n3', nomor: 'PER.3', jenis: 'PER', tahapan: 'persetujuan', butuhLegal: false,
+        pemrakarsa: { nama: 'C' }, perihal: 'p3', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18') },
+    ]));
+    await svc.getPersetujuan({ positionId: 'POS_X', nama: 'X' } as any);
+    const andWhereCalls = (aqb.andWhere as jest.Mock).mock.calls.map((c) => String(c[0]));
+    expect(andWhereCalls.some((s) => s.includes('MIN(a2.urutan)'))).toBe(true);
+  });
+
+  it('getPersetujuan(disetujui): berjenjang — query riwayat TIDAK menambah gate urutan', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    const aqb = makeQb([], [{ naskahId: 'n4' }]);
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(aqb);
+    const naskahRepo = (await svc as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([
+      { id: 'n4', nomor: 'PER.4', jenis: 'PER', tahapan: 'selesai', butuhLegal: false,
+        pemrakarsa: { nama: 'D' }, perihal: 'p4', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18') },
+    ]));
+    await svc.getPersetujuan({ positionId: 'POS_X', nama: 'X' } as any, 'disetujui');
+    const andWhereCalls = (aqb.andWhere as jest.Mock).mock.calls.map((c) => String(c[0]));
+    expect(andWhereCalls.some((s) => s.includes('MIN(a2.urutan)'))).toBe(false);
+  });
+
   it('getList: legal-role user → exclude legal_drafting & blanko_verbal dari Daftar', async () => {
     const legalRole = (await svc as any).legalRoleService as any;
     legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);

@@ -174,14 +174,16 @@ export class NaskahLainnyaService {
     ]);
 
     // Cek apakah user adalah approver yang sedang menunggu (status='waiting')
-    // untuk naskah ini. Hanya approver yang bisa setuju/tolak/kembalikan.
-    const isCurrentApprover = approval.some((a) => {
-      if (a.status !== 'waiting') return false;
-      const posId = user.positionId ?? user.position;
-      if (posId && a.positionId === posId) return true;
-      if (user.nama && a.nama === user.nama) return true;
-      return false;
-    });
+    // untuk naskah ini. Berjenjang: hanya urutan terendah yang masih waiting yang
+    // berhak setuju/tolak/kembalikan; urutan lebih tinggi tunggu urutan sebelumnya.
+    const waitingRows = approval.filter((a) => a.status === 'waiting');
+    const minUrutan = waitingRows.length
+      ? Math.min(...waitingRows.map((a) => a.urutan))
+      : null;
+    const userPosId = user.positionId ?? user.position;
+    const isCurrentApprover = waitingRows
+      .filter((a) => a.urutan === minUrutan)
+      .some((a) => (userPosId && a.positionId === userPosId) || (user.nama && a.nama === user.nama));
 
     // Cek apakah user adalah pemrakarsa (match via identity unik: position_id atau persnum).
     // Jangan match by createdByPosition (jabatan text) — bocor antar user dengan jabatan sama.
@@ -632,13 +634,19 @@ export class NaskahLainnyaService {
       params.nama = user.nama;
     }
     if (conditions.length === 0) return [];
-    const rows = await this.approvalRepo
+    const qb = this.approvalRepo
       .createQueryBuilder('a')
       .select('DISTINCT a.naskah_id', 'naskahId')
       .where(`(${conditions.join(' OR ')})`)
-      .andWhere('a.status = :status')
-      .setParameters(params)
-      .getRawMany<{ naskahId: string }>();
+      .andWhere('a.status = :status');
+    // Berjenjang: untuk antrian 'menunggu', hanya approver pada urutan terendah
+    // yang masih waiting yang melihat naskah — urutan lebih tinggi tunggu giliran.
+    if (status === 'waiting') {
+      qb.andWhere(
+        'a.urutan = (SELECT MIN(a2.urutan) FROM naskah_lainnya_approval a2 WHERE a2.naskah_id = a.naskah_id AND a2.status = \'waiting\')',
+      );
+    }
+    const rows = await qb.setParameters(params).getRawMany<{ naskahId: string }>();
     return rows.map((r) => r.naskahId);
   }
 
