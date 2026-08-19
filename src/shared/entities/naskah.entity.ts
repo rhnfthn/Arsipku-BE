@@ -131,6 +131,16 @@ export class NaskahEntity {
   })
   penandatanganChain: { positionId?: string; persnum?: number; nama: string; jabatan: string }[] | null;
 
+  // Naskah Lainnya — index penandatangan aktif saat fase tanda_tangan (1-based).
+  // Null di luar fase signing. signing_index === N menandakan signer terakhir.
+  @Column('int', { name: 'signing_index', nullable: true })
+  signingIndex: number | null;
+
+  // Naskah Lainnya — MinIO key artifact signed (QR-injected untuk Digital / upload
+  // manual untuk Fisik). Terpisah dari `lampiran` asli (sumber re-render Digital).
+  @Column('varchar', { name: 'signed_lampiran', length: 255, nullable: true })
+  signedLampiran: string | null;
+
   // Naskah Lainnya — tahapan workflow & flag legal. Null pada baris existing/naskah dinas.
   @Column('varchar', { name: 'tahapan', length: 32, nullable: true })
   tahapan: string | null;
