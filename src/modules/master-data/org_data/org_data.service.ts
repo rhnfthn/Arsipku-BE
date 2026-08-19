@@ -396,6 +396,27 @@ export class OrgDataService {
       })
       .sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
 
+    // Direktur Utama wajib ada di daftar verifikator (otoritas tertinggi),
+    // meskipun berada di direktorat berbeda dari pengaju — filter direktorat
+    // di atas bisa mengecualikannya. Cari di company sama, chief=1, position_text
+    // mengandung "Direktur Utama" / "President Director", bukan posisi pengaju.
+    const isDirekturUtama = (text: any): boolean =>
+      /DIREKTUR\s+UTAMA/i.test(String(text || '')) ||
+      /PRESIDENT\s+DIRECTOR/i.test(String(text || ''));
+    if (!atasan.some((x) => isDirekturUtama(x.position_text))) {
+      const du = barisData.find(
+        (x) =>
+          Number(x.position) !== Number(positionId) &&
+          x.chief === 1 &&
+          Number(x.company ?? null) === signerCompany &&
+          isDirekturUtama(x.position_text),
+      );
+      if (du) {
+        atasan.push(du);
+        atasan.sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
+      }
+    }
+
     return {
       success: true,
       data: atasan,
