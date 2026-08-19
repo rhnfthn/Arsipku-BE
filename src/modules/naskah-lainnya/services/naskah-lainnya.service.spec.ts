@@ -363,4 +363,49 @@ describe('NaskahLainnyaService', () => {
     const args = (workflowMock.buildAvailableActions as jest.Mock).mock.calls.at(-1);
     expect(args?.[3]).toBe(true); // hasWaitingLegalRows
   });
+
+  it('catatVersiNaskah menyimpan baris history dengan status sesuai tahapan', async () => {
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.create.mockImplementation((e: any) => e);
+    dokumenRepo.save.mockResolvedValue({});
+    await (svc as any).catatVersiNaskah(
+      'n1', 'perlu_perbaikan', 'k1', 'rev.docx', 'application/x', 10,
+      { persnum: 5, nama: 'Sari', positionText: 'Legal' } as any,
+    );
+    expect(dokumenRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      naskahId: 'n1', tipe: 'naskah', minioKey: 'k1', nama: 'rev.docx',
+      tahapan: 'perlu_perbaikan', status: 'revisi',
+      uploaderNama: 'Sari', uploaderJabatan: 'Legal', uploaderPersnum: 5,
+    }));
+  });
+
+  it('mapStatusUpload: konsep→draf, legal_drafting→draf, perlu_perbaikan→revisi, null→draf', () => {
+    const m = (svc as any).mapStatusUpload.bind(svc);
+    expect(m('konsep')).toBe('draf');
+    expect(m('legal_drafting')).toBe('draf');
+    expect(m('perlu_perbaikan')).toBe('revisi');
+    expect(m(null)).toBe('draf');
+  });
+
+  it('uploadDokumen mencatat baris history naskah (tipe=naskah, fase, status, uploader)', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n1', jenis: 'PER', tahapan: 'konsep', tanggal: new Date('2026-08-11'),
+    });
+    naskahRepo.update.mockResolvedValue({});
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.create.mockImplementation((e: any) => e);
+    dokumenRepo.save.mockResolvedValue({});
+    const file = {
+      originalname: 'draft.docx', buffer: Buffer.from('x'),
+      mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 10,
+    } as any;
+    await svc.uploadDokumen('n1', file, { persnum: 1, nama: 'Budi', positionText: 'Kabag' } as any);
+    expect(dokumenRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      naskahId: 'n1', tipe: 'naskah', nama: 'draft.docx',
+      tahapan: 'konsep', status: 'draf',
+      uploaderNama: 'Budi', uploaderJabatan: 'Kabag', uploaderPersnum: 1,
+    }));
+  });
 });
