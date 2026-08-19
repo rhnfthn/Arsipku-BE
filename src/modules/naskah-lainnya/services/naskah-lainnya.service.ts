@@ -481,6 +481,11 @@ export class NaskahLainnyaService {
           folder,
         );
         n.lampiran = result.key;
+        await this.catatVersiNaskah(
+          n.id, n.tahapan, result.key, filename,
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          null, user,
+        );
       }
 
       // ── Set nomor final, simpan ──
@@ -708,14 +713,20 @@ export class NaskahLainnyaService {
     if (n.tahapan && n.tahapan !== 'konsep' && n.tahapan !== 'perlu_perbaikan') {
       throw new BadRequestException('Hanya naskah draft (konsep/perlu_perbaikan) yang bisa dihapus');
     }
-    // Hapus file dari MinIO jika ada
-    if (n.lampiran) {
-      try { await this.storage.deleteFile(n.lampiran); } catch { /* abaikan — file mungkin sudah tidak ada */ }
+    // Hapus semua MinIO key versi naskah (lampiran, signedLampiran, baris history) + child tables.
+    const versiRows = await this.dokumenRepo.find({ where: { naskahId: id, tipe: 'naskah' } });
+    const keys = new Set<string>();
+    if (n.lampiran) keys.add(n.lampiran);
+    if (n.signedLampiran) keys.add(n.signedLampiran);
+    for (const v of versiRows) if (v.minioKey) keys.add(v.minioKey);
+    for (const k of keys) {
+      try { await this.storage.deleteFile(k); } catch { /* abaikan — file mungkin sudah tidak ada */ }
     }
     // Hapus child tables
     await this.approvalRepo.delete({ naskahId: id });
     await this.riwayatRepo.delete({ naskahId: id });
     await this.blankoRepo.delete({ naskahId: id });
+    await this.dokumenRepo.delete({ naskahId: id });
     // Hapus naskah
     await this.naskahRepo.delete({ id, tanggal: n.tanggal as any });
     return { success: true, data: { id } };
@@ -778,7 +789,7 @@ export class NaskahLainnyaService {
     if (patch.signingIndex !== undefined) n.signingIndex = 1;
     await this.naskahRepo.update({ id: n.id, tanggal: n.tanggal as any }, patch);
     if (next === 'tanda_tangan' && n.signOption === 'ttd_basah') {
-      await this.prepareFisikArtifact(n);
+      await this.prepareFisikArtifact(n, user);
     }
     return this.getDetail(id, user);
   }
@@ -803,7 +814,7 @@ export class NaskahLainnyaService {
       });
     });
     if (n.tahapan === 'tanda_tangan' && n.signOption === 'ttd_basah') {
-      await this.prepareFisikArtifact(n);
+      await this.prepareFisikArtifact(n, user);
     }
     return this.getDetail(id, user);
   }
@@ -900,6 +911,7 @@ export class NaskahLainnyaService {
       { id: n.id, tanggal: n.tanggal as any },
       { signedLampiran: result.key },
     );
+    await this.upsertDittdRow(n.id, result.key, user);
 
     // Advance signing index / transisi ke selesai.
     await this.dataSource.transaction(async (manager) => {
@@ -942,6 +954,7 @@ export class NaskahLainnyaService {
       { id: n.id, tanggal: n.tanggal as any },
       { signedLampiran: result.key },
     );
+    await this.upsertDittdRow(n.id, result.key, user);
 
     await this.dataSource.transaction(async (manager) => {
       await this.workflow.transisiTandaTangan(n, {
@@ -952,7 +965,7 @@ export class NaskahLainnyaService {
   }
 
   /** Fisik: replace placeholder {{tanda_tangan_i}} → "nama — jabatan" sekali di awal fase signing. */
-  private async prepareFisikArtifact(n: NaskahEntity): Promise<void> {
+  private async prepareFisikArtifact(n: NaskahEntity, user: CurrentUser): Promise<void> {
     if (!n.lampiran) return;
     const chain = n.penandatanganChain ?? [];
     if (chain.length === 0) return;
@@ -973,6 +986,7 @@ export class NaskahLainnyaService {
       { id: n.id, tanggal: n.tanggal as any },
       { signedLampiran: result.key },
     );
+    await this.upsertDittdRow(n.id, result.key, user);
   }
 
   private async findNaskah(id: string): Promise<NaskahEntity> {
@@ -1000,6 +1014,32 @@ export class NaskahLainnyaService {
   }
 
   /** Catat satu baris history versi naskah (tipe='naskah'). Dipakai uploadDokumen & kirim. */
+  /** Upsert tepat satu row status='dittd' per naskah (node Final tertanda tangan). */
+  private async upsertDittdRow(naskahId: string, minioKey: string, user: CurrentUser): Promise<void> {
+    const existing = await this.dokumenRepo.findOne({
+      where: { naskahId, tipe: 'naskah', status: 'dittd' as any },
+    });
+    const nama = minioKey.split('/').pop() ?? 'signed.docx';
+    if (existing) {
+      await this.dokumenRepo.update(existing.id, {
+        minioKey, nama,
+        uploaderNama: user.nama,
+        uploaderJabatan: user.positionText ?? null,
+        uploaderPersnum: user.persnum,
+      });
+    } else {
+      const doc = this.dokumenRepo.create({
+        id: uuidv4(), naskahId, tipe: 'naskah', status: 'dittd',
+        nama, minioKey, mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ukuran: null, tahapan: 'selesai',
+        uploaderNama: user.nama,
+        uploaderJabatan: user.positionText ?? null,
+        uploaderPersnum: user.persnum,
+      });
+      await this.dokumenRepo.save(doc);
+    }
+  }
+
   private async catatVersiNaskah(
     naskahId: string, tahapan: string | null, minioKey: string,
     nama: string, mimetype: string, ukuran: number | null, user: CurrentUser,

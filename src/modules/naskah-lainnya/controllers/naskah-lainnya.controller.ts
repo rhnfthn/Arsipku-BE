@@ -105,10 +105,16 @@ export class NaskahLainnyaController {
   }
 
   @Get(':id/dokumen/:dokumenId/download')
-  async downloadDokumenTambahan(@Param('id') id: string, @Param('dokumenId') dokumenId: string, @Res() res: Response) {
+  async downloadDokumenTambahan(
+    @Param('id') id: string,
+    @Param('dokumenId') dokumenId: string,
+    @Query('inline') inline: string,
+    @Res() res: Response,
+  ) {
     const { buffer, mimetype, nama } = await this.service.downloadDokumenTambahan(id, dokumenId);
     res.setHeader('Content-Type', mimetype);
-    res.setHeader('Content-Disposition', `attachment; filename="${nama}"`);
+    const disposition = inline === '1' ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${disposition}; filename="${nama}"`);
     res.send(buffer);
   }
 
