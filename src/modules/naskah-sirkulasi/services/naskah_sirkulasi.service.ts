@@ -491,6 +491,13 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
+    // Filter by search (perihal / nomor)
+    if (query.search && query.search.trim()) {
+      const keyword = `%${query.search.trim()}%`;
+      whereClause += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
+      params.push(keyword, keyword);
+    }
+
     // Filter by status baca
     if (query.status_baca === 'terbaca') {
       whereClause += ` AND s.send_read_time IS NOT NULL`;
