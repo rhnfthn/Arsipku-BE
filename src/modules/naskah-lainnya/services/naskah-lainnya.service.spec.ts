@@ -468,4 +468,49 @@ describe('NaskahLainnyaService', () => {
       'Riwayat naskah tidak dapat dihapus per versi',
     );
   });
+
+  it('upsertDittdRow insert bila belum ada row dittd, update bila sudah ada', async () => {
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.create.mockImplementation((e: any) => e);
+    // case 1: no existing → insert (save dipanggil)
+    dokumenRepo.findOne.mockResolvedValueOnce(null);
+    dokumenRepo.save.mockResolvedValue({});
+    await (svc as any).upsertDittdRow('n1', 'signed-1', { persnum: 2, nama: 'Andi', positionText: 'Dir' } as any);
+    expect(dokumenRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      naskahId: 'n1', tipe: 'naskah', status: 'dittd', minioKey: 'signed-1', uploaderNama: 'Andi',
+    }));
+    // case 2: existing → update (update dipanggil, save tidak)
+    dokumenRepo.findOne.mockResolvedValueOnce({ id: 'row1', naskahId: 'n1', tipe: 'naskah', status: 'dittd' });
+    dokumenRepo.update.mockResolvedValue({});
+    await (svc as any).upsertDittdRow('n1', 'signed-2', { persnum: 3, nama: 'Budi', positionText: 'Dir2' } as any);
+    expect(dokumenRepo.update).toHaveBeenCalledWith('row1', expect.objectContaining({
+      minioKey: 'signed-2', uploaderNama: 'Budi',
+    }));
+  });
+
+  it('deleteDraft menghapus MinIO key semua baris naskah + dokumenRepo.delete', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n1', tahapan: 'konsep', tanggal: new Date('2026-08-11'),
+      lampiran: 'k-main', signedLampiran: null,
+    });
+    naskahRepo.delete.mockResolvedValue({});
+    const dokumenRepo = (svc as any).dokumenRepo;
+    dokumenRepo.find.mockResolvedValue([
+      { id: 'd1', naskahId: 'n1', tipe: 'naskah', minioKey: 'k1' },
+      { id: 'd2', naskahId: 'n1', tipe: 'naskah', minioKey: 'k-main' }, // sama dengan lampiran
+    ]);
+    (svc as any).approvalRepo.delete.mockResolvedValue({});
+    (svc as any).riwayatRepo.delete.mockResolvedValue({});
+    (svc as any).blankoRepo.delete.mockResolvedValue({});
+    const storage = (svc as any).storage;
+    storage.deleteFile = jest.fn().mockResolvedValue({});
+
+    await svc.deleteDraft('n1');
+
+    const deleted = storage.deleteFile.mock.calls.map((c: any) => c[0]);
+    expect(deleted).toContain('k1');
+    expect(deleted).toContain('k-main');
+    expect(dokumenRepo.delete).toHaveBeenCalledWith({ naskahId: 'n1' });
+  });
 });
