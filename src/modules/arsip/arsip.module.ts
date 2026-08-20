@@ -14,9 +14,11 @@ import { Berkas } from '../berkas/entities/berkas.entity';
 import { BerkasNaskah } from '../arsip-dinamis/entities/berkas-naskah.entity';
 import { NaskahEntity } from '../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../naskah-lampiran/entities/naskah_lampiran.entity';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
+    StorageModule,
     // Entities dari DB arsip (koneksi archiveConnection)
     TypeOrmModule.forFeature(
       [

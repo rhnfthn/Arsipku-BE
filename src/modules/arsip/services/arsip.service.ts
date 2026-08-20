@@ -10,6 +10,7 @@ import { Berkas } from '../../berkas/entities/berkas.entity';
 import { BerkasNaskah } from '../../arsip-dinamis/entities/berkas-naskah.entity';
 import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
+import { StorageService } from '../../storage/services/storage.service';
 
 /**
  * DTO input untuk arsipkan berkas.
@@ -53,6 +54,7 @@ export class ArsipService {
     private readonly dataSource: DataSource,
     @InjectDataSource('archiveConnection')
     private readonly archiveDataSource: DataSource,
+    private readonly storageService: StorageService,
   ) {}
 
   private getCurrentDateStr(): string {
@@ -132,7 +134,8 @@ export class ArsipService {
           hitung_waktu_retensi_dari: berkas.hitungWaktuRetensiDari,
           retensi_aktif_tahun: berkas.retensiAktifTahun ?? null,
           retensi_inaktif_tahun: berkas.retensiInaktifTahun ?? null,
-          tindakan_penyusutan_akhir: berkas.tindakanPenyusutanAkhir,
+          tindakan_penyusutan_akhir:
+            input.jenisPenyusutan === 'musnah' ? 'Musnah' : 'Permanen',
           lokasi_fisik: berkas.lokasi,
           foto_lokasi_fisik: berkas.fotoLokasiFisik ?? null,
           dokumen_pendukung: berkas.dokumenPendukung ?? null,
@@ -188,51 +191,63 @@ export class ArsipService {
           );
 
           if (naskah) {
-            await naskahRepo.save(
-              naskahRepo.create({
-                archived_year: archivedYear,
+            // Cek apakah naskah sudah pernah di-arsipkan (bisa muncul di
+            // berkas lain yang sudah di-arsipkan sebelumnya). Jika sudah,
+            // lewati insert arsip_naskah & lampiran untuk hindari duplicate
+            // key uk_source_naskah (source_naskah_id, archived_year).
+            const existingNaskah = await naskahRepo.findOne({
+              where: {
                 source_naskah_id: naskah.id,
-                jenis: naskah.jenis,
-                klasifikasi: naskah.klasifikasi ?? null,
-                klasifikasi_text: naskah.klasifikasi_text ?? null,
-                sifat: naskah.sifat,
-                nomor: naskah.nomor ?? null,
-                tanggal: naskah.tanggal as unknown as string,
-                lampiran: naskah.lampiran ?? null,
-                perihal: naskah.perihal ?? null,
-                konten: naskah.konten ?? null,
-                tempat: naskah.tempat ?? null,
-                status: naskah.status,
-                final_pdf: naskah.final_pdf ?? null,
-                english: naskah.english ?? false,
-                tanda_tangan: naskah.tandaTangan ?? null,
-                sign_option: naskah.signOption ?? null,
-                dikirim_oleh: naskah.dikirimOleh
-                  ? JSON.stringify(naskah.dikirimOleh)
-                  : null,
-                created_by_position: naskah.createdByPosition ?? null,
-                atas_nama: naskah.atasNama ?? null,
-                atas_nama_position_id: naskah.atasNamaPositionId ?? null,
-                tanggal_masuk_arsip: tanggalMasuk,
-              }),
-            );
-
-            // Snapshot lampiran naskah
-            const lampiranList = await this.sourceLampiranRepo.find({
-              where: { id_naskah: naskah.id },
+                archived_year: archivedYear,
+              },
             });
-            for (const lam of lampiranList) {
-              await lampiranRepo.save(
-                lampiranRepo.create({
+            if (!existingNaskah) {
+              await naskahRepo.save(
+                naskahRepo.create({
                   archived_year: archivedYear,
-                  source_lampiran_id: String(lam.id),
                   source_naskah_id: naskah.id,
-                  nama_file: lam.file_name ?? 'unknown',
-                  path_file: lam.file_pdf ?? '',
-                  tipe_file: lam.jenis ?? null,
-                  ukuran_bytes: null,
+                  jenis: naskah.jenis,
+                  klasifikasi: naskah.klasifikasi ?? null,
+                  klasifikasi_text: naskah.klasifikasi_text ?? null,
+                  sifat: naskah.sifat,
+                  nomor: naskah.nomor ?? null,
+                  tanggal: naskah.tanggal as unknown as string,
+                  lampiran: naskah.lampiran ?? null,
+                  perihal: naskah.perihal ?? null,
+                  konten: naskah.konten ?? null,
+                  tempat: naskah.tempat ?? null,
+                  status: naskah.status,
+                  final_pdf: naskah.final_pdf ?? null,
+                  english: naskah.english ?? false,
+                  tanda_tangan: naskah.tandaTangan ?? null,
+                  sign_option: naskah.signOption ?? null,
+                  dikirim_oleh: naskah.dikirimOleh
+                    ? JSON.stringify(naskah.dikirimOleh)
+                    : null,
+                  created_by_position: naskah.createdByPosition ?? null,
+                  atas_nama: naskah.atasNama ?? null,
+                  atas_nama_position_id: naskah.atasNamaPositionId ?? null,
+                  tanggal_masuk_arsip: tanggalMasuk,
                 }),
               );
+
+              // Snapshot lampiran naskah
+              const lampiranList = await this.sourceLampiranRepo.find({
+                where: { id_naskah: naskah.id },
+              });
+              for (const lam of lampiranList) {
+                await lampiranRepo.save(
+                  lampiranRepo.create({
+                    archived_year: archivedYear,
+                    source_lampiran_id: String(lam.id),
+                    source_naskah_id: naskah.id,
+                    nama_file: lam.file_name ?? 'unknown',
+                    path_file: lam.file_pdf ?? '',
+                    tipe_file: lam.jenis ?? null,
+                    ukuran_bytes: null,
+                  }),
+                );
+              }
             }
           }
         }
@@ -361,6 +376,20 @@ export class ArsipService {
       where: { source_berkas_id: sourceBerkasId },
       order: { urutan: 'ASC' },
     });
+
+    // Ambil final_pdf dari tabel arsip_naskah sebagai fallback jika
+    // arsip_berkas_naskah.final_pdf null.
+    const sourceNaskahIds = relasiList.map((r) => r.source_naskah_id);
+    const arsipNaskahMap = new Map<string, string | null>();
+    if (sourceNaskahIds.length > 0) {
+      const arsipNaskahList = await this.naskahRepo.find({
+        where: { source_naskah_id: In(sourceNaskahIds) },
+      });
+      for (const an of arsipNaskahList) {
+        arsipNaskahMap.set(an.source_naskah_id, an.final_pdf ?? null);
+      }
+    }
+
     const naskah = relasiList.map((r) => ({
       id: String(r.id),
       naskahId: r.source_naskah_id,
@@ -370,10 +399,19 @@ export class ArsipService {
       tanggalNaskah: r.tanggal_naskah,
       sumber: r.sumber,
       urutan: r.urutan,
-      finalPdf: r.final_pdf,
+      finalPdf: r.final_pdf ?? arsipNaskahMap.get(r.source_naskah_id) ?? null,
       status: r.status_naskah,
     }));
     return { berkas, naskah };
+  }
+
+  /**
+   * Ambil presigned URL untuk final_pdf naskah dari snapshot DB arsip.
+   * Dipakai preview-berkas untuk berkas permanen yang sudah di-arsipkan.
+   */
+  async getNaskahPdfUrl(key: string): Promise<string | null> {
+    if (!key) return null;
+    return await this.storageService.getFileUrl(key);
   }
 
   /**

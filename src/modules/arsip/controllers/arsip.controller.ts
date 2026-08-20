@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/typeorm';
 import { Connection } from 'typeorm';
 import { ArsipService } from '../services/arsip.service';
@@ -31,6 +31,18 @@ export class ArsipController {
     return {
       status: 'success',
       data: await this.arsipService.getArchivedBerkasDetail(id),
+    };
+  }
+
+  /**
+   * Presigned URL untuk final_pdf naskah dari snapshot DB arsip.
+   * GET /api/arsip/naskah/pdf?key=...
+   */
+  @Get('naskah/pdf')
+  async getNaskahPdfUrl(@Query('key') key: string) {
+    return {
+      status: 'success',
+      data: { url: await this.arsipService.getNaskahPdfUrl(key) },
     };
   }
 

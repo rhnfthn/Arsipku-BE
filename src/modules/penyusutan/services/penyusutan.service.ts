@@ -346,6 +346,17 @@ export class PenyusutanService {
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
 
+    // Soft-delete master berkas dari DB inti — arsip permanen sudah
+    // di-backup ke DB arsip, sehingga preview-berkas menarik data dari
+    // DB arsip (newarsipku_arsip), bukan DB inti.
+    try {
+      await this.arsipService.softDeleteBerkas(item.berkasId);
+    } catch (e: any) {
+      this.logger.warn(
+        `Penataan sukses tapi gagal hapus berkas inti: ${e?.message}`,
+      );
+    }
+
     this.logAudit(
       user,
       saved,
