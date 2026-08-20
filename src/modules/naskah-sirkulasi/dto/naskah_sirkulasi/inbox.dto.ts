@@ -14,6 +14,10 @@ import { Type, Transform } from 'class-transformer';
  */
 export class InboxQueryDto {
   @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
   @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], {
     message: 'Jenis naskah tidak valid',
   })
