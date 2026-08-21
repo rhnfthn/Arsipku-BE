@@ -69,9 +69,44 @@ export class TandaTanganDto {
   @IsString() @IsOptional() passphrase?: string;
 }
 
+/**
+ * Payload lembar persetujuan direksi & blanko verbal — field terstruktur (bukan html).
+ * BE membangun template sheet dari field ini (mirip GeneratePdfNodinService).
+ * `catatan` dipakai untuk paraf/tolak (transient, per-aksi).
+ */
+export class SheetDataDto {
+  @IsString() @IsOptional() tanggal?: string;            // YYYY-MM-DD
+  @IsString() @IsOptional() nomor?: string;
+  @IsString() @IsOptional() diusulkanOleh?: string;
+  @IsString() @IsOptional() jabatanDiusulkan?: string;
+  @IsString() @IsOptional() perihal?: string;
+  @IsString() @IsOptional() referensiDari?: string;
+  @IsString() @IsOptional() referensiNomor?: string;
+  @IsString() @IsOptional() referensiTanggal?: string;
+  @IsString() @IsOptional() klasifikasi?: string;
+  @IsString() @IsOptional() lampiran?: string;
+  @IsString() @IsOptional() legalDrafter?: string;
+  @IsString() @IsOptional() legalDrafterJabatan?: string;
+  @IsString() @IsOptional() legalChecker?: string;
+  @IsString() @IsOptional() legalCheckerJabatan?: string;
+  @IsString() @IsOptional() bodyHtml?: string;
+  @IsString() @IsOptional() catatan?: string;
+
+  // FE SheetFormModel mengirim alamatInfo (kantor/gedung/kota/alamat dari data
+  // org/user). Diterima di sini agar lolos forbidNonWhitelisted, tapi TIDAK
+  // diteruskan ke SheetPdfData — BE membangun kop sendiri dari data naskah.
+  @IsObject() @IsOptional() alamatInfo?: Record<string, any>;
+}
+
 // Pemberi persetujuan legal drafting — drafter legal memilih approver dari unit legal
 // (GET /konfigurasi/unit-legal). Urutan array = urutan persetujuan berjenjang.
 export class KirimApprovalLegalDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => ApprovalDto)
   approval: ApprovalDto[];
+
+  // Alasan kirim approval (item #8) → dicatat ke riwayat (transient, per-aksi).
+  @IsString() @IsOptional() catatan?: string;
+
+  // Catatan hasil pemeriksaan legal (HTML TinyMCE, item #4) → persist ke naskah.catatan_legal.
+  @IsString() @IsOptional() catatan_legal?: string;
 }

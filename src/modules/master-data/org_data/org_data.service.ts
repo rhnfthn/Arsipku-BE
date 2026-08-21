@@ -46,6 +46,56 @@ export class OrgDataService {
     });
   }
 
+  findBodByCompany(
+    rows: any[],
+    // company tidak dipakai: direksi = semua baris bod_tag='BOD' di seluruh
+    // org, tidak perlu filter per company. Param tetap di signature agar caller
+    // (controller getBod & naskah getBodDirectors) tak berubah.
+    company?: string | number,
+  ): Array<{
+    positionId: string;
+    persnum?: number;
+    nama: string;
+    jabatan: string;
+    bodTag: string;
+  }> {
+    void company;
+    // rows = OrgDatum[] (findAll, createAt DESC). BOD bukan kolom OrgDatum —
+    // ia bersar di position_json, yaitu array flat posisi (barisData) dari
+    // flattenOrgTree: tiap elemen punya company/position/position_text/
+    // persnum_person/persnum_person_text/bod_tag langsung. Sebelumnya filter
+    // r.company/JSON.parse(r.position_json) di level OrgDatum → selalu kosong
+    // karena field itu tidak ada di entity & position_json sudah ter-parse.
+    const withJson = rows.filter((r) => Array.isArray(r?.position_json) && r.position_json.length > 0);
+    const barisData: any[] = withJson[0]?.position_json ?? [];
+    // DEBUG: lihat persis data yang diproses. Hapus setelah fix terkonfirmasi.
+    const tagDist: Record<string, number> = {};
+    for (const x of barisData) {
+      const t = String(x?.bod_tag ?? '').toUpperCase();
+      tagDist[t] = (tagDist[t] || 0) + 1;
+    }
+    console.log(
+      '[findBodByCompany] rows=', rows.length,
+      'rowsDenganPositionJson=', withJson.length,
+      'barisData=', barisData.length,
+      'bod_tag distribusi=', JSON.stringify(tagDist),
+    );
+    const isDirut = (text: string) => /direktur\s*utama/i.test(text || '');
+    return barisData
+      .filter((x) => x && String(x.bod_tag || '').toUpperCase().trim() === 'BOD')
+      .map((x) => ({
+        positionId: String(x.position ?? ''),
+        persnum: x.persnum_person ? Number(x.persnum_person) : undefined,
+        nama: x.persnum_person_text || '',
+        jabatan: x.position_text || '',
+        bodTag: 'BOD',
+      }))
+      .sort(
+        (a, b) =>
+          (isDirut(b.jabatan) ? 1 : 0) - (isDirut(a.jabatan) ? 1 : 0),
+      );
+  }
+
   async findOne(id: string): Promise<OrgDatum> {
     const company = await this.cRepo.findOne({ where: { id } });
     if (!company) {

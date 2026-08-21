@@ -78,13 +78,24 @@ export class NaskahEntity {
     name: 'dikirim_oleh',
     nullable: true,
     comment:
-      'JSON snapshot: {persnum, nama, position_text} orang yang mengirim/finalize naskah pending (bisa delegasi)',
+      'JSON snapshot: {persnum, nama, position_text, position_id} orang yang mengirim/finalize naskah pending (bisa delegasi). Di-refresh di kirim dengan konteks pemrakarsa (company/area/subArea/organization/abbreviation) untuk generasi nomor di tahap penandatanganan.',
     transformer: {
       to: (value: any) => (value ? JSON.stringify(value) : null),
       from: (value: string | null) => (value ? JSON.parse(value) : null),
     },
   })
-  dikirimOleh: { persnum: string; nama: string; position_text: string; position_id?: string } | null;
+  dikirimOleh: {
+    persnum: string;
+    nama: string;
+    position_text: string;
+    position_id?: string;
+    /** Konteks pemrakarsa untuk generasi nomor di signing (diisi/refresh di kirim). */
+    company?: string;
+    area?: string;
+    subArea?: string;
+    organization?: string;
+    abbreviation?: string;
+  } | null;
 
   @Column('varchar', {
     name: 'created_by_position',
@@ -147,6 +158,10 @@ export class NaskahEntity {
 
   @Column('boolean', { name: 'butuh_legal', default: false })
   butuhLegal: boolean;
+
+  // Naskah Lainnya — catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.
+  @Column('text', { name: 'catatan_legal', nullable: true, comment: 'Catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.' })
+  catatanLegal: string | null;
 
   // Naskah Lainnya — rantai approval berjenjang pilihan pemrakarsa (JSON array).
   // [{positionId, nama, jabatan}] — urutan array = urutan persetujuan.

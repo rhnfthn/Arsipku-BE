@@ -7,7 +7,7 @@ import { NaskahLainnyaService } from '../services/naskah-lainnya.service';
 import type { CurrentUser as CurrentUserType } from '../services/naskah-lainnya.service';
 import {
   BuatNaskahDto, UpdateNaskahDto, ApprovalActionDto, EvaluasiDto, BlankoDto, TandaTanganDto,
-  KirimApprovalLegalDto,
+  KirimApprovalLegalDto, SheetDataDto,
 } from '../dto/index.dto';
 import { CurrentUser } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
@@ -141,7 +141,7 @@ export class NaskahLainnyaController {
 
   @Post(':id/legal-drafting/kirim-approval')
   kirimApprovalLegal(@Param('id') id: string, @Body() dto: KirimApprovalLegalDto, @CurrentUser() user: CurrentUserType) {
-    return this.service.kirimApprovalLegal(id, dto.approval, user);
+    return this.service.kirimApprovalLegal(id, dto.approval, user, dto.catatan, dto.catatan_legal);
   }
 
   @Post(':id/legal-drafting/kembalikan')
@@ -152,6 +152,11 @@ export class NaskahLainnyaController {
   @Post(':id/evaluasi')
   evaluasi(@Param('id') id: string, @Body() dto: EvaluasiDto, @CurrentUser() user: CurrentUserType) {
     return this.service.evaluasi(id, dto, user);
+  }
+
+  @Post(':id/evaluasi/kembalikan')
+  kembalikanEvaluasi(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.kembalikanEvaluasi(id, dto.catatan, user);
   }
 
   @Post(':id/blanko-verbal')
@@ -177,5 +182,49 @@ export class NaskahLainnyaController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.service.unggahTtdFisik(id, file, user);
+  }
+
+  // ---------- Lembar Persetujuan Direksi ----------
+
+  @Post(':id/lembar-persetujuan-direksi/preview')
+  previewLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.previewLembarPersetujuanDireksi(id, dto, user);
+  }
+
+  @Post(':id/lembar-persetujuan-direksi/kirim')
+  kirimLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.kirimLembarPersetujuanDireksi(id, dto, user);
+  }
+
+  @Post(':id/lembar-persetujuan-direksi/paraf')
+  parafLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.parafLembarPersetujuanDireksi(id, dto, user);
+  }
+
+  @Post(':id/lembar-persetujuan-direksi/tolak')
+  tolakLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.tolakLembarPersetujuanDireksi(id, dto.catatan ?? '', user);
+  }
+
+  // ---------- Blanko Verbal ----------
+
+  @Post(':id/blanko-verbal/preview')
+  previewBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.previewBlankoVerbal(id, dto, user);
+  }
+
+  @Post(':id/blanko-verbal/kirim')
+  kirimBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.kirimBlankoVerbal(id, dto, user);
+  }
+
+  @Post(':id/blanko-verbal/paraf')
+  parafBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.parafBlankoVerbal(id, dto, user);
+  }
+
+  @Post(':id/blanko-verbal/tolak')
+  tolakBlankoVerbal(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+    return this.service.tolakBlankoVerbal(id, dto.catatan ?? '', user);
   }
 }

@@ -50,4 +50,38 @@ describe('DocxQrInlineService.injectQrSigners', () => {
     expect(docXml).not.toContain('{{tanda_tangan_');
     expect(docXml).not.toContain('QRIMG');
   });
+
+  it('men-inject QR ke placeholder paraf_direksi dan menyisakan slot unsigned', async () => {
+    const tpl = await docxWith('Paraf: {{paraf_direksi_1}} dan {{paraf_direksi_2}}');
+    const qr = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const out = await service.injectQrSigners(
+      tpl,
+      [{ index: 1, qrBuffer: qr }],
+      undefined,
+      { placeholderPrefix: 'paraf_direksi' },
+    );
+
+    const docXml = xmlOf(out, 'word/document.xml');
+    expect(docXml).toContain('<w:drawing');
+    expect(docXml).toContain('r:embed=');
+    // slot 1 QR marker diganti; slot 2 masih unsigned jadi placeholder tetap ada
+    expect(docXml).not.toContain('QRIMG_paraf_direksi_1');
+    expect(docXml).toContain('{{paraf_direksi_2}}');
+    // image part + rel + content-type
+    expect(hasFile(out, 'word/media/qr_paraf_direksi_1.png')).toBe(true);
+    expect(xmlOf(out, 'word/_rels/document.xml.rels')).toContain('qr_paraf_direksi_1.png');
+    expect(xmlOf(out, '[Content_Types].xml')).toContain('Extension="png"');
+  });
+
+  it('regresi default prefix tanda_tangan tetap bekerja tanpa options', async () => {
+    const tpl = await docxWith('TTD: {{tanda_tangan_1}} dan {{tanda_tangan_2}}');
+    const qr = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const out = await service.injectQrSigners(tpl, [{ index: 1, qrBuffer: qr }]);
+
+    const docXml = xmlOf(out, 'word/document.xml');
+    expect(docXml).toContain('<w:drawing');
+    expect(docXml).toContain('{{tanda_tangan_2}}');
+    expect(hasFile(out, 'word/media/qr_tanda_tangan_1.png')).toBe(true);
+    expect(xmlOf(out, 'word/_rels/document.xml.rels')).toContain('qr_tanda_tangan_1.png');
+  });
 });

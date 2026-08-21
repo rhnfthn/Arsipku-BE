@@ -8,7 +8,7 @@ import { NaskahLainnyaRiwayatEntity } from '../entities/naskah-lainnya-riwayat.e
 
 export type Tahapan =
   | 'konsep' | 'persetujuan' | 'legal_drafting' | 'evaluasi'
-  | 'blanko_verbal' | 'tanda_tangan'
+  | 'persetujuan_direksi' | 'blanko_verbal' | 'tanda_tangan'
   // legacy (3 TTD fix lama) — tetap di union untuk backward-compat compiler; tidak dipakai alur baru.
   | 'tanda_tangan_pemrakarsa' | 'tanda_tangan_legal' | 'tanda_tangan_pejabat'
   | 'selesai' | 'perlu_perbaikan' | 'ditolak' | 'dibatalkan';
@@ -16,7 +16,8 @@ export type Tahapan =
 export type JenisAksi =
   | 'kirim' | 'setuju' | 'tolak' | 'kembalikan' | 'mulai-legal'
   | 'kirim-approval-legal' | 'kembalikan-legal' | 'evaluasi'
-  | 'kirim-approval-blanko' | 'tanda-tangan';
+  | 'kembalikan-evaluasi' | 'kirim-approval-blanko' | 'kirim-blanko' | 'tanda-tangan'
+  | 'kirim-lembar-persetujuan-direksi' | 'complete' | 'paraf';
 
 import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 
@@ -51,6 +52,7 @@ export class WorkflowService {
       { label: 'Persetujuan', key: 'persetujuan' },
       { label: 'Legal Drafting', key: 'legal_drafting' },
       { label: 'Evaluasi', key: 'evaluasi' },
+      { label: 'Persetujuan Direksi', key: 'persetujuan_direksi' },
       { label: 'Blanko Verbal', key: 'blanko_verbal' },
     ];
     const signingSteps = Array.from({ length: N }, (_, i) => ({
@@ -68,8 +70,9 @@ export class WorkflowService {
 
     return all.map((s, i) => {
       const isLegalSkip = s.key === 'legal_drafting' && !butuhLegal;
+      const isDireksiSkip = s.key === 'persetujuan_direksi' && !butuhLegal;
       const isBlankoSkip = s.key === 'blanko_verbal' && !butuhLegal;
-      if (isLegalSkip || isBlankoSkip) return { step: i + 1, label: s.label, status: 'skip' as const };
+      if (isLegalSkip || isDireksiSkip || isBlankoSkip) return { step: i + 1, label: s.label, status: 'skip' as const };
       let status: 'todo' | 'active' | 'done' | 'skip';
       if (tahapan === 'selesai') status = i === all.length - 1 ? 'active' : 'done';
       else if (i === activeIdx) status = 'active';
@@ -84,6 +87,7 @@ export class WorkflowService {
     butuhLegal: boolean,
     user: { positionText?: string; positionId?: string; position?: string },
     hasWaitingLegalRows = false,
+    hasDireksiRows = false,
   ): Promise<JenisAksi[]> {
     // Cek legal role dari tabel legal_role (konfigurasi), fallback ke keyword
     const posId = String(user.positionId ?? user.position ?? '');
@@ -104,7 +108,23 @@ export class WorkflowService {
         if (hasWaitingLegalRows) return [];
         return ['kirim-approval-legal', 'kembalikan-legal'];
       }
-      case 'evaluasi': return ['evaluasi'];
+      case 'evaluasi': {
+        // butuhLegal: transisi evaluasi→persetujuan_direksi dimiliki legal via Kirim
+        // Lembar Persetujuan Direksi (di sub-page). Pemrakarsa hanya bisa kembalikan
+        // ke legal drafting. !butuhLegal: pemrakarsa evaluasi setuju → tanda tangan.
+        if (butuhLegal) {
+          return legal ? ['kirim-lembar-persetujuan-direksi'] : ['kembalikan-evaluasi'];
+        }
+        return ['evaluasi'];
+      }
+      case 'persetujuan_direksi': {
+        // Legal belum kirim lembar (belum ada baris BOD) → susun + kirim lembar
+        // (recovery untuk naskah yang sudah masuk PD tanpa lembar, atau alur normal
+        // via evaluasi). Sudah ada baris BOD → legal view-only; direksi paraf/tolak
+        // (keberadaan waiting row direksi divalidasi di service paraf/tolak).
+        if (legal) return hasDireksiRows ? [] : ['kirim-lembar-persetujuan-direksi'];
+        return ['paraf', 'tolak'];
+      }
       case 'tanda_tangan': return ['tanda-tangan'];
       case 'tanda_tangan_pemrakarsa': return ['tanda-tangan'];
       case 'blanko_verbal': return legal ? ['kirim-approval-blanko'] : [];
@@ -132,11 +152,6 @@ export class WorkflowService {
     return N === 0 ? 'selesai' : 'tanda_tangan';
   }
 
-  nextAfterEvaluasi(sesuai: boolean, butuhLegal: boolean, N: number): Tahapan {
-    if (!sesuai) return 'perlu_perbaikan';
-    return butuhLegal ? 'blanko_verbal' : this.signingTarget(N);
-  }
-
   nextAfterTtd(current: Tahapan, signingIndex: number, N: number): Tahapan {
     if (current === 'tanda_tangan') {
       return signingIndex >= N ? 'selesai' : 'tanda_tangan';
@@ -160,6 +175,47 @@ export class WorkflowService {
     const row = rows.find((r) => r.id === approvalId);
     if (!row) throw new BadRequestException('Baris approval tidak ditemukan');
     if (row.status !== 'waiting') throw new BadRequestException('Baris approval sudah diproses');
+
+    // Persetujuan Direksi & Blanko Verbal: non-sequential (parallel). Setiap direktur
+    // dengan baris waiting boleh bertindak; transisi lanjut hanya jika semua baris
+    // pada tahap yang sama sudah verified.
+    const isDireksiTahap = row.tahap === 'persetujuan_direksi' || row.tahap === 'blanko_verbal';
+    if (isDireksiTahap) {
+      const t = naskah.tahapan as Tahapan;
+      const N = naskah.penandatanganChain?.length ?? 0;
+      const signingIndex = naskah.signingIndex ?? 1;
+      row.status = aksi === 'setuju' ? 'verified' : 'rejected';
+      row.catatan = ctx.catatan ?? row.catatan;
+      row.tanggal = new Date();
+      await ctx.manager.save(row);
+
+      const sameTahapRows = rows.filter((r) => r.tahap === row.tahap);
+
+      if (aksi === 'tolak') {
+        for (const r of sameTahapRows) {
+          if (r.status === 'waiting') {
+            r.status = 'rejected';
+            await ctx.manager.save(r);
+          }
+        }
+        const next = this.resolveNext(t, 'tolak', naskah.butuhLegal, signingIndex, N);
+        naskah.tahapan = next;
+        await this.tulisRiwayat(ctx, naskah.id, aksi, String(t), next, ctx.catatan);
+        return next;
+      }
+
+      const allVerified = sameTahapRows.every((r) => r.status === 'verified');
+      if (allVerified) {
+        const next = this.resolveNext(t, 'complete', naskah.butuhLegal, signingIndex, N);
+        naskah.tahapan = next;
+        await this.tulisRiwayat(ctx, naskah.id, aksi, String(t), next, ctx.catatan);
+        return next;
+      }
+
+      await this.tulisRiwayat(ctx, naskah.id, aksi, String(t), t, ctx.catatan);
+      return t;
+    }
+
     // Berjenjang: hanya urutan terendah yang masih waiting yang boleh diproses.
     // Urutan lebih tinggi tunggu hingga urutan sebelumnya verified.
     const lowerWaiting = rows.some(
@@ -188,9 +244,11 @@ export class WorkflowService {
     }
 
     // Persetujuan legal drafting: tolak/kembalikan oleh satu approver → short-circuit.
-    // Semua baris legal_drafting yang masih waiting ditandai rejected, dan naskah
-    // TETAP di legal_drafting (bukan perlu_perbaikan) agar drafter legal bisa revisi
-    // draft lalu kirim approval ulang (kirimApprovalLegal hapus & seed baris baru).
+    // Semua baris legal_drafting yang masih waiting ditandai rejected.
+    // - tolak: naskah KEMBALI ke step legal_drafting agar DRAFTER LEGAL merevisi
+    //   naskah & kirim ulang approval (buatApprovalLegalDrafting idempotent — hapus
+    //   baris lama, seed baru). Alasan tolak tersimpan di row catatan + riwayat.
+    // - kembalikan: kembali ke perlu_perbaikan (pemrakarsa merevisi) — perilaku lama.
     if (naskah.tahapan === 'legal_drafting' && (aksi === 'tolak' || aksi === 'kembalikan')) {
       for (const r of rows) {
         if (r.tahap === 'legal_drafting' && r.status === 'waiting') {
@@ -198,8 +256,10 @@ export class WorkflowService {
           await ctx.manager.save(r);
         }
       }
-      await this.tulisRiwayat(ctx, naskah.id, aksi, 'legal_drafting', 'legal_drafting', ctx.catatan);
-      return 'legal_drafting';
+      const nextTahap = aksi === 'tolak' ? 'legal_drafting' : 'perlu_perbaikan';
+      naskah.tahapan = nextTahap;
+      await this.tulisRiwayat(ctx, naskah.id, aksi, 'legal_drafting', nextTahap, ctx.catatan);
+      return nextTahap;
     }
 
     const nextStatus = aksi === 'tolak' || aksi === 'kembalikan' ? 'perlu_perbaikan' : naskah.tahapan as Tahapan;
@@ -256,11 +316,25 @@ export class WorkflowService {
   }
 
   resolveNext(t: Tahapan, aksi: JenisAksi, butuhLegal: boolean, signingIndex = 1, N = 0): Tahapan {
+    if (t === 'evaluasi' && aksi === 'setuju') {
+      return butuhLegal ? 'persetujuan_direksi' : this.signingTarget(N);
+    }
+    if (t === 'persetujuan_direksi' && (aksi === 'complete' || aksi === 'paraf')) {
+      return 'blanko_verbal';
+    }
+    if (t === 'persetujuan_direksi' && aksi === 'tolak') {
+      return 'legal_drafting';
+    }
+    if (t === 'blanko_verbal' && aksi === 'tolak') {
+      return 'legal_drafting';
+    }
     switch (aksi) {
       case 'kirim': return this.nextAfterKirim(butuhLegal);
       case 'kirim-approval-legal': return t === 'legal_drafting' ? 'evaluasi' : t;
       case 'kembalikan-legal': return 'perlu_perbaikan';
+      case 'kembalikan-evaluasi': return 'legal_drafting';
       case 'evaluasi': return t;
+      case 'kirim-blanko': return t === 'blanko_verbal' ? t : this.signingTarget(N);
       case 'kirim-approval-blanko': return t === 'blanko_verbal' ? this.signingTarget(N) : t;
       case 'tanda-tangan': return this.nextAfterTtd(t, signingIndex, N);
       case 'tolak': return 'perlu_perbaikan';
@@ -294,6 +368,14 @@ export class WorkflowService {
     manager: EntityManager,
     naskah: NaskahEntity,
   ) {
+    // Idempotent: hapus baris persetujuan dari siklus sebelumnya sebelum seed ulang.
+    // Tanpa ini, re-kirim (perlu_perbaikan) meninggalkan baris rejected/verified lama
+    // yang membuat allVerified tidak pernah true. (lihat buatApprovalLegalDrafting)
+    await manager.delete(NaskahLainnyaApprovalEntity, {
+      naskahId: naskah.id,
+      tahap: 'persetujuan',
+    });
+
     // Rantai custom dari pemrakarsa (urutan array = urutan persetujuan).
     // Fallback ke default bila tidak diisi.
     const chain = naskah.approvalChain?.length

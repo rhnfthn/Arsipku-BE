@@ -4,7 +4,10 @@ import {
   NotFoundException,
   Param,
   Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { RelationOoService } from '../relation_oo/relation_oo.service';
 import { RelationOaService } from '../relation_oa/relation_oa.service';
 import { RelationOsService } from '../relation_os/relation_os.service';
@@ -233,6 +236,19 @@ export class OrgDataController {
   @Get('pengirim/managerial')
   async getAllManagerialPositions(@Query() query: OrgFilterQueryDto) {
     return this.orgBuildService.getAllManagerialPositions(query.tgl);
+  }
+
+  /**
+   * GET /org-data/bod
+   * Ambil semua direktur (bod_tag = BOD) untuk company user saat ini.
+   * Dipakai dropdown "Persetujuan Direksi" di workflow naskah-lainnya.
+   */
+  @Get('bod')
+  @UseGuards(AuthGuard('jwt'))
+  async getBod(@Req() req) {
+    const company = req.user?.company;
+    const rows = await this.orgBuildService.findAll();
+    return { data: this.orgBuildService.findBodByCompany(rows, company) };
   }
 
   /**
