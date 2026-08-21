@@ -91,14 +91,18 @@ export class NaskahShareService {
       }
     }
 
-    // 2b. Validate all naskah have final_pdf (must be finalized before sharing)
-    const naskahsWithoutPdf = naskahs.filter((n) => !n.final_pdf);
-    if (naskahsWithoutPdf.length > 0) {
-      const missingTitles = naskahsWithoutPdf
+    // 2b. Validate all naskah are finalized (status final/final_tte)
+    // Catatan: final_pdf bisa kosong untuk naskah yang tidak punya file attachment
+    // (konten ada di naskah.konten). Yang penting status sudah final.
+    const naskahsNotFinal = naskahs.filter(
+      (n) => n.status !== 'final' && n.status !== 'final_tte',
+    );
+    if (naskahsNotFinal.length > 0) {
+      const missingTitles = naskahsNotFinal
         .map((n) => n.perihal || n.id)
         .join(', ');
       throw new BadRequestException(
-        `Naskah belum memiliki PDF final (belum ditandatangani): ${missingTitles}. Finalisasi naskah terlebih dahulu sebelum membagikan.`,
+        `Naskah belum difinalisasi: ${missingTitles}. Finalisasi naskah terlebih dahulu sebelum membagikan.`,
       );
     }
 
@@ -778,10 +782,12 @@ export class NaskahShareService {
       }
     }
 
-    // If no PDF available, reject before changing status
-    if (!pdfUrl) {
+    // If no PDF available, fall back to konten (HTML) instead of rejecting
+    // (naskah final tanpa file attachment masih bisa dibuka via konten HTML)
+    const konten = naskah?.konten || null;
+    if (!pdfUrl && !konten) {
       throw new BadRequestException(
-        'Dokumen PDF tidak tersedia. Naskah mungkin belum difinalisasi atau ditandatangani.',
+        'Dokumen tidak tersedia. Naskah mungkin belum difinalisasi atau ditandatangani.',
       );
     }
 
@@ -885,6 +891,7 @@ export class NaskahShareService {
         accessType: share.accessType,
         expiresAt: share.expiresAt,
         pdfUrl,
+        konten,
       },
     };
   }

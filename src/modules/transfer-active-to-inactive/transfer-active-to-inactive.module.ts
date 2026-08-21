@@ -8,6 +8,7 @@ import { AuditModule } from '../audit/audit.module';
 import { Berkas } from '../berkas/entities/berkas.entity';
 import { ArsipDinamisModule } from '../arsip-dinamis/arsip-dinamis.module';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     AuditModule,
     ArsipDinamisModule,
     OrgDataModule,
+    OrganizationTuModule,
   ],
   controllers: [TransferActiveToInactiveController],
   providers: [TransferActiveToInactiveService],
