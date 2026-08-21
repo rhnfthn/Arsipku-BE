@@ -54,4 +54,41 @@ describe('OrgDataService', () => {
       expect(result.data.find((x: any) => Number(x.position) === 100)).toBeUndefined();
     });
   });
+
+  describe('findBodByCompany', () => {
+    // rows = OrgDatum[]; BOD bersar di position_json (array flat barisData dari
+    // flattenOrgTree) dengan field company/position/position_text/
+    // persnum_person/persnum_person_text/bod_tag langsung. Company TIDAK
+    // difilter — direksi = semua baris bod_tag='BOD' di seluruh org.
+    it('returns all bod_tag=BOD records regardless of company, dirut first', () => {
+      const rows = [
+        {
+          position_json: [
+            { company: 'A', bod_tag: 'BOD', position: 'P1', position_text: 'Direktur Operasi', persnum_person: 1001, persnum_person_text: 'Andi' },
+            { company: 'A', bod_tag: 'BOD', position: 'P2', position_text: 'Direktur Utama', persnum_person: 1002, persnum_person_text: 'Budi' },
+            { company: 'A', bod_tag: '', position: 'P3', position_text: 'Manager', persnum_person: 1003, persnum_person_text: 'Caca' },
+            { company: 'B', bod_tag: 'BOD', position: 'P4', position_text: 'Direktur', persnum_person: 1004, persnum_person_text: 'Dedi' },
+          ],
+        },
+      ];
+      // arg company diabaikan — semua BOD (P1, P2, P4) ikut, bukan hanya 'A'.
+      const result = service.findBodByCompany(rows as any, 'A');
+      expect(result).toHaveLength(3);
+      expect(result.map((r) => r.positionId)).toContain('P1');
+      expect(result.map((r) => r.positionId)).toContain('P2');
+      expect(result.map((r) => r.positionId)).toContain('P4');
+      expect(result[0].positionId).toBe('P2'); // Dirut first
+    });
+
+    it('returns empty when no bod_tag=BOD entries exist', () => {
+      const rows = [
+        { position_json: [{ company: 'A', bod_tag: '', position: 'P1', position_text: 'Manager', persnum_person: 1, persnum_person_text: 'X' }] },
+      ];
+      expect(service.findBodByCompany(rows as any, 'Z')).toHaveLength(0);
+    });
+
+    it('returns empty when position_json is empty', () => {
+      expect(service.findBodByCompany([{ position_json: [] }] as any, '')).toHaveLength(0);
+    });
+  });
 });

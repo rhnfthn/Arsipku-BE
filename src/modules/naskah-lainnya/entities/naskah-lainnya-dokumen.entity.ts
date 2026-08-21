@@ -23,7 +23,7 @@ export class NaskahLainnyaDokumenEntity {
   @Column('varchar', { name: 'minio_key', length: 255 })
   minioKey: string; // MinIO object key
 
-  @Column('varchar', { length: 50, nullable: true })
+  @Column('varchar', { length: 100, nullable: true })
   mimetype: string | null;
 
   @Column('bigint', { nullable: true })

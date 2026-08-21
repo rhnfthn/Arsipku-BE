@@ -15,6 +15,8 @@ import { NaskahLainnyaRiwayatEntity } from './entities/naskah-lainnya-riwayat.en
 import { NaskahLainnyaBlankoEntity } from './entities/naskah-lainnya-blanko.entity';
 import { NaskahLainnyaDokumenEntity } from './entities/naskah-lainnya-dokumen.entity';
 import { NomorModule } from '../nomor/nomor.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { NomorModule } from '../nomor/nomor.module';
     KonfigurasiModule,
     DigsigModule,
     NomorModule,
+    GeneratePdfModule,
+    OrgDataModule,
   ],
   controllers: [NaskahLainnyaController],
   providers: [

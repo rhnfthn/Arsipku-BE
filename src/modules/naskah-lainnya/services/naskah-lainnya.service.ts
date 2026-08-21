@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, EntityManager } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { StorageService } from '../../storage/services/storage.service';
@@ -11,12 +11,16 @@ import { NaskahLainnyaDokumenEntity } from '../entities/naskah-lainnya-dokumen.e
 import { WorkflowService, Tahapan } from './workflow.service';
 import { DocxReaderService } from './docx-reader.service';
 import { DocxQrInlineService } from './docx-qr-inline.service';
+import { GeneratePdfLpdService } from '../../generate_pdf/services/generate_pdf_lpd.service';
+import { GeneratePdfBlankoVerbalService } from '../../generate_pdf/services/generate_pdf_blanko_verbal.service';
+import { SheetPdfData } from '../../generate_pdf/services/sheet-pdf.shared';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DocxFillerService } from '../../naskah-umum/services/docx-filler.service';
 import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 import { NomorService } from '../../nomor/services/nomor.service';
+import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
-import { BuatNaskahDto, UpdateNaskahDto, EvaluasiDto, BlankoDto } from '../dto/index.dto';
+import { BuatNaskahDto, UpdateNaskahDto, EvaluasiDto, BlankoDto, SheetDataDto } from '../dto/index.dto';
 import { buildNomorRegex } from './nomor-format.helper';
 
 export interface CurrentUser {
@@ -54,12 +58,15 @@ export class NaskahLainnyaService {
     private readonly workflow: WorkflowService,
     private readonly docxReader: DocxReaderService,
     private readonly docxQrInline: DocxQrInlineService,
+    private readonly lpdService: GeneratePdfLpdService,
+    private readonly blankoService: GeneratePdfBlankoVerbalService,
     private readonly qrCode: QRCodeService,
     private readonly docxFiller: DocxFillerService,
     private readonly storage: StorageService,
     private readonly dataSource: DataSource,
     private readonly legalRoleService: LegalRoleService,
     private readonly nomorService: NomorService,
+    private readonly orgDataService: OrgDataService,
   ) {}
 
   // ---------- List ----------
@@ -192,6 +199,12 @@ export class NaskahLainnyaService {
       (n.dikirimOleh?.position_id != null && n.dikirimOleh.position_id === posId) ||
       (n.dikirimOleh?.persnum != null && Number(n.dikirimOleh.persnum) === user.persnum);
 
+    // POV approval: legal role hanya lihat approval legal_drafting; pemrakarsa hanya
+    // persetujuan. Flat `approval` tetap utuh (dipakai FE untuk logic aksi);
+    // hanya `approvalByTahap` (display grup approval) yang difilter per POV.
+    const activeLegalIds = await this.legalRoleService.getActivePositionIds();
+    const isLegal = !!posId && activeLegalIds.includes(String(posId));
+
     // Build available actions, lalu filter berdasarkan role user:
     // - persetujuan: hanya approver waiting yang bisa setuju/tolak/kembalikan
     // - konsep/perlu_perbaikan: hanya pemrakarsa yang bisa kirim
@@ -199,8 +212,11 @@ export class NaskahLainnyaService {
     const hasWaitingLegalRows = approval.some(
       (a) => a.tahap === 'legal_drafting' && a.status === 'waiting',
     );
+    const hasDireksiRows = approval.some(
+      (a) => a.tahap === 'persetujuan_direksi' || a.tahap === 'blanko_verbal',
+    );
     let availableActions = await this.workflow.buildAvailableActions(
-      (n.tahapan ?? 'konsep') as Tahapan, n.butuhLegal, user, hasWaitingLegalRows,
+      (n.tahapan ?? 'konsep') as Tahapan, n.butuhLegal, user, hasWaitingLegalRows, hasDireksiRows,
     );
 
     // Filter aksi persetujuan: hanya approver waiting yang berhak
@@ -215,9 +231,11 @@ export class NaskahLainnyaService {
       availableActions = availableActions.filter((a) => a !== 'kirim');
     }
 
-    // Filter aksi evaluasi: hanya pemrakarsa yang bisa evaluasi
+    // Filter aksi evaluasi: hanya pemrakarsa yang bisa evaluasi / kembalikan ke legal
     if (n.tahapan === 'evaluasi' && !isPemrakarsa) {
-      availableActions = availableActions.filter((a) => a !== 'evaluasi');
+      availableActions = availableActions.filter(
+        (a) => a !== 'evaluasi' && a !== 'kembalikan-evaluasi',
+      );
     }
 
     // Filter aksi tanda-tangan: hanya penandatangan aktif (current signer) yang bisa tanda tangan
@@ -246,16 +264,15 @@ export class NaskahLainnyaService {
         approvalChain: n.approvalChain,
         fileUrl: n.lampiran ? `/naskah-lainnya/${n.id}/file` : null,
         dokumen,
-        approval: approval.map((a) => ({
-          id: a.id, tahap: a.tahap, nama: a.nama, jabatan: a.jabatan,
-          urutan: a.urutan, status: a.status, catatan: a.catatan ?? undefined,
-          tanggal: a.tanggal ? new Date(a.tanggal).toISOString() : null,
-        })),
-        riwayat: riwayat.map((r) => ({
-          id: r.id, aksi: r.aksi, aktor: r.aktor, jabatan: r.jabatan ?? '',
-          tahap: r.tahap ?? '', status: r.status ?? '', catatan: r.catatan ?? undefined,
-          tanggal: new Date(r.tanggal).toISOString(),
-        })),
+        approval: approval.map((a) => this.toApprovalRow(a)),
+        // Rantai approval dikelompokkan per tahap (fase) agar approval pemrakarsa
+        // (persetujuan) dan legal unit (legal_drafting) tidak tercampur. Difilter
+        // per POV: legal hanya lihat legal_drafting, pemrakarsa hanya persetujuan.
+        approvalByTahap: this.buildApprovalByTahapForPov(approval, isLegal, isPemrakarsa),
+        riwayat: riwayat.map((r) => this.toRiwayatRow(r)),
+        // Riwayat dikelompokkan per tahap (fase) agar approval pemrakarsa, legal unit,
+        // evaluasi, dll tidak tercampur dalam satu list flat.
+        riwayatByTahap: this.groupRiwayatByTahap(riwayat),
         stepper: this.workflow.buildStepper(
           (n.tahapan ?? 'konsep') as Tahapan,
           n.butuhLegal,
@@ -265,6 +282,7 @@ export class NaskahLainnyaService {
         signingIndex: n.signingIndex,
         signerCount: n.penandatanganChain?.length ?? 0,
         signedFileUrl: n.signedLampiran ? `/naskah-lainnya/${n.id}/file` : null,
+        catatanLegal: n.catatanLegal ?? null,
         availableActions,
       },
     };
@@ -276,12 +294,79 @@ export class NaskahLainnyaService {
     const rows = await this.riwayatRepo.find({ where: { naskahId: id }, order: { tanggal: 'ASC' } });
     return {
       success: true,
-      data: rows.map((r) => ({
-        id: r.id, aksi: r.aksi, aktor: r.aktor, jabatan: r.jabatan ?? '',
-        tahap: r.tahap ?? '', status: r.status ?? '', catatan: r.catatan ?? undefined,
-        tanggal: new Date(r.tanggal).toISOString(),
-      })),
+      data: rows.map((r) => this.toRiwayatRow(r)),
+      // Riwayat dikelompokkan per tahap (fase) agar approval pemrakarsa, legal unit,
+      // evaluasi, dll tidak tercampur. `data` (flat) tetap disertakan untuk backward-compat.
+      riwayatByTahap: this.groupRiwayatByTahap(rows),
     };
+  }
+
+  // ── Riwayat helpers ──
+
+  private toRiwayatRow(r: NaskahLainnyaRiwayatEntity) {
+    return {
+      id: r.id,
+      aksi: r.aksi,
+      aktor: r.aktor,
+      jabatan: r.jabatan ?? '',
+      tahap: r.tahap ?? '',
+      status: r.status ?? '',
+      catatan: r.catatan ?? undefined,
+      tanggal: new Date(r.tanggal).toISOString(),
+    };
+  }
+
+  // Kelompokkan riwayat per tahap (fase): { persetujuan: [...], legal_drafting: [...], ... }.
+  // Baris tanpa tahap masuk key 'lainnya'.
+  private groupRiwayatByTahap(rows: NaskahLainnyaRiwayatEntity[]) {
+    const byTahap: Record<string, ReturnType<NaskahLainnyaService['toRiwayatRow']>[]> = {};
+    for (const r of rows) {
+      const key = r.tahap ?? 'lainnya';
+      if (!byTahap[key]) byTahap[key] = [];
+      byTahap[key].push(this.toRiwayatRow(r));
+    }
+    return byTahap;
+  }
+
+  // ── Approval (rantai) helpers ──
+
+  private toApprovalRow(a: NaskahLainnyaApprovalEntity) {
+    return {
+      id: a.id,
+      tahap: a.tahap,
+      nama: a.nama,
+      jabatan: a.jabatan,
+      urutan: a.urutan,
+      status: a.status,
+      catatan: a.catatan ?? undefined,
+      tanggal: a.tanggal ? new Date(a.tanggal).toISOString() : null,
+    };
+  }
+
+  // Kelompokkan rantai approval per tahap (fase): { persetujuan: [...], legal_drafting: [...], ... }.
+  // Urutan per fase dipertahankan (sudah ASC by urutan dari query).
+  private groupApprovalByTahap(rows: NaskahLainnyaApprovalEntity[]) {
+    const byTahap: Record<string, ReturnType<NaskahLainnyaService['toApprovalRow']>[]> = {};
+    for (const a of rows) {
+      const key = a.tahap ?? 'lainnya';
+      if (!byTahap[key]) byTahap[key] = [];
+      byTahap[key].push(this.toApprovalRow(a));
+    }
+    return byTahap;
+  }
+
+  // approvalByTahap difilter per POV: legal role hanya lihat approval legal_drafting,
+  // pemrakarsa hanya persetujuan. Viewer lain (approver persetujuan, penandatangan, dll)
+  // lihat semua tahap. Hanya display yang difilter — flat `approval` tetap utuh.
+  private buildApprovalByTahapForPov(
+    rows: NaskahLainnyaApprovalEntity[],
+    isLegal: boolean,
+    isPemrakarsa: boolean,
+  ) {
+    const byTahap = this.groupApprovalByTahap(rows);
+    if (isLegal) return { legal_drafting: byTahap['legal_drafting'] ?? [] };
+    if (isPemrakarsa) return { persetujuan: byTahap['persetujuan'] ?? [] };
+    return byTahap;
   }
 
   // ---------- Create / Update / Kirim ----------
@@ -337,7 +422,13 @@ export class NaskahLainnyaService {
     }
     const patch: Partial<NaskahEntity> = {};
     if (dto.perihal !== undefined) { n.perihal = dto.perihal; patch.perihal = dto.perihal; }
-    if (dto.nomor !== undefined) { n.nomor = dto.nomor; patch.nomor = dto.nomor; }
+    // Nomor: abaikan literal placeholder {{nomor}} (sentinel "belum di-generate" dari
+    // pre-fill docx template) — treat sebagai kosong → null, agar kirim auto-generate.
+    // Tanpa ini, placeholder tersimpan sebagai nomor & memblok kirim (validateManualNomorFormat).
+    if (dto.nomor !== undefined) {
+      const cleanNomor = /{{\s*nomor\s*}}/i.test(dto.nomor) ? null : dto.nomor;
+      n.nomor = cleanNomor as any; patch.nomor = cleanNomor as any;
+    }
     if (dto.tanggal !== undefined) {
       const t = new Date(dto.tanggal);
       const valid = !isNaN(t.getTime());
@@ -396,105 +487,79 @@ export class NaskahLainnyaService {
     const klasifikasiNaskah = n.klasifikasi ?? null;
 
     await this.dataSource.transaction(async (manager) => {
-      const jenisRepo = manager.getRepository(JenisEntity);
-      const jenisData = await jenisRepo.findOne({ where: { jenis: n.jenis as any } });
-      if (!jenisData?.formatPenomoran) {
-        throw new BadRequestException(
-          `Format penomoran untuk jenis ${n.jenis} belum dikonfigurasi.`,
-        );
-      }
-      const format = jenisData.formatPenomoran;
-      if (format.includes('{KLASIFIKASI}') && !klasifikasiNaskah) {
-        throw new BadRequestException(
-          `Klasifikasi wajib diisi untuk jenis ${n.jenis} sebelum kirim.`,
-        );
-      }
-
-      let nomorFinal: string;
-      if (n.nomor) {
-        // ── Manual: validasi format + uniqueness, counter TIDAK naik ──
-        this.validateManualNomorFormat(n.nomor, format, n.jenis);
+      // ── Validasi nomor manual early (TANPA counter naik, TANPA fill docx) ──
+      // Generasi auto pindah ke tahap penandatanganan (lihat ensureNomorFinal).
+      // Nomor manual divalidasi di kirim supaya pemrakarsa dapat feedback sebelum
+      // approval cycle. Counter TIDAK naik di kirim — nomor final baru di-signing.
+      const nomorManual =
+        n.nomor && !/{{\s*nomor\s*}}/i.test(n.nomor) ? n.nomor : null;
+      if (nomorManual) {
+        const jenisRepo = manager.getRepository(JenisEntity);
+        const jenisData = await jenisRepo.findOne({ where: { jenis: n.jenis as any } });
+        if (!jenisData?.formatPenomoran) {
+          throw new BadRequestException(
+            `Format penomoran untuk jenis ${n.jenis} belum dikonfigurasi.`,
+          );
+        }
+        const format = jenisData.formatPenomoran;
+        if (format.includes('{KLASIFIKASI}') && !klasifikasiNaskah) {
+          throw new BadRequestException(
+            `Klasifikasi wajib diisi untuk jenis ${n.jenis} sebelum kirim.`,
+          );
+        }
+        this.validateManualNomorFormat(nomorManual, format, n.jenis);
         const clash = await manager
           .getRepository(NaskahEntity)
           .createQueryBuilder('n')
-          .where('n.nomor = :nomor', { nomor: n.nomor })
+          .where('n.nomor = :nomor', { nomor: nomorManual })
           .andWhere('n.id != :id', { id: n.id })
           .getCount();
         if (clash > 0) {
-          throw new BadRequestException(`Nomor "${n.nomor}" sudah digunakan naskah lain.`);
+          throw new BadRequestException(`Nomor "${nomorManual}" sudah digunakan naskah lain.`);
         }
-        nomorFinal = n.nomor;
-      } else {
-        // ── Auto: generate via adapter, counter naik ──
-        const gen = await this.nomorService.generateNomorForNaskah(
-          {
-            jenis: n.jenis,
-            klasifikasi: klasifikasiNaskah ?? undefined,
-            tanggal: tanggalNaskah,
-            company: user.company!,
-            area: user.area!,
-            subArea: user.subArea,
-            organization: user.organization,
-            position: user.position ?? user.positionId ?? '',
-            jabatanAbbrev: user.abbreviation!,
-          },
-          manager,
-        );
-        nomorFinal = gen.nomor;
+        // keep n.nomor manual apa adanya. No fill, no counter.
       }
 
-      // ── Fill placeholder {{nomor}} di docx (jika ada lampiran) ───────
-      // ponytail: MinIO I/O (getFile/fill/uploadBuffer) sengaja di dalam transaksi
-      // yang menahan counter lock, agar gagal fill → rollback penuh (counter tidak
-      // naik, naskah tetap konsep, tanpa gap nomor / orphan file). Tradeoff: lock
-      // ditahan ~1 S3 round-trip. Upgrade: split ke 2 tx (generate+commit, lalu I/O,
-      // lalu persist) jika throughput kirim naskah-lainnya tinggi — imbasnya gap
-      // nomor saat I/O gagal pasca-commit.
+      // ── Guard: docx wajib ber-placeholder {{nomor}} (read-only, TIDAK di-fill) ──
+      // Fill {{nomor}} pindah ke tanda_tangan. Validasi di kirim supaya template
+      // buruk ditolak sebelum approval cycle terbuang. Revisi (perlu_perbaikan)
+      // di-toleransi (docx mungkin sudah berisi nomor dari siklus kode lama).
       if (n.lampiran) {
-        let originalBuf: Buffer;
         let text: string;
         try {
-          originalBuf = await this.storage.getFile(n.lampiran);
-          text = this.docxReader.extractText(originalBuf);
+          text = this.docxReader.extractText(await this.storage.getFile(n.lampiran));
         } catch (e) {
           throw new BadRequestException(
             'Gagal membaca file docx lampiran. Periksa file tidak corrupt.',
           );
         }
-        if (!/{{\s*nomor\s*}}/i.test(text)) {
+        if (!/{{\s*nomor\s*}}/i.test(text) && (n.tahapan ?? 'konsep') === 'konsep') {
           throw new BadRequestException(
             'Docx harus dari template sistem (berisi placeholder {{nomor}}). Upload template yang benar.',
           );
         }
-        let filled: Buffer;
-        try {
-          filled = this.docxFiller.fill(originalBuf, { nomor: nomorFinal });
-        } catch (e) {
-          throw new BadRequestException(
-            'Gagal mengisi placeholder {{nomor}} ke template. Periksa format template docx.',
-          );
-        }
-        const folder = `naskah-lainnya/${n.jenis}/${n.id}/naskah`;
-        const filename = `${Date.now()}-${n.lampiran.split('/').pop() ?? 'naskah.docx'}`;
-        const result = await this.storage.uploadBuffer(
-          filled,
-          filename,
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          folder,
-        );
-        n.lampiran = result.key;
-        await this.catatVersiNaskah(
-          n.id, n.tahapan, result.key, filename,
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          null, user,
-        );
+        // placeholder present OR revisi → docx dibiarkan apa adanya, fill di signing.
       }
 
-      // ── Set nomor final, simpan ──
-      n.nomor = nomorFinal;
+      // ── Refresh snapshot konteks pemrakarsa (untuk generasi nomor di signing) ──
+      // ponytail: di signing, current user = signer/evaluator (bukan pemrakarsa), jadi
+      // scope nomor (company/area/abbreviation) tidak bisa ambil dari user aktif. Snapshot
+      // di-refresh di kirim (user = pemrakarsa; guard di atas sudah validasi field ada)
+      // dan disimpan di dikirimOleh — ensureNomorFinal baca dari sana di tanda_tangan.
+      n.dikirimOleh = {
+        persnum: String(user.persnum),
+        nama: user.nama,
+        position_text: user.positionText ?? '',
+        position_id: user.position ?? user.positionId ?? '',
+        company: user.company,
+        area: user.area,
+        subArea: user.subArea,
+        organization: user.organization,
+        abbreviation: user.abbreviation,
+      };
       await manager
         .getRepository(NaskahEntity)
-        .update({ id: n.id, tanggal: n.tanggal as any }, { nomor: nomorFinal, lampiran: n.lampiran });
+        .update({ id: n.id, tanggal: n.tanggal as any }, { dikirimOleh: n.dikirimOleh });
 
       // ── Lanjut workflow kirim ──
       await this.workflow.transisi(n, 'kirim', {
@@ -507,56 +572,74 @@ export class NaskahLainnyaService {
 
   // ---------- Persetujuan (antrian) ----------
 
+  // Filter persetujuan (antrian approver/penandatangan):
+  //  - menunggu (default): persetujuan/perlu_perbaikan (approver waiting, berjenjang)
+  //    + tanda_tangan/blanko_verbal (penandatangan).
+  //  - disetujui: naskah di mana user pernah setuju (riwayat, tahapan apa pun).
+  //  - ditolak: naskah di mana user pernah tolak (riwayat, tahapan apa pun).
+  //  - semua: gabungan menunggu + disetujui + ditolak (dedupe by id, urut desc).
   async getPersetujuan(user: CurrentUser, status?: string) {
-    const filter: 'menunggu' | 'disetujui' | 'ditolak' =
-      status === 'disetujui' || status === 'ditolak' ? status : 'menunggu';
+    const validFilter = ['semua', 'menunggu', 'disetujui', 'ditolak'];
+    const filter = (validFilter.includes(status as string) ? status : 'menunggu') as
+      'semua' | 'menunggu' | 'disetujui' | 'ditolak';
 
-    // Disetujui / Ditolak: riwayat approval user (status setuju/tolak), tahapan apa pun.
-    if (filter !== 'menunggu') {
-      const approvalStatus = filter === 'disetujui' ? 'setuju' : 'tolak';
-      const ids = await this.getNaskahIdsForApproverStatus(user, approvalStatus);
-      let rows: NaskahEntity[] = [];
-      if (ids.length > 0) {
-        rows = await this.naskahRepo
+    const rows: NaskahEntity[] = [];
+    const seen = new Set<string>();
+    const push = (r: NaskahEntity) => { if (!seen.has(r.id)) { seen.add(r.id); rows.push(r); } };
+
+    // 1. Menunggu (default & termasuk 'semua') — persetujuan/perlu_perbaikan
+    //    (approver waiting, berjenjang) + tanda_tangan/blanko_verbal (penandatangan).
+    if (filter === 'menunggu' || filter === 'semua') {
+      const approvalNaskahIds = await this.getNaskahIdsForApproverStatus(user, 'waiting');
+      if (approvalNaskahIds.length > 0) {
+        const r1 = await this.naskahRepo
           .createQueryBuilder('n')
           .where('n.jenis IN (:...jenis)', { jenis: ['PER', 'KEP', 'INS', 'PKS', 'UND', 'BA'] })
-          .andWhere('n.id IN (:...ids)', { ids })
+          .andWhere('n.tahapan IN (:...t)', { t: ['persetujuan', 'perlu_perbaikan'] })
+          .andWhere('n.id IN (:...ids)', { ids: approvalNaskahIds })
           .orderBy('n.createdAt', 'DESC')
           .getMany();
+        r1.forEach(push);
       }
-      return { success: true, data: rows.map((r) => this.toListItem(r)) };
+      const posId = String(user.positionId ?? user.position ?? '');
+      if (posId) {
+        const ttdRows = await this.naskahRepo
+          .createQueryBuilder('n')
+          .where('n.jenis IN (:...jenis)', { jenis: ['PER', 'KEP', 'INS', 'PKS', 'UND', 'BA'] })
+          .andWhere('n.tahapan IN (:...tTahap)', { tTahap: ['tanda_tangan', 'blanko_verbal'] })
+          .andWhere('(JSON_CONTAINS(n.penandatangan_chain, JSON_OBJECT(\'positionId\', :posId)) OR n.penandatangan_position_id = :posIdStr)', { posId, posIdStr: posId })
+          .orderBy('n.createdAt', 'DESC')
+          .getMany();
+        ttdRows.forEach(push);
+      }
     }
 
-    // Menunggu (default) — persetujuan/perlu_perbaikan (approver waiting)
-    // + tanda_tangan/blanko_verbal (penandatangan).
-    // 1. Naskah di tahap persetujuan/perlu_perbaikan di mana user adalah approver waiting
-    const approvalNaskahIds = await this.getNaskahIdsForApproverStatus(user, 'waiting');
-    let rows: NaskahEntity[] = [];
-
-    if (approvalNaskahIds.length > 0) {
-      rows = await this.naskahRepo
-        .createQueryBuilder('n')
-        .where('n.jenis IN (:...jenis)', { jenis: ['PER', 'KEP', 'INS', 'PKS', 'UND', 'BA'] })
-        .andWhere('n.tahapan IN (:...t)', { t: ['persetujuan', 'perlu_perbaikan'] })
-        .andWhere('n.id IN (:...ids)', { ids: approvalNaskahIds })
-        .orderBy('n.createdAt', 'DESC')
-        .getMany();
+    // 2. Disetujui / Ditolak (termasuk 'semua' → keduanya): riwayat approval user
+    //    (status setuju/tolak), tahapan apa pun.
+    if (filter === 'disetujui' || filter === 'ditolak' || filter === 'semua') {
+      const approvalStatuses = filter === 'semua'
+        ? ['setuju', 'tolak']
+        : [filter === 'disetujui' ? 'setuju' : 'tolak'];
+      const ids: string[] = [];
+      for (const s of approvalStatuses) ids.push(...(await this.getNaskahIdsForApproverStatus(user, s)));
+      if (ids.length > 0) {
+        const r2 = await this.naskahRepo
+          .createQueryBuilder('n')
+          .where('n.jenis IN (:...jenis)', { jenis: ['PER', 'KEP', 'INS', 'PKS', 'UND', 'BA'] })
+          .andWhere('n.id IN (:...ids2)', { ids2: ids })
+          .orderBy('n.createdAt', 'DESC')
+          .getMany();
+        r2.forEach(push);
+      }
     }
 
-    // 2. Naskah di tahap tanda_tangan_* di mana user adalah penandatangan
-    const posId = String(user.positionId ?? user.position ?? '');
-    if (posId) {
-      const ttdRows = await this.naskahRepo
-        .createQueryBuilder('n')
-        .where('n.jenis IN (:...jenis)', { jenis: ['PER', 'KEP', 'INS', 'PKS', 'UND', 'BA'] })
-        .andWhere('n.tahapan IN (:...tTahap)', { tTahap: ['tanda_tangan', 'blanko_verbal'] })
-        .andWhere('(JSON_CONTAINS(n.penandatangan_chain, JSON_OBJECT(\'positionId\', :posId)) OR n.penandatangan_position_id = :posIdStr)', { posId, posIdStr: posId })
-        .orderBy('n.createdAt', 'DESC')
-        .getMany();
-      const existingIds2 = new Set(rows.map((r) => r.id));
-      for (const r of ttdRows) {
-        if (!existingIds2.has(r.id)) rows.push(r);
-      }
+    // 'semua' mencampur beberapa himpunan → urut ulang desc. Filter tunggal sudah DESC.
+    if (filter === 'semua') {
+      rows.sort((a, b) => {
+        const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt ?? 0).getTime();
+        const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt ?? 0).getTime();
+        return tb - ta;
+      });
     }
 
     return { success: true, data: rows.map((r) => this.toListItem(r)) };
@@ -565,9 +648,12 @@ export class NaskahLainnyaService {
   // ---------- Legal Drafting (antrian khusus legal role) ----------
 
   // Status persetujuan legal drafting (filter di halaman Legal Drafting):
+  //  - semua: semua naskah legal_drafting (butuh legal) + blanko_verbal, tanpa
+  //    sub-filter status (campur belum-dikirim/menunggu/revisi/sudah-dikerjakan).
   //  - belum-dikirim: legal_drafting tanpa baris approval (belum pernah kirim approval legal).
   //  - menunggu: sudah kirim approval, ada baris waiting (di tangan approver).
-  //  - ditolak: ada baris rejected, tidak ada waiting (ditolak approver, balik ke drafter).
+  //  - revisi: ada baris rejected, tidak ada waiting (ditolak approver → balik ke
+  //    drafter legal untuk direvisi & kirim ulang).
   //  - aksi-saya: naskah yang sudah user ini lakukan aksi legal (mulai-legal /
   //    kirim-approval-legal / kembalikan-legal / kirim-approval-blanko) — terlepas
   //    tahapan sekarang (bisa sudah lanjut evaluasi/tanda tangan/selesai).
@@ -577,7 +663,7 @@ export class NaskahLainnyaService {
     if (!posId || !activeLegalIds.includes(posId)) {
       throw new ForbiddenException('Anda bukan legal role');
     }
-    const validStatus = ['belum-dikirim', 'menunggu', 'ditolak', 'aksi-saya'];
+    const validStatus = ['semua', 'belum-dikirim', 'menunggu', 'revisi', 'aksi-saya'];
     const st = validStatus.includes(status) ? status : 'belum-dikirim';
 
     const qb = this.naskahRepo
@@ -587,34 +673,113 @@ export class NaskahLainnyaService {
 
     if (st === 'aksi-saya') {
       // Riwayat aksi legal oleh user ini (match by aktor = nama — satu-satunya
-      // identifier di riwayat, sama pola dgn approval nama match).
+      // identifier di riwayat, sama pola dgn approval nama match). Mencakup naskah
+      // yang sudah lanjut ke evaluasi/tanda tangan/selesai (statusLegal sudah_dikerjakan).
       qb.andWhere(
         'EXISTS (SELECT 1 FROM naskah_lainnya_riwayat r WHERE r.naskah_id = n.id AND r.aktor = :aktor AND r.aksi IN (:...aksiSaya))',
         { aktor: user.nama, aksiSaya: ['mulai-legal', 'kirim-approval-legal', 'kembalikan-legal', 'kirim-approval-blanko'] },
       );
     } else {
-      // Base: legal_drafting (butuh legal) ATAU blanko_verbal.
+      // Base: semua naskah yang masih dalam alur legal — legal_drafting (butuh
+      // legal), persetujuan_direksi, dan blanko_verbal. Sub-filter statusLegal
+      // (belum_dikirim/menunggu_persetujuan/revisi) diterapkan client-side di FE
+      // berdasarkan statusLegal per-row, BUKAN server-side, karena clause
+      // EXISTS/NOT EXISTS baris legal_drafting tidak relevan untuk tahap
+      // persetujuan_direksi/blanko_verbal (mereka sudah punya baris legal_drafting
+      // verified dari tahap sebelumnya).
       qb.andWhere(
-        '((n.tahapan = :ld AND n.butuh_legal = :bl) OR (n.tahapan = :bv))',
-        { ld: 'legal_drafting', bl: true, bv: 'blanko_verbal' },
+        '((n.tahapan = :ld AND n.butuh_legal = :bl) OR (n.tahapan = :pd) OR (n.tahapan = :bv))',
+        { ld: 'legal_drafting', bl: true, pd: 'persetujuan_direksi', bv: 'blanko_verbal' },
       );
-      // Subquery baris legal_drafting approval (dipakai EXISTS/NOT EXISTS).
-      const ldRow = "SELECT 1 FROM naskah_lainnya_approval a WHERE a.naskah_id = n.id AND a.tahap = 'legal_drafting'";
-      let statusClause: string;
-      if (st === 'menunggu') {
-        statusClause = `EXISTS (${ldRow} AND a.status = 'waiting')`;
-      } else if (st === 'ditolak') {
-        statusClause = `EXISTS (${ldRow} AND a.status = 'rejected') AND NOT EXISTS (${ldRow} AND a.status = 'waiting')`;
-      } else {
-        // belum-dikirim: tidak ada baris legal_drafting approval sama sekali
-        // (termasuk naskah blanko_verbal yang tidak punya baris legal_drafting).
-        statusClause = `NOT EXISTS (${ldRow})`;
-      }
-      qb.andWhere(statusClause);
     }
 
     const rows = await qb.getMany();
-    return { success: true, data: rows.map((r) => this.toListItem(r)) };
+    // statusLegal per-row (badge kolom Status — dibutuhkan terutama untuk filter
+    // 'semua' yang mencampur sub-status). Batch-query baris legal_drafting approval
+    // + aksi riwayat TERAKHIR per naskah (sinyal 'revisi' untuk kembalikan-evaluasi).
+    const ids = rows.map((r) => r.id);
+    // Batch-query baris approval untuk legal_drafting, persetujuan_direksi, dan
+    // blanko_verbal — supaya sub-status per tahap akurat (badge kolom Status).
+    const apprRows = ids.length
+      ? (await this.approvalRepo.find({
+          where: {
+            naskahId: In(ids),
+            tahap: In(['legal_drafting', 'persetujuan_direksi', 'blanko_verbal'] as any),
+          },
+          select: ['naskahId', 'tahap', 'status'] as any,
+        })) ?? []
+      : [];
+    const statusByNaskah = new Map<string, string[]>();
+    const pdStatusByNaskah = new Map<string, string[]>();
+    const bvStatusByNaskah = new Map<string, string[]>();
+    for (const a of apprRows) {
+      const tahap = String((a as any).tahap ?? '');
+      const map = tahap === 'persetujuan_direksi' ? pdStatusByNaskah
+        : tahap === 'blanko_verbal' ? bvStatusByNaskah : statusByNaskah;
+      const arr = map.get(a.naskahId) ?? [];
+      arr.push(a.status as string);
+      map.set(a.naskahId, arr);
+    }
+    // Aksi riwayat terbaru per naskah (order DESC → kemunculan pertama per id = terbaru).
+    const latestAksiByNaskah = new Map<string, string>();
+    if (ids.length) {
+      const rws = (await this.riwayatRepo.find({
+        where: { naskahId: In(ids) as any },
+        order: { createdAt: 'DESC' as any },
+        select: ['naskahId', 'aksi'] as any,
+      })) ?? [];
+      for (const rw of rws) {
+        if (!latestAksiByNaskah.has(rw.naskahId)) latestAksiByNaskah.set(rw.naskahId, rw.aksi);
+      }
+    }
+    return {
+      success: true,
+      data: rows.map((r) => ({
+        ...this.toListItem(r),
+        statusLegal: this.computeStatusLegal(
+          String(r.tahapan ?? 'konsep'),
+          statusByNaskah.get(r.id) ?? [],
+          latestAksiByNaskah.get(r.id),
+          pdStatusByNaskah.get(r.id) ?? [],
+          bvStatusByNaskah.get(r.id) ?? [],
+        ),
+      })),
+    };
+  }
+
+  // Sub-status legal per naskah (badge kolom Status di halaman Legal Drafting).
+  //  - persetujuan_direksi: legal sudah kirim lembar, menunggu paraf direksi
+  //    → menunggu_persetujuan (bila ada waiting), kalau kosong fallback persetujuan_direksi.
+  //  - blanko_verbal: belum kirim blanko (tanpa baris BOD) → belum_dikirim;
+  //    ada waiting → menunggu_persetujuan; semua verified → sudah_dikerjakan (siap lanjut).
+  //  - tahapan lain (evaluasi/tanda tangan/selesai) → sudah_dikerjakan.
+  //  - legal_drafting: waiting → menunggu_persetujuan; rejected (no waiting) → revisi;
+  //    ada baris (all verified) → sudah_dikerjakan; tanpa baris → belum_dikirim
+  //    (kecuali dikembalikan dari evaluasi → revisi).
+  private computeStatusLegal(
+    tahapan: string,
+    statuses: string[],
+    latestAksi?: string,
+    pdStatuses: string[] = [],
+    bvStatuses: string[] = [],
+  ): string {
+    if (tahapan === 'persetujuan_direksi') {
+      // Legal belum kirim lembar (tanpa baris BOD) → belum_dikirim;
+      // sudah kirim & ada waiting → menunggu_persetujuan.
+      return pdStatuses.includes('waiting') ? 'menunggu_persetujuan' : 'belum_dikirim';
+    }
+    if (tahapan === 'blanko_verbal') {
+      if (bvStatuses.includes('waiting')) return 'menunggu_persetujuan';
+      if (bvStatuses.length > 0 && bvStatuses.every((s) => s === 'verified')) return 'sudah_dikerjakan';
+      return 'belum_dikirim';
+    }
+    if (tahapan !== 'legal_drafting') return 'sudah_dikerjakan';
+    if (statuses.includes('waiting')) return 'menunggu_persetujuan';
+    if (statuses.includes('rejected')) return 'revisi';
+    if (statuses.length > 0) return 'sudah_dikerjakan';
+    // tanpa baris legal_drafting: dikembalikan dari evaluasi oleh pemrakarsa → revisi.
+    if (latestAksi === 'kembalikan-evaluasi') return 'revisi';
+    return 'belum_dikirim';
   }
 
   /**
@@ -654,27 +819,42 @@ export class NaskahLainnyaService {
 
   async uploadDokumen(id: string, file: Express.Multer.File, user: CurrentUser) {
     const n = await this.findNaskah(id);
-    // Struktur direktori: naskah-lainnya/{jenis}/{id}/naskah/{timestamp}-{nama-asli}.docx
-    const folder = `naskah-lainnya/${n.jenis}/${n.id}/naskah`;
-    const filename = `${Date.now()}-${file.originalname}`;
-    const result = await this.storage.uploadBuffer(file.buffer, filename, file.mimetype, folder);
-    const key = result.key;
     const params = await this.docxReader.readParameters(file.buffer);
     const patch: Partial<NaskahEntity> = {};
-    patch.lampiran = key; // simpan MinIO key agar bisa di-fetch ulang saat buka draft
     if (params.perihal) { n.perihal = params.perihal; patch.perihal = params.perihal; }
     // tanggal adalah bagian PK — skip update di sini (hindari PK change)
     if (params.tanggal) {
       const t = new Date(params.tanggal);
       if (!isNaN(t.getTime())) n.tanggal = t; // update in-memory only
     }
-    if (Object.keys(patch).length > 0) {
-      await this.naskahRepo.update({ id: n.id, tanggal: n.tanggal as any }, patch);
-    }
+    // Nama file kanonik — rumus identik dengan FE (utils/naskah-file-name.ts)
+    // agar display/download di semua halaman konsisten dengan object storage.
+    const namaFile = this.buildNaskahFileName(n.perihal, n.jenis, n.id);
+    // Struktur direktori: naskah-lainnya/{jenis}/{id}/naskah/{timestamp}-{nama-kanonik}.docx
+    const folder = `naskah-lainnya/${n.jenis}/${n.id}/naskah`;
+    const filename = `${Date.now()}-${namaFile}`;
+    const result = await this.storage.uploadBuffer(file.buffer, filename, file.mimetype, folder);
+    patch.lampiran = result.key; // simpan MinIO key agar bisa di-fetch ulang saat buka draft
+    await this.naskahRepo.update({ id: n.id, tanggal: n.tanggal as any }, patch);
     await this.catatVersiNaskah(
-      n.id, n.tahapan, key, file.originalname, file.mimetype, file.size, user,
+      n.id, n.tahapan, result.key, namaFile, file.mimetype, file.size, user,
     );
     return { success: true, data: { parameter: params } };
+  }
+
+  /** Nama file naskah kanonik — identik dengan FE utils/naskah-file-name.ts. */
+  private buildNaskahFileName(perihal: string | null, jenis: string | null, naskahId: string): string {
+    const slug = (s: string | null) => {
+      const v = String(s ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 50);
+      return v || 'naskah';
+    };
+    const base = slug(perihal || jenis || 'naskah');
+    const suffix = String(naskahId ?? '').slice(0, 8) || 'draft';
+    return `${base}-${suffix}.docx`;
   }
 
   async getTemplateUrl(jenis: string) {
@@ -790,7 +970,7 @@ export class NaskahLainnyaService {
   async evaluasi(id: string, dto: EvaluasiDto, user: CurrentUser) {
     const n = await this.findNaskah(id);
     const N = n.penandatanganChain?.length ?? 0;
-    const next = this.workflow.nextAfterEvaluasi(dto.sesuai, n.butuhLegal, N);
+    const next = this.workflow.resolveNext('evaluasi', dto.sesuai ? 'setuju' : 'tolak', n.butuhLegal, 1, N);
     const patch: Partial<NaskahEntity> = { tahapan: next };
     if (next === 'tanda_tangan') patch.signingIndex = 1;
     n.tahapan = next;
@@ -799,6 +979,31 @@ export class NaskahLainnyaService {
     if (next === 'tanda_tangan' && n.signOption === 'ttd_basah') {
       await this.prepareFisikArtifact(n, user);
     }
+    return this.getDetail(id, user);
+  }
+
+  // Pemrakarsa mengembalikan naskah dari evaluasi ke legal_drafting agar drafter legal
+  // merevisi. Alasan (catatan) wajib → dicatat ke riwayat (aksi='kembalikan-evaluasi')
+  // & ditampilkan ke drafter legal di halaman legal drafting. Baris approval legal lama
+  // (semua verified) dihapus — drafter kirim ulang approval (buatApprovalLegalDrafting
+  // idempotent seed baru). Hanya untuk naskah butuh legal.
+  async kembalikanEvaluasi(id: string, catatan: string | undefined, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'evaluasi') {
+      throw new BadRequestException('Naskah tidak dalam fase evaluasi.');
+    }
+    if (!n.butuhLegal) {
+      throw new BadRequestException('Kembalikan ke legal hanya untuk naskah yang butuh legal drafting.');
+    }
+    if (!catatan?.trim()) {
+      throw new BadRequestException('Alasan wajib diisi.');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      await this.workflow.transisi(n, 'kembalikan-evaluasi', {
+        aktor: user.nama, jabatan: user.positionText, catatan, manager,
+      });
+      await manager.delete(NaskahLainnyaApprovalEntity, { naskahId: n.id, tahap: 'legal_drafting' });
+    });
     return this.getDetail(id, user);
   }
 
@@ -831,6 +1036,8 @@ export class NaskahLainnyaService {
     id: string,
     approval: { positionId?: string | null; nama: string; jabatan: string }[],
     user: CurrentUser,
+    catatan?: string,
+    catatanLegal?: string,
   ) {
     const n = await this.findNaskah(id);
     // Hanya legal role yang bisa kirim approval legal drafting.
@@ -845,8 +1052,16 @@ export class NaskahLainnyaService {
     }
     await this.dataSource.transaction(async (manager) => {
       await this.workflow.buatApprovalLegalDrafting(manager, n, approval, {
-        aktor: user.nama, jabatan: user.positionText,
+        aktor: user.nama, jabatan: user.positionText, catatan,
       });
+      // Catatan legal (TinyMCE) persist ke kolom naskah (item #4).
+      if (catatanLegal !== undefined) {
+        await manager.update(
+          NaskahEntity,
+          { id: n.id, tanggal: n.tanggal as any },
+          { catatanLegal: catatanLegal || null },
+        );
+      }
     });
     return this.getDetail(id, user);
   }
@@ -888,6 +1103,11 @@ export class NaskahLainnyaService {
     }
     if (!n.lampiran) throw new BadRequestException('Lampiran naskah asli tidak ditemukan.');
 
+    // ── Generate nomor final di signing (pindah dari kirim) ──
+    // Idempotent: signer ke-2 dst. menemukan n.nomor sudah ter-set → no-op.
+    // ponytail: konteks generasi dari dikirimOleh (pemrakarsa), bukan current user.
+    const nomor = await this.ensureNomorFinal(n);
+
     // Generate QR untuk signer 1..idx (re-render dari lampiran asli tiap step — idempotent).
     const originalBuffer = await this.storage.getFile(n.lampiran);
     const signedSigners: { index: number; qrBuffer: Buffer }[] = [];
@@ -904,7 +1124,9 @@ export class NaskahLainnyaService {
       });
       signedSigners.push({ index: i + 1, qrBuffer });
     }
-    const signedBuffer = await this.docxQrInline.injectQrSigners(originalBuffer, signedSigners);
+    // Merge { nomor } ke pass-1 fill → {{nomor}} ter-fill sekalian dengan {{tanda_tangan_*}}
+    // (hindari 2 pass docxtemplater). Aman bila {{nomor}} absen (in-flight kode lama).
+    const signedBuffer = await this.docxQrInline.injectQrSigners(originalBuffer, signedSigners, { nomor });
 
     // Simpan artifact signed terpisah dari lampiran asli.
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/signed`;
@@ -954,6 +1176,11 @@ export class NaskahLainnyaService {
       throw new ForbiddenException('Bukan giliran Anda menandatangani naskah ini.');
     }
 
+    // Safety net: pastikan nomor final ter-generate & ter-persist (idempotent).
+    // Normalnya prepareFisikArtifact sudah generate di awal fase tanda_tangan;
+    // call ini no-op bila nomor sudah ada, dan menangani edge bila somehow belum.
+    await this.ensureNomorFinal(n);
+
     // Simpan artifact upload (naskah hasil ttd basah) — menumpuk signer sebelumnya.
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/signed`;
     const filename = `signed-fisik-${idx}-${file.originalname}`;
@@ -972,12 +1199,16 @@ export class NaskahLainnyaService {
     return this.getDetail(id, user);
   }
 
-  /** Fisik: replace placeholder {{tanda_tangan_i}} → "nama — jabatan" sekali di awal fase signing. */
+  /** Fisik: replace placeholder {{tanda_tangan_i}} → "nama — jabatan" + {{nomor}} → nomor final, sekali di awal fase signing. */
   private async prepareFisikArtifact(n: NaskahEntity, user: CurrentUser): Promise<void> {
     if (!n.lampiran) return;
     const chain = n.penandatanganChain ?? [];
     if (chain.length === 0) return;
-    const data: Record<string, string> = {};
+    // ── Generate nomor final di signing (pindah dari kirim) ──
+    // Idempotent. Konteks generasi dari dikirimOleh (pemrakarsa), bukan current user
+    // (di sini user = evaluator/legal yang trigger masuk tanda_tangan).
+    const nomor = await this.ensureNomorFinal(n);
+    const data: Record<string, string> = { nomor };
     for (let i = 0; i < chain.length; i++) {
       data[`tanda_tangan_${i + 1}`] = `${chain[i].nama} — ${chain[i].jabatan}`;
     }
@@ -995,6 +1226,69 @@ export class NaskahLainnyaService {
       { signedLampiran: result.key },
     );
     await this.upsertDittdRow(n.id, result.key, user);
+  }
+
+  /**
+   * Pastikan n.nomor final sebelum render docx di tahap penandatanganan.
+   * - Nomor manual sudah set (real, bukan placeholder) → pakai apa adanya (divalidasi di kirim).
+   * - null/placeholder → auto-generate via nomorService (counter naik) dalam tx + persist.
+   * Idempotent: aman dipanggil ulang (signer ke-2 dst. menemukan n.nomor sudah ter-set).
+   *
+   * ponytail: konteks generasi (company/area/abbreviation/dst) diambil dari snapshot
+   * dikirimOleh (pemrakarsa), bukan current user — di signing, user aktif adalah
+   * signer/evaluator (bukan pemrakarsa), jadi scope nomor harus ikut pemrakarsa.
+   */
+  private async ensureNomorFinal(n: NaskahEntity): Promise<string> {
+    const existing = n.nomor && !/{{\s*nomor\s*}}/i.test(n.nomor) ? n.nomor : null;
+    if (existing) return existing;
+
+    const ctx = n.dikirimOleh;
+    if (!ctx?.company || !ctx.area || !ctx.abbreviation) {
+      throw new BadRequestException(
+        'Konteks pemrakarsa (company/area/abbreviation) tidak lengkap. Hubungi admin — naskah perlu di-kirim ulang.',
+      );
+    }
+    const tanggalNaskah = n.tanggal instanceof Date ? n.tanggal : new Date(n.tanggal as any);
+    if (!tanggalNaskah || isNaN(tanggalNaskah.getTime())) {
+      throw new BadRequestException('Tanggal naskah wajib diisi sebelum penandatangan.');
+    }
+
+    const nomorFinal = await this.dataSource.transaction(async (manager) => {
+      const jenisData = await manager
+        .getRepository(JenisEntity)
+        .findOne({ where: { jenis: n.jenis as any } });
+      if (!jenisData?.formatPenomoran) {
+        throw new BadRequestException(
+          `Format penomoran untuk jenis ${n.jenis} belum dikonfigurasi.`,
+        );
+      }
+      const format = jenisData.formatPenomoran;
+      if (format.includes('{KLASIFIKASI}') && !(n.klasifikasi ?? null)) {
+        throw new BadRequestException(
+          `Klasifikasi wajib diisi untuk jenis ${n.jenis} sebelum penandatangan.`,
+        );
+      }
+      const gen = await this.nomorService.generateNomorForNaskah(
+        {
+          jenis: n.jenis,
+          klasifikasi: n.klasifikasi ?? undefined,
+          tanggal: tanggalNaskah,
+          company: ctx.company!,
+          area: ctx.area!,
+          subArea: ctx.subArea,
+          organization: ctx.organization,
+          position: ctx.position_id ?? '',
+          jabatanAbbrev: ctx.abbreviation!,
+        },
+        manager,
+      );
+      await manager
+        .getRepository(NaskahEntity)
+        .update({ id: n.id, tanggal: n.tanggal as any }, { nomor: gen.nomor });
+      return gen.nomor;
+    });
+    n.nomor = nomorFinal;
+    return nomorFinal;
   }
 
   private async findNaskah(id: string): Promise<NaskahEntity> {
@@ -1072,7 +1366,15 @@ export class NaskahLainnyaService {
       order: { createdAt: 'DESC' },
     });
     if (versiRows.length > 0) {
+      // Revisi legal: bila ada beberapa versi legal_drafting (tolak → drafter revisi &
+      // unggah ulang), hanya tampilkan versi TERAKHIR (final). Versi legal_drafting
+      // sebelumnya disembunyikan dari timeline — baris DB tetap dipertahankan.
+      let legalDraftingShown = false;
       for (const v of versiRows) {
+        if ((v.tahapan ?? '') === 'legal_drafting') {
+          if (legalDraftingShown) continue;
+          legalDraftingShown = true;
+        }
         docs.push({
           id: v.id,
           nama: v.nama,
@@ -1097,9 +1399,9 @@ export class NaskahLainnyaService {
       });
     }
 
-    // 'naskah_fisik' & 'pendukung' — dari naskah_lainnya_dokumen.
+    // 'naskah_fisik', 'pendukung', & sheet PDFs — dari naskah_lainnya_dokumen.
     const dokRows = await this.dokumenRepo.find({
-      where: { naskahId: n.id, tipe: In(['naskah_fisik', 'pendukung']) },
+      where: { naskahId: n.id, tipe: In(['naskah_fisik', 'pendukung', 'lembar_persetujuan_direksi_pdf', 'blanko_verbal_pdf']) },
       order: { createdAt: 'ASC' },
     });
     for (const d of dokRows) {
@@ -1174,5 +1476,345 @@ export class NaskahLainnyaService {
     if (!doc) throw new NotFoundException('Dokumen tidak ditemukan');
     const buffer = await this.storage.getFile(doc.minioKey);
     return { buffer, mimetype: doc.mimetype ?? 'application/octet-stream', nama: doc.nama };
+  }
+
+  // ---------- Lembar Persetujuan Direksi ----------
+
+  async previewLembarPersetujuanDireksi(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if ((n.tahapan !== 'evaluasi' && n.tahapan !== 'persetujuan_direksi') || !n.butuhLegal) {
+      throw new BadRequestException('Preview lembar persetujuan direksi hanya untuk naskah evaluasi/persetujuan direksi yang butuh legal.');
+    }
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    const { pdfUrl } = await this.renderSheetPdf(
+      n.id, dto, `lembar-persetujuan-direksi-${n.id}.pdf`, 'lembar_persetujuan_direksi_pdf',
+      directors, n.jenis as string, user, new Set(),
+    );
+    return { success: true, data: { pdfUrl } };
+  }
+
+  async kirimLembarPersetujuanDireksi(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    const fromEvaluasi = n.tahapan === 'evaluasi';
+    if (!fromEvaluasi && n.tahapan !== 'persetujuan_direksi') {
+      throw new BadRequestException('Kirim lembar persetujuan direksi hanya untuk naskah evaluasi atau persetujuan direksi.');
+    }
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    await this.renderSheetPdf(
+      n.id, dto, `lembar-persetujuan-direksi-${n.id}.pdf`, 'lembar_persetujuan_direksi_pdf',
+      directors, n.jenis as string, user, new Set(),
+    );
+    await this.dataSource.transaction(async (manager) => {
+      // Idempotent: hapus baris PD lama (re-kirim / recovery) lalu seed ulang.
+      await manager.delete(NaskahLainnyaApprovalEntity, { naskahId: n.id, tahap: 'persetujuan_direksi' });
+      await this.seedBodApprovals(manager, n.id, directors, 'persetujuan_direksi');
+      // Dari evaluasi → transisi ke persetujuan_direksi. Dari PD (recovery) → tetap
+      // di PD (naskah sudah di PD, hanya belum punya baris BOD).
+      if (fromEvaluasi) {
+        await this.workflow.transisi(n, 'setuju', {
+          aktor: user.nama, jabatan: user.positionText, manager,
+        });
+        await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: n.tahapan });
+      }
+    });
+    return this.getDetail(id, user);
+  }
+
+  async parafLembarPersetujuanDireksi(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'persetujuan_direksi') {
+      throw new BadRequestException('Paraf lembar persetujuan direksi hanya untuk naskah tahap persetujuan direksi.');
+    }
+    const rows = await this.approvalRepo.find({ where: { naskahId: id } });
+    const row = this.findUserWaitingRow(rows, 'persetujuan_direksi', user);
+    if (!row) throw new ForbiddenException('Anda tidak memiliki baris paraf waiting untuk naskah ini.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
+        catatan: dto.catatan, aktor: user.nama, jabatan: user.positionText, manager,
+      });
+      await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: newTahap });
+    });
+
+    // Re-render PDF dengan QR untuk direksi yang sudah verified.
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    const verifiedIndices = this.computeVerifiedIndices(rows, row.id, 'persetujuan_direksi', directors);
+    await this.renderSheetPdf(
+      n.id, dto, `lembar-persetujuan-direksi-${n.id}.pdf`, 'lembar_persetujuan_direksi_pdf',
+      directors, n.jenis as string, user, verifiedIndices,
+    );
+    return this.getDetail(id, user);
+  }
+
+  async tolakLembarPersetujuanDireksi(id: string, catatan: string, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'persetujuan_direksi') {
+      throw new BadRequestException('Tolak lembar persetujuan direksi hanya untuk naskah tahap persetujuan direksi.');
+    }
+    if (!catatan?.trim()) throw new BadRequestException('Alasan wajib diisi saat menolak.');
+    const rows = await this.approvalRepo.find({ where: { naskahId: id } });
+    const row = this.findUserWaitingRow(rows, 'persetujuan_direksi', user);
+    if (!row) throw new ForbiddenException('Anda tidak memiliki baris paraf waiting untuk naskah ini.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const newTahap = await this.workflow.applyApproval(n, rows, row.id, 'tolak', {
+        catatan, aktor: user.nama, jabatan: user.positionText, manager,
+      });
+      await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: newTahap });
+    });
+    return this.getDetail(id, user);
+  }
+
+  // ---------- Blanko Verbal ----------
+
+  async previewBlankoVerbal(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'blanko_verbal') {
+      throw new BadRequestException('Preview blanko verbal hanya untuk naskah tahap blanko verbal.');
+    }
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    const { pdfUrl } = await this.renderSheetPdf(
+      n.id, dto, `blanko-verbal-${n.id}.pdf`, 'blanko_verbal_pdf',
+      directors, n.jenis as string, user, new Set(),
+    );
+    return { success: true, data: { pdfUrl } };
+  }
+
+  async kirimBlankoVerbal(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'blanko_verbal') {
+      throw new BadRequestException('Kirim blanko verbal hanya untuk naskah tahap blanko verbal.');
+    }
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    await this.renderSheetPdf(
+      n.id, dto, `blanko-verbal-${n.id}.pdf`, 'blanko_verbal_pdf',
+      directors, n.jenis as string, user, new Set(),
+    );
+    const existingBvRows = await this.approvalRepo.find({ where: { naskahId: n.id, tahap: 'blanko_verbal' } });
+    await this.dataSource.transaction(async (manager) => {
+      if (existingBvRows.length === 0) {
+        await this.seedBodApprovals(manager, n.id, directors, 'blanko_verbal');
+      }
+      await this.workflow.transisi(n, 'kirim-blanko', {
+        aktor: user.nama, jabatan: user.positionText, manager,
+      });
+      await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: n.tahapan });
+    });
+    return this.getDetail(id, user);
+  }
+
+  async parafBlankoVerbal(id: string, dto: SheetDataDto, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'blanko_verbal') {
+      throw new BadRequestException('Paraf blanko verbal hanya untuk naskah tahap blanko verbal.');
+    }
+    const rows = await this.approvalRepo.find({ where: { naskahId: id } });
+    const row = this.findUserWaitingRow(rows, 'blanko_verbal', user);
+    if (!row) throw new ForbiddenException('Anda tidak memiliki baris paraf waiting untuk naskah ini.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
+        catatan: dto.catatan, aktor: user.nama, jabatan: user.positionText, manager,
+      });
+      await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: newTahap });
+    });
+
+    const directors = await this.getBodDirectors(n.dikirimOleh?.company);
+    const verifiedIndices = this.computeVerifiedIndices(rows, row.id, 'blanko_verbal', directors);
+    await this.renderSheetPdf(
+      n.id, dto, `blanko-verbal-${n.id}.pdf`, 'blanko_verbal_pdf',
+      directors, n.jenis as string, user, verifiedIndices,
+    );
+    return this.getDetail(id, user);
+  }
+
+  async tolakBlankoVerbal(id: string, catatan: string, user: CurrentUser) {
+    const n = await this.findNaskah(id);
+    if (n.tahapan !== 'blanko_verbal') {
+      throw new BadRequestException('Tolak blanko verbal hanya untuk naskah tahap blanko verbal.');
+    }
+    if (!catatan?.trim()) throw new BadRequestException('Alasan wajib diisi saat menolak.');
+    const rows = await this.approvalRepo.find({ where: { naskahId: id } });
+    const row = this.findUserWaitingRow(rows, 'blanko_verbal', user);
+    if (!row) throw new ForbiddenException('Anda tidak memiliki baris paraf waiting untuk naskah ini.');
+
+    await this.dataSource.transaction(async (manager) => {
+      const newTahap = await this.workflow.applyApproval(n, rows, row.id, 'tolak', {
+        catatan, aktor: user.nama, jabatan: user.positionText, manager,
+      });
+      await manager.update(NaskahEntity, { id: n.id, tanggal: n.tanggal as any }, { tahapan: newTahap });
+    });
+    return this.getDetail(id, user);
+  }
+
+  // ---------- Sheet helpers ----------
+
+  private async getBodDirectors(company: string | undefined) {
+    if (!company) throw new BadRequestException('Data company pemrakarsa tidak ditemukan.');
+    const allOrg = await this.orgDataService.findAll();
+    const directors = this.orgDataService.findBodByCompany(allOrg, company);
+    if (!directors.length) throw new BadRequestException('Tidak ditemukan direktur untuk company ini.');
+    return directors;
+  }
+
+  private findUserWaitingRow(
+    rows: NaskahLainnyaApprovalEntity[],
+    tahap: string,
+    user: CurrentUser,
+  ): NaskahLainnyaApprovalEntity | undefined {
+    const posId = user.positionId ?? user.position;
+    return rows.find(
+      (r) => r.tahap === tahap && r.status === 'waiting' &&
+        ((posId && r.positionId === posId) || (user.nama && r.nama === user.nama)),
+    );
+  }
+
+  private async seedBodApprovals(
+    manager: EntityManager,
+    naskahId: string,
+    directors: any[],
+    tahap: 'persetujuan_direksi' | 'blanko_verbal',
+  ): Promise<void> {
+    await manager.delete(NaskahLainnyaApprovalEntity, { naskahId, tahap });
+    for (const d of directors) {
+      const row = this.approvalRepo.create({
+        id: uuidv4(),
+        naskahId,
+        tahap,
+        positionId: d.positionId ?? null,
+        nama: d.nama,
+        jabatan: d.jabatan,
+        urutan: 1,
+        status: 'waiting',
+      });
+      await manager.save(row);
+    }
+  }
+
+  /**
+   * Himpun index direksi (1-based) yang sudah verified pada tahap paraf, termasuk
+   * baris yang baru saja diparaf (rowId). Direksi dicocokkan ke index berdasarkan
+   * urutan `directors` (posisi) via positionId/nama — sama dengan cara reRender lama.
+   */
+  private computeVerifiedIndices(
+    rows: NaskahLainnyaApprovalEntity[],
+    rowId: string,
+    tahap: 'persetujuan_direksi' | 'blanko_verbal',
+    directors: any[],
+  ): Set<number> {
+    const verifiedRows = rows.filter((r) => r.tahap === tahap && (r.status === 'verified' || r.id === rowId));
+    const indices = new Set<number>();
+    for (const r of verifiedRows) {
+      const idx = directors.findIndex(
+        (d) => (d.positionId && r.positionId === d.positionId) || r.nama === d.nama,
+      );
+      if (idx >= 0) indices.add(idx + 1);
+    }
+    return indices;
+  }
+
+  /**
+   * Render sheet (LPD atau blanko verbal) ke PDF via service khusus, lalu upload
+   * + simpan baris dokumen. `verifiedIndices` menentukan direksi mana yang dapat
+   * QR paraf (∅ untuk preview/kirim; baris verified untuk paraf).
+   * `tipe` menentukan service & tipe dokumen: 'lembar_persetujuan_direksi_pdf'
+   * → LPD; 'blanko_verbal_pdf' → blanko.
+   */
+  private async renderSheetPdf(
+    naskahId: string,
+    sheet: SheetDataDto,
+    filename: string,
+    tipe: 'lembar_persetujuan_direksi_pdf' | 'blanko_verbal_pdf',
+    directors: any[],
+    documentType: string,
+    user: CurrentUser,
+    verifiedIndices: Set<number>,
+  ): Promise<{ pdfUrl: string; minioKey: string }> {
+    const prefix = tipe === 'lembar_persetujuan_direksi_pdf' ? 'paraf_direksi' : 'paraf_blanko_verbal';
+    const qrBase64s = await this.buildDirectorQrBase64s(naskahId, directors, documentType, prefix);
+    const directorsWithQr = directors.map((d: any, i: number) => ({
+      index: i + 1,
+      nama: d.nama,
+      jabatan: d.jabatan,
+      qrBase64: qrBase64s[i]?.qrBase64 ?? '',
+    }));
+    const data: SheetPdfData = {
+      tanggal: sheet.tanggal, nomor: sheet.nomor,
+      diusulkanOleh: sheet.diusulkanOleh, jabatanDiusulkan: sheet.jabatanDiusulkan,
+      perihal: sheet.perihal,
+      referensiDari: sheet.referensiDari, referensiNomor: sheet.referensiNomor, referensiTanggal: sheet.referensiTanggal,
+      klasifikasi: sheet.klasifikasi, lampiran: sheet.lampiran,
+      legalDrafter: sheet.legalDrafter, legalDrafterJabatan: sheet.legalDrafterJabatan,
+      legalChecker: sheet.legalChecker, legalCheckerJabatan: sheet.legalCheckerJabatan,
+      bodyHtml: sheet.bodyHtml, catatan: sheet.catatan,
+      directors: directorsWithQr, verifiedIndices,
+    };
+    const buffer = tipe === 'lembar_persetujuan_direksi_pdf'
+      ? await this.lpdService.render(data)
+      : await this.blankoService.render(data);
+    const upload = await this.storage.uploadBuffer(buffer, filename, 'application/pdf', 'naskah-lainnya-pdf');
+    const pdfUrl = await this.storage.getFileUrl(upload.key, 3600);
+    await this.saveSheetDokumen(naskahId, tipe, upload.key, filename, user);
+    return { pdfUrl, minioKey: upload.key };
+  }
+
+  private async buildDirectorQrBase64s(
+    naskahId: string,
+    directors: any[],
+    documentType: string,
+    qrPrefix: string,
+  ): Promise<{ index: number; nama: string; jabatan: string; qrBase64: string }[]> {
+    const results: { index: number; nama: string; jabatan: string; qrBase64: string }[] = [];
+    for (let i = 0; i < directors.length; i++) {
+      const d = directors[i];
+      const qrBuffer = await this.qrCode.generateQRCodePngBuffer({
+        signature_id: `${naskahId}-${qrPrefix}-${i + 1}`,
+        document_number: naskahId,
+        signed_at: new Date().toISOString(),
+        signer_name: d.nama,
+        signer_jabatan: d.jabatan,
+        document_type: documentType,
+        verification_url: `${process.env.FRONTEND_URL ?? ''}/naskah-lainnya/${naskahId}/verifikasi`,
+      });
+      results.push({
+        index: i + 1,
+        nama: d.nama,
+        jabatan: d.jabatan,
+        qrBase64: qrBuffer.toString('base64'),
+      });
+    }
+    return results;
+  }
+
+  private async saveSheetDokumen(
+    naskahId: string,
+    tipe: string,
+    minioKey: string,
+    nama: string,
+    user: CurrentUser,
+  ): Promise<NaskahLainnyaDokumenEntity> {
+    const existing = await this.dokumenRepo.findOne({ where: { naskahId, tipe } });
+    if (existing) {
+      await this.dokumenRepo.update(existing.id, {
+        minioKey, nama, mimetype: 'application/pdf', ukuran: null,
+        uploaderNama: user.nama,
+        uploaderJabatan: user.positionText ?? null,
+        uploaderPersnum: user.persnum,
+      });
+      return { ...existing, minioKey, nama, mimetype: 'application/pdf', ukuran: null } as NaskahLainnyaDokumenEntity;
+    }
+    const doc = this.dokumenRepo.create({
+      id: uuidv4(),
+      naskahId,
+      tipe,
+      nama,
+      minioKey,
+      mimetype: 'application/pdf',
+      ukuran: null,
+      uploaderNama: user.nama,
+      uploaderJabatan: user.positionText ?? null,
+      uploaderPersnum: user.persnum,
+    });
+    return this.dokumenRepo.save(doc);
   }
 }
