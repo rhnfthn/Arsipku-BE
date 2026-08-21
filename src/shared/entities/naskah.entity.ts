@@ -7,11 +7,11 @@ export class NaskahEntity {
   id: string;
 
   @Column('enum', {
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'UND'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPD', 'SED', 'SOP', 'KSB', 'PKS', 'KTP', 'PJL', 'LOA', 'SKU', 'BA', 'SKE', 'SPR', 'RRA', 'PUM', 'PIA', 'LAP'],
     comment:
-      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, UND=Surat Undangan (Naskah Umum)',
+      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, K=Korespondensi Lama, UND=Surat Undangan, PER/KEP/INS/SPD/SED/SOP/KSB/PKS/KTP/PJL/LOA/SKU/BA/SKE/SPR/RRA/PUM/PIA/LAP=Naskah Lainnya',
   })
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'UND';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPD' | 'SED' | 'SOP' | 'KSB' | 'PKS' | 'KTP' | 'PJL' | 'LOA' | 'SKU' | 'BA' | 'SKE' | 'SPR' | 'RRA' | 'PUM' | 'PIA' | 'LAP';
 
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;
@@ -31,7 +31,7 @@ export class NaskahEntity {
   @PrimaryColumn('date')
   tanggal: Date;
 
-  @Column('varchar', { length: 100, nullable: true })
+  @Column('varchar', { length: 255, nullable: true })
   lampiran: string;
 
   @Column('text', { nullable: true })
@@ -78,13 +78,24 @@ export class NaskahEntity {
     name: 'dikirim_oleh',
     nullable: true,
     comment:
-      'JSON snapshot: {persnum, nama, position_text} orang yang mengirim/finalize naskah pending (bisa delegasi)',
+      'JSON snapshot: {persnum, nama, position_text, position_id} orang yang mengirim/finalize naskah pending (bisa delegasi). Di-refresh di kirim dengan konteks pemrakarsa (company/area/subArea/organization/abbreviation) untuk generasi nomor di tahap penandatanganan.',
     transformer: {
       to: (value: any) => (value ? JSON.stringify(value) : null),
       from: (value: string | null) => (value ? JSON.parse(value) : null),
     },
   })
-  dikirimOleh: { persnum: string; nama: string; position_text: string } | null;
+  dikirimOleh: {
+    persnum: string;
+    nama: string;
+    position_text: string;
+    position_id?: string;
+    /** Konteks pemrakarsa untuk generasi nomor di signing (diisi/refresh di kirim). */
+    company?: string;
+    area?: string;
+    subArea?: string;
+    organization?: string;
+    abbreviation?: string;
+  } | null;
 
   @Column('varchar', {
     name: 'created_by_position',
@@ -105,6 +116,67 @@ export class NaskahEntity {
     nullable: true,
   })
   atasNamaPositionId: string | null;
+
+  // Naskah Lainnya — data penandatangan (jabatan, positionId, persnum).
+  @Column('varchar', { name: 'penandatangan_jabatan', length: 150, nullable: true })
+  penandatanganJabatan: string | null;
+
+  @Column('varchar', { name: 'penandatangan_position_id', length: 50, nullable: true })
+  penandatanganPositionId: string | null;
+
+  @Column('int', { name: 'penandatangan_persnum', nullable: true })
+  penandatanganPersnum: number | null;
+
+  // Naskah Lainnya — rantai penandatangan (JSON array, dukung multiple penandatangan).
+  // [{positionId, persnum, nama, jabatan}] urut = urutan tanda tangan.
+  // Null = fallback ke single penandatangan (atasNama + penandatanganJabatan).
+  @Column('text', {
+    name: 'penandatangan_chain',
+    nullable: true,
+    comment:
+      'JSON array penandatangan: [{positionId?, persnum?, nama, jabatan}] urut = urutan TTD. Null = pakai atasNama + penandatanganJabatan (legacy).',
+    transformer: {
+      to: (value: any) => (value && value.length ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  penandatanganChain: { positionId?: string; persnum?: number; nama: string; jabatan: string }[] | null;
+
+  // Naskah Lainnya — index penandatangan aktif saat fase tanda_tangan (1-based).
+  // Null di luar fase signing. signing_index === N menandakan signer terakhir.
+  @Column('int', { name: 'signing_index', nullable: true })
+  signingIndex: number | null;
+
+  // Naskah Lainnya — MinIO key artifact signed (QR-injected untuk Digital / upload
+  // manual untuk Fisik). Terpisah dari `lampiran` asli (sumber re-render Digital).
+  @Column('varchar', { name: 'signed_lampiran', length: 255, nullable: true })
+  signedLampiran: string | null;
+
+  // Naskah Lainnya — tahapan workflow & flag legal. Null pada baris existing/naskah dinas.
+  @Column('varchar', { name: 'tahapan', length: 32, nullable: true })
+  tahapan: string | null;
+
+  @Column('boolean', { name: 'butuh_legal', default: false })
+  butuhLegal: boolean;
+
+  // Naskah Lainnya — catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.
+  @Column('text', { name: 'catatan_legal', nullable: true, comment: 'Catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.' })
+  catatanLegal: string | null;
+
+  // Naskah Lainnya — rantai approval berjenjang pilihan pemrakarsa (JSON array).
+  // [{positionId, nama, jabatan}] — urutan array = urutan persetujuan.
+  // Null/[] = pakai default workflow. Approver ≠ penandatangan.
+  @Column('text', {
+    name: 'approval_chain',
+    nullable: true,
+    comment:
+      'JSON snapshot rantai approval berjenjang: [{positionId?, nama, jabatan}] urut = urutan setujui. Null = default workflow.',
+    transformer: {
+      to: (value: any) => (value && value.length ? JSON.stringify(value) : null),
+      from: (value: string | null) => (value ? JSON.parse(value) : null),
+    },
+  })
+  approvalChain: { positionId?: string; nama: string; jabatan: string }[] | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
