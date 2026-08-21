@@ -75,6 +75,7 @@ export class MeilisearchSearchService {
       areaFrom,
       subAreaFrom,
       organizationFrom,
+      isRead,
       page = 1,
       limit = 20,
       sortBy = 'tanggal',
@@ -208,6 +209,45 @@ export class MeilisearchSearchService {
           filters.push(`access_positions = "${userPosition}"`);
       }
       appliedFilters.push(`scope: ${scope}`);
+    }
+
+    // === UNREAD STATUS FILTER (isRead) ===
+    // Meilisearch docs don't store per-user read status, so pre-fetch naskah IDs
+    // from sirkulasi where send_read_time is NULL (unread) / NOT NULL (read),
+    // then filter by id IN [...]. Mirrors the archived/favorite scope pattern.
+    if (isRead !== undefined) {
+      const readCondition =
+        isRead === true ? 's.send_read_time IS NOT NULL' : 's.send_read_time IS NULL';
+      const readSirkulasi = await this.naskahSirkulasiRepository
+        .createQueryBuilder('s')
+        .select('s.id_naskah', 'id_naskah')
+        .where('s.position = :userPosition', { userPosition })
+        .andWhere(readCondition)
+        .getRawMany();
+
+      const readNaskahIds = readSirkulasi
+        .map((s) => s.id_naskah)
+        .filter(Boolean);
+
+      // If no matching naskah found, return empty result early
+      if (readNaskahIds.length === 0) {
+        return {
+          success: true,
+          message: `Tidak ada naskah ${isRead === true ? 'sudah dibaca' : 'belum dibaca'}`,
+          data: {
+            items: [],
+            pagination: { page, limit, total: 0, totalPages: 0 },
+            filters: {
+              applied: [`isRead: ${isRead}`],
+              keyword: keyword || undefined,
+            },
+          },
+        };
+      }
+
+      const idList = readNaskahIds.map((id) => `"${id}"`).join(', ');
+      filters.push(`id IN [${idList}]`);
+      appliedFilters.push(`isRead: ${isRead}`);
     }
 
     // === JENIS FILTER ===

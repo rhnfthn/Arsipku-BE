@@ -300,13 +300,6 @@ export class LabelService {
     const results: NaskahLabelEntity[] = [];
     const source = addNaskahToLabelDto.source || 'inbox';
 
-    // DEBUG: Log untuk cek nilai source
-    console.log('=== DEBUG ADD NASKAH TO LABEL ===');
-    console.log('DTO received:', JSON.stringify(addNaskahToLabelDto));
-    console.log('DTO source:', addNaskahToLabelDto.source);
-    console.log('Final source:', source);
-    console.log('=================================');
-
     // Ambil tanggal dari naskah induk (kunci partisi tabel naskah_label)
     let tanggal: Date = new Date();
     const parentNaskah = await this.dataSource.manager.findOne(NaskahEntity, {
@@ -690,6 +683,8 @@ export class LabelService {
           sifat: row.sifat,
           status: row.status,
           lampiran: lampiranCount,
+          is_read:
+            source === 'sent' ? sentHasTerbaca : inboxStatusBaca === 'terbaca',
           pengirim: {
             position_id: row.pengirim_position_id || '',
             position_text: row.pengirim_position_text || '',

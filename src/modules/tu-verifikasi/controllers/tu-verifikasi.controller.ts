@@ -30,8 +30,8 @@ export class TuVerifikasiController {
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Daftar notifikasi usulan pindah arsip untuk TU' })
-  async findAll(@Query() filter: TuFilterDto) {
-    return this.service.findAllNotifikasi(filter);
+  async findAll(@Query() filter: TuFilterDto, @CurrentUser() user: JwtPayload) {
+    return this.service.findAllNotifikasi(filter, user);
   }
 
   @Get('atasan-tu-list')
