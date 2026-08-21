@@ -75,6 +75,8 @@ import { AiModule } from './modules/ai/ai.module';
 import { OnlyOfficeModule } from './modules/onlyoffice/onlyoffice.module';
 import { NaskahUmumModule } from './modules/naskah-umum/naskah-umum.module';
 import { ArsipDinamisModule } from './modules/arsip-dinamis/arsip-dinamis.module';
+import { NaskahLainnyaModule } from './modules/naskah-lainnya/naskah-lainnya.module';
+import { KonfigurasiModule } from './modules/konfigurasi/konfigurasi.module';
 import { NaskahShareModule } from './modules/naskah-share/naskah-share.module';
 import { UsulanAksesBerkasModule } from './modules/usulan-akses-berkas/usulan-akses-berkas.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -256,6 +258,8 @@ import { ArsipModule } from './modules/arsip/arsip.module';
     NaskahUmumModule,
     ArsipDinamisModule,
     NaskahShareModule,
+    NaskahLainnyaModule,
+    KonfigurasiModule,
     // New module for usulan akses berkas
     UsulanAksesBerkasModule,
     AuditModule,

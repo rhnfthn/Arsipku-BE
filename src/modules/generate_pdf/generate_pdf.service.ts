@@ -1,11 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { getBrowser } from './puppeteer.provider';
 import { pdfQueue } from './pdf.queue';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
-export class GeneratePdfService {
+export class GeneratePdfService implements OnModuleInit {
+  onModuleInit() {
+    // Pre-warm puppeteer saat BE start agar preview PDF pertama tidak
+    // kena cold-start launch (~2-5dtk). Fire-and-forget: boot tidak diblok.
+    getBrowser().catch(() => {});
+  }
+
   async generatePdf(body: any): Promise<Buffer> {
     const result = await pdfQueue.add(() => this._generatePdfInternal(body), {
       timeout: 90000,

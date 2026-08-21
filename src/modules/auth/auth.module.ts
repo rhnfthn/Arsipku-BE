@@ -15,6 +15,7 @@ import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DelegasiModule } from '../delegasi/delegasi.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
+import { KonfigurasiModule } from '../konfigurasi/konfigurasi.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { OrganizationTuModule } from '../organization-tu/organization-tu.module'
     forwardRef(() => DelegasiModule),
     forwardRef(() => RbacModule),
     OrganizationTuModule,
+    KonfigurasiModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
