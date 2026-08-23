@@ -5,6 +5,8 @@ import { GeneratePdfNodinService } from './services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from './services/generate_pdf_sudin.service';
 import { GeneratePdfDispoService } from './services/generate_pdf_dispo.service';
 import { GeneratePdfKajianService } from './services/generate_pdf_kajian.service';
+import { GeneratePdfLpdService } from './services/generate_pdf_lpd.service';
+import { GeneratePdfBlankoVerbalService } from './services/generate_pdf_blanko_verbal.service';
 
 @Module({
   controllers: [GeneratePdfController],
@@ -14,6 +16,8 @@ import { GeneratePdfKajianService } from './services/generate_pdf_kajian.service
     GeneratePdfSudinService,
     GeneratePdfDispoService,
     GeneratePdfKajianService,
+    GeneratePdfLpdService,
+    GeneratePdfBlankoVerbalService,
   ],
   exports: [
     GeneratePdfService,
@@ -21,6 +25,8 @@ import { GeneratePdfKajianService } from './services/generate_pdf_kajian.service
     GeneratePdfSudinService,
     GeneratePdfDispoService,
     GeneratePdfKajianService,
+    GeneratePdfLpdService,
+    GeneratePdfBlankoVerbalService,
   ],
 })
 export class GeneratePdfModule {}
