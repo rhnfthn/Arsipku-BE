@@ -251,12 +251,16 @@ export class ArsipDinamisService {
     // Scope: user biasa hanya melihat berkas miliknya/unitnya. Berkas Tertutup
     // yang retensi aktifnya SUDAH habis disembunyikan (pindah ke TU/pemindahan
     // arsip); yang baru ditutup (retensi aktif masih berjalan) tetap tampil.
-    // TU (unit_dokumen) melihat semua berkas tertutup + berkas miliknya.
+    // Retensi inaktif tampil selama masa retensi inaktif masih berjalan; yang
+    // sudah habis disembunyikan (menunggu pemusnahan oleh TU).
+    // TU (unit_dokumen) melihat semua berkas tertutup + retensi inaktif + berkas miliknya.
+    const today = new Date().toISOString().split('T')[0];
     if (isTu) {
       qb.andWhere(
-        '(b.status = :closed OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+        '(b.status = :closed OR b.status = :inaktif OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
         {
           closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
+          inaktif: StatusBerkas.RETAIL_INAKTIF,
           userId,
           userPersnum: String(userId),
         },
@@ -270,7 +274,14 @@ export class ArsipDinamisService {
         '(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR b.tanggal_retensi_aktif_berakhir > :today)',
         {
           closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
-          today: new Date().toISOString().split('T')[0],
+          today,
+        },
+      );
+      qb.andWhere(
+        '(b.status != :inaktif OR b.tanggal_retensi_inaktif_berakhir IS NULL OR b.tanggal_retensi_inaktif_berakhir > :today)',
+        {
+          inaktif: StatusBerkas.RETAIL_INAKTIF,
+          today,
         },
       );
     }
