@@ -56,8 +56,9 @@ td, th { border: 1px solid #000; padding: 4px 7px; vertical-align: top; font-siz
 .signature-block { text-align: center; padding: 6px 4px 4px 4px; }
 .signature-name { text-decoration: underline; display: inline-block; margin-top: 55px; }
 .director-item { margin-bottom: 4px; }
+.director-divider { border-bottom: 1px solid #000; margin: 0 -7px 6px; padding: 0 7px 6px; }
 .director-name { text-decoration: underline; display: block; }
-.paraf-qr { width: 80px; height: 80px; display: block; margin: 2px 0; }
+.paraf-qr { width: 50px; height: 50px; display: block; margin: 2px 0; }
 .sig-space { height: 45px; }
 .tall { height: 90px; }
 .catatan-cell { height: 60px; }

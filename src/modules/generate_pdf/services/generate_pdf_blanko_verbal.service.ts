@@ -62,6 +62,9 @@ export class GeneratePdfBlankoVerbalService {
    */
   buildHtml(data: SheetPdfData): string {
     const dir = (i: number) => data.directors[i];
+    // Nama Direktur Utama untuk blok tanda tangan a.n DIREKSI (bukan baris paraf).
+    const dirut = data.directors.find((d) => /direktur\s*utama/i.test(d.jabatan || ''));
+    const dirutNama = (dirut?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
     // Direktur cell: item pertama selalu; item kedua hanya jika ada direksi ke-2.
     const firstDirectorCell = (): string => {
       const d1 = dir(0);
@@ -72,7 +75,8 @@ export class GeneratePdfBlankoVerbalService {
         const paraf = verified
           ? `<img src="data:image/png;base64,${d.qrBase64}" class="paraf-qr" alt="Paraf ${d.nama}">`
           : '<div class="sig-space"></div>';
-        return `<div class="director-item">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
+        const cls = i === 0 ? 'director-item director-divider' : 'director-item';
+        return `<div class="${cls}">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
       };
       return render(d1, 0) + render(d2, 1);
     };
@@ -103,24 +107,24 @@ export class GeneratePdfBlankoVerbalService {
       <td>Referensi :</td><td colspan="2"><div class="field">&nbsp;</div></td>
     </tr>
     <tr>
-      <td><div class="center-text">Diusulkan oleh</div><br><br><div class="small-italic center-text">(Nama Pejabat 1 level di bawah<br>Direksi)</div></td>
+      <td><div class="center-text">Diusulkan oleh</div></td>
       <td class="colon">:</td>
-      <td><div class="small-italic center-text">${data.diusulkanOleh || '(Nama Pejabat)'}<br>${data.jabatanDiusulkan || '(Jabatan Unit Pemrakarsa)'}</div></td>
-      <td rowspan="2">Dari<br><br><br>No. Surat<br><br><br>Tanggal</td>
-      <td rowspan="2" class="colon">:<br><br><br>:<br><br><br>:</td>
-      <td rowspan="2">${data.referensiDari || '&nbsp;'}<br><br><br>${data.referensiNomor || '&nbsp;'}<br><br><br>${formatTanggal(data.referensiTanggal)}</td>
+      <td><div class="small-italic">${data.diusulkanOleh || '(Nama Pejabat)'}<br>${data.jabatanDiusulkan || '(Jabatan Unit Pemrakarsa)'}</div></td>
+      <td rowspan="2">Dari<br>No. Surat<br>Tanggal</td>
+      <td rowspan="2" class="colon">:<br>:<br>:</td>
+      <td rowspan="2">${data.referensiDari || '&nbsp;'}<br>${data.referensiNomor || '&nbsp;'}<br>${formatTanggal(data.referensiTanggal)}</td>
     </tr>
     <tr>
-      <td><div class="center-text">Legal Drafting Dikerjakan oleh</div><br><div class="small-italic center-text">(Nama Pejabat)</div></td>
+      <td><div class="center-text">Legal Drafting Dikerjakan oleh</div></td>
       <td class="colon">:</td>
-      <td><div class="small-italic center-text">${data.legalDrafter || '(Nama Pejabat)'}<br>${data.legalDrafterJabatan || '(Jabatan)'}</div></td>
+      <td><div class="small-italic">${data.legalDrafter || '(Nama Pejabat)'}<br>${data.legalDrafterJabatan || '(Jabatan)'}</div></td>
     </tr>
     <tr>
-      <td><div class="center-text">Legal Drafting Diperiksa Oleh</div><br><br><div class="small-italic center-text">(Nama Pejabat satu tingkat di<br>bawah Direksi yang membidangi<br>hukum)</div></td>
+      <td><div class="center-text">Legal Drafting Diperiksa Oleh</div></td>
       <td class="colon">:</td>
-      <td><div class="small-italic center-text">${data.legalChecker || '(Nama Pejabat)'}<br>${data.legalCheckerJabatan || '(Jabatan)'}</div></td>
+      <td><div class="small-italic">${data.legalChecker || '(Nama Pejabat)'}<br>${data.legalCheckerJabatan || '(Jabatan)'}</div></td>
       <td>Perihal</td><td class="colon">:</td>
-      <td><div class="small-italic">Permohonan Persetujuan (${data.perihal || 'Judul Peraturan Direksi, Keputusan Direksi'})</div></td>
+      <td><div class="small-italic">${data.perihal || '&nbsp;'}</div></td>
     </tr>
   </table>
 
@@ -140,13 +144,13 @@ export class GeneratePdfBlankoVerbalService {
     </tr>
     <tr>
       <td colspan="3" style="vertical-align:top;">
-        <div class="signature-block">a.n DIREKSI<br>DIREKTUR UTAMA<br><div class="signature-name">NAMA LENGKAP TANPA GELAR</div></div>
+        <div class="signature-block">a.n DIREKSI<br>DIREKTUR UTAMA<br><div class="signature-name">${dirutNama}</div></div>
       </td>
       <td style="vertical-align:top;">${firstDirectorCell()}</td>
     </tr>
     <tr>
       <td>Penetapan / Pengesahan<br>Perihal</td><td class="colon">:</td>
-      <td><div class="small-italic">Draft (${data.perihal || 'Judul Peraturan Direksi, Keputusan Direksi'})</div></td>
+      <td><div class="small-italic">(${data.perihal || 'Judul Peraturan Direksi, Keputusan Direksi'})</div></td>
       <td style="vertical-align:top;">${slot(2)}</td>
     </tr>
     <tr>

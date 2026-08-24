@@ -247,8 +247,8 @@ export class OrgDataController {
   @UseGuards(AuthGuard('jwt'))
   async getBod(@Req() req) {
     const company = req.user?.company;
-    const rows = await this.orgBuildService.findAll();
-    return { data: this.orgBuildService.findBodByCompany(rows, company) };
+    const latestOrg = await this.orgBuildService.findLatestOrg();
+    return { data: this.orgBuildService.findBodByCompany(latestOrg ? [latestOrg] : [], company) };
   }
 
   /**
