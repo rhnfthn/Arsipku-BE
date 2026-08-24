@@ -68,18 +68,27 @@ export class WorkflowService {
     // clamp ke 0 (konsep active) supaya tidak semua step render 'todo'.
     const activeIdx = Math.max(0, all.findIndex((s) => s.key === activeKey));
 
-    return all.map((s, i) => {
-      const isLegalSkip = s.key === 'legal_drafting' && !butuhLegal;
-      const isDireksiSkip = s.key === 'persetujuan_direksi' && !butuhLegal;
-      const isBlankoSkip = s.key === 'blanko_verbal' && !butuhLegal;
-      if (isLegalSkip || isDireksiSkip || isBlankoSkip) return { step: i + 1, label: s.label, status: 'skip' as const };
-      let status: 'todo' | 'active' | 'done' | 'skip';
-      if (tahapan === 'selesai') status = i === all.length - 1 ? 'active' : 'done';
-      else if (i === activeIdx) status = 'active';
-      else if (i < activeIdx) status = 'done';
-      else status = 'todo';
-      return { step: i + 1, label: s.label, status };
-    });
+    // Step yang dilewati (mode tanpa legal) DIHAPUS dari stepper — bukan dicoret.
+    // Urutan step tersisa direnumber 1..M. aktifIdx dihitung dari `all` (sebelum
+    // filter) agar status done/active/todo tetap benar.
+    const isSkip = (key: string) =>
+      !butuhLegal && ['legal_drafting', 'evaluasi', 'persetujuan_direksi', 'blanko_verbal'].includes(key);
+
+    const mapped = all
+      .map((s, i) => {
+        if (isSkip(s.key)) return null;
+        let status: 'todo' | 'active' | 'done';
+        // Selesai: semua step selesai (termasuk step 'Selesai' → icon check), bukan
+        // step terakhir 'active' (yang render nomor step, bukan check).
+        if (tahapan === 'selesai') status = 'done';
+        else if (i === activeIdx) status = 'active';
+        else if (i < activeIdx) status = 'done';
+        else status = 'todo';
+        return { step: 0, label: s.label, status };
+      })
+      .filter((s): s is { step: number; label: string; status: 'todo' | 'active' | 'done' } => s !== null);
+
+    return mapped.map((s, i) => ({ ...s, step: i + 1 }));
   }
 
   async buildAvailableActions(
@@ -139,9 +148,11 @@ export class WorkflowService {
 
   nextAfterKirim(butuhLegal: boolean): Tahapan { return 'persetujuan'; }
 
-  nextAfterApprovalSetuju(current: Tahapan, butuhLegal: boolean, allVerified: boolean): Tahapan {
+  nextAfterApprovalSetuju(current: Tahapan, butuhLegal: boolean, allVerified: boolean, N = 0): Tahapan {
     if (!allVerified) return current;
-    if (current === 'persetujuan') return butuhLegal ? 'legal_drafting' : 'evaluasi';
+    // !butuhLegal: persetujuan selesai → langsung tanda tangan (selesai bila N=0),
+    // melewati evaluasi. butuhLegal: persetujuan → legal drafting.
+    if (current === 'persetujuan') return butuhLegal ? 'legal_drafting' : this.signingTarget(N);
     // Persetujuan legal drafting selesai → evaluasi.
     if (current === 'legal_drafting') return 'evaluasi';
     return current;
@@ -150,6 +161,16 @@ export class WorkflowService {
   /** Target fase signing: selesai langsung jika tidak ada penandatangan (N=0). */
   signingTarget(N: number): Tahapan {
     return N === 0 ? 'selesai' : 'tanda_tangan';
+  }
+
+  /** Jumlah penandatangan efektif: pakai penandatanganChain bila ada, fallback ke
+   * legacy single penandatangan (atasNama/penandatanganPositionId) — konsisten
+   * dengan fallback di signing chain (getDetail) & toListItem. Menghindari false
+   * N=0 saat chain null tapi penandatangan legacy terisi (lalu kirim/validation
+   * salah tolak, atau transisi skip tanda_tangan padahal ada penandatangan). */
+  effectiveSignerCount(naskah: NaskahEntity): number {
+    if (naskah.penandatanganChain?.length) return naskah.penandatanganChain.length;
+    return naskah.penandatanganPositionId != null || !!naskah.atasNama ? 1 : 0;
   }
 
   nextAfterTtd(current: Tahapan, signingIndex: number, N: number): Tahapan {
@@ -182,7 +203,7 @@ export class WorkflowService {
     const isDireksiTahap = row.tahap === 'persetujuan_direksi' || row.tahap === 'blanko_verbal';
     if (isDireksiTahap) {
       const t = naskah.tahapan as Tahapan;
-      const N = naskah.penandatanganChain?.length ?? 0;
+      const N = this.effectiveSignerCount(naskah);
       const signingIndex = naskah.signingIndex ?? 1;
       row.status = aksi === 'setuju' ? 'verified' : 'rejected';
       row.catatan = ctx.catatan ?? row.catatan;
@@ -237,7 +258,9 @@ export class WorkflowService {
 
     const allVerified = rows.every((r) => r.status === 'verified');
     if (aksi === 'setuju' && allVerified) {
-      const next = this.nextAfterApprovalSetuju(naskah.tahapan as Tahapan, naskah.butuhLegal, true);
+      const next = this.nextAfterApprovalSetuju(
+        naskah.tahapan as Tahapan, naskah.butuhLegal, true, this.effectiveSignerCount(naskah),
+      );
       await this.tulisRiwayat(ctx, naskah.id, 'setuju', String(naskah.tahapan), `disetujui → ${next}`, ctx.catatan);
       naskah.tahapan = next;
       return next;
@@ -276,7 +299,7 @@ export class WorkflowService {
     ctx: { aktor: string; jabatan?: string; catatan?: string; manager: EntityManager },
   ): Promise<void> {
     const t = naskah.tahapan as Tahapan;
-    const N = naskah.penandatanganChain?.length ?? 0;
+    const N = this.effectiveSignerCount(naskah);
     const signingIndex = naskah.signingIndex ?? 1;
     const next = this.resolveNext(t, aksi, naskah.butuhLegal, signingIndex, N);
 
@@ -302,7 +325,7 @@ export class WorkflowService {
     naskah: NaskahEntity,
     ctx: { aktor: string; jabatan?: string; catatan?: string; manager: EntityManager },
   ): Promise<void> {
-    const N = naskah.penandatanganChain?.length ?? 0;
+    const N = this.effectiveSignerCount(naskah);
     const idx = naskah.signingIndex ?? 1;
     const next: Tahapan = idx >= N ? 'selesai' : 'tanda_tangan';
     const patch: Partial<NaskahEntity> = {

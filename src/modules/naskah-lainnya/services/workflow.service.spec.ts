@@ -26,10 +26,25 @@ describe('WorkflowService', () => {
     svc = mod.get(WorkflowService);
   });
 
-  it('buildStepper: butuhLegal=false melewati Legal Drafting (skip)', () => {
-    const steps = svc.buildStepper('evaluasi', false);
-    expect(steps.find((s) => s.step === 3)?.status).toBe('skip');
-    expect(steps.find((s) => s.step === 4)?.status).toBe('active');
+  it('buildStepper: butuhLegal=false menghapus Legal Drafting, Evaluasi, PD & Blanko dari stepper', () => {
+    const steps = svc.buildStepper('persetujuan', false, 1);
+    const labels = steps.map((s) => s.label);
+    expect(labels).not.toContain('Legal Drafting');
+    expect(labels).not.toContain('Evaluasi');
+    expect(labels).not.toContain('Persetujuan Direksi');
+    expect(labels).not.toContain('Blanko Verbal');
+    // step tersisa berurutan 1..M, persetujuan aktif
+    expect(steps.map((s) => s.step)).toEqual([1, 2, 3, 4]);
+    expect(steps.find((s) => s.label === 'Persetujuan')?.status).toBe('active');
+  });
+
+  it('buildStepper: selesai → step terakhir "Selesai" berstatus done (icon check), bukan active', () => {
+    const steps = svc.buildStepper('selesai', true, 1);
+    const last = steps[steps.length - 1];
+    expect(last.label).toBe('Selesai');
+    expect(last.status).toBe('done');
+    // semua step done saat selesai (tidak ada active/todo)
+    expect(steps.every((s) => s.status === 'done')).toBe(true);
   });
 
   it('transisi kirim: konsep → persetujuan, menulis riwayat + baris approval', async () => {
@@ -50,6 +65,28 @@ describe('WorkflowService', () => {
     const next = await svc.applyApproval(naskah, approval, 'a2', 'setuju', { aktor: 'Test', catatan: 'ok', manager: manager as any });
     expect(next).toBe('legal_drafting');
     expect(approval.find((a) => a.id === 'a2')?.status).toBe('verified');
+  });
+
+  it('setuju pada baris terakhir persetujuan → tanda_tangan (!butuhLegal, N=2; skip evaluasi)', async () => {
+    const naskah = { id: 'n2b', tahapan: 'persetujuan', butuhLegal: false, penandatanganChain: [{}, {}] } as NaskahEntity;
+    const approval = [
+      { id: 'a1', tahap: 'persetujuan', urutan: 1, status: 'verified' },
+      { id: 'a2', tahap: 'persetujuan', urutan: 2, status: 'waiting' },
+    ] as NaskahLainnyaApprovalEntity[];
+    const manager = { save: jest.fn((e) => e) };
+    const next = await svc.applyApproval(naskah, approval, 'a2', 'setuju', { aktor: 'Test', catatan: 'ok', manager: manager as any });
+    expect(next).toBe('tanda_tangan');
+  });
+
+  it('setuju pada baris terakhir persetujuan → selesai (!butuhLegal, N=0; tanpa penandatangan)', async () => {
+    const naskah = { id: 'n2c', tahapan: 'persetujuan', butuhLegal: false } as NaskahEntity;
+    const approval = [
+      { id: 'a1', tahap: 'persetujuan', urutan: 1, status: 'verified' },
+      { id: 'a2', tahap: 'persetujuan', urutan: 2, status: 'waiting' },
+    ] as NaskahLainnyaApprovalEntity[];
+    const manager = { save: jest.fn((e) => e) };
+    const next = await svc.applyApproval(naskah, approval, 'a2', 'setuju', { aktor: 'Test', catatan: 'ok', manager: manager as any });
+    expect(next).toBe('selesai');
   });
 
   it('setuju belum semua → tetap persetujuan', async () => {
@@ -243,6 +280,19 @@ describe('WorkflowService', () => {
 
   it('resolveNext: evaluasi + setuju + !butuhLegal + N=0 → selesai (skip signing)', () => {
     expect(svc.resolveNext('evaluasi', 'setuju', false, 1, 0)).toBe('selesai');
+  });
+
+  it('effectiveSignerCount: chain null + legacy atasNama/positionId → 1 (bukan 0)', () => {
+    // Legacy naskah (penandatanganChain null, penandatangan hanya di field legacy).
+    // Harus dihitung 1 — bukan 0 — supaya validasi kirim qr_only & transisi signing
+    // tidak salah anggap tidak ada penandatangan.
+    expect(svc.effectiveSignerCount({ atasNama: 'Budi', penandatanganPositionId: 'P1' } as any)).toBe(1);
+    expect(svc.effectiveSignerCount({ atasNama: 'Budi' } as any)).toBe(1);
+    expect(svc.effectiveSignerCount({ penandatanganPositionId: 'P1' } as any)).toBe(1);
+    // Tanpa chain maupun legacy → 0.
+    expect(svc.effectiveSignerCount({} as any)).toBe(0);
+    // Chain terisi → pakai panjang chain.
+    expect(svc.effectiveSignerCount({ penandatanganChain: [{}, {}] } as any)).toBe(2);
   });
 
   it('resolveNext: evaluasi + tolak → perlu_perbaikan', () => {

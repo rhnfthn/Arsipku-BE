@@ -84,4 +84,28 @@ describe('DocxQrInlineService.injectQrSigners', () => {
     expect(hasFile(out, 'word/media/qr_tanda_tangan_1.png')).toBe(true);
     expect(xmlOf(out, 'word/_rels/document.xml.rels')).toContain('qr_tanda_tangan_1.png');
   });
+
+  it('slot nama: signed → nama penandatangan, unsigned → "NAMA LENGKAP"', async () => {
+    const tpl = await docxWith('{{tanda_tangan_1}}\n{{nama_penandatangan_1}}\n---\n{{tanda_tangan_2}}\n{{nama_penandatangan_2}}');
+    const qr = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const out = await service.injectQrSigners(tpl, [{ index: 1, qrBuffer: qr, nama: 'Budi Santoso' }]);
+
+    const docXml = xmlOf(out, 'word/document.xml');
+    // slot 1 signed → QR + nama penandatangan
+    expect(docXml).toContain('<w:drawing');
+    expect(docXml).toContain('Budi Santoso');
+    expect(docXml).not.toContain('nama_penandatangan_1');
+    // slot 2 unsigned → placeholder QR tetap + nama "NAMA LENGKAP"
+    expect(docXml).toContain('{{tanda_tangan_2}}');
+    expect(docXml).toContain('NAMA LENGKAP');
+  });
+
+  it('slot nama absen (template lama) → no-op, tidak error', async () => {
+    const tpl = await docxWith('TTD: {{tanda_tangan_1}}');
+    const qr = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const out = await service.injectQrSigners(tpl, [{ index: 1, qrBuffer: qr, nama: 'Budi' }]);
+    const docXml = xmlOf(out, 'word/document.xml');
+    expect(docXml).toContain('<w:drawing');
+    expect(docXml).not.toContain('NAMA LENGKAP');
+  });
 });

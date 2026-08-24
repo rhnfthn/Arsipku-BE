@@ -68,19 +68,18 @@ export class OrgDataService {
     // karena field itu tidak ada di entity & position_json sudah ter-parse.
     const withJson = rows.filter((r) => Array.isArray(r?.position_json) && r.position_json.length > 0);
     const barisData: any[] = withJson[0]?.position_json ?? [];
-    // DEBUG: lihat persis data yang diproses. Hapus setelah fix terkonfirmasi.
-    const tagDist: Record<string, number> = {};
-    for (const x of barisData) {
-      const t = String(x?.bod_tag ?? '').toUpperCase();
-      tagDist[t] = (tagDist[t] || 0) + 1;
-    }
-    console.log(
-      '[findBodByCompany] rows=', rows.length,
-      'rowsDenganPositionJson=', withJson.length,
-      'barisData=', barisData.length,
-      'bod_tag distribusi=', JSON.stringify(tagDist),
-    );
     const isDirut = (text: string) => /direktur\s*utama/i.test(text || '');
+    // Urutan kanonik direksi LPPNPI untuk "Sebelum ditetapkan diketahui oleh"
+    // (docs/lembar_persetujuan_direksi.html). Dirut selalu terakhir — ia
+    // penandatangan a.n DIREKSI, bukan baris paraf. Keyword unik per direktorat
+    // agar robust terhadap variasi penulisan (koma, "&", "DAN").
+    const BOD_ORDER = ['OPERASI', 'TEKNIK', 'KESELAMATAN', 'KEUANGAN', 'SDM'];
+    const rankBod = (jabatan: string): number => {
+      const t = String(jabatan || '').toUpperCase();
+      if (isDirut(t)) return BOD_ORDER.length + 1;
+      const idx = BOD_ORDER.findIndex((k) => t.includes(k));
+      return idx >= 0 ? idx : BOD_ORDER.length;
+    };
     return barisData
       .filter((x) => x && String(x.bod_tag || '').toUpperCase().trim() === 'BOD')
       .map((x) => ({
@@ -90,10 +89,7 @@ export class OrgDataService {
         jabatan: x.position_text || '',
         bodTag: 'BOD',
       }))
-      .sort(
-        (a, b) =>
-          (isDirut(b.jabatan) ? 1 : 0) - (isDirut(a.jabatan) ? 1 : 0),
-      );
+      .sort((a, b) => rankBod(a.jabatan) - rankBod(b.jabatan));
   }
 
   async findOne(id: string): Promise<OrgDatum> {
