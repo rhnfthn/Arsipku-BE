@@ -82,4 +82,21 @@ describe('DocxReaderService.readSignerSlots', () => {
     const buf = await docxWith('{{tanda_tangan_1}} dan {{tanda_tangan_3}}');
     expect(() => service.readSignerSlots(buf)).toThrow();
   });
+
+  it('mendeteksi slot nama {{nama_penandatangan_N}} yang cocok slot QR', async () => {
+    const buf = await docxWith('{{tanda_tangan_1}}\n{{nama_penandatangan_1}}');
+    const res = service.readSignerSlots(buf);
+    expect(res.namaIndices).toEqual([1]);
+  });
+
+  it('namaIndices kosong bila template lama tanpa slot nama (backward-compat)', async () => {
+    const buf = await docxWith('{{tanda_tangan_1}}');
+    const res = service.readSignerSlots(buf);
+    expect(res.namaIndices).toEqual([]);
+  });
+
+  it('melempar error bila slot nama tidak cocok slot QR', async () => {
+    const buf = await docxWith('{{tanda_tangan_1}}\n{{nama_penandatangan_2}}');
+    expect(() => service.readSignerSlots(buf)).toThrow();
+  });
 });

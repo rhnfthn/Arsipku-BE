@@ -59,6 +59,9 @@ export class GeneratePdfLpdService {
   /** Build HTML lengkap Lembar Persetujuan Direksi dari data. Murni (teruji unit). */
   buildHtml(data: SheetPdfData): string {
     const dir = (i: number) => data.directors[i]; // 0-based → slot ke-(i+1)
+    // Nama Direktur Utama untuk blok tanda tangan a.n DIREKSI (bukan baris paraf).
+    const dirut = data.directors.find((d) => /direktur\s*utama/i.test(d.jabatan || ''));
+    const dirutNama = (dirut?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
     const slot = (i: number): string => {
       const d: DirectorSlot | undefined = dir(i);
       const verified = data.verifiedIndices.has(i + 1);
@@ -95,7 +98,6 @@ export class GeneratePdfLpdService {
     </tr>
     <tr>
       <td>Perihal</td><td colspan="5">
-        <div class="small-italic">Permohonan Persetujuan (Judul Naskah Dinas Yang Dimintakan Persetujuan Direksi)</div>
         <div class="field" style="min-height:34px;">${data.perihal || '&nbsp;'}</div>
       </td>
     </tr>
@@ -115,13 +117,13 @@ export class GeneratePdfLpdService {
     </tr>
     <tr>
       <td colspan="3" style="vertical-align:top;">
-        <div class="signature-block">a.n DIREKSI<br>DIREKTUR UTAMA<br><div class="signature-name">NAMA LENGKAP TANPA GELAR</div></div>
+        <div class="signature-block">a.n DIREKSI<br>DIREKTUR UTAMA<br><div class="signature-name">${dirutNama}</div></div>
       </td>
       <td style="vertical-align:top;">${slot(0)}</td>
     </tr>
     <tr>
       <td>Penetapan /<br>Pengesahan Perihal</td><td class="colon">:</td>
-      <td><div class="small-italic">Draft ( ${data.perihal || 'Judul Peraturan Direksi, Keputusan Direksi'} )</div></td>
+      <td><div class="small-italic"> ${data.perihal || 'Judul Peraturan Direksi, Keputusan Direksi'} </div></td>
       <td style="vertical-align:top;">${slot(1)}</td>
     </tr>
     <tr>

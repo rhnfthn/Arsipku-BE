@@ -32,6 +32,8 @@ const workflowMock = {
     if (t === 'evaluasi' && aksi === 'tolak') return 'perlu_perbaikan';
     return t;
   }),
+  effectiveSignerCount: jest.fn((n: any) =>
+    n.penandatanganChain?.length ? n.penandatanganChain.length : (n.penandatanganPositionId != null || n.atasNama ? 1 : 0)),
   buatApprovalLegalDrafting: jest.fn(),
 };
 
@@ -46,6 +48,7 @@ const storageMock = {
 
 const orgDataMock = {
   findAll: jest.fn(async () => []),
+  findLatestOrg: jest.fn(async () => ({ position_json: [] })),
   findBodByCompany: jest.fn(() => [
     { positionId: 'POS_DIR1', nama: 'Direktur Satu', jabatan: 'Direktur Operasi' },
     { positionId: 'POS_DIR2', nama: 'Direktur Dua', jabatan: 'Direktur Utama' },
@@ -206,6 +209,33 @@ describe('NaskahLainnyaService', () => {
     );
     expect(res.data.id).toBe('n9');
     expect(naskahRepo.save).toHaveBeenCalledWith(expect.objectContaining({ tahapan: 'konsep', butuhLegal: true }));
+  });
+
+  it('updateDraft: WHEN tanggal berubah, WHERE pakai tanggal ASLI + patch tanggal baru & penandatangan (regresi PK)', async () => {
+    // Bug lama: n.tanggal dimutasi ke tanggal baru LALU dipakai di WHERE → 0 row
+    // ter-update → penandatangan/tanggal tidak tersimpan. tanggal bagian PK (id, tanggal).
+    const naskahRepo = (await svc as any).naskahRepo;
+    const tOld = new Date('2026-08-01');
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n1', jenis: 'PER', tahapan: 'konsep', tanggal: tOld, createdAt: new Date('2026-08-01'),
+    });
+    naskahRepo.update.mockResolvedValue({});
+    (await svc as any).approvalRepo.find.mockResolvedValue([]);
+    (await svc as any).riwayatRepo.find.mockResolvedValue([]);
+    (await svc as any).blankoRepo.find.mockResolvedValue([]);
+    (await svc as any).dokumenRepo.find.mockResolvedValue([]);
+    await svc.updateDraft('n1', {
+      tanggal: '2026-08-20',
+      penandatangan: { nama: 'Budi', jabatan: 'Direktur' },
+      signOption: 'qr_only',
+    } as any);
+    const [whereArgs, patch] = (naskahRepo.update as jest.Mock).mock.calls[0];
+    // WHERE harus pakai tanggal ASLI (DB), bukan tanggal baru — kalau tidak row hilang.
+    expect(whereArgs).toEqual({ id: 'n1', tanggal: tOld });
+    // Patch harus berisi tanggal baru (update kolom PK) + penandatanganChain + legacy atasNama.
+    expect(patch.tanggal).toEqual(new Date('2026-08-20'));
+    expect(patch.penandatanganChain).toEqual([{ positionId: undefined, persnum: undefined, nama: 'Budi', jabatan: 'Direktur' }]);
+    expect(patch.atasNama).toBe('Budi');
   });
 
   it('uploadDokumen mengembalikan parameter hasil baca', async () => {
@@ -463,6 +493,22 @@ describe('NaskahLainnyaService', () => {
     expect(aqb.setParameters).toHaveBeenCalledWith(expect.objectContaining({ status: 'setuju' }));
   });
 
+  it('getPersetujuan(disetujui): termasuk naskah selesai yang user tandatangani (penandatangan, bukan approver)', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    // User bukan approver → tidak ada baris approval setuju (riwayat query kosong).
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([], []));
+    const naskahRepo = (await svc as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([
+      { id: 'n-ttd', nomor: 'PER.TTD', jenis: 'PER', tahapan: 'selesai', butuhLegal: false,
+        pemrakarsa: { nama: 'Pem' }, perihal: 'ditandatangani', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18') },
+    ]));
+    const res = await svc.getPersetujuan({ positionId: 'POS_SIGNER', nama: 'Signer' } as any, 'disetujui');
+    // Naskah selesai muncul di "Disetujui" walau user tidak punya baris approval
+    // (penandatangan disimpan di penandatangan_chain, bukan tabel approval).
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]).toMatchObject({ id: 'n-ttd', tahapan: 'selesai' });
+  });
+
   it('getPersetujuan(status=ditolak): maps filter ke approval status tolak', async () => {
     const approvalRepo = (await svc as any).approvalRepo;
     const aqb = makeQb([], [{ naskahId: 'n2' }]);
@@ -518,6 +564,62 @@ describe('NaskahLainnyaService', () => {
     await svc.getPersetujuan({ positionId: 'POS_X', nama: 'X' } as any);
     const andWhereCalls = (aqb.andWhere as jest.Mock).mock.calls.map((c) => String(c[0]));
     expect(andWhereCalls.some((s) => s.includes('MIN(a2.urutan)'))).toBe(true);
+  });
+
+  it('getPersetujuan(menunggu): persetujuan_direksi & blanko_verbal masuk antrian paraf direksi', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    const aqb = makeQb([], [{ naskahId: 'n-pd' }]);
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(aqb);
+    const naskahRepo = (await svc as any).naskahRepo;
+    const nqb = makeQb([
+      { id: 'n-pd', nomor: 'PER.PD', jenis: 'PER', tahapan: 'persetujuan_direksi', butuhLegal: false,
+        pemrakarsa: { nama: 'Dir' }, perihal: 'pd', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18') },
+    ]);
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(nqb);
+    const res = await svc.getPersetujuan({ positionId: 'POS_DIR', nama: 'Direktur Satu' } as any);
+    // Naskah PD muncul di antrian "Menunggu" untuk direksi (baris waiting).
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]).toMatchObject({ id: 'n-pd' });
+    // Filter tahapan part 1 kini termasuk paraf direksi (parallel, urutan=1 lolos gate berjenjang).
+    const tParam = (nqb.andWhere as jest.Mock).mock.calls
+      .map((c) => c[1]).find((p) => p && Array.isArray(p.t));
+    expect(tParam.t).toEqual(expect.arrayContaining(['persetujuan_direksi', 'blanko_verbal']));
+  });
+
+  it('getPersetujuan(menunggu): naskah tanda_tangan di mana user adalah signer AKTIF muncul di antrian', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([], [])); // user bukan approver
+    const naskahRepo = (await svc as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([
+      { id: 'n-ttd', nomor: 'PER.TTD', jenis: 'PER', tahapan: 'tanda_tangan', butuhLegal: false,
+        pemrakarsa: { nama: 'Pem' }, perihal: 'multi-signer', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18'),
+        signingIndex: 2, penandatanganChain: [
+          { positionId: 'POS_OTHER', nama: 'Signer 1', jabatan: 'Dir 1' },
+          { positionId: 'POS_X', nama: 'User', jabatan: 'Dir 2' }, // user = signer ke-2, giliran-nya sekarang
+        ] },
+    ]));
+    const res = await svc.getPersetujuan({ positionId: 'POS_X', nama: 'User' } as any, 'menunggu');
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]).toMatchObject({ id: 'n-ttd' });
+  });
+
+  it('getPersetujuan(menunggu): naskah tanda_tangan yang SUDAH ditandatangani user (bukan signer aktif) TIDAK muncul', async () => {
+    const approvalRepo = (await svc as any).approvalRepo;
+    approvalRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([], [])); // user bukan approver
+    const naskahRepo = (await svc as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(makeQb([
+      { id: 'n-ttd', nomor: 'PER.TTD', jenis: 'PER', tahapan: 'tanda_tangan', butuhLegal: false,
+        pemrakarsa: { nama: 'Pem' }, perihal: 'multi-signer', tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18'),
+        // user = signer ke-2, tapi giliran masih signer ke-1 → user sudah/belum giliran? di sini
+        // signingIndex=1 menunjuk signer 1, user (POS_X) bukan signer aktif.
+        signingIndex: 1, penandatanganChain: [
+          { positionId: 'POS_OTHER', nama: 'Signer 1', jabatan: 'Dir 1' },
+          { positionId: 'POS_X', nama: 'User', jabatan: 'Dir 2' },
+        ] },
+    ]));
+    const res = await svc.getPersetujuan({ positionId: 'POS_X', nama: 'User' } as any, 'menunggu');
+    // User belum giliran (signingIndex=1 → signer 1) → tidak muncul di "Menunggu".
+    expect(res.data).toEqual([]);
   });
 
   it('getPersetujuan(disetujui): berjenjang — query riwayat TIDAK menambah gate urutan', async () => {
@@ -853,7 +955,7 @@ describe('NaskahLainnyaService', () => {
     (svc as any).dokumenRepo.find.mockResolvedValue([]);
   }
 
-  it('kirimLembarPersetujuanDireksi: generate PDF, seed 2 BOD approvals, transisi', async () => {
+  it('kirimLembarPersetujuanDireksi: seed 2 BOD approvals, transisi (LPD tidak digenerate saat kirim)', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue(sheetNaskahEvaluasi);
     const txManager = { save: jest.fn((e) => e), update: jest.fn(), delete: jest.fn() };
@@ -866,7 +968,8 @@ describe('NaskahLainnyaService', () => {
       { nama: 'Pemrakarsa', positionText: 'Kabag' } as any,
     );
 
-    expect((svc as any).lpdService.render).toHaveBeenCalledTimes(1);
+    // LPD hanya di-render saat paraf terakhir (semua direksi verified), bukan saat kirim.
+    expect((svc as any).lpdService.render).not.toHaveBeenCalled();
     expect(txManager.save).toHaveBeenCalledTimes(2); // 2 BOD approvals
     const savedApprovals = (txManager.save as jest.Mock).mock.calls.map((c) => c[0]).filter((e: any) => e.tahap === 'persetujuan_direksi');
     expect(savedApprovals).toHaveLength(2);
@@ -905,6 +1008,37 @@ describe('NaskahLainnyaService', () => {
       expect.anything(),
       expect.objectContaining({ tahapan: 'blanko_verbal' }),
     );
+    expect((svc as any).lpdService.render).toHaveBeenCalledTimes(1);
+    expect(res.success).toBe(true);
+  });
+
+  it('parafLembarPersetujuanDireksi: paraf parsial (belum semua verified) tetap re-generate LPD', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue(sheetNaskahPersetujuanDireksi);
+    // pd1 sudah verified, pd2 baru diparaf → belum semua verified → tetap PD.
+    const approvalRows = [
+      { id: 'pd1', naskahId: 'n-sheet', tahap: 'persetujuan_direksi', positionId: 'POS_DIR1', nama: 'Direktur Satu', jabatan: 'Direktur Operasi', urutan: 1, status: 'verified' },
+      { id: 'pd2', naskahId: 'n-sheet', tahap: 'persetujuan_direksi', positionId: 'POS_DIR2', nama: 'Direktur Dua', jabatan: 'Direktur Utama', urutan: 1, status: 'waiting' },
+    ];
+    const txManager = { save: jest.fn((e) => e), update: jest.fn(), delete: jest.fn() };
+    (svc as any).dataSource.transaction.mockImplementation(async (cb: any) => cb(txManager));
+    workflowMock.applyApproval.mockResolvedValueOnce('persetujuan_direksi');
+    setupDetailMocks();
+    (svc as any).approvalRepo.find.mockResolvedValueOnce(approvalRows);
+    (svc as any).lpdService.render.mockClear();
+
+    const res = await svc.parafLembarPersetujuanDireksi(
+      'n-sheet', { perihal: 'p', bodyHtml: '<p>LPD</p>' } as any,
+      { nama: 'Direktur Dua', positionId: 'POS_DIR2', positionText: 'Direktur Utama' } as any,
+    );
+
+    // Tahapan tetap PD (belum semua verified)...
+    expect(txManager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.anything(),
+      expect.objectContaining({ tahapan: 'persetujuan_direksi' }),
+    );
+    // ...tapi LPD tetap di-render (paraf parsial terlihat di file).
     expect((svc as any).lpdService.render).toHaveBeenCalledTimes(1);
     expect(res.success).toBe(true);
   });
