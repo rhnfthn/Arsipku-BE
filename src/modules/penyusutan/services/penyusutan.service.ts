@@ -312,19 +312,29 @@ export class PenyusutanService {
       item.berkasId,
     );
     if (!alreadyArchived) {
-      await this.arsipService.arsipkanBerkas(item.berkasId, {
-        user: {
-          persnum: Number(user.persnum),
-          nama: user.nama ?? String(user.persnum),
-        },
-        penyusutanId: item.id,
-        jenisPenyusutan: 'permanen',
-        statusSebelumnya: old,
-        statusBaru: PenyusutanStatus.SELESAI,
-        beritaAcaraUrl: dto.beritaAcara,
-        fotoDokumentasiUrl: dto.fotoDokumentasi,
-        catatan: dto.lokasiSimpan,
-      });
+      try {
+        await this.arsipService.arsipkanBerkas(item.berkasId, {
+          user: {
+            persnum: Number(user.persnum),
+            nama: user.nama ?? String(user.persnum),
+          },
+          penyusutanId: item.id,
+          jenisPenyusutan: 'permanen',
+          statusSebelumnya: old,
+          statusBaru: PenyusutanStatus.SELESAI,
+          beritaAcaraUrl: dto.beritaAcara,
+          fotoDokumentasiUrl: dto.fotoDokumentasi,
+          catatan: dto.lokasiSimpan,
+        });
+      } catch (e: any) {
+        this.logger.error(
+          `Gagal arsipkan berkas ${item.berkasId}: ${e?.message}`,
+          e?.stack,
+        );
+        throw new BadRequestException(
+          `Gagal mengarsipkan berkas: ${e?.message}`,
+        );
+      }
     } else {
       // Berkas sudah diarsipkan oleh penyusutan lain — catat log saja.
       await this.arsipService.logPenyusutanArchived({
@@ -346,16 +356,9 @@ export class PenyusutanService {
     item.status = PenyusutanStatus.SELESAI;
     const saved = await this.repo.save(item);
 
-    // Soft-delete master berkas dari DB inti — arsip permanen sudah
-    // di-backup ke DB arsip, sehingga preview-berkas menarik data dari
-    // DB arsip (newarsipku_arsip), bukan DB inti.
-    try {
-      await this.arsipService.softDeleteBerkas(item.berkasId);
-    } catch (e: any) {
-      this.logger.warn(
-        `Penataan sukses tapi gagal hapus berkas inti: ${e?.message}`,
-      );
-    }
+    // NOTE: Untuk penataan PERMANEN, berkas inti TIDAK di-soft-delete.
+    // Arsip permanen tetap bisa dilihat dari DB inti (preview-berkas).
+    // Hanya pemusnahan (musnah) yang soft-delete berkas inti.
 
     this.logAudit(
       user,

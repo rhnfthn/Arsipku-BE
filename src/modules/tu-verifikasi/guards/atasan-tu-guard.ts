@@ -4,6 +4,7 @@ import {
   Injectable,
   ForbiddenException,
 } from '@nestjs/common';
+import { TuVerifikasiService } from '../services/tu-verifikasi.service';
 
 /**
  * Guard untuk endpoint Atasan Managerial TU.
@@ -12,12 +13,15 @@ import {
  * - role SUPERADMIN/ADMIN
  * - positionText mengandung EVP/VP/AVP
  * - bodTag terisi
+ * - user terdaftar di tu_approval_levels usulan apapun (verifikator berjenjang)
  */
 @Injectable()
 export class AtasanTuGuard implements CanActivate {
   private readonly ALLOWED_PERSNUM = [10010123, 10010970];
 
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly service: TuVerifikasiService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
@@ -49,6 +53,17 @@ export class AtasanTuGuard implements CanActivate {
     // Cek bodTag untuk atasan managerial
     if (user.bodTag && String(user.bodTag).trim() !== '') {
       return true;
+    }
+
+    // Cek apakah user terdaftar sebagai verifikator di tu_approval_levels
+    // usulan apapun (mis. verifikator berjenjang level 2/3 yang bukan EVP/VP).
+    try {
+      const { isAtasanTu } = await this.service.isAtasanTu(user);
+      if (isAtasanTu) {
+        return true;
+      }
+    } catch {
+      // ignore — lanjut ke penolakan default
     }
 
     throw new ForbiddenException('Akses hanya untuk Atasan Managerial TU');

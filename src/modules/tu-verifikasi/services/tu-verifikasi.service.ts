@@ -61,6 +61,40 @@ export class TuVerifikasiService {
   ];
 
   /**
+   * Petakan pseudo-status (grup label) ke daftar status internal.
+   * Dipakai agar filter status seragam di semua role.
+   */
+  private mapPseudoStatus(
+    status: string,
+  ): TransferActiveToInactiveStatus[] | null {
+    switch (status) {
+      case 'MENUNGGU_VERIFIKASI':
+        return [
+          TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
+          TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
+          TransferActiveToInactiveStatus.DIKIRIM,
+          TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK,
+          TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
+        ];
+      case 'MENUNGGU_PENERIMAAN':
+        return [
+          TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU,
+          TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
+          TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
+        ];
+      case 'SELESAI':
+        return [
+          TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU,
+          TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
+          TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF,
+          TransferActiveToInactiveStatus.SELESAI,
+        ];
+      default:
+        return null;
+    }
+  }
+
+  /**
    * Daftar usulan yang masuk ke TU (notifikasi usulan pindah arsip).
    * Status: DIKIRIM, MENUNGGU_VERIFIKASI_BERKAS_FISIK, BERKAS_FISIK_SESUAI,
    * BERKAS_FISIK_TIDAK_SESUAI, MENUNGGU_VERIFIKASI_PERSETUJUAN_TU.
@@ -71,9 +105,16 @@ export class TuVerifikasiService {
 
     const qb = this.transferRepo.createQueryBuilder('t');
 
-    // Filter status: default semua status TU, atau filter spesifik
+    // Filter status: default semua status TU, atau filter spesifik.
+    // Pseudo-status (grup) dipetakan ke daftar status internal agar label
+    // status seragam di semua role.
     if (filter.status) {
-      qb.andWhere('t.status = :status', { status: filter.status });
+      const group = this.mapPseudoStatus(filter.status);
+      if (group) {
+        qb.andWhere('t.status IN (:...statuses)', { statuses: group });
+      } else {
+        qb.andWhere('t.status = :status', { status: filter.status });
+      }
     } else {
       qb.andWhere('t.status IN (:...statuses)', { statuses: this.TU_STATUSES });
     }
@@ -269,6 +310,26 @@ export class TuVerifikasiService {
     (transfer as any).approvalLevels = levels;
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum
     await this.resolveSekretarisNames([transfer]);
+    // Attach jenis penyusutan (Permanen/Musnah) + klasifikasi dari berkas
+    if (transfer.arsipId) {
+      const berkas = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select([
+          'b.id',
+          'b.tindakanPenyusutanAkhir',
+          'b.klasifikasi',
+          'b.klasifikasiTeks',
+        ])
+        .where('b.id = :id', { id: transfer.arsipId })
+        .getOne();
+      if (berkas) {
+        (transfer as any).arsipTindakanPenyusutan =
+          berkas.tindakanPenyusutanAkhir ?? null;
+        (transfer as any).arsipKlasifikasi =
+          berkas.klasifikasiTeks ?? berkas.klasifikasi ?? null;
+        (transfer as any).arsipKlasifikasiKode = berkas.klasifikasi ?? null;
+      }
+    }
     return transfer;
   }
 
@@ -477,14 +538,24 @@ export class TuVerifikasiService {
 
       // Cek di kolom JSON tu_approval_levels: cari semua usulan yang
       // tu_approval_levels tidak NULL, lalu filter di aplikasi (JSON array).
+      // NOTE: jangan pakai .select() terbatas — JSON column bisa gagal
+      // ter-parse bila hanya di-select sebagian. Ambil semua kolom.
       const transfers = await this.transferRepo
         .createQueryBuilder('t')
-        .select(['t.id', 't.tuApprovalLevels'])
         .where('t.tu_approval_levels IS NOT NULL')
         .getMany();
 
       for (const t of transfers) {
-        const levels = t.tuApprovalLevels;
+        let levels = t.tuApprovalLevels;
+        // JSON column kadang dikembalikan sebagai string oleh driver —
+        // parse dulu bila perlu.
+        if (typeof levels === 'string') {
+          try {
+            levels = JSON.parse(levels);
+          } catch {
+            levels = null;
+          }
+        }
         if (
           Array.isArray(levels) &&
           levels.some((l) => Number(l.persnum) === persnum)
@@ -609,7 +680,12 @@ export class TuVerifikasiService {
     qb.andWhere('t.tu_approved_at IS NOT NULL');
 
     if (filter.status) {
-      qb.andWhere('t.status = :status', { status: filter.status });
+      const group = this.mapPseudoStatus(filter.status);
+      if (group) {
+        qb.andWhere('t.status IN (:...statuses)', { statuses: group });
+      } else {
+        qb.andWhere('t.status = :status', { status: filter.status });
+      }
     } else {
       qb.andWhere('t.status IN (:...statuses)', {
         statuses: this.ATASAN_TU_STATUSES,
@@ -638,6 +714,9 @@ export class TuVerifikasiService {
 
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum (angka).
     await this.resolveSekretarisNames(allData);
+
+    // Attach klasifikasi berkas (lookup by arsipId) untuk kolom Klasifikasi.
+    await this.attachKlasifikasi(allData);
 
     let data = allData;
     let total = allTotal;
