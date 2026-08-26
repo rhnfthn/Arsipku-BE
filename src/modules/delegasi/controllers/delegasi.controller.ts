@@ -10,8 +10,11 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Inject,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { DelegasiService } from '../services/delegasi.service';
 import { CreateDelegasiDto } from '../dto/create-delegasi.dto';
 import { UpdateDelegasiDto } from '../dto/update-delegasi.dto';
@@ -37,6 +40,7 @@ export class DelegasiController {
     private readonly orgDataService: OrgDataService,
     private readonly authService: AuthService,
     private readonly dataSource: DataSource,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   /**
@@ -80,6 +84,13 @@ export class DelegasiController {
     @Query('search') search?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
+    // Cache Redis 1 hari — key per-user (data difilter role/area/subArea).
+    // Search tidak di-cache agar hasil pencarian selalu fresh.
+    const cacheKey = `delegasi:personil:${user?.role ?? 'anon'}:${user?.area ?? ''}:${user?.subArea ?? ''}:${company ?? ''}`;
+    if (!search) {
+      const cached = await this.cacheManager.get(cacheKey);
+      if (cached) return cached;
+    }
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
 
@@ -165,7 +176,7 @@ export class DelegasiController {
       // Sort by name
       uniquePersonil.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-      return {
+      const result = {
         success: true,
         data: uniquePersonil,
         total: uniquePersonil.length,
@@ -175,6 +186,13 @@ export class DelegasiController {
           subArea: user?.role !== 'superadmin' ? user?.subArea : undefined,
         },
       };
+
+      // Simpan ke cache Redis — TTL 1 hari (86_400_000 ms).
+      if (!search) {
+        await this.cacheManager.set(cacheKey, result, 86_400_000);
+      }
+
+      return result;
     } catch (error) {
       console.warn('Error getting personil from org_data:', error.message);
       return {

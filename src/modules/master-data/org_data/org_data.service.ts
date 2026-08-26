@@ -46,6 +46,52 @@ export class OrgDataService {
     });
   }
 
+  findBodByCompany(
+    rows: any[],
+    // company tidak dipakai: direksi = semua baris bod_tag='BOD' di seluruh
+    // org, tidak perlu filter per company. Param tetap di signature agar caller
+    // (controller getBod & naskah getBodDirectors) tak berubah.
+    company?: string | number,
+  ): Array<{
+    positionId: string;
+    persnum?: number;
+    nama: string;
+    jabatan: string;
+    bodTag: string;
+  }> {
+    void company;
+    // rows = OrgDatum[] (findAll, createAt DESC). BOD bukan kolom OrgDatum —
+    // ia bersar di position_json, yaitu array flat posisi (barisData) dari
+    // flattenOrgTree: tiap elemen punya company/position/position_text/
+    // persnum_person/persnum_person_text/bod_tag langsung. Sebelumnya filter
+    // r.company/JSON.parse(r.position_json) di level OrgDatum → selalu kosong
+    // karena field itu tidak ada di entity & position_json sudah ter-parse.
+    const withJson = rows.filter((r) => Array.isArray(r?.position_json) && r.position_json.length > 0);
+    const barisData: any[] = withJson[0]?.position_json ?? [];
+    const isDirut = (text: string) => /direktur\s*utama/i.test(text || '');
+    // Urutan kanonik direksi LPPNPI untuk "Sebelum ditetapkan diketahui oleh"
+    // (docs/lembar_persetujuan_direksi.html). Dirut selalu terakhir — ia
+    // penandatangan a.n DIREKSI, bukan baris paraf. Keyword unik per direktorat
+    // agar robust terhadap variasi penulisan (koma, "&", "DAN").
+    const BOD_ORDER = ['OPERASI', 'TEKNIK', 'KESELAMATAN', 'KEUANGAN', 'SDM'];
+    const rankBod = (jabatan: string): number => {
+      const t = String(jabatan || '').toUpperCase();
+      if (isDirut(t)) return BOD_ORDER.length + 1;
+      const idx = BOD_ORDER.findIndex((k) => t.includes(k));
+      return idx >= 0 ? idx : BOD_ORDER.length;
+    };
+    return barisData
+      .filter((x) => x && String(x.bod_tag || '').toUpperCase().trim() === 'BOD')
+      .map((x) => ({
+        positionId: String(x.position ?? ''),
+        persnum: x.persnum_person ? Number(x.persnum_person) : undefined,
+        nama: x.persnum_person_text || '',
+        jabatan: x.position_text || '',
+        bodTag: 'BOD',
+      }))
+      .sort((a, b) => rankBod(a.jabatan) - rankBod(b.jabatan));
+  }
+
   async findOne(id: string): Promise<OrgDatum> {
     const company = await this.cRepo.findOne({ where: { id } });
     if (!company) {
@@ -395,6 +441,27 @@ export class OrgDataService {
         );
       })
       .sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
+
+    // Direktur Utama wajib ada di daftar verifikator (otoritas tertinggi),
+    // meskipun berada di direktorat berbeda dari pengaju — filter direktorat
+    // di atas bisa mengecualikannya. Cari di company sama, chief=1, position_text
+    // mengandung "Direktur Utama" / "President Director", bukan posisi pengaju.
+    const isDirekturUtama = (text: any): boolean =>
+      /DIREKTUR\s+UTAMA/i.test(String(text || '')) ||
+      /PRESIDENT\s+DIRECTOR/i.test(String(text || ''));
+    if (!atasan.some((x) => isDirekturUtama(x.position_text))) {
+      const du = barisData.find(
+        (x) =>
+          Number(x.position) !== Number(positionId) &&
+          x.chief === 1 &&
+          Number(x.company ?? null) === signerCompany &&
+          isDirekturUtama(x.position_text),
+      );
+      if (du) {
+        atasan.push(du);
+        atasan.sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
+      }
+    }
 
     return {
       success: true,

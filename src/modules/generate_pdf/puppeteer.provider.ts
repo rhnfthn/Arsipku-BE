@@ -78,9 +78,23 @@ export async function resetBrowser(): Promise<void> {
   }
 }
 
+let browserPromise: Promise<puppeteer.Browser> | undefined;
+
 export async function getBrowser() {
-  if (!browser || !browser.isConnected()) {
-    browser = await launchBrowser();
+  if (browser && browser.isConnected()) return browser;
+  // Dedupe launch: pemanggilan bersamaan (pre-warm + request pertama) berbagi
+  // satu launch, tidak spawn browser kedua yang bocor.
+  if (!browserPromise) {
+    browserPromise = launchBrowser()
+      .then((b) => {
+        browser = b;
+        browserPromise = undefined;
+        return b;
+      })
+      .catch((err) => {
+        browserPromise = undefined;
+        throw err;
+      });
   }
-  return browser;
+  return browserPromise;
 }

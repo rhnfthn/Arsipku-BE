@@ -532,6 +532,7 @@ export class TransferActiveToInactiveService {
     },
   ) {
     const userId = Number(user.persnum);
+    const today = new Date().toISOString().split('T')[0];
     const search = filter?.search?.trim() || '';
     const filterKlasifikasi = filter?.klasifikasi?.trim() || '';
     const filterTahun = filter?.tahun?.trim() || '';
@@ -599,6 +600,8 @@ export class TransferActiveToInactiveService {
     }
     berkasQb
       .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
+      .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
 
     const berkasList = await berkasQb.getMany();
