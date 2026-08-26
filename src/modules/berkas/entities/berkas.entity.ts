@@ -28,7 +28,7 @@ export enum StatusBerkas {
   RETAIL_INAKTIF = 'retensi_inaktif',
 }
 
-@Entity('berkas', { schema: 'navmail' })
+@Entity('berkas')
 export class Berkas {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })
@@ -85,7 +85,9 @@ export class Berkas {
 
   // ── Kolom Baru — Arsip Dinamis Phase 1 ─────────────────────────
 
-  @Index('uk_berkas_kode_berkas', ['kodeBerkas', 'tanggalDibuat'], { unique: true })
+  @Index('uk_berkas_kode_berkas', ['kodeBerkas', 'tanggalDibuat'], {
+    unique: true,
+  })
   @Column('varchar', { name: 'kode_berkas', length: 100, nullable: true })
   kodeBerkas: string;
 
@@ -129,7 +131,12 @@ export class Berkas {
   @Column('date', { name: 'tanggal_retensi_inaktif_berakhir', nullable: true })
   tanggalRetensiInaktifBerakhir: string;
 
-  @Column('varchar', { name: 'status', length: 40, nullable: true, default: 'draft' })
+  @Column('varchar', {
+    name: 'status',
+    length: 40,
+    nullable: true,
+    default: 'draft',
+  })
   status: string;
 
   @Column('int', { name: 'created_by', nullable: true })

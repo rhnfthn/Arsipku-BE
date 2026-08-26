@@ -113,17 +113,24 @@ export class SdeMasalController {
 
   /**
    * GET /sde-masal/template — download template Excel.
+   * Query param `skema` untuk memilih skema template (default / KEUANGAN).
    */
   @Get('template')
-  async downloadTemplate(@Res() res: Response) {
-    const buf = await this.sdeMasalService.generateTemplate();
+  async downloadTemplate(
+    @Query('skema') skema: string,
+    @Res() res: Response,
+  ) {
+    const buf = await this.sdeMasalService.generateTemplate(skema);
+    const filename = skema?.toUpperCase().includes('KEUANGAN')
+      ? 'template-sde-masal-keuangan.xlsx'
+      : 'template-sde-masal.xlsx';
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename="template-sde-masal.xlsx"',
+      `attachment; filename="${filename}"`,
     );
     res.send(buf);
   }

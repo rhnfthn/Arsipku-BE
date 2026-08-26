@@ -10,11 +10,13 @@ import {
 } from 'typeorm';
 import { Berkas } from '../../berkas/entities/berkas.entity';
 
-@Entity('berkas_naskah', { schema: 'navmail' })
+@Entity('berkas_naskah')
 @Index('idx_berkas_naskah_berkas', ['berkasId'])
 @Index('idx_berkas_naskah_naskah', ['naskahId'])
 @Index('idx_berkas_naskah_sumber', ['sumber'])
-@Index('uk_berkas_naskah', ['berkasId', 'naskahId', 'idSirkuler', 'tanggal'], { unique: true })
+@Index('uk_berkas_naskah', ['berkasId', 'naskahId', 'idSirkuler', 'tanggal'], {
+  unique: true,
+})
 export class BerkasNaskah {
   @PrimaryGeneratedColumn('uuid')
   @Column('char', { primary: true, name: 'id', length: 36 })

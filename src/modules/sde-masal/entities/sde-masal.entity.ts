@@ -131,6 +131,137 @@ export class SdeMasalEntity {
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string | null;
 
+  // --- Field tambahan untuk template SDE Masal (data ASE) ---
+  @Column({ name: 'id_tertuju', type: 'varchar', length: 100, nullable: true })
+  idTertuju: string | null;
+
+  @Column({ name: 'idramount', type: 'varchar', length: 100, nullable: true })
+  idramount: string | null;
+
+  @Column({ name: 'usdamount', type: 'varchar', length: 100, nullable: true })
+  usdamount: string | null;
+
+  @Column({ name: 'namacro', type: 'varchar', length: 255, nullable: true })
+  namacro: string | null;
+
+  @Column({ name: 'email', type: 'varchar', length: 255, nullable: true })
+  email: string | null;
+
+  @Column({ name: 'tembusan', type: 'varchar', length: 500, nullable: true })
+  tembusan: string | null;
+
+  @Column({ name: 'is_revision', type: 'tinyint', default: 0 })
+  isRevision: number;
+
+  @Column({
+    name: 'email_tertuju',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  emailTertuju: string | null;
+
+  @Column({ name: 'email_cc', type: 'varchar', length: 500, nullable: true })
+  emailCc: string | null;
+
+  @Column({ name: 'email_bcc', type: 'varchar', length: 500, nullable: true })
+  emailBcc: string | null;
+
+  // --- Field skema keuangan / tagihan PINP ---
+  @Column({
+    name: 'jumlah_tagihan_idr',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  jumlahTagihanIdr: string | null;
+
+  @Column({
+    name: 'jumlah_tagihan_usd',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  jumlahTagihanUsd: string | null;
+
+  @Column({ name: 'nama_cro', type: 'varchar', length: 255, nullable: true })
+  namaCro: string | null;
+
+  @Column({ name: 'email_cro', type: 'varchar', length: 255, nullable: true })
+  emailCro: string | null;
+
+  @Column({
+    name: 'jabatan_signer',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  jabatanSigner: string | null;
+
+  @Column({
+    name: 'nama_signer',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  namaSigner: string | null;
+
+  // --- Field skema umum / tagihan PJNP ---
+  @Column({
+    name: 'jumlah_lampiran',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
+  jumlahLampiran: string | null;
+
+  @Column({
+    name: 'alamat_penerima',
+    type: 'text',
+    nullable: true,
+  })
+  alamatPenerima: string | null;
+
+  @Column({
+    name: 'panggilan_penerima',
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+  })
+  panggilanPenerima: string | null;
+
+  @Column({
+    name: 'nominal_rupiah',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  nominalRupiah: string | null;
+
+  @Column({
+    name: 'nominal_dolar',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  nominalDolar: string | null;
+
+  @Column({
+    name: 'tembusan_1',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  tembusan1: string | null;
+
+  @Column({
+    name: 'tembusan_2',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  tembusan2: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

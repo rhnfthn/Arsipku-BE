@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { Berkas } from '../../berkas/entities/berkas.entity';
 
-@Entity('berkas_riwayat_retensi', { schema: 'navmail' })
+@Entity('berkas_riwayat_retensi')
 @Index('idx_berkas_retensi_berkas', ['berkasId'])
 @Index('idx_berkas_retensi_tanggal', ['tanggalPerubahan'])
 export class BerkasRiwayatRetensi {

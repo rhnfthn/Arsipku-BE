@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { Berkas } from '../../berkas/entities/berkas.entity';
 
-@Entity('berkas_verifikasi', { schema: 'navmail' })
+@Entity('berkas_verifikasi')
 @Index('idx_berkas_verifikasi_berkas', ['berkasId'])
 @Index('idx_berkas_verifikasi_verifikator', ['verifikatorPersnum'])
 @Index('idx_berkas_verifikasi_status', ['status'])
@@ -37,7 +37,11 @@ export class BerkasVerifikasi {
   @Column('int', { name: 'verifikator_position_id', nullable: true })
   verifikatorPositionId: number;
 
-  @Column('varchar', { name: 'jabatan_verifikator', length: 255, nullable: true })
+  @Column('varchar', {
+    name: 'jabatan_verifikator',
+    length: 255,
+    nullable: true,
+  })
   jabatanVerifikator: string;
 
   @Column('varchar', { name: 'status', length: 20, default: 'pending' })
