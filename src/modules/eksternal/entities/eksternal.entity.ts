@@ -5,6 +5,9 @@ export class EksternalEntity {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
 
+  @Column({ type: 'varchar', length: 10, nullable: true, unique: true })
+  kode: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   id_position_pembuat: string;
 

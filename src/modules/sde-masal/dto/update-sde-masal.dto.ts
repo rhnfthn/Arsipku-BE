@@ -39,4 +39,64 @@ export class UpdateSdeMasalDto {
   @IsOptional()
   @IsString()
   statusVerifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  idTertuju?: string;
+
+  @IsOptional()
+  @IsString()
+  idramount?: string;
+
+  @IsOptional()
+  @IsString()
+  usdamount?: string;
+
+  @IsOptional()
+  @IsString()
+  namacro?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  tembusan?: string;
+
+  @IsOptional()
+  @IsString()
+  emailTertuju?: string;
+
+  @IsOptional()
+  @IsString()
+  emailCc?: string;
+
+  @IsOptional()
+  @IsString()
+  emailBcc?: string;
+
+  @IsOptional()
+  @IsString()
+  jumlahTagihanIdr?: string;
+
+  @IsOptional()
+  @IsString()
+  jumlahTagihanUsd?: string;
+
+  @IsOptional()
+  @IsString()
+  namaCro?: string;
+
+  @IsOptional()
+  @IsString()
+  emailCro?: string;
+
+  @IsOptional()
+  @IsString()
+  jabatanSigner?: string;
+
+  @IsOptional()
+  @IsString()
+  namaSigner?: string;
 }

@@ -724,7 +724,10 @@ export class TransferActiveToInactiveService {
     // Fallback: cek organization_tu jika tuRoles tidak ada di JWT
     if (!isTu && user.persnum) {
       try {
-        const activeRoles = await this.organizationTuService.getActiveRolesForPersnum(Number(user.persnum));
+        const activeRoles =
+          await this.organizationTuService.getActiveRolesForPersnum(
+            Number(user.persnum),
+          );
         isTu = activeRoles.includes('tu');
       } catch {
         // ignore
@@ -825,12 +828,17 @@ export class TransferActiveToInactiveService {
         .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
         .where('b.id IN (:...ids)', { ids: arsipIds })
         .getMany();
-      const klasifikasiMap = new Map<string, string>();
+      const klasifikasiMap = new Map<string, { kode: string; teks: string }>();
       for (const b of berkasList) {
-        klasifikasiMap.set(b.id, b.klasifikasiTeks ?? b.klasifikasi ?? null);
+        klasifikasiMap.set(b.id, {
+          kode: b.klasifikasi ?? '',
+          teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+        });
       }
       for (const d of data) {
-        (d as any).arsipKlasifikasi = klasifikasiMap.get(d.arsipId) ?? null;
+        const k = klasifikasiMap.get(d.arsipId);
+        (d as any).arsipKlasifikasi = k?.teks ?? null;
+        (d as any).arsipKlasifikasiKode = k?.kode ?? null;
       }
     }
 
@@ -861,12 +869,20 @@ export class TransferActiveToInactiveService {
     if (item.arsipId) {
       const berkas = await this.berkasRepo
         .createQueryBuilder('b')
-        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .select([
+          'b.id',
+          'b.klasifikasi',
+          'b.klasifikasiTeks',
+          'b.tindakanPenyusutanAkhir',
+        ])
         .where('b.id = :id', { id: item.arsipId })
         .getOne();
       if (berkas) {
         (item as any).arsipKlasifikasi =
           berkas.klasifikasiTeks ?? berkas.klasifikasi ?? null;
+        (item as any).arsipKlasifikasiKode = berkas.klasifikasi ?? null;
+        (item as any).arsipTindakanPenyusutan =
+          berkas.tindakanPenyusutanAkhir ?? null;
       }
     }
 
@@ -1036,59 +1052,31 @@ export class TransferActiveToInactiveService {
       );
       return saved;
     } else {
-      // Atasan terakhir.
-      // Single-atasan (totalApprovalLevels <= 1): skip MENUNGGU_VERIFIKASI_TERAKHIR
-      // — langsung DISETUJUI_VERIFIKASI_TERAKHIR supaya tombol "Pindah Usulan"
-      // (kirim ke TU) muncul tanpa langkah approve ganda yang membingungkan.
-      // Multi-atasan: tetap perlu verifikasi terakhir oleh atasan level 1.
-      const isSingleAtasan = (item.totalApprovalLevels ?? 1) <= 1;
-      if (isSingleAtasan) {
-        item.status =
-          TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
-        item.currentApprovalLevel = 1;
-        item.approvedBy = Number(user.persnum);
-        item.approvedAt = new Date();
-        item.verifyNote = dto.verifyNote ?? null;
-        item.finalVerifyNote = dto.verifyNote ?? null;
-        item.finalVerifiedBy = Number(user.persnum);
-        item.finalVerifiedAt = new Date();
-        const saved = await this.repo.save(item);
-        this.logAudit(
-          user,
-          saved,
-          old,
-          saved.status,
-          `Persetujuan (single-atasan) oleh ${currentLevel.atasanName} — siap kirim ke TU`,
-        );
-        await this.notify(
-          saved,
-          null,
-          saved.sekretarisPersnum,
-          'Usulan disetujui atasan — siap dikirim ke Unit Tata Naskah',
-        );
-        return saved;
-      }
-
-      // Multi-atasan → MENUNGGU_VERIFIKASI_TERAKHIR (Menunggu Persetujuan)
-      // Atasan perlu verifikasi terakhir (dengan Daftar Isi + BA) sebelum kirim ke TU
-      item.status = TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_TERAKHIR;
-      // Reset currentApprovalLevel ke 1 — verifikasi final dilakukan oleh atasan level 1
+      // Atasan terakhir (single ATAU multi-atasan berjenjang).
+      // Setelah semua atasan approve → langsung DISETUJUI_VERIFIKASI_TERAKHIR
+      // supaya tombol "Pindah Usulan" (kirim ke TU) muncul untuk atasan level 1,
+      // sama seperti alur single-atasan. Tidak ada langkah verifikasi terakhir
+      // tambahan yang membingungkan.
+      item.status =
+        TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
       item.currentApprovalLevel = 1;
       item.approvedBy = Number(user.persnum);
       item.approvedAt = new Date();
       item.verifyNote = dto.verifyNote ?? null;
+      item.finalVerifyNote = dto.verifyNote ?? null;
+      item.finalVerifiedBy = Number(user.persnum);
+      item.finalVerifiedAt = new Date();
       const saved = await this.repo.save(item);
       this.logAudit(
         user,
         saved,
         old,
         saved.status,
-        `Persetujuan level ${currentLevel.urutan} oleh ${currentLevel.atasanName} — menunggu verifikasi terakhir`,
+        `Persetujuan level ${currentLevel.urutan} oleh ${currentLevel.atasanName} — siap kirim ke TU`,
       );
-      // Notifikasi atasan level 1 untuk verifikasi final (Pindah Usulan)
+      // Update kolom legacy atasan ke atasan level 1 (untuk tombol Pindah Usulan)
       const firstLevel = await this.getLevel(item.id, 1);
       if (firstLevel) {
-        // Update kolom legacy atasan ke atasan level 1
         item.atasanPersnum = firstLevel.atasanPersnum;
         item.atasanName = firstLevel.atasanName;
         item.atasanPositionId = firstLevel.atasanPositionId;
@@ -1102,12 +1090,11 @@ export class TransferActiveToInactiveService {
           'Verifikasi Terakhir Usulan Pemindahan Arsip Aktif ke Inaktif',
         );
       }
-      // Notifikasi sekretaris bahwa semua atasan sudah approve
       await this.notify(
         saved,
         null,
         saved.sekretarisPersnum,
-        'Usulan disetujui semua atasan, menunggu verifikasi terakhir oleh atasan pertama',
+        'Usulan disetujui semua atasan — siap dikirim ke Unit Tata Naskah',
       );
       return saved;
     }

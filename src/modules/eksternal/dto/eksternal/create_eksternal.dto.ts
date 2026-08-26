@@ -2,6 +2,11 @@ import { IsString, IsOptional, IsBoolean, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateEksternalDto {
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  kode?: string;
+
   @Transform(({ value }) => value?.toString())
   @IsString()
   @IsOptional()
