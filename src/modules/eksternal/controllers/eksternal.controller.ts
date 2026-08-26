@@ -51,8 +51,13 @@ export class EksternalController {
   async findAll(
     @Query('company') company?: string,
     @Query('area') area?: string,
+    @Query('include_inactive') includeInactive?: string,
   ): Promise<EksternalListResponseDto> {
-    const list = await this.eksternalService.findAll(company, area);
+    const list = await this.eksternalService.findAll(
+      company,
+      area,
+      includeInactive === 'true',
+    );
     return {
       success: true,
       total: list.length,

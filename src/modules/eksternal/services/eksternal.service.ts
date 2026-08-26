@@ -68,18 +68,35 @@ export class EksternalService {
     return map;
   }
 
+  /**
+   * Generate kode 3 digit berikutnya untuk eksternal.
+   * Dimulai dari 100.
+   */
+  private async generateKode(): Promise<string> {
+    const result = await this.eksternalRepository
+      .createQueryBuilder('eksternal')
+      .select('MAX(CAST(eksternal.kode AS UNSIGNED))', 'maxKode')
+      .getRawOne();
+
+    const maxKode = result?.maxKode ? parseInt(result.maxKode, 10) : 0;
+    const next = Math.max(maxKode + 1, 100);
+    return String(next).padStart(3, '0');
+  }
+
   async create(
     createEksternalDto: CreateEksternalDto,
   ): Promise<EksternalEntity> {
+    const kode = await this.generateKode();
     const eksternal = this.eksternalRepository.create({
       id: uuidv4(),
+      kode,
       ...createEksternalDto,
     });
 
     return await this.eksternalRepository.save(eksternal);
   }
 
-  async findAll(company?: string, area?: string): Promise<any[]> {
+  async findAll(company?: string, area?: string, includeInactive?: boolean): Promise<any[]> {
     const query = this.eksternalRepository.createQueryBuilder('eksternal');
 
     if (company) {
@@ -90,8 +107,11 @@ export class EksternalService {
       query.andWhere('eksternal.area = :area', { area });
     }
 
+    if (!includeInactive) {
+      query.andWhere('eksternal.aktif = :aktif', { aktif: true });
+    }
+
     const eksternal = await query
-      .where('eksternal.aktif = :aktif', { aktif: true })
       .orderBy('eksternal.nama', 'ASC')
       .getMany();
 
