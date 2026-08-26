@@ -1,13 +1,31 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UploadedFile, UseInterceptors, UseGuards,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { NaskahLainnyaService } from '../services/naskah-lainnya.service';
 import type { CurrentUser as CurrentUserType } from '../services/naskah-lainnya.service';
 import {
-  BuatNaskahDto, UpdateNaskahDto, ApprovalActionDto, EvaluasiDto, BlankoDto, TandaTanganDto,
-  KirimApprovalLegalDto, SheetDataDto,
+  BuatNaskahDto,
+  UpdateNaskahDto,
+  ApprovalActionDto,
+  EvaluasiDto,
+  BlankoDto,
+  TandaTanganDto,
+  KirimApprovalLegalDto,
+  ManualFinalStatusDto,
+  SheetDataDto,
 } from '../dto/index.dto';
 import { CurrentUser } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
@@ -29,12 +47,18 @@ export class NaskahLainnyaController {
   }
 
   @Get('persetujuan')
-  getPersetujuan(@Query('status') status: string, @CurrentUser() user: CurrentUserType) {
+  getPersetujuan(
+    @Query('status') status: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.getPersetujuan(user, status);
   }
 
   @Get('legal-drafting')
-  getLegalDrafting(@Query('status') status: string, @CurrentUser() user: CurrentUserType) {
+  getLegalDrafting(
+    @Query('status') status: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.getLegalDrafting(user, status);
   }
 
@@ -46,6 +70,14 @@ export class NaskahLainnyaController {
   @Get('template-signers/:jenis')
   getTemplateSigners(@Param('jenis') jenis: string) {
     return this.service.getTemplateSigners(jenis);
+  }
+
+  /** Baca parameter docx (perihal/tanggal) tanpa persist — untuk auto-fill
+   *  perihal di halaman tulis sebelum naskah benar-benar dikirim. */
+  @Post('parse-docx')
+  @UseInterceptors(FileInterceptor('file'))
+  parseDocx(@UploadedFile() file: Express.Multer.File) {
+    return this.service.parseDokumen(file);
   }
 
   @Get(':id')
@@ -75,7 +107,11 @@ export class NaskahLainnyaController {
 
   @Post(':id/dokumen')
   @UseInterceptors(FileInterceptor('file'))
-  upload(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @CurrentUser() user: CurrentUserType) {
+  upload(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.uploadDokumen(id, file, user);
   }
 
@@ -100,7 +136,10 @@ export class NaskahLainnyaController {
   }
 
   @Delete(':id/dokumen/:dokumenId')
-  deleteDokumenTambahan(@Param('id') id: string, @Param('dokumenId') dokumenId: string) {
+  deleteDokumenTambahan(
+    @Param('id') id: string,
+    @Param('dokumenId') dokumenId: string,
+  ) {
     return this.service.deleteDokumenTambahan(id, dokumenId);
   }
 
@@ -111,7 +150,8 @@ export class NaskahLainnyaController {
     @Query('inline') inline: string,
     @Res() res: Response,
   ) {
-    const { buffer, mimetype, nama } = await this.service.downloadDokumenTambahan(id, dokumenId);
+    const { buffer, mimetype, nama } =
+      await this.service.downloadDokumenTambahan(id, dokumenId);
     res.setHeader('Content-Type', mimetype);
     const disposition = inline === '1' ? 'inline' : 'attachment';
     res.setHeader('Content-Disposition', `${disposition}; filename="${nama}"`);
@@ -119,17 +159,32 @@ export class NaskahLainnyaController {
   }
 
   @Post(':id/approval/:approvalId/setuju')
-  setuju(@Param('id') id: string, @Param('approvalId') approvalId: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+  setuju(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.setuju(id, approvalId, dto.catatan, user);
   }
 
   @Post(':id/approval/:approvalId/tolak')
-  tolak(@Param('id') id: string, @Param('approvalId') approvalId: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+  tolak(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.tolak(id, approvalId, dto.catatan ?? '', user);
   }
 
   @Post(':id/approval/:approvalId/kembalikan')
-  kembalikan(@Param('id') id: string, @Param('approvalId') approvalId: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+  kembalikan(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kembalikan(id, approvalId, dto.catatan ?? '', user);
   }
 
@@ -140,37 +195,70 @@ export class NaskahLainnyaController {
   }
 
   @Post(':id/legal-drafting/kirim-approval')
-  kirimApprovalLegal(@Param('id') id: string, @Body() dto: KirimApprovalLegalDto, @CurrentUser() user: CurrentUserType) {
-    return this.service.kirimApprovalLegal(id, dto.approval, user, dto.catatan, dto.catatan_legal);
+  kirimApprovalLegal(
+    @Param('id') id: string,
+    @Body() dto: KirimApprovalLegalDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.kirimApprovalLegal(
+      id,
+      dto.approval,
+      user,
+      dto.catatan,
+      dto.catatan_legal,
+    );
   }
 
   @Post(':id/legal-drafting/kembalikan')
-  kembalikanLegal(@Param('id') id: string, @Body() dto: { catatan: string }, @CurrentUser() user: CurrentUserType) {
+  kembalikanLegal(
+    @Param('id') id: string,
+    @Body() dto: { catatan: string },
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kembalikanLegal(id, dto.catatan, user);
   }
 
   @Post(':id/evaluasi')
-  evaluasi(@Param('id') id: string, @Body() dto: EvaluasiDto, @CurrentUser() user: CurrentUserType) {
+  evaluasi(
+    @Param('id') id: string,
+    @Body() dto: EvaluasiDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.evaluasi(id, dto, user);
   }
 
   @Post(':id/evaluasi/kembalikan')
-  kembalikanEvaluasi(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+  kembalikanEvaluasi(
+    @Param('id') id: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kembalikanEvaluasi(id, dto.catatan, user);
   }
 
   @Post(':id/blanko-verbal')
-  simpanBlanko(@Param('id') id: string, @Body() dto: BlankoDto, @CurrentUser() user: CurrentUserType) {
+  simpanBlanko(
+    @Param('id') id: string,
+    @Body() dto: BlankoDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.simpanBlanko(id, dto, user);
   }
 
   @Post(':id/blanko-verbal/kirim-approval')
-  kirimApprovalBlanko(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+  kirimApprovalBlanko(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kirimApprovalBlanko(id, user);
   }
 
   @Post(':id/tanda-tangan')
-  tandaTangan(@Param('id') id: string, @Body() dto: TandaTanganDto, @CurrentUser() user: CurrentUserType) {
+  tandaTangan(
+    @Param('id') id: string,
+    @Body() dto: TandaTanganDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.tandaTangan(id, dto.passphrase, user);
   }
 
@@ -184,47 +272,106 @@ export class NaskahLainnyaController {
     return this.service.unggahTtdFisik(id, file, user);
   }
 
+  /**
+   * Opsi TTD manual/fisik tidak menjalankan signing task di aplikasi. Setelah
+   * verifikasi/alur legal selesai, pemrakarsa mengunggah dokumen final di detail.
+   */
+  @Post(':id/dokumen-final-manual')
+  @UseInterceptors(FileInterceptor('file'))
+  unggahDokumenFinalManual(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.unggahTtdFisik(id, file, user);
+  }
+
+  @Put(':id/status-final-manual')
+  ubahStatusFinalManual(
+    @Param('id') id: string,
+    @Body() dto: ManualFinalStatusDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.ubahStatusFinalManual(id, dto.final, user);
+  }
+
   // ---------- Lembar Persetujuan Direksi ----------
 
   @Post(':id/lembar-persetujuan-direksi/preview')
-  previewLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  previewLembarPersetujuanDireksi(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.previewLembarPersetujuanDireksi(id, dto, user);
   }
 
   @Post(':id/lembar-persetujuan-direksi/kirim')
-  kirimLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  kirimLembarPersetujuanDireksi(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kirimLembarPersetujuanDireksi(id, dto, user);
   }
 
   @Post(':id/lembar-persetujuan-direksi/paraf')
-  parafLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  parafLembarPersetujuanDireksi(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.parafLembarPersetujuanDireksi(id, dto, user);
   }
 
   @Post(':id/lembar-persetujuan-direksi/tolak')
-  tolakLembarPersetujuanDireksi(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
-    return this.service.tolakLembarPersetujuanDireksi(id, dto.catatan ?? '', user);
+  tolakLembarPersetujuanDireksi(
+    @Param('id') id: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.tolakLembarPersetujuanDireksi(
+      id,
+      dto.catatan ?? '',
+      user,
+    );
   }
 
   // ---------- Blanko Verbal ----------
 
   @Post(':id/blanko-verbal/preview')
-  previewBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  previewBlankoVerbal(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.previewBlankoVerbal(id, dto, user);
   }
 
   @Post(':id/blanko-verbal/kirim')
-  kirimBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  kirimBlankoVerbal(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.kirimBlankoVerbal(id, dto, user);
   }
 
   @Post(':id/blanko-verbal/paraf')
-  parafBlankoVerbal(@Param('id') id: string, @Body() dto: SheetDataDto, @CurrentUser() user: CurrentUserType) {
+  parafBlankoVerbal(
+    @Param('id') id: string,
+    @Body() dto: SheetDataDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.parafBlankoVerbal(id, dto, user);
   }
 
   @Post(':id/blanko-verbal/tolak')
-  tolakBlankoVerbal(@Param('id') id: string, @Body() dto: ApprovalActionDto, @CurrentUser() user: CurrentUserType) {
+  tolakBlankoVerbal(
+    @Param('id') id: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.tolakBlankoVerbal(id, dto.catatan ?? '', user);
   }
 }
