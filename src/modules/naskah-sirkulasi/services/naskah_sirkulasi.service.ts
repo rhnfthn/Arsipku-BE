@@ -275,10 +275,13 @@ export class NaskahSirkulasiService {
     const now = new Date();
     const readUser = dto.user_id || dto.position_id;
 
-    await this.naskahSirkulasiRepo.update(sirkulasi.id, {
-      sendReadTime: now,
-      sendReadUser: readUser,
-    });
+    await this.naskahSirkulasiRepo.update(
+      { id: sirkulasi.id, tanggal: sirkulasi.tanggal },
+      {
+        sendReadTime: now,
+        sendReadUser: readUser,
+      },
+    );
 
     // Emit inbox count refresh ke penerima position
     try {
@@ -399,11 +402,14 @@ export class NaskahSirkulasiService {
 
     const sirkulasi = await repo.findOne({
       where: { id: sirkulasiId },
-      select: { id: true, idNaskah: true, position: true },
+      select: { id: true, tanggal: true, idNaskah: true, position: true },
     });
     if (!sirkulasi) return;
 
-    await repo.update(sirkulasiId, { tindakLanjut: 1 });
+    await repo.update(
+      { id: sirkulasi.id, tanggal: sirkulasi.tanggal },
+      { tindakLanjut: 1 },
+    );
 
     // Emit tracking update to pengirim
     try {
@@ -2454,7 +2460,10 @@ export class NaskahSirkulasiService {
       updateData.noteText = newValue === 1 ? noteText || null : null;
     }
 
-    await this.naskahSirkulasiRepo.update(idSirkulasi, updateData);
+    await this.naskahSirkulasiRepo.update(
+      { id: sirkulasi.id, tanggal: sirkulasi.tanggal },
+      updateData,
+    );
 
     return {
       success: true,
@@ -2514,9 +2523,15 @@ export class NaskahSirkulasiService {
 
         if (action === 'archive') {
           // Archive: Set flag_arsip = 1 pada sirkulasi pengirim
-          await this.naskahSirkulasiRepo.update(pengirimSirkulasi.id, {
-            flagArsip: 1,
-          });
+          await this.naskahSirkulasiRepo.update(
+            {
+              id: pengirimSirkulasi.id,
+              tanggal: pengirimSirkulasi.tanggal,
+            },
+            {
+              flagArsip: 1,
+            },
+          );
           totalProcessed++;
         } else if (action === 'delete') {
           // Delete: Hapus naskah beserta semua data terkait

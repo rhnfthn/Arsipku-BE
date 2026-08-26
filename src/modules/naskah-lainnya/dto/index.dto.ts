@@ -1,5 +1,12 @@
 import {
-  IsIn, IsString, IsBoolean, IsOptional, IsArray, IsObject, IsNotEmpty, IsNumber,
+  IsIn,
+  IsString,
+  IsBoolean,
+  IsOptional,
+  IsArray,
+  IsObject,
+  IsNotEmpty,
+  IsNumber,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -19,7 +26,28 @@ export class ApprovalDto {
 }
 
 export class BuatNaskahDto {
-  @IsIn(['PER', 'KEP', 'INS', 'SPD', 'SED', 'SOP', 'KSB', 'PKS', 'KTP', 'PJL', 'LOA', 'SKU', 'BA', 'SKE', 'SPR', 'RRA', 'PUM', 'PIA', 'LAP']) jenis: string;
+  @IsIn([
+    'PER',
+    'KEP',
+    'INS',
+    'SPD',
+    'SED',
+    'SOP',
+    'KSB',
+    'PKS',
+    'KTP',
+    'PJL',
+    'LOA',
+    'SKU',
+    'BA',
+    'SKE',
+    'SPR',
+    'RRA',
+    'PUM',
+    'PIA',
+    'LAP',
+  ])
+  jenis: string;
 
   @IsString() @IsOptional() nomor?: string; // diisi manual atau dari docx-reader
 
@@ -30,9 +58,13 @@ export class BuatNaskahDto {
   @Type(() => PenandatanganDto)
   penandatangan: PenandatanganDto | PenandatanganDto[];
 
-  @IsIn(['sangat_rahasia', 'rahasia', 'terbatas', 'biasa', 'terbuka']) @IsOptional() sifat?: string;
+  @IsIn(['sangat_rahasia', 'rahasia', 'terbatas', 'biasa', 'terbuka'])
+  @IsOptional()
+  sifat?: string;
 
-  @IsIn(['digsig', 'qr_only', 'ttd_basah', 'tanpa_ttd']) @IsOptional() signOption?: string;
+  @IsIn(['digsig', 'qr_only', 'ttd_basah', 'tanpa_ttd'])
+  @IsOptional()
+  signOption?: string;
 
   @IsBoolean() butuhLegal: boolean;
 
@@ -41,7 +73,10 @@ export class BuatNaskahDto {
   @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
 
   // Rantai approval berjenjang (approver ≠ penandatangan). Opsional — fallback ke default workflow.
-  @IsArray() @IsOptional() @ValidateNested({ each: true }) @Type(() => ApprovalDto)
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => ApprovalDto)
   approval?: ApprovalDto[];
 }
 
@@ -69,13 +104,17 @@ export class TandaTanganDto {
   @IsString() @IsOptional() passphrase?: string;
 }
 
+export class ManualFinalStatusDto {
+  @IsBoolean() final: boolean;
+}
+
 /**
  * Payload lembar persetujuan direksi & blanko verbal — field terstruktur (bukan html).
  * BE membangun template sheet dari field ini (mirip GeneratePdfNodinService).
  * `catatan` dipakai untuk paraf/tolak (transient, per-aksi).
  */
 export class SheetDataDto {
-  @IsString() @IsOptional() tanggal?: string;            // YYYY-MM-DD
+  @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
   @IsString() @IsOptional() nomor?: string;
   @IsString() @IsOptional() diusulkanOleh?: string;
   @IsString() @IsOptional() jabatanDiusulkan?: string;
@@ -101,7 +140,9 @@ export class SheetDataDto {
 // Pemberi persetujuan legal drafting — drafter legal memilih approver dari unit legal
 // (GET /konfigurasi/unit-legal). Urutan array = urutan persetujuan berjenjang.
 export class KirimApprovalLegalDto {
-  @IsArray() @ValidateNested({ each: true }) @Type(() => ApprovalDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ApprovalDto)
   approval: ApprovalDto[];
 
   // Alasan kirim approval (item #8) → dicatat ke riwayat (transient, per-aksi).
