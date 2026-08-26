@@ -541,6 +541,16 @@ export class SearchResultItemDto {
    */
   isFavorite: boolean;
 
+  /**
+   * Apakah naskah punya catatan (note)
+   */
+  isNote?: boolean;
+
+  /**
+   * Apakah naskah dikunci (lock)
+   */
+  isLocked?: boolean;
+
   // Metadata
   createdAt: Date;
 }
