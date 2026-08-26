@@ -32,6 +32,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -45,6 +46,7 @@ export class AuthController {
     private readonly rbacService: RbacService,
     private readonly permissionCache: PermissionCacheService,
     private readonly jwtService: JwtService,
+    private readonly legalRoleService: LegalRoleService,
   ) {}
 
   /**
@@ -364,6 +366,7 @@ export class AuthController {
       kota: string;
       alamat: string;
     } | null;
+    isLegalRole?: boolean;
     delegations?: Array<{
       id: string;
       delegated_role: {
@@ -471,10 +474,22 @@ export class AuthController {
       // Continue without delegations
     }
 
+    // Cek apakah user adalah legal role (dari tabel legal_role)
+    let isLegalRole = false;
+    try {
+      if (user.position) {
+        const activeIds = await this.legalRoleService.getActivePositionIds();
+        isLegalRole = activeIds.includes(String(user.position));
+      }
+    } catch (error) {
+      console.error('[getProfile] Error checking legal role:', error);
+    }
+
     return {
       message: 'Profile retrieved from JWT',
       user,
       alamatInfo,
+      isLegalRole,
       delegations: delegations.length > 0 ? delegations : undefined,
     };
   }

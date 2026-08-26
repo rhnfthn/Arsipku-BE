@@ -14,10 +14,10 @@ export class NaskahReferensiEntity {
 
   @Column({
     type: 'enum',
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'UND'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPD', 'SED', 'SOP', 'KSB', 'PKS', 'KTP', 'PJL', 'LOA', 'SKU', 'BA', 'SKE', 'SPR', 'RRA', 'PUM', 'PIA', 'LAP'],
     nullable: true,
   })
-  ref_jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'UND' | null;
+  ref_jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPD' | 'SED' | 'SOP' | 'KSB' | 'PKS' | 'KTP' | 'PJL' | 'LOA' | 'SKU' | 'BA' | 'SKE' | 'SPR' | 'RRA' | 'PUM' | 'PIA' | 'LAP' | null;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   ref_pengirim: string | null;

@@ -242,12 +242,17 @@ export class DigsigDocumentController {
    * GET /digsig/document/verifikator
    * Get list of chiefs (verifikator) in the same area as the current user
    * Returns users with chief = 1 and area = current user's area
+   * Query param `chief=0` returns ALL users in the area (staff + managerial) — used by naskah-lainnya.
    */
   @Get('verifikator')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
-  async getVerifikator(@CurrentUser() user: JwtPayload) {
-    return this.documentService.getVerifikator(user.area);
+  async getVerifikator(
+    @CurrentUser() user: JwtPayload,
+    @Query('chief') chief?: string,
+  ) {
+    const chiefOnly = chief === undefined ? true : chief !== '0';
+    return this.documentService.getVerifikator(user.area, chiefOnly);
   }
 
   /**

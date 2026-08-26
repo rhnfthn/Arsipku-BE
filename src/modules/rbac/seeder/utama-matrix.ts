@@ -236,18 +236,24 @@ export const utamaMatrix: MatrixHalaman = {
             },
           ],
         },
+      ],
+    },
+    {
+      key: 'naskah-lainnya',
+      label: 'Naskah Lainnya',
+      subMenus: [
         {
-          key: 'naskah-lainnya',
-          label: 'Naskah Lainnya',
+          key: 'tulis-naskah',
+          label: 'Tulis Naskah',
           fiturs: [
             {
               key: 'halaman',
-              label: 'Halaman Naskah Lainnya',
+              label: 'Halaman Tulis Naskah',
               permissions: [
                 {
                   action: 'read',
                   label: 'Read',
-                  description: 'Melihat halaman Naskah Lainnya',
+                  description: 'Melihat halaman Tulis Naskah Lainnya',
                   resource: 'utama.tulis.naskah-lainnya',
                 },
                 {
@@ -266,6 +272,42 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'create-send',
                   label: 'Create',
                   description: 'Button Kirim',
+                  resource: 'utama.tulis.naskah-lainnya',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'daftar-naskah',
+          label: 'Daftar Naskah',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Daftar Naskah',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat daftar Naskah Lainnya',
+                  resource: 'utama.tulis.naskah-lainnya',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'persetujuan',
+          label: 'Persetujuan',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Persetujuan',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat halaman Persetujuan Naskah Lainnya',
                   resource: 'utama.tulis.naskah-lainnya',
                 },
               ],
