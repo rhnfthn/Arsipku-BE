@@ -348,47 +348,10 @@ export class NaskahShareService {
       `[getShares] Found ${shares.length} shares, total=${total}`,
     );
 
-    // Auto-mark as DIBACA when viewing shared-to-me tab
-    // Skip SEKALI_LIHAT — those only change on actual open
-    if (tab === 'shared-to-me') {
-      const unreadShareIds = shares
-        .filter(
-          (s) =>
-            s.accessType !== ShareAccessType.SEKALI_LIHAT &&
-            s.recipients.some(
-              (r) =>
-                r.recipientId === user.position &&
-                r.status === RecipientStatus.TERKIRIM,
-            ),
-        )
-        .map((s) => s.id);
-
-      if (unreadShareIds.length > 0) {
-        await this.recipientRepo
-          .createQueryBuilder()
-          .update()
-          .set({ status: RecipientStatus.DIBACA })
-          .where('share_id IN (:...shareIds)', { shareIds: unreadShareIds })
-          .andWhere('recipient_id = :positionId', { positionId: user.position })
-          .andWhere('status = :oldStatus', {
-            oldStatus: RecipientStatus.TERKIRIM,
-          })
-          .execute();
-
-        // Update in-memory for response
-        for (const share of shares) {
-          if (share.accessType === ShareAccessType.SEKALI_LIHAT) continue;
-          for (const r of share.recipients) {
-            if (
-              r.recipientId === user.position &&
-              r.status === RecipientStatus.TERKIRIM
-            ) {
-              r.status = RecipientStatus.DIBACA;
-            }
-          }
-        }
-      }
-    }
+    // NOTE: Tidak ada auto-mark DIBACA saat list di-fetch. Status recipient
+    // hanya berubah saat user benar-benar membuka naskah (tombol "Buka" →
+    // openNaskah). Ini memastikan badge unread & outline biru hanya hilang
+    // ketika naskah benar-benar dibuka, bukan saat halaman dibuka.
 
     // Batch-fetch naskah data to avoid N+1
     const naskahIds = [...new Set(shares.map((s) => s.naskahId))];
@@ -785,6 +748,19 @@ export class NaskahShareService {
     // If no PDF available, fall back to konten (HTML) instead of rejecting
     // (naskah final tanpa file attachment masih bisa dibuka via konten HTML)
     const konten = naskah?.konten || null;
+
+    // Mark recipient as DIBACA BEFORE the document-availability check, so a
+    // failed open (dokumen tidak tersedia) still clears the unread badge &
+    // outline. SEKALI_LIHAT is handled separately below (after doc confirmed)
+    // so a broken document doesn't consume the one-time view.
+    if (recipientRecord && share.accessType !== ShareAccessType.SEKALI_LIHAT) {
+      if (recipientRecord.status === RecipientStatus.TERKIRIM) {
+        recipientRecord.status = RecipientStatus.DIBACA;
+        recipientRecord.openedAt = new Date();
+        await this.recipientRepo.save(recipientRecord);
+      }
+    }
+
     if (!pdfUrl && !konten) {
       throw new BadRequestException(
         'Dokumen tidak tersedia. Naskah mungkin belum difinalisasi atau ditandatangani.',

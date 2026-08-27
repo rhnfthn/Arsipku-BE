@@ -228,4 +228,24 @@ export class RealtimeEmitService {
       this.logger.warn(`⚠️ [emitTrackingUpdate] failed: ${err?.message}`);
     }
   }
+
+  /**
+   * Emit flag update (note/lock/favorit/arsip) ke position pemilik sirkulasi.
+   * Dipakai agar web & mobile sinkron realtime saat flag di-toggle.
+   */
+  emitFlagUpdate(
+    positionId: string,
+    payload: {
+      id_sirkulasi: string;
+      flag_type: string;
+      new_value: boolean;
+      note_text?: string | null;
+    },
+  ) {
+    try {
+      this.gateway.emitFlagUpdate(positionId, payload);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitFlagUpdate] failed: ${err?.message}`);
+    }
+  }
 }

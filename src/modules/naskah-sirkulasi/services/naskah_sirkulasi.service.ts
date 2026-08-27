@@ -2460,10 +2460,29 @@ export class NaskahSirkulasiService {
       updateData.noteText = newValue === 1 ? noteText || null : null;
     }
 
+    // NaskahSirkulasi punya composite PK (id, tanggal) — update harus pakai
+    // full key, bukan string id saja (kalau tidak, TypeORM throw "multiple
+    // primary columns").
     await this.naskahSirkulasiRepo.update(
-      { id: sirkulasi.id, tanggal: sirkulasi.tanggal },
+      { id: idSirkulasi, tanggal: sirkulasi.tanggal },
       updateData,
     );
+
+    // Emit realtime flag update ke position pemilik sirkulasi agar web & mobile
+    // sinkron (note/lock/favorit/arsip) tanpa perlu refresh manual.
+    if (sirkulasi.position) {
+      this.realtimeEmitService.emitFlagUpdate(sirkulasi.position, {
+        id_sirkulasi: idSirkulasi,
+        flag_type: flagType,
+        new_value: newValue === 1,
+        note_text:
+          flagType === 'note'
+            ? newValue === 1
+              ? noteText || null
+              : null
+            : undefined,
+      });
+    }
 
     return {
       success: true,
@@ -2524,10 +2543,7 @@ export class NaskahSirkulasiService {
         if (action === 'archive') {
           // Archive: Set flag_arsip = 1 pada sirkulasi pengirim
           await this.naskahSirkulasiRepo.update(
-            {
-              id: pengirimSirkulasi.id,
-              tanggal: pengirimSirkulasi.tanggal,
-            },
+            { id: pengirimSirkulasi.id, tanggal: pengirimSirkulasi.tanggal },
             {
               flagArsip: 1,
             },
