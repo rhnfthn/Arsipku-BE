@@ -402,11 +402,14 @@ export class NaskahSirkulasiService {
 
     const sirkulasi = await repo.findOne({
       where: { id: sirkulasiId },
-      select: { id: true, idNaskah: true, position: true },
+      select: { id: true, tanggal: true, idNaskah: true, position: true },
     });
     if (!sirkulasi) return;
 
-    await repo.update(sirkulasiId, { tindakLanjut: 1 });
+    await repo.update(
+      { id: sirkulasi.id, tanggal: sirkulasi.tanggal },
+      { tindakLanjut: 1 },
+    );
 
     // Emit tracking update to pengirim
     try {

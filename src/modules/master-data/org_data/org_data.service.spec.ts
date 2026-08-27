@@ -60,7 +60,7 @@ describe('OrgDataService', () => {
     // flattenOrgTree) dengan field company/position/position_text/
     // persnum_person/persnum_person_text/bod_tag langsung. Company TIDAK
     // difilter — direksi = semua baris bod_tag='BOD' di seluruh org.
-    it('returns all bod_tag=BOD records regardless of company, dirut first', () => {
+    it('returns all bod_tag=BOD records regardless of company, dirut last', () => {
       const rows = [
         {
           position_json: [
@@ -77,7 +77,25 @@ describe('OrgDataService', () => {
       expect(result.map((r) => r.positionId)).toContain('P1');
       expect(result.map((r) => r.positionId)).toContain('P2');
       expect(result.map((r) => r.positionId)).toContain('P4');
-      expect(result[0].positionId).toBe('P2'); // Dirut first
+      expect(result[0].positionId).toBe('P1'); // Operasi (kanonik) dulu
+      expect(result[2].positionId).toBe('P2'); // Dirut terakhir
+    });
+
+    it('sorts directors in canonical LPPNPI order (Operasi→Teknik→Keselamatan→Keuangan→SDM, Dirut last)', () => {
+      const rows = [
+        {
+          position_json: [
+            { company: 'A', bod_tag: 'BOD', position: 'P5', position_text: 'Direktur SDM & Umum', persnum_person: 1005, persnum_person_text: 'Eka' },
+            { company: 'A', bod_tag: 'BOD', position: 'P2', position_text: 'Direktur Utama', persnum_person: 1002, persnum_person_text: 'Budi' },
+            { company: 'A', bod_tag: 'BOD', position: 'P3', position_text: 'Direktur Keselamatan Keamanan dan Standardisasi', persnum_person: 1003, persnum_person_text: 'Caca' },
+            { company: 'A', bod_tag: 'BOD', position: 'P1', position_text: 'Direktur Operasi', persnum_person: 1001, persnum_person_text: 'Andi' },
+            { company: 'A', bod_tag: 'BOD', position: 'P4', position_text: 'Direktur Keuangan', persnum_person: 1004, persnum_person_text: 'Dedi' },
+            { company: 'A', bod_tag: 'BOD', position: 'P6', position_text: 'Direktur Teknik', persnum_person: 1006, persnum_person_text: 'Fani' },
+          ],
+        },
+      ];
+      const result = service.findBodByCompany(rows as any, 'A');
+      expect(result.map((r) => r.positionId)).toEqual(['P1', 'P6', 'P3', 'P4', 'P5', 'P2']);
     });
 
     it('returns empty when no bod_tag=BOD entries exist', () => {
