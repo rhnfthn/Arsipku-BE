@@ -5,6 +5,9 @@ import { DocxFillerService } from '../../naskah-umum/services/docx-filler.servic
 export interface SignedSigner {
   index: number;
   qrBuffer: Buffer;
+  /** Nama penandatangan untuk mengisi {{nama_penandatangan_N}} di bawah QR.
+   *  Kosong → fallback 'NAMA LENGKAP' (slot belum punya nama). */
+  nama?: string;
 }
 
 // Ukuran QR inline (EMU). 1 px @96dpi = 9525 EMU. 80px ≈ 762000 EMU.
@@ -52,6 +55,15 @@ export class DocxQrInlineService {
       data[`${prefix}_${i}`] = signedSet.has(i)
         ? `<<QRIMG_${prefix}_${i}>>`
         : `{{${prefix}_${i}}}`;
+    }
+    // Slot nama {{nama_penandatangan_N}} (di bawah QR): signed → nama penandatangan,
+    // unsigned → 'NAMA LENGKAP' (template literal sebelum sign). Absen → no-op.
+    const namaByIndex = new Map(signedSigners.map((s) => [s.index, s.nama ?? 'NAMA LENGKAP']));
+    const namaIndices = this.scanIndices(originalBuffer, 'nama_penandatangan');
+    for (const i of namaIndices) {
+      data[`nama_penandatangan_${i}`] = signedSet.has(i)
+        ? (namaByIndex.get(i) ?? 'NAMA LENGKAP')
+        : 'NAMA LENGKAP';
     }
     const pass1 = this.docxFiller.fill(originalBuffer, data);
 
