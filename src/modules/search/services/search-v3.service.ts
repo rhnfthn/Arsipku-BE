@@ -604,6 +604,7 @@ export class SearchV3Service {
           s.flag_favorit,
           s.flag_arsip,
           s.flag_note,
+          s.is_locked,
           (SELECT di.is_priority FROM di WHERE di.id_naskah = n.id LIMIT 1) as is_priority,
           ${relevanceSelect}
         FROM naskah n
@@ -687,6 +688,8 @@ export class SearchV3Service {
         read_time: row.read_time,
         isArchived: row.flag_arsip === 1,
         isFavorite: row.flag_favorit === 1,
+        isNote: row.flag_note === 1,
+        isLocked: row.is_locked === 1,
         priority: row.jenis === 'DI' ? row.is_priority === 1 : false,
         relevance_score: row.relevance_score || 0,
         createdAt: row.created_at,
