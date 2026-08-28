@@ -1,6 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { In, Repository, DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
@@ -13,6 +19,18 @@ import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
+
+type SdeMasalVerifikator = {
+  urutan: number;
+  persnum: string;
+  position: string;
+  nama: string;
+  jabatan: string;
+  status: 'pending' | 'waiting' | 'verified' | 'rejected';
+  verifiedAt?: string | null;
+  rejectedAt?: string | null;
+  catatan?: string | null;
+};
 
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
@@ -49,6 +67,7 @@ export class SdeMasalService {
       klasifikasiName: dto.klasifikasiName ?? null,
       pengirimId: dto.pengirimId ?? null,
       pengirimName: dto.pengirimName ?? null,
+      sifatSurat: dto.sifat ?? 'biasa',
       parentNaskahId: dto.parentNaskahId ?? null,
       perihal: '__CONCEPT__',
       tertuju: '__CONCEPT__',
@@ -310,46 +329,35 @@ export class SdeMasalService {
           (nama && jabatan ? `${nama} - ${jabatan}` : nama || jabatan || '-');
         const persnum = p.persnum || p.kodePos || '';
 
-        // Ganti variabel dinamis di konten template
+        // Ganti variabel dinamis di konten template. Nilai Excel yang diunggah
+        // tersedia lewat p.variables, sementara perihal dan tertuju adalah
+        // kolom standar yang selalu dipertahankan pada template.
         let konten = template?.konten || '';
         if (konten) {
-          konten = konten
-            .replace(/\{\{tertuju\}\}/g, tertuju)
-            .replace(/\{\{nama\}\}/g, nama || '-')
-            .replace(/\{\{jabatan\}\}/g, jabatan || '-')
-            .replace(/\{\{persnum\}\}/g, persnum || '-')
-            .replace(/\{\{keterangan\}\}/g, p.keterangan || '-')
-            .replace(/\{\{alamat\}\}/g, p.alamat || '-')
-            .replace(/\{\{kota\}\}/g, p.kota || '-')
-            .replace(/\{\{kode_pos\}\}/g, p.kodePos || '-')
-            .replace(/\{\{kodepos\}\}/g, p.kodePos || '-')
-            .replace(/\{\{perihal\}\}/g, p.perihal || konsep.perihal || '-')
-            .replace(/\{\{tanggal_surat\}\}/g, konsep.tanggalKonsep || '-')
-            .replace(/\{\{nomor_surat\}\}/g, p.nomorSurat || '-')
-            .replace(/\{\{sifat_surat\}\}/g, konsep.sifat || 'Biasa')
-            .replace(/\{\{jumlah_lampiran\}\}/g, p.jumlahLampiran || '-')
-            .replace(/\{\{jabatan_penerima\}\}/g, p.jabatanPenerima || p.jabatan || '-')
-            .replace(/\{\{alamat_penerima\}\}/g, p.alamat || '-')
-            .replace(/\{\{panggilan_penerima\}\}/g, p.panggilanPenerima || 'Bapak/Ibu')
-            .replace(/\{\{nominal_rupiah\}\}/g, p.nominalRupiah || p.idramount || '-')
-            .replace(/\{\{nominal_dolar\}\}/g, p.nominalDolar || p.usdamount || '-')
-            .replace(/\{\{id_tertuju\}\}/g, p.idTertuju || '-')
-            .replace(/\{\{idramount\}\}/g, p.idramount || '-')
-            .replace(/\{\{usdamount\}\}/g, p.usdamount || '-')
-            .replace(/\{\{namacro\}\}/g, p.namacro || '-')
-            .replace(/\{\{email\}\}/g, p.email || '-')
-            .replace(/\{\{tembusan\}\}/g, p.tembusan || '-')
-            .replace(/\{\{tembusan_1\}\}/g, p.tembusan ? p.tembusan.split(';')[0] : '-')
-            .replace(/\{\{tembusan_2\}\}/g, p.tembusan ? p.tembusan.split(';')[1] || '-' : '-')
-            .replace(/\{\{email_tertuju\}\}/g, p.emailTertuju || '-')
-            .replace(/\{\{email_cc\}\}/g, p.emailCc || '-')
-            .replace(/\{\{email_bcc\}\}/g, p.emailBcc || '-')
-            .replace(/\{\{jumlah_tagihan_idr\}\}/g, p.jumlahTagihanIdr || '-')
-            .replace(/\{\{jumlah_tagihan_usd\}\}/g, p.jumlahTagihanUsd || '-')
-            .replace(/\{\{nama_cro\}\}/g, p.namaCro || '-')
-            .replace(/\{\{email_cro\}\}/g, p.emailCro || '-')
-            .replace(/\{\{jabatan_signer\}\}/g, p.jabatanSigner || '-')
-            .replace(/\{\{nama_signer\}\}/g, p.namaSigner || '-');
+          const values = {
+            ...(p.variables || {}),
+            ...p,
+            perihal: p.perihal || konsep.perihal || '-',
+            tertuju,
+            nama: nama || '-',
+            jabatan: jabatan || '-',
+            persnum: persnum || '-',
+            kode_pos: p.kodePos || '-',
+            kodepos: p.kodePos || '-',
+            tanggal_surat: konsep.tanggalKonsep || '-',
+            nomor_surat: p.nomorSurat || '-',
+            sifat_surat: konsep.sifat || 'Biasa',
+            nominal_rupiah: p.nominalRupiah || p.idramount || '-',
+            nominal_dolar: p.nominalDolar || p.usdamount || '-',
+            jabatan_penerima: p.jabatanPenerima || p.jabatan || '-',
+            alamat_penerima: p.alamatPenerima || p.alamat || '-',
+            panggilan_penerima: p.panggilanPenerima || 'Bapak/Ibu',
+            tembusan_1: p.tembusan1 || (p.tembusan ? p.tembusan.split(';')[0] : '-'),
+            tembusan_2: p.tembusan2 || (p.tembusan ? p.tembusan.split(';')[1] || '-' : '-'),
+          };
+          konten = konten.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (_match, key) =>
+            String(values[key] ?? '-'),
+          );
         }
 
         const item = this.repo.create({
@@ -374,6 +382,7 @@ export class SdeMasalService {
           isiRingkasan: konten || null,
           jenisTemplate: template?.skema || null,
           statusVerifikasi: 'MENUNGGU',
+          // Field dinamis dari Excel (mapping kolom template)
           idTertuju: p.idTertuju || null,
           idramount: p.idramount || null,
           usdamount: p.usdamount || null,
@@ -417,6 +426,66 @@ export class SdeMasalService {
     };
   }
 
+  async submitVerification(
+    ids: string[],
+    verifikators: any[],
+  ): Promise<{ total: number; items: SdeMasalEntity[] }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('Data SDE Massal tidak ditemukan');
+    }
+    if (!Array.isArray(verifikators) || verifikators.length === 0) {
+      throw new BadRequestException('Pilih minimal satu verifikator');
+    }
+
+    const rows = await this.repo.find({ where: { id: In(ids) } });
+    if (rows.length === 0) {
+      throw new NotFoundException('Data SDE Massal tidak ditemukan');
+    }
+
+    const verifierRows = this.normalizeVerifikators(verifikators);
+    for (const item of rows) {
+      item.verifikators = verifierRows;
+      item.currentVerifikatorUrutan = 1;
+      item.statusVerifikasi = 'MENUNGGU_VERIFIKASI';
+      item.submittedAt = new Date();
+      item.errorMessage = null;
+    }
+
+    const saved = await this.repo.save(rows);
+    return { total: saved.length, items: saved };
+  }
+
+  async findVerificationForUser(user: any) {
+    const persnum = String(user?.persnum ?? user?.username ?? '').trim();
+    const position = String(user?.position ?? user?.positionId ?? '').trim();
+
+    const rows = await this.repo
+      .createQueryBuilder('s')
+      .where("s.perihal != '__CONCEPT__'")
+      .andWhere('s.status_verifikasi IN (:...statuses)', {
+        statuses: ['MENUNGGU_VERIFIKASI', 'TERVERIFIKASI', 'DITOLAK'],
+      })
+      .orderBy('s.submitted_at', 'DESC')
+      .addOrderBy('s.created_at', 'DESC')
+      .getMany();
+
+    return rows.filter((item) =>
+      (item.verifikators || []).some((verifikator: any) => {
+        const samePersnum = persnum && String(verifikator.persnum) === persnum;
+        const samePosition = position && String(verifikator.position) === position;
+        return samePersnum || samePosition;
+      }),
+    );
+  }
+
+  async approveVerification(id: string, user: any, catatan?: string | null) {
+    return this.verifySdeMasal(id, user, 'approve', catatan);
+  }
+
+  async rejectVerification(id: string, user: any, catatan?: string | null) {
+    return this.verifySdeMasal(id, user, 'reject', catatan);
+  }
+
   /**
    * List SDE Masal dengan filter dan pagination.
    */
@@ -439,6 +508,14 @@ export class SdeMasalService {
       qb.andWhere('s.status_verifikasi = :status', {
         status: filter.statusVerifikasi,
       });
+    }
+    if (filter.klasifikasiId) {
+      qb.andWhere('s.klasifikasi_id = :klasifikasiId', {
+        klasifikasiId: filter.klasifikasiId,
+      });
+    }
+    if (filter.tahun) {
+      qb.andWhere('YEAR(s.tanggal_konsep) = :tahun', { tahun: filter.tahun });
     }
     if (filter.jenisTemplate) {
       qb.andWhere('s.jenis_template = :jenis', { jenis: filter.jenisTemplate });
@@ -464,6 +541,75 @@ export class SdeMasalService {
    */
   async findOne(id: string): Promise<SdeMasalEntity | null> {
     return this.repo.findOne({ where: { id } });
+  }
+
+  private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
+    return verifikators.slice(0, 3).map((item, index) => ({
+      urutan: index + 1,
+      persnum: String(item.persnum ?? item.persnumPerson ?? '').trim(),
+      position: String(item.position ?? item.positionId ?? '').trim(),
+      nama: item.nama || item.name || '-',
+      jabatan: item.jabatan || item.positionText || '-',
+      status: index === 0 ? 'waiting' : 'pending',
+      verifiedAt: null,
+      rejectedAt: null,
+      catatan: null,
+    }));
+  }
+
+  private async verifySdeMasal(
+    id: string,
+    user: any,
+    action: 'approve' | 'reject',
+    catatan?: string | null,
+  ) {
+    const item = await this.repo.findOne({ where: { id } });
+    if (!item) throw new NotFoundException('Data SDE Massal tidak ditemukan');
+
+    const verifikators = [...(item.verifikators || [])] as SdeMasalVerifikator[];
+    if (verifikators.length === 0) {
+      throw new BadRequestException('SDE Massal belum memiliki verifikator');
+    }
+
+    const persnum = String(user?.persnum ?? user?.username ?? '').trim();
+    const position = String(user?.position ?? user?.positionId ?? '').trim();
+    const current = verifikators.find((v) => v.status === 'waiting');
+    if (!current) throw new BadRequestException('Tidak ada giliran verifikasi aktif');
+
+    const isCurrentUser =
+      (persnum && String(current.persnum) === persnum) ||
+      (position && String(current.position) === position);
+    if (!isCurrentUser) {
+      throw new ForbiddenException('Belum giliran Anda untuk memverifikasi SDE Massal ini');
+    }
+
+    if (action === 'reject') {
+      current.status = 'rejected';
+      current.rejectedAt = new Date().toISOString();
+      current.catatan = catatan || null;
+      item.statusVerifikasi = 'DITOLAK';
+      item.errorMessage = catatan || 'Ditolak verifikator';
+      item.verifikators = verifikators;
+      return this.repo.save(item);
+    }
+
+    current.status = 'verified';
+    current.verifiedAt = new Date().toISOString();
+    current.catatan = catatan || null;
+
+    const next = verifikators.find((v) => v.urutan > current.urutan && v.status === 'pending');
+    if (next) {
+      next.status = 'waiting';
+      item.currentVerifikatorUrutan = next.urutan;
+      item.statusVerifikasi = 'MENUNGGU_VERIFIKASI';
+    } else {
+      item.currentVerifikatorUrutan = verifikators.length;
+      item.statusVerifikasi = 'TERVERIFIKASI';
+      item.errorMessage = null;
+    }
+
+    item.verifikators = verifikators;
+    return this.repo.save(item);
   }
 
   /**
