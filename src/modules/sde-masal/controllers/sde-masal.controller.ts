@@ -94,6 +94,55 @@ export class SdeMasalController {
     return { success: true, data: result };
   }
 
+  @Post('submit-verification')
+  async submitVerification(
+    @Body() body: { ids: string[]; verifikators: any[] },
+  ) {
+    const result = await this.sdeMasalService.submitVerification(
+      body?.ids,
+      body?.verifikators,
+    );
+    return {
+      success: true,
+      data: result,
+      message: `${result.total} SDE Massal berhasil diajukan ke verifikator.`,
+    };
+  }
+
+  @Get('verification')
+  async findVerification(@CurrentUser() user: any) {
+    const data = await this.sdeMasalService.findVerificationForUser(user);
+    return { success: true, data };
+  }
+
+  @Patch(':id/approve-verification')
+  async approveVerification(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() body: { catatan?: string },
+  ) {
+    const data = await this.sdeMasalService.approveVerification(
+      id,
+      user,
+      body?.catatan,
+    );
+    return { success: true, data, message: 'SDE Massal berhasil diverifikasi' };
+  }
+
+  @Patch(':id/reject-verification')
+  async rejectVerification(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() body: { catatan?: string },
+  ) {
+    const data = await this.sdeMasalService.rejectVerification(
+      id,
+      user,
+      body?.catatan,
+    );
+    return { success: true, data, message: 'SDE Massal ditolak' };
+  }
+
   /**
    * POST /sde-masal/generate-naskah — buat naskah SDE individual per penerima.
    * Body: { ids?: string[] } — jika kosong, proses semua yang MENUNGGU.
@@ -113,17 +162,20 @@ export class SdeMasalController {
 
   /**
    * GET /sde-masal/template — download template Excel.
+   * Query param `skema` untuk memilih skema template (default / KEUANGAN).
    */
   @Get('template')
-  async downloadTemplate(@Res() res: Response) {
-    const buf = await this.sdeMasalService.generateTemplate();
+  async downloadTemplate(@Query('skema') skema: string | undefined, @Res() res: Response) {
+    const normalizedSkema = skema?.toUpperCase() === 'KEUANGAN' ? 'KEUANGAN' : 'UMUM';
+    const buf = await this.sdeMasalService.generateTemplate(normalizedSkema);
+    const filename = `template-sde-masal-${normalizedSkema.toLowerCase()}.xlsx`;
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename="template-sde-masal.xlsx"',
+      `attachment; filename="${filename}"`,
     );
     res.send(buf);
   }

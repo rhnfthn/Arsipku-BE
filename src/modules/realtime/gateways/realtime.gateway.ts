@@ -314,4 +314,14 @@ export class RealtimeGateway
       .to(`position:${pengirimPositionId}`)
       .emit('tracking:update', payload);
   }
+
+  /**
+   * Emit flag update (note/lock/favorit/arsip) ke position pemilik sirkulasi.
+   */
+  emitFlagUpdate(positionId: string, payload: any) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('flag:update', payload);
+  }
 }

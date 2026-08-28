@@ -68,30 +68,52 @@ export class EksternalService {
     return map;
   }
 
+  /**
+   * Generate kode 3 digit berikutnya untuk eksternal.
+   * Dimulai dari 100.
+   */
+  private async generateKode(): Promise<string> {
+    const result = await this.eksternalRepository
+      .createQueryBuilder('eksternal')
+      .select('MAX(CAST(eksternal.kode AS UNSIGNED))', 'maxKode')
+      .getRawOne();
+
+    const maxKode = result?.maxKode ? parseInt(result.maxKode, 10) : 0;
+    const next = Math.max(maxKode + 1, 100);
+    return String(next).padStart(3, '0');
+  }
+
   async create(
     createEksternalDto: CreateEksternalDto,
   ): Promise<EksternalEntity> {
+    const kode = await this.generateKode();
     const eksternal = this.eksternalRepository.create({
       id: uuidv4(),
+      kode,
       ...createEksternalDto,
     });
 
     return await this.eksternalRepository.save(eksternal);
   }
 
-  async findAll(company?: string, area?: string): Promise<any[]> {
+  async findAll(company?: string, area?: string, includeInactive?: boolean): Promise<any[]> {
     const query = this.eksternalRepository.createQueryBuilder('eksternal');
 
+    query.where('eksternal.aktif = :aktif', { aktif: true });
+
     if (company) {
-      query.where('eksternal.company = :company', { company });
+      query.andWhere('eksternal.company = :company', { company });
     }
 
     if (area) {
       query.andWhere('eksternal.area = :area', { area });
     }
 
+    if (!includeInactive) {
+      query.andWhere('eksternal.aktif = :aktif', { aktif: true });
+    }
+
     const eksternal = await query
-      .where('eksternal.aktif = :aktif', { aktif: true })
       .orderBy('eksternal.nama', 'ASC')
       .getMany();
 
@@ -156,12 +178,15 @@ export class EksternalService {
   }
 
   async remove(id: string): Promise<void> {
-    const eksternalData = await this.findOne(id);
+    const eksternal = await this.eksternalRepository.findOne({ where: { id } });
+    if (!eksternal) {
+      throw new NotFoundException('Eksternal tidak ditemukan');
+    }
 
-    // Remove nama_pembuat from findOne result
-    const { nama_pembuat, ...eksternal } = eksternalData;
-
-    await this.eksternalRepository.remove(eksternal as EksternalEntity);
+    // Tertuju eksternal dapat sudah menjadi referensi pada surat. Nonaktifkan
+    // alih-alih menghapus fisik supaya riwayat surat tetap valid.
+    eksternal.aktif = false;
+    await this.eksternalRepository.save(eksternal);
   }
 
   async toggleAktif(id: string): Promise<any> {

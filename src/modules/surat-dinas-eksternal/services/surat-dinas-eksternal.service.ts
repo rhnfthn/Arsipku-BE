@@ -1023,7 +1023,17 @@ export class SuratDinasEksternalService {
       current = parent;
     }
 
-    result.sort((a, b) => Number(a.level) - Number(b.level));
+    // Urutan pengirim: EVP → Direktur (Teknik/dll) → Direktur Utama.
+    // EVP (BOD-1) adalah level terendah yang layak jadi pengirim, Direktur
+    // Utama paling atas. Sort by rank, bukan level tree (level tree justru
+    // menaruh Direktur di atas EVP).
+    const rankOf = (x: SdeOrgDataPositionDto): number => {
+      const text = String(x.position_text || '').toLowerCase();
+      if (text.includes('direktur utama')) return 2;
+      if (String(x.bod_tag || '').toUpperCase() === 'BOD') return 1;
+      return 0; // EVP (BOD-1) dan lainnya
+    };
+    result.sort((a, b) => rankOf(a) - rankOf(b));
     return result;
   }
 
