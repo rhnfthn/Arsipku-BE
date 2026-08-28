@@ -101,7 +101,8 @@ export class PermissionGuard implements CanActivate {
       (user.role ? String(user.role).toUpperCase() : undefined);
     if (
       activeRoleName &&
-      activeRoleName.toUpperCase() === String(RoleName.SUPERADMIN)
+      activeRoleName.toUpperCase().replace(/[\s_-]/g, '') ===
+        String(RoleName.SUPERADMIN)
     ) {
       return;
     }
@@ -164,7 +165,8 @@ export class PermissionGuard implements CanActivate {
       (user.role ? String(user.role).toUpperCase() : undefined);
     if (
       activeRoleName &&
-      activeRoleName.toUpperCase() === String(RoleName.SUPERADMIN)
+      activeRoleName.toUpperCase().replace(/[\s_-]/g, '') ===
+        String(RoleName.SUPERADMIN)
     ) {
       return true;
     }
