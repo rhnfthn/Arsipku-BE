@@ -166,9 +166,17 @@ export class SdeMasalService {
 
         // Field skema umum / tagihan PJNP
         const jumlahLampiran = getCol(row, 'jumlah_lampiran', 'jumlahLampiran');
-        const jabatanPenerima = getCol(row, 'jabatan_penerima', 'jabatanPenerima');
+        const jabatanPenerima = getCol(
+          row,
+          'jabatan_penerima',
+          'jabatanPenerima',
+        );
         const alamatPenerima = getCol(row, 'alamat_penerima', 'alamatPenerima');
-        const panggilanPenerima = getCol(row, 'panggilan_penerima', 'panggilanPenerima');
+        const panggilanPenerima = getCol(
+          row,
+          'panggilan_penerima',
+          'panggilanPenerima',
+        );
         const nominalRupiah = getCol(row, 'nominal_rupiah', 'nominalRupiah');
         const nominalDolar = getCol(row, 'nominal_dolar', 'nominalDolar');
         const tembusan1 = getCol(row, 'tembusan_1', 'tembusan1');
@@ -352,11 +360,15 @@ export class SdeMasalService {
             jabatan_penerima: p.jabatanPenerima || p.jabatan || '-',
             alamat_penerima: p.alamatPenerima || p.alamat || '-',
             panggilan_penerima: p.panggilanPenerima || 'Bapak/Ibu',
-            tembusan_1: p.tembusan1 || (p.tembusan ? p.tembusan.split(';')[0] : '-'),
-            tembusan_2: p.tembusan2 || (p.tembusan ? p.tembusan.split(';')[1] || '-' : '-'),
+            tembusan_1:
+              p.tembusan1 || (p.tembusan ? p.tembusan.split(';')[0] : '-'),
+            tembusan_2:
+              p.tembusan2 ||
+              (p.tembusan ? p.tembusan.split(';')[1] || '-' : '-'),
           };
-          konten = konten.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (_match, key) =>
-            String(values[key] ?? '-'),
+          konten = konten.replace(
+            /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
+            (_match, key) => String(values[key] ?? '-'),
           );
         }
 
@@ -472,7 +484,8 @@ export class SdeMasalService {
     return rows.filter((item) =>
       (item.verifikators || []).some((verifikator: any) => {
         const samePersnum = persnum && String(verifikator.persnum) === persnum;
-        const samePosition = position && String(verifikator.position) === position;
+        const samePosition =
+          position && String(verifikator.position) === position;
         return samePersnum || samePosition;
       }),
     );
@@ -566,7 +579,9 @@ export class SdeMasalService {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException('Data SDE Massal tidak ditemukan');
 
-    const verifikators = [...(item.verifikators || [])] as SdeMasalVerifikator[];
+    const verifikators = [
+      ...(item.verifikators || []),
+    ] as SdeMasalVerifikator[];
     if (verifikators.length === 0) {
       throw new BadRequestException('SDE Massal belum memiliki verifikator');
     }
@@ -574,13 +589,16 @@ export class SdeMasalService {
     const persnum = String(user?.persnum ?? user?.username ?? '').trim();
     const position = String(user?.position ?? user?.positionId ?? '').trim();
     const current = verifikators.find((v) => v.status === 'waiting');
-    if (!current) throw new BadRequestException('Tidak ada giliran verifikasi aktif');
+    if (!current)
+      throw new BadRequestException('Tidak ada giliran verifikasi aktif');
 
     const isCurrentUser =
       (persnum && String(current.persnum) === persnum) ||
       (position && String(current.position) === position);
     if (!isCurrentUser) {
-      throw new ForbiddenException('Belum giliran Anda untuk memverifikasi SDE Massal ini');
+      throw new ForbiddenException(
+        'Belum giliran Anda untuk memverifikasi SDE Massal ini',
+      );
     }
 
     if (action === 'reject') {
@@ -597,7 +615,9 @@ export class SdeMasalService {
     current.verifiedAt = new Date().toISOString();
     current.catatan = catatan || null;
 
-    const next = verifikators.find((v) => v.urutan > current.urutan && v.status === 'pending');
+    const next = verifikators.find(
+      (v) => v.urutan > current.urutan && v.status === 'pending',
+    );
     if (next) {
       next.status = 'waiting';
       item.currentVerifikatorUrutan = next.urutan;
@@ -747,16 +767,26 @@ export class SdeMasalService {
 
       // Sheet 2: Petunjuk Pengisian
       const petunjukSheet = [
-        ['Petunjuk Pengisian Template SDE Masal - Skema Keuangan (Tagihan PINP)'],
+        [
+          'Petunjuk Pengisian Template SDE Masal - Skema Keuangan (Tagihan PINP)',
+        ],
         [''],
-        ['1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PINP".'],
+        [
+          '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PINP".',
+        ],
         [
           '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
         ],
         ['   Contoh: 112, 117, 119, dst.'],
-        ['3. Kolom "jumlah_tagihan_idr" WAJIB diisi (angka tanpa titik/koma). Contoh: 15000000.'],
-        ['4. Kolom "jumlah_tagihan_usd" WAJIB diisi (angka tanpa titik/koma). Contoh: 1000.'],
-        ['5. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).'],
+        [
+          '3. Kolom "jumlah_tagihan_idr" WAJIB diisi (angka tanpa titik/koma). Contoh: 15000000.',
+        ],
+        [
+          '4. Kolom "jumlah_tagihan_usd" WAJIB diisi (angka tanpa titik/koma). Contoh: 1000.',
+        ],
+        [
+          '5. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).',
+        ],
         ['6. Kolom "email_cro" WAJIB diisi email CRO.'],
         ['7. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
         ['8. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
@@ -784,15 +814,39 @@ export class SdeMasalService {
 
       // Sheet 3: Mapping Field
       const mappingSheet = [
-        ['Kolom Excel', 'Field Backend', 'Tipe Data', 'Wajib', 'Variabel Konten'],
+        [
+          'Kolom Excel',
+          'Field Backend',
+          'Tipe Data',
+          'Wajib',
+          'Variabel Konten',
+        ],
         ['No', 'no', 'number', 'Tidak', '-'],
         ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
         ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
-        ['jumlah_tagihan_idr', 'jumlahTagihanIdr', 'number', 'YA', '{{jumlah_tagihan_idr}}'],
-        ['jumlah_tagihan_usd', 'jumlahTagihanUsd', 'number', 'YA', '{{jumlah_tagihan_usd}}'],
+        [
+          'jumlah_tagihan_idr',
+          'jumlahTagihanIdr',
+          'number',
+          'YA',
+          '{{jumlah_tagihan_idr}}',
+        ],
+        [
+          'jumlah_tagihan_usd',
+          'jumlahTagihanUsd',
+          'number',
+          'YA',
+          '{{jumlah_tagihan_usd}}',
+        ],
         ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
         ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
-        ['jabatan_signer', 'jabatanSigner', 'string', 'YA', '{{jabatan_signer}}'],
+        [
+          'jabatan_signer',
+          'jabatanSigner',
+          'string',
+          'YA',
+          '{{jabatan_signer}}',
+        ],
         ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
         ['tembusan', 'tembusan', 'string', 'Tidak', '{{tembusan}}'],
         ['is_revision', 'isRevision', 'number', 'Tidak', '-'],
@@ -907,18 +961,28 @@ export class SdeMasalService {
       const petunjukSheet = [
         ['Petunjuk Pengisian Template SDE Masal - Skema Umum (Tagihan PJNP)'],
         [''],
-        ['1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PJNP".'],
+        [
+          '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PJNP".',
+        ],
         [
           '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
         ],
         ['   Contoh: 112, 117, 119, dst.'],
         ['3. Kolom "jumlah_lampiran" opsional. Contoh: "1 (lembar)" atau "-".'],
         ['4. Kolom "jabatan_penerima" WAJIB diisi jabatan penerima surat.'],
-        ['5. Kolom "alamat_penerima" WAJIB diisi alamat penerima atau "Di tempat".'],
+        [
+          '5. Kolom "alamat_penerima" WAJIB diisi alamat penerima atau "Di tempat".',
+        ],
         ['6. Kolom "panggilan_penerima" opsional. Default: "Bapak/Ibu".'],
-        ['7. Kolom "nominal_rupiah" WAJIB diisi nominal tagihan IDR. Contoh: "Rp 15.000.000".'],
-        ['8. Kolom "nominal_dolar" WAJIB diisi nominal tagihan USD. Contoh: "$ 1.000".'],
-        ['9. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).'],
+        [
+          '7. Kolom "nominal_rupiah" WAJIB diisi nominal tagihan IDR. Contoh: "Rp 15.000.000".',
+        ],
+        [
+          '8. Kolom "nominal_dolar" WAJIB diisi nominal tagihan USD. Contoh: "$ 1.000".',
+        ],
+        [
+          '9. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).',
+        ],
         ['10. Kolom "email_cro" WAJIB diisi email CRO.'],
         ['11. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
         ['12. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
@@ -949,19 +1013,61 @@ export class SdeMasalService {
 
       // Sheet 3: Mapping Field
       const mappingSheet = [
-        ['Kolom Excel', 'Field Backend', 'Tipe Data', 'Wajib', 'Variabel Konten'],
+        [
+          'Kolom Excel',
+          'Field Backend',
+          'Tipe Data',
+          'Wajib',
+          'Variabel Konten',
+        ],
         ['No', 'no', 'number', 'Tidak', '-'],
         ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
         ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
-        ['jumlah_lampiran', 'jumlahLampiran', 'string', 'Tidak', '{{jumlah_lampiran}}'],
-        ['jabatan_penerima', 'jabatanPenerima', 'string', 'YA', '{{jabatan_penerima}}'],
-        ['alamat_penerima', 'alamatPenerima', 'string', 'YA', '{{alamat_penerima}}'],
-        ['panggilan_penerima', 'panggilanPenerima', 'string', 'Tidak', '{{panggilan_penerima}}'],
-        ['nominal_rupiah', 'nominalRupiah', 'string', 'YA', '{{nominal_rupiah}}'],
+        [
+          'jumlah_lampiran',
+          'jumlahLampiran',
+          'string',
+          'Tidak',
+          '{{jumlah_lampiran}}',
+        ],
+        [
+          'jabatan_penerima',
+          'jabatanPenerima',
+          'string',
+          'YA',
+          '{{jabatan_penerima}}',
+        ],
+        [
+          'alamat_penerima',
+          'alamatPenerima',
+          'string',
+          'YA',
+          '{{alamat_penerima}}',
+        ],
+        [
+          'panggilan_penerima',
+          'panggilanPenerima',
+          'string',
+          'Tidak',
+          '{{panggilan_penerima}}',
+        ],
+        [
+          'nominal_rupiah',
+          'nominalRupiah',
+          'string',
+          'YA',
+          '{{nominal_rupiah}}',
+        ],
         ['nominal_dolar', 'nominalDolar', 'string', 'YA', '{{nominal_dolar}}'],
         ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
         ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
-        ['jabatan_signer', 'jabatanSigner', 'string', 'YA', '{{jabatan_signer}}'],
+        [
+          'jabatan_signer',
+          'jabatanSigner',
+          'string',
+          'YA',
+          '{{jabatan_signer}}',
+        ],
         ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
         ['tembusan_1', 'tembusan1', 'string', 'Tidak', '{{tembusan_1}}'],
         ['tembusan_2', 'tembusan2', 'string', 'Tidak', '{{tembusan_2}}'],
@@ -1399,10 +1505,7 @@ export class SdeMasalService {
   /**
    * Render konten template dengan variabel penerima.
    */
-  private renderKonten(
-    templateKonten: string,
-    item: SdeMasalEntity,
-  ): string {
+  private renderKonten(templateKonten: string, item: SdeMasalEntity): string {
     if (!templateKonten) return '';
     const penerima = {
       tertuju: item.tertuju,
@@ -1428,11 +1531,22 @@ export class SdeMasalService {
       .replace(/\{\{kode_pos\}\}/g, penerima.kodePos || '')
       .replace(/\{\{kodepos\}\}/g, penerima.kodePos || '')
       .replace(/\{\{perihal\}\}/g, item.perihal || '')
-      .replace(/\{\{tanggal_surat\}\}/g, item.tanggalKonsep ? new Date(item.tanggalKonsep).toLocaleDateString('id-ID') : '')
+      .replace(
+        /\{\{tanggal_surat\}\}/g,
+        item.tanggalKonsep
+          ? new Date(item.tanggalKonsep).toLocaleDateString('id-ID')
+          : '',
+      )
       .replace(/\{\{nomor_surat\}\}/g, item.nomorSurat || '')
       .replace(/\{\{sifat_surat\}\}/g, item.sifatSurat || 'Biasa')
-      .replace(/\{\{jumlah_lampiran\}\}/g, item.lampiranUrl ? '1 (lembar)' : '-')
-      .replace(/\{\{jabatan_penerima\}\}/g, item.jabatanPenerima || item.tertuju || '')
+      .replace(
+        /\{\{jumlah_lampiran\}\}/g,
+        item.lampiranUrl ? '1 (lembar)' : '-',
+      )
+      .replace(
+        /\{\{jabatan_penerima\}\}/g,
+        item.jabatanPenerima || item.tertuju || '',
+      )
       .replace(/\{\{alamat_penerima\}\}/g, item.alamat || 'Di tempat')
       .replace(/\{\{panggilan_penerima\}\}/g, 'Bapak/Ibu')
       .replace(/\{\{nominal_rupiah\}\}/g, item.idramount || '')
@@ -1443,8 +1557,14 @@ export class SdeMasalService {
       .replace(/\{\{namacro\}\}/g, item.namacro || '')
       .replace(/\{\{email\}\}/g, item.email || '')
       .replace(/\{\{tembusan\}\}/g, item.tembusan || '')
-      .replace(/\{\{tembusan_1\}\}/g, item.tembusan ? item.tembusan.split(';')[0] : '')
-      .replace(/\{\{tembusan_2\}\}/g, item.tembusan ? item.tembusan.split(';')[1] || '' : '')
+      .replace(
+        /\{\{tembusan_1\}\}/g,
+        item.tembusan ? item.tembusan.split(';')[0] : '',
+      )
+      .replace(
+        /\{\{tembusan_2\}\}/g,
+        item.tembusan ? item.tembusan.split(';')[1] || '' : '',
+      )
       .replace(/\{\{email_tertuju\}\}/g, item.emailTertuju || '')
       .replace(/\{\{email_cc\}\}/g, item.emailCc || '')
       .replace(/\{\{email_bcc\}\}/g, item.emailBcc || '')
