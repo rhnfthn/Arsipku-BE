@@ -33,6 +33,8 @@ import { RealtimeSyncService } from '../services/realtime-sync.service';
  *  - bsre:alert              (BsrE alert toggle)
  *  - nomor:count             (nomor request count change)
  *  - naskah-dinas:verifikator-count (verifikator waiting count change)
+ *  - naskah-lainnya:persetujuan-count (approval/signing queue count)
+ *  - naskah-lainnya:legal-drafting-count (legal drafting queue count)
  *
  * Event client -> server:
  *  - realtime:subscribe      (request initial summary)
@@ -287,6 +289,20 @@ export class RealtimeGateway
   emitArsipPersetujuanCountBroadcast(waiting: number) {
     if (!this.server) return;
     this.server.emit('arsip:persetujuan-count', { waiting });
+  }
+
+  emitNaskahLainnyaPersetujuanCount(positionId: string, waiting: number) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('naskah-lainnya:persetujuan-count', { positionId, waiting });
+  }
+
+  emitNaskahLainnyaLegalDraftingCount(positionId: string, waiting: number) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('naskah-lainnya:legal-drafting-count', { positionId, waiting });
   }
 
   /**
