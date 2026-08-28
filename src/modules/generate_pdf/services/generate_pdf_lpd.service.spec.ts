@@ -4,19 +4,39 @@ import { SheetPdfData } from './sheet-pdf.shared';
 describe('GeneratePdfLpdService.buildHtml', () => {
   let service: GeneratePdfLpdService;
   const directors = (qr: string[] = []) => [
-    { index: 1, nama: 'Andi', jabatan: 'DIREKTUR OPERASI', qrBase64: qr[0] ?? 'q1' },
-    { index: 2, nama: 'Bina', jabatan: 'DIREKTUR TEKNIK', qrBase64: qr[1] ?? 'q2' },
+    {
+      index: 1,
+      nama: 'Andi',
+      jabatan: 'DIREKTUR OPERASI',
+      qrBase64: qr[0] ?? 'q1',
+    },
+    {
+      index: 2,
+      nama: 'Bina',
+      jabatan: 'DIREKTUR TEKNIK',
+      qrBase64: qr[1] ?? 'q2',
+    },
   ];
 
-  beforeEach(() => { service = new GeneratePdfLpdService(); });
+  beforeEach(() => {
+    service = new GeneratePdfLpdService();
+  });
 
   function data(verified: number[] = [], qr: string[] = []): SheetPdfData {
     return {
-      tanggal: '2026-08-21', nomor: 'N-001', perihal: 'Perihal Test',
-      diusulkanOleh: 'Citra', jabatanDiusulkan: 'Kepala Unit',
-      referensiDari: 'Dari A', referensiNomor: 'R-1', referensiTanggal: '2026-08-10',
-      klasifikasi: 'Penting', lampiran: '1 (satu) berkas', catatan: 'cat',
-      directors: directors(qr), verifiedIndices: new Set(verified),
+      tanggal: '2026-08-21',
+      nomor: 'N-001',
+      perihal: 'Perihal Test',
+      diusulkanOleh: 'Citra',
+      jabatanDiusulkan: 'Kepala Unit',
+      referensiDari: 'Dari A',
+      referensiNomor: 'R-1',
+      referensiTanggal: '2026-08-10',
+      klasifikasi: 'Penting',
+      lampiran: '1 (satu) berkas',
+      catatan: 'cat',
+      directors: directors(qr),
+      verifiedIndices: new Set(verified),
     };
   }
 
@@ -43,15 +63,20 @@ describe('GeneratePdfLpdService.buildHtml', () => {
     expect(html).toContain('DIREKTUR TEKNIK');
   });
 
-  it('merender QR <img> HANYA untuk direksi yang verified', () => {
+  it('merender visual digsig HANYA untuk direksi yang verified', () => {
     const html = service.buildHtml(data([1], ['QR1', 'QR2']));
-    expect(html).toContain('data:image/png;base64,QR1');
+    expect(html).toContain('class="visible-digsig');
+    expect(html).toContain('Ditandatangani secara elektronik oleh');
+    expect(html).toContain('ANDI');
+    expect(html).toContain('data:image/png;base64,');
+    expect(html).not.toContain('data:image/png;base64,QR1');
     expect(html).not.toContain('data:image/png;base64,QR2');
   });
 
-  it('tidak merender QR bila tidak ada yang verified (slot sig-space)', () => {
+  it('tidak merender visual digsig bila tidak ada yang verified (slot sig-space)', () => {
     const html = service.buildHtml(data([], ['QR1', 'QR2']));
     expect(html).toContain('sig-space');
+    expect(html).not.toContain('class="visible-digsig');
     expect(html).not.toContain('data:image/png;base64,');
   });
 

@@ -4,22 +4,47 @@ import { SheetPdfData } from './sheet-pdf.shared';
 describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
   let service: GeneratePdfBlankoVerbalService;
   const directors = (qr: string[] = []) => [
-    { index: 1, nama: 'Andi', jabatan: 'DIREKTUR OPERASI', qrBase64: qr[0] ?? 'q1' },
-    { index: 2, nama: 'Bina', jabatan: 'DIREKTUR TEKNIK', qrBase64: qr[1] ?? 'q2' },
-    { index: 3, nama: 'Cika', jabatan: 'DIREKTUR KESELAMATAN', qrBase64: qr[2] ?? 'q3' },
+    {
+      index: 1,
+      nama: 'Andi',
+      jabatan: 'DIREKTUR OPERASI',
+      qrBase64: qr[0] ?? 'q1',
+    },
+    {
+      index: 2,
+      nama: 'Bina',
+      jabatan: 'DIREKTUR TEKNIK',
+      qrBase64: qr[1] ?? 'q2',
+    },
+    {
+      index: 3,
+      nama: 'Cika',
+      jabatan: 'DIREKTUR KESELAMATAN',
+      qrBase64: qr[2] ?? 'q3',
+    },
   ];
 
-  beforeEach(() => { service = new GeneratePdfBlankoVerbalService(); });
+  beforeEach(() => {
+    service = new GeneratePdfBlankoVerbalService();
+  });
 
   function data(verified: number[] = [], qr: string[] = []): SheetPdfData {
     return {
-      tanggal: '2026-08-21', nomor: 'B-001', perihal: 'Perihal Blanko',
-      diusulkanOleh: 'Citra', jabatanDiusulkan: 'Kepala Unit',
-      legalDrafter: 'Drafter', legalDrafterJabatan: 'Legal Officer',
-      legalChecker: 'Checker', legalCheckerJabatan: 'Kabag Hukum',
-      klasifikasi: 'Penting', lampiran: '1 (satu) berkas', bodyHtml: '<p>Isi blanko.</p>',
+      tanggal: '2026-08-21',
+      nomor: 'B-001',
+      perihal: 'Perihal Blanko',
+      diusulkanOleh: 'Citra',
+      jabatanDiusulkan: 'Kepala Unit',
+      legalDrafter: 'Drafter',
+      legalDrafterJabatan: 'Legal Officer',
+      legalChecker: 'Checker',
+      legalCheckerJabatan: 'Kabag Hukum',
+      klasifikasi: 'Penting',
+      lampiran: '1 (satu) berkas',
+      bodyHtml: '<p>Isi blanko.</p>',
       catatan: 'cat',
-      directors: directors(qr), verifiedIndices: new Set(verified),
+      directors: directors(qr),
+      verifiedIndices: new Set(verified),
     };
   }
 
@@ -53,11 +78,15 @@ describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
     expect(html).toContain('DIREKTUR KESELAMATAN');
   });
 
-  it('merender QR <img> HANYA untuk direksi yang verified', () => {
+  it('merender visual digsig HANYA untuk direksi yang verified', () => {
     const html = service.buildHtml(data([1, 3], ['QR1', 'QR2', 'QR3']));
-    expect(html).toContain('data:image/png;base64,QR1');
+    expect(html).toContain('class="visible-digsig');
+    expect(html).toContain('Ditandatangani secara elektronik oleh');
+    expect(html).toContain('ANDI');
+    expect(html).toContain('CIKA');
+    expect(html).not.toContain('data:image/png;base64,QR1');
     expect(html).not.toContain('data:image/png;base64,QR2');
-    expect(html).toContain('data:image/png;base64,QR3');
+    expect(html).not.toContain('data:image/png;base64,QR3');
   });
 
   it('tidak membocorkan chrome nota dinas', () => {

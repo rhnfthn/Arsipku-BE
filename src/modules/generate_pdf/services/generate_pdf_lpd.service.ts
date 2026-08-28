@@ -1,19 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import { pdfQueue } from '../pdf.queue';
-import { SheetPdfData, DirectorSlot, formatTanggal, SHEET_CSS } from './sheet-pdf.shared';
+import {
+  SheetPdfData,
+  DirectorSlot,
+  formatTanggal,
+  renderVisibleDigsig,
+  SHEET_CSS,
+} from './sheet-pdf.shared';
 
 @Injectable()
 export class GeneratePdfLpdService {
   /** Render PDF lengkap (puppeteer). */
   async render(data: SheetPdfData): Promise<Buffer> {
-    const result = await pdfQueue.add(() => this._renderWithRetry(data), { timeout: 90000 });
+    const result = await pdfQueue.add(() => this._renderWithRetry(data), {
+      timeout: 90000,
+    });
     if (!result) throw new Error('LPD PDF generation timeout/empty result');
     return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
   private isRecoverableBrowserError(error: unknown): boolean {
-    const m = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const m =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
     return (
       m.includes('connection closed') ||
       m.includes('target closed') ||
@@ -42,32 +53,62 @@ export class GeneratePdfLpdService {
       await page.setRequestInterception(true);
       page.on('request', (req) => {
         const url = req.url();
-        if (url.startsWith('data:') || url.startsWith('about:blank') || url.startsWith('blob:')) return req.continue();
+        if (
+          url.startsWith('data:') ||
+          url.startsWith('about:blank') ||
+          url.startsWith('blob:')
+        )
+          return req.continue();
         return req.abort();
       });
-      await page.setContent(this.buildHtml(data), { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.setContent(this.buildHtml(data), {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
       const pdf = await page.pdf({
-        format: 'A4', printBackground: true, timeout: 60000,
+        format: 'A4',
+        printBackground: true,
+        timeout: 60000,
         margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' },
       });
       return Buffer.from(pdf);
     } finally {
-      try { if (!page.isClosed()) await page.close(); } catch { /* noop */ }
+      try {
+        if (!page.isClosed()) await page.close();
+      } catch {
+        /* noop */
+      }
     }
   }
 
   /** Build HTML lengkap Lembar Persetujuan Direksi dari data. Murni (teruji unit). */
   buildHtml(data: SheetPdfData): string {
-    const dir = (i: number) => data.directors[i]; // 0-based → slot ke-(i+1)
-    // Nama Direktur Utama untuk blok tanda tangan a.n DIREKSI (bukan baris paraf).
-    const dirut = data.directors.find((d) => /direktur\s*utama/i.test(d.jabatan || ''));
-    const dirutNama = (dirut?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
+    const hasExplicitDiketahui = Array.isArray(data.diketahuiOleh);
+    const hasExplicitDitetapkan = Array.isArray(data.ditetapkanOleh);
+    const diketahui = hasExplicitDiketahui
+      ? data.diketahuiOleh!
+      : data.directors;
+    const ditetapkan = hasExplicitDitetapkan
+      ? data.ditetapkanOleh!
+      : data.directors.filter((d) => /direktur\s*utama/i.test(d.jabatan || ''));
+    const signerBlock = ditetapkan.length
+      ? ditetapkan
+          .map((d) => {
+            const visual = d.signatureVisible
+              ? renderVisibleDigsig(d, 'wide')
+              : '<div class="sig-space"></div>';
+            return `<div class="signature-person">${d.jabatan || 'DIREKTUR'}<br>${visual}<div class="signature-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
+          })
+          .join('')
+      : hasExplicitDitetapkan
+        ? ''
+        : '<div class="signature-person">DIREKTUR UTAMA<br><div class="signature-name">NAMA LENGKAP TANPA GELAR</div></div>';
     const slot = (i: number): string => {
-      const d: DirectorSlot | undefined = dir(i);
-      const verified = data.verifiedIndices.has(i + 1);
+      const d: DirectorSlot | undefined = diketahui[i];
+      const verified = data.verifiedIndices.has(d?.index ?? i + 1);
       if (!d) return '&nbsp;';
       const paraf = verified
-        ? `<img src="data:image/png;base64,${d.qrBase64}" class="paraf-qr" alt="Paraf ${d.nama}">`
+        ? renderVisibleDigsig(d)
         : '<div class="sig-space"></div>';
       return `<div class="director-item">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
     };
@@ -117,7 +158,7 @@ export class GeneratePdfLpdService {
     </tr>
     <tr>
       <td colspan="3" style="vertical-align:top;">
-        <div class="signature-block">a.n DIREKSI<br>DIREKTUR UTAMA<br><div class="signature-name">${dirutNama}</div></div>
+        <div class="signature-block">${signerBlock}</div>
       </td>
       <td style="vertical-align:top;">${slot(0)}</td>
     </tr>
