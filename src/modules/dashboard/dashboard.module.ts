@@ -19,6 +19,7 @@ import { DigsigModule } from '../digsig/digsig.module';
 import { NaskahDinasVerifikatorEntity } from '../naskah-dinas/entities/naskah-dinas-verifikator.entity';
 import { BerkasVerifikasi } from '../arsip-dinamis/entities/berkas-verifikasi.entity';
 import { NomorModule } from '../nomor/nomor.module';
+import { NaskahLainnyaModule } from '../naskah-lainnya/naskah-lainnya.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { NomorModule } from '../nomor/nomor.module';
     LabelModule,
     DigsigModule,
     NomorModule,
+    NaskahLainnyaModule,
   ],
   controllers: [DashboardController],
   providers: [

@@ -25,6 +25,8 @@ import {
   TandaTanganDto,
   KirimApprovalLegalDto,
   ManualFinalStatusDto,
+  ManualFinalNomorDto,
+  UpdatePenandatanganFisikDto,
   SheetDataDto,
 } from '../dto/index.dto';
 import { CurrentUser } from '../../../common/decorators';
@@ -63,13 +65,19 @@ export class NaskahLainnyaController {
   }
 
   @Get('template/:jenis')
-  getTemplate(@Param('jenis') jenis: string) {
-    return this.service.getTemplateUrl(jenis);
+  getTemplate(
+    @Param('jenis') jenis: string,
+    @Query('signOption') signOption?: string,
+  ) {
+    return this.service.getTemplateUrl(jenis, signOption);
   }
 
   @Get('template-signers/:jenis')
-  getTemplateSigners(@Param('jenis') jenis: string) {
-    return this.service.getTemplateSigners(jenis);
+  getTemplateSigners(
+    @Param('jenis') jenis: string,
+    @Query('signOption') signOption?: string,
+  ) {
+    return this.service.getTemplateSigners(jenis, signOption);
   }
 
   /** Baca parameter docx (perihal/tanggal) tanpa persist — untuk auto-fill
@@ -293,6 +301,28 @@ export class NaskahLainnyaController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.service.ubahStatusFinalManual(id, dto.final, user);
+  }
+
+  @Put(':id/nomor-final-manual')
+  ubahNomorFinalManual(
+    @Param('id') id: string,
+    @Body() dto: ManualFinalNomorDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.ubahNomorFinalManual(id, dto.nomor, user);
+  }
+
+  @Put(':id/metadata-penandatangan-fisik')
+  updateMetadataPenandatanganFisik(
+    @Param('id') id: string,
+    @Body() dto: UpdatePenandatanganFisikDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.updateMetadataPenandatanganFisik(
+      id,
+      dto.penandatangan,
+      user,
+    );
   }
 
   // ---------- Lembar Persetujuan Direksi ----------
