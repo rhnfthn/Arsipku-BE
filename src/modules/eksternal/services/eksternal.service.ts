@@ -99,8 +99,10 @@ export class EksternalService {
   async findAll(company?: string, area?: string, includeInactive?: boolean): Promise<any[]> {
     const query = this.eksternalRepository.createQueryBuilder('eksternal');
 
+    query.where('eksternal.aktif = :aktif', { aktif: true });
+
     if (company) {
-      query.where('eksternal.company = :company', { company });
+      query.andWhere('eksternal.company = :company', { company });
     }
 
     if (area) {
@@ -176,12 +178,15 @@ export class EksternalService {
   }
 
   async remove(id: string): Promise<void> {
-    const eksternalData = await this.findOne(id);
+    const eksternal = await this.eksternalRepository.findOne({ where: { id } });
+    if (!eksternal) {
+      throw new NotFoundException('Eksternal tidak ditemukan');
+    }
 
-    // Remove nama_pembuat from findOne result
-    const { nama_pembuat, ...eksternal } = eksternalData;
-
-    await this.eksternalRepository.remove(eksternal as EksternalEntity);
+    // Tertuju eksternal dapat sudah menjadi referensi pada surat. Nonaktifkan
+    // alih-alih menghapus fisik supaya riwayat surat tetap valid.
+    eksternal.aktif = false;
+    await this.eksternalRepository.save(eksternal);
   }
 
   async toggleAktif(id: string): Promise<any> {

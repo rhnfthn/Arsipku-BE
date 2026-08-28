@@ -205,6 +205,30 @@ export class RealtimeEmitService {
   }
 
   // ──────────────────────────────────────────────
+  // Naskah Lainnya queues
+  // ──────────────────────────────────────────────
+
+  emitNaskahLainnyaPersetujuanCount(positionId: string, waiting: number) {
+    try {
+      this.gateway.emitNaskahLainnyaPersetujuanCount(positionId, waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahLainnyaPersetujuanCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  emitNaskahLainnyaLegalDraftingCount(positionId: string, waiting: number) {
+    try {
+      this.gateway.emitNaskahLainnyaLegalDraftingCount(positionId, waiting);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahLainnyaLegalDraftingCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // Tracking update (read status / tindak lanjut)
   // ──────────────────────────────────────────────
 

@@ -27,12 +27,20 @@ export class DocxReaderService {
    * Deteksi slot penandatangan dari placeholder {{tanda_tangan_N}} di docx.
    * Return count + slot berurutan 1..N. Throw jika indeks tidak contiguous.
    *
-   * Juga memindai placeholder nama {{nama_penandatangan_N}} (teks NAMA LENGKAP
-   * di bawah QR yang otomatis jadi nama penandatangan saat sign). Bila ada,
-   * indeksnya harus cocok persis dengan {{tanda_tangan_*}} (validasi template).
-   * Absen → namaIndices kosong (backward-compat, template lama tanpa slot nama).
+   * Juga memindai placeholder metadata penandatangan:
+   * - {{nama_penandatangan_N}}
+   * - {{jabatan_penandatangan_N}}
+   * - {{nik_penandatangan_N}}
+   * Bila ada, indeksnya harus cocok persis dengan {{tanda_tangan_*}}
+   * (validasi template). Absen → array kosong (backward-compat).
    */
-  readSignerSlots(buffer: Buffer): { count: number; slots: { index: number }[]; namaIndices: number[] } {
+  readSignerSlots(buffer: Buffer): {
+    count: number;
+    slots: { index: number }[];
+    namaIndices: number[];
+    jabatanIndices: number[];
+    nikIndices: number[];
+  } {
     const text = this.extractText(buffer);
     const matches = [...text.matchAll(/{{\s*tanda_tangan_(\d+)\s*}}/gi)];
     const indices = [...new Set(matches.map((m) => Number(m[1])))].sort((a, b) => a - b);
@@ -45,20 +53,36 @@ export class DocxReaderService {
         );
       }
     }
-    // Slot nama (opsional): {{nama_penandatangan_N}} di bawah QR.
-    const namaMatches = [...text.matchAll(/{{\s*nama_penandatangan_(\d+)\s*}}/gi)];
-    const namaIndices = [...new Set(namaMatches.map((m) => Number(m[1])))].sort((a, b) => a - b);
-    if (namaIndices.length > 0) {
-      const same =
-        namaIndices.length === indices.length &&
-        namaIndices.every((v, i) => v === indices[i]);
-      if (!same) {
-        throw new BadRequestException(
-          `Placeholder {{nama_penandatangan_*}} tidak cocok dengan {{tanda_tangan_*}}: nama=[${namaIndices.join(',')}], ttd=[${indices.join(',')}].`,
-        );
+    const scanOptional = (name: string): number[] => {
+      const regex = new RegExp(`{{\\s*${name}_(\\d+)\\s*}}`, 'gi');
+      const found = [...text.matchAll(regex)]
+        .map((m) => Number(m[1]))
+        .sort((a, b) => a - b);
+      const placeholderIndices = [...new Set(found)];
+      if (placeholderIndices.length > 0) {
+        const same =
+          placeholderIndices.length === indices.length &&
+          placeholderIndices.every((v, i) => v === indices[i]);
+        if (!same) {
+          throw new BadRequestException(
+            `Placeholder {{${name}_*}} tidak cocok dengan {{tanda_tangan_*}}: ${name}=[${placeholderIndices.join(',')}], ttd=[${indices.join(',')}].`,
+          );
+        }
       }
-    }
-    return { count, slots: indices.map((index) => ({ index })), namaIndices };
+      return placeholderIndices;
+    };
+
+    const namaIndices = scanOptional('nama_penandatangan');
+    const jabatanIndices = scanOptional('jabatan_penandatangan');
+    const nikIndices = scanOptional('nik_penandatangan');
+
+    return {
+      count,
+      slots: indices.map((index) => ({ index })),
+      namaIndices,
+      jabatanIndices,
+      nikIndices,
+    };
   }
 
   /** Baca parameter nomor/perihal/tanggal dari buffer .docx. */

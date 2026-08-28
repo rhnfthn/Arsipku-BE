@@ -6,6 +6,7 @@ import { LabelService } from 'src/modules/label/services/label.service';
 import { BsreAlertService } from 'src/modules/digsig/services/bsre-alert.service';
 import { NaskahDinasVerifikatorEntity } from 'src/modules/naskah-dinas/entities/naskah-dinas-verifikator.entity';
 import { NomorService } from 'src/modules/nomor/services/nomor.service';
+import { NaskahLainnyaService } from 'src/modules/naskah-lainnya/services/naskah-lainnya.service';
 
 interface CacheEntry {
   data: any;
@@ -32,6 +33,7 @@ export class RealtimeSummaryService {
     @InjectRepository(NaskahDinasVerifikatorEntity)
     private readonly verifikatorRepository: Repository<NaskahDinasVerifikatorEntity>,
     private readonly dataSource: DataSource,
+    private readonly naskahLainnyaService: NaskahLainnyaService,
   ) {}
 
   async getSummary(positionId: string, persnum?: number) {
@@ -51,6 +53,8 @@ export class RealtimeSummaryService {
       nomorAdminCount,
       nomorUserCount,
       arsipPersetujuanWaitingCount,
+      naskahLainnyaPersetujuanWaitingCount,
+      naskahLainnyaLegalDraftingWaitingCount,
     ] = await Promise.all([
       this.sirkulasiService.countUnreadInbox(positionId).catch(() => null),
       this.labelService.countNaskahPerLabel(positionId).catch(() => ({})),
@@ -84,6 +88,38 @@ export class RealtimeSummaryService {
             .then((r: any) => Number(r?.[0]?.total || 0))
             .catch(() => 0)
         : Promise.resolve(0),
+      this.naskahLainnyaService
+        .getPersetujuan(
+          {
+            position: String(positionId),
+            positionId: String(positionId),
+            persnum: persnum ?? 0,
+            nama: '',
+          },
+          'menunggu',
+        )
+        .then((result: any) =>
+          Array.isArray(result?.data) ? result.data.length : 0,
+        )
+        .catch(() => 0),
+      this.naskahLainnyaService
+        .getLegalDrafting(
+          {
+            position: String(positionId),
+            positionId: String(positionId),
+            persnum: persnum ?? 0,
+            nama: '',
+          },
+          'belum-dikirim',
+        )
+        .then((result: any) =>
+          Array.isArray(result?.data)
+            ? result.data.filter((item: any) =>
+                ['belum_dikirim', 'revisi'].includes(item.statusLegal),
+              ).length
+            : 0,
+        )
+        .catch(() => 0),
     ]);
 
     const data = {
@@ -92,6 +128,8 @@ export class RealtimeSummaryService {
       bsreAlert,
       naskahDinasVerifikatorWaitingCount: verifikatorWaitingCount,
       arsipPersetujuanWaitingCount,
+      naskahLainnyaPersetujuanWaitingCount,
+      naskahLainnyaLegalDraftingWaitingCount,
       nomorCounts: {
         admin: nomorAdminCount?.data ?? null,
         user: nomorUserCount?.data ?? null,
@@ -115,7 +153,10 @@ export class RealtimeSummaryService {
   /** Invalidate manual (dipakai saat ada update yang harus reflect cepat) */
   invalidate(positionId?: string) {
     if (positionId) {
-      this.cache.delete(`realtime:${positionId}`);
+      const prefix = `realtime:${positionId}:`;
+      for (const key of this.cache.keys()) {
+        if (key.startsWith(prefix)) this.cache.delete(key);
+      }
     } else {
       this.cache.clear();
     }

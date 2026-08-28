@@ -178,13 +178,14 @@ export class WorkflowService {
         return ['kirim-approval-legal', 'kembalikan-legal'];
       }
       case 'evaluasi': {
-        // butuhLegal: transisi evaluasi→persetujuan_direksi dimiliki legal via Kirim
-        // Lembar Persetujuan Direksi (di sub-page). Pemrakarsa hanya bisa kembalikan
-        // ke legal drafting. !butuhLegal: pemrakarsa evaluasi setuju → tanda tangan.
+        // butuhLegal: setelah approval legal selesai, pemrakarsa mengevaluasi hasil
+        // legal drafting. Jika sesuai → lanjut persetujuan_direksi; jika belum sesuai
+        // → kembalikan ke legal drafting. Legal tetap punya aksi menyusun lembar
+        // persetujuan direksi saat tahap ini memang sudah menjadi tanggung jawab legal.
         if (butuhLegal) {
           return legal
             ? ['kirim-lembar-persetujuan-direksi']
-            : ['kembalikan-evaluasi'];
+            : ['evaluasi', 'kembalikan-evaluasi'];
         }
         return ['evaluasi'];
       }
@@ -202,7 +203,10 @@ export class WorkflowService {
       case 'tanda_tangan_pemrakarsa':
         return ['tanda-tangan'];
       case 'blanko_verbal':
-        return legal ? ['kirim-approval-blanko'] : [];
+        // Legal hanya mengirim blanko sekali, sebelum baris approval direksi
+        // dibuat. Setelah ada baris, penyelesaian seluruh paraf harus maju
+        // otomatis melalui applyApproval(), bukan menunggu klik legal lagi.
+        return legal && !hasDireksiRows ? ['kirim-approval-blanko'] : [];
       case 'tanda_tangan_legal':
         return legal ? ['tanda-tangan'] : [];
       case 'tanda_tangan_pejabat':
@@ -296,20 +300,31 @@ export class WorkflowService {
     // dengan baris waiting boleh bertindak; transisi lanjut hanya jika semua baris
     // pada tahap yang sama sudah verified.
     const isDireksiTahap =
-      row.tahap === 'persetujuan_direksi' || row.tahap === 'blanko_verbal';
+      row.tahap === 'persetujuan_direksi' ||
+      row.tahap === 'persetujuan_direksi_ditetapkan' ||
+      row.tahap === 'blanko_verbal' ||
+      row.tahap === 'blanko_verbal_ditetapkan';
     if (isDireksiTahap) {
       const t = naskah.tahapan as Tahapan;
       const N = this.effectiveSignerCount(naskah);
       const signingIndex = naskah.signingIndex ?? 1;
+      const logicalTahap =
+        row.tahap === 'persetujuan_direksi_ditetapkan'
+          ? 'persetujuan_direksi'
+          : row.tahap === 'blanko_verbal_ditetapkan'
+            ? 'blanko_verbal'
+            : row.tahap;
+      const logicalTahapRows = rows.filter(
+        (r) =>
+          r.tahap === logicalTahap || r.tahap === `${logicalTahap}_ditetapkan`,
+      );
       row.status = aksi === 'setuju' ? 'verified' : 'rejected';
       row.catatan = ctx.catatan ?? row.catatan;
       row.tanggal = new Date();
       await ctx.manager.save(row);
 
-      const sameTahapRows = rows.filter((r) => r.tahap === row.tahap);
-
       if (aksi === 'tolak') {
-        for (const r of sameTahapRows) {
+        for (const r of logicalTahapRows) {
           if (r.status === 'waiting') {
             r.status = 'rejected';
             await ctx.manager.save(r);
@@ -335,7 +350,9 @@ export class WorkflowService {
         return next;
       }
 
-      const allVerified = sameTahapRows.every((r) => r.status === 'verified');
+      const allVerified = logicalTahapRows.every(
+        (r) => r.status === 'verified',
+      );
       if (allVerified) {
         const next = this.resolveNext(
           t,
@@ -558,6 +575,12 @@ export class WorkflowService {
       (aksi === 'complete' || aksi === 'paraf')
     ) {
       return 'blanko_verbal';
+    }
+    // Semua approval blanko_verbal terverified → lanjut otomatis ke tanda tangan
+    // (atau selesai untuk fisik/tanpa penandatangan). Tanpa ini resolveNext jatuh
+    // ke default → kembali 'blanko_verbal' (stuck, harus klik manual oleh legal).
+    if (t === 'blanko_verbal' && aksi === 'complete') {
+      return this.signingTarget(N, signOption);
     }
     if (t === 'persetujuan_direksi' && aksi === 'tolak') {
       return 'legal_drafting';

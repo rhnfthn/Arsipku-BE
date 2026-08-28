@@ -26,5 +26,17 @@ export class CreateSdeMasalConceptDto {
 
   @IsOptional()
   @IsString()
+  sifat?: string;
+
+  @IsOptional()
+  @IsString()
+  perihal?: string;
+
+  @IsOptional()
+  @IsString()
+  defaultTertuju?: string;
+
+  @IsOptional()
+  @IsString()
   parentNaskahId?: string;
 }
