@@ -261,6 +261,14 @@ export class SdeMasalEntity {
     nullable: true,
   })
   tembusan2: string | null;
+  @Column({ name: 'verifikators', type: 'json', nullable: true })
+  verifikators: any[] | null;
+
+  @Column({ name: 'current_verifikator_urutan', type: 'int', nullable: true })
+  currentVerifikatorUrutan: number | null;
+
+  @Column({ name: 'submitted_at', type: 'datetime', nullable: true })
+  submittedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

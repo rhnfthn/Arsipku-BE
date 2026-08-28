@@ -354,6 +354,7 @@ export class NomorService {
       organization?: string;
       position: string;
       jabatanAbbrev: string;
+      perihal?: string;
     },
     manager?: EntityManager,
   ): Promise<{ nomor: string; noUrut: number }> {
@@ -449,13 +450,47 @@ export class NomorService {
       await (manager ? manager.save(newCounter) : nomorRepo.save(newCounter));
     }
 
-    // ponytail: spec §5.1 (L133) minta tulis nomor_request + nomor_request_detail
-    // (isNaskahGenerated=true, status=terpakai_final) untuk audit-trail konsisten pola SDI.
-    // Ceiling: history nomor naskah-lainnya auto-generate hanya tersimpan di naskah.nomor
-    // + baris counter nomor, bukan di tabel nomor_request — admin flow yang query
-    // nomor_request untuk riwayat nomor lengkap tidak melihat entri naskah-lainnya.
-    // Upgrade path: insert NomorRequestEntity + NomorRequestDetailEntity di sini
-    // (dalam manager yang sama) jika audit-trail admin diperlukan.
+    // Audit-trail: catat nomor naskah-lainnya ke register nomor_request +
+    // nomor_request_detail (isNaskahGenerated=true, status=terpakai_final) dalam
+    // transaksi yang sama dengan counter, agar muncul di /penomoran/nomor. Flow
+    // usulan/pending-approval admin mengecualikan isNaskahGenerated (lihat
+    // isNaskahGeneratedRequest) sehingga tidak mencemari usulan manual.
+    const reqRepo = manager
+      ? manager.getRepository(NomorRequestEntity)
+      : this.nomorRequestRepository;
+    const detailRepo = manager
+      ? manager.getRepository(NomorRequestDetailEntity)
+      : this.nomorRequestDetailRepository;
+
+    const requestId = uuidv4();
+    const nomorRequest = reqRepo.create({
+      id: requestId,
+      company: params.company,
+      area: params.area,
+      subArea: params.subArea ?? null,
+      organization: params.organization ?? null,
+      position: params.position || null,
+      tanggal: params.tanggal,
+      jenis: params.jenis,
+      klasifikasi: params.klasifikasi ?? null,
+      perihal: params.perihal ?? null,
+      jumlah: 1,
+      penandatangan: null,
+      idPositionPenandatangan: null,
+      isNaskahGenerated: true,
+    });
+    await (manager ? manager.save(nomorRequest) : reqRepo.save(nomorRequest));
+
+    const nomorDetail = detailRepo.create({
+      id: uuidv4(),
+      idRequest: requestId,
+      nomor,
+      fileName: null,
+      fileText: null,
+      status: 'terpakai_final',
+    });
+    await (manager ? manager.save(nomorDetail) : detailRepo.save(nomorDetail));
+
     return { nomor, noUrut };
   }
 

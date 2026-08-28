@@ -117,6 +117,10 @@ export class UploadTemporaryController {
         // Simpan ke database dengan is_temporary=1
         const lampiranEntity = this.naskahLampiranRepository.create({
           id: uuidv4(),
+          // `tanggal` adalah bagian dari primary key/partisi tabel
+          // naskah_lampiran. Upload temporary belum punya naskah induk,
+          // sehingga gunakan tanggal upload agar insert tetap valid.
+          tanggal: new Date(),
           id_naskah: null, // Belum ada naskah
           file_name: file.originalname,
           file_pdf: uploadResult.key,

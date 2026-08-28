@@ -12,6 +12,28 @@ import {
 import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/mapped-types';
 
+export const NASKAH_LAINNYA_JENIS = [
+  'PER',
+  'KEP',
+  'INS',
+  'SPD',
+  'SED',
+  'SOP',
+  'KSB',
+  'PKS',
+  'KTP',
+  'PJL',
+  'LOA',
+  'SKU',
+  'BA',
+  'SKE',
+  'SPR',
+  'RRA',
+  'PUM',
+  'PIA',
+  'LAP',
+] as const;
+
 export class PenandatanganDto {
   @IsString() @IsNotEmpty() nama: string;
   @IsString() @IsNotEmpty() jabatan: string;
@@ -25,28 +47,16 @@ export class ApprovalDto {
   @IsString() @IsNotEmpty() jabatan: string;
 }
 
+export class SheetDirectorDto {
+  @IsNumber() @IsOptional() index?: number;
+  @IsString() @IsOptional() positionId?: string;
+  @IsNumber() @IsOptional() persnum?: number;
+  @IsString() @IsOptional() nama?: string;
+  @IsString() @IsOptional() jabatan?: string;
+}
+
 export class BuatNaskahDto {
-  @IsIn([
-    'PER',
-    'KEP',
-    'INS',
-    'SPD',
-    'SED',
-    'SOP',
-    'KSB',
-    'PKS',
-    'KTP',
-    'PJL',
-    'LOA',
-    'SKU',
-    'BA',
-    'SKE',
-    'SPR',
-    'RRA',
-    'PUM',
-    'PIA',
-    'LAP',
-  ])
+  @IsIn(NASKAH_LAINNYA_JENIS)
   jenis: string;
 
   @IsString() @IsOptional() nomor?: string; // diisi manual atau dari docx-reader
@@ -108,6 +118,21 @@ export class ManualFinalStatusDto {
   @IsBoolean() final: boolean;
 }
 
+export class ManualFinalNomorDto {
+  @IsString() nomor: string;
+}
+
+/**
+ * Metadata penandatangan untuk naskah TTD fisik yang alurnya sudah selesai.
+ * Data ini bersifat arsip dan tidak mengubah approval maupun proses fisik.
+ */
+export class UpdatePenandatanganFisikDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PenandatanganDto)
+  penandatangan: PenandatanganDto[];
+}
+
 /**
  * Payload lembar persetujuan direksi & blanko verbal — field terstruktur (bukan html).
  * BE membangun template sheet dari field ini (mirip GeneratePdfNodinService).
@@ -130,6 +155,18 @@ export class SheetDataDto {
   @IsString() @IsOptional() legalCheckerJabatan?: string;
   @IsString() @IsOptional() bodyHtml?: string;
   @IsString() @IsOptional() catatan?: string;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SheetDirectorDto)
+  ditetapkanOleh?: SheetDirectorDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SheetDirectorDto)
+  diketahuiOleh?: SheetDirectorDto[];
 
   // FE SheetFormModel mengirim alamatInfo (kantor/gedung/kota/alamat dari data
   // org/user). Diterima di sini agar lolos forbidNonWhitelisted, tapi TIDAK

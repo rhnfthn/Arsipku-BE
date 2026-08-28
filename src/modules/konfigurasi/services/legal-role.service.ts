@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LegalRoleEntity } from '../entities/legal-role.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 const LEGAL_UNIT_ID = 10002099;
 
@@ -16,6 +18,9 @@ export interface LegalPerson {
   level: number;
   chief: boolean;
   isActive: boolean;
+  /** Aktor pengganti dari delegasi PT/PH/PS yang masih aktif. */
+  isDelegasi?: boolean;
+  positionStatus?: PositionStatus | null;
 }
 
 @Injectable()
@@ -23,6 +28,8 @@ export class LegalRoleService {
   constructor(
     @InjectRepository(LegalRoleEntity)
     private readonly legalRoleRepo: Repository<LegalRoleEntity>,
+    @InjectRepository(DelegasiEntity)
+    private readonly delegasiRepo: Repository<DelegasiEntity>,
     private readonly orgDataService: OrgDataService,
   ) {}
 
@@ -34,9 +41,10 @@ export class LegalRoleService {
     const orgData = await this.orgDataService.findLatestOrg();
     if (!orgData || !orgData.organization_json) return [];
 
-    const tree = typeof orgData.organization_json === 'string'
-      ? JSON.parse(orgData.organization_json)
-      : orgData.organization_json;
+    const tree =
+      typeof orgData.organization_json === 'string'
+        ? JSON.parse(orgData.organization_json)
+        : orgData.organization_json;
 
     // Walk tree, collect all persons under unit 10002099
     const persons: Omit<LegalPerson, 'isActive'>[] = [];
@@ -85,23 +93,65 @@ export class LegalRoleService {
 
     walk(tree);
 
-    // Load legal_role entries untuk merge status
-    const roles = await this.legalRoleRepo.find();
+    // Load legal_role entries untuk merge status, sekaligus delegasi aktif
+    // PT/PH/PS untuk posisi Legal. Aktor delegasi menggantikan nama/persnum
+    // recipient, tetapi jabatan dan positionId tetap milik posisi Legalnya.
+    const positionIds = persons.map((person) => person.positionId);
+    const today = new Date();
+    const [roles, delegasiAktif] = await Promise.all([
+      this.legalRoleRepo.find(),
+      positionIds.length
+        ? this.delegasiRepo
+            .createQueryBuilder('delegasi')
+            .where('delegasi.as_position IN (:...positionIds)', { positionIds })
+            .andWhere('delegasi.start_date <= :today', { today })
+            .andWhere('delegasi.end_date >= :today', { today })
+            .andWhere('delegasi.position_status IN (:...statuses)', {
+              statuses: [
+                PositionStatus.PT,
+                PositionStatus.PH,
+                PositionStatus.PS,
+              ],
+            })
+            .orderBy('delegasi.update_at', 'DESC')
+            .getMany()
+        : Promise.resolve([]),
+    ]);
     const roleMap = new Map(roles.map((r) => [r.positionId, r]));
+    const delegasiMap = new Map<string, DelegasiEntity>();
+    for (const delegasi of delegasiAktif) {
+      const positionId = String(delegasi.as_position ?? '');
+      if (positionId && !delegasiMap.has(positionId)) {
+        delegasiMap.set(positionId, delegasi);
+      }
+    }
 
     // Merge: jika ada di legal_role, pakai isActive dari sana.
     // Jika belum ada, default isActive = true.
-    return persons.map((p) => ({
-      ...p,
-      isActive: roleMap.has(p.positionId) ? roleMap.get(p.positionId)!.isActive : true,
-    }));
+    return persons.map((p) => {
+      const delegasi = delegasiMap.get(p.positionId);
+      return {
+        ...p,
+        // Aktor PT/PH/PS yang aktif harus menjadi tujuan approval. Fallback ke
+        // penghuni definitif/(kosong) bila tidak ada delegasi aktif.
+        persnum: delegasi?.as_persnum ? Number(delegasi.as_persnum) : p.persnum,
+        nama: delegasi?.as_name?.trim() || p.nama,
+        isActive: roleMap.has(p.positionId)
+          ? roleMap.get(p.positionId)!.isActive
+          : true,
+        isDelegasi: !!delegasi,
+        positionStatus: delegasi?.position_status ?? null,
+      };
+    });
   }
 
   /**
    * Toggle aktif/non-aktif untuk positionId tertentu.
    * Jika belum ada di tabel, insert baru dengan isActive = false (karena default true).
    */
-  async toggle(positionId: string): Promise<{ positionId: string; isActive: boolean }> {
+  async toggle(
+    positionId: string,
+  ): Promise<{ positionId: string; isActive: boolean }> {
     // Ambil data person dari org_data untuk dapat nama/jabatan
     const all = await this.findAll();
     const person = all.find((p) => p.positionId === positionId);
