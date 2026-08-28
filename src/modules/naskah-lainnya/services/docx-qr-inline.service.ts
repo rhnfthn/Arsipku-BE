@@ -1,21 +1,38 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import fs from 'fs';
+import path from 'path';
+import { createCanvas, loadImage } from 'canvas';
 import PizZip from 'pizzip';
 import { DocxFillerService } from '../../naskah-umum/services/docx-filler.service';
 
 export interface SignedSigner {
   index: number;
-  qrBuffer: Buffer;
-  /** Nama penandatangan untuk mengisi {{nama_penandatangan_N}} di bawah QR.
+  /** Gambar visualisasi digsig bila sudah dibuat oleh pemanggil. */
+  visualBuffer?: Buffer;
+  /** Kompatibilitas payload lama. Tidak lagi dipakai untuk slot tanda tangan baru. */
+  qrBuffer?: Buffer;
+  /** Nama penandatangan untuk visualisasi dan {{nama_penandatangan_N}}.
    *  Kosong → fallback 'NAMA LENGKAP' (slot belum punya nama). */
   nama?: string;
+  /** Jabatan penandatangan untuk mengisi {{jabatan_penandatangan_N}}. */
+  jabatan?: string;
+  /** NIK/persnum penandatangan untuk mengisi {{nik_penandatangan_N}}. */
+  nik?: string | number;
 }
 
-// Ukuran QR inline (EMU). 1 px @96dpi = 9525 EMU. 80px ≈ 762000 EMU.
-// Disamakan dengan templat nota dinas / SDI / DI yang merender QR 80×80px.
-const QR_EMU = 762000;
+// Visualisasi Digsig 4:1, proporsinya sama dengan canvas profile (960×240 px).
+// ponytail: diperkecil ~45% (320×80 -> 176×44) agar tidak menimpa digsig signer
+// lain saat multiple penandatangan. Canvas 960×240 tetap (downscale DPI tinggi).
+const VISIBLE_DIGSIG_WIDTH_EMU = 1_676_400; // 176 px @96dpi
+const VISIBLE_DIGSIG_HEIGHT_EMU = 419_100; // 44 px @96dpi
+
+interface PlaceholderTag {
+  index: number;
+  key: string;
+}
 
 /**
- * Inject QR code sebagai inline image ke placeholder {{tanda_tangan_N}} di docx.
+ * Inject visualisasi Digsig sebagai inline image ke {{tanda_tangan_N}} di docx.
  *
  * Two-pass: pass-1 docxtemplater (text) menyetarakan placeholder yang ter-split
  * run di Word jadi marker <<QRIMG_i>> (single-run). pass-2 PizZip mengganti marker
@@ -37,10 +54,17 @@ export class DocxQrInlineService {
   ): Promise<Buffer> {
     const prefix = options?.placeholderPrefix ?? 'tanda_tangan';
     const signedSet = new Set(signedSigners.map((s) => s.index));
-    const qrByIndex = new Map(signedSigners.map((s) => [s.index, s.qrBuffer]));
+    const imageByIndex = new Map<number, Buffer>();
+    for (const signer of signedSigners) {
+      imageByIndex.set(
+        signer.index,
+        signer.visualBuffer ?? (await this.createVisibleDigsig(signer)),
+      );
+    }
 
     // (1) Scan semua indeks placeholder di docx asli.
-    const indices = this.scanIndices(originalBuffer, prefix);
+    const signerTags = this.scanTags(originalBuffer, prefix);
+    const indices = this.uniqueIndices(signerTags);
     if (indices.length === 0) {
       throw new BadRequestException(
         `Template tidak memiliki placeholder {{${prefix}_*}}.`,
@@ -51,43 +75,96 @@ export class DocxQrInlineService {
     // extraFillData (mis. { nomor }) di-merge sekali pass — hemat 1 docxtemplater pass.
     // docxtemplater ignore key tanpa placeholder cocok → aman bila placeholder absen.
     const data: Record<string, string> = { ...extraFillData };
-    for (const i of indices) {
-      data[`${prefix}_${i}`] = signedSet.has(i)
-        ? `<<QRIMG_${prefix}_${i}>>`
-        : `{{${prefix}_${i}}}`;
+    for (const tag of signerTags) {
+      data[tag.key] = signedSet.has(tag.index)
+        ? `<<QRIMG_${prefix}_${tag.index}>>`
+        : `{{${tag.key}}}`;
     }
     // Slot nama {{nama_penandatangan_N}} (di bawah QR): signed → nama penandatangan,
     // unsigned → 'NAMA LENGKAP' (template literal sebelum sign). Absen → no-op.
-    const namaByIndex = new Map(signedSigners.map((s) => [s.index, s.nama ?? 'NAMA LENGKAP']));
-    const namaIndices = this.scanIndices(originalBuffer, 'nama_penandatangan');
-    for (const i of namaIndices) {
-      data[`nama_penandatangan_${i}`] = signedSet.has(i)
-        ? (namaByIndex.get(i) ?? 'NAMA LENGKAP')
+    const namaByIndex = new Map(
+      signedSigners.map((s) => [s.index, s.nama ?? 'NAMA LENGKAP']),
+    );
+    const namaTags = this.scanTags(originalBuffer, 'nama_penandatangan');
+    for (const tag of namaTags) {
+      data[tag.key] = signedSet.has(tag.index)
+        ? this.applyPlaceholderCase(
+            namaByIndex.get(tag.index) ?? 'NAMA LENGKAP',
+            tag.key,
+          )
         : 'NAMA LENGKAP';
+    }
+    const jabatanByIndex = new Map(
+      signedSigners.map((s) => [s.index, s.jabatan ?? 'JABATAN']),
+    );
+    const jabatanTags = this.scanTags(originalBuffer, 'jabatan_penandatangan');
+    for (const tag of jabatanTags) {
+      data[tag.key] = signedSet.has(tag.index)
+        ? this.applyPlaceholderCase(
+            jabatanByIndex.get(tag.index) ?? 'JABATAN',
+            tag.key,
+          )
+        : 'JABATAN';
+    }
+    const nikByIndex = new Map(
+      signedSigners.map((s) => [
+        s.index,
+        s.nik != null ? String(s.nik) : 'NIK',
+      ]),
+    );
+    const nikTags = this.scanTags(originalBuffer, 'nik_penandatangan');
+    for (const tag of nikTags) {
+      data[tag.key] = signedSet.has(tag.index)
+        ? this.applyPlaceholderCase(nikByIndex.get(tag.index) ?? 'NIK', tag.key)
+        : 'NIK';
     }
     const pass1 = this.docxFiller.fill(originalBuffer, data);
 
     // (3) Pass-2: PizZip ganti marker <<QRIMG_${prefix}_${i}>> dengan inline image.
-    return this.injectImages(pass1, indices.filter((i) => signedSet.has(i)), qrByIndex, prefix);
+    return this.injectImages(
+      pass1,
+      indices.filter((i) => signedSet.has(i)),
+      imageByIndex,
+      prefix,
+    );
   }
 
   /** Scan indeks {{prefix_N}} unik dari document.xml (urut ascending). */
   private scanIndices(buffer: Buffer, prefix: string): number[] {
+    return this.uniqueIndices(this.scanTags(buffer, prefix));
+  }
+
+  private scanTags(buffer: Buffer, prefix: string): PlaceholderTag[] {
     const zip = new PizZip(buffer);
     const xml = zip.file('word/document.xml')?.asText() ?? '';
-    const regex = new RegExp(`{{\\s*${this.escapeRegExp(prefix)}_(\\d+)\\s*}}`, 'gi');
+    const regex = new RegExp(
+      `{{\\s*(${this.escapeRegExp(prefix)}_(\\d+))\\s*}}`,
+      'gi',
+    );
     const matches = [...xml.matchAll(regex)];
-    return [...new Set(matches.map((m) => Number(m[1])))].sort((a, b) => a - b);
+    return matches
+      .map((m) => ({ key: m[1], index: Number(m[2]) }))
+      .sort((a, b) => a.index - b.index);
+  }
+
+  private uniqueIndices(tags: PlaceholderTag[]): number[] {
+    return [...new Set(tags.map((tag) => tag.index))].sort((a, b) => a - b);
   }
 
   private escapeRegExp(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  private applyPlaceholderCase(value: string, key: string): string {
+    return /[A-Z]/.test(key) && key === key.toUpperCase()
+      ? value.toUpperCase()
+      : value;
+  }
+
   private injectImages(
     buffer: Buffer,
     indices: number[],
-    qrByIndex: Map<number, Buffer>,
+    imageByIndex: Map<number, Buffer>,
     prefix: string,
   ): Buffer {
     const zip = new PizZip(buffer);
@@ -104,23 +181,28 @@ export class DocxQrInlineService {
     }
 
     // rId unik: cari max numeric rId existing, mulai dari situ.
-    const existingIds = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => Number(m[1]));
+    const existingIds = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) =>
+      Number(m[1]),
+    );
     let nextId = (existingIds.length ? Math.max(...existingIds) : 0) + 1;
 
     // docPr id unik: cari max numeric <wp:docPr id="..."> existing, mulai dari situ.
     // Mencegah collision dengan letterhead/logo header template yang sering mulai dari id=1.
-    const existingDocPrIds = [...docXml.matchAll(/<wp:docPr\s+[^>]*id="(\d+)"/g)].map((m) => Number(m[1]));
-    const docPrBase = (existingDocPrIds.length ? Math.max(...existingDocPrIds) : 0) + 1;
+    const existingDocPrIds = [
+      ...docXml.matchAll(/<wp:docPr\s+[^>]*id="(\d+)"/g),
+    ].map((m) => Number(m[1]));
+    const docPrBase =
+      (existingDocPrIds.length ? Math.max(...existingDocPrIds) : 0) + 1;
     let drawingSeq = 0;
 
     for (const i of indices) {
       const rId = `rId${nextId++}`;
       const docPrId = docPrBase + drawingSeq++;
-      const mediaPath = `word/media/qr_${prefix}_${i}.png`;
-      const relTarget = `media/qr_${prefix}_${i}.png`;
+      const mediaPath = `word/media/digsig_${prefix}_${i}.png`;
+      const relTarget = `media/digsig_${prefix}_${i}.png`;
 
       // (a) tulis image part.
-      zip.file(mediaPath, qrByIndex.get(i) as Buffer, { binary: true });
+      zip.file(mediaPath, imageByIndex.get(i) as Buffer, { binary: true });
 
       // (b) tambah relationship.
       const rel = `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${relTarget}"/>`;
@@ -145,7 +227,7 @@ export class DocxQrInlineService {
     return zip.generate({ type: 'nodebuffer' });
   }
 
-  /** Bangun XML <w:drawing> inline untuk QR dengan rId + docPr id unik. */
+  /** Bangun XML <w:drawing> inline untuk visualisasi Digsig. */
   private inlineDrawingXml(
     rId: string,
     docPrId: number,
@@ -153,19 +235,80 @@ export class DocxQrInlineService {
     prefix: string,
   ): string {
     const a = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"';
-    const pic = 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+    const pic =
+      'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
     return (
       `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
-      `<wp:extent cx="${QR_EMU}" cy="${QR_EMU}"/>` +
+      `<wp:extent cx="${VISIBLE_DIGSIG_WIDTH_EMU}" cy="${VISIBLE_DIGSIG_HEIGHT_EMU}"/>` +
       `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
-      `<wp:docPr id="${docPrId}" name="QR ${prefix} ${signerIndex}"/>` +
+      `<wp:docPr id="${docPrId}" name="Visualisasi Digsig ${prefix} ${signerIndex}"/>` +
       `<wp:cNvGraphicFramePr><a:graphicFrameLocks ${a} noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
       `<a:graphic ${a}><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-      `<pic:pic ${pic}><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="qr_${prefix}_${signerIndex}.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
+      `<pic:pic ${pic}><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="digsig_${prefix}_${signerIndex}.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
       `<pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
-      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${QR_EMU}" cy="${QR_EMU}"/></a:xfrm>` +
+      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${VISIBLE_DIGSIG_WIDTH_EMU}" cy="${VISIBLE_DIGSIG_HEIGHT_EMU}"/></a:xfrm>` +
       `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>` +
       `</a:graphicData></a:graphic></wp:inline></w:drawing>`
+    );
+  }
+
+  private async createVisibleDigsig(signer: SignedSigner): Promise<Buffer> {
+    const width = 960;
+    const height = 240;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#1f2937';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, width - 4, height - 4);
+
+    const logoX = 28;
+    const logoY = 20;
+    const logoSize = 200;
+    const logoPath = this.findVisibleDigsigLogo();
+    if (logoPath) {
+      try {
+        const logo = await loadImage(logoPath);
+        const ratio = Math.min(logoSize / logo.width, logoSize / logo.height);
+        const w = logo.width * ratio;
+        const h = logo.height * ratio;
+        ctx.drawImage(
+          logo,
+          logoX + (logoSize - w) / 2,
+          logoY + (logoSize - h) / 2,
+          w,
+          h,
+        );
+      } catch {
+        // Teks tetap menjadi visualisasi valid bila aset logo tidak dapat dibaca.
+      }
+    }
+
+    const textX = logoX + logoSize + 32;
+    ctx.fillStyle = '#000000';
+    ctx.textBaseline = 'top';
+    ctx.font = '22px "Times New Roman"';
+    ctx.fillText('Ditandatangani secara elektronik oleh', textX, 52);
+    ctx.font = 'bold 22px "Times New Roman"';
+    ctx.fillText(signer.jabatan || 'JABATAN', textX, 84);
+    ctx.font = 'bold 33px "Times New Roman"';
+    ctx.fillText(
+      (signer.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase(),
+      textX,
+      142,
+    );
+    return canvas.toBuffer('image/png');
+  }
+
+  private findVisibleDigsigLogo(): string | undefined {
+    return [
+      process.env.VISUAL_DIGSIG_LOGO_PATH,
+      path.resolve(process.cwd(), '../fe/public/logoAirnav.png'),
+      path.resolve(process.cwd(), 'public/logoAirnav.png'),
+    ].find(
+      (candidate): candidate is string =>
+        !!candidate && fs.existsSync(candidate),
     );
   }
 }
