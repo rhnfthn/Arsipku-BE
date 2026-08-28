@@ -9,9 +9,7 @@ import {
   Query,
   HttpStatus,
   HttpException,
-  UseInterceptors,
 } from '@nestjs/common';
-import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { EksternalService } from '../services/eksternal.service';
 import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
 import { UpdateEksternalDto } from '../dto/eksternal/update_eksternal.dto';
@@ -27,7 +25,7 @@ export class EksternalController {
   constructor(private readonly eksternalService: EksternalService) {}
 
   @Post()
-  @RequirePermission('surat-masuk-eksternal', 'create')
+  @RequirePermission('master-data', 'create-tertuju')
   async create(
     @Body() createEksternalDto: CreateEksternalDto,
   ): Promise<EksternalItemResponseDto> {
@@ -46,13 +44,16 @@ export class EksternalController {
   }
 
   @Get()
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   async findAll(
     @Query('company') company?: string,
     @Query('area') area?: string,
+    @Query('include_inactive') includeInactive?: string,
   ): Promise<EksternalListResponseDto> {
-    const list = await this.eksternalService.findAll(company, area);
+    const list = await this.eksternalService.findAll(
+      company,
+      area,
+      includeInactive === 'true',
+    );
     return {
       success: true,
       total: list.length,
@@ -61,8 +62,6 @@ export class EksternalController {
   }
 
   @Get(':id')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   async findOne(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const eksternal = await this.eksternalService.findOne(id);
     return {
@@ -72,7 +71,7 @@ export class EksternalController {
   }
 
   @Put(':id')
-  @RequirePermission('surat-masuk-eksternal', 'verify')
+  @RequirePermission('master-data', 'update-tertuju')
   async update(
     @Param('id') id: string,
     @Body() updateEksternalDto: UpdateEksternalDto,
@@ -85,7 +84,7 @@ export class EksternalController {
   }
 
   @Put(':id/toggle-aktif')
-  @RequirePermission('surat-masuk-eksternal', 'verify')
+  @RequirePermission('master-data', 'update-tertuju')
   async toggleAktif(
     @Param('id') id: string,
   ): Promise<EksternalItemResponseDto> {
@@ -97,7 +96,7 @@ export class EksternalController {
   }
 
   @Delete(':id')
-  @RequirePermission('surat-masuk-eksternal', 'create')
+  @RequirePermission('master-data', 'delete-tertuju')
   async remove(@Param('id') id: string): Promise<EksternalActionResponseDto> {
     await this.eksternalService.remove(id);
     return {

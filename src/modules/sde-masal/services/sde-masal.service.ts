@@ -1,6 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { In, Repository, DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
@@ -13,6 +19,18 @@ import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
+
+type SdeMasalVerifikator = {
+  urutan: number;
+  persnum: string;
+  position: string;
+  nama: string;
+  jabatan: string;
+  status: 'pending' | 'waiting' | 'verified' | 'rejected';
+  verifiedAt?: string | null;
+  rejectedAt?: string | null;
+  catatan?: string | null;
+};
 
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
@@ -49,6 +67,7 @@ export class SdeMasalService {
       klasifikasiName: dto.klasifikasiName ?? null,
       pengirimId: dto.pengirimId ?? null,
       pengirimName: dto.pengirimName ?? null,
+      sifatSurat: dto.sifat ?? 'biasa',
       parentNaskahId: dto.parentNaskahId ?? null,
       perihal: '__CONCEPT__',
       tertuju: '__CONCEPT__',
@@ -84,9 +103,10 @@ export class SdeMasalService {
 
     // Parse Excel — baca sheet "Data Penerima" (atau sheet pertama jika tidak ada)
     const workbook = XLSX.read(file, { type: 'buffer' });
-    const sheetName = workbook.SheetNames.find((n) =>
-      n.toLowerCase().includes('data penerima'),
-    ) || workbook.SheetNames[0];
+    const sheetName =
+      workbook.SheetNames.find((n) =>
+        n.toLowerCase().includes('data penerima'),
+      ) || workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: null });
 
@@ -116,24 +136,92 @@ export class SdeMasalService {
 
     for (const row of rows) {
       try {
-        const persnum = getCol(row, 'Persnum', 'persnum');
-        const nama = getCol(row, 'Nama', 'nama');
-        const jabatan = getCol(row, 'Jabatan', 'jabatan', 'Jabatan Penerima', 'jabatanPenerima');
-        const keterangan = getCol(row, 'Keterangan', 'keterangan');
+        const perihalRow = getCol(row, 'Perihal', 'perihal');
+        const idTertuju = getCol(row, 'id_tertuju', 'idTertuju');
+        const idramount = getCol(row, 'idramount');
+        const usdamount = getCol(row, 'usdamount');
+        const namacro = getCol(row, 'namacro');
+        const email = getCol(row, 'email', 'Email');
+        const tembusan = getCol(row, 'tembusan', 'Tembusan');
+        const isRevisionRaw = getCol(row, 'is_revision', 'isRevision');
+        const emailTertuju = getCol(row, 'email_tertuju', 'emailTertuju');
+        const emailCc = getCol(row, 'email_cc', 'emailCc');
+        const emailBcc = getCol(row, 'email_bcc', 'emailBcc');
+
+        // Field skema keuangan / tagihan PINP
+        const jumlahTagihanIdr = getCol(
+          row,
+          'jumlah_tagihan_idr',
+          'jumlahTagihanIdr',
+        );
+        const jumlahTagihanUsd = getCol(
+          row,
+          'jumlah_tagihan_usd',
+          'jumlahTagihanUsd',
+        );
+        const namaCro = getCol(row, 'nama_cro', 'namaCro');
+        const emailCro = getCol(row, 'email_cro', 'emailCro');
+        const jabatanSigner = getCol(row, 'jabatan_signer', 'jabatanSigner');
+        const namaSigner = getCol(row, 'nama_signer', 'namaSigner');
+
+        // Field skema umum / tagihan PJNP
+        const jumlahLampiran = getCol(row, 'jumlah_lampiran', 'jumlahLampiran');
+        const jabatanPenerima = getCol(
+          row,
+          'jabatan_penerima',
+          'jabatanPenerima',
+        );
+        const alamatPenerima = getCol(row, 'alamat_penerima', 'alamatPenerima');
+        const panggilanPenerima = getCol(
+          row,
+          'panggilan_penerima',
+          'panggilanPenerima',
+        );
+        const nominalRupiah = getCol(row, 'nominal_rupiah', 'nominalRupiah');
+        const nominalDolar = getCol(row, 'nominal_dolar', 'nominalDolar');
+        const tembusan1 = getCol(row, 'tembusan_1', 'tembusan1');
+        const tembusan2 = getCol(row, 'tembusan_2', 'tembusan2');
 
         // Skip baris kosong (semua field kosong)
-        if (!persnum && !nama && !jabatan && !keterangan) {
+        if (
+          !perihalRow &&
+          !idTertuju &&
+          !idramount &&
+          !usdamount &&
+          !namacro &&
+          !email &&
+          !tembusan &&
+          !emailTertuju &&
+          !emailCc &&
+          !emailBcc &&
+          !jumlahTagihanIdr &&
+          !jumlahTagihanUsd &&
+          !namaCro &&
+          !emailCro &&
+          !jabatanSigner &&
+          !namaSigner &&
+          !jumlahLampiran &&
+          !jabatanPenerima &&
+          !alamatPenerima &&
+          !panggilanPenerima &&
+          !nominalRupiah &&
+          !nominalDolar &&
+          !tembusan1 &&
+          !tembusan2
+        ) {
           continue;
         }
 
-        // Persnum, Nama, Jabatan wajib
-        if (!persnum || !nama || !jabatan) {
+        // Perihal wajib
+        if (!perihalRow) {
           failed++;
           continue;
         }
 
-        // Tertuju = gabungan "Nama - Jabatan"
-        const tertuju = `${nama} - ${jabatan}`;
+        const isRevision =
+          isRevisionRaw === '1' || isRevisionRaw.toLowerCase() === 'true'
+            ? 1
+            : 0;
 
         const item = this.repo.create({
           conceptId,
@@ -146,15 +234,37 @@ export class SdeMasalService {
           parentNaskahId: concept.parentNaskahId,
           skemaTemplate,
           versiTemplate,
-          perihal: concept.perihal || '',
-          tertuju,
-          alamat: null,
+          perihal: perihalRow || concept.perihal || '',
+          tertuju: idTertuju || perihalRow || '',
+          alamat: alamatPenerima || null,
           kota: null,
-          kodePos: String(persnum) || null,
-          jabatanPenerima: jabatan || null,
-          isiRingkasan: keterangan || null,
+          kodePos: null,
+          jabatanPenerima: jabatanPenerima || null,
+          isiRingkasan: null,
           jenisTemplate: skemaTemplate,
           statusVerifikasi: 'MENUNGGU',
+          idTertuju: idTertuju || null,
+          idramount: idramount || null,
+          usdamount: usdamount || null,
+          namacro: namacro || null,
+          email: email || null,
+          tembusan: tembusan || null,
+          isRevision,
+          emailTertuju: emailTertuju || null,
+          emailCc: emailCc || null,
+          emailBcc: emailBcc || null,
+          jumlahTagihanIdr: jumlahTagihanIdr || null,
+          jumlahTagihanUsd: jumlahTagihanUsd || null,
+          namaCro: namaCro || null,
+          emailCro: emailCro || null,
+          jabatanSigner: jabatanSigner || null,
+          namaSigner: namaSigner || null,
+          jumlahLampiran: jumlahLampiran || null,
+          panggilanPenerima: panggilanPenerima || null,
+          nominalRupiah: nominalRupiah || null,
+          nominalDolar: nominalDolar || null,
+          tembusan1: tembusan1 || null,
+          tembusan2: tembusan2 || null,
         });
         items.push(item);
       } catch (err) {
@@ -218,25 +328,48 @@ export class SdeMasalService {
           continue;
         }
 
-        // Bangun tertuju dari nama + jabatan
+        // Bangun tertuju dari id_tertuju atau nama + jabatan
         const nama = p.nama || '';
         const jabatan = p.jabatan || p.jabatanPenerima || '';
-        const tertuju = p.tertuju || (nama && jabatan ? `${nama} - ${jabatan}` : nama || jabatan || '-');
+        const tertuju =
+          p.idTertuju ||
+          p.tertuju ||
+          (nama && jabatan ? `${nama} - ${jabatan}` : nama || jabatan || '-');
         const persnum = p.persnum || p.kodePos || '';
 
-        // Ganti variabel dinamis di konten template
+        // Ganti variabel dinamis di konten template. Nilai Excel yang diunggah
+        // tersedia lewat p.variables, sementara perihal dan tertuju adalah
+        // kolom standar yang selalu dipertahankan pada template.
         let konten = template?.konten || '';
         if (konten) {
-          konten = konten
-            .replace(/\{\{tertuju\}\}/g, tertuju)
-            .replace(/\{\{nama\}\}/g, nama || '-')
-            .replace(/\{\{jabatan\}\}/g, jabatan || '-')
-            .replace(/\{\{persnum\}\}/g, persnum || '-')
-            .replace(/\{\{keterangan\}\}/g, p.keterangan || '-')
-            .replace(/\{\{alamat\}\}/g, p.alamat || '-')
-            .replace(/\{\{kota\}\}/g, p.kota || '-')
-            .replace(/\{\{kode_pos\}\}/g, p.kodePos || '-')
-            .replace(/\{\{kodepos\}\}/g, p.kodePos || '-');
+          const values = {
+            ...(p.variables || {}),
+            ...p,
+            perihal: p.perihal || konsep.perihal || '-',
+            tertuju,
+            nama: nama || '-',
+            jabatan: jabatan || '-',
+            persnum: persnum || '-',
+            kode_pos: p.kodePos || '-',
+            kodepos: p.kodePos || '-',
+            tanggal_surat: konsep.tanggalKonsep || '-',
+            nomor_surat: p.nomorSurat || '-',
+            sifat_surat: konsep.sifat || 'Biasa',
+            nominal_rupiah: p.nominalRupiah || p.idramount || '-',
+            nominal_dolar: p.nominalDolar || p.usdamount || '-',
+            jabatan_penerima: p.jabatanPenerima || p.jabatan || '-',
+            alamat_penerima: p.alamatPenerima || p.alamat || '-',
+            panggilan_penerima: p.panggilanPenerima || 'Bapak/Ibu',
+            tembusan_1:
+              p.tembusan1 || (p.tembusan ? p.tembusan.split(';')[0] : '-'),
+            tembusan_2:
+              p.tembusan2 ||
+              (p.tembusan ? p.tembusan.split(';')[1] || '-' : '-'),
+          };
+          konten = konten.replace(
+            /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
+            (_match, key) => String(values[key] ?? '-'),
+          );
         }
 
         const item = this.repo.create({
@@ -252,15 +385,38 @@ export class SdeMasalService {
           parentNaskahId: konsep.parentNaskahId || null,
           skemaTemplate: template?.skema || null,
           versiTemplate: template?.versi || null,
-          perihal: konsep.perihal || '',
+          perihal: p.perihal || konsep.perihal || '',
           tertuju,
-          alamat: p.alamat || null,
+          alamat: p.alamatPenerima || p.alamat || null,
           kota: p.kota || null,
           kodePos: persnum || null,
-          jabatanPenerima: jabatan || null,
+          jabatanPenerima: p.jabatanPenerima || jabatan || null,
           isiRingkasan: konten || null,
           jenisTemplate: template?.skema || null,
           statusVerifikasi: 'MENUNGGU',
+          // Field dinamis dari Excel (mapping kolom template)
+          idTertuju: p.idTertuju || null,
+          idramount: p.idramount || null,
+          usdamount: p.usdamount || null,
+          namacro: p.namacro || null,
+          email: p.email || null,
+          tembusan: p.tembusan || null,
+          isRevision: p.isRevision === true || p.isRevision === 1 ? 1 : 0,
+          emailTertuju: p.emailTertuju || null,
+          emailCc: p.emailCc || null,
+          emailBcc: p.emailBcc || null,
+          jumlahTagihanIdr: p.jumlahTagihanIdr || null,
+          jumlahTagihanUsd: p.jumlahTagihanUsd || null,
+          namaCro: p.namaCro || null,
+          emailCro: p.emailCro || null,
+          jabatanSigner: p.jabatanSigner || null,
+          namaSigner: p.namaSigner || null,
+          jumlahLampiran: p.jumlahLampiran || null,
+          panggilanPenerima: p.panggilanPenerima || null,
+          nominalRupiah: p.nominalRupiah || null,
+          nominalDolar: p.nominalDolar || null,
+          tembusan1: p.tembusan1 || null,
+          tembusan2: p.tembusan2 || null,
         });
         items.push(item);
       } catch (err) {
@@ -280,6 +436,67 @@ export class SdeMasalService {
       failed,
       items: saved,
     };
+  }
+
+  async submitVerification(
+    ids: string[],
+    verifikators: any[],
+  ): Promise<{ total: number; items: SdeMasalEntity[] }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('Data SDE Massal tidak ditemukan');
+    }
+    if (!Array.isArray(verifikators) || verifikators.length === 0) {
+      throw new BadRequestException('Pilih minimal satu verifikator');
+    }
+
+    const rows = await this.repo.find({ where: { id: In(ids) } });
+    if (rows.length === 0) {
+      throw new NotFoundException('Data SDE Massal tidak ditemukan');
+    }
+
+    const verifierRows = this.normalizeVerifikators(verifikators);
+    for (const item of rows) {
+      item.verifikators = verifierRows;
+      item.currentVerifikatorUrutan = 1;
+      item.statusVerifikasi = 'MENUNGGU_VERIFIKASI';
+      item.submittedAt = new Date();
+      item.errorMessage = null;
+    }
+
+    const saved = await this.repo.save(rows);
+    return { total: saved.length, items: saved };
+  }
+
+  async findVerificationForUser(user: any) {
+    const persnum = String(user?.persnum ?? user?.username ?? '').trim();
+    const position = String(user?.position ?? user?.positionId ?? '').trim();
+
+    const rows = await this.repo
+      .createQueryBuilder('s')
+      .where("s.perihal != '__CONCEPT__'")
+      .andWhere('s.status_verifikasi IN (:...statuses)', {
+        statuses: ['MENUNGGU_VERIFIKASI', 'TERVERIFIKASI', 'DITOLAK'],
+      })
+      .orderBy('s.submitted_at', 'DESC')
+      .addOrderBy('s.created_at', 'DESC')
+      .getMany();
+
+    return rows.filter((item) =>
+      (item.verifikators || []).some((verifikator: any) => {
+        const samePersnum = persnum && String(verifikator.persnum) === persnum;
+        const samePosition =
+          position && String(verifikator.position) === position;
+        return samePersnum || samePosition;
+      }),
+    );
+  }
+
+  async approveVerification(id: string, user: any, catatan?: string | null) {
+    return this.verifySdeMasal(id, user, 'approve', catatan);
+  }
+
+  async rejectVerification(id: string, user: any, catatan?: string | null) {
+    return this.verifySdeMasal(id, user, 'reject', catatan);
   }
 
   /**
@@ -305,6 +522,14 @@ export class SdeMasalService {
         status: filter.statusVerifikasi,
       });
     }
+    if (filter.klasifikasiId) {
+      qb.andWhere('s.klasifikasi_id = :klasifikasiId', {
+        klasifikasiId: filter.klasifikasiId,
+      });
+    }
+    if (filter.tahun) {
+      qb.andWhere('YEAR(s.tanggal_konsep) = :tahun', { tahun: filter.tahun });
+    }
     if (filter.jenisTemplate) {
       qb.andWhere('s.jenis_template = :jenis', { jenis: filter.jenisTemplate });
     }
@@ -329,6 +554,82 @@ export class SdeMasalService {
    */
   async findOne(id: string): Promise<SdeMasalEntity | null> {
     return this.repo.findOne({ where: { id } });
+  }
+
+  private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
+    return verifikators.slice(0, 3).map((item, index) => ({
+      urutan: index + 1,
+      persnum: String(item.persnum ?? item.persnumPerson ?? '').trim(),
+      position: String(item.position ?? item.positionId ?? '').trim(),
+      nama: item.nama || item.name || '-',
+      jabatan: item.jabatan || item.positionText || '-',
+      status: index === 0 ? 'waiting' : 'pending',
+      verifiedAt: null,
+      rejectedAt: null,
+      catatan: null,
+    }));
+  }
+
+  private async verifySdeMasal(
+    id: string,
+    user: any,
+    action: 'approve' | 'reject',
+    catatan?: string | null,
+  ) {
+    const item = await this.repo.findOne({ where: { id } });
+    if (!item) throw new NotFoundException('Data SDE Massal tidak ditemukan');
+
+    const verifikators = [
+      ...(item.verifikators || []),
+    ] as SdeMasalVerifikator[];
+    if (verifikators.length === 0) {
+      throw new BadRequestException('SDE Massal belum memiliki verifikator');
+    }
+
+    const persnum = String(user?.persnum ?? user?.username ?? '').trim();
+    const position = String(user?.position ?? user?.positionId ?? '').trim();
+    const current = verifikators.find((v) => v.status === 'waiting');
+    if (!current)
+      throw new BadRequestException('Tidak ada giliran verifikasi aktif');
+
+    const isCurrentUser =
+      (persnum && String(current.persnum) === persnum) ||
+      (position && String(current.position) === position);
+    if (!isCurrentUser) {
+      throw new ForbiddenException(
+        'Belum giliran Anda untuk memverifikasi SDE Massal ini',
+      );
+    }
+
+    if (action === 'reject') {
+      current.status = 'rejected';
+      current.rejectedAt = new Date().toISOString();
+      current.catatan = catatan || null;
+      item.statusVerifikasi = 'DITOLAK';
+      item.errorMessage = catatan || 'Ditolak verifikator';
+      item.verifikators = verifikators;
+      return this.repo.save(item);
+    }
+
+    current.status = 'verified';
+    current.verifiedAt = new Date().toISOString();
+    current.catatan = catatan || null;
+
+    const next = verifikators.find(
+      (v) => v.urutan > current.urutan && v.status === 'pending',
+    );
+    if (next) {
+      next.status = 'waiting';
+      item.currentVerifikatorUrutan = next.urutan;
+      item.statusVerifikasi = 'MENUNGGU_VERIFIKASI';
+    } else {
+      item.currentVerifikatorUrutan = verifikators.length;
+      item.statusVerifikasi = 'TERVERIFIKASI';
+      item.errorMessage = null;
+    }
+
+    item.verifikators = verifikators;
+    return this.repo.save(item);
   }
 
   /**
@@ -371,67 +672,432 @@ export class SdeMasalService {
    * Format: No | Persnum | Nama | Jabatan | Keterangan
    * File .xlsx dengan 3 sheet: Data Penerima, Petunjuk Pengisian, Mapping Field.
    */
-  async generateTemplate(): Promise<Buffer> {
-    // Sheet 1: Data Penerima
-    const dataSheet = [
-      ['No', 'Persnum', 'Nama', 'Jabatan', 'Keterangan'],
-      [1, '10011523', 'INDRA SUDARSONO', 'Spesialis Pengembangan Pelayanan', 'Surat undangan rapat'],
-      [2, '10011524', 'BUDI SANTOSO', 'Kepala Cabang AirNav Medan', 'Permohonan data laporan'],
-      [3, '10011525', 'SITI RAHMAWATI', 'Manajer Operasi Bandara', 'Undangan rapat kerja'],
-      [4, '10011526', 'AHMAD HIDAYAT', 'Kepala Dinas Perhubungan', 'Pemberitahuan inspeksi'],
-      [5, '10011527', 'DEWI LESTARI', 'Direktur Operasional', 'Permohonan kerja sama'],
-      [6, '10011528', 'RUDI HARTONO', 'Kepala Kantor Cabang', 'Surat balasan permohonan'],
-      [7, '10011529', 'NURWENDA', 'Kepala Cabang AirNav', 'Undangan koordinasi'],
-      [8, '10011530', 'JOKO PRASETYO', 'Manajer Teknik Bandara', 'Laporan hasil audit'],
-      [9, '10011531', 'SRI WAHYUNI', 'Kepala Cabang AirNav', 'Permohonan cuti tahunan'],
-      [10, '10011532', 'BAMBANG SUTRISNO', 'Direktur Utama', 'Surat edaran'],
+  async generateTemplate(skemaTemplate?: string): Promise<Buffer> {
+    const skema = (skemaTemplate || '').toUpperCase();
+    const isKeuangan = skema === 'KEUANGAN' || skema === 'SDE-KEUANGAN';
+
+    // Ambil data eksternal aktif untuk contoh id_tertuju dan sheet referensi
+    const eksternalList = await this.eksternalRepository
+      .createQueryBuilder('e')
+      .select(['e.kode', 'e.nama', 'e.email'])
+      .where('e.aktif = :aktif', { aktif: true })
+      .orderBy('e.kode', 'ASC')
+      .getMany();
+
+    // Ambil 3 kode pertama sebagai contoh di sheet Data Penerima
+    const contoh1 = eksternalList[0]?.kode || '112';
+    const contoh2 = eksternalList[1]?.kode || '117';
+    const contoh3 = eksternalList[2]?.kode || '119';
+
+    let ws1: XLSX.WorkSheet;
+    let ws2: XLSX.WorkSheet;
+    let ws3: XLSX.WorkSheet;
+
+    if (isKeuangan) {
+      // Sheet 1: Data Penerima (skema keuangan / tagihan PINP)
+      const dataSheet = [
+        [
+          'No',
+          'Perihal',
+          'id_tertuju',
+          'jumlah_tagihan_idr',
+          'jumlah_tagihan_usd',
+          'nama_cro',
+          'email_cro',
+          'jabatan_signer',
+          'nama_signer',
+          'tembusan',
+          'is_revision',
+        ],
+        [
+          1,
+          'Pemberitahuan Tagihan PINP',
+          contoh1,
+          '15000000',
+          '1000',
+          'CRO Contoh',
+          'cro@example.com',
+          'Manager Keuangan',
+          'Nama Signer',
+          'Direktur Jenderal Perhubungan Udara;Ketua Dewan Pengawas Perum LPPNPI',
+          0,
+        ],
+        [
+          2,
+          'Pemberitahuan Tagihan PINP',
+          contoh2,
+          '25000000',
+          '1500',
+          'CRO Contoh',
+          'cro@example.com',
+          'Manager Keuangan',
+          'Nama Signer',
+          'Direktur Jenderal Perhubungan Udara',
+          0,
+        ],
+        [
+          3,
+          'Pemberitahuan Tagihan PINP',
+          contoh3,
+          '5000000',
+          '500',
+          'CRO Contoh',
+          'cro@example.com',
+          'Manager Keuangan',
+          'Nama Signer',
+          '',
+          1,
+        ],
+      ];
+
+      ws1 = XLSX.utils.aoa_to_sheet(dataSheet);
+      ws1['!cols'] = [
+        { wch: 5 },
+        { wch: 35 },
+        { wch: 15 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 25 },
+        { wch: 30 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 50 },
+        { wch: 12 },
+      ];
+
+      // Sheet 2: Petunjuk Pengisian
+      const petunjukSheet = [
+        [
+          'Petunjuk Pengisian Template SDE Masal - Skema Keuangan (Tagihan PINP)',
+        ],
+        [''],
+        [
+          '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PINP".',
+        ],
+        [
+          '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
+        ],
+        ['   Contoh: 112, 117, 119, dst.'],
+        [
+          '3. Kolom "jumlah_tagihan_idr" WAJIB diisi (angka tanpa titik/koma). Contoh: 15000000.',
+        ],
+        [
+          '4. Kolom "jumlah_tagihan_usd" WAJIB diisi (angka tanpa titik/koma). Contoh: 1000.',
+        ],
+        [
+          '5. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).',
+        ],
+        ['6. Kolom "email_cro" WAJIB diisi email CRO.'],
+        ['7. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
+        ['8. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
+        [
+          '9. Kolom "tembusan" opsional (pisahkan dengan titik koma ; jika lebih dari satu).',
+        ],
+        ['10. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
+        ['11. File upload harus format .xlsx atau .xls.'],
+        ['12. Maksimal 1000 baris per upload.'],
+        [''],
+        ['Variabel dinamis yang bisa dipakai di konten surat:'],
+        ['  {{perihal}}             → Perihal'],
+        ['  {{id_tertuju}}          → ID Tertuju'],
+        ['  {{jumlah_tagihan_idr}}  → Jumlah Tagihan IDR'],
+        ['  {{jumlah_tagihan_usd}}  → Jumlah Tagihan USD'],
+        ['  {{nama_cro}}            → Nama CRO'],
+        ['  {{email_cro}}           → Email CRO'],
+        ['  {{jabatan_signer}}      → Jabatan Signer'],
+        ['  {{nama_signer}}         → Nama Signer'],
+        ['  {{tembusan}}            → Tembusan'],
+      ];
+
+      ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
+      ws2['!cols'] = [{ wch: 75 }];
+
+      // Sheet 3: Mapping Field
+      const mappingSheet = [
+        [
+          'Kolom Excel',
+          'Field Backend',
+          'Tipe Data',
+          'Wajib',
+          'Variabel Konten',
+        ],
+        ['No', 'no', 'number', 'Tidak', '-'],
+        ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
+        ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
+        [
+          'jumlah_tagihan_idr',
+          'jumlahTagihanIdr',
+          'number',
+          'YA',
+          '{{jumlah_tagihan_idr}}',
+        ],
+        [
+          'jumlah_tagihan_usd',
+          'jumlahTagihanUsd',
+          'number',
+          'YA',
+          '{{jumlah_tagihan_usd}}',
+        ],
+        ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
+        ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
+        [
+          'jabatan_signer',
+          'jabatanSigner',
+          'string',
+          'YA',
+          '{{jabatan_signer}}',
+        ],
+        ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
+        ['tembusan', 'tembusan', 'string', 'Tidak', '{{tembusan}}'],
+        ['is_revision', 'isRevision', 'number', 'Tidak', '-'],
+      ];
+
+      ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
+      ws3['!cols'] = [
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 28 },
+      ];
+    } else {
+      // Sheet 1: Data Penerima (skema umum / tagihan PJNP)
+      const dataSheet = [
+        [
+          'No',
+          'Perihal',
+          'id_tertuju',
+          'jumlah_lampiran',
+          'jabatan_penerima',
+          'alamat_penerima',
+          'panggilan_penerima',
+          'nominal_rupiah',
+          'nominal_dolar',
+          'nama_cro',
+          'email_cro',
+          'jabatan_signer',
+          'nama_signer',
+          'tembusan_1',
+          'tembusan_2',
+          'is_revision',
+        ],
+        [
+          1,
+          'Pemberitahuan Tagihan PJNP',
+          contoh1,
+          '1 (lembar)',
+          'Direktur Jenderal Perhubungan Udara',
+          'Jakarta / Di tempat',
+          'Bapak/Ibu',
+          'Rp 15.000.000',
+          '$ 1.000',
+          'CRO Contoh',
+          'cro@example.com',
+          'Direktur Utama',
+          'Nama Signer',
+          'Direktur Jenderal Perhubungan Udara',
+          'Ketua Dewan Pengawas Perum LPPNPI',
+          0,
+        ],
+        [
+          2,
+          'Pemberitahuan Tagihan PJNP',
+          contoh2,
+          '1 (lembar)',
+          'Direktur Jenderal Perhubungan Udara',
+          'Jakarta / Di tempat',
+          'Bapak/Ibu',
+          'Rp 25.000.000',
+          '$ 1.500',
+          'CRO Contoh',
+          'cro@example.com',
+          'Direktur Utama',
+          'Nama Signer',
+          'Direktur Jenderal Perhubungan Udara',
+          '',
+          0,
+        ],
+        [
+          3,
+          'Pemberitahuan Tagihan PJNP',
+          contoh3,
+          '-',
+          'Direktur Jenderal Perhubungan Udara',
+          'Di tempat',
+          'Bapak/Ibu',
+          'Rp 5.000.000',
+          '$ 500',
+          'CRO Contoh',
+          'cro@example.com',
+          'Direktur Utama',
+          'Nama Signer',
+          '',
+          '',
+          1,
+        ],
+      ];
+
+      ws1 = XLSX.utils.aoa_to_sheet(dataSheet);
+      ws1['!cols'] = [
+        { wch: 5 },
+        { wch: 35 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 35 },
+        { wch: 30 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 15 },
+        { wch: 25 },
+        { wch: 30 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 40 },
+        { wch: 40 },
+        { wch: 12 },
+      ];
+
+      // Sheet 2: Petunjuk Pengisian
+      const petunjukSheet = [
+        ['Petunjuk Pengisian Template SDE Masal - Skema Umum (Tagihan PJNP)'],
+        [''],
+        [
+          '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PJNP".',
+        ],
+        [
+          '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
+        ],
+        ['   Contoh: 112, 117, 119, dst.'],
+        ['3. Kolom "jumlah_lampiran" opsional. Contoh: "1 (lembar)" atau "-".'],
+        ['4. Kolom "jabatan_penerima" WAJIB diisi jabatan penerima surat.'],
+        [
+          '5. Kolom "alamat_penerima" WAJIB diisi alamat penerima atau "Di tempat".',
+        ],
+        ['6. Kolom "panggilan_penerima" opsional. Default: "Bapak/Ibu".'],
+        [
+          '7. Kolom "nominal_rupiah" WAJIB diisi nominal tagihan IDR. Contoh: "Rp 15.000.000".',
+        ],
+        [
+          '8. Kolom "nominal_dolar" WAJIB diisi nominal tagihan USD. Contoh: "$ 1.000".',
+        ],
+        [
+          '9. Kolom "nama_cro" WAJIB diisi nama Customer Relationship Officer (CRO).',
+        ],
+        ['10. Kolom "email_cro" WAJIB diisi email CRO.'],
+        ['11. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
+        ['12. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
+        ['13. Kolom "tembusan_1" dan "tembusan_2" opsional.'],
+        ['14. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
+        ['15. File upload harus format .xlsx atau .xls.'],
+        ['16. Maksimal 1000 baris per upload.'],
+        [''],
+        ['Variabel dinamis yang bisa dipakai di konten surat:'],
+        ['  {{perihal}}            → Perihal'],
+        ['  {{id_tertuju}}         → ID Tertuju'],
+        ['  {{jumlah_lampiran}}    → Jumlah Lampiran'],
+        ['  {{jabatan_penerima}}   → Jabatan Penerima'],
+        ['  {{alamat_penerima}}    → Alamat Penerima'],
+        ['  {{panggilan_penerima}} → Panggilan Penerima'],
+        ['  {{nominal_rupiah}}     → Nominal Rupiah'],
+        ['  {{nominal_dolar}}      → Nominal Dolar'],
+        ['  {{nama_cro}}           → Nama CRO'],
+        ['  {{email_cro}}          → Email CRO'],
+        ['  {{jabatan_signer}}     → Jabatan Signer'],
+        ['  {{nama_signer}}        → Nama Signer'],
+        ['  {{tembusan_1}}         → Tembusan 1'],
+        ['  {{tembusan_2}}         → Tembusan 2'],
+      ];
+
+      ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
+      ws2['!cols'] = [{ wch: 75 }];
+
+      // Sheet 3: Mapping Field
+      const mappingSheet = [
+        [
+          'Kolom Excel',
+          'Field Backend',
+          'Tipe Data',
+          'Wajib',
+          'Variabel Konten',
+        ],
+        ['No', 'no', 'number', 'Tidak', '-'],
+        ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
+        ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
+        [
+          'jumlah_lampiran',
+          'jumlahLampiran',
+          'string',
+          'Tidak',
+          '{{jumlah_lampiran}}',
+        ],
+        [
+          'jabatan_penerima',
+          'jabatanPenerima',
+          'string',
+          'YA',
+          '{{jabatan_penerima}}',
+        ],
+        [
+          'alamat_penerima',
+          'alamatPenerima',
+          'string',
+          'YA',
+          '{{alamat_penerima}}',
+        ],
+        [
+          'panggilan_penerima',
+          'panggilanPenerima',
+          'string',
+          'Tidak',
+          '{{panggilan_penerima}}',
+        ],
+        [
+          'nominal_rupiah',
+          'nominalRupiah',
+          'string',
+          'YA',
+          '{{nominal_rupiah}}',
+        ],
+        ['nominal_dolar', 'nominalDolar', 'string', 'YA', '{{nominal_dolar}}'],
+        ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
+        ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
+        [
+          'jabatan_signer',
+          'jabatanSigner',
+          'string',
+          'YA',
+          '{{jabatan_signer}}',
+        ],
+        ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
+        ['tembusan_1', 'tembusan1', 'string', 'Tidak', '{{tembusan_1}}'],
+        ['tembusan_2', 'tembusan2', 'string', 'Tidak', '{{tembusan_2}}'],
+        ['is_revision', 'isRevision', 'number', 'Tidak', '-'],
+      ];
+
+      ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
+      ws3['!cols'] = [
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 28 },
+      ];
+    }
+
+    // Sheet 4: Referensi ID Tertuju (dari master data tertuju-eksternal)
+    const refSheet: any[] = [
+      ['ID Tertuju', 'Nama Penerima', 'Email'],
+      ...eksternalList.map((e) => [e.kode, e.nama, e.email || '-']),
     ];
 
-    const ws1 = XLSX.utils.aoa_to_sheet(dataSheet);
-    ws1['!cols'] = [
-      { wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 35 }, { wch: 35 },
-    ];
-
-    // Sheet 2: Petunjuk Pengisian
-    const petunjukSheet = [
-      ['Petunjuk Pengisian Template SDE Masal'],
-      [''],
-      ['1. Kolom "Persnum" WAJIB diisi (nomor pegawai penerima).'],
-      ['2. Kolom "Nama" WAJIB diisi (nama lengkap penerima).'],
-      ['3. Kolom "Jabatan" WAJIB diisi (nama jabatan/posisi penerima).'],
-      ['4. Kolom "Keterangan" opsional (catatan singkat).'],
-      ['5. File upload harus format .xlsx atau .xls.'],
-      ['6. Maksimal 1000 baris per upload.'],
-      ['7. Baris dengan Persnum/Nama/Jabatan kosong akan dianggap INVALID.'],
-      [''],
-      ['Variabel dinamis yang bisa dipakai di konten surat:'],
-      ['  {{tertuju}}    → "Nama - Jabatan" (gabungan)'],
-      ['  {{nama}}       → Nama penerima'],
-      ['  {{jabatan}}    → Jabatan penerima'],
-      ['  {{persnum}}    → Nomor pegawai penerima'],
-      ['  {{keterangan}} → Keterangan'],
-    ];
-
-    const ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
-    ws2['!cols'] = [{ wch: 70 }];
-
-    // Sheet 3: Mapping Field
-    const mappingSheet = [
-      ['Kolom Excel', 'Field Backend', 'Tipe Data', 'Wajib', 'Variabel Konten'],
-      ['No', 'no', 'number', 'Tidak', '-'],
-      ['Persnum', 'persnum', 'string', 'YA', '{{persnum}}'],
-      ['Nama', 'nama', 'string', 'YA', '{{nama}}'],
-      ['Jabatan', 'jabatan', 'string', 'YA', '{{jabatan}}'],
-      ['Keterangan', 'keterangan', 'string', 'Tidak', '{{keterangan}}'],
-    ];
-
-    const ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
-    ws3['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 10 }, { wch: 25 }];
+    const ws4 = XLSX.utils.aoa_to_sheet(refSheet);
+    ws4['!cols'] = [{ wch: 12 }, { wch: 40 }, { wch: 30 }];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws1, 'Data Penerima');
     XLSX.utils.book_append_sheet(wb, ws2, 'Petunjuk Pengisian');
     XLSX.utils.book_append_sheet(wb, ws3, 'Mapping Field');
+    XLSX.utils.book_append_sheet(wb, ws4, 'Referensi ID Tertuju');
 
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     return Buffer.from(buf);
@@ -635,17 +1301,7 @@ export class SdeMasalService {
         }
 
         // Render konten dengan variabel penerima
-        const konten = this.renderKonten(item.isiRingkasan || '', {
-          tertuju: item.tertuju,
-          nama: item.tertuju?.split(' - ')[0] || '',
-          jabatan: item.jabatanPenerima,
-          persnum: item.kodePos,
-          alamat: item.alamat,
-          kota: item.kota,
-          kodePos: item.kodePos,
-          jabatanPenerima: item.jabatanPenerima,
-          keterangan: item.isiRingkasan,
-        });
+        const konten = this.renderKonten(item.isiRingkasan || '', item);
 
         // Buat atau cari eksternal record untuk penerima
         const eksternal = await this.findOrCreateEksternal({
@@ -674,7 +1330,9 @@ export class SdeMasalService {
         naskah.klasifikasi_text = klasifikasiText;
         naskah.sifat = (item.sifatSurat as any) || 'biasa';
         naskah.nomor = nomorDraft;
-        naskah.tanggal = item.tanggalKonsep ? new Date(item.tanggalKonsep as any) : new Date();
+        naskah.tanggal = item.tanggalKonsep
+          ? new Date(item.tanggalKonsep as any)
+          : new Date();
         naskah.lampiran = item.lampiranUrl || '';
         naskah.perihal = item.perihal;
         naskah.konten = konten;
@@ -693,17 +1351,33 @@ export class SdeMasalService {
           sirkulasiPengirim.sirkuler = 'pengirim';
           sirkulasiPengirim.company = String(COMPANY_ID);
           sirkulasiPengirim.companyText = 'PERUM LPPNPI';
-          sirkulasiPengirim.area = pengirimPos.area ? String(pengirimPos.area) : null;
+          sirkulasiPengirim.area = pengirimPos.area
+            ? String(pengirimPos.area)
+            : null;
           sirkulasiPengirim.areaText = pengirimPos.area_text || null;
-          sirkulasiPengirim.subArea = pengirimPos.sub_area ? String(pengirimPos.sub_area) : null;
+          sirkulasiPengirim.subArea = pengirimPos.sub_area
+            ? String(pengirimPos.sub_area)
+            : null;
           sirkulasiPengirim.subAreaText = pengirimPos.sub_area_text || null;
-          sirkulasiPengirim.organization = pengirimPos.organization_id ? String(pengirimPos.organization_id) : null;
-          sirkulasiPengirim.organizationText = pengirimPos.organization_text || null;
+          sirkulasiPengirim.organization = pengirimPos.organization_id
+            ? String(pengirimPos.organization_id)
+            : null;
+          sirkulasiPengirim.organizationText =
+            pengirimPos.organization_text || null;
           sirkulasiPengirim.position = String(pengirimPos.position);
           sirkulasiPengirim.positionText = pengirimPos.position_text || null;
           sirkulasiPengirim.positionStatus = 'ybs';
-          sirkulasiPengirim.idSirkuler = String(pengirimPos.persnum_person ?? pengirimPos.persnum ?? pengirimPos.position ?? '');
-          sirkulasiPengirim.namaSirkuler = pengirimPos.persnum_person_text || pengirimPos.nama || pengirimPos.position_text || '';
+          sirkulasiPengirim.idSirkuler = String(
+            pengirimPos.persnum_person ??
+              pengirimPos.persnum ??
+              pengirimPos.position ??
+              '',
+          );
+          sirkulasiPengirim.namaSirkuler =
+            pengirimPos.persnum_person_text ||
+            pengirimPos.nama ||
+            pengirimPos.position_text ||
+            '';
           sirkulasiPengirim.isDraft = true;
           sirkulasiPengirim.urutan = 0;
           await this.sirkulasiRepository.save(sirkulasiPengirim);
@@ -738,7 +1412,10 @@ export class SdeMasalService {
         // Buat sirkulasi tambahan untuk creator (user yang login)
         // agar naskah bisa dibuka di halaman detail oleh user yang membuat wizard.
         // Jika creatorPosition berbeda dari pengirimPos.position, buat sirkulasi pengirim duplikat.
-        if (creatorPosition && String(creatorPosition) !== String(pengirimPos?.position)) {
+        if (
+          creatorPosition &&
+          String(creatorPosition) !== String(pengirimPos?.position)
+        ) {
           // Cari creator di org_data
           let creatorPos: any = null;
           if (orgData?.position_json) {
@@ -754,17 +1431,44 @@ export class SdeMasalService {
           sirkulasiCreator.sirkuler = 'pengirim';
           sirkulasiCreator.company = String(COMPANY_ID);
           sirkulasiCreator.companyText = 'PERUM LPPNPI';
-          sirkulasiCreator.area = creatorPos?.area ? String(creatorPos.area) : (pengirimPos?.area ? String(pengirimPos.area) : null);
-          sirkulasiCreator.areaText = creatorPos?.area_text || pengirimPos?.area_text || null;
-          sirkulasiCreator.subArea = creatorPos?.sub_area ? String(creatorPos.sub_area) : (pengirimPos?.sub_area ? String(pengirimPos.sub_area) : null);
-          sirkulasiCreator.subAreaText = creatorPos?.sub_area_text || pengirimPos?.sub_area_text || null;
-          sirkulasiCreator.organization = creatorPos?.organization_id ? String(creatorPos.organization_id) : (pengirimPos?.organization_id ? String(pengirimPos.organization_id) : null);
-          sirkulasiCreator.organizationText = creatorPos?.organization_text || pengirimPos?.organization_text || null;
+          sirkulasiCreator.area = creatorPos?.area
+            ? String(creatorPos.area)
+            : pengirimPos?.area
+              ? String(pengirimPos.area)
+              : null;
+          sirkulasiCreator.areaText =
+            creatorPos?.area_text || pengirimPos?.area_text || null;
+          sirkulasiCreator.subArea = creatorPos?.sub_area
+            ? String(creatorPos.sub_area)
+            : pengirimPos?.sub_area
+              ? String(pengirimPos.sub_area)
+              : null;
+          sirkulasiCreator.subAreaText =
+            creatorPos?.sub_area_text || pengirimPos?.sub_area_text || null;
+          sirkulasiCreator.organization = creatorPos?.organization_id
+            ? String(creatorPos.organization_id)
+            : pengirimPos?.organization_id
+              ? String(pengirimPos.organization_id)
+              : null;
+          sirkulasiCreator.organizationText =
+            creatorPos?.organization_text ||
+            pengirimPos?.organization_text ||
+            null;
           sirkulasiCreator.position = String(creatorPosition);
-          sirkulasiCreator.positionText = creatorPos?.position_text || pengirimPos?.position_text || null;
+          sirkulasiCreator.positionText =
+            creatorPos?.position_text || pengirimPos?.position_text || null;
           sirkulasiCreator.positionStatus = 'ybs';
-          sirkulasiCreator.idSirkuler = String(creatorPos?.persnum_person ?? creatorPos?.persnum ?? creatorPosition ?? '');
-          sirkulasiCreator.namaSirkuler = creatorPos?.persnum_person_text || creatorPos?.nama || creatorPos?.position_text || '';
+          sirkulasiCreator.idSirkuler = String(
+            creatorPos?.persnum_person ??
+              creatorPos?.persnum ??
+              creatorPosition ??
+              '',
+          );
+          sirkulasiCreator.namaSirkuler =
+            creatorPos?.persnum_person_text ||
+            creatorPos?.nama ||
+            creatorPos?.position_text ||
+            '';
           sirkulasiCreator.isDraft = true;
           sirkulasiCreator.urutan = 2;
           await this.sirkulasiRepository.save(sirkulasiCreator);
@@ -801,21 +1505,19 @@ export class SdeMasalService {
   /**
    * Render konten template dengan variabel penerima.
    */
-  private renderKonten(
-    templateKonten: string,
-    penerima: {
-      tertuju: string;
-      nama?: string;
-      jabatan?: string | null;
-      persnum?: string | null;
-      alamat: string | null;
-      kota: string | null;
-      kodePos: string | null;
-      jabatanPenerima?: string | null;
-      keterangan?: string | null;
-    },
-  ): string {
+  private renderKonten(templateKonten: string, item: SdeMasalEntity): string {
     if (!templateKonten) return '';
+    const penerima = {
+      tertuju: item.tertuju,
+      nama: item.tertuju?.split(' - ')[0] || '',
+      jabatan: item.jabatanPenerima,
+      persnum: item.kodePos,
+      alamat: item.alamat,
+      kota: item.kota,
+      kodePos: item.kodePos,
+      jabatanPenerima: item.jabatanPenerima,
+      keterangan: item.isiRingkasan,
+    };
     const jabatan = penerima.jabatan || penerima.jabatanPenerima || '';
     const persnum = penerima.persnum || penerima.kodePos || '';
     return templateKonten
@@ -827,7 +1529,51 @@ export class SdeMasalService {
       .replace(/\{\{alamat\}\}/g, penerima.alamat || '')
       .replace(/\{\{kota\}\}/g, penerima.kota || '')
       .replace(/\{\{kode_pos\}\}/g, penerima.kodePos || '')
-      .replace(/\{\{kodepos\}\}/g, penerima.kodePos || '');
+      .replace(/\{\{kodepos\}\}/g, penerima.kodePos || '')
+      .replace(/\{\{perihal\}\}/g, item.perihal || '')
+      .replace(
+        /\{\{tanggal_surat\}\}/g,
+        item.tanggalKonsep
+          ? new Date(item.tanggalKonsep).toLocaleDateString('id-ID')
+          : '',
+      )
+      .replace(/\{\{nomor_surat\}\}/g, item.nomorSurat || '')
+      .replace(/\{\{sifat_surat\}\}/g, item.sifatSurat || 'Biasa')
+      .replace(
+        /\{\{jumlah_lampiran\}\}/g,
+        item.lampiranUrl ? '1 (lembar)' : '-',
+      )
+      .replace(
+        /\{\{jabatan_penerima\}\}/g,
+        item.jabatanPenerima || item.tertuju || '',
+      )
+      .replace(/\{\{alamat_penerima\}\}/g, item.alamat || 'Di tempat')
+      .replace(/\{\{panggilan_penerima\}\}/g, 'Bapak/Ibu')
+      .replace(/\{\{nominal_rupiah\}\}/g, item.idramount || '')
+      .replace(/\{\{nominal_dolar\}\}/g, item.usdamount || '')
+      .replace(/\{\{id_tertuju\}\}/g, item.idTertuju || '')
+      .replace(/\{\{idramount\}\}/g, item.idramount || '')
+      .replace(/\{\{usdamount\}\}/g, item.usdamount || '')
+      .replace(/\{\{namacro\}\}/g, item.namacro || '')
+      .replace(/\{\{email\}\}/g, item.email || '')
+      .replace(/\{\{tembusan\}\}/g, item.tembusan || '')
+      .replace(
+        /\{\{tembusan_1\}\}/g,
+        item.tembusan ? item.tembusan.split(';')[0] : '',
+      )
+      .replace(
+        /\{\{tembusan_2\}\}/g,
+        item.tembusan ? item.tembusan.split(';')[1] || '' : '',
+      )
+      .replace(/\{\{email_tertuju\}\}/g, item.emailTertuju || '')
+      .replace(/\{\{email_cc\}\}/g, item.emailCc || '')
+      .replace(/\{\{email_bcc\}\}/g, item.emailBcc || '')
+      .replace(/\{\{jumlah_tagihan_idr\}\}/g, item.jumlahTagihanIdr || '')
+      .replace(/\{\{jumlah_tagihan_usd\}\}/g, item.jumlahTagihanUsd || '')
+      .replace(/\{\{nama_cro\}\}/g, item.namaCro || '')
+      .replace(/\{\{email_cro\}\}/g, item.emailCro || '')
+      .replace(/\{\{jabatan_signer\}\}/g, item.jabatanSigner || '')
+      .replace(/\{\{nama_signer\}\}/g, item.namaSigner || '');
   }
 
   /**

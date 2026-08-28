@@ -15,6 +15,14 @@ export class SdeMasalFilterDto {
 
   @IsOptional()
   @IsString()
+  klasifikasiId?: string;
+
+  @IsOptional()
+  @IsString()
+  tahun?: string;
+
+  @IsOptional()
+  @IsString()
   jenisTemplate?: string;
 
   @IsOptional()
