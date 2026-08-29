@@ -78,13 +78,17 @@ export class NotificationService {
     this.logger.log(`📥 sendPush: ${sendPush}`);
 
     try {
+      // Sanitasi body di titik pusat: jangan pernah murni angka / kosong.
+      // Perihal test sering diisi "12", "23", "111" → notifikasi tampil angka.
+      const safeBody = this.sanitizeBody(dto.body, dto.title || 'Notifikasi');
+
       const notification = this.notificationRepository.create({
         id: uuidv4(),
         positionId: dto.positionId,
         userPersnum: dto.userPersnum || null,
         type: dto.type,
         title: dto.title,
-        body: dto.body,
+        body: safeBody,
         data: dto.data || null,
         isRead: false,
       });
@@ -548,5 +552,20 @@ export class NotificationService {
       KA: 'Konsep Arsip',
     };
     return labels[jenis] || jenis;
+  }
+
+  /**
+   * Sanitasi body notifikasi agar tidak pernah murni angka / kosong.
+   * Perihal test sering diisi "12", "23", "111" → notifikasi tampil angka saja.
+   * Fallback ke label jenis naskah bila perihal kosong atau murni angka.
+   */
+  private sanitizeBody(
+    perihal: string | undefined | null,
+    fallback: string,
+  ): string {
+    const trimmed = (perihal ?? '').trim();
+    if (!trimmed) return fallback;
+    if (/^\d+$/.test(trimmed)) return fallback;
+    return trimmed;
   }
 }
