@@ -116,7 +116,7 @@ export class NotificationService {
         await this.fcmService.sendToUser(
           dto.userPersnum,
           dto.title,
-          dto.body,
+          safeBody, // body yang sudah disanitasi — bukan dto.body mentah
           dataWithId,
         );
         this.logger.log(`✅ [createNotification] Push notification sent`);
@@ -294,6 +294,13 @@ export class NotificationService {
       .createQueryBuilder('notification')
       .where('notification.position_id = :positionId', { positionId });
 
+    // Jangan pernah tampilkan notifikasi junk (body murni angka / kosong).
+    // Backlog lama sebelum sanitizeBody dipasang masih ada di DB.
+    queryBuilder.andWhere(
+      `(notification.body IS NOT NULL AND TRIM(notification.body) <> '')`,
+    );
+    queryBuilder.andWhere(`notification.body NOT REGEXP '^[0-9]+$'`);
+
     if (typeof isRead === 'boolean') {
       queryBuilder.andWhere('notification.is_read = :isRead', { isRead });
     }
@@ -322,11 +329,20 @@ export class NotificationService {
 
   /**
    * Get unread notification count for a position
+   *
+   * Excludes junk notifications (numeric-only body or empty body).
+   * Backlog notifikasi lama sebelum `sanitizeBody` dipasang masih ada di DB
+   * dengan body = "12", "23", dll — yang ditampilkan mobile sebagai notif
+   * angka murni. Tidak dihitung sebagai unread supaya badge launcher akurat.
    */
   async getUnreadCount(positionId: string): Promise<number> {
-    return this.notificationRepository.count({
-      where: { positionId, isRead: false },
-    });
+    return this.notificationRepository
+      .createQueryBuilder('n')
+      .where('n.positionId = :positionId', { positionId })
+      .andWhere('n.isRead = :isRead', { isRead: false })
+      .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
+      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
+      .getCount();
   }
 
   /**
