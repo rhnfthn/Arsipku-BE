@@ -116,4 +116,24 @@ export class CreateNaskahMasukNotificationDto {
   @IsOptional()
   @IsBoolean()
   isTembusan?: boolean;
+
+  @ApiPropertyOptional({ description: 'Tingkat kerahasiaan naskah' })
+  @IsOptional()
+  @IsString()
+  sifat?: string;
+
+  @ApiPropertyOptional({ description: 'Klasifikasi naskah' })
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @ApiPropertyOptional({ description: 'Lampiran naskah' })
+  @IsOptional()
+  @IsString()
+  lampiran?: string;
+
+  @ApiPropertyOptional({ description: 'Tanggal naskah (ISO)' })
+  @IsOptional()
+  @IsString()
+  tanggal?: string;
 }

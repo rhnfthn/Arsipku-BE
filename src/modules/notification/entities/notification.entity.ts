@@ -74,6 +74,10 @@ export interface NaskahMasukNotificationData {
   pengirim: string;
   pengirimPosition: string;
   action: 'OPEN_INBOX_DETAIL';
+  sifat?: string | null;
+  klasifikasi?: string | null;
+  lampiran?: string | null;
+  tanggal?: string | null;
 }
 
 // Interface untuk data payload notifikasi disposisi

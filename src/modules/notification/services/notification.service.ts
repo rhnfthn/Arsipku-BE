@@ -82,6 +82,14 @@ export class NotificationService {
       // Perihal test sering diisi "12", "23", "111" → notifikasi tampil angka.
       const safeBody = this.sanitizeBody(dto.body, dto.title || 'Notifikasi');
 
+      // Bentuk payload push yang kaya informasi (gaya email):
+      // title = [Tipe • Jenis] Pengirim (Jabatan)
+      // body  = Perihal: ... — Instruksi: ...
+      // Ini yang dilihat user di notification panel Android/iOS.
+      const display = this.buildDisplayContent(dto);
+      const pushTitle = display.title;
+      const pushBody = display.body;
+
       const notification = this.notificationRepository.create({
         id: uuidv4(),
         positionId: dto.positionId,
@@ -108,15 +116,18 @@ export class NotificationService {
           `📤 [createNotification] Sending push notification to persnum: ${dto.userPersnum}`,
         );
         // Include notificationId in data payload so mobile can dedup
-        // across FCM and WebSocket sources.
+        // across FCM and WebSocket sources. `type` dipakai mobile untuk
+        // menyusun label tipe di system notification (background isolate
+        // tidak bisa akses DB / REST).
         const dataWithId = {
           ...(this.convertDataToString(dto.data) || {}),
+          type: dto.type,
           notificationId: saved.id,
         };
         await this.fcmService.sendToUser(
           dto.userPersnum,
-          dto.title,
-          safeBody, // body yang sudah disanitasi — bukan dto.body mentah
+          pushTitle, // title informatif: [Tipe • Jenis] Pengirim (Jabatan)
+          pushBody, // body informatif: Perihal — Instruksi
           dataWithId,
         );
         this.logger.log(`✅ [createNotification] Push notification sent`);
@@ -175,6 +186,35 @@ export class NotificationService {
 
       const body = `${dto.perihal}`;
 
+      // Ambil metadata naskah (sifat, klasifikasi, lampiran, tanggal) dari DB
+      // supaya notifikasi menampilkan info lengkap tanpa mengubah semua
+      // call sites. Field yang tidak ditemukan di-fallback ke dto (jika ada).
+      let sifat = dto.sifat || null;
+      let klasifikasi = dto.klasifikasi || null;
+      let lampiran = dto.lampiran || null;
+      let tanggal = dto.tanggal || null;
+      try {
+        const naskah = await this.dataSource.query(
+          `SELECT sifat, klasifikasi_text, lampiran, tanggal
+           FROM naskah WHERE id = ? LIMIT 1`,
+          [dto.naskahId],
+        );
+        if (naskah?.[0]) {
+          sifat = sifat || naskah[0].sifat || null;
+          klasifikasi = klasifikasi || naskah[0].klasifikasi_text || null;
+          lampiran = lampiran || naskah[0].lampiran || null;
+          tanggal =
+            tanggal ||
+            (naskah[0].tanggal
+              ? new Date(naskah[0].tanggal).toISOString()
+              : null);
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `⚠️ [createNaskahMasukNotification] Gagal ambil metadata naskah: ${err?.message}`,
+        );
+      }
+
       this.logger.log(
         `🔔 [createNaskahMasukNotification] jenisLabel: ${jenisLabel}`,
       );
@@ -191,6 +231,10 @@ export class NotificationService {
         pengirim: dto.pengirim,
         pengirimPosition: dto.pengirimPosition,
         action: 'OPEN_INBOX_DETAIL',
+        sifat,
+        klasifikasi,
+        lampiran,
+        tanggal,
       };
 
       this.logger.log(
@@ -583,5 +627,136 @@ export class NotificationService {
     if (!trimmed) return fallback;
     if (/^\d+$/.test(trimmed)) return fallback;
     return trimmed;
+  }
+
+  /**
+   * Susun payload push (title & body) yang kaya informasi dari data payload,
+   * sehingga notifikasi yang tampil di notification panel sistem (Android/iOS)
+   * maupun di popup in-app mobile menjadi jelas dan lengkap — seperti
+   * notifikasi email pada umumnya: jenis, pengirim (nama + jabatan), dan
+   * perihal / instruksi.
+   *
+   * Contoh hasil:
+   *  title = "Disposisi Masuk • Nota Dinas — Kepala Kantor"
+   *  body  = "Perihal: Rapat Koordinasi\nInstruksi: Mohon ditindaklanjuti"
+   */
+  private buildDisplayContent(dto: CreateNotificationDto): {
+    title: string;
+    body: string;
+  } {
+    const data = (dto.data || {}) as Record<string, any>;
+    const typeLabel = this.getTypeLabel(dto.type);
+    const jenisLabel = this.getJenisLabel(String(data.jenis ?? ''));
+    const senderName = String(data.pengirim ?? '').trim();
+    const senderPos = String(data.pengirimPosition ?? '').trim();
+    // Pengirim cukup jabatan saja (bukan nama) — sesuai permintaan.
+    const sender = senderPos || senderName;
+
+    // Header "Tipe • Jenis" — jenis dilewati bila sudah tersirat di label
+    // tipe (mis. "Disposisi Masuk" + jenis DI "Disposisi") supaya tidak double.
+    const jenisPart =
+      jenisLabel && !typeLabel.toLowerCase().includes(jenisLabel.toLowerCase())
+        ? jenisLabel
+        : '';
+    const header = [typeLabel, jenisPart].filter(Boolean).join(' • ');
+
+    // Title = header + jabatan pengirim (gaya email: dari siapa).
+    const title =
+      sender && header
+        ? `${header} — ${sender}`
+        : header || dto.title || 'Notifikasi';
+
+    // Body = perihal + instruksi + nomor. Pengirim sudah di title, jadi
+    // tidak diulang dengan baris "Dari:".
+    const lines: string[] = [];
+    const perihal = String(data.perihal ?? '').trim();
+    if (perihal) {
+      lines.push(`Perihal: ${perihal}`);
+    }
+    const instruksi = String(data.instruksi ?? '').trim();
+    if (instruksi && instruksi !== '-' && instruksi !== perihal) {
+      lines.push(`Instruksi: ${instruksi}`);
+    }
+    const nomor = String(data.nomor ?? '').trim();
+    if (nomor) {
+      lines.push(`Nomor: ${nomor}`);
+    }
+    const sifat = String(data.sifat ?? '').trim();
+    if (sifat) {
+      lines.push(`Sifat: ${this.getSifatLabel(sifat)}`);
+    }
+    const klasifikasi = String(data.klasifikasi ?? '').trim();
+    if (klasifikasi) {
+      lines.push(`Klasifikasi: ${klasifikasi}`);
+    }
+    const lampiran = String(data.lampiran ?? '').trim();
+    if (lampiran) {
+      lines.push(`Lampiran: ${lampiran}`);
+    }
+    const tanggal = String(data.tanggal ?? '').trim();
+    if (tanggal) {
+      lines.push(`Tanggal: ${this.formatTanggal(tanggal)}`);
+    }
+    // Untuk tipe yang tak punya data payload (delegasi, dll) fallback ke
+    // body yang sudah disanitasi agar tidak pernah kosong.
+    const body = lines.length > 0 ? lines.join('\n') : dto.body || '';
+
+    return {
+      title: this.sanitizeBody(title, header || 'Notifikasi'),
+      body: this.sanitizeBody(body, typeLabel),
+    };
+  }
+
+  /** Label bahasa Indonesia untuk tingkat kerahasiaan (sifat). */
+  private getSifatLabel(sifat: string): string {
+    const labels: Record<string, string> = {
+      sangat_rahasia: 'Sangat Rahasia',
+      rahasia: 'Rahasia',
+      terbatas: 'Terbatas',
+      biasa: 'Biasa',
+      terbuka: 'Terbuka',
+    };
+    return labels[sifat] || sifat;
+  }
+
+  /** Format tanggal ISO → dd/mm/yyyy (Indonesia). */
+  private formatTanggal(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${d.getFullYear()}`;
+  }
+
+  /** Label bahasa Indonesia untuk NotificationType. */
+  private getTypeLabel(type: NotificationType): string {
+    const labels: Partial<Record<NotificationType, string>> = {
+      [NotificationType.NASKAH_MASUK]: 'Surat Masuk',
+      [NotificationType.NASKAH_TEMBUSAN]: 'Tembusan',
+      [NotificationType.DISPOSISI]: 'Disposisi Masuk',
+      [NotificationType.DISPOSISI_SELESAI]: 'Disposisi Selesai',
+      [NotificationType.KONSEP_DISETUJUI]: 'Konsep Disetujui',
+      [NotificationType.KONSEP_DITOLAK]: 'Konsep Ditolak',
+      [NotificationType.PENOMORAN_USULAN]: 'Usulan Penomoran',
+      [NotificationType.PENOMORAN_PERSETUJUAN]: 'Persetujuan Penomoran',
+      [NotificationType.PENOMORAN_VERIFIKASI]: 'Verifikasi Penomoran',
+      [NotificationType.PENOMORAN_SELESAI]: 'Penomoran Selesai',
+      [NotificationType.PENOMORAN_DITOLAK]: 'Penomoran Ditolak',
+      [NotificationType.DIGSIG_VERIFIKASI]: 'Verifikasi Tanda Tangan',
+      [NotificationType.DIGSIG_TANDA_TANGAN]: 'Permintaan Tanda Tangan',
+      [NotificationType.DIGSIG_SELESAI]: 'Tanda Tangan Selesai',
+      [NotificationType.DIGSIG_DITOLAK]: 'Tanda Tangan Ditolak',
+      [NotificationType.NASKAH_DINAS_VERIFIKATOR]: 'Verifikator Naskah Dinas',
+      [NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI]:
+        'Verifikasi Naskah Selesai',
+      [NotificationType.NASKAH_DINAS_DITOLAK]: 'Naskah Ditolak',
+      [NotificationType.BERKAS_VERIFIKASI]: 'Verifikasi Berkas',
+      [NotificationType.DELEGASI]: 'Delegasi',
+      [NotificationType.SYSTEM]: 'Sistem',
+      [NotificationType.NASKAH_SHARE_DITERIMA]: 'Naskah Dibagikan',
+      [NotificationType.NASKAH_SHARE_DIBUKA]: 'Naskah Dibuka',
+      [NotificationType.NASKAH_SHARE_DICABUT]: 'Akses Naskah Dicabut',
+    };
+    return labels[type] || type;
   }
 }
