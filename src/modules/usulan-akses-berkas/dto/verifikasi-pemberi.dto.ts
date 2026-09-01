@@ -12,15 +12,15 @@ import { Keputusan, DurasiPreset } from '../enums';
 export class VerifikasiPemberiDto {
   @IsOptional()
   @IsEnum(DurasiPreset)
-  durasiAksesDisetujui?: DurasiPreset; // bisa = usulan, atau disesuaikan (opsional untuk TOLAK)
+  durasi_akses_disetujui?: DurasiPreset; // bisa = usulan, atau disesuaikan (opsional untuk TOLAK)
 
   @IsOptional()
   @IsString()
-  customTanggalSelesai?: string; // tanggal berakhir custom (jika durasiAksesDisetujui = CUSTOM)
+  custom_tanggal_selesai?: string; // tanggal berakhir custom (jika durasiAksesDisetujui = CUSTOM)
 
   @IsOptional()
   @IsString()
-  catatanPerubahanDurasi?: string; // opsional — fallback ke catatan umum
+  catatan_perubahan_durasi?: string; // opsional — fallback ke catatan umum
 
   @IsOptional()
   @IsString()
