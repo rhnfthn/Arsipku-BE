@@ -20,7 +20,7 @@ import { JenisBerkas, DurasiPreset, JenisAkses } from '../enums';
  */
 export class VerifikatorDto {
   @IsInt() persnum: number;
-  @IsString() levelJabatan: string; // BOD | BOD-1 | BOD-2 | BOD-3 (atau AVP/VP/EVP untuk backward compat)
+  @IsString() level_jabatan: string; // BOD | BOD-1 | BOD-2 | BOD-3 (atau AVP/VP/EVP untuk backward compat)
 
   @IsOptional()
   @IsString()
@@ -30,48 +30,48 @@ export class VerifikatorDto {
 
 export class CreateUsulanAksesBerkasDto {
   @IsEnum(JenisBerkas)
-  jenisBerkas: JenisBerkas;
+  jenis_berkas: JenisBerkas;
 
   @IsOptional()
   @IsInt()
   @Type(() => Number)
-  divisiPemberiId?: number; // wajib jika AKTIF; diabaikan jika INAKTIF (backend set otomatis)
+  divisi_pemberi_id?: number; // wajib jika AKTIF; diabaikan jika INAKTIF (backend set otomatis)
 
   @IsString()
   @MaxLength(255)
-  judulUsulan: string; // judul usulan (wajib, ditampilkan di tabel & keyword pencarian)
+  judul_usulan: string; // judul usulan (wajib, ditampilkan di tabel & keyword pencarian)
 
   @IsString()
   @MaxLength(2000)
-  tujuanAkses: string;
+  tujuan_akses: string;
 
   @IsEnum(DurasiPreset)
-  durasiAkses: DurasiPreset;
+  durasi_akses: DurasiPreset;
 
   @IsOptional()
   @IsDateString()
-  customTanggalSelesai?: string; // hanya untuk CUSTOM
+  custom_tanggal_selesai?: string; // hanya untuk CUSTOM
 
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
   @IsEnum(JenisAkses, { each: true })
-  jenisAkses: JenisAkses[];
+  jenis_akses: JenisAkses[];
 
   @IsOptional()
   @IsString()
-  suratUsulanFileId?: string;
+  surat_usulan_file_id?: string;
 
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
   @ValidateNested({ each: true })
   @Type(() => VerifikatorDto)
-  verifikatorPengusul: VerifikatorDto[];
+  verifikator_pengusul: VerifikatorDto[];
 
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)
   @IsInt({ each: true })
-  penerimaAksesTambahan?: number[];
+  penerima_akses_tambahan?: number[];
 }
