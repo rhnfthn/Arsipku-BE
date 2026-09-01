@@ -31,13 +31,42 @@ describe('OrgDataService', () => {
     // Direktur Utama di direktorat berbeda (2). Tanpa jaminan "wajib ada",
     // DU tertahan oleh filter direktorat — harus tetap disertakan.
     const POSITION_JSON = [
-      { position: 100, position_text: 'AVP Finance', chief: 1, company: 1, divisi_id: 10, direktorat_id: 1, persnum_person: 5001, persnum_person_text: 'Andi' },
-      { position: 200, position_text: 'EVP Finance', chief: 1, company: 1, divisi_id: 10, direktorat_id: 1, persnum_person: 5002, persnum_person_text: 'Budi' },
-      { position: 300, position_text: 'Direktur Utama', chief: 1, company: 1, divisi_id: 99, direktorat_id: 2, persnum_person: 5003, persnum_person_text: 'Citra' },
+      {
+        position: 100,
+        position_text: 'AVP Finance',
+        chief: 1,
+        company: 1,
+        divisi_id: 10,
+        direktorat_id: 1,
+        persnum_person: 5001,
+        persnum_person_text: 'Andi',
+      },
+      {
+        position: 200,
+        position_text: 'EVP Finance',
+        chief: 1,
+        company: 1,
+        divisi_id: 10,
+        direktorat_id: 1,
+        persnum_person: 5002,
+        persnum_person_text: 'Budi',
+      },
+      {
+        position: 300,
+        position_text: 'Direktur Utama',
+        chief: 1,
+        company: 1,
+        divisi_id: 99,
+        direktorat_id: 2,
+        persnum_person: 5003,
+        persnum_person_text: 'Citra',
+      },
     ];
 
     it('selalu menyertakan Direktur Utama meskipun di direktorat berbeda', async () => {
-      jest.spyOn(service, 'findOrg').mockResolvedValue({ position_json: POSITION_JSON } as any);
+      jest
+        .spyOn(service, 'findOrg')
+        .mockResolvedValue({ position_json: POSITION_JSON } as any);
 
       const result = await service.getAtasanManagerial(100);
 
@@ -47,11 +76,61 @@ describe('OrgDataService', () => {
     });
 
     it('tidak menyertakan posisi pengaju sendiri sebagai atasan', async () => {
-      jest.spyOn(service, 'findOrg').mockResolvedValue({ position_json: POSITION_JSON } as any);
+      jest
+        .spyOn(service, 'findOrg')
+        .mockResolvedValue({ position_json: POSITION_JSON } as any);
 
       const result = await service.getAtasanManagerial(100);
 
-      expect(result.data.find((x: any) => Number(x.position) === 100)).toBeUndefined();
+      expect(
+        result.data.find((x: any) => Number(x.position) === 100),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('getManagerialSameUnit', () => {
+    it('menggunakan direktorat sebagai unit saat posisi EVP tidak memiliki divisi_id', async () => {
+      const positionJson = [
+        {
+          position: 200,
+          position_text: 'EVP Operasi',
+          chief: 1,
+          company: 1,
+          divisi_id: null,
+          direktorat_id: 20,
+          organization_id: 2000,
+          persnum_person: 5002,
+        },
+        {
+          position: 210,
+          position_text: 'VP Operasi',
+          chief: 1,
+          company: 1,
+          divisi_id: 21,
+          direktorat_id: 20,
+          organization_id: 2100,
+          persnum_person: 5010,
+        },
+        {
+          position: 310,
+          position_text: 'VP Keuangan',
+          chief: 1,
+          company: 1,
+          divisi_id: 31,
+          direktorat_id: 30,
+          organization_id: 3100,
+          persnum_person: 5020,
+        },
+      ];
+      jest
+        .spyOn(service, 'findOrg')
+        .mockResolvedValue({ position_json: positionJson } as any);
+
+      const result = await service.getManagerialSameUnit(200);
+
+      expect(result.data.map((row: any) => Number(row.position))).toEqual([
+        210,
+      ]);
     });
   });
 
@@ -64,10 +143,38 @@ describe('OrgDataService', () => {
       const rows = [
         {
           position_json: [
-            { company: 'A', bod_tag: 'BOD', position: 'P1', position_text: 'Direktur Operasi', persnum_person: 1001, persnum_person_text: 'Andi' },
-            { company: 'A', bod_tag: 'BOD', position: 'P2', position_text: 'Direktur Utama', persnum_person: 1002, persnum_person_text: 'Budi' },
-            { company: 'A', bod_tag: '', position: 'P3', position_text: 'Manager', persnum_person: 1003, persnum_person_text: 'Caca' },
-            { company: 'B', bod_tag: 'BOD', position: 'P4', position_text: 'Direktur', persnum_person: 1004, persnum_person_text: 'Dedi' },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P1',
+              position_text: 'Direktur Operasi',
+              persnum_person: 1001,
+              persnum_person_text: 'Andi',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P2',
+              position_text: 'Direktur Utama',
+              persnum_person: 1002,
+              persnum_person_text: 'Budi',
+            },
+            {
+              company: 'A',
+              bod_tag: '',
+              position: 'P3',
+              position_text: 'Manager',
+              persnum_person: 1003,
+              persnum_person_text: 'Caca',
+            },
+            {
+              company: 'B',
+              bod_tag: 'BOD',
+              position: 'P4',
+              position_text: 'Direktur',
+              persnum_person: 1004,
+              persnum_person_text: 'Dedi',
+            },
           ],
         },
       ];
@@ -85,28 +192,90 @@ describe('OrgDataService', () => {
       const rows = [
         {
           position_json: [
-            { company: 'A', bod_tag: 'BOD', position: 'P5', position_text: 'Direktur SDM & Umum', persnum_person: 1005, persnum_person_text: 'Eka' },
-            { company: 'A', bod_tag: 'BOD', position: 'P2', position_text: 'Direktur Utama', persnum_person: 1002, persnum_person_text: 'Budi' },
-            { company: 'A', bod_tag: 'BOD', position: 'P3', position_text: 'Direktur Keselamatan Keamanan dan Standardisasi', persnum_person: 1003, persnum_person_text: 'Caca' },
-            { company: 'A', bod_tag: 'BOD', position: 'P1', position_text: 'Direktur Operasi', persnum_person: 1001, persnum_person_text: 'Andi' },
-            { company: 'A', bod_tag: 'BOD', position: 'P4', position_text: 'Direktur Keuangan', persnum_person: 1004, persnum_person_text: 'Dedi' },
-            { company: 'A', bod_tag: 'BOD', position: 'P6', position_text: 'Direktur Teknik', persnum_person: 1006, persnum_person_text: 'Fani' },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P5',
+              position_text: 'Direktur SDM & Umum',
+              persnum_person: 1005,
+              persnum_person_text: 'Eka',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P2',
+              position_text: 'Direktur Utama',
+              persnum_person: 1002,
+              persnum_person_text: 'Budi',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P3',
+              position_text: 'Direktur Keselamatan Keamanan dan Standardisasi',
+              persnum_person: 1003,
+              persnum_person_text: 'Caca',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P1',
+              position_text: 'Direktur Operasi',
+              persnum_person: 1001,
+              persnum_person_text: 'Andi',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P4',
+              position_text: 'Direktur Keuangan',
+              persnum_person: 1004,
+              persnum_person_text: 'Dedi',
+            },
+            {
+              company: 'A',
+              bod_tag: 'BOD',
+              position: 'P6',
+              position_text: 'Direktur Teknik',
+              persnum_person: 1006,
+              persnum_person_text: 'Fani',
+            },
           ],
         },
       ];
       const result = service.findBodByCompany(rows as any, 'A');
-      expect(result.map((r) => r.positionId)).toEqual(['P1', 'P6', 'P3', 'P4', 'P5', 'P2']);
+      expect(result.map((r) => r.positionId)).toEqual([
+        'P1',
+        'P6',
+        'P3',
+        'P4',
+        'P5',
+        'P2',
+      ]);
     });
 
     it('returns empty when no bod_tag=BOD entries exist', () => {
       const rows = [
-        { position_json: [{ company: 'A', bod_tag: '', position: 'P1', position_text: 'Manager', persnum_person: 1, persnum_person_text: 'X' }] },
+        {
+          position_json: [
+            {
+              company: 'A',
+              bod_tag: '',
+              position: 'P1',
+              position_text: 'Manager',
+              persnum_person: 1,
+              persnum_person_text: 'X',
+            },
+          ],
+        },
       ];
       expect(service.findBodByCompany(rows as any, 'Z')).toHaveLength(0);
     });
 
     it('returns empty when position_json is empty', () => {
-      expect(service.findBodByCompany([{ position_json: [] }] as any, '')).toHaveLength(0);
+      expect(
+        service.findBodByCompany([{ position_json: [] }] as any, ''),
+      ).toHaveLength(0);
     });
   });
 });
