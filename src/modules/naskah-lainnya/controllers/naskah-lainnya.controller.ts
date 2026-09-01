@@ -9,10 +9,14 @@ import {
   Query,
   Res,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
   UseGuards,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { NaskahLainnyaService } from '../services/naskah-lainnya.service';
 import type { CurrentUser as CurrentUserType } from '../services/naskah-lainnya.service';
@@ -21,6 +25,9 @@ import {
   UpdateNaskahDto,
   ApprovalActionDto,
   EvaluasiDto,
+  KirimEvaluasiDto,
+  KeputusanEvaluasiDto,
+  TeruskanPersetujuanDto,
   BlankoDto,
   TandaTanganDto,
   KirimApprovalLegalDto,
@@ -123,9 +130,37 @@ export class NaskahLainnyaController {
     return this.service.uploadDokumen(id, file, user);
   }
 
+  @Post(':id/dokumen/revisi')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'docx', maxCount: 1 },
+      { name: 'pdf', maxCount: 1 },
+    ]),
+  )
+  uploadRevisi(
+    @Param('id') id: string,
+    @UploadedFiles()
+    files: { docx?: Express.Multer.File[]; pdf?: Express.Multer.File[] },
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.uploadRevisiDokumen(
+      id,
+      files?.docx?.[0],
+      files?.pdf?.[0],
+      user,
+    );
+  }
+
   @Get(':id/file')
-  async downloadFile(@Param('id') id: string, @Res() res: Response) {
-    const { buffer, mimetype } = await this.service.downloadFile(id);
+  async downloadFile(
+    @Param('id') id: string,
+    @Query('preview') preview: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, mimetype } = await this.service.downloadFile(
+      id,
+      preview === '1',
+    );
     res.setHeader('Content-Type', mimetype);
     res.setHeader('Content-Disposition', 'inline');
     res.send(buffer);
@@ -159,7 +194,7 @@ export class NaskahLainnyaController {
     @Res() res: Response,
   ) {
     const { buffer, mimetype, nama } =
-      await this.service.downloadDokumenTambahan(id, dokumenId);
+      await this.service.downloadDokumenTambahan(id, dokumenId, inline === '1');
     res.setHeader('Content-Type', mimetype);
     const disposition = inline === '1' ? 'inline' : 'attachment';
     res.setHeader('Content-Disposition', `${disposition}; filename="${nama}"`);
@@ -235,6 +270,50 @@ export class NaskahLainnyaController {
     return this.service.evaluasi(id, dto, user);
   }
 
+  @Post(':id/evaluasi/kirim')
+  kirimEvaluasi(
+    @Param('id') id: string,
+    @Body() dto: KirimEvaluasiDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.kirimEvaluasi(id, dto, user);
+  }
+
+  @Post(':id/evaluasi/keputusan')
+  keputusanEvaluasi(
+    @Param('id') id: string,
+    @Body() dto: KeputusanEvaluasiDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.keputusanEvaluasi(id, dto, user);
+  }
+
+  @Get(':id/persetujuan-lanjutan/kandidat')
+  kandidatPersetujuanLanjutan(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.getKandidatPersetujuanLanjutan(id, user);
+  }
+
+  @Post(':id/persetujuan-lanjutan/teruskan')
+  teruskanPersetujuan(
+    @Param('id') id: string,
+    @Body() dto: TeruskanPersetujuanDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.teruskanPersetujuan(id, dto, user);
+  }
+
+  @Post(':id/persetujuan-lanjutan/selesai')
+  selesaiPersetujuan(
+    @Param('id') id: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.selesaiPersetujuan(id, dto.catatan, user);
+  }
+
   @Post(':id/evaluasi/kembalikan')
   kembalikanEvaluasi(
     @Param('id') id: string,
@@ -270,6 +349,15 @@ export class NaskahLainnyaController {
     return this.service.tandaTangan(id, dto.passphrase, user);
   }
 
+  @Post(':id/tanda-tangan/tolak')
+  tolakTandaTangan(
+    @Param('id') id: string,
+    @Body() dto: ApprovalActionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.tolakTandaTangan(id, dto.catatan, user);
+  }
+
   @Post(':id/unggah-ttd-fisik')
   @UseInterceptors(FileInterceptor('file'))
   unggahTtdFisik(
@@ -281,8 +369,8 @@ export class NaskahLainnyaController {
   }
 
   /**
-   * Opsi TTD manual/fisik tidak menjalankan signing task di aplikasi. Setelah
-   * verifikasi/alur legal selesai, pemrakarsa mengunggah dokumen final di detail.
+   * Setelah seluruh penandatangan menyetujui Naskah Draft dan nomor terbit,
+   * pemrakarsa mengunggah dokumen yang sudah ditandatangani secara fisik.
    */
   @Post(':id/dokumen-final-manual')
   @UseInterceptors(FileInterceptor('file'))

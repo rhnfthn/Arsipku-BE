@@ -66,7 +66,9 @@ export class OrgDataService {
     // persnum_person/persnum_person_text/bod_tag langsung. Sebelumnya filter
     // r.company/JSON.parse(r.position_json) di level OrgDatum → selalu kosong
     // karena field itu tidak ada di entity & position_json sudah ter-parse.
-    const withJson = rows.filter((r) => Array.isArray(r?.position_json) && r.position_json.length > 0);
+    const withJson = rows.filter(
+      (r) => Array.isArray(r?.position_json) && r.position_json.length > 0,
+    );
     const barisData: any[] = withJson[0]?.position_json ?? [];
     const isDirut = (text: string) => /direktur\s*utama/i.test(text || '');
     // Urutan kanonik direksi LPPNPI untuk "Sebelum ditetapkan diketahui oleh"
@@ -81,7 +83,13 @@ export class OrgDataService {
       return idx >= 0 ? idx : BOD_ORDER.length;
     };
     return barisData
-      .filter((x) => x && String(x.bod_tag || '').toUpperCase().trim() === 'BOD')
+      .filter(
+        (x) =>
+          x &&
+          String(x.bod_tag || '')
+            .toUpperCase()
+            .trim() === 'BOD',
+      )
       .map((x) => ({
         positionId: String(x.position ?? ''),
         persnum: x.persnum_person ? Number(x.persnum_person) : undefined,
@@ -404,13 +412,11 @@ export class OrgDataService {
     const signerDivisi = Number(
       current.divisi_id ?? current.organization_id ?? null,
     );
-    const signerDivisiSafe = Number.isFinite(signerDivisi) && signerDivisi > 0
-      ? signerDivisi
-      : null;
+    const signerDivisiSafe =
+      Number.isFinite(signerDivisi) && signerDivisi > 0 ? signerDivisi : null;
     const signerDir = Number(current.direktorat_id ?? null);
-    const signerDirSafe = Number.isFinite(signerDir) && signerDir > 0
-      ? signerDir
-      : null;
+    const signerDirSafe =
+      Number.isFinite(signerDir) && signerDir > 0 ? signerDir : null;
     const signerCompany = Number(current.company ?? null);
     const signerRank = rankOf(current.position_text);
 
@@ -459,7 +465,9 @@ export class OrgDataService {
       );
       if (du) {
         atasan.push(du);
-        atasan.sort((a, b) => rankOf(a.position_text) - rankOf(b.position_text));
+        atasan.sort(
+          (a, b) => rankOf(a.position_text) - rankOf(b.position_text),
+        );
       }
     }
 
@@ -469,6 +477,58 @@ export class OrgDataService {
       total: atasan.length,
       tanggal,
     };
+  }
+
+  /**
+   * Pejabat managerial pada unit/divisi yang sama, tanpa membatasi arah hierarki.
+   * Dipakai persetujuan lanjutan Naskah Lainnya: penerima aktif boleh meneruskan
+   * ke pejabat yang lebih tinggi maupun lebih rendah, tetapi tidak keluar unit.
+   */
+  async getManagerialSameUnit(positionId: number, tgl?: string) {
+    const tanggal = tgl ?? new Date().toISOString().split('T')[0];
+    let orgData: any = null;
+    try {
+      orgData = await this.findOrg(tanggal);
+    } catch {
+      orgData = await this.findLatestOrg();
+    }
+    const rows: any[] = orgData?.position_json ?? [];
+    const current = rows.find(
+      (row) => Number(row.position) === Number(positionId),
+    );
+    if (!current) {
+      throw new NotFoundException(`Position ${positionId} tidak ditemukan.`);
+    }
+
+    // Gunakan sumber dan kriteria verifikator yang sama dengan form Naskah
+    // Lainnya (position_json + chief=1), tetapi batasi pada unit evaluator.
+    // Sebagian snapshot org tidak mengisi divisi_id pada posisi EVP; pada
+    // kondisi itu direktorat adalah scope unit yang benar. organization_id
+    // hanya menjadi fallback terakhir karena nilainya dapat berbeda pada
+    // setiap sub-unit di bawah EVP.
+    const currentDivision = Number(current.divisi_id ?? null);
+    const currentDirectorate = Number(current.direktorat_id ?? null);
+    const currentOrganization = Number(current.organization_id ?? null);
+    const company = Number(current.company ?? null);
+    const data = rows.filter((row) => {
+      const sameUnit =
+        Number.isFinite(currentDivision) && currentDivision > 0
+          ? Number(row.divisi_id ?? null) === currentDivision
+          : Number.isFinite(currentDirectorate) && currentDirectorate > 0
+            ? Number(row.direktorat_id ?? null) === currentDirectorate
+            : Number.isFinite(currentOrganization) && currentOrganization > 0
+              ? Number(row.organization_id ?? null) === currentOrganization
+              : false;
+      return (
+        Number(row.position) !== Number(positionId) &&
+        row.chief === 1 &&
+        Number(row.company ?? null) === company &&
+        sameUnit &&
+        row.persnum_person != null
+      );
+    });
+
+    return { success: true, data, total: data.length, tanggal };
   }
 
   /**

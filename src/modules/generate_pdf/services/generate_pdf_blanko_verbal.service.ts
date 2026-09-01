@@ -137,7 +137,7 @@ export class GeneratePdfBlankoVerbalService {
     return `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><style>${SHEET_CSS}</style></head><body>
 <div class="page">
   <div class="header">
-    BLANKO VERBAL<br>
+    BLANKO VERBAL PERSETUJUAN DIREKSI<br>
     PERUSAHAAN UMUM (PERUM) LEMBAGA PENYELENGGARA PELAYANAN<br>
     NAVIGASI PENERBANGAN INDONESIA
   </div>

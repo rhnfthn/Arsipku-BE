@@ -1,14 +1,21 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigDigsig, ConfigMessage, ConfigSearch } from './entities';
+import {
+  ConfigDigsig,
+  ConfigMessage,
+  ConfigNaskahLainnya,
+  ConfigSearch,
+} from './entities';
 import {
   ConfigDigsigService,
   ConfigMessageService,
+  ConfigNaskahLainnyaService,
   ConfigSearchService,
 } from './services';
 import {
   AdminConfigDigsigController,
   AdminConfigMessageController,
+  AdminConfigNaskahLainnyaController,
   AdminConfigSearchController,
   ConfigController,
 } from './controllers';
@@ -16,23 +23,31 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ConfigDigsig, ConfigMessage, ConfigSearch]),
+    TypeOrmModule.forFeature([
+      ConfigDigsig,
+      ConfigMessage,
+      ConfigNaskahLainnya,
+      ConfigSearch,
+    ]),
     OrgDataModule,
   ],
   controllers: [
     AdminConfigDigsigController,
     AdminConfigMessageController,
+    AdminConfigNaskahLainnyaController,
     AdminConfigSearchController,
     ConfigController,
   ],
   providers: [
     ConfigDigsigService,
     ConfigMessageService,
+    ConfigNaskahLainnyaService,
     ConfigSearchService,
   ],
   exports: [
     ConfigDigsigService,
     ConfigMessageService,
+    ConfigNaskahLainnyaService,
     ConfigSearchService,
   ],
 })

@@ -43,6 +43,7 @@ export class PenandatanganDto {
 
 export class ApprovalDto {
   @IsString() @IsOptional() positionId?: string;
+  @IsNumber() @IsOptional() persnum?: number;
   @IsString() @IsNotEmpty() nama: string;
   @IsString() @IsNotEmpty() jabatan: string;
 }
@@ -82,7 +83,8 @@ export class BuatNaskahDto {
 
   @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
 
-  // Rantai approval berjenjang (approver ≠ penandatangan). Opsional — fallback ke default workflow.
+  // Rantai approval berjenjang. Satu pejabat boleh sekaligus menjadi penandatangan.
+  // Opsional — fallback ke default workflow.
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
@@ -99,6 +101,36 @@ export class ApprovalActionDto {
 export class EvaluasiDto {
   @IsBoolean() sesuai: boolean;
   @IsArray() @IsString({ each: true }) @IsOptional() checklist?: string[];
+  @IsString() @IsOptional() catatan?: string;
+}
+
+export class KirimEvaluasiDto {
+  @ValidateNested()
+  @Type(() => ApprovalDto)
+  @IsOptional()
+  verifikator?: ApprovalDto;
+
+  @IsArray() @IsString({ each: true }) @IsOptional() checklist?: string[];
+  @IsString() @IsOptional() catatan?: string;
+}
+
+export class KeputusanEvaluasiDto {
+  @IsIn(['lanjut_persetujuan', 'legal_drafting_ulang', 'batalkan'])
+  keputusan: 'lanjut_persetujuan' | 'legal_drafting_ulang' | 'batalkan';
+
+  @ValidateNested()
+  @Type(() => ApprovalDto)
+  @IsOptional()
+  penerimaPertama?: ApprovalDto;
+
+  @IsString() @IsOptional() catatan?: string;
+}
+
+export class TeruskanPersetujuanDto {
+  @ValidateNested()
+  @Type(() => ApprovalDto)
+  penerima: ApprovalDto;
+
   @IsString() @IsOptional() catatan?: string;
 }
 

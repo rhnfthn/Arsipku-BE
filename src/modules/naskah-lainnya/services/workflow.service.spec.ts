@@ -147,7 +147,7 @@ describe('WorkflowService', () => {
     expect(next).toBe('selesai');
   });
 
-  it('setuju verifikator terakhir → selesai untuk TTD fisik walau butuh legal dan penandatangan terisi', async () => {
+  it('setuju verifikator terakhir → approval Naskah Draft oleh penandatangan TTD fisik', async () => {
     const naskah = {
       id: 'n2d',
       tahapan: 'persetujuan',
@@ -167,7 +167,7 @@ describe('WorkflowService', () => {
       aktor: 'Test',
       manager: manager as any,
     });
-    expect(next).toBe('selesai');
+    expect(next).toBe('tanda_tangan');
   });
 
   it('setuju belum semua → tetap persetujuan', async () => {
@@ -369,7 +369,7 @@ describe('WorkflowService', () => {
     expect(naskah.tahapan).toBe('selesai');
   });
 
-  it('applyApproval: blanko verbal menunggu kedua kelompok (ditetapkan dan diketahui), lalu otomatis ke tanda_tangan', async () => {
+  it('applyApproval blanko: Ditetapkan baru aktif setelah seluruh Diketahui selesai, lalu langsung selesai', async () => {
     const naskah = {
       id: 'n1',
       tahapan: 'blanko_verbal',
@@ -383,7 +383,7 @@ describe('WorkflowService', () => {
         naskahId: 'n1',
         tahap: 'blanko_verbal_ditetapkan',
         urutan: 1,
-        status: 'verified',
+        status: 'pending',
         nama: 'Direktur Utama',
       } as any,
       {
@@ -397,14 +397,67 @@ describe('WorkflowService', () => {
     ];
     const manager = { save: jest.fn((e) => e) };
 
-    const next = await svc.applyApproval(naskah, rows, 'diketahui', 'setuju', {
-      aktor: 'Direktur Operasi',
+    const afterDiketahui = await svc.applyApproval(
+      naskah,
+      rows,
+      'diketahui',
+      'setuju',
+      {
+        aktor: 'Direktur Operasi',
+        catatan: undefined,
+        manager: manager as any,
+      },
+    );
+
+    expect(afterDiketahui).toBe('blanko_verbal');
+    expect(rows[0].status).toBe('waiting');
+
+    const next = await svc.applyApproval(naskah, rows, 'ditetapkan', 'setuju', {
+      aktor: 'Direktur Utama',
       catatan: undefined,
       manager: manager as any,
     });
 
-    expect(next).toBe('tanda_tangan');
-    expect(naskah.tahapan).toBe('tanda_tangan');
+    expect(next).toBe('selesai');
+    expect(naskah.tahapan).toBe('selesai');
+  });
+
+  it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
+    const naskah = {
+      id: 'n-reject',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'known-1',
+        tahap: 'blanko_verbal',
+        status: 'waiting',
+        urutan: 1,
+      },
+      {
+        id: 'known-2',
+        tahap: 'blanko_verbal',
+        status: 'waiting',
+        urutan: 2,
+      },
+      {
+        id: 'established',
+        tahap: 'blanko_verbal_ditetapkan',
+        status: 'pending',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    const next = await svc.applyApproval(naskah, rows, 'known-1', 'tolak', {
+      aktor: 'Direktur',
+      catatan: 'Perbaiki substansi',
+      manager: manager as any,
+    });
+
+    expect(next).toBe('legal_drafting');
+    expect(rows.every((row) => row.status === 'rejected')).toBe(true);
   });
 
   it('applyApproval menolak aksi urutan 2 bila urutan 1 masih waiting (berjenjang)', async () => {
@@ -520,22 +573,22 @@ describe('WorkflowService', () => {
     expect(actions).toEqual([]);
   });
 
-  it('buildAvailableActions evaluasi: butuhLegal+legal → [kirim-lembar-persetujuan-direksi]; butuhLegal+non-legal → [evaluasi,kembalikan-evaluasi]; !butuhLegal → [evaluasi]', async () => {
+  it('buildAvailableActions evaluasi kosong karena aksi ditentukan service untuk pemrakarsa/EVP', async () => {
     expect(
       await svc.buildAvailableActions('evaluasi', true, {
         positionText: 'Kabag Hukum',
       }),
-    ).toEqual(['kirim-lembar-persetujuan-direksi']);
+    ).toEqual([]);
     expect(
       await svc.buildAvailableActions('evaluasi', true, {
         positionId: 'POS_X',
       }),
-    ).toEqual(['evaluasi', 'kembalikan-evaluasi']);
+    ).toEqual([]);
     expect(
       await svc.buildAvailableActions('evaluasi', false, {
         positionId: 'POS_X',
       }),
-    ).toEqual(['evaluasi']);
+    ).toEqual([]);
   });
 
   it('resolveNext kembalikan-evaluasi → legal_drafting', () => {
@@ -562,9 +615,9 @@ describe('WorkflowService', () => {
     );
   });
 
-  it('resolveNext: blanko_verbal + complete (digital, ada penandatangan) → tanda_tangan', () => {
+  it('resolveNext: blanko_verbal gabungan + complete → selesai', () => {
     expect(svc.resolveNext('blanko_verbal', 'complete', true, 1, 2, null)).toBe(
-      'tanda_tangan',
+      'selesai',
     );
   });
 
@@ -580,16 +633,21 @@ describe('WorkflowService', () => {
     );
   });
 
-  it('buildStepper includes persetujuan_direksi when butuhLegal', () => {
+  it('buildStepper menggabungkan persetujuan direksi dan blanko verbal', () => {
     const stepper = svc.buildStepper('persetujuan_direksi', true, 0);
-    expect(stepper.map((s) => s.label)).toContain('Persetujuan Direksi');
+    expect(stepper.map((s) => s.label)).toContain(
+      'Blanko Verbal Persetujuan Direksi',
+    );
+    expect(stepper.map((s) => s.label)).not.toContain('Persetujuan Direksi');
   });
 
-  it('buildStepper TTD fisik hanya menampilkan konsep, persetujuan, dan selesai', () => {
+  it('buildStepper TTD fisik menampilkan approval draft setiap penandatangan', () => {
     const stepper = svc.buildStepper('selesai', true, 2, null, 'ttd_basah');
     expect(stepper.map((s) => s.label)).toEqual([
       'Konsep Naskah',
       'Persetujuan',
+      'Tanda Tangan Penandatangan 1',
+      'Tanda Tangan Penandatangan 2',
       'Selesai',
     ]);
   });
@@ -686,15 +744,78 @@ describe('WorkflowService', () => {
     ).toEqual([]);
   });
 
+  it('buildAvailableActions blanko_verbal: legal dapat membuat lalu tetap membuka progres setelah dikirim', async () => {
+    expect(
+      await svc.buildAvailableActions(
+        'blanko_verbal',
+        true,
+        { positionText: 'Kabag Hukum' },
+        false,
+        false,
+      ),
+    ).toEqual(['kirim-approval-blanko']);
+    expect(
+      await svc.buildAvailableActions(
+        'blanko_verbal',
+        true,
+        { positionText: 'Kabag Hukum' },
+        false,
+        true,
+      ),
+    ).toEqual(['buka-blanko-verbal']);
+  });
+
   it('signingTarget: N=0 → selesai, N>0 → tanda_tangan', () => {
     expect(svc.signingTarget(0)).toBe('selesai');
     expect(svc.signingTarget(3)).toBe('tanda_tangan');
-    expect(svc.signingTarget(3, 'ttd_basah')).toBe('selesai');
+    expect(svc.signingTarget(3, 'ttd_basah')).toBe('tanda_tangan');
+  });
+
+  it('buildAvailableActions TTD fisik memberi aksi setujui draft dan tolak', async () => {
+    await expect(
+      svc.buildAvailableActions(
+        'tanda_tangan',
+        false,
+        { positionText: 'Direktur' },
+        false,
+        false,
+        'ttd_basah',
+      ),
+    ).resolves.toEqual(['tanda-tangan', 'tolak-tanda-tangan']);
   });
 
   it('nextAfterTtd tanda_tangan: idx<N tetap, idx>=N selesai', () => {
     expect(svc.nextAfterTtd('tanda_tangan', 1, 3)).toBe('tanda_tangan');
     expect(svc.nextAfterTtd('tanda_tangan', 3, 3)).toBe('selesai');
+  });
+
+  it('transisiTandaTangan terakhir TTD fisik menyelesaikan approval draft dengan status pending', async () => {
+    const naskah = {
+      id: 'physical-signing',
+      tahapan: 'tanda_tangan',
+      signOption: 'ttd_basah',
+      signingIndex: 1,
+      penandatanganChain: [{ nama: 'Direktur', jabatan: 'Direktur' }],
+      tanggal: new Date('2026-08-31'),
+    } as NaskahEntity;
+    const manager = { save: jest.fn(), update: jest.fn() };
+
+    await svc.transisiTandaTangan(naskah, {
+      aktor: 'Direktur',
+      manager: manager as any,
+    });
+
+    expect(naskah.tahapan).toBe('selesai');
+    expect(naskah.status).toBe('pending');
+    expect(manager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.any(Object),
+      expect.objectContaining({
+        tahapan: 'selesai',
+        signingIndex: null,
+        status: 'pending',
+      }),
+    );
   });
 
   it('transisi kirim-approval-blanko: blanko_verbal → tanda_tangan + signingIndex=1', async () => {
@@ -719,7 +840,7 @@ describe('WorkflowService', () => {
     expect(manager.update).toHaveBeenCalled();
   });
 
-  it('transisi kirim-approval-blanko fisik: langsung selesai dan status pending', async () => {
+  it('transisi kirim-approval-blanko fisik: masuk approval penandatangan', async () => {
     const naskah = {
       id: 'b1-manual',
       tahapan: 'blanko_verbal',
@@ -733,11 +854,11 @@ describe('WorkflowService', () => {
       aktor: 'Legal',
       manager: manager as any,
     });
-    expect(naskah.tahapan).toBe('selesai');
+    expect(naskah.tahapan).toBe('tanda_tangan');
     expect(manager.update).toHaveBeenCalledWith(
       NaskahEntity,
       expect.any(Object),
-      expect.objectContaining({ status: 'pending', signingIndex: null }),
+      expect.objectContaining({ signingIndex: 1 }),
     );
   });
 
@@ -805,8 +926,21 @@ describe('WorkflowService', () => {
     expect(naskah.signingIndex).toBeNull();
   });
 
-  it('buildStepper dinamis: N=2, signingIndex=1 → 2 sub-step signing', () => {
-    const steps = svc.buildStepper('tanda_tangan', true, 2, 1);
+  it('buildAvailableActions tanda_tangan hanya menyediakan tanda tangan atau tolak ke legal', async () => {
+    await expect(
+      svc.buildAvailableActions(
+        'tanda_tangan',
+        true,
+        { positionText: 'Direktur' } as any,
+        false,
+        false,
+        'qr_only',
+      ),
+    ).resolves.toEqual(['tanda-tangan', 'tolak-tanda-tangan']);
+  });
+
+  it('buildStepper non-legal tetap memiliki sub-step tanda tangan', () => {
+    const steps = svc.buildStepper('tanda_tangan', false, 2, 1);
     const signingSteps = steps.filter((s) =>
       /Tanda Tangan Penandatangan/.test(s.label),
     );
