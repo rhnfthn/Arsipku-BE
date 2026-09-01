@@ -21,7 +21,10 @@ import { DocxQrInlineService, SignedSigner } from './docx-qr-inline.service';
 import { GeneratePdfLpdService } from '../../generate_pdf/services/generate_pdf_lpd.service';
 import { GeneratePdfBlankoVerbalService } from '../../generate_pdf/services/generate_pdf_blanko_verbal.service';
 import { SheetPdfData } from '../../generate_pdf/services/sheet-pdf.shared';
-import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
+import {
+  LegalRoleService,
+  LegalPerson,
+} from '../../konfigurasi/services/legal-role.service';
 import { NomorService } from '../../nomor/services/nomor.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { JenisEntity } from '../../nomor/entities/jenis.entity';
@@ -402,9 +405,14 @@ export class NaskahLainnyaService {
     }
 
     const rows = await qb.getMany();
+    const pemrakarsaPejabatByNaskah =
+      await this.getPemrakarsaPejabatByNaskah(rows.map((row) => row.id));
     return {
       success: true,
-      data: rows.map((r) => this.toListItem(r)),
+      data: rows.map((r) => ({
+        ...this.toListItem(r),
+        pemrakarsaPejabat: pemrakarsaPejabatByNaskah.get(r.id),
+      })),
     };
   }
 
@@ -514,6 +522,56 @@ export class NaskahLainnyaService {
     };
   }
 
+  /**
+   * Pejabat pemrakarsa pada daftar adalah simpul terakhir/tertinggi dari rantai
+   * approval awal (`tahap=persetujuan`), bukan user konseptor yang mengirim.
+   * Query dilakukan sekali untuk seluruh halaman agar tidak menimbulkan N+1.
+   */
+  private async getPemrakarsaPejabatByNaskah(naskahIds: string[]): Promise<
+    Map<
+      string,
+      { nama: string; jabatan: string; positionId?: string }
+    >
+  > {
+    if (naskahIds.length === 0) return new Map();
+    const rows =
+      (await this.approvalRepo.find({
+        where: {
+          naskahId: In(naskahIds),
+          tahap: 'persetujuan',
+        },
+        select: ['naskahId', 'tahap', 'positionId', 'nama', 'jabatan', 'urutan'],
+      })) ?? [];
+    const latest = new Map<
+      string,
+      {
+        urutan: number;
+        pejabat: { nama: string; jabatan: string; positionId?: string };
+      }
+    >();
+    for (const row of rows) {
+      if (row.tahap !== 'persetujuan' || !naskahIds.includes(row.naskahId)) {
+        continue;
+      }
+      const current = latest.get(row.naskahId);
+      if (current && current.urutan >= row.urutan) continue;
+      latest.set(row.naskahId, {
+        urutan: row.urutan,
+        pejabat: {
+          nama: row.nama,
+          jabatan: row.jabatan,
+          positionId: row.positionId ?? undefined,
+        },
+      });
+    }
+    return new Map(
+      [...latest.entries()].map(([naskahId, value]) => [
+        naskahId,
+        value.pejabat,
+      ]),
+    );
+  }
+
   // ---------- Detail ----------
 
   async getDetail(id: string, user: CurrentUser) {
@@ -541,6 +599,7 @@ export class NaskahLainnyaService {
     ]);
     await this.repairLegacySheetMetadataApprovals(approval);
     await this.recoverCompletedBlankoVerbal(n, approval, user);
+    await this.recoverEvaluasiEvpRow(n, approval);
 
     // Cek apakah user adalah approver yang sedang menunggu (status='waiting')
     // untuk naskah ini. Berjenjang: hanya urutan terendah yang masih waiting yang
@@ -624,23 +683,19 @@ export class NaskahLainnyaService {
       );
     }
 
-    // Approval hasil Legal Drafting dikerjakan oleh atasan yang dipilih melalui
-    // menu Persetujuan. Workflow legal_drafting secara default membangun aksi
-    // untuk drafter legal, jadi aksi approval perlu diberikan eksplisit kepada
-    // approver aktif (termasuk bila approver tersebut juga memiliki role legal).
+    // Rantai Legal Drafting diproses hanya dari workspace Legal.
     if (n.tahapan === 'legal_drafting' && hasWaitingLegalRows) {
       const approvalActions: JenisAksi[] = ['setuju', 'tolak', 'kembalikan'];
+      availableActions = availableActions.filter(
+        (action) => !approvalActions.includes(action),
+      );
       if (isCurrentApprover) {
         availableActions = [
           ...availableActions.filter(
-            (action) => !approvalActions.includes(action),
+            (action) => action !== 'kirim-approval-legal',
           ),
-          ...approvalActions,
+          'kirim-approval-legal',
         ];
-      } else {
-        availableActions = availableActions.filter(
-          (action) => !approvalActions.includes(action),
-        );
       }
     }
 
@@ -652,15 +707,13 @@ export class NaskahLainnyaService {
       availableActions = availableActions.filter((a) => a !== 'kirim');
     }
 
-    // Evaluasi baru: pemrakarsa mengirim ke EVP; keputusan hanya milik EVP aktif.
+    // Evaluasi: hasil Legal Drafting otomatis jatuh ke pejabat pemrakarsa (EVP)
+    // saat drafting selesai — konseptor pemrakarsa tidak lagi menerima naskah
+    // di tahap ini. Keputusan hanya milik EVP aktif.
     if (n.tahapan === 'evaluasi') {
       availableActions = availableActions.filter(
         (a) => a !== 'evaluasi' && a !== 'kembalikan-evaluasi',
       );
-      const hasEvaluationRequest = waitingRows.length > 0;
-      if (isPemrakarsa && !hasEvaluationRequest) {
-        availableActions.push('kirim-evaluasi');
-      }
       if (isCurrentApprover) {
         availableActions.push(
           'lanjut-persetujuan',
@@ -1382,7 +1435,15 @@ export class NaskahLainnyaService {
       });
     }
 
-    return { success: true, data: rows.map((r) => this.toListItem(r)) };
+    const pemrakarsaPejabatByNaskah =
+      await this.getPemrakarsaPejabatByNaskah(rows.map((row) => row.id));
+    return {
+      success: true,
+      data: rows.map((r) => ({
+        ...this.toListItem(r),
+        pemrakarsaPejabat: pemrakarsaPejabatByNaskah.get(r.id),
+      })),
+    };
   }
 
   // ---------- Legal Drafting (antrian khusus legal role) ----------
@@ -1505,10 +1566,13 @@ export class NaskahLainnyaService {
           latestAksiByNaskah.set(rw.naskahId, rw.aksi);
       }
     }
+    const pemrakarsaPejabatByNaskah =
+      await this.getPemrakarsaPejabatByNaskah(ids);
     return {
       success: true,
       data: rows.map((r) => ({
         ...this.toListItem(r),
+        pemrakarsaPejabat: pemrakarsaPejabatByNaskah.get(r.id),
         statusLegal: this.computeStatusLegal(
           String(r.tahapan ?? 'konsep'),
           statusByNaskah.get(r.id) ?? [],
@@ -1576,6 +1640,12 @@ export class NaskahLainnyaService {
     if (posId) {
       conditions.push('a.position_id = :positionId');
       params.positionId = posId;
+    }
+    // Delegasi direksi: pengganti (PT/PH/PS) melihat antrean naskah yang
+    // paraf-nya didelegasikan ke dia — samakan dengan isApprovalAssignedToUser.
+    if (user.persnum) {
+      conditions.push('a.delegate_persnum = :persnum');
+      params.persnum = user.persnum;
     }
     if (user.nama) {
       // Nama hanya fallback untuk approval legacy tanpa position_id. Approval
@@ -1949,6 +2019,11 @@ export class NaskahLainnyaService {
     if (targetRow.status !== 'waiting') {
       throw new BadRequestException('Baris approval sudah diproses');
     }
+    if (targetRow.tahap === 'legal_drafting') {
+      throw new BadRequestException(
+        'Gunakan aksi Kirim atau Teruskan pada halaman Legal Drafting.',
+      );
+    }
     if (targetRow.tahap !== n.tahapan) {
       throw new BadRequestException(
         'Baris approval tidak berada pada tahap aktif',
@@ -2091,78 +2166,12 @@ export class NaskahLainnyaService {
     return recipient;
   }
 
-  async kirimEvaluasi(id: string, dto: KirimEvaluasiDto, user: CurrentUser) {
-    const n = await this.findNaskah(id);
-    if (n.tahapan !== 'evaluasi') {
-      throw new BadRequestException('Naskah tidak dalam fase evaluasi.');
-    }
-    if (!this.isPemrakarsa(n, user)) {
-      throw new ForbiddenException(
-        'Hanya pemrakarsa yang dapat mengirim evaluasi.',
-      );
-    }
-    const defaultVerifier = n.approvalChain?.at(-1);
-    if (!defaultVerifier?.positionId) {
-      throw new BadRequestException(
-        'Verifikator terakhir/tertinggi dari form awal tidak tersedia.',
-      );
-    }
-    const pemrakarsaPositionId = String(user.positionId ?? user.position ?? '');
-    if (!pemrakarsaPositionId) {
-      throw new BadRequestException('Position ID pemrakarsa tidak tersedia.');
-    }
-    const managerial = await this.orgDataService.getAtasanManagerial(
-      Number(pemrakarsaPositionId),
+  async kirimEvaluasi(_id: string, _dto: KirimEvaluasiDto, _user: CurrentUser) {
+    // Tugas evaluasi otomatis di-seed ke pejabat pemrakarsa (EVP) saat seluruh
+    // approval Legal Drafting terverifikasi — konseptor tidak perlu mengirim.
+    throw new BadRequestException(
+      'Evaluasi otomatis diteruskan ke EVP saat Legal Drafting selesai.',
     );
-    const selectedVerifier = managerial.data.find(
-      (row: any) => String(row.position) === String(defaultVerifier.positionId),
-    );
-    if (!selectedVerifier) {
-      throw new BadRequestException(
-        'Verifikator harus pejabat managerial di atas pemrakarsa.',
-      );
-    }
-    const existing = await this.approvalRepo.find({ where: { naskahId: id } });
-    if (
-      existing.some(
-        (row) => row.tahap === 'evaluasi' && row.status === 'waiting',
-      )
-    ) {
-      throw new BadRequestException('Evaluasi sudah dikirim ke EVP.');
-    }
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.delete(NaskahLainnyaApprovalEntity, {
-        naskahId: id,
-        tahap: 'evaluasi',
-      });
-      await manager.save(
-        this.approvalRepo.create({
-          id: uuidv4(),
-          naskahId: id,
-          tahap: 'evaluasi',
-          positionId: String(selectedVerifier.position),
-          nama:
-            selectedVerifier.persnum_person_text ??
-            selectedVerifier.nama ??
-            defaultVerifier.nama,
-          jabatan: selectedVerifier.position_text ?? defaultVerifier.jabatan,
-          urutan: 1,
-          status: 'waiting',
-        }),
-      );
-      await this.tulisRiwayatEvaluasi(
-        manager,
-        id,
-        'kirim-evaluasi',
-        'evaluasi',
-        'menunggu keputusan EVP',
-        user,
-        dto.catatan,
-      );
-    });
-    await this.publishWorkflowUpdate(n, true);
-    return this.getDetail(id, user);
   }
 
   async keputusanEvaluasi(
@@ -2197,7 +2206,10 @@ export class NaskahLainnyaService {
     }
 
     let next: Tahapan;
-    if (dto.keputusan === 'legal_drafting_ulang') next = 'legal_drafting';
+    // Legal Drafting Ulang → balik ke pemrakarsa konseptor untuk merevisi form
+    // awal (form terisi data sebelumnya). Setelah kirim ulang, naskah menempuh
+    // rantai persetujuan → legal drafting dari awal.
+    if (dto.keputusan === 'legal_drafting_ulang') next = 'perlu_perbaikan';
     else if (dto.keputusan === 'batalkan') next = 'dibatalkan';
     else
       next =
@@ -2212,12 +2224,6 @@ export class NaskahLainnyaService {
       evpRow.tanggal = new Date();
       await manager.save(evpRow);
 
-      if (next === 'legal_drafting') {
-        await manager.delete(NaskahLainnyaApprovalEntity, {
-          naskahId: id,
-          tahap: 'legal_drafting',
-        });
-      }
       if (next === 'persetujuan_lanjutan') {
         await manager.delete(NaskahLainnyaApprovalEntity, {
           naskahId: id,
@@ -2466,7 +2472,7 @@ export class NaskahLainnyaService {
 
   async kirimApprovalBlanko(_id: string, _user: CurrentUser) {
     throw new BadRequestException(
-      'Blanko Verbal Persetujuan Direksi selesai otomatis setelah approval Ditetapkan/Disahkan Oleh.',
+      'Blanko Verbal selesai otomatis setelah approval Ditetapkan/Disahkan Oleh.',
     );
   }
 
@@ -2478,37 +2484,305 @@ export class NaskahLainnyaService {
     catatanLegal?: string,
   ) {
     const n = await this.findNaskah(id);
-    // Hanya legal role yang bisa kirim approval legal drafting.
-    const posId = String(user.positionId ?? user.position ?? '');
-    const activeIds = await this.legalRoleService.getActivePositionIds();
-    const isLegal = activeIds.includes(posId);
-    if (!isLegal) {
-      throw new ForbiddenException(
-        'Hanya unit legal yang dapat mengirim approval legal drafting.',
-      );
-    }
-    if (!approval?.length) {
-      throw new BadRequestException(
-        'Pilih minimal satu pemberi persetujuan legal.',
-      );
-    }
+    this.assertLegalDraftingStage(n);
+    const legalPeople = (await this.legalRoleService.findAll()).filter(
+      (person) => person.isActive,
+    );
+    const currentPerson = this.requireCurrentLegalPerson(user, legalPeople);
+    let rows = await this.getLegalDraftingRows(id);
+
     await this.dataSource.transaction(async (manager) => {
-      await this.workflow.buatApprovalLegalDrafting(manager, n, approval, {
-        aktor: user.nama,
-        jabatan: user.positionText,
-        catatan,
-      });
-      // Catatan legal (TinyMCE) persist ke kolom naskah (item #4).
-      if (catatanLegal !== undefined) {
-        await manager.update(
-          NaskahEntity,
-          { id: n.id, tanggal: n.tanggal as any },
-          { catatanLegal: catatanLegal || null },
+      let active = rows.find((row) => row.status === 'waiting');
+      if (!active) {
+        const pengesah = this.requireLegalCertifier(
+          approval?.at(-1),
+          legalPeople,
         );
+        rows = await this.createLegalDraftingChain(
+          manager,
+          n,
+          currentPerson,
+          pengesah,
+          user,
+        );
+        active = rows[0];
       }
+
+      this.assertActiveLegalRecipient(active, user);
+      active.status = 'verified';
+      active.catatan = catatan ?? active.catatan;
+      active.tanggal = new Date();
+      await manager.save(active);
+
+      const next = rows
+        .filter((row) => row.urutan > active.urutan && row.status === 'pending')
+        .sort((a, b) => a.urutan - b.urutan)[0];
+      if (next) {
+        next.status = 'waiting';
+        await manager.save(next);
+        await this.writeLegalDraftingHistory(
+          manager,
+          n.id,
+          'kirim-legal-drafting',
+          user,
+          `Dikirim kepada ${next.nama}`,
+          catatan,
+        );
+      } else {
+        // Pejabat yang Mengesahkan merupakan simpul terakhir. Jika ia sendiri
+        // yang mengerjakan, Kirim langsung memfinalkan tahap Legal Drafting.
+        await this.workflow.transisi(n, 'kirim-approval-legal', {
+          aktor: user.nama,
+          jabatan: user.positionText,
+          catatan,
+          manager,
+        });
+        // Legal Drafting sah → hasilnya otomatis jatuh ke pejabat pemrakarsa
+        // (EVP): verifikator akhir rantai persetujuan awal, bukan konseptor
+        // pemrakarsa. (ponytail: evaluasi row di-seed di transisi ini —
+        // satu-satunya pintu masuk tahap evaluasi.)
+        if (n.tahapan === 'evaluasi') {
+          await this.seedEvaluasiEvpRow(manager, n);
+        }
+      }
+      await this.persistLegalNote(manager, n, catatanLegal);
     });
     await this.publishWorkflowUpdate(n, true);
     return this.getDetail(id, user);
+  }
+
+  async teruskanLegalDrafting(
+    id: string,
+    penerima: { positionId?: string | null; nama: string; jabatan: string },
+    pengesahInput:
+      | { positionId?: string | null; nama: string; jabatan: string }
+      | undefined,
+    user: CurrentUser,
+    catatan?: string,
+    catatanLegal?: string,
+  ) {
+    const n = await this.findNaskah(id);
+    this.assertLegalDraftingStage(n);
+    const legalPeople = (await this.legalRoleService.findAll()).filter(
+      (person) => person.isActive,
+    );
+    const currentPerson = this.requireCurrentLegalPerson(user, legalPeople);
+    const penerimaResmi = this.requireLegalRecipient(penerima, legalPeople);
+    let rows = await this.getLegalDraftingRows(id);
+
+    await this.dataSource.transaction(async (manager) => {
+      let active = rows.find((row) => row.status === 'waiting');
+      if (!active) {
+        const pengesah = this.requireLegalCertifier(pengesahInput, legalPeople);
+        rows = await this.createLegalDraftingChain(
+          manager,
+          n,
+          currentPerson,
+          pengesah,
+          user,
+        );
+        active = rows[0];
+      }
+
+      this.assertActiveLegalRecipient(active, user);
+      if (
+        rows.some(
+          (row) =>
+            row.positionId &&
+            row.positionId === String(penerimaResmi.positionId),
+        )
+      ) {
+        throw new BadRequestException(
+          'Penerima sudah terdapat pada rantai Legal Drafting.',
+        );
+      }
+
+      const insertAt = active.urutan;
+      const rowsToShift = rows
+        .filter((row) => row.urutan >= insertAt)
+        .sort((a, b) => b.urutan - a.urutan);
+      for (const row of rowsToShift) {
+        row.urutan += 1;
+        if (row.id === active.id) row.status = 'pending';
+        await manager.save(row);
+      }
+
+      const newActive = this.approvalRepo.create({
+        id: uuidv4(),
+        naskahId: n.id,
+        tahap: 'legal_drafting',
+        positionId: String(penerimaResmi.positionId),
+        nama: penerimaResmi.nama,
+        jabatan: penerimaResmi.jabatan,
+        urutan: insertAt,
+        status: 'waiting',
+      });
+      await manager.save(newActive);
+      await this.writeLegalDraftingHistory(
+        manager,
+        n.id,
+        'teruskan-legal-drafting',
+        user,
+        `Diteruskan kepada ${newActive.nama}`,
+        catatan,
+      );
+      await this.persistLegalNote(manager, n, catatanLegal);
+    });
+
+    await this.publishWorkflowUpdate(n, true);
+    return this.getDetail(id, user);
+  }
+
+  private assertLegalDraftingStage(naskah: NaskahEntity): void {
+    if (naskah.tahapan !== 'legal_drafting') {
+      throw new BadRequestException(
+        'Naskah tidak berada pada tahap Legal Drafting.',
+      );
+    }
+  }
+
+  private requireCurrentLegalPerson(
+    user: CurrentUser,
+    legalPeople: LegalPerson[],
+  ): LegalPerson {
+    const positionId = String(user.positionId ?? user.position ?? '');
+    const person = legalPeople.find(
+      (item) => String(item.positionId) === positionId,
+    );
+    if (!person) {
+      throw new ForbiddenException(
+        'Hanya penerima aktif dari Unit Legal yang dapat memproses Legal Drafting.',
+      );
+    }
+    return person;
+  }
+
+  private requireLegalRecipient(
+    input: { positionId?: string | null; nama: string; jabatan: string },
+    legalPeople: LegalPerson[],
+  ): LegalPerson {
+    const positionId = String(input?.positionId ?? '');
+    const person = legalPeople.find(
+      (item) => String(item.positionId) === positionId,
+    );
+    if (!person) {
+      throw new BadRequestException(
+        'Penerima harus anggota aktif dari Unit Legal.',
+      );
+    }
+    return person;
+  }
+
+  private requireLegalCertifier(
+    input:
+      | { positionId?: string | null; nama: string; jabatan: string }
+      | undefined,
+    legalPeople: LegalPerson[],
+  ): LegalPerson {
+    if (!input) {
+      throw new BadRequestException('Pilih Pejabat yang Mengesahkan.');
+    }
+    const person = this.requireLegalRecipient(input, legalPeople);
+    if (!person.chief) {
+      throw new BadRequestException(
+        'Pejabat yang Mengesahkan harus pejabat manajerial Unit Legal.',
+      );
+    }
+    return person;
+  }
+
+  private async getLegalDraftingRows(
+    naskahId: string,
+  ): Promise<NaskahLainnyaApprovalEntity[]> {
+    const rows = await this.approvalRepo.find({
+      where: { naskahId, tahap: 'legal_drafting' },
+    });
+    return rows.sort((a, b) => a.urutan - b.urutan);
+  }
+
+  private assertActiveLegalRecipient(
+    row: NaskahLainnyaApprovalEntity | undefined,
+    user: CurrentUser,
+  ): asserts row is NaskahLainnyaApprovalEntity {
+    if (!row || !this.isApprovalAssignedToUser(row, user)) {
+      throw new ForbiddenException(
+        'Saat ini bukan giliran Anda memproses Legal Drafting.',
+      );
+    }
+  }
+
+  private async createLegalDraftingChain(
+    manager: EntityManager,
+    naskah: NaskahEntity,
+    current: LegalPerson,
+    pengesah: LegalPerson,
+    user: CurrentUser,
+  ): Promise<NaskahLainnyaApprovalEntity[]> {
+    await manager.delete(NaskahLainnyaApprovalEntity, {
+      naskahId: naskah.id,
+      tahap: 'legal_drafting',
+    });
+    const people =
+      current.positionId === pengesah.positionId
+        ? [current]
+        : [current, pengesah];
+    const rows = people.map((person, index) =>
+      this.approvalRepo.create({
+        id: uuidv4(),
+        naskahId: naskah.id,
+        tahap: 'legal_drafting',
+        positionId: String(person.positionId),
+        nama: person.nama,
+        jabatan: person.jabatan,
+        urutan: index + 1,
+        status: index === 0 ? 'waiting' : 'pending',
+      }),
+    );
+    for (const row of rows) await manager.save(row);
+    await this.writeLegalDraftingHistory(
+      manager,
+      naskah.id,
+      'tetapkan-pengesah-legal',
+      user,
+      `Pejabat yang Mengesahkan: ${pengesah.nama}`,
+    );
+    return rows;
+  }
+
+  private async writeLegalDraftingHistory(
+    manager: EntityManager,
+    naskahId: string,
+    aksi: string,
+    user: CurrentUser,
+    status: string,
+    catatan?: string,
+  ): Promise<void> {
+    await manager.save(
+      this.riwayatRepo.create({
+        id: uuidv4(),
+        naskahId,
+        aksi,
+        aktor: user.nama,
+        jabatan: user.positionText ?? null,
+        tahap: 'legal_drafting',
+        status,
+        catatan: catatan ?? null,
+        tanggal: new Date(),
+      }),
+    );
+  }
+
+  private async persistLegalNote(
+    manager: EntityManager,
+    naskah: NaskahEntity,
+    catatanLegal?: string,
+  ): Promise<void> {
+    if (catatanLegal === undefined) return;
+    await manager.update(
+      NaskahEntity,
+      { id: naskah.id, tanggal: naskah.tanggal as any },
+      { catatanLegal: catatanLegal || null },
+    );
   }
 
   async kembalikanLegal(id: string, catatan: string, user: CurrentUser) {
@@ -3984,7 +4258,7 @@ export class NaskahLainnyaService {
     approvalId: string,
     dto: AssignDelegasiDireksiDto,
     user: CurrentUser,
-  ): Promise<ReturnType<NaskahLainnyaService["toApprovalRow"]>> {
+  ): Promise<ReturnType<NaskahLainnyaService['toApprovalRow']>> {
     await this.assertLegalRole(user);
     const row = await this.approvalRepo.findOne({
       where: { id: approvalId, naskahId: id },
@@ -3996,9 +4270,7 @@ export class NaskahLainnyaService {
       );
     }
     if (row.status !== 'waiting') {
-      throw new ConflictException(
-        'Baris sudah diparaf, delegasi terkunci.',
-      );
+      throw new ConflictException('Baris sudah diparaf, delegasi terkunci.');
     }
     row.delegatePersnum = dto.delegatePersnum;
     row.delegateName = dto.delegateName.trim();
@@ -4019,9 +4291,7 @@ export class NaskahLainnyaService {
     });
     if (!row) throw new NotFoundException('Baris approval tidak ditemukan');
     if (row.status !== 'waiting') {
-      throw new ConflictException(
-        'Baris sudah diparaf, delegasi terkunci.',
-      );
+      throw new ConflictException('Baris sudah diparaf, delegasi terkunci.');
     }
     row.delegatePersnum = null;
     row.delegateName = null;
@@ -4146,13 +4416,24 @@ export class NaskahLainnyaService {
         all.find((d) => positionId && d.positionId === positionId) ||
         all.find((d) => nama && String(d.nama).trim().toLowerCase() === nama);
       if (!match && isExplicitSelection) continue;
-      const normalizedItem = match
-        ? {
-            ...match,
-            nama: item?.nama ? String(item.nama).trim() : match.nama,
-            jabatan: match.jabatan,
-          }
-        : item;
+      const normalizedItem = {
+        ...(match
+          ? {
+              ...match,
+              nama: item?.nama ? String(item.nama).trim() : match.nama,
+              jabatan: match.jabatan,
+            }
+          : item),
+        // Nama ybs (pejabat asal) — approval row tetap atas nama direksi,
+        // nama pengganti disimpan di kolom delegasi.
+        namaPejabat: match?.nama ?? item?.nama,
+        // Status delegasi direksi — default 'ybs' (pejabat bersangkungan).
+        delegator: item?.delegator?.trim() || 'ybs',
+        // Routing delegasi ke pengganti (persnum dari pilihan nama BOD-1).
+        delegatePersnum: item?.delegatePersnum,
+        delegateName: item?.delegateName,
+        delegatePositionStatus: item?.delegatePositionStatus,
+      };
       const key =
         normalizedItem.positionId ||
         `${String(normalizedItem.nama ?? '')
@@ -4270,6 +4551,95 @@ export class NaskahLainnyaService {
     );
   }
 
+  /**
+   * Pejabat pemrakarsa (EVP) = simpul terakhir/tertinggi rantai persetujuan awal
+   * (`tahap=persetujuan`), bukan user konseptor yang mengirim.
+   */
+  private resolveEvpFromPersetujuan(
+    rows: NaskahLainnyaApprovalEntity[],
+  ): NaskahLainnyaApprovalEntity | undefined {
+    return [...rows]
+      .filter((r) => r.tahap === 'persetujuan')
+      .sort((a, b) => b.urutan - a.urutan)[0];
+  }
+
+  /**
+   * Seed baris tugas evaluasi untuk pejabat pemrakarsa (EVP) — penerima awal
+   * hasil Legal Drafting. Idempotent: hapus baris evaluasi lama dulu (mis. sisa
+   * rejected dari siklus sebelumnya) lalu seed baru.
+   */
+  private async seedEvaluasiEvpRow(
+    manager: EntityManager,
+    naskah: NaskahEntity,
+  ): Promise<NaskahLainnyaApprovalEntity | null> {
+    const persetujuanRows = (await manager.find(NaskahLainnyaApprovalEntity, {
+      where: { naskahId: naskah.id, tahap: 'persetujuan' },
+    })) as NaskahLainnyaApprovalEntity[];
+    const evp = this.resolveEvpFromPersetujuan(persetujuanRows);
+    if (!evp) return null;
+    await manager.delete(NaskahLainnyaApprovalEntity, {
+      naskahId: naskah.id,
+      tahap: 'evaluasi',
+    });
+    const row = this.approvalRepo.create({
+      id: uuidv4(),
+      naskahId: naskah.id,
+      tahap: 'evaluasi',
+      positionId: evp.positionId ?? null,
+      nama: evp.nama,
+      jabatan: evp.jabatan,
+      urutan: 1,
+      status: 'waiting',
+    });
+    await manager.save(row);
+    return row;
+  }
+
+  /**
+   * Recovery: naskah pada tahap evaluasi tanpa baris evaluasi (legacy sebelum
+   * seeding otomatis). Baris tugas EVP dibuat saat detail dibuka.
+   */
+  private async recoverEvaluasiEvpRow(
+    naskah: NaskahEntity,
+    rows: NaskahLainnyaApprovalEntity[],
+  ): Promise<void> {
+    if (naskah.tahapan !== 'evaluasi') return;
+    if (rows.some((r) => r.tahap === 'evaluasi')) return;
+    const seeded = await this.dataSource.transaction((manager) =>
+      this.seedEvaluasiEvpRow(manager, naskah),
+    );
+    if (seeded) rows.push(seeded);
+  }
+
+  /**
+   * Baris approval sheet dari form: bila delegator ≠ 'ybs' dan ada persnum
+   * pengganti, task paraf diroute ke pengganti lewat kolom delegasi
+   * (isApprovalAssignedToUser match delegatePersnum duluan) — nama row tetap
+   * ybs direksi, nama pengganti di delegateName.
+   */
+  private sheetApprovalFields(d: any) {
+    const delegated =
+      d.delegator &&
+      d.delegator !== 'ybs' &&
+      d.delegatePersnum != null &&
+      Number(d.delegatePersnum) > 0;
+    return delegated
+      ? {
+          positionId: d.positionId ?? null,
+          nama: d.namaPejabat ?? d.nama,
+          jabatan: d.jabatan,
+          delegatePersnum: Number(d.delegatePersnum),
+          delegateName: d.delegateName ?? d.nama,
+          delegatePositionStatus: (d.delegatePositionStatus ??
+            d.delegator) as string,
+        }
+      : {
+          positionId: d.positionId ?? null,
+          nama: d.nama,
+          jabatan: d.jabatan,
+        };
+  }
+
   private async seedBodApprovals(
     manager: EntityManager,
     naskahId: string,
@@ -4282,9 +4652,7 @@ export class NaskahLainnyaService {
         id: uuidv4(),
         naskahId,
         tahap,
-        positionId: d.positionId ?? null,
-        nama: d.nama,
-        jabatan: d.jabatan,
+        ...this.sheetApprovalFields(d),
         urutan: index + 1,
         status: 'waiting',
       });
@@ -4304,9 +4672,7 @@ export class NaskahLainnyaService {
         id: uuidv4(),
         naskahId,
         tahap,
-        positionId: d.positionId ?? null,
-        nama: d.nama,
-        jabatan: d.jabatan,
+        ...this.sheetApprovalFields(d),
         urutan: index + 1,
         status: initialStatus,
       });
@@ -4370,12 +4736,7 @@ export class NaskahLainnyaService {
       { signedLampiran: upload.key },
     );
     naskah.signedLampiran = upload.key;
-    await this.upsertDittdRow(
-      naskah.id,
-      upload.key,
-      user,
-      final,
-    );
+    await this.upsertDittdRow(naskah.id, upload.key, user, final);
   }
 
   /**
@@ -4472,6 +4833,7 @@ export class NaskahLainnyaService {
         positionId: d.positionId,
         nama: d.nama,
         jabatan: d.jabatan,
+        delegator: d.delegator || 'ybs',
         signatureVisible: verifiedDitetapkanIndices.has(i + 1),
       })),
       diketahuiOleh: diketahuiOleh.map((d: any, i: number) => {
@@ -4480,6 +4842,7 @@ export class NaskahLainnyaService {
           positionId: d.positionId,
           nama: d.nama,
           jabatan: d.jabatan,
+          delegator: d.delegator || 'ybs',
           signatureVisible: verifiedIndices.has(i + 1),
         };
       }),

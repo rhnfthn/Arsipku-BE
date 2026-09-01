@@ -52,6 +52,9 @@ export class OrgDataService {
     // org, tidak perlu filter per company. Param tetap di signature agar caller
     // (controller getBod & naskah getBodDirectors) tak berubah.
     company?: string | number,
+    // bod_tag yang disertakan — default BOD (direksi); endpoint bod-bod1
+    // memakai ['BOD','BOD-1'] untuk opsi pengganti penandatanga direksi.
+    tags: string[] = ['BOD'],
   ): Array<{
     positionId: string;
     persnum?: number;
@@ -82,22 +85,21 @@ export class OrgDataService {
       const idx = BOD_ORDER.findIndex((k) => t.includes(k));
       return idx >= 0 ? idx : BOD_ORDER.length;
     };
+    const wanted = tags.map((t) => t.toUpperCase().trim());
     return barisData
       .filter(
         (x) =>
           x &&
-          String(x.bod_tag || '')
-            .toUpperCase()
-            .trim() === 'BOD',
+          wanted.includes(String(x.bod_tag || '').toUpperCase().trim()),
       )
       .map((x) => ({
         positionId: String(x.position ?? ''),
         persnum: x.persnum_person ? Number(x.persnum_person) : undefined,
         nama: x.persnum_person_text || '',
         jabatan: x.position_text || '',
-        bodTag: 'BOD',
+        bodTag: String(x.bod_tag || '').toUpperCase().trim(),
       }))
-      .sort((a, b) => rankBod(a.jabatan) - rankBod(b.jabatan));
+      .sort((a, b) => rankBod(a.jabatan) - rankBod(b.jabatan) || a.jabatan.localeCompare(b.jabatan));
   }
 
   async findOne(id: string): Promise<OrgDatum> {

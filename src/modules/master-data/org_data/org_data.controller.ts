@@ -257,6 +257,25 @@ export class OrgDataController {
   }
 
   /**
+   * GET /org-data/bod-bod1
+   * Semua BOD & BOD-1 lintas direktorat — opsi pengganti penandatanga
+   * direksi di form blanko verbal / lembar persetujuan direksi
+   * (naskah-lainnya). Jabatan pengganti tetap jabatan BOD direksi.
+   */
+  @Get('bod-bod1')
+  @UseGuards(AuthGuard('jwt'))
+  async getBodBod1() {
+    const latestOrg = await this.orgBuildService.findLatestOrg();
+    return {
+      data: this.orgBuildService.findBodByCompany(
+        latestOrg ? [latestOrg] : [],
+        undefined,
+        ['BOD', 'BOD-1'],
+      ),
+    };
+  }
+
+  /**
    * GET /org-data/atasnama/:positionId
    * Get atasan (pejabat pemberi kuasa) untuk positionId — chief=1 di
    * direktorat + company yang sama, exclude signer. Untuk dropdown

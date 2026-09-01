@@ -52,7 +52,7 @@ describe('WorkflowService', () => {
     expect(labels).not.toContain('Legal Drafting');
     expect(labels).not.toContain('Evaluasi');
     expect(labels).not.toContain('Persetujuan Direksi');
-    expect(labels).not.toContain('Blanko Verbal');
+    expect(labels).not.toContain('Blanko Verbal / Persetujuan Direksi');
     // step tersisa berurutan 1..M, persetujuan aktif
     expect(steps.map((s) => s.step)).toEqual([1, 2, 3, 4]);
     expect(steps.find((s) => s.label === 'Persetujuan')?.status).toBe('active');
@@ -106,6 +106,27 @@ describe('WorkflowService', () => {
     });
     expect(next).toBe('legal_drafting');
     expect(approval.find((a) => a.id === 'a2')?.status).toBe('verified');
+  });
+
+  it('setuju baris terakhir persetujuan tetap maju walau ada baris evaluasi rejected dari siklus sebelumnya (daur ulang Legal Drafting Ulang)', async () => {
+    const naskah = {
+      id: 'n2-recycle',
+      tahapan: 'persetujuan',
+      butuhLegal: true,
+    } as NaskahEntity;
+    const approval = [
+      { id: 'a1', tahap: 'persetujuan', urutan: 1, status: 'verified' },
+      { id: 'a2', tahap: 'persetujuan', urutan: 2, status: 'waiting' },
+      // Sisa siklus evaluasi sebelumnya — tidak boleh menghalangi tahap aktif.
+      { id: 'evp', tahap: 'evaluasi', urutan: 1, status: 'rejected' },
+    ] as NaskahLainnyaApprovalEntity[];
+    const manager = { save: jest.fn((e) => e) };
+    const next = await svc.applyApproval(naskah, approval, 'a2', 'setuju', {
+      aktor: 'Test',
+      catatan: 'ok',
+      manager: manager as any,
+    });
+    expect(next).toBe('legal_drafting');
   });
 
   it('setuju pada baris terakhir persetujuan → tanda_tangan (!butuhLegal, N=2; skip evaluasi)', async () => {
@@ -422,6 +443,48 @@ describe('WorkflowService', () => {
     expect(naskah.tahapan).toBe('selesai');
   });
 
+  it('applyApproval LPD pilihan pada blanko: Ditetapkan aktif setelah Diketahui lalu selesai', async () => {
+    const naskah = {
+      id: 'n-lpd-option',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'lpd-established',
+        tahap: 'persetujuan_direksi_ditetapkan',
+        status: 'pending',
+        urutan: 1,
+      },
+      {
+        id: 'lpd-known',
+        tahap: 'persetujuan_direksi',
+        status: 'waiting',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    const afterDiketahui = await svc.applyApproval(
+      naskah,
+      rows,
+      'lpd-known',
+      'setuju',
+      { aktor: 'Direktur', manager: manager as any },
+    );
+    expect(afterDiketahui).toBe('blanko_verbal');
+    expect(rows[0].status).toBe('waiting');
+
+    const next = await svc.applyApproval(
+      naskah,
+      rows,
+      'lpd-established',
+      'setuju',
+      { aktor: 'Direktur Utama', manager: manager as any },
+    );
+    expect(next).toBe('selesai');
+  });
+
   it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
     const naskah = {
       id: 'n-reject',
@@ -636,7 +699,7 @@ describe('WorkflowService', () => {
   it('buildStepper menggabungkan persetujuan direksi dan blanko verbal', () => {
     const stepper = svc.buildStepper('persetujuan_direksi', true, 0);
     expect(stepper.map((s) => s.label)).toContain(
-      'Blanko Verbal Persetujuan Direksi',
+      'Blanko Verbal / Persetujuan Direksi',
     );
     expect(stepper.map((s) => s.label)).not.toContain('Persetujuan Direksi');
   });

@@ -33,6 +33,7 @@ import {
   BlankoDto,
   TandaTanganDto,
   KirimApprovalLegalDto,
+  TeruskanLegalDraftingDto,
   ManualFinalStatusDto,
   ManualFinalNomorDto,
   UpdatePenandatanganFisikDto,
@@ -249,6 +250,22 @@ export class NaskahLainnyaController {
     return this.service.kirimApprovalLegal(
       id,
       dto.approval,
+      user,
+      dto.catatan,
+      dto.catatan_legal,
+    );
+  }
+
+  @Post(':id/legal-drafting/teruskan')
+  teruskanLegalDrafting(
+    @Param('id') id: string,
+    @Body() dto: TeruskanLegalDraftingDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.teruskanLegalDrafting(
+      id,
+      dto.penerima,
+      dto.pengesah,
       user,
       dto.catatan,
       dto.catatan_legal,
