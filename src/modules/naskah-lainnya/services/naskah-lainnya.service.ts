@@ -797,6 +797,7 @@ export class NaskahLainnyaService {
           isPemrakarsa &&
           n.tahapan === 'selesai',
         catatanLegal: n.catatanLegal ?? null,
+        companyId: n.dikirimOleh?.company ?? null,
         availableActions,
       },
     };
