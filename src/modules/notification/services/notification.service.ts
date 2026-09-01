@@ -551,6 +551,77 @@ export class NotificationService {
   }
 
   /**
+   * Kirim notifikasi test REAL dari persnum pengirim (10010105) ke penerima
+   * (10099233). Nama + jabatan pengirim dan jabatan penerima di-resolve dari
+   * DB supaya notifikasi tampil sesuai data sebenarnya, lalu disimpan ke DB
+   * dan push ke device penerima (bukan data-only ke diri sendiri).
+   */
+  async sendRealTestNotification(
+    type: NotificationType,
+    perihal?: string,
+    instruksi?: string,
+    nomor?: string,
+    jenis?: string,
+  ): Promise<{ success: boolean; message: string; notificationId?: string }> {
+    const SENDER_PERSNUM = 10010105;
+    const RECIPIENT_PERSNUM = 10099233;
+
+    // Resolve pengirim (nama + jabatan) dari pa_personal + om_relation_sp.
+    const senderRows = await this.dataSource.query(
+      `SELECT p.name, rsp.position_text
+       FROM pa_personal p
+       LEFT JOIN om_relation_sp rsp ON rsp.relation_persnum = p.persnum
+       WHERE p.persnum = ? LIMIT 1`,
+      [SENDER_PERSNUM],
+    );
+    const sender = senderRows?.[0];
+    const pengirim = sender?.name || String(SENDER_PERSNUM);
+    const pengirimPosition = sender?.position_text || '';
+
+    // Resolve jabatan penerima (positionId) dari om_relation_sp.
+    const recRows = await this.dataSource.query(
+      `SELECT position FROM om_relation_sp WHERE relation_persnum = ? LIMIT 1`,
+      [RECIPIENT_PERSNUM],
+    );
+    const positionId = recRows?.[0]?.position;
+    if (!positionId) {
+      return {
+        success: false,
+        message: `Penerima ${RECIPIENT_PERSNUM} tidak punya jabatan aktif`,
+      };
+    }
+
+    const isDisposisi =
+      type === NotificationType.DISPOSISI ||
+      type === NotificationType.DISPOSISI_SELESAI;
+
+    const data: Record<string, any> = {
+      pengirim,
+      pengirimPosition,
+      perihal: perihal || 'Notifikasi test',
+      jenis: jenis || 'ND',
+      nomor: nomor || null,
+      action: isDisposisi ? 'OPEN_DISPOSISI_DETAIL' : 'OPEN_INBOX_DETAIL',
+    };
+    if (instruksi) data.instruksi = instruksi;
+
+    const saved = await this.createNotification({
+      positionId: String(positionId),
+      userPersnum: RECIPIENT_PERSNUM,
+      type,
+      title: pengirimPosition || pengirim,
+      body: perihal || 'Notifikasi test',
+      data,
+    });
+
+    return {
+      success: true,
+      message: `Notifikasi terkirim ke ${RECIPIENT_PERSNUM}`,
+      notificationId: saved.id,
+    };
+  }
+
+  /**
    * Cleanup terjadwal: hapus notifikasi yang sudah dibaca > 30 hari (tiap hari 03:30).
    * Mencegah tabel notification menumpuk tanpa batas.
    */
@@ -674,7 +745,11 @@ export class NotificationService {
       lines.push(`Perihal: ${perihal}`);
     }
     const instruksi = String(data.instruksi ?? '').trim();
-    if (instruksi && instruksi !== '-' && instruksi !== perihal) {
+    // Instruksi tidak ditampilkan untuk notif disposisi (cukup perihal).
+    const isDisposisi =
+      dto.type === NotificationType.DISPOSISI ||
+      dto.type === NotificationType.DISPOSISI_SELESAI;
+    if (instruksi && !isDisposisi && instruksi !== '-' && instruksi !== perihal) {
       lines.push(`Instruksi: ${instruksi}`);
     }
     const nomor = String(data.nomor ?? '').trim();
