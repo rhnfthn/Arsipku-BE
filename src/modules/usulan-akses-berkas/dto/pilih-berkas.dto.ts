@@ -19,16 +19,16 @@ export class PilihBerkasDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(50)
   @IsUUID('4', { each: true })
-  berkasIds: string[];
+  berkas_ids: string[];
 
   @IsOptional()
   @IsString()
-  catatanPenerusan?: string;
+  catatan_penerusan?: string;
 
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
   @ValidateNested({ each: true })
   @Type(() => VerifikatorDto)
-  verifikatorPemberi: VerifikatorDto[];
+  verifikator_pemberi: VerifikatorDto[];
 }
