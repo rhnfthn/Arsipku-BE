@@ -322,11 +322,18 @@ export class NotificationService {
   }
 
   /**
-   * Get notifications for a position (paginated)
+   * Get notifications for a position (paginated).
+   *
+   * Fallback ke `user_persnum` jika ada: user bisa punya multiple positions
+   * atau login dari position berbeda, tapi notifikasi push-nya sudah
+   * terkirim ke personal device (`user_persnum`). Tanpa fallback ini,
+   * notifikasi seperti DELEGASI (yang disimpan ke `as_position`, bukan
+   * position login) tidak akan muncul di list user tsb.
    */
   async getNotifications(
     positionId: string,
     query: NotificationQueryDto,
+    userPersnum?: number | null,
   ): Promise<{
     data: NotificationEntity[];
     meta: { page: number; limit: number; total: number; totalPages: number };
@@ -336,7 +343,15 @@ export class NotificationService {
 
     const queryBuilder = this.notificationRepository
       .createQueryBuilder('notification')
-      .where('notification.position_id = :positionId', { positionId });
+      .where('(notification.position_id = :positionId', { positionId });
+    if (userPersnum != null) {
+      queryBuilder.orWhere('notification.user_persnum = :userPersnum', {
+        userPersnum,
+      });
+    }
+    queryBuilder.andWhere(
+      '1 = 1)', // tutup paren WHERE yang dibuka di atas
+    );
 
     // Jangan pernah tampilkan notifikasi junk (body murni angka / kosong).
     // Backlog lama sebelum sanitizeBody dipasang masih ada di DB.
@@ -372,21 +387,32 @@ export class NotificationService {
   }
 
   /**
-   * Get unread notification count for a position
+   * Get unread notification count for a position.
+   *
+   * Fallback ke `user_persnum` (sama logikanya dengan getNotifications):
+   * user bisa login dari position berbeda, tapi push FCM sudah terkirim ke
+   * personal device-nya → unread count harus ikut menghitung notif tsb.
    *
    * Excludes junk notifications (numeric-only body or empty body).
    * Backlog notifikasi lama sebelum `sanitizeBody` dipasang masih ada di DB
    * dengan body = "12", "23", dll — yang ditampilkan mobile sebagai notif
    * angka murni. Tidak dihitung sebagai unread supaya badge launcher akurat.
    */
-  async getUnreadCount(positionId: string): Promise<number> {
-    return this.notificationRepository
+  async getUnreadCount(
+    positionId: string,
+    userPersnum?: number | null,
+  ): Promise<number> {
+    const qb = this.notificationRepository
       .createQueryBuilder('n')
-      .where('n.positionId = :positionId', { positionId })
+      .where('(n.positionId = :positionId', { positionId });
+    if (userPersnum != null) {
+      qb.orWhere('n.userPersnum = :userPersnum', { userPersnum });
+    }
+    qb.andWhere('1 = 1)')
       .andWhere('n.isRead = :isRead', { isRead: false })
       .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
-      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
-      .getCount();
+      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`);
+    return qb.getCount();
   }
 
   /**
