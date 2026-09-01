@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsInt, IsString, MaxLength, Min } from 'class-validator';
 
 export class AssignDelegasiDireksiDto {
   @IsInt()
@@ -11,8 +11,4 @@ export class AssignDelegasiDireksiDto {
 
   @IsEnum(['PT', 'PH', 'PS'])
   positionStatus: 'PT' | 'PH' | 'PS';
-
-  @IsOptional()
-  @IsString()
-  approvalId?: string;
 }
