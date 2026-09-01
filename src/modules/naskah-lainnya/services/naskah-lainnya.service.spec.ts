@@ -2831,7 +2831,7 @@ describe('NaskahLainnyaService', () => {
       assignedAt: null,
     };
     approvalRepo.findOne.mockResolvedValue(row);
-    approvalRepo.save.mockResolvedValue(row);
+    approvalRepo.save.mockImplementation((e: any) => Promise.resolve(e));
     legalRole.getActivePositionIds.mockResolvedValue(['pos-legal']);
     const saved = await svc.assignDelegasiDireksi(
       'n1',
@@ -2842,8 +2842,9 @@ describe('NaskahLainnyaService', () => {
     expect(saved.delegatePersnum).toBe(12345);
     expect(saved.delegateName).toBe('Andi');
     expect(saved.delegatePositionStatus).toBe('PT');
-    expect(saved.assignedByPersnum).toBe(99);
-    expect(saved.assignedAt).toBeInstanceOf(Date);
+    expect(saved.status).toBe('waiting');
+    expect(row.assignedByPersnum).toBe(99);
+    expect(row.assignedAt).toBeInstanceOf(Date);
   });
 
   it('assignDelegasiDireksi menolak bila baris sudah diparaf (409)', async () => {
@@ -2892,6 +2893,80 @@ describe('NaskahLainnyaService', () => {
     expect(row.delegatePositionStatus).toBeNull();
     expect(row.assignedByPersnum).toBeNull();
     expect(row.assignedAt).toBeNull();
+  });
+
+  it('parafBlankoVerbal oleh delegate: verifikasi baris waiting dan aktor a.n. delegasi', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue(sheetNaskahBlankoVerbal);
+    const approvalRows = [
+      {
+        id: 'bv1',
+        naskahId: 'n-sheet',
+        tahap: 'blanko_verbal',
+        positionId: 'POS_DIR1',
+        nama: 'Direktur Satu',
+        jabatan: 'Direktur Operasi',
+        urutan: 1,
+        status: 'waiting',
+      },
+      {
+        id: 'bv2',
+        naskahId: 'n-sheet',
+        tahap: 'blanko_verbal',
+        positionId: 'POS_DIR2',
+        nama: 'Direktur Dua',
+        jabatan: 'Direktur Utama',
+        urutan: 1,
+        status: 'waiting',
+        delegatePersnum: 5555,
+        delegateName: 'Staf Khusus',
+        delegatePositionStatus: 'PT',
+      },
+    ];
+    const txManager = {
+      save: jest.fn((e) => e),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementation(async (cb: any) =>
+      cb(txManager),
+    );
+    workflowMock.applyApproval.mockImplementationOnce(
+      async (_n, rows, rowId) => {
+        const target = rows.find((r: any) => r.id === rowId);
+        if (target) target.status = 'verified';
+        return 'blanko_verbal';
+      },
+    );
+    setupDetailMocks();
+    (svc as any).approvalRepo.find.mockResolvedValueOnce(approvalRows);
+    (svc as any).blankoService.render.mockClear();
+
+    const res = await svc.parafBlankoVerbal(
+      'n-sheet',
+      { perihal: 'p', bodyHtml: '<p>Blanko</p>' } as any,
+      {
+        nama: 'Staf Khusus',
+        persnum: 5555,
+        positionId: 'POS_DELEGATE',
+        positionText: 'Staf Khusus',
+      } as any,
+    );
+
+    const targetRow = approvalRows.find((r) => r.id === 'bv2');
+    expect(targetRow!.status).toBe('verified');
+    expect(workflowMock.applyApproval).toHaveBeenCalledWith(
+      expect.anything(),
+      approvalRows,
+      'bv2',
+      'setuju',
+      expect.objectContaining({
+        aktor: 'Direktur Dua (a.n. PT. Staf Khusus)',
+        manager: txManager,
+      }),
+    );
+    expect((svc as any).blankoService.render).toHaveBeenCalledTimes(1);
+    expect(res.success).toBe(true);
   });
 
   it('kirimEvaluasi hanya menerima verifikator managerial yang valid', async () => {

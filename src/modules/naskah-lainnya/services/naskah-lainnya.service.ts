@@ -3984,7 +3984,7 @@ export class NaskahLainnyaService {
     approvalId: string,
     dto: AssignDelegasiDireksiDto,
     user: CurrentUser,
-  ): Promise<NaskahLainnyaApprovalEntity> {
+  ): Promise<ReturnType<NaskahLainnyaService["toApprovalRow"]>> {
     await this.assertLegalRole(user);
     const row = await this.approvalRepo.findOne({
       where: { id: approvalId, naskahId: id },
@@ -4005,7 +4005,7 @@ export class NaskahLainnyaService {
     row.delegatePositionStatus = dto.positionStatus;
     row.assignedByPersnum = user.persnum;
     row.assignedAt = new Date();
-    return this.approvalRepo.save(row);
+    return this.toApprovalRow(await this.approvalRepo.save(row));
   }
 
   async removeDelegasiDireksi(
