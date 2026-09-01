@@ -131,6 +131,8 @@ let cachedVisibleDigsigLogo: string | null | undefined;
 /** Memuat logo yang sama dengan Visualisasi Digsig di frontend sebagai data URL
  * agar Puppeteer tidak perlu mengakses URL/file eksternal ketika membuat PDF. */
 function visibleDigsigLogoDataUrl(): string | null {
+  // ponytail: hanya HIT yang di-cache. Miss tidak di-cache agar logo yang baru
+  // tersedia (file ditambahkan / cwd deploy berbeda) tetap terbaca tanpa restart.
   if (cachedVisibleDigsigLogo !== undefined) return cachedVisibleDigsigLogo;
   const candidates = [
     process.env.VISUAL_DIGSIG_LOGO_PATH,
@@ -138,9 +140,8 @@ function visibleDigsigLogoDataUrl(): string | null {
     path.resolve(process.cwd(), 'public/logoAirnav.png'),
   ].filter((candidate): candidate is string => !!candidate);
   const logoPath = candidates.find((candidate) => fs.existsSync(candidate));
-  cachedVisibleDigsigLogo = logoPath
-    ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
-    : null;
+  if (!logoPath) return null;
+  cachedVisibleDigsigLogo = `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`;
   return cachedVisibleDigsigLogo;
 }
 import fs from 'fs';

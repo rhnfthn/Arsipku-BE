@@ -248,7 +248,12 @@ export class OrgDataController {
   async getBod(@Req() req) {
     const company = req.user?.company;
     const latestOrg = await this.orgBuildService.findLatestOrg();
-    return { data: this.orgBuildService.findBodByCompany(latestOrg ? [latestOrg] : [], company) };
+    return {
+      data: this.orgBuildService.findBodByCompany(
+        latestOrg ? [latestOrg] : [],
+        company,
+      ),
+    };
   }
 
   /**
@@ -280,6 +285,18 @@ export class OrgDataController {
     @Query() query: OrgFilterQueryDto,
   ) {
     return this.orgBuildService.getAtasanManagerial(
+      Number(positionId),
+      query.tgl,
+    );
+  }
+
+  @Get('managerial-satu-unit/:positionId')
+  @UseGuards(AuthGuard('jwt'))
+  async getManagerialSameUnit(
+    @Param('positionId') positionId: string,
+    @Query() query: OrgFilterQueryDto,
+  ) {
+    return this.orgBuildService.getManagerialSameUnit(
       Number(positionId),
       query.tgl,
     );
