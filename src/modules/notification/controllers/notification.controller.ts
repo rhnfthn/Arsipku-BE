@@ -3,6 +3,8 @@ import {
   Get,
   Patch,
   Delete,
+  Post,
+  Body,
   Param,
   Query,
   HttpCode,
@@ -160,5 +162,40 @@ export class NotificationController {
       message: `${count} notifications deleted`,
       data: { count },
     };
+  }
+
+  /**
+   * Test push notification (Development Testing) — kirim notifikasi REAL dari
+   * persnum 10010105 ke 10099233 (data pengirim/penerima di-resolve dari DB).
+   * Hanya superadmin.
+   */
+  @Post('test-push')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send real test notification (10010105 → 10099233)' })
+  async testPush(
+    @Body()
+    body: {
+      type: NotificationType;
+      perihal?: string;
+      instruksi?: string;
+      nomor?: string;
+      jenis?: string;
+    },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (user.role !== 'superadmin') {
+      return {
+        success: false,
+        message: 'Hanya superadmin yang bisa test push',
+      };
+    }
+
+    return this.notificationService.sendRealTestNotification(
+      body.type,
+      body.perihal,
+      body.instruksi,
+      body.nomor,
+      body.jenis,
+    );
   }
 }
