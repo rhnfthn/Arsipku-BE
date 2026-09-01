@@ -919,6 +919,9 @@ export class NaskahLainnyaService {
       urutan: a.urutan,
       status: a.status,
       catatan: a.catatan ?? undefined,
+      delegatePersnum: a.delegatePersnum ?? undefined,
+      delegateName: a.delegateName ?? undefined,
+      delegatePositionStatus: a.delegatePositionStatus ?? undefined,
       tanggal: a.tanggal ? new Date(a.tanggal).toISOString() : null,
     };
   }
@@ -4107,6 +4110,14 @@ export class NaskahLainnyaService {
     row: NaskahLainnyaApprovalEntity,
     user: CurrentUser,
   ): boolean {
+    // Delegate per-naskah: match by persnum sebelum fallback position.
+    if (
+      row.delegatePersnum &&
+      user.persnum &&
+      row.delegatePersnum === user.persnum
+    ) {
+      return true;
+    }
     const userPositionId = String(user.positionId ?? user.position ?? '');
     const rowPositionId = String(row.positionId ?? '');
     if (rowPositionId)
