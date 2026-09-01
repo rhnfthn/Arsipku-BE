@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { NaskahLainnyaService } from './naskah-lainnya.service';
@@ -2812,6 +2813,85 @@ describe('NaskahLainnyaService', () => {
     );
     expect((svc as any).blankoService.render).toHaveBeenCalledTimes(1);
     expect(res.success).toBe(true);
+  });
+
+  // ── Delegasi direksi (assign/remove oleh legal role) ──
+  it('assignDelegasiDireksi mengisi 5 kolom bila row waiting', async () => {
+    const approvalRepo = (svc as any).approvalRepo;
+    const legalRole = (svc as any).legalRoleService;
+    const row: any = {
+      id: 'a1',
+      naskahId: 'n1',
+      tahap: 'blanko_verbal',
+      status: 'waiting',
+      delegatePersnum: null,
+      delegateName: null,
+      delegatePositionStatus: null,
+      assignedByPersnum: null,
+      assignedAt: null,
+    };
+    approvalRepo.findOne.mockResolvedValue(row);
+    approvalRepo.save.mockResolvedValue(row);
+    legalRole.getActivePositionIds.mockResolvedValue(['pos-legal']);
+    const saved = await svc.assignDelegasiDireksi(
+      'n1',
+      'a1',
+      { delegatePersnum: 12345, delegateName: 'Andi', positionStatus: 'PT' },
+      { persnum: 99, nama: 'Legal', positionId: 'pos-legal' } as any,
+    );
+    expect(saved.delegatePersnum).toBe(12345);
+    expect(saved.delegateName).toBe('Andi');
+    expect(saved.delegatePositionStatus).toBe('PT');
+    expect(saved.assignedByPersnum).toBe(99);
+    expect(saved.assignedAt).toBeInstanceOf(Date);
+  });
+
+  it('assignDelegasiDireksi menolak bila baris sudah diparaf (409)', async () => {
+    const approvalRepo = (svc as any).approvalRepo;
+    const legalRole = (svc as any).legalRoleService;
+    approvalRepo.findOne.mockResolvedValue({
+      id: 'a1',
+      naskahId: 'n1',
+      tahap: 'blanko_verbal',
+      status: 'verified',
+    } as any);
+    legalRole.getActivePositionIds.mockResolvedValue(['pos-legal']);
+    await expect(
+      svc.assignDelegasiDireksi(
+        'n1',
+        'a1',
+        { delegatePersnum: 1, delegateName: 'X', positionStatus: 'PT' },
+        { persnum: 99, positionId: 'pos-legal' } as any,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('removeDelegasiDireksi meng-null-kan 5 kolom bila waiting', async () => {
+    const approvalRepo = (svc as any).approvalRepo;
+    const legalRole = (svc as any).legalRoleService;
+    const row: any = {
+      id: 'a1',
+      naskahId: 'n1',
+      tahap: 'blanko_verbal',
+      status: 'waiting',
+      delegatePersnum: 12345,
+      delegateName: 'Andi',
+      delegatePositionStatus: 'PT',
+      assignedByPersnum: 99,
+      assignedAt: new Date(),
+    };
+    approvalRepo.findOne.mockResolvedValue(row);
+    approvalRepo.save.mockResolvedValue(row);
+    legalRole.getActivePositionIds.mockResolvedValue(['pos-legal']);
+    await svc.removeDelegasiDireksi('n1', 'a1', {
+      persnum: 99,
+      positionId: 'pos-legal',
+    } as any);
+    expect(row.delegatePersnum).toBeNull();
+    expect(row.delegateName).toBeNull();
+    expect(row.delegatePositionStatus).toBeNull();
+    expect(row.assignedByPersnum).toBeNull();
+    expect(row.assignedAt).toBeNull();
   });
 
   it('kirimEvaluasi hanya menerima verifikator managerial yang valid', async () => {
