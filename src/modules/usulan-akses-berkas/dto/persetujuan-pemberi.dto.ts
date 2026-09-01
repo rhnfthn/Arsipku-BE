@@ -18,11 +18,11 @@ export class PersetujuanPemberiDto {
 
   @IsOptional()
   @IsString()
-  catatanRevisi?: string; // wajib diisi (min 5 char) jika keputusan=REVISI (dicek di service)
+  catatan_revisi?: string; // wajib diisi (min 5 char) jika keputusan=REVISI (dicek di service)
 
   @IsOptional()
   @IsString()
-  catatanKeSE?: string; // catatan khusus dari verifikator ke SE pemberi (saat TOLAK/REVISI)
+  catatan_ke_se?: string; // catatan khusus dari verifikator ke SE pemberi (saat TOLAK/REVISI)
 
   @IsEnum(Keputusan)
   keputusan: Keputusan; // SETUJU | REVISI | TOLAK
@@ -30,9 +30,9 @@ export class PersetujuanPemberiDto {
   // ── Durasi adjustment (opsional, bisa diisi verifikator berjenjang) ──
   @IsOptional()
   @IsEnum(DurasiPreset)
-  durasiAksesDisetujui?: DurasiPreset;
+  durasi_akses_disetujui?: DurasiPreset;
 
   @IsOptional()
   @IsString()
-  catatanPerubahanDurasi?: string; // wajib jika durasi diubah
+  catatan_perubahan_durasi?: string; // wajib jika durasi diubah
 }

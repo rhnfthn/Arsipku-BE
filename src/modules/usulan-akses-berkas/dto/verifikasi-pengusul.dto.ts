@@ -16,11 +16,11 @@ export class VerifikasiPengusulDto {
 
   @IsOptional()
   @IsString()
-  catatanRevisi?: string; // wajib diisi (min 5 char) jika keputusan=REVISI (dicek di service)
+  catatan_revisi?: string; // wajib diisi (min 5 char) jika keputusan=REVISI (dicek di service)
 
   @IsOptional()
   @IsString()
-  catatanKeSE?: string; // catatan khusus dari verifikator ke SE pengusul (saat TOLAK/REVISI)
+  catatan_ke_se?: string; // catatan khusus dari verifikator ke SE pengusul (saat TOLAK/REVISI)
 
   @IsEnum(Keputusan)
   keputusan: Keputusan; // SETUJU | REVISI | TOLAK
