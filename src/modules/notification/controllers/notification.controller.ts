@@ -38,6 +38,16 @@ export class NotificationController {
     return user.position;
   }
 
+  /**
+   * Get user persnum from user's JWT payload (untuk fallback list notif
+   * jika notif tersimpan dengan position_id berbeda dari position login
+   * — mis. delegasi disimpan ke as_position, bukan position login user).
+   */
+  private getUserPersnum(user: JwtPayload): number | null {
+    const p = user.persnum;
+    return p != null ? Number(p) : null;
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all notifications (paginated)' })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -49,9 +59,11 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
+    const userPersnum = this.getUserPersnum(user);
     const result = await this.notificationService.getNotifications(
       positionId,
       query,
+      userPersnum,
     );
 
     return {
@@ -65,7 +77,11 @@ export class NotificationController {
   @ApiOperation({ summary: 'Get unread notification count' })
   async getUnreadCount(@CurrentUser() user: JwtPayload) {
     const positionId = this.getPositionId(user);
-    const count = await this.notificationService.getUnreadCount(positionId);
+    const userPersnum = this.getUserPersnum(user);
+    const count = await this.notificationService.getUnreadCount(
+      positionId,
+      userPersnum,
+    );
 
     return {
       success: true,
