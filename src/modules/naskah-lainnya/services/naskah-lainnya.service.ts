@@ -3600,12 +3600,17 @@ export class NaskahLainnyaService {
 
     let newTahap = n.tahapan as Tahapan;
     await this.dataSource.transaction(async (manager) => {
+      const delegateParaf =
+        !!row.delegatePersnum && row.delegatePersnum === user.persnum;
+      const aktor = delegateParaf
+        ? `${row.nama} (a.n. ${row.delegatePositionStatus}. ${row.delegateName})`
+        : row.nama || user.nama;
       newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
         catatan: dto.catatan,
         // Nama/jabatan pada row berasal dari template dan dapat diedit. Riwayat
         // menampilkan pihak yang ditetapkan tersebut, konsisten dengan dokumen
         // serta response approval.
-        aktor: row.nama || user.nama,
+        aktor,
         jabatan: row.jabatan || user.positionText,
         manager,
       });
@@ -3859,9 +3864,14 @@ export class NaskahLainnyaService {
 
     let newTahap = n.tahapan as Tahapan;
     await this.dataSource.transaction(async (manager) => {
+      const delegateParaf =
+        !!row.delegatePersnum && row.delegatePersnum === user.persnum;
+      const aktor = delegateParaf
+        ? `${row.nama} (a.n. ${row.delegatePositionStatus}. ${row.delegateName})`
+        : row.nama || user.nama;
       newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
         catatan: dto.catatan,
-        aktor: row.nama || user.nama,
+        aktor,
         jabatan: row.jabatan || user.positionText,
         manager,
       });
