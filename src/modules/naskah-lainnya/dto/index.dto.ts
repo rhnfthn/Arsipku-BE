@@ -220,3 +220,5 @@ export class KirimApprovalLegalDto {
   // Catatan hasil pemeriksaan legal (HTML TinyMCE, item #4) → persist ke naskah.catatan_legal.
   @IsString() @IsOptional() catatan_legal?: string;
 }
+
+export { AssignDelegasiDireksiDto } from './assign-delegasi-direksi.dto';

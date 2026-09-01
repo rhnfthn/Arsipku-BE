@@ -12,6 +12,8 @@ import {
   UploadedFiles,
   UseInterceptors,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   FileFieldsInterceptor,
@@ -35,6 +37,7 @@ import {
   ManualFinalNomorDto,
   UpdatePenandatanganFisikDto,
   SheetDataDto,
+  AssignDelegasiDireksiDto,
 } from '../dto/index.dto';
 import { CurrentUser } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
@@ -491,5 +494,25 @@ export class NaskahLainnyaController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.service.tolakBlankoVerbal(id, dto.catatan ?? '', user);
+  }
+
+  @Put(':id/approval/:approvalId/delegasi')
+  assignDelegasiDireksi(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: AssignDelegasiDireksiDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.assignDelegasiDireksi(id, approvalId, dto, user);
+  }
+
+  @Delete(':id/approval/:approvalId/delegasi')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeDelegasiDireksi(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.service.removeDelegasiDireksi(id, approvalId, user);
   }
 }
