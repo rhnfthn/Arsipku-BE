@@ -33,6 +33,22 @@ export class NaskahLainnyaApprovalEntity {
   @Column('datetime', { nullable: true })
   tanggal: Date | null;
 
+  // ── Delegasi direksi per-naskah (PT/PH/PS). Nullable: baris tanpa delegasi / lama. ──
+  @Column('int', { name: 'delegate_persnum', nullable: true })
+  delegatePersnum: number | null;
+
+  @Column('varchar', { name: 'delegate_name', length: 255, nullable: true })
+  delegateName: string | null;
+
+  @Column('varchar', { name: 'delegate_position_status', length: 8, nullable: true })
+  delegatePositionStatus: string | null;
+
+  @Column('int', { name: 'assigned_by_persnum', nullable: true })
+  assignedByPersnum: number | null;
+
+  @Column('datetime', { name: 'assigned_at', nullable: true })
+  assignedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
