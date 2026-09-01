@@ -35,7 +35,6 @@ export type JenisAksi =
   | 'kembalikan-legal'
   | 'evaluasi'
   | 'kembalikan-evaluasi'
-  | 'kirim-evaluasi'
   | 'lanjut-persetujuan'
   | 'legal-drafting-ulang'
   | 'batalkan-evaluasi'
@@ -96,7 +95,9 @@ export class WorkflowService {
       { label: 'Persetujuan Lanjutan', key: 'persetujuan_lanjutan' },
       { label: 'Evaluasi Final EVP', key: 'evaluasi_final' },
       {
-        label: 'Blanko Verbal Persetujuan Direksi',
+        // Tahap ini bercabang: user memilih template Blanko Verbal atau
+        // Lembar Persetujuan Direksi.
+        label: 'Blanko Verbal / Persetujuan Direksi',
         key: 'blanko_verbal',
       },
     ];
@@ -370,11 +371,16 @@ export class WorkflowService {
         return next;
       }
 
-      // Blanko gabungan berurutan per kelompok: semua Diketahui Oleh harus
-      // selesai lebih dulu, lalu kelompok Ditetapkan/Disahkan diaktifkan.
-      if (logicalTahap === 'blanko_verbal' && row.tahap === 'blanko_verbal') {
+      // Kedua pilihan template pada step Blanko Verbal berjalan berurutan per
+      // kelompok: seluruh Diketahui Oleh selesai lebih dulu, baru kelompok
+      // Ditetapkan/Disahkan diaktifkan.
+      if (
+        (logicalTahap === 'blanko_verbal' ||
+          logicalTahap === 'persetujuan_direksi') &&
+        row.tahap === logicalTahap
+      ) {
         const diketahuiRows = logicalTahapRows.filter(
-          (r) => r.tahap === 'blanko_verbal',
+          (r) => r.tahap === logicalTahap,
         );
         const allDiketahuiVerified = diketahuiRows.every(
           (r) => r.status === 'verified',
@@ -382,7 +388,7 @@ export class WorkflowService {
         if (allDiketahuiVerified) {
           for (const r of logicalTahapRows) {
             if (
-              r.tahap === 'blanko_verbal_ditetapkan' &&
+              r.tahap === `${logicalTahap}_ditetapkan` &&
               r.status === 'pending'
             ) {
               r.status = 'waiting';
@@ -450,7 +456,12 @@ export class WorkflowService {
     row.tanggal = new Date();
     await ctx.manager.save(row);
 
-    const allVerified = rows.every((r) => r.status === 'verified');
+    // Kelengkapan diverifikasi hanya atas baris tahap aktif. Baris tahap lain
+    // (mis. evaluasi/legal yang rejected saat daur ulang) tidak boleh
+    // menghalangi persetujuan tahap yang sedang berjalan.
+    const allVerified = rows
+      .filter((r) => r.tahap === row.tahap)
+      .every((r) => r.status === 'verified');
     if (aksi === 'setuju' && allVerified) {
       const next = this.nextAfterApprovalSetuju(
         naskah.tahapan as Tahapan,

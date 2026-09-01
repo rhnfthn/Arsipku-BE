@@ -96,13 +96,20 @@ export class GeneratePdfBlankoVerbalService {
       ? data.ditetapkanOleh!
       : data.directors.filter((d) => /direktur\s*utama/i.test(d.jabatan || ''));
     const dir = (i: number) => diketahui[i];
+    // Nama pengganti diawali status delegasi (PT/PH/PS); 'ybs' = pejabat
+    // bersangkungan sendiri, tanpa prefix.
+    const nameOf = (d?: { nama?: string; delegator?: string }) => {
+      const raw = (d?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
+      const status = d?.delegator?.trim();
+      return status && status !== 'ybs' ? `${status}. ${raw}` : raw;
+    };
     const signerBlock = ditetapkan.length
       ? ditetapkan
           .map((d) => {
             const visual = d.signatureVisible
               ? renderVisibleDigsig(d, 'wide')
               : '<div class="sig-space"></div>';
-            return `<div class="signature-person">${d.jabatan || 'DIREKTUR'}<br>${visual}<div class="signature-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
+            return `<div class="signature-person">${d.jabatan || 'DIREKTUR'}<br>${visual}<div class="signature-name">${nameOf(d)}</div></div>`;
           })
           .join('')
       : hasExplicitDitetapkan
@@ -120,7 +127,7 @@ export class GeneratePdfBlankoVerbalService {
           : '<div class="sig-space"></div>';
         const cls =
           i === 0 ? 'director-item director-divider' : 'director-item';
-        return `<div class="${cls}">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
+        return `<div class="${cls}">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${nameOf(d)}</div></div>`;
       };
       return render(d1, 0) + render(d2, 1);
     };
@@ -131,13 +138,13 @@ export class GeneratePdfBlankoVerbalService {
       const paraf = verified
         ? renderVisibleDigsig(d)
         : '<div class="sig-space"></div>';
-      return `<div class="director-item">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${(d.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase()}</div></div>`;
+      return `<div class="director-item">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${nameOf(d)}</div></div>`;
     };
 
     return `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><style>${SHEET_CSS}</style></head><body>
 <div class="page">
   <div class="header">
-    BLANKO VERBAL PERSETUJUAN DIREKSI<br>
+    BLANKO VERBAL<br>
     PERUSAHAAN UMUM (PERUM) LEMBAGA PENYELENGGARA PELAYANAN<br>
     NAVIGASI PENERBANGAN INDONESIA
   </div>

@@ -54,6 +54,15 @@ export class SheetDirectorDto {
   @IsNumber() @IsOptional() persnum?: number;
   @IsString() @IsOptional() nama?: string;
   @IsString() @IsOptional() jabatan?: string;
+  // Status delegasi direksi: 'ybs' (default, pejabat bersangkungan) / 'PT'/'PH'/'PS'.
+  // PT/PH/PS di-prefix di depan nama pengganti di template; nama pengganti diisi
+  // lewat field nama. Nantinya pilihan diisi dari get-verifikator.
+  @IsString() @IsOptional() delegator?: string;
+  // Routing delegasi: persnum pengganti (nama di field nama) — approval task
+  // paraf masuk ke pengganti, bukan ke ybs direksi (lihat isApprovalAssignedToUser).
+  @IsNumber() @IsOptional() delegatePersnum?: number;
+  @IsString() @IsOptional() delegateName?: string;
+  @IsIn(['PT', 'PH', 'PS']) @IsOptional() delegatePositionStatus?: 'PT' | 'PH' | 'PS';
 }
 
 export class BuatNaskahDto {
@@ -218,6 +227,22 @@ export class KirimApprovalLegalDto {
   @IsString() @IsOptional() catatan?: string;
 
   // Catatan hasil pemeriksaan legal (HTML TinyMCE, item #4) → persist ke naskah.catatan_legal.
+  @IsString() @IsOptional() catatan_legal?: string;
+}
+
+export class TeruskanLegalDraftingDto {
+  @ValidateNested()
+  @Type(() => ApprovalDto)
+  penerima: ApprovalDto;
+
+  // Wajib pada penerima awal; setelah rantai terbentuk pengesah dibaca dari
+  // simpul terakhir rantai legal drafting.
+  @ValidateNested()
+  @Type(() => ApprovalDto)
+  @IsOptional()
+  pengesah?: ApprovalDto;
+
+  @IsString() @IsOptional() catatan?: string;
   @IsString() @IsOptional() catatan_legal?: string;
 }
 
