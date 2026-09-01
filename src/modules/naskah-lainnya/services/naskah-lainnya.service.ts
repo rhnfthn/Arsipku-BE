@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -34,6 +35,7 @@ import {
   TeruskanPersetujuanDto,
   BlankoDto,
   SheetDataDto,
+  AssignDelegasiDireksiDto,
 } from '../dto/index.dto';
 import { buildNomorRegex } from './nomor-format.helper';
 import { NotificationService } from '../../notification/services';
@@ -3949,6 +3951,73 @@ export class NaskahLainnyaService {
     });
     await this.publishWorkflowUpdate(n, true);
     return this.getDetail(id, user);
+  }
+
+  private static readonly DIREKSI_TAHAPS = [
+    'blanko_verbal',
+    'blanko_verbal_ditetapkan',
+    'persetujuan_direksi',
+    'persetujuan_direksi_ditetapkan',
+  ];
+
+  private async assertLegalRole(user: CurrentUser): Promise<void> {
+    const posId = String(user.positionId ?? user.position ?? '');
+    const activeLegalIds = await this.legalRoleService.getActivePositionIds();
+    if (!posId || !activeLegalIds.includes(posId)) {
+      throw new ForbiddenException('Anda bukan legal role');
+    }
+  }
+
+  async assignDelegasiDireksi(
+    id: string,
+    approvalId: string,
+    dto: AssignDelegasiDireksiDto,
+    user: CurrentUser,
+  ): Promise<NaskahLainnyaApprovalEntity> {
+    await this.assertLegalRole(user);
+    const row = await this.approvalRepo.findOne({
+      where: { id: approvalId, naskahId: id },
+    });
+    if (!row) throw new NotFoundException('Baris approval tidak ditemukan');
+    if (!NaskahLainnyaService.DIREKSI_TAHAPS.includes(row.tahap)) {
+      throw new BadRequestException(
+        'Delegasi hanya untuk baris persetujuan direksi.',
+      );
+    }
+    if (row.status !== 'waiting') {
+      throw new ConflictException(
+        'Baris sudah diparaf, delegasi terkunci.',
+      );
+    }
+    row.delegatePersnum = dto.delegatePersnum;
+    row.delegateName = dto.delegateName.trim();
+    row.delegatePositionStatus = dto.positionStatus;
+    row.assignedByPersnum = user.persnum;
+    row.assignedAt = new Date();
+    return this.approvalRepo.save(row);
+  }
+
+  async removeDelegasiDireksi(
+    id: string,
+    approvalId: string,
+    user: CurrentUser,
+  ): Promise<void> {
+    await this.assertLegalRole(user);
+    const row = await this.approvalRepo.findOne({
+      where: { id: approvalId, naskahId: id },
+    });
+    if (!row) throw new NotFoundException('Baris approval tidak ditemukan');
+    if (row.status !== 'waiting') {
+      throw new ConflictException(
+        'Baris sudah diparaf, delegasi terkunci.',
+      );
+    }
+    row.delegatePersnum = null;
+    row.delegateName = null;
+    row.delegatePositionStatus = null;
+    row.assignedByPersnum = null;
+    row.assignedAt = null;
+    await this.approvalRepo.save(row);
   }
 
   // ---------- Sheet helpers ----------
