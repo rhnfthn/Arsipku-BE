@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { randomInt } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { EksternalEntity } from '../entities/eksternal.entity';
 import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
@@ -69,28 +70,36 @@ export class EksternalService {
   }
 
   /**
-   * Generate kode 3 digit berikutnya untuk eksternal.
-   * Dimulai dari 100.
+   * Generate kode unik 5 huruf acak (A-Z) untuk eksternal.
+   * Loop sampai dapat kode yang belum dipakai (kolom kode unique).
    */
   private async generateKode(): Promise<string> {
-    const result = await this.eksternalRepository
-      .createQueryBuilder('eksternal')
-      .select('MAX(CAST(eksternal.kode AS UNSIGNED))', 'maxKode')
-      .getRawOne();
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    let kode: string;
+    let exists: boolean;
 
-    const maxKode = result?.maxKode ? parseInt(result.maxKode, 10) : 0;
-    const next = Math.max(maxKode + 1, 100);
-    return String(next).padStart(3, '0');
+    do {
+      kode = Array.from({ length: 5 }, () =>
+        chars.charAt(randomInt(0, chars.length)),
+      ).join('');
+      exists = await this.eksternalRepository.exist({ where: { kode } });
+    } while (exists);
+
+    return kode;
   }
 
   async create(
     createEksternalDto: CreateEksternalDto,
   ): Promise<EksternalEntity> {
+    // Selalu generate kode baru — abaikan `kode` apapun dari payload
+    // agar FE tidak bisa menimpa / mengirim string kosong yang akan
+    // disimpan null di DB.
+    const { kode: _ignored, ...dtoWithoutKode } = createEksternalDto;
     const kode = await this.generateKode();
     const eksternal = this.eksternalRepository.create({
       id: uuidv4(),
       kode,
-      ...createEksternalDto,
+      ...dtoWithoutKode,
     });
 
     return await this.eksternalRepository.save(eksternal);
@@ -114,7 +123,7 @@ export class EksternalService {
     }
 
     const eksternal = await query
-      .orderBy('eksternal.nama', 'ASC')
+      .orderBy('eksternal.created_at', 'DESC')
       .getMany();
 
     if (eksternal.length === 0) return [];
@@ -131,6 +140,11 @@ export class EksternalService {
       nama_pembuat: item.id_position_pembuat
         ? namaPembuatMap.get(Number(item.id_position_pembuat)) || null
         : null,
+      // TypeORM @CreateDateColumn / @UpdateDateColumn diserialisasi sbg
+      // createdAt/updatedAt (camelCase). Map ke snake_case biar FE bisa
+      // baca konsisten dengan field DB lain.
+      created_at: item.createdAt ?? null,
+      updated_at: item.updatedAt ?? null,
     }));
   }
 
