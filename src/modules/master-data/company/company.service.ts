@@ -149,9 +149,34 @@ export class CompanyService {
     return company;
   }
 
+  /**
+   * Generate kode perusahaan 4 digit berikutnya.
+   * Dimulai dari 1000 untuk perusahaan pertama, n+1 untuk selanjutnya.
+   * Hanya menghitung kode dalam rentang 1000–9999 (4 digit), sehingga
+   * kode legacy seperti 10000 (PERUM LPPNPI), 90001, 90002, 1, 123 diabaikan.
+   */
+  private async generateCompanyCode(): Promise<number> {
+    const result = await this.companyRepo
+      .createQueryBuilder('company')
+      .select('MAX(company.company)', 'maxCode')
+      .where('company.company >= 1000 AND company.company < 10000')
+      .getRawOne();
+
+    const maxCode = result?.maxCode ? Number(result.maxCode) : 0;
+    return Math.max(maxCode + 1, 1000);
+  }
+
   async create(dto: CreateCompanyDto): Promise<OmCompany> {
-    // Jika tidak ada id, generate UUID otomatis (karena di DB defaultnya UUID())
-    const newCompany = this.companyRepo.create(dto);
+    // Kode perusahaan auto-generate (4 digit, mulai 1000) — abaikan dari payload.
+    const { company: _ignored, endDate, ...rest } = dto;
+    const companyCode = await this.generateCompanyCode();
+
+    const newCompany = this.companyRepo.create({
+      ...rest,
+      company: companyCode,
+      // Default end date 31 Desember 9999 (tidak ditampilkan di UI).
+      endDate: endDate || '9999-12-31',
+    });
     return this.companyRepo.save(newCompany);
   }
 
