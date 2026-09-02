@@ -306,6 +306,8 @@ export class DocxQrInlineService {
       process.env.VISUAL_DIGSIG_LOGO_PATH,
       path.resolve(process.cwd(), '../fe/public/logoAirnav.png'),
       path.resolve(process.cwd(), 'public/logoAirnav.png'),
+      // Runtime image backend membawa aset ini ke /app/public.
+      path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
     ].find(
       (candidate): candidate is string =>
         !!candidate && fs.existsSync(candidate),

@@ -446,7 +446,9 @@ describe('WorkflowService', () => {
   it('applyApproval LPD pilihan pada blanko: Ditetapkan aktif setelah Diketahui lalu selesai', async () => {
     const naskah = {
       id: 'n-lpd-option',
-      tahapan: 'blanko_verbal',
+      // Setelah template LPD dikirim dari step gabungan, state teknis berpindah
+      // ke persetujuan_direksi agar endpoint approval LPD dapat dipakai.
+      tahapan: 'persetujuan_direksi',
       butuhLegal: true,
     } as any;
     const rows = [
@@ -470,9 +472,13 @@ describe('WorkflowService', () => {
       rows,
       'lpd-known',
       'setuju',
-      { aktor: 'Direktur', manager: manager as any },
+      {
+        aktor: 'Direktur',
+        manager: manager as any,
+        completionTransitionFrom: 'blanko_verbal',
+      },
     );
-    expect(afterDiketahui).toBe('blanko_verbal');
+    expect(afterDiketahui).toBe('persetujuan_direksi');
     expect(rows[0].status).toBe('waiting');
 
     const next = await svc.applyApproval(
@@ -480,9 +486,14 @@ describe('WorkflowService', () => {
       rows,
       'lpd-established',
       'setuju',
-      { aktor: 'Direktur Utama', manager: manager as any },
+      {
+        aktor: 'Direktur Utama',
+        manager: manager as any,
+        completionTransitionFrom: 'blanko_verbal',
+      },
     );
     expect(next).toBe('selesai');
+    expect(naskah.tahapan).toBe('selesai');
   });
 
   it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
@@ -676,6 +687,16 @@ describe('WorkflowService', () => {
     expect(svc.resolveNext('persetujuan_direksi', 'complete', true)).toBe(
       'blanko_verbal',
     );
+  });
+
+  it('resolveNext: memilih Lembar Persetujuan Direksi dari step gabungan → persetujuan_direksi', () => {
+    expect(
+      svc.resolveNext(
+        'blanko_verbal',
+        'kirim-lembar-persetujuan-direksi',
+        true,
+      ),
+    ).toBe('persetujuan_direksi');
   });
 
   it('resolveNext: blanko_verbal gabungan + complete → selesai', () => {

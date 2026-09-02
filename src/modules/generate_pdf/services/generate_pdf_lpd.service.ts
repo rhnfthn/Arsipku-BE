@@ -4,6 +4,8 @@ import { pdfQueue } from '../pdf.queue';
 import {
   SheetPdfData,
   DirectorSlot,
+  formatSheetName,
+  formatSheetPosition,
   formatTanggal,
   renderVisibleDigsig,
   SHEET_CSS,
@@ -91,20 +93,15 @@ export class GeneratePdfLpdService {
     const ditetapkan = hasExplicitDitetapkan
       ? data.ditetapkanOleh!
       : data.directors.filter((d) => /direktur\s*utama/i.test(d.jabatan || ''));
-    // Nama pengganti diawali status delegasi (PT/PH/PS); 'ybs' = pejabat
-    // bersangkungan sendiri, tanpa prefix.
-    const nameOf = (d?: { nama?: string; delegator?: string }) => {
-      const raw = (d?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
-      const status = d?.delegator?.trim();
-      return status && status !== 'ybs' ? `${status}. ${raw}` : raw;
-    };
+    const nameOf = formatSheetName;
+    const positionOf = formatSheetPosition;
     const signerBlock = ditetapkan.length
       ? ditetapkan
           .map((d) => {
             const visual = d.signatureVisible
               ? renderVisibleDigsig(d, 'wide')
               : '<div class="sig-space"></div>';
-            return `<div class="signature-person">${d.jabatan || 'DIREKTUR'}<br>${visual}<div class="signature-name">${nameOf(d)}</div></div>`;
+            return `<div class="signature-person">${positionOf(d)}<br>${visual}<div class="signature-name">${nameOf(d)}</div></div>`;
           })
           .join('')
       : hasExplicitDitetapkan
@@ -117,7 +114,7 @@ export class GeneratePdfLpdService {
       const paraf = verified
         ? renderVisibleDigsig(d)
         : '<div class="sig-space"></div>';
-      return `<div class="director-item">${i + 1}. ${d.jabatan}${paraf}<div class="director-name">${nameOf(d)}</div></div>`;
+      return `<div class="director-item">${i + 1}. ${positionOf(d, '')}${paraf}<div class="director-name">${nameOf(d)}</div></div>`;
     };
 
     return `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><style>${SHEET_CSS}</style></head><body>

@@ -310,7 +310,11 @@ export class WorkflowService {
     rows: NaskahLainnyaApprovalEntity[],
     approvalId: string,
     aksi: 'setuju' | 'tolak' | 'kembalikan',
-    ctx: { catatan?: string } & AktorCtx,
+    ctx: {
+      catatan?: string;
+      /** Alur template gabungan LPD selesai seperti Blanko Verbal, bukan lanjut ke Blanko legacy. */
+      completionTransitionFrom?: Tahapan;
+    } & AktorCtx,
   ): Promise<Tahapan> {
     const row = rows.find((r) => r.id === approvalId);
     if (!row) throw new BadRequestException('Baris approval tidak ditemukan');
@@ -403,7 +407,7 @@ export class WorkflowService {
       );
       if (allVerified) {
         const next = this.resolveNext(
-          t,
+          ctx.completionTransitionFrom ?? t,
           'complete',
           naskah.butuhLegal,
           signingIndex,
@@ -658,6 +662,11 @@ export class WorkflowService {
         return t;
       case 'kirim-blanko':
         return t === 'blanko_verbal' ? t : this.signingTarget(N, signOption);
+      case 'kirim-lembar-persetujuan-direksi':
+        // Pada step gabungan, pilihan template Lembar Persetujuan Direksi
+        // mengubah state teknis agar endpoint paraf/tolak LPD yang ada dapat
+        // digunakan. Secara stepper keduanya tetap tampil sebagai satu tahap.
+        return t === 'blanko_verbal' ? 'persetujuan_direksi' : t;
       case 'kirim-approval-blanko':
         return t === 'blanko_verbal' ? this.signingTarget(N, signOption) : t;
       case 'tanda-tangan':

@@ -405,8 +405,9 @@ export class NaskahLainnyaService {
     }
 
     const rows = await qb.getMany();
-    const pemrakarsaPejabatByNaskah =
-      await this.getPemrakarsaPejabatByNaskah(rows.map((row) => row.id));
+    const pemrakarsaPejabatByNaskah = await this.getPemrakarsaPejabatByNaskah(
+      rows.map((row) => row.id),
+    );
     return {
       success: true,
       data: rows.map((r) => ({
@@ -527,11 +528,10 @@ export class NaskahLainnyaService {
    * approval awal (`tahap=persetujuan`), bukan user konseptor yang mengirim.
    * Query dilakukan sekali untuk seluruh halaman agar tidak menimbulkan N+1.
    */
-  private async getPemrakarsaPejabatByNaskah(naskahIds: string[]): Promise<
-    Map<
-      string,
-      { nama: string; jabatan: string; positionId?: string }
-    >
+  private async getPemrakarsaPejabatByNaskah(
+    naskahIds: string[],
+  ): Promise<
+    Map<string, { nama: string; jabatan: string; positionId?: string }>
   > {
     if (naskahIds.length === 0) return new Map();
     const rows =
@@ -540,7 +540,14 @@ export class NaskahLainnyaService {
           naskahId: In(naskahIds),
           tahap: 'persetujuan',
         },
-        select: ['naskahId', 'tahap', 'positionId', 'nama', 'jabatan', 'urutan'],
+        select: [
+          'naskahId',
+          'tahap',
+          'positionId',
+          'nama',
+          'jabatan',
+          'urutan',
+        ],
       })) ?? [];
     const latest = new Map<
       string,
@@ -598,6 +605,7 @@ export class NaskahLainnyaService {
         : Promise.resolve(null),
     ]);
     await this.repairLegacySheetMetadataApprovals(approval);
+    await this.recoverCompletedCombinedLpd(n, approval, user);
     await this.recoverCompletedBlankoVerbal(n, approval, user);
     await this.recoverEvaluasiEvpRow(n, approval);
 
@@ -1435,8 +1443,9 @@ export class NaskahLainnyaService {
       });
     }
 
-    const pemrakarsaPejabatByNaskah =
-      await this.getPemrakarsaPejabatByNaskah(rows.map((row) => row.id));
+    const pemrakarsaPejabatByNaskah = await this.getPemrakarsaPejabatByNaskah(
+      rows.map((row) => row.id),
+    );
     return {
       success: true,
       data: rows.map((r) => ({
@@ -3746,9 +3755,12 @@ export class NaskahLainnyaService {
     user: CurrentUser,
   ) {
     const n = await this.findNaskah(id);
-    if (n.tahapan !== 'persetujuan_direksi' || !n.butuhLegal) {
+    if (
+      (n.tahapan !== 'blanko_verbal' && n.tahapan !== 'persetujuan_direksi') ||
+      !n.butuhLegal
+    ) {
       throw new BadRequestException(
-        'Lembar Persetujuan Direksi terpisah hanya tersedia untuk data legacy.',
+        'Lembar Persetujuan Direksi hanya tersedia pada step Blanko Verbal Persetujuan Direksi.',
       );
     }
     const { all, diketahuiOleh, ditetapkanOleh } =
@@ -3793,11 +3805,12 @@ export class NaskahLainnyaService {
     user: CurrentUser,
   ) {
     const n = await this.findNaskah(id);
-    if (n.tahapan !== 'persetujuan_direksi') {
+    if (n.tahapan !== 'blanko_verbal' && n.tahapan !== 'persetujuan_direksi') {
       throw new BadRequestException(
-        'Lembar Persetujuan Direksi terpisah hanya tersedia untuk data legacy.',
+        'Lembar Persetujuan Direksi hanya dapat dikirim dari step Blanko Verbal Persetujuan Direksi.',
       );
     }
+    const isCombinedTemplateSelection = n.tahapan === 'blanko_verbal';
     const { all, diketahuiOleh, ditetapkanOleh } =
       await this.getSheetDirectorGroups(
         n.dikirimOleh?.company,
@@ -3823,6 +3836,7 @@ export class NaskahLainnyaService {
         n.id,
         ditetapkanOleh,
         'persetujuan_direksi_ditetapkan',
+        'pending',
       );
       await this.seedBodApprovals(
         manager,
@@ -3830,8 +3844,14 @@ export class NaskahLainnyaService {
         diketahuiOleh,
         'persetujuan_direksi',
       );
-      // Data legacy tetap berada pada state persetujuan_direksi hingga seluruh
-      // approval lamanya selesai.
+      if (isCombinedTemplateSelection) {
+        await this.workflow.transisi(n, 'kirim-lembar-persetujuan-direksi', {
+          aktor: user.nama,
+          jabatan: user.positionText,
+          catatan: dto.catatan,
+          manager,
+        });
+      }
     });
     await this.renderSheetPdf(
       n.id,
@@ -3867,11 +3887,30 @@ export class NaskahLainnyaService {
       rows,
       ['persetujuan_direksi_ditetapkan', 'persetujuan_direksi'],
       user,
+      dto.approvalId,
     );
     if (!row)
       throw new ForbiddenException(
         'Anda tidak memiliki baris paraf waiting untuk naskah ini.',
       );
+
+    // Kelompok Ditetapkan/Disahkan sekaligus menandatangani lembar dan naskah
+    // final, sama seperti Blanko Verbal.
+    if (row.tahap === 'persetujuan_direksi_ditetapkan') {
+      const ditetapkanRows = rows
+        .filter((item) => item.tahap === 'persetujuan_direksi_ditetapkan')
+        .sort((a, b) => a.urutan - b.urutan);
+      const isFinalSigner = ditetapkanRows.every(
+        (item) => item.status === 'verified' || item.id === row.id,
+      );
+      await this.signCombinedFinalNaskah(
+        n,
+        ditetapkanRows,
+        row.id,
+        user,
+        isFinalSigner,
+      );
+    }
 
     let newTahap = n.tahapan as Tahapan;
     await this.dataSource.transaction(async (manager) => {
@@ -3888,6 +3927,7 @@ export class NaskahLainnyaService {
         aktor,
         jabatan: row.jabatan || user.positionText,
         manager,
+        completionTransitionFrom: 'blanko_verbal',
       });
       // Guard untuk memastikan approval terakhir tidak meninggalkan naskah pada
       // Blanko Verbal apabila seluruh baris dari kedua kelompok sudah verified.
@@ -3958,6 +3998,7 @@ export class NaskahLainnyaService {
     id: string,
     catatan: string,
     user: CurrentUser,
+    approvalId?: string,
   ) {
     const n = await this.findNaskah(id);
     if (n.tahapan !== 'persetujuan_direksi') {
@@ -3973,6 +4014,7 @@ export class NaskahLainnyaService {
       rows,
       ['persetujuan_direksi_ditetapkan', 'persetujuan_direksi'],
       user,
+      approvalId,
     );
     if (!row)
       throw new ForbiddenException(
@@ -4112,6 +4154,7 @@ export class NaskahLainnyaService {
       rows,
       ['blanko_verbal_ditetapkan', 'blanko_verbal'],
       user,
+      dto.approvalId,
     );
     if (!row)
       throw new ForbiddenException(
@@ -4194,7 +4237,12 @@ export class NaskahLainnyaService {
     return this.getDetail(id, user);
   }
 
-  async tolakBlankoVerbal(id: string, catatan: string, user: CurrentUser) {
+  async tolakBlankoVerbal(
+    id: string,
+    catatan: string,
+    user: CurrentUser,
+    approvalId?: string,
+  ) {
     const n = await this.findNaskah(id);
     if (n.tahapan !== 'blanko_verbal') {
       throw new BadRequestException(
@@ -4209,6 +4257,7 @@ export class NaskahLainnyaService {
       rows,
       ['blanko_verbal_ditetapkan', 'blanko_verbal'],
       user,
+      approvalId,
     );
     if (!row)
       throw new ForbiddenException(
@@ -4452,10 +4501,12 @@ export class NaskahLainnyaService {
     rows: NaskahLainnyaApprovalEntity[],
     tahap: string | string[],
     user: CurrentUser,
+    approvalId?: string,
   ): NaskahLainnyaApprovalEntity | undefined {
     const tahaps = Array.isArray(tahap) ? tahap : [tahap];
     return rows.find(
       (r) =>
+        (!approvalId || r.id === approvalId) &&
         tahaps.includes(r.tahap) &&
         r.status === 'waiting' &&
         this.isApprovalAssignedToUser(r, user),
@@ -4535,6 +4586,46 @@ export class NaskahLainnyaService {
         manager,
       });
     });
+  }
+
+  /**
+   * Recovery alur LPD yang sebelum perbaikan berhenti di `blanko_verbal`
+   * setelah seluruh Diketahui + Ditetapkan sudah verified (transisi completion
+   * lama jatuh ke Blanko Verbal legacy tanpa ttd naskah final).
+   */
+  private async recoverCompletedCombinedLpd(
+    naskah: NaskahEntity,
+    rows: NaskahLainnyaApprovalEntity[],
+    user: CurrentUser,
+  ): Promise<void> {
+    if (naskah.tahapan !== 'blanko_verbal') return;
+    const lpdRows = rows.filter(
+      (row) =>
+        row.tahap === 'persetujuan_direksi' ||
+        row.tahap === 'persetujuan_direksi_ditetapkan',
+    );
+    if (!lpdRows.length || !lpdRows.every((row) => row.status === 'verified'))
+      return;
+
+    const ditetapkanRows = lpdRows
+      .filter((row) => row.tahap === 'persetujuan_direksi_ditetapkan')
+      .sort((a, b) => a.urutan - b.urutan);
+    if (!naskah.signedLampiran && ditetapkanRows.length) {
+      await this.signCombinedFinalNaskah(
+        naskah,
+        ditetapkanRows,
+        ditetapkanRows[ditetapkanRows.length - 1].id,
+        user,
+        true,
+      );
+    }
+    await this.dataSource.transaction((manager) =>
+      this.workflow.transisi(naskah, 'complete', {
+        aktor: user.nama,
+        jabatan: user.positionText,
+        manager,
+      }),
+    );
   }
 
   private isBlankoVerbalApprovalComplete(
@@ -4701,11 +4792,24 @@ export class NaskahLainnyaService {
         : '';
     const signedSigners: SignedSigner[] = ditetapkanRows
       .filter((row) => row.status === 'verified' || row.id === currentRowId)
-      .map((row, index) => ({
-        index: row.urutan || index + 1,
-        nama: row.nama,
-        jabatan: row.jabatan,
-      }));
+      .map((row, index) => {
+        const delegateName = row.delegateName?.trim();
+        const delegateStatus = row.delegatePositionStatus?.trim();
+        const position = row.jabatan?.trim() || '';
+        const delegatedPosition =
+          delegateName && delegateStatus
+            ? new RegExp(`^${delegateStatus}\\.?\\s+`, 'i').test(position)
+              ? position
+              : `${delegateStatus}. ${position}`
+            : position;
+        return {
+          index: row.urutan || index + 1,
+          // Visible sign menampilkan aktor yang benar-benar menandatangani.
+          nama: delegateName || row.nama,
+          // PT/PH/PS adalah status jabatan, bukan prefix nama pejabat.
+          jabatan: delegatedPosition,
+        };
+      });
     const originalBuffer = await this.storage.getFile(naskah.lampiran);
     const signedBuffer = await this.docxQrInline.injectQrSigners(
       originalBuffer,

@@ -472,6 +472,7 @@ export class NaskahLainnyaController {
       id,
       dto.catatan ?? '',
       user,
+      dto.approvalId,
     );
   }
 
@@ -510,7 +511,12 @@ export class NaskahLainnyaController {
     @Body() dto: ApprovalActionDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.service.tolakBlankoVerbal(id, dto.catatan ?? '', user);
+    return this.service.tolakBlankoVerbal(
+      id,
+      dto.catatan ?? '',
+      user,
+      dto.approvalId,
+    );
   }
 
   @Put(':id/approval/:approvalId/delegasi')

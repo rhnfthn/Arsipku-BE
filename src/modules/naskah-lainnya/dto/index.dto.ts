@@ -62,7 +62,10 @@ export class SheetDirectorDto {
   // paraf masuk ke pengganti, bukan ke ybs direksi (lihat isApprovalAssignedToUser).
   @IsNumber() @IsOptional() delegatePersnum?: number;
   @IsString() @IsOptional() delegateName?: string;
-  @IsIn(['PT', 'PH', 'PS']) @IsOptional() delegatePositionStatus?: 'PT' | 'PH' | 'PS';
+  @IsIn(['PT', 'PH', 'PS']) @IsOptional() delegatePositionStatus?:
+    | 'PT'
+    | 'PH'
+    | 'PS';
 }
 
 export class BuatNaskahDto {
@@ -104,6 +107,7 @@ export class BuatNaskahDto {
 export class UpdateNaskahDto extends PartialType(BuatNaskahDto) {}
 
 export class ApprovalActionDto {
+  @IsString() @IsOptional() approvalId?: string;
   @IsString() @IsOptional() catatan?: string;
 }
 
@@ -180,6 +184,7 @@ export class UpdatePenandatanganFisikDto {
  * `catatan` dipakai untuk paraf/tolak (transient, per-aksi).
  */
 export class SheetDataDto {
+  @IsString() @IsOptional() approvalId?: string;
   @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
   @IsString() @IsOptional() nomor?: string;
   @IsString() @IsOptional() diusulkanOleh?: string;

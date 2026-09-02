@@ -78,7 +78,7 @@ describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
     expect(html).toContain('DIREKTUR KESELAMATAN');
   });
 
-  it('prefix nama pengganti dengan status delegasi — ybs tanpa prefix', () => {
+  it('menempatkan status delegasi pada jabatan, bukan nama', () => {
     const base = data();
     const html = service.buildHtml({
       ...base,
@@ -87,8 +87,9 @@ describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
         { index: 2, nama: 'Bina', jabatan: 'DIREKTUR TEKNIK', delegator: 'PT' },
       ],
     });
-    // Delegator PT → 'PT. NAMA'; tanpa delegator → nama polos (ybs).
-    expect(html).toContain('PT. BINA');
+    expect(html).toContain('PT. DIREKTUR TEKNIK');
+    expect(html).toContain('BINA');
+    expect(html).not.toContain('PT. BINA');
     expect(html).toContain('ANDI');
     expect(html).not.toContain('PT. ANDI');
     expect(html).not.toContain('delegator-cell');
