@@ -5,7 +5,7 @@ export interface DirectorSlot {
   jabatan: string;
   qrBase64?: string; // legacy compatibility; sheet approval sekarang render visible digsig
   signatureVisible?: boolean;
-  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix di depan nama pengganti
+  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix pada jabatan
 }
 
 export interface SheetDirectorSlot {
@@ -14,7 +14,7 @@ export interface SheetDirectorSlot {
   nama: string;
   jabatan: string;
   signatureVisible?: boolean;
-  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix di depan nama pengganti
+  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix pada jabatan
 }
 
 export interface SheetPdfData {
@@ -106,20 +106,28 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+export function formatSheetName(signer?: { nama?: string }): string {
+  return (signer?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
+}
+
+export function formatSheetPosition(
+  signer?: { jabatan?: string; delegator?: string },
+  fallback = 'DIREKTUR',
+): string {
+  const position = signer?.jabatan || fallback;
+  const status = signer?.delegator?.trim();
+  if (!status || status === 'ybs') return position;
+  return new RegExp(`^${status}\\.?\\s+`, 'i').test(position)
+    ? position
+    : `${status}. ${position}`;
+}
+
 export function renderVisibleDigsig(
   signer: { nama?: string; jabatan?: string; delegator?: string },
   variant: 'compact' | 'wide' = 'compact',
 ): string {
-  const nama = escapeHtml(
-    (signer.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase(),
-  );
-  // Delegasi: prefix status (PT/PH/PS) di depan jabatan — 'ybs' tanpa prefix.
-  const status = signer.delegator?.trim();
-  const jabatan = escapeHtml(
-    status && status !== 'ybs'
-      ? `${status}. ${signer.jabatan || 'DIREKTUR'}`
-      : signer.jabatan || 'DIREKTUR',
-  );
+  const nama = escapeHtml(formatSheetName(signer));
+  const jabatan = escapeHtml(formatSheetPosition(signer));
   const logo = visibleDigsigLogoDataUrl();
   const logoHtml = logo
     ? `<img class="visible-digsig-logo" src="${logo}" alt="AirNav" />`
@@ -146,10 +154,13 @@ function visibleDigsigLogoDataUrl(): string | null {
     process.env.VISUAL_DIGSIG_LOGO_PATH,
     path.resolve(process.cwd(), '../fe/public/logoAirnav.png'),
     path.resolve(process.cwd(), 'public/logoAirnav.png'),
+    // Runtime container backend hanya membawa folder /app/public.
+    path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
   ].filter((candidate): candidate is string => !!candidate);
   const logoPath = candidates.find((candidate) => fs.existsSync(candidate));
   if (!logoPath) return null;
-  cachedVisibleDigsigLogo = `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`;
+  const mime = /\.png$/i.test(logoPath) ? 'image/png' : 'image/jpeg';
+  cachedVisibleDigsigLogo = `data:${mime};base64,${fs.readFileSync(logoPath).toString('base64')}`;
   return cachedVisibleDigsigLogo;
 }
 import fs from 'fs';

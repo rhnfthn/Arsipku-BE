@@ -298,6 +298,71 @@ describe('NaskahLainnyaService', () => {
     expect(res.data.tahapan).toBe('tanda_tangan');
   });
 
+  it('getDetail memulihkan pilihan LPD gabungan yang 3/3 verified dari blanko_verbal ke selesai', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n-lpd-stuck',
+      nomor: 'PER.2',
+      jenis: 'PER',
+      perihal: 'LPD selesai',
+      tanggal: new Date('2026-09-02'),
+      createdAt: new Date('2026-09-02'),
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+      signedLampiran: 'signed/final.docx',
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([
+      {
+        id: 'pd-known-1',
+        tahap: 'persetujuan_direksi',
+        status: 'verified',
+        urutan: 1,
+        tanggal: new Date('2026-09-02T02:00:00.000Z'),
+      },
+      {
+        id: 'pd-known-2',
+        tahap: 'persetujuan_direksi',
+        status: 'verified',
+        urutan: 2,
+        tanggal: new Date('2026-09-02T02:01:00.000Z'),
+      },
+      {
+        id: 'pd-established',
+        tahap: 'persetujuan_direksi_ditetapkan',
+        status: 'verified',
+        urutan: 1,
+        tanggal: new Date('2026-09-02T02:02:00.000Z'),
+      },
+    ]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([
+      {
+        aksi: 'kirim-lembar-persetujuan-direksi',
+        tahap: 'blanko_verbal',
+        status: 'persetujuan_direksi',
+        tanggal: new Date('2026-09-02T01:00:00.000Z'),
+      },
+    ]);
+    (svc as any).blankoRepo.find.mockResolvedValue([]);
+    (svc as any).dokumenRepo.find.mockResolvedValue([]);
+    workflowMock.transisi.mockClear();
+    workflowMock.transisi.mockImplementationOnce((naskah: any) => {
+      naskah.tahapan = 'selesai';
+      naskah.signingIndex = null;
+    });
+
+    const res = await svc.getDetail('n-lpd-stuck', {
+      nama: 'Direktur Utama',
+      positionText: 'Direktur Utama',
+    } as any);
+
+    expect(workflowMock.transisi).toHaveBeenCalledWith(
+      expect.anything(),
+      'complete',
+      expect.objectContaining({ aktor: 'Direktur Utama' }),
+    );
+    expect(res.data.tahapan).toBe('selesai');
+  });
+
   it('endpoint evaluasi lama tidak dapat melewati approval EVP', async () => {
     await expect(
       svc.evaluasi('n1', { sesuai: true, checklist: [] }, { nama: 'X' } as any),
@@ -2435,6 +2500,55 @@ describe('NaskahLainnyaService', () => {
     });
   });
 
+  it('signCombinedFinalNaskah menempatkan status delegasi pada jabatan visible sign', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.update.mockResolvedValue({});
+    (svc as any).docxQrInline.injectQrSigners = jest
+      .fn()
+      .mockResolvedValue(Buffer.from('signed'));
+    storageMock.getFile.mockResolvedValueOnce(Buffer.from('original'));
+    storageMock.uploadBuffer.mockResolvedValueOnce({
+      key: 'naskah-lainnya/PER/n-delegate/signed/signed.docx',
+    });
+    jest.spyOn(svc as any, 'upsertDittdRow').mockResolvedValueOnce(undefined);
+
+    await (svc as any).signCombinedFinalNaskah(
+      {
+        id: 'n-delegate',
+        jenis: 'PER',
+        nomor: null,
+        tanggal: new Date('2026-09-02'),
+        lampiran: 'original.docx',
+        signedLampiran: null,
+      },
+      [
+        {
+          id: 'est-delegate',
+          nama: 'Pejabat Asli',
+          jabatan: 'Direktur Operasi',
+          urutan: 1,
+          status: 'waiting',
+          delegateName: 'Didiet Kus Sam Radityo',
+          delegatePositionStatus: 'PH',
+        },
+      ],
+      'est-delegate',
+      { nama: 'Didiet Kus Sam Radityo', positionText: 'Direktur Operasi' },
+      false,
+    );
+
+    expect((svc as any).docxQrInline.injectQrSigners).toHaveBeenCalledWith(
+      Buffer.from('original'),
+      [
+        expect.objectContaining({
+          nama: 'Didiet Kus Sam Radityo',
+          jabatan: 'PH. Direktur Operasi',
+        }),
+      ],
+      { nomor: '' },
+    );
+  });
+
   it('deleteDraft menghapus MinIO key semua baris naskah + dokumenRepo.delete', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue({
@@ -2550,6 +2664,55 @@ describe('NaskahLainnyaService', () => {
     expect(res.success).toBe(true);
   });
 
+  it('kirimLembarPersetujuanDireksi dari step gabungan: seed approval dan pindah ke state LPD', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue(sheetNaskahBlankoVerbal);
+    const txManager = {
+      save: jest.fn((e) => e),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementation(async (cb: any) =>
+      cb(txManager),
+    );
+    setupDetailMocks();
+    workflowMock.transisi.mockClear();
+
+    const res = await svc.kirimLembarPersetujuanDireksi(
+      'n-sheet',
+      {
+        perihal: 'p',
+        diketahuiOleh: [
+          {
+            positionId: 'POS_DIR1',
+            nama: 'Direktur Satu',
+            jabatan: 'Direktur Operasi',
+          },
+        ],
+        ditetapkanOleh: [
+          {
+            positionId: 'POS_DIR2',
+            nama: 'Direktur Dua',
+            jabatan: 'Direktur Utama',
+          },
+        ],
+      } as any,
+      { nama: 'Legal Drafter', positionText: 'Legal' } as any,
+    );
+
+    const savedDitetapkan = (txManager.save as jest.Mock).mock.calls
+      .map((call) => call[0])
+      .filter((row: any) => row.tahap === 'persetujuan_direksi_ditetapkan');
+    expect(savedDitetapkan).toHaveLength(1);
+    expect(savedDitetapkan[0].status).toBe('pending');
+    expect(workflowMock.transisi).toHaveBeenCalledWith(
+      sheetNaskahBlankoVerbal,
+      'kirim-lembar-persetujuan-direksi',
+      expect.objectContaining({ manager: txManager, aktor: 'Legal Drafter' }),
+    );
+    expect(res.success).toBe(true);
+  });
+
   it('kirimLembarPersetujuanDireksi legacy: seed sesuai direksi yang dipilih', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue(sheetNaskahPersetujuanDireksi);
@@ -2605,7 +2768,7 @@ describe('NaskahLainnyaService', () => {
     expect(savedDitetapkan[0]).toEqual(
       expect.objectContaining({
         positionId: 'POS_DIR2',
-        status: 'waiting',
+        status: 'pending',
         urutan: 1,
       }),
     );
@@ -2672,6 +2835,91 @@ describe('NaskahLainnyaService', () => {
       expect.objectContaining({ tahapan: 'blanko_verbal' }),
     );
     expect((svc as any).lpdService.render).toHaveBeenCalledTimes(1);
+    expect(res.success).toBe(true);
+  });
+
+  it('paraf LPD gabungan terakhir: menandatangani final dan menyelesaikan tahap, bukan kembali ke Blanko Verbal', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      ...sheetNaskahPersetujuanDireksi,
+      lampiran: 'draft/naskah.docx',
+    });
+    const approvalRows = [
+      {
+        id: 'pd-known',
+        naskahId: 'n-sheet',
+        tahap: 'persetujuan_direksi',
+        positionId: 'POS_DIR1',
+        nama: 'Direktur Satu',
+        jabatan: 'Direktur Operasi',
+        urutan: 1,
+        status: 'verified',
+      },
+      {
+        id: 'pd-established',
+        naskahId: 'n-sheet',
+        tahap: 'persetujuan_direksi_ditetapkan',
+        positionId: 'POS_DIR2',
+        nama: 'Direktur Dua',
+        jabatan: 'Direktur Utama',
+        urutan: 1,
+        status: 'waiting',
+      },
+    ];
+    const txManager = {
+      save: jest.fn((e) => e),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementation(async (cb: any) =>
+      cb(txManager),
+    );
+    setupDetailMocks();
+    (svc as any).approvalRepo.find.mockResolvedValueOnce(approvalRows);
+    // Tanpa marker riwayat (naskah masuk PD via jalur non-gabungan) — paraf
+    // terakhir tetap ttd final + selesai; tidak bergantung marker lagi.
+    (svc as any).riwayatRepo.findOne.mockResolvedValue(null);
+    const signFinal = jest
+      .spyOn(svc as any, 'signCombinedFinalNaskah')
+      .mockResolvedValue(undefined);
+    workflowMock.applyApproval.mockResolvedValueOnce('selesai');
+
+    const res = await svc.parafLembarPersetujuanDireksi(
+      'n-sheet',
+      {
+        approvalId: 'pd-established',
+        perihal: 'p',
+        bodyHtml: '<p>LPD</p>',
+      } as any,
+      {
+        nama: 'Direktur Dua',
+        positionId: 'POS_DIR2',
+        positionText: 'Direktur Utama',
+      } as any,
+    );
+
+    expect(signFinal).toHaveBeenCalledWith(
+      expect.anything(),
+      [approvalRows[1]],
+      'pd-established',
+      expect.anything(),
+      true,
+    );
+    expect(workflowMock.applyApproval).toHaveBeenCalledWith(
+      expect.anything(),
+      approvalRows,
+      'pd-established',
+      'setuju',
+      expect.objectContaining({
+        completionTransitionFrom: 'blanko_verbal',
+        manager: txManager,
+      }),
+    );
+    expect(txManager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.anything(),
+      expect.objectContaining({ tahapan: 'selesai' }),
+    );
     expect(res.success).toBe(true);
   });
 
@@ -2895,9 +3143,7 @@ describe('NaskahLainnyaService', () => {
       .map((c) => c[0])
       .filter((e: any) => e.tahap === 'blanko_verbal');
     expect(savedApprovals).toHaveLength(2);
-    const ybsRow = savedApprovals.find(
-      (a: any) => a.positionId === 'POS_DIR1',
-    );
+    const ybsRow = savedApprovals.find((a: any) => a.positionId === 'POS_DIR1');
     const delegatedRow = savedApprovals.find(
       (a: any) => a.positionId === 'POS_DIR2',
     );
@@ -3051,7 +3297,7 @@ describe('NaskahLainnyaService', () => {
     expect(row.assignedAt).toBeNull();
   });
 
-  it('parafBlankoVerbal oleh delegate: verifikasi baris waiting dan aktor a.n. delegasi', async () => {
+  it('parafBlankoVerbal oleh delegate: hanya memverifikasi approvalId yang dipilih saat user juga punya approval jabatan asli', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue(sheetNaskahBlankoVerbal);
     const approvalRows = [
@@ -3059,9 +3305,9 @@ describe('NaskahLainnyaService', () => {
         id: 'bv1',
         naskahId: 'n-sheet',
         tahap: 'blanko_verbal',
-        positionId: 'POS_DIR1',
-        nama: 'Direktur Satu',
-        jabatan: 'Direktur Operasi',
+        positionId: 'POS_DELEGATE',
+        nama: 'Staf Khusus',
+        jabatan: 'Jabatan Asli',
         urutan: 1,
         status: 'waiting',
       },
@@ -3100,7 +3346,11 @@ describe('NaskahLainnyaService', () => {
 
     const res = await svc.parafBlankoVerbal(
       'n-sheet',
-      { perihal: 'p', bodyHtml: '<p>Blanko</p>' } as any,
+      {
+        approvalId: 'bv2',
+        perihal: 'p',
+        bodyHtml: '<p>Blanko</p>',
+      } as any,
       {
         nama: 'Staf Khusus',
         persnum: 5555,
@@ -3111,6 +3361,7 @@ describe('NaskahLainnyaService', () => {
 
     const targetRow = approvalRows.find((r) => r.id === 'bv2');
     expect(targetRow!.status).toBe('verified');
+    expect(approvalRows.find((r) => r.id === 'bv1')!.status).toBe('waiting');
     expect(workflowMock.applyApproval).toHaveBeenCalledWith(
       expect.anything(),
       approvalRows,
@@ -3197,7 +3448,13 @@ describe('NaskahLainnyaService', () => {
 
     await svc.kirimApprovalLegal(
       'n-eval',
-      [{ positionId: 'POS_LEGAL', nama: 'Legal', jabatan: 'Kepala Unit Legal' }],
+      [
+        {
+          positionId: 'POS_LEGAL',
+          nama: 'Legal',
+          jabatan: 'Kepala Unit Legal',
+        },
+      ],
       { nama: 'Legal', positionId: 'POS_LEGAL' } as any,
     );
 
@@ -3208,10 +3465,10 @@ describe('NaskahLainnyaService', () => {
     );
     // Baris lama dihapus dulu (idempotent), lalu seed EVP = simpul terakhir
     // rantai persetujuan awal.
-    expect(txManager.delete).toHaveBeenCalledWith(
-      NaskahLainnyaApprovalEntity,
-      { naskahId: 'n-eval', tahap: 'evaluasi' },
-    );
+    expect(txManager.delete).toHaveBeenCalledWith(NaskahLainnyaApprovalEntity, {
+      naskahId: 'n-eval',
+      tahap: 'evaluasi',
+    });
     expect(txManager.save).toHaveBeenCalledWith(
       expect.objectContaining({
         tahap: 'evaluasi',
