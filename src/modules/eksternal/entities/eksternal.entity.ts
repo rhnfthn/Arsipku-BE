@@ -1,9 +1,21 @@
-import { Entity, Column, PrimaryColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity('eksternal')
 export class EksternalEntity {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'datetime' })
+  updatedAt: Date;
 
   @Column({ type: 'varchar', length: 10, nullable: true, unique: true })
   kode: string | null;
