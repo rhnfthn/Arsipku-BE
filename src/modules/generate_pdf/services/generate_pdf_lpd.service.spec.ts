@@ -63,6 +63,22 @@ describe('GeneratePdfLpdService.buildHtml', () => {
     expect(html).toContain('DIREKTUR TEKNIK');
   });
 
+  it('menempatkan status delegasi pada jabatan, bukan nama', () => {
+    const payload = data();
+    payload.diketahuiOleh = [
+      {
+        index: 1,
+        nama: 'Bina',
+        jabatan: 'DIREKTUR TEKNIK',
+        delegator: 'PH',
+      },
+    ];
+    const html = service.buildHtml(payload);
+    expect(html).toContain('PH. DIREKTUR TEKNIK');
+    expect(html).toContain('BINA');
+    expect(html).not.toContain('PH. BINA');
+  });
+
   it('merender visual digsig HANYA untuk direksi yang verified', () => {
     const html = service.buildHtml(data([1], ['QR1', 'QR2']));
     expect(html).toContain('class="visible-digsig');
