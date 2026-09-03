@@ -69,12 +69,8 @@ export class EksternalService {
     return map;
   }
 
-  /**
-   * Generate kode unik 5 huruf acak (A-Z) untuk eksternal.
-   * Loop sampai dapat kode yang belum dipakai (kolom kode unique).
-   */
   private async generateKode(): Promise<string> {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let kode: string;
     let exists: boolean;
 
