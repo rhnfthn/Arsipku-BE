@@ -19,6 +19,10 @@ export class SdeMasalFilterDto {
 
   @IsOptional()
   @IsString()
+  folderId?: string;
+
+  @IsOptional()
+  @IsString()
   tahun?: string;
 
   @IsOptional()
