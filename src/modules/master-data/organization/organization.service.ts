@@ -344,7 +344,12 @@ export class OrganizationService {
     }
 
     // Create organization
-    const newOrg = this.orgRepo.create(dto);
+    const newOrg = this.orgRepo.create({
+      ...dto,
+      // Nama selalu disimpan KAPITAL.
+      shortText: dto.shortText?.toUpperCase(),
+      longText: dto.longText?.toUpperCase(),
+    });
     const savedOrg = await this.orgRepo.save(newOrg);
 
     // Create parent-child relationship if parentOrganization is provided
@@ -415,8 +420,8 @@ export class OrganizationService {
     // Manually assign fields from DTO
     if (dto.organization !== undefined)
       organization.organization = dto.organization;
-    if (dto.shortText !== undefined) organization.shortText = dto.shortText;
-    if (dto.longText !== undefined) organization.longText = dto.longText;
+    if (dto.shortText !== undefined) organization.shortText = dto.shortText.toUpperCase();
+    if (dto.longText !== undefined) organization.longText = dto.longText.toUpperCase();
     if (dto.abbreviation !== undefined)
       organization.abbreviation = dto.abbreviation;
     if (dto.startDate !== undefined) organization.startDate = dto.startDate;
