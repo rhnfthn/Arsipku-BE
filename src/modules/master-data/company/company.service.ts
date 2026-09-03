@@ -167,14 +167,15 @@ export class CompanyService {
   }
 
   async create(dto: CreateCompanyDto): Promise<OmCompany> {
-    // Kode perusahaan auto-generate (4 digit, mulai 1000) — abaikan dari payload.
-    const { company: _ignored, endDate, ...rest } = dto;
-    const companyCode = await this.generateCompanyCode();
+    // Kode perusahaan: pakai dari payload jika dikirim (user bisa ubah),
+    // selain itu auto-generate (4 digit, mulai 1000).
+    const { company, endDate, ...rest } = dto;
+    const companyCode = company ?? (await this.generateCompanyCode());
 
     const newCompany = this.companyRepo.create({
       ...rest,
       company: companyCode,
-      // Default end date 31 Desember 9999 (tidak ditampilkan di UI).
+      // Default end date 31 Desember 9999.
       endDate: endDate || '9999-12-31',
     });
     return this.companyRepo.save(newCompany);
