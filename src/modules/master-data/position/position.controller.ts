@@ -43,14 +43,15 @@ export class PositionController {
   /**
    * Get all positions by organization
    * Includes bod_tag from om_relation_osc
-   * @example GET /position/organization/100?search=manager
+   * @example GET /position/organization/100?company=1&search=manager
    */
   @Get('organization/:organizationId')
   findByOrganization(
     @Param('organizationId', ParseIntPipe) organizationId: number,
+    @Query('company') companyId: number,
     @Query('search') search?: string,
   ) {
-    return this.positionService.findByOrganization(organizationId, search);
+    return this.positionService.findByOrganization(organizationId, companyId, search);
   }
 
   /**

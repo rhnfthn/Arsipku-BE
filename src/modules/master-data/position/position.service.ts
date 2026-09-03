@@ -58,28 +58,32 @@ export class PositionService {
    * Get all positions by organization (via relation_os)
    * Includes bod_tag from om_relation_osc
    * @param organizationId - Organization ID
+   * @param companyId - Company ID (untuk isolasi data antar perusahaan)
    * @param search - Optional search query to filter positions by name
    */
   async findByOrganization(
     organizationId: number,
+    companyId?: number,
     search?: string,
   ): Promise<any[]> {
     // Get positions via relation_os table with bod_tag from relation_osc
+    // Filter by both organization AND company agar tidak bocor data perusahaan lain
     let query = `
-      SELECT 
+      SELECT
         p.*,
         osc.bod_tag
       FROM om_position p
       INNER JOIN om_relation_os os ON os.relation_position = p.position AND os.company = p.company
-      LEFT JOIN om_relation_osc osc ON osc.relation_position = p.position 
-        AND osc.company = p.company 
+      LEFT JOIN om_relation_osc osc ON osc.relation_position = p.position
+        AND osc.company = p.company
         AND osc.organization = os.organization
       WHERE os.organization = ?
+        AND os.company = p.company
+        AND p.company = ?
     `;
 
-    const params: any[] = [organizationId];
+    const params: any[] = [organizationId, companyId];
 
-    // Add search filter if provided
     if (search && search.trim()) {
       query += ` AND (p.short_text LIKE ? OR p.long_text LIKE ? OR p.abbreviation LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
