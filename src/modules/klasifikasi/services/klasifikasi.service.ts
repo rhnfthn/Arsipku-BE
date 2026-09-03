@@ -46,6 +46,7 @@ export class KlasifikasiService {
       ...createKlasifikasiDto,
       id: createKlasifikasiDto.id || uuidv4(),
       active: createKlasifikasiDto.active ?? 1,
+      penyusutan: createKlasifikasiDto.penyusutan || 'Permanen',
     });
 
     return await this.klasifikasiRepository.save(klasifikasi);
@@ -125,6 +126,16 @@ export class KlasifikasiService {
       klasifikasi.id_parent = updateKlasifikasiDto.id_parent;
     if (updateKlasifikasiDto.active !== undefined)
       klasifikasi.active = updateKlasifikasiDto.active;
+    if (updateKlasifikasiDto.retensi_aktif_tahun !== undefined)
+      klasifikasi.retensi_aktif_tahun = updateKlasifikasiDto.retensi_aktif_tahun;
+    if (updateKlasifikasiDto.retensi_inaktif_tahun !== undefined)
+      klasifikasi.retensi_inaktif_tahun = updateKlasifikasiDto.retensi_inaktif_tahun;
+    if (updateKlasifikasiDto.penyusutan !== undefined)
+      klasifikasi.penyusutan = updateKlasifikasiDto.penyusutan;
+    if (updateKlasifikasiDto.keamanan !== undefined)
+      klasifikasi.keamanan = updateKlasifikasiDto.keamanan;
+    if (updateKlasifikasiDto.hak_akses !== undefined)
+      klasifikasi.hak_akses = updateKlasifikasiDto.hak_akses;
 
     return await this.klasifikasiRepository.save(klasifikasi);
   }
