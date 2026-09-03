@@ -45,8 +45,6 @@ export class OrganizationController {
    * @example GET /organization/company/1/tree?search=finance
    */
   @Get('company/:companyId/tree')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(86_400_000)
   findTreeByCompany(
     @Param('companyId', ParseIntPipe) companyId: number,
     @Query('search') search?: string,

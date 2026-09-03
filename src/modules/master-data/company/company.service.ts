@@ -149,15 +149,47 @@ export class CompanyService {
     return company;
   }
 
+  /**
+   * Generate kode perusahaan 4 digit berikutnya.
+   * Dimulai dari 1000 untuk perusahaan pertama, n+1 untuk selanjutnya.
+   * Hanya menghitung kode dalam rentang 1000–9999 (4 digit), sehingga
+   * kode legacy seperti 10000 (PERUM LPPNPI), 90001, 90002, 1, 123 diabaikan.
+   */
+  private async generateCompanyCode(): Promise<number> {
+    const result = await this.companyRepo
+      .createQueryBuilder('company')
+      .select('MAX(company.company)', 'maxCode')
+      .where('company.company >= 1000 AND company.company < 10000')
+      .getRawOne();
+
+    const maxCode = result?.maxCode ? Number(result.maxCode) : 0;
+    return Math.max(maxCode + 1, 1000);
+  }
+
   async create(dto: CreateCompanyDto): Promise<OmCompany> {
-    // Jika tidak ada id, generate UUID otomatis (karena di DB defaultnya UUID())
-    const newCompany = this.companyRepo.create(dto);
+    // Kode perusahaan: pakai dari payload jika dikirim (user bisa ubah),
+    // selain itu auto-generate (4 digit, mulai 1000).
+    const { company, endDate, ...rest } = dto;
+    const companyCode = company ?? (await this.generateCompanyCode());
+
+    const newCompany = this.companyRepo.create({
+      ...rest,
+      company: companyCode,
+      // Nama selalu disimpan KAPITAL.
+      shortText: rest.shortText?.toUpperCase(),
+      longText: rest.longText?.toUpperCase(),
+      // Default end date 31 Desember 9999.
+      endDate: endDate || '9999-12-31',
+    });
     return this.companyRepo.save(newCompany);
   }
 
   async update(id: string, dto: UpdateCompanyDto): Promise<OmCompany> {
     const company = await this.findOne(id);
     const updated = Object.assign(company, dto);
+    // Nama selalu disimpan KAPITAL.
+    if (updated.shortText) updated.shortText = updated.shortText.toUpperCase();
+    if (updated.longText) updated.longText = updated.longText.toUpperCase();
     return this.companyRepo.save(updated);
   }
 

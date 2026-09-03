@@ -61,6 +61,15 @@ export class EksternalController {
     };
   }
 
+  @Get('generate-kode')
+  async generateKode(): Promise<{ success: boolean; data: string }> {
+    const kode = await this.eksternalService.generateKodePreview();
+    return {
+      success: true,
+      data: kode,
+    };
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<EksternalItemResponseDto> {
     const eksternal = await this.eksternalService.findOne(id);
