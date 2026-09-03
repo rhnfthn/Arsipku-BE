@@ -58,6 +58,7 @@ import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.s
 import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { MailServiceService } from '../../mail-service/services/mail-service.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -2639,9 +2640,10 @@ export class SuratDinasEksternalService {
         naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
-        await queryRunner.manager.update(
+        await updatePartitionedNaskah(
+          queryRunner.manager,
           NaskahEntity,
-          { id: naskahId },
+          { id: naskah.id, tanggal: naskah.tanggal },
           naskahUpdateData,
         );
       }

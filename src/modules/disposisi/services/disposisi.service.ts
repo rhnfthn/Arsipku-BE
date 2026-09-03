@@ -66,6 +66,7 @@ import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { NotificationType } from '../../notification/entities';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
@@ -2454,6 +2455,11 @@ export class DisposisiService {
       );
     }
 
+    const naskahPartitionKey = {
+      id: naskah.id,
+      tanggal: naskah.tanggal,
+    };
+
     // Get org data untuk validasi penerima baru dan mendapatkan positionAbbreviation
     const barisData = await this.getPositionData();
 
@@ -2543,7 +2549,20 @@ export class DisposisiService {
         });
       }
 
-      await queryRunner.manager.save(naskah);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        naskahPartitionKey,
+        {
+          tanggal: naskah.tanggal,
+          sifat: naskah.sifat,
+          konten: naskah.konten,
+          lampiran: naskah.lampiran,
+          perihal: naskah.perihal,
+          nomor: naskah.nomor,
+          status: naskah.status,
+        },
+      );
 
       // PHASE 4: Update naskah_referensi (HANYA jika ada id_naskah_sebelumnya baru)
       // Jika user menambahkan referensi ke naskah sebelumnya
@@ -2671,8 +2690,14 @@ export class DisposisiService {
           where: { idNaskah: naskahId },
         });
         if (existingDiForPenerima) {
-          existingDiForPenerima.kepadaYth = kepadaYth;
-          await queryRunner.manager.save(existingDiForPenerima);
+          await queryRunner.manager.update(
+            DiEntity,
+            {
+              id: existingDiForPenerima.id,
+              tanggal: existingDiForPenerima.tanggal,
+            },
+            { kepadaYth },
+          );
         }
       }
 
@@ -2783,7 +2808,27 @@ export class DisposisiService {
           if (dto.ref_nomor_surat) existingDi.nomor = dto.ref_nomor_surat;
           if (dto.perihal) existingDi.perihal = dto.perihal;
 
-          await queryRunner.manager.save(existingDi);
+          await queryRunner.manager.update(
+            DiEntity,
+            { id: existingDi.id, tanggal: existingDi.tanggal },
+            {
+              kopLogo: existingDi.kopLogo,
+              kopJudul: existingDi.kopJudul,
+              namaJabatan: existingDi.namaJabatan,
+              nomorAgenda: existingDi.nomorAgenda,
+              tanggalAgenda: existingDi.tanggalAgenda,
+              suratDari: existingDi.suratDari,
+              tanggal: existingDi.tanggal,
+              nomor: existingDi.nomor,
+              perihal: existingDi.perihal,
+              klasifikasi: existingDi.klasifikasi,
+              kepadaYth: existingDi.kepadaYth,
+              disposisi: existingDi.disposisi,
+              catatan: existingDi.catatan,
+              paraf: existingDi.paraf,
+              isPriority: existingDi.isPriority,
+            },
+          );
         } else {
           // Insert data baru
           // Build kepadaYth dari sirkulasi penerima yang sudah ada atau dari dto
