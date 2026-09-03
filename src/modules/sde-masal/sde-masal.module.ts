@@ -8,6 +8,8 @@ import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { SuratDinasEksternalModule } from '../surat-dinas-eksternal/surat-dinas-eksternal.module';
+import { StorageModule } from '../storage/storage.module';
+import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
 
 /**
  * Module SDE Masal (Surat Dinas Eksternal Massal).
@@ -19,12 +21,14 @@ import { SuratDinasEksternalModule } from '../surat-dinas-eksternal/surat-dinas-
   imports: [
     TypeOrmModule.forFeature([
       SdeMasalEntity,
+      SdeMasalFolderEntity,
       NaskahEntity,
       NaskahSirkulasi,
       EksternalEntity,
     ]),
     OrgDataModule,
     SuratDinasEksternalModule,
+    StorageModule,
   ],
   controllers: [SdeMasalController],
   providers: [SdeMasalService],

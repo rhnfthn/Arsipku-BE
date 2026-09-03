@@ -10,13 +10,21 @@ import { In, Repository, DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
-import { CreateSdeMasalConceptDto } from '../dto/create-sde-masal-concept.dto';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
 import { SdeMasalFilterDto } from '../dto/sde-masal-filter.dto';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
+import { SdeMasalFolderEntity } from '../entities/sde-masal-folder.entity';
+import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
+import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
+import { StorageService } from '../../storage/services/storage.service';
+import {
+  CreateSuratDinasEksternalDto,
+  SignOption,
+  SifatSurat,
+} from '../../surat-dinas-eksternal/dto/create-surat-dinas-eksternal.dto';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -35,8 +43,10 @@ type SdeMasalVerifikator = {
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
  *
- * Membaca file Excel, insert banyak record sekaligus, dan menyediakan
- * CRUD untuk item SDE masal. Juga membuat naskah SDE individual per penerima.
+ * SDE Masal = SDE biasa × N. Folder menyimpan metadata yang sama untuk
+ * semua surat. Setiap baris Excel → 1 record `sde_masal` (hanya
+ * folderId + recipientData JSON). Saat finalize, 1 naskah SDE lengkap
+ * dibuat per penerima memakai helper SDE service yang sudah ada.
  */
 @Injectable()
 export class SdeMasalService {
@@ -45,6 +55,8 @@ export class SdeMasalService {
   constructor(
     @InjectRepository(SdeMasalEntity)
     private readonly repo: Repository<SdeMasalEntity>,
+    @InjectRepository(SdeMasalFolderEntity)
+    private readonly folderRepo: Repository<SdeMasalFolderEntity>,
     @InjectRepository(NaskahEntity)
     private readonly naskahRepository: Repository<NaskahEntity>,
     @InjectRepository(NaskahSirkulasi)
@@ -53,269 +65,130 @@ export class SdeMasalService {
     private readonly eksternalRepository: Repository<EksternalEntity>,
     private readonly orgDataService: OrgDataService,
     private readonly dataSource: DataSource,
+    private readonly sdeService: SuratDinasEksternalService,
+    private readonly storageService: StorageService,
   ) {}
 
-  /**
-   * Simpan konsep SDE Masal (Form 1).
-   * Konsep disimpan ke tabel sde_masal dengan status khusus.
-   */
-  async createConcept(dto: CreateSdeMasalConceptDto): Promise<SdeMasalEntity> {
-    const entity = this.repo.create({
-      conceptId: null,
-      tanggalKonsep: dto.tanggalKonsep ? new Date(dto.tanggalKonsep) : null,
-      klasifikasiId: dto.klasifikasiId ?? null,
-      klasifikasiName: dto.klasifikasiName ?? null,
-      pengirimId: dto.pengirimId ?? null,
-      pengirimName: dto.pengirimName ?? null,
-      sifatSurat: dto.sifat ?? 'biasa',
-      parentNaskahId: dto.parentNaskahId ?? null,
-      perihal: '__CONCEPT__',
-      tertuju: '__CONCEPT__',
-      statusVerifikasi: 'MENUNGGU',
+  // ============================================================
+  // FOLDER CRUD
+  // ============================================================
+
+  async createFolder(
+    dto: CreateSdeMasalFolderDto,
+  ): Promise<SdeMasalFolderEntity> {
+    const entity = this.folderRepo.create({
+      id: uuidv4(),
+      judul: dto.judul.trim(),
+      parentNaskahId: dto.parentNaskahId || null,
+      tanggal: dto.tanggal ? new Date(dto.tanggal) : null,
+      klasifikasi: dto.klasifikasi || null,
+      klasifikasiText: dto.klasifikasiText || null,
+      pengirimId: dto.pengirimId || null,
+      pengirimName: dto.pengirimName || null,
+      sifat: dto.sifat || 'biasa',
+      atasNama: dto.atasNama || null,
+      atasNamaPositionId: dto.atasNamaPositionId || null,
+      kontenTemplate: dto.kontenTemplate || null,
+      dynamicVariables: dto.dynamicVariables || [],
+      originalFileUrl: dto.originalFileUrl || null,
+      signOption: dto.signOption || null,
+      status: 'DRAFT',
+      createdBy: dto.createdBy || null,
     });
-    return this.repo.save(entity);
+    return this.folderRepo.save(entity);
   }
 
-  /**
-   * Proses upload Excel dan insert banyak record.
-   * @param file Buffer file Excel
-   * @param conceptId ID konsep dari Form 1
-   * @param skemaTemplate Skema template yang dipilih
-   * @param versiTemplate Versi template yang dipilih
-   * @returns Summary { total, success, failed }
-   */
-  async processExcelUpload(
-    file: Buffer,
-    conceptId: string,
-    skemaTemplate: string,
-    versiTemplate: string,
-  ): Promise<{
-    total: number;
-    success: number;
-    failed: number;
-    items: SdeMasalEntity[];
-  }> {
-    // Ambil data konsep
-    const concept = await this.repo.findOne({ where: { id: conceptId } });
-    if (!concept) {
-      throw new Error('Konsep tidak ditemukan');
-    }
+  async updateFolder(
+    id: string,
+    data: Partial<CreateSdeMasalFolderDto>,
+  ): Promise<SdeMasalFolderEntity> {
+    const folder = await this.folderRepo.findOne({ where: { id } });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
-    // Parse Excel — baca sheet "Data Penerima" (atau sheet pertama jika tidak ada)
-    const workbook = XLSX.read(file, { type: 'buffer' });
-    const sheetName =
-      workbook.SheetNames.find((n) =>
-        n.toLowerCase().includes('data penerima'),
-      ) || workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: null });
-
-    if (rows.length === 0) {
-      throw new Error('File Excel kosong atau tidak memiliki data');
-    }
-
-    if (rows.length > 1000) {
-      throw new Error('Maksimal 1000 baris per upload');
-    }
-
-    // Helper: ambil nilai kolom case-insensitive
-    const getCol = (row: any, ...keys: string[]): string => {
-      for (const k of keys) {
-        for (const rowKey of Object.keys(row)) {
-          if (rowKey.toLowerCase().trim() === k.toLowerCase().trim()) {
-            const val = row[rowKey];
-            if (val !== null && val !== undefined) return String(val).trim();
-          }
-        }
-      }
-      return '';
-    };
-
-    const items: SdeMasalEntity[] = [];
-    let failed = 0;
-
-    for (const row of rows) {
-      try {
-        const perihalRow = getCol(row, 'Perihal', 'perihal');
-        const idTertuju = getCol(row, 'id_tertuju', 'idTertuju');
-        const idramount = getCol(row, 'idramount');
-        const usdamount = getCol(row, 'usdamount');
-        const namacro = getCol(row, 'namacro');
-        const email = getCol(row, 'email', 'Email');
-        const tembusan = getCol(row, 'tembusan', 'Tembusan');
-        const isRevisionRaw = getCol(row, 'is_revision', 'isRevision');
-        const emailTertuju = getCol(row, 'email_tertuju', 'emailTertuju');
-        const emailCc = getCol(row, 'email_cc', 'emailCc');
-        const emailBcc = getCol(row, 'email_bcc', 'emailBcc');
-
-        // Field skema keuangan / tagihan PINP
-        const jumlahTagihanIdr = getCol(
-          row,
-          'jumlah_tagihan_idr',
-          'jumlahTagihanIdr',
-        );
-        const jumlahTagihanUsd = getCol(
-          row,
-          'jumlah_tagihan_usd',
-          'jumlahTagihanUsd',
-        );
-        const namaCro = getCol(row, 'nama_cro', 'namaCro');
-        const emailCro = getCol(row, 'email_cro', 'emailCro');
-        const jabatanSigner = getCol(row, 'jabatan_signer', 'jabatanSigner');
-        const namaSigner = getCol(row, 'nama_signer', 'namaSigner');
-
-        // Field skema umum / tagihan PJNP
-        const jumlahLampiran = getCol(row, 'jumlah_lampiran', 'jumlahLampiran');
-        const jabatanPenerima = getCol(
-          row,
-          'jabatan_penerima',
-          'jabatanPenerima',
-        );
-        const alamatPenerima = getCol(row, 'alamat_penerima', 'alamatPenerima');
-        const panggilanPenerima = getCol(
-          row,
-          'panggilan_penerima',
-          'panggilanPenerima',
-        );
-        const nominalRupiah = getCol(row, 'nominal_rupiah', 'nominalRupiah');
-        const nominalDolar = getCol(row, 'nominal_dolar', 'nominalDolar');
-        const tembusan1 = getCol(row, 'tembusan_1', 'tembusan1');
-        const tembusan2 = getCol(row, 'tembusan_2', 'tembusan2');
-
-        // Skip baris kosong (semua field kosong)
-        if (
-          !perihalRow &&
-          !idTertuju &&
-          !idramount &&
-          !usdamount &&
-          !namacro &&
-          !email &&
-          !tembusan &&
-          !emailTertuju &&
-          !emailCc &&
-          !emailBcc &&
-          !jumlahTagihanIdr &&
-          !jumlahTagihanUsd &&
-          !namaCro &&
-          !emailCro &&
-          !jabatanSigner &&
-          !namaSigner &&
-          !jumlahLampiran &&
-          !jabatanPenerima &&
-          !alamatPenerima &&
-          !panggilanPenerima &&
-          !nominalRupiah &&
-          !nominalDolar &&
-          !tembusan1 &&
-          !tembusan2
-        ) {
-          continue;
-        }
-
-        // Perihal wajib
-        if (!perihalRow) {
-          failed++;
-          continue;
-        }
-
-        const isRevision =
-          isRevisionRaw === '1' || isRevisionRaw.toLowerCase() === 'true'
-            ? 1
-            : 0;
-
-        const item = this.repo.create({
-          conceptId,
-          tanggalKonsep: concept.tanggalKonsep,
-          klasifikasiId: concept.klasifikasiId,
-          klasifikasiName: concept.klasifikasiName,
-          pengirimId: concept.pengirimId,
-          pengirimName: concept.pengirimName,
-          sifatSurat: concept.sifatSurat || 'biasa',
-          parentNaskahId: concept.parentNaskahId,
-          skemaTemplate,
-          versiTemplate,
-          perihal: perihalRow || concept.perihal || '',
-          tertuju: idTertuju || perihalRow || '',
-          alamat: alamatPenerima || null,
-          kota: null,
-          kodePos: null,
-          jabatanPenerima: jabatanPenerima || null,
-          isiRingkasan: null,
-          jenisTemplate: skemaTemplate,
-          statusVerifikasi: 'MENUNGGU',
-          idTertuju: idTertuju || null,
-          idramount: idramount || null,
-          usdamount: usdamount || null,
-          namacro: namacro || null,
-          email: email || null,
-          tembusan: tembusan || null,
-          isRevision,
-          emailTertuju: emailTertuju || null,
-          emailCc: emailCc || null,
-          emailBcc: emailBcc || null,
-          jumlahTagihanIdr: jumlahTagihanIdr || null,
-          jumlahTagihanUsd: jumlahTagihanUsd || null,
-          namaCro: namaCro || null,
-          emailCro: emailCro || null,
-          jabatanSigner: jabatanSigner || null,
-          namaSigner: namaSigner || null,
-          jumlahLampiran: jumlahLampiran || null,
-          panggilanPenerima: panggilanPenerima || null,
-          nominalRupiah: nominalRupiah || null,
-          nominalDolar: nominalDolar || null,
-          tembusan1: tembusan1 || null,
-          tembusan2: tembusan2 || null,
-        });
-        items.push(item);
-      } catch (err) {
-        this.logger.warn(`Failed to parse row: ${err?.message ?? err}`);
-        failed++;
-      }
-    }
-
-    // Bulk insert
-    let saved: SdeMasalEntity[] = [];
-    if (items.length > 0) {
-      saved = await this.repo.save(items);
-    }
-
-    // Hapus record konsep placeholder (perihal = __CONCEPT__)
-    if (concept.perihal === '__CONCEPT__') {
-      await this.repo.delete(concept.id);
-    }
-
-    return {
-      total: rows.length,
-      success: saved.length,
-      failed,
-      items: saved,
-    };
+    if (data.judul !== undefined) folder.judul = data.judul.trim();
+    if (data.parentNaskahId !== undefined)
+      folder.parentNaskahId = data.parentNaskahId || null;
+    if (data.tanggal !== undefined)
+      folder.tanggal = data.tanggal ? new Date(data.tanggal) : null;
+    if (data.klasifikasi !== undefined)
+      folder.klasifikasi = data.klasifikasi || null;
+    if (data.klasifikasiText !== undefined)
+      folder.klasifikasiText = data.klasifikasiText || null;
+    if (data.pengirimId !== undefined)
+      folder.pengirimId = data.pengirimId || null;
+    if (data.pengirimName !== undefined)
+      folder.pengirimName = data.pengirimName || null;
+    if (data.sifat !== undefined) folder.sifat = data.sifat || 'biasa';
+    if (data.atasNama !== undefined) folder.atasNama = data.atasNama || null;
+    if (data.atasNamaPositionId !== undefined)
+      folder.atasNamaPositionId = data.atasNamaPositionId || null;
+    if (data.kontenTemplate !== undefined)
+      folder.kontenTemplate = data.kontenTemplate || null;
+    if (data.dynamicVariables !== undefined)
+      folder.dynamicVariables = data.dynamicVariables || [];
+    if (data.originalFileUrl !== undefined)
+      folder.originalFileUrl = data.originalFileUrl || null;
+    if (data.signOption !== undefined)
+      folder.signOption = data.signOption || null;
+    return this.folderRepo.save(folder);
   }
 
+  // ============================================================
+  // GENERATE MASSAL — hanya insert sde_masal (tidak buat naskah)
+  // ============================================================
+
   /**
-   * Generate massal SDE dari data wizard (Step 4).
-   * Menerima data konsep, list penerima, dan template dari frontend,
-   * lalu insert banyak record SDE Masal sekaligus.
+   * Generate massal SDE dari data wizard.
+   * Untuk setiap baris penerima yang valid, insert 1 record `sde_masal`
+   * dengan folderId + recipientData (JSON). Naskah dibuat saat finalize.
    */
   async generateMassal(body: {
-    conceptId?: string;
-    konsep: any;
+    folderId?: string;
+    konsep?: any;
     penerimaList: any[];
-    template: any;
+    template?: any;
+    createdBy?: string;
   }): Promise<{
     total: number;
     success: number;
     failed: number;
     items: SdeMasalEntity[];
   }> {
-    const { konsep, penerimaList, template } = body;
-
-    if (!konsep || !penerimaList || penerimaList.length === 0) {
-      throw new Error('Data wizard tidak lengkap');
+    const { penerimaList } = body;
+    if (!penerimaList || penerimaList.length === 0) {
+      throw new BadRequestException('Data penerima tidak boleh kosong');
+    }
+    if (penerimaList.length > 1000) {
+      throw new BadRequestException('Maksimal 1000 penerima per generate');
     }
 
-    if (penerimaList.length > 1000) {
-      throw new Error('Maksimal 1000 penerima per generate');
+    const folder = body.folderId
+      ? await this.folderRepo.findOne({ where: { id: body.folderId } })
+      : null;
+    if (body.folderId && !folder) {
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    }
+
+    // Simpan template ke folder jika diberikan
+    if (folder && body.template) {
+      folder.kontenTemplate = body.template.konten || folder.kontenTemplate;
+      folder.dynamicVariables = Array.from(
+        new Set(
+          penerimaList.flatMap((item) =>
+            Object.keys(item?.variables || {}).filter(
+              (key) =>
+                ![
+                  'tertuju',
+                  'perihal',
+                  'tembusan',
+                  'tembusan_internal',
+                  'tembusan_eksternal',
+                ].includes(key),
+            ),
+          ),
+        ),
+      );
     }
 
     const items: SdeMasalEntity[] = [];
@@ -323,100 +196,15 @@ export class SdeMasalService {
 
     for (const p of penerimaList) {
       try {
-        if (!p.isValid) {
+        if (p.isValid === false) {
           failed++;
           continue;
         }
-
-        // Bangun tertuju dari id_tertuju atau nama + jabatan
-        const nama = p.nama || '';
-        const jabatan = p.jabatan || p.jabatanPenerima || '';
-        const tertuju =
-          p.idTertuju ||
-          p.tertuju ||
-          (nama && jabatan ? `${nama} - ${jabatan}` : nama || jabatan || '-');
-        const persnum = p.persnum || p.kodePos || '';
-
-        // Ganti variabel dinamis di konten template. Nilai Excel yang diunggah
-        // tersedia lewat p.variables, sementara perihal dan tertuju adalah
-        // kolom standar yang selalu dipertahankan pada template.
-        let konten = template?.konten || '';
-        if (konten) {
-          const values = {
-            ...(p.variables || {}),
-            ...p,
-            perihal: p.perihal || konsep.perihal || '-',
-            tertuju,
-            nama: nama || '-',
-            jabatan: jabatan || '-',
-            persnum: persnum || '-',
-            kode_pos: p.kodePos || '-',
-            kodepos: p.kodePos || '-',
-            tanggal_surat: konsep.tanggalKonsep || '-',
-            nomor_surat: p.nomorSurat || '-',
-            sifat_surat: konsep.sifat || 'Biasa',
-            nominal_rupiah: p.nominalRupiah || p.idramount || '-',
-            nominal_dolar: p.nominalDolar || p.usdamount || '-',
-            jabatan_penerima: p.jabatanPenerima || p.jabatan || '-',
-            alamat_penerima: p.alamatPenerima || p.alamat || '-',
-            panggilan_penerima: p.panggilanPenerima || 'Bapak/Ibu',
-            tembusan_1:
-              p.tembusan1 || (p.tembusan ? p.tembusan.split(';')[0] : '-'),
-            tembusan_2:
-              p.tembusan2 ||
-              (p.tembusan ? p.tembusan.split(';')[1] || '-' : '-'),
-          };
-          konten = konten.replace(
-            /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
-            (_match, key) => String(values[key] ?? '-'),
-          );
-        }
-
         const item = this.repo.create({
-          conceptId: body.conceptId || null,
-          tanggalKonsep: konsep.tanggalKonsep
-            ? new Date(konsep.tanggalKonsep)
-            : null,
-          klasifikasiId: konsep.klasifikasiId || null,
-          klasifikasiName: konsep.klasifikasiName || null,
-          pengirimId: konsep.pengirimId || null,
-          pengirimName: konsep.pengirimName || null,
-          sifatSurat: konsep.sifat || 'biasa',
-          parentNaskahId: konsep.parentNaskahId || null,
-          skemaTemplate: template?.skema || null,
-          versiTemplate: template?.versi || null,
-          perihal: p.perihal || konsep.perihal || '',
-          tertuju,
-          alamat: p.alamatPenerima || p.alamat || null,
-          kota: p.kota || null,
-          kodePos: persnum || null,
-          jabatanPenerima: p.jabatanPenerima || jabatan || null,
-          isiRingkasan: konten || null,
-          jenisTemplate: template?.skema || null,
+          folderId: body.folderId || null,
+          recipientData: JSON.stringify(p),
           statusVerifikasi: 'MENUNGGU',
-          // Field dinamis dari Excel (mapping kolom template)
-          idTertuju: p.idTertuju || null,
-          idramount: p.idramount || null,
-          usdamount: p.usdamount || null,
-          namacro: p.namacro || null,
-          email: p.email || null,
-          tembusan: p.tembusan || null,
-          isRevision: p.isRevision === true || p.isRevision === 1 ? 1 : 0,
-          emailTertuju: p.emailTertuju || null,
-          emailCc: p.emailCc || null,
-          emailBcc: p.emailBcc || null,
-          jumlahTagihanIdr: p.jumlahTagihanIdr || null,
-          jumlahTagihanUsd: p.jumlahTagihanUsd || null,
-          namaCro: p.namaCro || null,
-          emailCro: p.emailCro || null,
-          jabatanSigner: p.jabatanSigner || null,
-          namaSigner: p.namaSigner || null,
-          jumlahLampiran: p.jumlahLampiran || null,
-          panggilanPenerima: p.panggilanPenerima || null,
-          nominalRupiah: p.nominalRupiah || null,
-          nominalDolar: p.nominalDolar || null,
-          tembusan1: p.tembusan1 || null,
-          tembusan2: p.tembusan2 || null,
+          createdBy: body.createdBy || null,
         });
         items.push(item);
       } catch (err) {
@@ -437,6 +225,374 @@ export class SdeMasalService {
       items: saved,
     };
   }
+
+  // ============================================================
+  // FINALIZE — buat 1 naskah SDE lengkap per penerima
+  // ============================================================
+
+  async finalizeNaskah(
+    sdeMasalId: string,
+    signOption: 'digsig' | 'qr_only' | 'ttd_basah',
+    passphrase?: string,
+    creatorPosition?: string | number,
+    persnum?: number,
+  ): Promise<{ naskahId: string; nomor: string; status: string }> {
+    const item = await this.repo.findOne({ where: { id: sdeMasalId } });
+    if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
+
+    if (item.naskahId) {
+      const existing = await this.naskahRepository.findOne({
+        where: { id: item.naskahId },
+      });
+      return {
+        naskahId: item.naskahId,
+        nomor: existing?.nomor || '',
+        status: existing?.status || item.statusVerifikasi,
+      };
+    }
+
+    const folder = item.folderId
+      ? await this.folderRepo.findOne({ where: { id: item.folderId } })
+      : null;
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    const tanggal = folder.tanggal
+      ? new Date(folder.tanggal).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const orgData = await this.orgDataService.findOrg(tanggal);
+    const pengirim = orgData?.position_json?.find(
+      (position: any) =>
+        Number(position.position) === Number(folder.pengirimId),
+    );
+    if (!pengirim || pengirim.chief !== 1) {
+      throw new ForbiddenException(
+        'Penandatangan tidak ditemukan atau bukan pejabat managerial aktif',
+      );
+    }
+
+    const recipient = this.parseRecipientData(item);
+    const external = await this.resolveRecipientExternal(
+      folder,
+      item,
+      recipient,
+    );
+    // Resolve tembusan eksternal ke list bernomor dengan nama eksternal
+    const tembusanList = await this.resolveTembusanList(folder, {
+      ...recipient,
+      tembusan: recipient.tembusanEksternal || recipient.tembusan || '',
+    });
+    const konten = this.renderFolderKonten(folder, item, {
+      ...recipient,
+      tembusan:
+        tembusanList || recipient.tembusanEksternal || recipient.tembusan || '',
+      tembusan_internal: recipient.tembusanInternal || '',
+      tembusan_eksternal: recipient.tembusanEksternal || '',
+    });
+    const internalTembusan = this.parseInternalTembusan(recipient);
+    const normalizedSignOption = signOption || folder.signOption || 'qr_only';
+
+    const dto: CreateSuratDinasEksternalDto = {
+      pengirim: Number(folder.pengirimId),
+      penerima: [external.id],
+      tgl: tanggal,
+      id_referensi_naskah: folder.parentNaskahId || undefined,
+      klasifikasi: folder.klasifikasi || '',
+      klasifikasi_text: folder.klasifikasiText || undefined,
+      sifat: (folder.sifat || 'biasa') as SifatSurat,
+      perihal: recipient.perihal || '-',
+      konten,
+      nama_tempat: pengirim.area_text || undefined,
+      nama_jabatan: pengirim.position_text || undefined,
+      nama_lengkap:
+        pengirim.persnum_person_text || folder.pengirimName || undefined,
+      atas_nama: folder.atasNama || undefined,
+      atas_nama_position_id: folder.atasNamaPositionId
+        ? Number(folder.atasNamaPositionId)
+        : undefined,
+      tembusan: internalTembusan,
+      sign_option: normalizedSignOption as SignOption,
+      passphrase,
+    };
+
+    if (
+      creatorPosition &&
+      String(creatorPosition) !== String(folder.pengirimId)
+    ) {
+      this.logger.warn(
+        `Finalisasi item ${item.id} dijalankan oleh position ${creatorPosition} untuk penandatangan ${folder.pengirimId}`,
+      );
+    }
+
+    try {
+      const response: any = await this.sdeService.sendMessage(dto, persnum);
+      const data = response?.data;
+      if (!data?.id)
+        throw new Error('Layanan SDE tidak mengembalikan ID naskah');
+
+      item.naskahId = data.id;
+      item.statusVerifikasi = 'TERKIRIM';
+      item.errorMessage = null;
+      await this.repo.save(item);
+      await this.addExternalTembusan(data.id, item, recipient, data.status);
+      // Tembusan internal: masukkan ke kotak masuk tiap akun internal
+      await this.addInternalTembusan(data.id, item, recipient, data.status);
+      await this.refreshFolderCounters(folder.id);
+
+      return {
+        naskahId: data.id,
+        nomor: data.nomor || '',
+        status: data.status || 'final',
+      };
+    } catch (error) {
+      item.statusVerifikasi = 'GAGAL';
+      item.errorMessage = String(error?.message || error).slice(0, 500);
+      await this.repo.save(item);
+      await this.refreshFolderCounters(folder.id);
+      throw error;
+    }
+  }
+
+  /**
+   * Kirim ulang naskah yang gagal (status GAGAL).
+   * Memakai signOption yang tersimpan di folder. Hanya item GAGAL yang boleh
+   * di-retry; item TERKIRIM akan ditolak.
+   */
+  async retryNaskah(
+    itemId: string,
+    creatorPosition?: string | number,
+    persnum?: number,
+  ): Promise<{ naskahId: string; nomor: string; status: string }> {
+    const item = await this.repo.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item SDE Masal tidak ditemukan');
+    if (item.statusVerifikasi === 'TERKIRIM') {
+      throw new BadRequestException('Naskah ini sudah terkirim');
+    }
+    if (!item.folderId) {
+      throw new BadRequestException('Item tidak terhubung ke folder manapun');
+    }
+    const folder = await this.folderRepo.findOne({
+      where: { id: item.folderId },
+    });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (String(creatorPosition || '') !== String(folder.pengirimId || '')) {
+      throw new ForbiddenException(
+        'Hanya penandatangan SDE Massal ini yang dapat mengirim ulang',
+      );
+    }
+
+    const signOption = folder.signOption || 'qr_only';
+    await this.finalizeNaskah(
+      item.id,
+      signOption,
+      undefined,
+      creatorPosition,
+      persnum,
+    );
+    const updated = await this.repo.findOne({ where: { id: itemId } });
+    return {
+      naskahId: updated?.naskahId || '',
+      nomor: '',
+      status: updated?.statusVerifikasi || 'UNKNOWN',
+    };
+  }
+
+  async finalizeDirect(
+    folderId: string,
+    penerimaList: any[],
+    signOption: 'digsig' | 'qr_only' | 'ttd_basah',
+    passphrase?: string,
+    creatorPosition?: string | number,
+    persnum?: number,
+  ): Promise<{ total: number; success: number; failed: number }> {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (String(creatorPosition || '') !== String(folder.pengirimId || '')) {
+      throw new ForbiddenException('Anda bukan penandatangan SDE Massal ini');
+    }
+    if (signOption === 'digsig' && !passphrase) {
+      throw new BadRequestException(
+        'Passphrase wajib untuk tanda tangan digital',
+      );
+    }
+
+    folder.signOption = signOption;
+    await this.folderRepo.save(folder);
+    const generated = await this.generateMassal({
+      folderId,
+      konsep: {},
+      penerimaList,
+      template: {},
+    });
+
+    let success = 0;
+    let failed = generated.failed;
+    for (const item of generated.items) {
+      try {
+        await this.finalizeNaskah(
+          item.id,
+          signOption,
+          passphrase,
+          creatorPosition,
+          persnum,
+        );
+        success++;
+      } catch (error) {
+        this.logger.error(
+          `Finalisasi langsung gagal untuk item ${item.id}: ${error?.message || error}`,
+        );
+        failed++;
+      }
+    }
+
+    await this.refreshFolderCounters(folderId);
+    return { total: penerimaList.length, success, failed };
+  }
+
+  // ============================================================
+  // FOLDER QUERIES
+  // ============================================================
+
+  async findFolders(filter: any, positionId?: string) {
+    const page = Math.max(Number(filter?.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(filter?.limit) || 12, 1), 100);
+    const qb = this.folderRepo.createQueryBuilder('folder');
+    if (filter?.search) {
+      qb.andWhere(
+        '(folder.judul LIKE :search OR folder.pengirim_name LIKE :search)',
+        { search: `%${filter.search}%` },
+      );
+    }
+    if (filter?.status) {
+      qb.andWhere('folder.status = :status', { status: filter.status });
+    }
+    if (filter?.klasifikasi) {
+      qb.andWhere('folder.klasifikasi = :klasifikasi', {
+        klasifikasi: filter.klasifikasi,
+      });
+    }
+    if (filter?.tanggal) {
+      qb.andWhere('folder.tanggal = :tanggal', { tanggal: filter.tanggal });
+    }
+    if (filter?.tahun) {
+      qb.andWhere('YEAR(folder.tanggal) = :tahun', { tahun: filter.tahun });
+    }
+    // Scope per-akun: hanya folder milik pengirim (position user) ATAU
+    // folder dimana user adalah penerima/tembusan di salah satu naskah.
+    if (positionId) {
+      qb.andWhere(
+        `(folder.pengirim_id = :positionId OR EXISTS (
+          SELECT 1 FROM sde_masal sm
+          INNER JOIN naskah_sirkulasi ns ON ns.id_naskah = sm.naskah_id
+          WHERE sm.folder_id = folder.id
+          AND ns.position = :positionId
+          AND ns.sirkuler IN ('penerima', 'tembusan')
+          AND ns.is_draft = 0
+        ))`,
+        { positionId },
+      );
+    }
+    const [data, total] = await qb
+      .orderBy('folder.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async findNaskahInFolder(folderId: string, positionId?: string) {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    // Scope per-akun: hanya pengirim folder atau penerima/tembusan yang boleh lihat.
+    if (positionId && String(folder.pengirimId || '') !== positionId) {
+      // Bukan pengirim — cek apakah user adalah penerima/tembusan di naskah folder ini
+      const hasAccess = await this.sirkulasiRepository
+        .createQueryBuilder('ns')
+        .innerJoin('sde_masal', 'sm', 'sm.naskah_id = ns.id_naskah')
+        .where('sm.folder_id = :folderId', { folderId })
+        .andWhere('ns.position = :positionId', { positionId })
+        .andWhere('ns.sirkuler IN (:...sirkuler)', {
+          sirkuler: ['penerima', 'tembusan'],
+        })
+        .andWhere('ns.is_draft = 0')
+        .getCount();
+      if (hasAccess === 0) {
+        throw new ForbiddenException(
+          'Anda tidak memiliki akses ke folder SDE Massal ini',
+        );
+      }
+    }
+
+    const rows = await this.repo.find({
+      where: { folderId },
+      order: { createdAt: 'ASC' },
+    });
+    const naskahIds = rows
+      .map((row) => row.naskahId)
+      .filter(Boolean) as string[];
+    const naskahList = naskahIds.length
+      ? await this.naskahRepository.find({ where: { id: In(naskahIds) } })
+      : [];
+    const naskahMap = new Map(naskahList.map((naskah) => [naskah.id, naskah]));
+
+    // Resolve nama penerima dari kode tertuju (batch lookup eksternal)
+    const kodeSet = new Set<string>();
+    for (const row of rows) {
+      const recipient = this.parseRecipientData(row);
+      const kode = String(recipient?.idTertuju || recipient?.tertuju || '')
+        .trim()
+        .replace(/^0+/, '');
+      if (kode && kode.length < 36) kodeSet.add(kode.padStart(3, '0'));
+    }
+    const eksternalMap = new Map<string, string>();
+    if (kodeSet.size > 0) {
+      const externals = await this.eksternalRepository.find({
+        where: { kode: In([...kodeSet]) },
+      });
+      for (const ext of externals) {
+        const normalized = String(ext.kode || '').replace(/^0+/, '');
+        eksternalMap.set(normalized, ext.nama);
+      }
+    }
+
+    return {
+      folder,
+      items: rows.map((row) => {
+        const recipient = this.parseRecipientData(row);
+        const naskah = row.naskahId ? naskahMap.get(row.naskahId) : undefined;
+        const rawKode = String(recipient?.idTertuju || recipient?.tertuju || '')
+          .trim()
+          .replace(/^0+/, '');
+        const penerimaNama =
+          (rawKode && eksternalMap.get(rawKode)) ||
+          recipient?.tertuju ||
+          rawKode ||
+          '-';
+        return {
+          id: row.id,
+          folderId: row.folderId,
+          naskahId: row.naskahId,
+          nomor: naskah?.nomor || null,
+          perihal: naskah?.perihal || recipient?.perihal || '-',
+          penerima: penerimaNama,
+          status: naskah?.status || row.statusVerifikasi,
+          finalPdf: naskah?.final_pdf || null,
+          createdAt: row.createdAt,
+        };
+      }),
+    };
+  }
+
+  // ============================================================
+  // VERIFIKASI
+  // ============================================================
 
   async submitVerification(
     ids: string[],
@@ -464,6 +620,11 @@ export class SdeMasalService {
     }
 
     const saved = await this.repo.save(rows);
+    for (const folderId of new Set(
+      saved.map((row) => row.folderId).filter(Boolean),
+    )) {
+      await this.refreshFolderCounters(folderId as string);
+    }
     return { total: saved.length, items: saved };
   }
 
@@ -473,7 +634,6 @@ export class SdeMasalService {
 
     const rows = await this.repo
       .createQueryBuilder('s')
-      .where("s.perihal != '__CONCEPT__'")
       .andWhere('s.status_verifikasi IN (:...statuses)', {
         statuses: ['MENUNGGU_VERIFIKASI', 'TERVERIFIKASI', 'DITOLAK'],
       })
@@ -481,7 +641,8 @@ export class SdeMasalService {
       .addOrderBy('s.created_at', 'DESC')
       .getMany();
 
-    return rows.filter((item) =>
+    // Hanya tampilkan item di mana user adalah verifikator.
+    const filtered = rows.filter((item) =>
       (item.verifikators || []).some((verifikator: any) => {
         const samePersnum = persnum && String(verifikator.persnum) === persnum;
         const samePosition =
@@ -489,6 +650,40 @@ export class SdeMasalService {
         return samePersnum || samePosition;
       }),
     );
+
+    // Enrich dengan data folder + recipient untuk display
+    const folderIds = [
+      ...new Set(filtered.map((item) => item.folderId).filter(Boolean)),
+    ] as string[];
+    const folders = folderIds.length
+      ? await this.folderRepo.find({ where: { id: In(folderIds) } })
+      : [];
+    const folderMap = new Map(folders.map((f) => [f.id, f]));
+
+    return filtered.map((item) => {
+      const folder = item.folderId
+        ? folderMap.get(item.folderId) || null
+        : null;
+      const recipient = this.parseRecipientData(item);
+      return {
+        ...item,
+        folder,
+        recipient,
+        // Field turunan untuk kompatibilitas tampilan lama
+        perihal: recipient?.perihal || '-',
+        tertuju: recipient?.tertuju || recipient?.idTertuju || '-',
+        klasifikasiName: folder
+          ? [folder.klasifikasi, folder.klasifikasiText]
+              .filter(Boolean)
+              .join(' - ')
+          : null,
+        klasifikasiId: folder?.klasifikasi || null,
+        pengirimName: folder?.pengirimName || null,
+        tanggalKonsep: folder?.tanggal
+          ? new Date(folder.tanggal).toISOString().slice(0, 10)
+          : null,
+      };
+    });
   }
 
   async approveVerification(id: string, user: any, catatan?: string | null) {
@@ -497,77 +692,6 @@ export class SdeMasalService {
 
   async rejectVerification(id: string, user: any, catatan?: string | null) {
     return this.verifySdeMasal(id, user, 'reject', catatan);
-  }
-
-  /**
-   * List SDE Masal dengan filter dan pagination.
-   */
-  async findAll(filter: SdeMasalFilterDto) {
-    const page = filter.page ?? 1;
-    const limit = filter.limit ?? 20;
-    const skip = (page - 1) * limit;
-
-    const qb = this.repo.createQueryBuilder('s');
-
-    // Exclude concept placeholders
-    qb.andWhere("s.perihal != '__CONCEPT__'");
-
-    if (filter.search) {
-      qb.andWhere('(s.perihal LIKE :search OR s.tertuju LIKE :search)', {
-        search: `%${filter.search}%`,
-      });
-    }
-    if (filter.statusVerifikasi) {
-      qb.andWhere('s.status_verifikasi = :status', {
-        status: filter.statusVerifikasi,
-      });
-    }
-    if (filter.klasifikasiId) {
-      qb.andWhere('s.klasifikasi_id = :klasifikasiId', {
-        klasifikasiId: filter.klasifikasiId,
-      });
-    }
-    if (filter.tahun) {
-      qb.andWhere('YEAR(s.tanggal_konsep) = :tahun', { tahun: filter.tahun });
-    }
-    if (filter.jenisTemplate) {
-      qb.andWhere('s.jenis_template = :jenis', { jenis: filter.jenisTemplate });
-    }
-
-    qb.orderBy('s.created_at', 'DESC');
-
-    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
-
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  /**
-   * Detail satu item SDE Masal.
-   */
-  async findOne(id: string): Promise<SdeMasalEntity | null> {
-    return this.repo.findOne({ where: { id } });
-  }
-
-  private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
-    return verifikators.slice(0, 3).map((item, index) => ({
-      urutan: index + 1,
-      persnum: String(item.persnum ?? item.persnumPerson ?? '').trim(),
-      position: String(item.position ?? item.positionId ?? '').trim(),
-      nama: item.nama || item.name || '-',
-      jabatan: item.jabatan || item.positionText || '-',
-      status: index === 0 ? 'waiting' : 'pending',
-      verifiedAt: null,
-      rejectedAt: null,
-      catatan: null,
-    }));
   }
 
   private async verifySdeMasal(
@@ -608,7 +732,9 @@ export class SdeMasalService {
       item.statusVerifikasi = 'DITOLAK';
       item.errorMessage = catatan || 'Ditolak verifikator';
       item.verifikators = verifikators;
-      return this.repo.save(item);
+      const rejected = await this.repo.save(item);
+      if (item.folderId) await this.refreshFolderCounters(item.folderId);
+      return rejected;
     }
 
     current.status = 'verified';
@@ -629,48 +755,299 @@ export class SdeMasalService {
     }
 
     item.verifikators = verifikators;
-    return this.repo.save(item);
+    const saved = await this.repo.save(item);
+
+    // Auto-finalize memakai service SDE tunggal agar nomor, PDF, referensi,
+    // sirkulasi, dan notifikasi mengikuti alur SDE standar.
+    if (item.statusVerifikasi === 'TERVERIFIKASI' && !item.naskahId) {
+      try {
+        this.logger.log(
+          `Auto-finalize naskah untuk SDE Masal ${item.id} setelah verifikasi selesai`,
+        );
+        const folder = item.folderId
+          ? await this.folderRepo.findOne({ where: { id: item.folderId } })
+          : null;
+        // Passphrase tidak pernah disimpan di database. Jika folder meminta
+        // BSrE setelah alur verifikator, gunakan QR-only agar tidak menyimpan
+        // kredensial sensitif dan proses tetap dapat selesai otomatis.
+        const finalSignOption =
+          folder?.signOption === 'ttd_basah' ? 'ttd_basah' : 'qr_only';
+        await this.finalizeNaskah(
+          item.id,
+          finalSignOption,
+          undefined,
+          position,
+          user?.persnum ? Number(user.persnum) : undefined,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Gagal auto-finalize naskah untuk SDE Masal ${item.id}: ${err?.message ?? err}`,
+        );
+      }
+    }
+
+    return saved;
+  }
+
+  // ============================================================
+  // LIST & DETAIL
+  // ============================================================
+
+  /**
+   * List SDE Masal dengan filter dan pagination.
+   * Mengembalikan item dengan data folder + recipientData yang sudah di-parse.
+   */
+  async findAll(filter: SdeMasalFilterDto) {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const qb = this.repo.createQueryBuilder('s');
+
+    if (filter.search) {
+      // Search berdasarkan recipientData (JSON text) karena perihal/tertuju
+      // sekarang disimpan di recipientData.
+      qb.andWhere('s.recipient_data LIKE :search', {
+        search: `%${filter.search}%`,
+      });
+    }
+    if (filter.statusVerifikasi) {
+      qb.andWhere('s.status_verifikasi = :status', {
+        status: filter.statusVerifikasi,
+      });
+    }
+    if (filter.folderId) {
+      qb.andWhere('s.folder_id = :folderId', { folderId: filter.folderId });
+    }
+
+    qb.orderBy('s.created_at', 'DESC');
+
+    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+
+    // Enrich dengan data folder untuk display
+    const folderIds = [
+      ...new Set(data.map((item) => item.folderId).filter(Boolean)),
+    ] as string[];
+    const folders = folderIds.length
+      ? await this.folderRepo.find({ where: { id: In(folderIds) } })
+      : [];
+    const folderMap = new Map(folders.map((f) => [f.id, f]));
+
+    return {
+      data: data.map((item) => ({
+        ...item,
+        folder: item.folderId ? folderMap.get(item.folderId) || null : null,
+        recipient: this.parseRecipientData(item),
+      })),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findOne(id: string): Promise<any | null> {
+    const item = await this.repo.findOne({ where: { id } });
+    if (!item) return null;
+    const folder = item.folderId
+      ? await this.folderRepo.findOne({ where: { id: item.folderId } })
+      : null;
+    return {
+      ...item,
+      folder,
+      recipient: this.parseRecipientData(item),
+    };
   }
 
   /**
-   * Update item SDE Masal.
+   * Detail naskah SDE individual by naskahId.
+   * Mengembalikan data naskah + sirkulasi (pengirim + penerima) untuk ditampilkan
+   * di halaman detail surat.
    */
+  /**
+   * Label jenis TTD berdasarkan sign_option naskah.
+   * Konsisten dengan NaskahService.getLabelTtd.
+   */
+  private getLabelTtd(signOption: string | null): string | null {
+    if (signOption === 'digsig') return 'TTE BSrE';
+    if (signOption === 'qr_only') return 'QR Code';
+    if (signOption === 'ttd_basah') return 'TTD Basah';
+    return null;
+  }
+
+  async findNaskahDetail(naskahId: string): Promise<any | null> {
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+    if (!naskah) return null;
+
+    const pengirimSirkulasi = await this.sirkulasiRepository.findOne({
+      where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+    });
+
+    const tembusanList = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+      order: { urutan: 'ASC' },
+    });
+
+    const sdeMasalItem = await this.repo.findOne({
+      where: { naskahId },
+    });
+    const folder = sdeMasalItem?.folderId
+      ? await this.folderRepo.findOne({ where: { id: sdeMasalItem.folderId } })
+      : null;
+
+    // Fallback: jika sirkulasi penerima kosong (data lama), derive dari
+    // recipient_data SDE Masal (kode tertuju dari Excel → tabel eksternal)
+    let penerimaList = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'penerima' },
+      order: { urutan: 'ASC' },
+    });
+    if (penerimaList.length === 0 && sdeMasalItem) {
+      const recipient = this.parseRecipientData(sdeMasalItem);
+      const rawKode = String(recipient.idTertuju || recipient.tertuju || '')
+        .trim()
+        .replace(/^0+/, '');
+      if (rawKode) {
+        const external = await this.eksternalRepository.findOne({
+          where: { kode: rawKode.padStart(3, '0') },
+        });
+        if (external) {
+          penerimaList = [
+            {
+              id: external.id,
+              namaSirkuler: external.nama,
+              alamat: external.alamat || null,
+              telepon: external.telepon || null,
+              email: external.email || null,
+              positionText: external.kontak || null,
+              positionStatus: 'ext',
+            } as any,
+          ];
+        }
+      }
+    }
+
+    // URL PDF final yang bisa diakses (presigned URL dari MinIO)
+    const finalPdfUrl = naskah.final_pdf
+      ? await this.storageService.getFileUrl(naskah.final_pdf)
+      : null;
+
+    return {
+      id: naskah.id,
+      jenis: naskah.jenis,
+      nomor: naskah.nomor,
+      tanggal: naskah.tanggal,
+      perihal: naskah.perihal,
+      sifat: naskah.sifat,
+      status: naskah.status,
+      konten: naskah.konten,
+      tempat: naskah.tempat,
+      lampiran: naskah.lampiran,
+      english: naskah.english,
+      final_pdf: naskah.final_pdf,
+      finalPdfUrl,
+      // Label jenis TTD: TTE BSrE (digsig), QR Code (qr_only), TTD Basah
+      label_ttd: this.getLabelTtd(naskah.signOption),
+      signOption: naskah.signOption,
+      createdByPosition: naskah.createdByPosition,
+      createdAt: naskah.createdAt,
+      pengirim: pengirimSirkulasi
+        ? {
+            position: pengirimSirkulasi.position,
+            positionText: pengirimSirkulasi.positionText,
+            namaSirkuler: pengirimSirkulasi.namaSirkuler,
+            areaText: pengirimSirkulasi.areaText,
+            organizationText: pengirimSirkulasi.organizationText,
+          }
+        : null,
+      penerima: penerimaList.map((p) => ({
+        id: p.id,
+        nama: p.namaSirkuler,
+        jabatan: p.positionText,
+        alamat: p.alamat,
+        telepon: p.telepon,
+        email: p.email,
+        positionStatus: p.positionStatus,
+      })),
+      tembusan: tembusanList.map((t) => ({
+        id: t.id,
+        nama: t.namaSirkuler,
+        jabatan: t.positionText,
+        positionStatus: t.positionStatus,
+      })),
+      sdeMasal: sdeMasalItem
+        ? {
+            id: sdeMasalItem.id,
+            folderId: sdeMasalItem.folderId,
+            folderJudul: folder?.judul || null,
+            statusVerifikasi: sdeMasalItem.statusVerifikasi,
+            klasifikasiName: folder
+              ? [folder.klasifikasi, folder.klasifikasiText]
+                  .filter(Boolean)
+                  .join(' - ')
+              : null,
+            parentNaskahId: folder?.parentNaskahId,
+          }
+        : null,
+    };
+  }
+
+  // ============================================================
+  // UPDATE / DELETE
+  // ============================================================
+
   async update(
     id: string,
     dto: UpdateSdeMasalDto,
   ): Promise<SdeMasalEntity | null> {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) return null;
-
     Object.assign(item, dto);
     return this.repo.save(item);
   }
 
-  /**
-   * Hapus item SDE Masal.
-   */
   async remove(id: string): Promise<boolean> {
     const result = await this.repo.delete(id);
     return (result.affected ?? 0) > 0;
   }
 
-  /**
-   * Upload lampiran untuk item SDE Masal.
-   */
-  async uploadLampiran(
-    id: string,
-    lampiranUrl: string,
-  ): Promise<SdeMasalEntity | null> {
-    const item = await this.repo.findOne({ where: { id } });
-    if (!item) return null;
-    item.lampiranUrl = lampiranUrl;
-    return this.repo.save(item);
+  // ============================================================
+  // SUMMARY
+  // ============================================================
+
+  async getSummary() {
+    const total = await this.repo.count();
+    const menunggu = await this.repo.count({
+      where: { statusVerifikasi: 'MENUNGGU' },
+    });
+    const terkirim = await this.repo.count({
+      where: { statusVerifikasi: 'TERKIRIM' },
+    });
+    const terverifikasi = await this.repo.count({
+      where: { statusVerifikasi: 'TERVERIFIKASI' },
+    });
+    const ditolak = await this.repo.count({
+      where: { statusVerifikasi: 'DITOLAK' },
+    });
+    const gagal = await this.repo.count({
+      where: { statusVerifikasi: 'GAGAL' },
+    });
+    return { total, menunggu, terkirim, terverifikasi, ditolak, gagal };
   }
+
+  // ============================================================
+  // EXCEL TEMPLATE GENERATOR
+  // ============================================================
 
   /**
    * Generate template Excel untuk download.
-   * Format: No | Persnum | Nama | Jabatan | Keterangan
-   * File .xlsx dengan 3 sheet: Data Penerima, Petunjuk Pengisian, Mapping Field.
+   * Format: No | Perihal | id_tertuju | jumlah_tagihan_idr | jumlah_tagihan_usd |
+   * nama_cro | email_cro | jabatan_signer | nama_signer | tembusan | is_revision
+   * File .xlsx dengan 4 sheet: Data Penerima, Petunjuk Pengisian, Mapping Field,
+   * Referensi ID Tertuju.
    */
   async generateTemplate(skemaTemplate?: string): Promise<Buffer> {
     const skema = (skemaTemplate || '').toUpperCase();
@@ -684,7 +1061,6 @@ export class SdeMasalService {
       .orderBy('e.kode', 'ASC')
       .getMany();
 
-    // Ambil 3 kode pertama sebagai contoh di sheet Data Penerima
     const contoh1 = eksternalList[0]?.kode || '112';
     const contoh2 = eksternalList[1]?.kode || '117';
     const contoh3 = eksternalList[2]?.kode || '119';
@@ -694,7 +1070,6 @@ export class SdeMasalService {
     let ws3: XLSX.WorkSheet;
 
     if (isKeuangan) {
-      // Sheet 1: Data Penerima (skema keuangan / tagihan PINP)
       const dataSheet = [
         [
           'No',
@@ -706,7 +1081,8 @@ export class SdeMasalService {
           'email_cro',
           'jabatan_signer',
           'nama_signer',
-          'tembusan',
+          'tembusan_internal',
+          'tembusan_eksternal',
           'is_revision',
         ],
         [
@@ -719,6 +1095,7 @@ export class SdeMasalService {
           'cro@example.com',
           'Manager Keuangan',
           'Nama Signer',
+          '',
           'Direktur Jenderal Perhubungan Udara;Ketua Dewan Pengawas Perum LPPNPI',
           0,
         ],
@@ -732,6 +1109,7 @@ export class SdeMasalService {
           'cro@example.com',
           'Manager Keuangan',
           'Nama Signer',
+          '',
           'Direktur Jenderal Perhubungan Udara',
           0,
         ],
@@ -745,6 +1123,7 @@ export class SdeMasalService {
           'cro@example.com',
           'Manager Keuangan',
           'Nama Signer',
+          '',
           '',
           1,
         ],
@@ -761,11 +1140,19 @@ export class SdeMasalService {
         { wch: 30 },
         { wch: 25 },
         { wch: 25 },
+        { wch: 40 },
         { wch: 50 },
         { wch: 12 },
       ];
+      // Format tembusan_internal (J) dan tembusan_eksternal (K) sebagai text
+      // agar Excel tidak menggabungkan "119,117" menjadi 119117
+      for (let r = 0; r <= dataSheet.length; r++) {
+        const cellJ = ws1[`J${r + 1}`];
+        const cellK = ws1[`K${r + 1}`];
+        if (cellJ) cellJ.z = '@';
+        if (cellK) cellK.z = '@';
+      }
 
-      // Sheet 2: Petunjuk Pengisian
       const petunjukSheet = [
         [
           'Petunjuk Pengisian Template SDE Masal - Skema Keuangan (Tagihan PINP)',
@@ -791,11 +1178,16 @@ export class SdeMasalService {
         ['7. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
         ['8. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
         [
-          '9. Kolom "tembusan" opsional (pisahkan dengan titik koma ; jika lebih dari satu).',
+          '9. Kolom "tembusan_internal" opsional. Isi dengan position ID internal (pisahkan dengan titik koma ; jika lebih dari satu).',
+          ,
         ],
-        ['10. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
-        ['11. File upload harus format .xlsx atau .xls.'],
-        ['12. Maksimal 1000 baris per upload.'],
+        [
+          '10. Kolom "tembusan_eksternal" opsional. Isi dengan kode eksternal (pisahkan dengan titik koma ; jika lebih dari satu).',
+          ,
+        ],
+        ['11. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
+        ['12. File upload harus format .xlsx atau .xls.'],
+        ['13. Maksimal 1000 baris per upload.'],
         [''],
         ['Variabel dinamis yang bisa dipakai di konten surat:'],
         ['  {{perihal}}             → Perihal'],
@@ -806,62 +1198,32 @@ export class SdeMasalService {
         ['  {{email_cro}}           → Email CRO'],
         ['  {{jabatan_signer}}      → Jabatan Signer'],
         ['  {{nama_signer}}         → Nama Signer'],
-        ['  {{tembusan}}            → Tembusan'],
+        ['  {{tembusan_internal}}  → Tembusan Internal'],
+        ['  {{tembusan_eksternal}}  → Tembusan Eksternal'],
       ];
 
       ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
       ws2['!cols'] = [{ wch: 75 }];
 
-      // Sheet 3: Mapping Field
       const mappingSheet = [
-        [
-          'Kolom Excel',
-          'Field Backend',
-          'Tipe Data',
-          'Wajib',
-          'Variabel Konten',
-        ],
-        ['No', 'no', 'number', 'Tidak', '-'],
-        ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
-        ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
-        [
-          'jumlah_tagihan_idr',
-          'jumlahTagihanIdr',
-          'number',
-          'YA',
-          '{{jumlah_tagihan_idr}}',
-        ],
-        [
-          'jumlah_tagihan_usd',
-          'jumlahTagihanUsd',
-          'number',
-          'YA',
-          '{{jumlah_tagihan_usd}}',
-        ],
-        ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
-        ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
-        [
-          'jabatan_signer',
-          'jabatanSigner',
-          'string',
-          'YA',
-          '{{jabatan_signer}}',
-        ],
-        ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
-        ['tembusan', 'tembusan', 'string', 'Tidak', '{{tembusan}}'],
-        ['is_revision', 'isRevision', 'number', 'Tidak', '-'],
+        ['Kolom Excel', 'Variabel Konten', 'Tipe Data', 'Wajib'],
+        ['No', '-', 'number', 'Tidak'],
+        ['Perihal', '{{perihal}}', 'string', 'YA'],
+        ['id_tertuju', '{{id_tertuju}}', 'string', 'YA'],
+        ['jumlah_tagihan_idr', '{{jumlah_tagihan_idr}}', 'number', 'YA'],
+        ['jumlah_tagihan_usd', '{{jumlah_tagihan_usd}}', 'number', 'YA'],
+        ['nama_cro', '{{nama_cro}}', 'string', 'YA'],
+        ['email_cro', '{{email_cro}}', 'string', 'YA'],
+        ['jabatan_signer', '{{jabatan_signer}}', 'string', 'YA'],
+        ['nama_signer', '{{nama_signer}}', 'string', 'YA'],
+        ['tembusan_internal', '{{tembusan_internal}}', 'string', 'Tidak'],
+        ['tembusan_eksternal', '{{tembusan_eksternal}}', 'string', 'Tidak'],
+        ['is_revision', '-', 'number', 'Tidak'],
       ];
 
       ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
-      ws3['!cols'] = [
-        { wch: 22 },
-        { wch: 22 },
-        { wch: 12 },
-        { wch: 10 },
-        { wch: 28 },
-      ];
+      ws3['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 12 }, { wch: 10 }];
     } else {
-      // Sheet 1: Data Penerima (skema umum / tagihan PJNP)
       const dataSheet = [
         [
           'No',
@@ -877,8 +1239,8 @@ export class SdeMasalService {
           'email_cro',
           'jabatan_signer',
           'nama_signer',
-          'tembusan_1',
-          'tembusan_2',
+          'tembusan_internal',
+          'tembusan_eksternal',
           'is_revision',
         ],
         [
@@ -895,8 +1257,8 @@ export class SdeMasalService {
           'cro@example.com',
           'Direktur Utama',
           'Nama Signer',
-          'Direktur Jenderal Perhubungan Udara',
-          'Ketua Dewan Pengawas Perum LPPNPI',
+          '',
+          'Direktur Jenderal Perhubungan Udara;Ketua Dewan Pengawas Perum LPPNPI',
           0,
         ],
         [
@@ -913,8 +1275,8 @@ export class SdeMasalService {
           'cro@example.com',
           'Direktur Utama',
           'Nama Signer',
-          'Direktur Jenderal Perhubungan Udara',
           '',
+          'Direktur Jenderal Perhubungan Udara',
           0,
         ],
         [
@@ -953,11 +1315,18 @@ export class SdeMasalService {
         { wch: 25 },
         { wch: 25 },
         { wch: 40 },
-        { wch: 40 },
+        { wch: 50 },
         { wch: 12 },
       ];
+      // Format tembusan_internal (O) dan tembusan_eksternal (P) sebagai text
+      // agar Excel tidak menggabungkan "119,117" menjadi 119117
+      for (let r = 0; r <= dataSheet.length; r++) {
+        const cellO = ws1[`O${r + 1}`];
+        const cellP = ws1[`P${r + 1}`];
+        if (cellO) cellO.z = '@';
+        if (cellP) cellP.z = '@';
+      }
 
-      // Sheet 2: Petunjuk Pengisian
       const petunjukSheet = [
         ['Petunjuk Pengisian Template SDE Masal - Skema Umum (Tagihan PJNP)'],
         [''],
@@ -986,10 +1355,17 @@ export class SdeMasalService {
         ['10. Kolom "email_cro" WAJIB diisi email CRO.'],
         ['11. Kolom "jabatan_signer" WAJIB diisi jabatan penandatangan surat.'],
         ['12. Kolom "nama_signer" WAJIB diisi nama penandatangan surat.'],
-        ['13. Kolom "tembusan_1" dan "tembusan_2" opsional.'],
-        ['14. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
-        ['15. File upload harus format .xlsx atau .xls.'],
-        ['16. Maksimal 1000 baris per upload.'],
+        [
+          '13. Kolom "tembusan_internal" opsional. Isi dengan position ID internal (pisahkan dengan titik koma ; jika lebih dari satu).',
+          ,
+        ],
+        [
+          '14. Kolom "tembusan_eksternal" opsional. Isi dengan kode eksternal (pisahkan dengan titik koma ; jika lebih dari satu).',
+          ,
+        ],
+        ['15. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
+        ['16. File upload harus format .xlsx atau .xls.'],
+        ['17. Maksimal 1000 baris per upload.'],
         [''],
         ['Variabel dinamis yang bisa dipakai di konten surat:'],
         ['  {{perihal}}            → Perihal'],
@@ -1004,84 +1380,35 @@ export class SdeMasalService {
         ['  {{email_cro}}          → Email CRO'],
         ['  {{jabatan_signer}}     → Jabatan Signer'],
         ['  {{nama_signer}}        → Nama Signer'],
-        ['  {{tembusan_1}}         → Tembusan 1'],
-        ['  {{tembusan_2}}         → Tembusan 2'],
+        ['  {{tembusan_internal}}  → Tembusan Internal'],
+        ['  {{tembusan_eksternal}}  → Tembusan Eksternal'],
       ];
 
       ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
       ws2['!cols'] = [{ wch: 75 }];
 
-      // Sheet 3: Mapping Field
       const mappingSheet = [
-        [
-          'Kolom Excel',
-          'Field Backend',
-          'Tipe Data',
-          'Wajib',
-          'Variabel Konten',
-        ],
-        ['No', 'no', 'number', 'Tidak', '-'],
-        ['Perihal', 'perihal', 'string', 'YA', '{{perihal}}'],
-        ['id_tertuju', 'idTertuju', 'string', 'YA', '{{id_tertuju}}'],
-        [
-          'jumlah_lampiran',
-          'jumlahLampiran',
-          'string',
-          'Tidak',
-          '{{jumlah_lampiran}}',
-        ],
-        [
-          'jabatan_penerima',
-          'jabatanPenerima',
-          'string',
-          'YA',
-          '{{jabatan_penerima}}',
-        ],
-        [
-          'alamat_penerima',
-          'alamatPenerima',
-          'string',
-          'YA',
-          '{{alamat_penerima}}',
-        ],
-        [
-          'panggilan_penerima',
-          'panggilanPenerima',
-          'string',
-          'Tidak',
-          '{{panggilan_penerima}}',
-        ],
-        [
-          'nominal_rupiah',
-          'nominalRupiah',
-          'string',
-          'YA',
-          '{{nominal_rupiah}}',
-        ],
-        ['nominal_dolar', 'nominalDolar', 'string', 'YA', '{{nominal_dolar}}'],
-        ['nama_cro', 'namaCro', 'string', 'YA', '{{nama_cro}}'],
-        ['email_cro', 'emailCro', 'string', 'YA', '{{email_cro}}'],
-        [
-          'jabatan_signer',
-          'jabatanSigner',
-          'string',
-          'YA',
-          '{{jabatan_signer}}',
-        ],
-        ['nama_signer', 'namaSigner', 'string', 'YA', '{{nama_signer}}'],
-        ['tembusan_1', 'tembusan1', 'string', 'Tidak', '{{tembusan_1}}'],
-        ['tembusan_2', 'tembusan2', 'string', 'Tidak', '{{tembusan_2}}'],
-        ['is_revision', 'isRevision', 'number', 'Tidak', '-'],
+        ['Kolom Excel', 'Variabel Konten', 'Tipe Data', 'Wajib'],
+        ['No', '-', 'number', 'Tidak'],
+        ['Perihal', '{{perihal}}', 'string', 'YA'],
+        ['id_tertuju', '{{id_tertuju}}', 'string', 'YA'],
+        ['jumlah_lampiran', '{{jumlah_lampiran}}', 'string', 'Tidak'],
+        ['jabatan_penerima', '{{jabatan_penerima}}', 'string', 'YA'],
+        ['alamat_penerima', '{{alamat_penerima}}', 'string', 'YA'],
+        ['panggilan_penerima', '{{panggilan_penerima}}', 'string', 'Tidak'],
+        ['nominal_rupiah', '{{nominal_rupiah}}', 'string', 'YA'],
+        ['nominal_dolar', '{{nominal_dolar}}', 'string', 'YA'],
+        ['nama_cro', '{{nama_cro}}', 'string', 'YA'],
+        ['email_cro', '{{email_cro}}', 'string', 'YA'],
+        ['jabatan_signer', '{{jabatan_signer}}', 'string', 'YA'],
+        ['nama_signer', '{{nama_signer}}', 'string', 'YA'],
+        ['tembusan_internal', '{{tembusan_internal}}', 'string', 'Tidak'],
+        ['tembusan_eksternal', '{{tembusan_eksternal}}', 'string', 'Tidak'],
+        ['is_revision', '-', 'number', 'Tidak'],
       ];
 
       ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
-      ws3['!cols'] = [
-        { wch: 22 },
-        { wch: 22 },
-        { wch: 12 },
-        { wch: 10 },
-        { wch: 28 },
-      ];
+      ws3['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 12 }, { wch: 10 }];
     }
 
     // Sheet 4: Referensi ID Tertuju (dari master data tertuju-eksternal)
@@ -1103,484 +1430,372 @@ export class SdeMasalService {
     return Buffer.from(buf);
   }
 
-  /**
-   * Ringkasan untuk dashboard.
-   */
-  async getSummary() {
-    const baseQb = this.repo
-      .createQueryBuilder('s')
-      .where("s.perihal != '__CONCEPT__'");
-
-    const total = await baseQb.getCount();
-
-    const menunggu = await baseQb
-      .clone()
-      .andWhere('s.status_verifikasi = :status', { status: 'MENUNGGU' })
-      .getCount();
-
-    const terkirim = await baseQb
-      .clone()
-      .andWhere('s.status_verifikasi = :status', { status: 'TERKIRIM' })
-      .getCount();
-
-    const terverifikasi = await baseQb
-      .clone()
-      .andWhere('s.status_verifikasi = :status', { status: 'TERVERIFIKASI' })
-      .getCount();
-
-    const ditolak = await baseQb
-      .clone()
-      .andWhere('s.status_verifikasi = :status', { status: 'DITOLAK' })
-      .getCount();
-
-    const gagal = await baseQb
-      .clone()
-      .andWhere('s.status_verifikasi = :status', { status: 'GAGAL' })
-      .getCount();
-
-    return { total, menunggu, terkirim, terverifikasi, ditolak, gagal };
-  }
-
-  /**
-   * Detail naskah SDE individual by naskahId.
-   * Mengembalikan data naskah + sirkulasi (pengirim + penerima) untuk ditampilkan
-   * di halaman detail surat. Tidak melakukan access check ketat (user sudah login via JWT).
-   */
-  async findNaskahDetail(naskahId: string): Promise<any | null> {
-    const naskah = await this.naskahRepository.findOne({
-      where: { id: naskahId },
-    });
-    if (!naskah) return null;
-
-    // Ambil sirkulasi pengirim
-    const pengirimSirkulasi = await this.sirkulasiRepository.findOne({
-      where: { idNaskah: naskahId, sirkuler: 'pengirim' },
-    });
-
-    // Ambil sirkulasi penerima
-    const penerimaList = await this.sirkulasiRepository.find({
-      where: { idNaskah: naskahId, sirkuler: 'penerima' },
-      order: { urutan: 'ASC' },
-    });
-
-    // Ambil sirkulasi tembusan
-    const tembusanList = await this.sirkulasiRepository.find({
-      where: { idNaskah: naskahId, sirkuler: 'tembusan' },
-      order: { urutan: 'ASC' },
-    });
-
-    // Cari data SDE Masal terkait
-    const sdeMasalItem = await this.repo.findOne({
-      where: { naskahId },
-    });
-
-    return {
-      id: naskah.id,
-      jenis: naskah.jenis,
-      nomor: naskah.nomor,
-      tanggal: naskah.tanggal,
-      perihal: naskah.perihal,
-      sifat: naskah.sifat,
-      status: naskah.status,
-      konten: naskah.konten,
-      tempat: naskah.tempat,
-      lampiran: naskah.lampiran,
-      english: naskah.english,
-      final_pdf: naskah.final_pdf,
-      createdByPosition: naskah.createdByPosition,
-      createdAt: naskah.createdAt,
-      // Sirkulasi
-      pengirim: pengirimSirkulasi
-        ? {
-            position: pengirimSirkulasi.position,
-            positionText: pengirimSirkulasi.positionText,
-            namaSirkuler: pengirimSirkulasi.namaSirkuler,
-            areaText: pengirimSirkulasi.areaText,
-            organizationText: pengirimSirkulasi.organizationText,
-          }
-        : null,
-      penerima: penerimaList.map((p) => ({
-        id: p.id,
-        nama: p.namaSirkuler,
-        jabatan: p.positionText,
-        alamat: p.alamat,
-        telepon: p.telepon,
-        email: p.email,
-        positionStatus: p.positionStatus,
-      })),
-      tembusan: tembusanList.map((t) => ({
-        id: t.id,
-        nama: t.namaSirkuler,
-        jabatan: t.positionText,
-        positionStatus: t.positionStatus,
-      })),
-      // Data SDE Masal
-      sdeMasal: sdeMasalItem
-        ? {
-            id: sdeMasalItem.id,
-            statusVerifikasi: sdeMasalItem.statusVerifikasi,
-            nomorSurat: sdeMasalItem.nomorSurat,
-            klasifikasiName: sdeMasalItem.klasifikasiName,
-            skemaTemplate: sdeMasalItem.skemaTemplate,
-            versiTemplate: sdeMasalItem.versiTemplate,
-            parentNaskahId: sdeMasalItem.parentNaskahId,
-          }
-        : null,
-    };
-  }
-
   // ============================================================
-  // GENERATE NASKAH SDE INDIVIDUAL PER PENERIMA
+  // PRIVATE HELPERS
   // ============================================================
 
-  /**
-   * Generate naskah SDE individual untuk setiap item SDE Masal yang masih MENUNGGU.
-   * Membuat record naskah + sirkulasi (pengirim + penerima eksternal).
-   * Update sde_masal.naskahId, nomorSurat, statusVerifikasi.
-   *
-   * @param ids Array ID sde_masal yang akan diproses. Jika kosong, proses semua yang MENUNGGU.
-   * @param creatorPosition Position ID user yang login (untuk akses naskah).
-   * @returns Summary { total, success, failed, items }
-   */
-  async generateAndSendNaskah(
-    ids?: string[],
-    creatorPosition?: string | number,
-  ): Promise<{
-    total: number;
-    success: number;
-    failed: number;
-    items: SdeMasalEntity[];
-  }> {
-    // Ambil item yang akan diproses
-    const qb = this.repo.createQueryBuilder('s');
-    qb.where("s.perihal != '__CONCEPT__'");
-    if (ids && ids.length > 0) {
-      qb.andWhere('s.id IN (:...ids)', { ids });
-    } else {
-      qb.andWhere('s.status_verifikasi = :status', { status: 'MENUNGGU' });
-    }
-    const items = await qb.getMany();
-
-    if (items.length === 0) {
-      return { total: 0, success: 0, failed: 0, items: [] };
-    }
-
-    // Ambil org_data untuk validasi pengirim (gunakan tanggal konsep pertama)
-    const firstItem = items[0];
-    const tglKonsep = firstItem.tanggalKonsep
-      ? new Date(firstItem.tanggalKonsep as any).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0];
-
-    let orgData: any = null;
+  private parseRecipientData(item: SdeMasalEntity): Record<string, any> {
+    if (!item.recipientData) return {};
     try {
-      orgData = await this.orgDataService.findOrg(tglKonsep);
-    } catch (e) {
-      this.logger.warn(`Gagal load org_data: ${e?.message}`);
+      return JSON.parse(item.recipientData);
+    } catch {
+      return {};
     }
+  }
 
-    let success = 0;
-    let failed = 0;
-    const updatedItems: SdeMasalEntity[] = [];
+  private renderFolderKonten(
+    folder: SdeMasalFolderEntity,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+  ): string {
+    const values = {
+      ...(recipient.variables || {}),
+      ...recipient,
+      tertuju: recipient.tertuju || '',
+      perihal: recipient.perihal || '',
+      tembusan: recipient.tembusan || '',
+      tembusan_internal:
+        recipient.tembusanInternal || recipient.tembusan_internal || '',
+      tembusan_eksternal:
+        recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
+    };
+    return (folder.kontenTemplate || '').replace(
+      /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
+      (match, key) =>
+        ['nomor_surat', 'tanggal_surat', 'sifat_surat'].includes(key)
+          ? match
+          : String(values[key] ?? ''),
+    );
+  }
 
-    for (const item of items) {
-      try {
-        // Skip jika sudah punya naskahId
-        if (item.naskahId) {
-          updatedItems.push(item);
-          success++;
-          continue;
-        }
+  /**
+   * Resolve kode tembusan (dipisah , atau ;) menjadi list bernomor dengan nama.
+   * Contoh: "112, 117" → "1. PT Angkasa Pura I\n2. PT Garuda Indonesia"
+   */
+  private async resolveTembusanList(
+    folder: SdeMasalFolderEntity,
+    recipient: Record<string, any>,
+  ): Promise<string> {
+    const raw = String(recipient.tembusan || '').trim();
+    if (!raw) return '';
+    const codes = raw
+      .split(/[,;]/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (codes.length === 0) return '';
+    const lines: string[] = [];
+    let no = 1;
+    for (const code of codes) {
+      const external = await this.eksternalRepository.findOne({
+        where:
+          code.length === 36 ? { id: code } : { kode: code.padStart(3, '0') },
+      });
+      const nama = external?.nama || code;
+      lines.push(`${no}. ${nama}`);
+      no++;
+    }
+    return lines.join('\n');
+  }
 
-        // Validasi pengirim dari org_data
-        const pengirimPosId = Number(item.pengirimId);
-        let pengirimPos: any = null;
-        if (orgData?.position_json) {
-          pengirimPos = orgData.position_json.find(
-            (p: any) => Number(p.position) === pengirimPosId,
-          );
-        }
-
-        // Render konten dengan variabel penerima
-        const konten = this.renderKonten(item.isiRingkasan || '', item);
-
-        // Buat atau cari eksternal record untuk penerima
-        const eksternal = await this.findOrCreateEksternal({
-          nama: item.tertuju,
-          alamat: item.alamat,
-          kota: item.kota,
-          jabatanPenerima: item.jabatanPenerima,
-          createdByPosition: item.pengirimId,
+  private async resolveRecipientExternal(
+    folder: SdeMasalFolderEntity,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+  ): Promise<EksternalEntity> {
+    const rawId = String(recipient.idTertuju || '').trim();
+    let external: EksternalEntity | null = null;
+    if (rawId) {
+      external = await this.eksternalRepository.findOne({
+        where:
+          rawId.length === 36
+            ? { id: rawId }
+            : { kode: rawId.padStart(3, '0') },
+      });
+    }
+    // Fallback: idTertuju kosong tapi tertuju berisi kode → lookup by kode
+    if (!external) {
+      const rawKode = String(recipient.tertuju || '').trim();
+      if (rawKode && rawKode.length < 36) {
+        external = await this.eksternalRepository.findOne({
+          where: { kode: rawKode.padStart(3, '0') },
         });
+      }
+    }
+    if (external) return external;
+    return this.findOrCreateEksternal({
+      nama: recipient.tertuju || rawId || 'Penerima Eksternal',
+      alamat: recipient.alamatPenerima || recipient.alamat || null,
+      kota: recipient.kota || null,
+      jabatanPenerima: recipient.jabatanPenerima || recipient.jabatan || null,
+      createdByPosition: folder.pengirimId,
+    });
+  }
 
-        // Generate nomor surat draft
-        const naskahId = uuidv4();
-        const nomorDraft = `DRAFT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  private parseInternalTembusan(recipient: Record<string, any>): number[] {
+    const value =
+      recipient.tembusanInternal ||
+      recipient.tembusan_internal ||
+      recipient.internalTembusan;
+    if (Array.isArray(value)) return value.map(Number).filter(Number.isFinite);
+    return String(value || '')
+      .split(/[,;]/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter(Number.isFinite);
+  }
 
-        // Parse klasifikasi
-        const klasifikasiParts = (item.klasifikasiName || '').split(' - ');
-        const klasifikasiCode = klasifikasiParts[0] || '';
-        const klasifikasiText =
-          klasifikasiParts[1] || klasifikasiParts[0] || '';
+  /**
+   * Resolve tembusan_eksternal + tembusan_internal menjadi array nama
+   * untuk preview PDF. Urutan: eksternal dulu, lalu internal.
+   * - Eksternal: kode → nama dari tabel eksternal
+   * - Internal: position ID → position_text dari org_data
+   * Fallback: jika keduanya kosong, gunakan tembusan lama sebagai eksternal.
+   */
+  async resolveTembusanForPreview(
+    tembusanEksternal: string,
+    tembusanInternal: string,
+    tanggal?: string,
+    legacyTembusan?: string,
+  ): Promise<string[]> {
+    const result: string[] = [];
 
-        // Buat naskah SDE
-        const naskah = new NaskahEntity();
-        naskah.id = naskahId;
-        naskah.jenis = 'SDE';
-        naskah.klasifikasi = klasifikasiCode;
-        naskah.klasifikasi_text = klasifikasiText;
-        naskah.sifat = (item.sifatSurat as any) || 'biasa';
-        naskah.nomor = nomorDraft;
-        naskah.tanggal = item.tanggalKonsep
-          ? new Date(item.tanggalKonsep as any)
-          : new Date();
-        naskah.lampiran = item.lampiranUrl || '';
-        naskah.perihal = item.perihal;
-        naskah.konten = konten;
-        naskah.tempat = pengirimPos?.area_text || '';
-        naskah.status = 'draf';
-        naskah.english = false;
-        naskah.createdByPosition = item.pengirimId || '';
-        await this.naskahRepository.save(naskah);
+    // 0. Fallback: kolom tembusan lama dipakai sebagai eksternal bila kolom
+    //    baru tidak diisi (kompatibel dengan data Excel lama).
+    const extSource =
+      String(tembusanEksternal || '') || String(legacyTembusan || '');
 
-        // Buat sirkulasi pengirim
-        if (pengirimPos) {
-          const sirkulasiPengirim = new NaskahSirkulasi();
-          sirkulasiPengirim.id = uuidv4();
-          sirkulasiPengirim.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
-          sirkulasiPengirim.idNaskah = naskahId;
-          sirkulasiPengirim.sirkuler = 'pengirim';
-          sirkulasiPengirim.company = String(COMPANY_ID);
-          sirkulasiPengirim.companyText = 'PERUM LPPNPI';
-          sirkulasiPengirim.area = pengirimPos.area
-            ? String(pengirimPos.area)
-            : null;
-          sirkulasiPengirim.areaText = pengirimPos.area_text || null;
-          sirkulasiPengirim.subArea = pengirimPos.sub_area
-            ? String(pengirimPos.sub_area)
-            : null;
-          sirkulasiPengirim.subAreaText = pengirimPos.sub_area_text || null;
-          sirkulasiPengirim.organization = pengirimPos.organization_id
-            ? String(pengirimPos.organization_id)
-            : null;
-          sirkulasiPengirim.organizationText =
-            pengirimPos.organization_text || null;
-          sirkulasiPengirim.position = String(pengirimPos.position);
-          sirkulasiPengirim.positionText = pengirimPos.position_text || null;
-          sirkulasiPengirim.positionStatus = 'ybs';
-          sirkulasiPengirim.idSirkuler = String(
-            pengirimPos.persnum_person ??
-              pengirimPos.persnum ??
-              pengirimPos.position ??
-              '',
-          );
-          sirkulasiPengirim.namaSirkuler =
-            pengirimPos.persnum_person_text ||
-            pengirimPos.nama ||
-            pengirimPos.position_text ||
-            '';
-          sirkulasiPengirim.isDraft = true;
-          sirkulasiPengirim.urutan = 0;
-          await this.sirkulasiRepository.save(sirkulasiPengirim);
+    // Pre-load org_data sekali (untuk resolve position ID internal).
+    // Pakai findLatestOrg (fallback ke data terbaru) agar tidak throw
+    // NotFoundException bila tanggal spesifik tidak ada.
+    // PENTING: position_json bisa berupa string JSON (belum di-parse) —
+    // harus di-parse dulu sebelum dipakai sebagai array.
+    let positionJson: any[] = [];
+    const parsePositionJson = (raw: unknown): any[] => {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string' && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
         }
-
-        // Buat sirkulasi penerima eksternal
-        const sirkulasiPenerima = new NaskahSirkulasi();
-        sirkulasiPenerima.id = uuidv4();
-        sirkulasiPenerima.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
-        sirkulasiPenerima.idNaskah = naskahId;
-        sirkulasiPenerima.sirkuler = 'penerima';
-        sirkulasiPenerima.company = null;
-        sirkulasiPenerima.companyText = eksternal.nama;
-        sirkulasiPenerima.area = null;
-        sirkulasiPenerima.areaText = null;
-        sirkulasiPenerima.subArea = null;
-        sirkulasiPenerima.subAreaText = null;
-        sirkulasiPenerima.organization = null;
-        sirkulasiPenerima.organizationText = eksternal.nama;
-        sirkulasiPenerima.position = null;
-        sirkulasiPenerima.positionText = item.jabatanPenerima || null;
-        sirkulasiPenerima.positionStatus = 'ext';
-        sirkulasiPenerima.idSirkuler = eksternal.id;
-        sirkulasiPenerima.namaSirkuler = eksternal.nama;
-        sirkulasiPenerima.alamat = eksternal.alamat || null;
-        sirkulasiPenerima.telepon = eksternal.telepon || null;
-        sirkulasiPenerima.email = eksternal.email || null;
-        sirkulasiPenerima.isDraft = true;
-        sirkulasiPenerima.urutan = 1;
-        await this.sirkulasiRepository.save(sirkulasiPenerima);
-
-        // Buat sirkulasi tambahan untuk creator (user yang login)
-        // agar naskah bisa dibuka di halaman detail oleh user yang membuat wizard.
-        // Jika creatorPosition berbeda dari pengirimPos.position, buat sirkulasi pengirim duplikat.
-        if (
-          creatorPosition &&
-          String(creatorPosition) !== String(pengirimPos?.position)
-        ) {
-          // Cari creator di org_data
-          let creatorPos: any = null;
-          if (orgData?.position_json) {
-            creatorPos = orgData.position_json.find(
-              (p: any) => Number(p.position) === Number(creatorPosition),
-            );
-          }
-
-          const sirkulasiCreator = new NaskahSirkulasi();
-          sirkulasiCreator.id = uuidv4();
-          sirkulasiCreator.tanggal = naskah.tanggal; // partisi RANGE(YEAR(tanggal))
-          sirkulasiCreator.idNaskah = naskahId;
-          sirkulasiCreator.sirkuler = 'pengirim';
-          sirkulasiCreator.company = String(COMPANY_ID);
-          sirkulasiCreator.companyText = 'PERUM LPPNPI';
-          sirkulasiCreator.area = creatorPos?.area
-            ? String(creatorPos.area)
-            : pengirimPos?.area
-              ? String(pengirimPos.area)
-              : null;
-          sirkulasiCreator.areaText =
-            creatorPos?.area_text || pengirimPos?.area_text || null;
-          sirkulasiCreator.subArea = creatorPos?.sub_area
-            ? String(creatorPos.sub_area)
-            : pengirimPos?.sub_area
-              ? String(pengirimPos.sub_area)
-              : null;
-          sirkulasiCreator.subAreaText =
-            creatorPos?.sub_area_text || pengirimPos?.sub_area_text || null;
-          sirkulasiCreator.organization = creatorPos?.organization_id
-            ? String(creatorPos.organization_id)
-            : pengirimPos?.organization_id
-              ? String(pengirimPos.organization_id)
-              : null;
-          sirkulasiCreator.organizationText =
-            creatorPos?.organization_text ||
-            pengirimPos?.organization_text ||
-            null;
-          sirkulasiCreator.position = String(creatorPosition);
-          sirkulasiCreator.positionText =
-            creatorPos?.position_text || pengirimPos?.position_text || null;
-          sirkulasiCreator.positionStatus = 'ybs';
-          sirkulasiCreator.idSirkuler = String(
-            creatorPos?.persnum_person ??
-              creatorPos?.persnum ??
-              creatorPosition ??
-              '',
-          );
-          sirkulasiCreator.namaSirkuler =
-            creatorPos?.persnum_person_text ||
-            creatorPos?.nama ||
-            creatorPos?.position_text ||
-            '';
-          sirkulasiCreator.isDraft = true;
-          sirkulasiCreator.urutan = 2;
-          await this.sirkulasiRepository.save(sirkulasiCreator);
-        }
-
-        // Update sde_masal
-        item.naskahId = naskahId;
-        item.nomorSurat = nomorDraft;
-        item.statusVerifikasi = 'TERKIRIM';
-        item.errorMessage = null;
-        await this.repo.save(item);
-        updatedItems.push(item);
-        success++;
-      } catch (err) {
-        this.logger.error(
-          `Gagal generate naskah untuk item ${item.id}: ${err?.message ?? err}`,
-        );
-        item.statusVerifikasi = 'GAGAL';
-        item.errorMessage = String(err?.message ?? err).substring(0, 500);
-        await this.repo.save(item);
-        updatedItems.push(item);
-        failed++;
+      }
+      return [];
+    };
+    try {
+      const orgData = tanggal
+        ? await this.orgDataService.findOrg(tanggal)
+        : await this.orgDataService.findLatestOrg();
+      positionJson = parsePositionJson(orgData?.position_json);
+    } catch {
+      try {
+        const latest = await this.orgDataService.findLatestOrg();
+        positionJson = parsePositionJson(latest?.position_json);
+      } catch {
+        /* org_data tidak tersedia → fallback tampilkan kode */
       }
     }
 
-    return {
-      total: items.length,
-      success,
-      failed,
-      items: updatedItems,
+    // Helper: resolve position ID → position_text dari org_data
+    const resolveInternal = (posId: string): string => {
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(posId),
+      );
+      return pos?.position_text || pos?.persnum_person_text || posId;
     };
+
+    // 1. Resolve tembusan eksternal (kode → nama).
+    //    Jika kode tidak ditemukan di tabel eksternal, coba cari di
+    //    org_data (mungkin itu position ID internal, bukan kode eksternal).
+    const extCodes = extSource
+      .split(/[,;]/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    for (const code of extCodes) {
+      const external = await this.eksternalRepository.findOne({
+        where:
+          code.length === 36 ? { id: code } : { kode: code.padStart(3, '0') },
+      });
+      if (external?.nama) {
+        result.push(external.nama);
+      } else {
+        // Tidak ditemukan di eksternal → coba resolve sebagai internal
+        result.push(resolveInternal(code));
+      }
+    }
+
+    // 2. Resolve tembusan internal (position ID → position_text)
+    const intPositions = String(tembusanInternal || '')
+      .split(/[,;]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (const posId of intPositions) {
+      result.push(resolveInternal(posId));
+    }
+
+    return result;
+  }
+
+  private async addExternalTembusan(
+    naskahId: string,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+    status: string,
+  ): Promise<void> {
+    const codes = String(
+      recipient.tembusanEksternal || recipient.tembusan || '',
+    )
+      .split(/[,;]/)
+      .map((code) => code.trim())
+      .filter(Boolean);
+    if (!codes.length) return;
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+    let urutan = 2;
+    for (const code of codes) {
+      const external = await this.eksternalRepository.findOne({
+        where:
+          code.length === 36 ? { id: code } : { kode: code.padStart(3, '0') },
+      });
+      if (!external) continue;
+      const row = this.sirkulasiRepository.create({
+        id: uuidv4(),
+        tanggal: naskah?.tanggal || new Date(),
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+        companyText: external.nama,
+        organizationText: external.nama,
+        positionStatus: 'ext',
+        idSirkuler: external.id,
+        namaSirkuler: external.nama,
+        alamat: external.alamat || null,
+        telepon: external.telepon || null,
+        email: external.email || null,
+        isDraft: status === 'pending',
+        urutan: urutan++,
+      });
+      await this.sirkulasiRepository.save(row);
+    }
   }
 
   /**
-   * Render konten template dengan variabel penerima.
+   * Tambah tembusan internal ke naskah_sirkulasi.
+   * Dipanggil saat naskah terkirim (finalize) agar setiap akun internal
+   * yang dijadikan tembusan menerima surat di kotak masuknya.
+   * - sirkuler = 'tembusan', position_status = 'ybs' (bukan 'ext')
+   * - position = position ID dari tembusan_internal (Excel)
+   * - is_draft = false, is_konsep = 0 → langsung tampil di inbox
    */
-  private renderKonten(templateKonten: string, item: SdeMasalEntity): string {
-    if (!templateKonten) return '';
-    const penerima = {
-      tertuju: item.tertuju,
-      nama: item.tertuju?.split(' - ')[0] || '',
-      jabatan: item.jabatanPenerima,
-      persnum: item.kodePos,
-      alamat: item.alamat,
-      kota: item.kota,
-      kodePos: item.kodePos,
-      jabatanPenerima: item.jabatanPenerima,
-      keterangan: item.isiRingkasan,
+  private async addInternalTembusan(
+    naskahId: string,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+    status: string,
+  ): Promise<void> {
+    const positions = String(
+      recipient.tembusanInternal || recipient.tembusan_internal || '',
+    )
+      .split(/[,;]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!positions.length) return;
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+
+    // Pre-load org_data sekali untuk resolve position ID → jabatan
+    let positionJson: any[] = [];
+    const parsePositionJson = (raw: unknown): any[] => {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string' && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
     };
-    const jabatan = penerima.jabatan || penerima.jabatanPenerima || '';
-    const persnum = penerima.persnum || penerima.kodePos || '';
-    return templateKonten
-      .replace(/\{\{tertuju\}\}/g, penerima.tertuju || '')
-      .replace(/\{\{nama\}\}/g, penerima.nama || '')
-      .replace(/\{\{jabatan\}\}/g, jabatan || '')
-      .replace(/\{\{persnum\}\}/g, persnum || '')
-      .replace(/\{\{keterangan\}\}/g, penerima.keterangan || '')
-      .replace(/\{\{alamat\}\}/g, penerima.alamat || '')
-      .replace(/\{\{kota\}\}/g, penerima.kota || '')
-      .replace(/\{\{kode_pos\}\}/g, penerima.kodePos || '')
-      .replace(/\{\{kodepos\}\}/g, penerima.kodePos || '')
-      .replace(/\{\{perihal\}\}/g, item.perihal || '')
-      .replace(
-        /\{\{tanggal_surat\}\}/g,
-        item.tanggalKonsep
-          ? new Date(item.tanggalKonsep).toLocaleDateString('id-ID')
-          : '',
-      )
-      .replace(/\{\{nomor_surat\}\}/g, item.nomorSurat || '')
-      .replace(/\{\{sifat_surat\}\}/g, item.sifatSurat || 'Biasa')
-      .replace(
-        /\{\{jumlah_lampiran\}\}/g,
-        item.lampiranUrl ? '1 (lembar)' : '-',
-      )
-      .replace(
-        /\{\{jabatan_penerima\}\}/g,
-        item.jabatanPenerima || item.tertuju || '',
-      )
-      .replace(/\{\{alamat_penerima\}\}/g, item.alamat || 'Di tempat')
-      .replace(/\{\{panggilan_penerima\}\}/g, 'Bapak/Ibu')
-      .replace(/\{\{nominal_rupiah\}\}/g, item.idramount || '')
-      .replace(/\{\{nominal_dolar\}\}/g, item.usdamount || '')
-      .replace(/\{\{id_tertuju\}\}/g, item.idTertuju || '')
-      .replace(/\{\{idramount\}\}/g, item.idramount || '')
-      .replace(/\{\{usdamount\}\}/g, item.usdamount || '')
-      .replace(/\{\{namacro\}\}/g, item.namacro || '')
-      .replace(/\{\{email\}\}/g, item.email || '')
-      .replace(/\{\{tembusan\}\}/g, item.tembusan || '')
-      .replace(
-        /\{\{tembusan_1\}\}/g,
-        item.tembusan ? item.tembusan.split(';')[0] : '',
-      )
-      .replace(
-        /\{\{tembusan_2\}\}/g,
-        item.tembusan ? item.tembusan.split(';')[1] || '' : '',
-      )
-      .replace(/\{\{email_tertuju\}\}/g, item.emailTertuju || '')
-      .replace(/\{\{email_cc\}\}/g, item.emailCc || '')
-      .replace(/\{\{email_bcc\}\}/g, item.emailBcc || '')
-      .replace(/\{\{jumlah_tagihan_idr\}\}/g, item.jumlahTagihanIdr || '')
-      .replace(/\{\{jumlah_tagihan_usd\}\}/g, item.jumlahTagihanUsd || '')
-      .replace(/\{\{nama_cro\}\}/g, item.namaCro || '')
-      .replace(/\{\{email_cro\}\}/g, item.emailCro || '')
-      .replace(/\{\{jabatan_signer\}\}/g, item.jabatanSigner || '')
-      .replace(/\{\{nama_signer\}\}/g, item.namaSigner || '');
+    try {
+      const latest = await this.orgDataService.findLatestOrg();
+      positionJson = parsePositionJson(latest?.position_json);
+    } catch {
+      /* org_data tidak tersedia → fallback tampilkan kode */
+    }
+
+    let urutan = 100; // urutan tinggi agar tampil setelah tembusan eksternal
+    for (const posId of positions) {
+      const pos = positionJson.find(
+        (p) => String(p.position) === String(posId),
+      );
+      const positionText = pos?.position_text || posId;
+      // Catatan: is_konsep tidak di-set di sini — kolom DB punya default 0
+      // (entity shared tidak mendeklarasikan field tersebut).
+      const row = this.sirkulasiRepository.create({
+        id: uuidv4(),
+        tanggal: naskah?.tanggal || new Date(),
+        idNaskah: naskahId,
+        sirkuler: 'tembusan',
+        company: pos?.company != null ? String(pos.company) : null,
+        companyText: pos?.company_name || 'PERUM LPPNPI',
+        area: pos?.area != null ? String(pos.area) : null,
+        areaText: pos?.area_text || null,
+        subArea: pos?.sub_area != null ? String(pos.sub_area) : null,
+        subAreaText: pos?.sub_area_text || null,
+        organization:
+          pos?.organization_id != null ? String(pos.organization_id) : null,
+        organizationText: pos?.organization_text || null,
+        position: String(posId),
+        positionText,
+        positionStatus: 'ybs',
+        idSirkuler: null,
+        namaSirkuler: pos?.persnum_person_text || positionText,
+        isDraft: status === 'pending',
+        urutan: urutan++,
+      });
+      await this.sirkulasiRepository.save(row);
+    }
   }
 
-  /**
-   * Cari atau buat record eksternal berdasarkan nama penerima.
-   * Jika sudah ada (berdasarkan nama + createdByPosition), gunakan yang ada.
-   * Jika belum, buat record baru.
-   */
+  private async refreshFolderCounters(folderId: string): Promise<void> {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) return;
+    const rows = await this.repo.find({ where: { folderId } });
+    const totalItems = rows.length;
+    const totalTerkirim = rows.filter(
+      (row) => row.statusVerifikasi === 'TERKIRIM',
+    ).length;
+    const totalDitolak = rows.filter(
+      (row) => row.statusVerifikasi === 'DITOLAK',
+    ).length;
+    folder.status =
+      totalTerkirim === totalItems && totalItems > 0
+        ? 'TERKIRIM'
+        : totalDitolak === totalItems && totalItems > 0
+          ? 'DITOLAK'
+          : rows.some((row) => row.statusVerifikasi === 'MENUNGGU_VERIFIKASI')
+            ? 'MENUNGGU_VERIFIKASI'
+            : 'DRAFT';
+    await this.folderRepo.save(folder);
+  }
+
+  private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
+    return verifikators.slice(0, 3).map((item, index) => ({
+      urutan: index + 1,
+      persnum: String(item.persnum ?? item.persnumPerson ?? '').trim(),
+      position: String(item.position ?? item.positionId ?? '').trim(),
+      nama: item.nama || item.name || '-',
+      jabatan: item.jabatan || item.positionText || '-',
+      status: index === 0 ? 'waiting' : 'pending',
+      verifiedAt: null,
+      rejectedAt: null,
+      catatan: null,
+    }));
+  }
+
   private async findOrCreateEksternal(data: {
     nama: string;
     alamat: string | null;
@@ -1588,7 +1803,6 @@ export class SdeMasalService {
     jabatanPenerima: string | null;
     createdByPosition: string | null;
   }): Promise<EksternalEntity> {
-    // Cari berdasarkan nama (case-insensitive) dan createdByPosition
     const existing = await this.eksternalRepository
       .createQueryBuilder('e')
       .where('LOWER(e.nama) = LOWER(:nama)', { nama: data.nama })
@@ -1601,7 +1815,6 @@ export class SdeMasalService {
       return existing;
     }
 
-    // Buat record eksternal baru
     const alamatLengkap = [data.alamat, data.kota].filter(Boolean).join(', ');
 
     const eksternal = new EksternalEntity();

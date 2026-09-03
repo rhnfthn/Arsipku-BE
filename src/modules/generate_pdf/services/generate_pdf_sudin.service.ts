@@ -330,20 +330,17 @@ export class GeneratePdfSudinService {
     }
 
     // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
+    // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       tembusanHtml = 'Please See Attached Address List';
-    } else {
-      if (tembusanArr.length > 1) {
-        tembusanHtml =
-          "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
-        tembusanArr.forEach((item) => {
-          tembusanHtml += `<li>${extractPositionText(item)}</li>`;
-        });
-        tembusanHtml += '</ol>';
-      } else if (tembusanArr.length === 1) {
-        tembusanHtml = extractPositionText(tembusanArr[0]) || '';
-      }
+    } else if (tembusanArr.length > 0) {
+      tembusanHtml =
+        "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+      tembusanArr.forEach((item) => {
+        tembusanHtml += `<li>${extractPositionText(item)}</li>`;
+      });
+      tembusanHtml += '</ol>';
     }
 
     // Tembusan section English
@@ -436,14 +433,14 @@ export class GeneratePdfSudinService {
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section (English) - rata kiri, text center
+    // TTD section (English) - rata kiri (jabatan & nama penandatangan), tanpa QR preview
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:center;">
+            <td style="width:50%;text-align:left;">
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
-              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+              <br><br><br><br><br>
               ${namaLengkap}
             </td>
             <td style="width:50%;"></td>
@@ -803,22 +800,18 @@ export class GeneratePdfSudinService {
     }
 
     // Process tembusan
+    // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       // Jika tembusan > 5, ganti dengan "Periksa Alamat Terlampir"
       tembusanHtml = 'Periksa Alamat Terlampir';
-    } else {
-      // <= 5 items, tampilkan semua normal
-      if (tembusanArr.length > 1) {
-        tembusanHtml =
-          "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
-        tembusanArr.forEach((item) => {
-          tembusanHtml += `<li>${item}</li>`;
-        });
-        tembusanHtml += '</ol>';
-      } else if (tembusanArr.length === 1) {
-        tembusanHtml = tembusanArr[0] || '';
-      }
+    } else if (tembusanArr.length > 0) {
+      tembusanHtml =
+        "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+      tembusanArr.forEach((item) => {
+        tembusanHtml += `<li>${item}</li>`;
+      });
+      tembusanHtml += '</ol>';
     }
 
     // Tembusan section (only show if tembusan exists)
@@ -912,14 +905,14 @@ export class GeneratePdfSudinService {
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section - rata kiri, text center
+    // TTD section - rata kiri (jabatan & nama penandatangan), tanpa QR preview
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:center;">
+            <td style="width:50%;text-align:left;">
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
-              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
+              <br><br><br><br><br>
               ${namaLengkap}
             </td>
             <td style="width:50%;"></td>
