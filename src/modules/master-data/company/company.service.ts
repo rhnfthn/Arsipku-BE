@@ -175,6 +175,9 @@ export class CompanyService {
     const newCompany = this.companyRepo.create({
       ...rest,
       company: companyCode,
+      // Nama selalu disimpan KAPITAL.
+      shortText: rest.shortText?.toUpperCase(),
+      longText: rest.longText?.toUpperCase(),
       // Default end date 31 Desember 9999.
       endDate: endDate || '9999-12-31',
     });
@@ -184,6 +187,9 @@ export class CompanyService {
   async update(id: string, dto: UpdateCompanyDto): Promise<OmCompany> {
     const company = await this.findOne(id);
     const updated = Object.assign(company, dto);
+    // Nama selalu disimpan KAPITAL.
+    if (updated.shortText) updated.shortText = updated.shortText.toUpperCase();
+    if (updated.longText) updated.longText = updated.longText.toUpperCase();
     return this.companyRepo.save(updated);
   }
 
