@@ -64,6 +64,10 @@ export class SdeMasalEntity {
   @Column({ name: 'created_by', type: 'varchar', length: 50, nullable: true })
   createdBy: string | null;
 
+  // Lampiran per item (MinIO key, format pdf/zip)
+  @Column({ name: 'lampiran', type: 'text', nullable: true })
+  lampiran: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
