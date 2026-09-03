@@ -11,8 +11,9 @@ import {
   UseInterceptors,
   UseGuards,
   HttpStatus,
+  UploadedFile,
 } from '@nestjs/common';
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { SdeMasalService } from '../services/sde-masal.service';
@@ -57,9 +58,13 @@ export class SdeMasalController {
   ) {}
 
   @Post('folder')
-  async createFolder(@Body() dto: CreateSdeMasalFolderDto, @CurrentUser() user: any) {
+  async createFolder(
+    @Body() dto: CreateSdeMasalFolderDto,
+    @CurrentUser() user: any,
+  ) {
     // Scope per-akun: catat position ID pembuat folder
-    dto.createdBy = String(user?.position ?? user?.positionId ?? '') || dto.createdBy;
+    dto.createdBy =
+      String(user?.position ?? user?.positionId ?? '') || dto.createdBy;
     const data = await this.sdeMasalService.createFolder(dto);
     return { success: true, data };
   }
@@ -88,9 +93,11 @@ export class SdeMasalController {
     @CurrentUser() user: any,
   ) {
     const positionId = String(user?.position ?? user?.positionId ?? '');
+    const persnum = String(user?.persnum ?? '');
     const data = await this.sdeMasalService.findNaskahInFolder(
       folderId,
       positionId,
+      persnum,
     );
     return { success: true, data };
   }
@@ -103,6 +110,7 @@ export class SdeMasalController {
       penerimaList: any[];
       signOption: 'digsig' | 'qr_only' | 'ttd_basah';
       passphrase?: string;
+      itemIds?: string[];
     },
     @CurrentUser() user: any,
   ) {
@@ -113,6 +121,7 @@ export class SdeMasalController {
       body.passphrase,
       user?.position ?? user?.positionId,
       user?.persnum ? Number(user.persnum) : undefined,
+      body.itemIds,
     );
     return {
       success: true,
@@ -140,6 +149,33 @@ export class SdeMasalController {
   }
 
   /**
+   * POST /sde-masal/:id/lampiran — upload lampiran per item (pdf/zip).
+   */
+  @Post(':id/lampiran')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadLampiran(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const data = await this.sdeMasalService.uploadLampiran(id, file);
+    return { success: true, data };
+  }
+
+  /**
+   * GET /sde-masal/:id/lampiran — download lampiran per item.
+   */
+  @Get(':id/lampiran')
+  async downloadLampiran(@Param('id') id: string, @Res() res: Response) {
+    const { buffer, mimetype, filename } =
+      await this.sdeMasalService.downloadLampiran(id);
+    res.set({
+      'Content-Type': mimetype,
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
+    return res.send(buffer);
+  }
+
+  /**
    * POST /sde-masal/generate — generate massal dari data wizard.
    * Body: { folderId, konsep, penerimaList, template }
    * Hanya insert record sde_masal (folderId + recipientData). Naskah dibuat saat finalize.
@@ -147,7 +183,8 @@ export class SdeMasalController {
   @Post('generate')
   async generateMassal(@Body() body: any, @CurrentUser() user: any) {
     // Scope per-akun: catat position ID pembuat item
-    body.createdBy = String(user?.position ?? user?.positionId ?? '') || body.createdBy;
+    body.createdBy =
+      String(user?.position ?? user?.positionId ?? '') || body.createdBy;
     const result = await this.sdeMasalService.generateMassal(body);
     return { success: true, data: result };
   }
@@ -170,6 +207,16 @@ export class SdeMasalController {
   @Get('verification')
   async findVerification(@CurrentUser() user: any) {
     const data = await this.sdeMasalService.findVerificationForUser(user);
+    return { success: true, data };
+  }
+
+  /**
+   * GET /sde-masal/verification-folders — daftar folder yang perlu diverifikasi
+   * oleh user (verifikator). Dipakai halaman verifikasi agar tampil per folder.
+   */
+  @Get('verification-folders')
+  async findVerificationFolders(@CurrentUser() user: any) {
+    const data = await this.sdeMasalService.findVerificationFoldersForUser(user);
     return { success: true, data };
   }
 
