@@ -143,6 +143,8 @@ export class StorageService implements OnModuleInit {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         ['.docx'],
       'application/msword': ['.doc'],
+      'application/zip': ['.zip'],
+      'application/x-zip-compressed': ['.zip'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
       'image/gif': ['.gif'],

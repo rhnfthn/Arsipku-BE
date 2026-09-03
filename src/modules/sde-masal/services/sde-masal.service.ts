@@ -339,6 +339,18 @@ export class SdeMasalService {
       await this.addInternalTembusan(data.id, item, recipient, data.status);
       await this.refreshFolderCounters(folder.id);
 
+      // Kirim email otomatis ke alamat dari kolom Excel
+      // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
+      await this.sendEmailForItem(
+        data.id,
+        recipient,
+        external,
+        pengirim,
+        folder,
+        creatorPosition,
+        persnum,
+      );
+
       return {
         naskahId: data.id,
         nomor: data.nomor || '',
@@ -350,6 +362,60 @@ export class SdeMasalService {
       await this.repo.save(item);
       await this.refreshFolderCounters(folder.id);
       throw error;
+    }
+  }
+
+  /**
+   * Kirim email otomatis ke alamat dari kolom Excel (email_tertuju/cc/bcc).
+   * Dipanggil setelah naskah berhasil difinalisasi. Gagal kirim email TIDAK
+   * menggagalkan finalisasi (hanya dicatat di log).
+   */
+  private async sendEmailForItem(
+    naskahId: string,
+    recipient: Record<string, any>,
+    external: EksternalEntity,
+    pengirim: any,
+    folder: SdeMasalFolderEntity,
+    creatorPosition?: string | number,
+    persnum?: number,
+  ): Promise<void> {
+    const to =
+      String(recipient.emailTertuju || recipient.email_tertuju || '').trim() ||
+      external.email ||
+      '';
+    const cc = String(recipient.emailCc || recipient.email_cc || '').trim();
+    const bcc = String(recipient.emailBcc || recipient.email_bcc || '').trim();
+
+    if (!to) {
+      this.logger.warn(
+        `[SDE Masal] Item ${naskahId} tidak punya email tujuan, skip kirim email.`,
+      );
+      return;
+    }
+
+    const senderPersnum = persnum
+      ? Number(persnum)
+      : pengirim?.persnum_person
+        ? Number(pengirim.persnum_person)
+        : undefined;
+    const senderNama =
+      pengirim?.persnum_person_text || pengirim?.nama || folder.pengirimName || '';
+
+    try {
+      await this.sdeService.sendSdeEmail(
+        naskahId,
+        String(folder.pengirimId || creatorPosition || ''),
+        senderPersnum as number,
+        senderNama,
+        { to, cc, bcc },
+      );
+      this.logger.log(
+        `[SDE Masal] Email terkirim untuk item ${naskahId} → ${to}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[SDE Masal] Gagal kirim email item ${naskahId} → ${to}: ${error?.message || error}`,
+      );
     }
   }
 
@@ -398,6 +464,54 @@ export class SdeMasalService {
     };
   }
 
+  /**
+   * Upload lampiran per item (pdf/zip) ke MinIO, simpan key di sde_masal.lampiran.
+   */
+  async uploadLampiran(
+    itemId: string,
+    file: Express.Multer.File,
+  ): Promise<{ lampiran: string; url: string }> {
+    const item = await this.repo.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item SDE Masal tidak ditemukan');
+
+    if (!file) throw new BadRequestException('File tidak ditemukan');
+
+    // Validasi format: pdf atau zip
+    const ext = (file.originalname || '').split('.').pop()?.toLowerCase();
+    if (!['pdf', 'zip'].includes(ext || '')) {
+      throw new BadRequestException('Format lampiran harus PDF atau ZIP');
+    }
+
+    const result = await this.storageService.uploadFile(
+      file,
+      'sde-masal/lampiran',
+    );
+
+    item.lampiran = result.key;
+    await this.repo.save(item);
+
+    return { lampiran: result.key, url: result.url };
+  }
+
+  /**
+   * Download lampiran per item dari MinIO.
+   */
+  async downloadLampiran(
+    itemId: string,
+  ): Promise<{ buffer: Buffer; mimetype: string; filename: string }> {
+    const item = await this.repo.findOne({ where: { id: itemId } });
+    if (!item || !item.lampiran) {
+      throw new NotFoundException('Lampiran tidak ditemukan');
+    }
+
+    const buffer = await this.storageService.getFile(item.lampiran);
+    const filename = item.lampiran.split('/').pop() || 'lampiran';
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const mimetype = ext === 'pdf' ? 'application/pdf' : 'application/zip';
+
+    return { buffer, mimetype, filename };
+  }
+
   async finalizeDirect(
     folderId: string,
     penerimaList: any[],
@@ -405,6 +519,7 @@ export class SdeMasalService {
     passphrase?: string,
     creatorPosition?: string | number,
     persnum?: number,
+    itemIds?: string[],
   ): Promise<{ total: number; success: number; failed: number }> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder)
@@ -420,16 +535,26 @@ export class SdeMasalService {
 
     folder.signOption = signOption;
     await this.folderRepo.save(folder);
-    const generated = await this.generateMassal({
-      folderId,
-      konsep: {},
-      penerimaList,
-      template: {},
-    });
+
+    // Jika item sudah di-generate sebelumnya (punya id), pakai ulang agar
+    // lampiran yang sudah diupload tidak hilang. Jika belum, generate baru.
+    let items: SdeMasalEntity[] = [];
+    if (itemIds && itemIds.length > 0) {
+      items = await this.repo.find({ where: { id: In(itemIds) } });
+    }
+    if (items.length === 0) {
+      const generated = await this.generateMassal({
+        folderId,
+        konsep: {},
+        penerimaList,
+        template: {},
+      });
+      items = generated.items;
+    }
 
     let success = 0;
-    let failed = generated.failed;
-    for (const item of generated.items) {
+    let failed = 0;
+    for (const item of items) {
       try {
         await this.finalizeNaskah(
           item.id,
@@ -479,11 +604,12 @@ export class SdeMasalService {
     if (filter?.tahun) {
       qb.andWhere('YEAR(folder.tanggal) = :tahun', { tahun: filter.tahun });
     }
-    // Scope per-akun: hanya folder milik pengirim (position user) ATAU
-    // folder dimana user adalah penerima/tembusan di salah satu naskah.
+    // Scope per-akun: folder milik pengirim (position user), folder yang
+    // dibuat user (created_by), ATAU folder dimana user adalah
+    // penerima/tembusan di salah satu naskah.
     if (positionId) {
       qb.andWhere(
-        `(folder.pengirim_id = :positionId OR EXISTS (
+        `(folder.pengirim_id = :positionId OR folder.created_by = :positionId OR EXISTS (
           SELECT 1 FROM sde_masal sm
           INNER JOIN naskah_sirkulasi ns ON ns.id_naskah = sm.naskah_id
           WHERE sm.folder_id = folder.id
@@ -505,25 +631,49 @@ export class SdeMasalService {
     };
   }
 
-  async findNaskahInFolder(folderId: string, positionId?: string) {
+  async findNaskahInFolder(
+    folderId: string,
+    positionId?: string,
+    persnum?: string,
+  ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
-    // Scope per-akun: hanya pengirim folder atau penerima/tembusan yang boleh lihat.
-    if (positionId && String(folder.pengirimId || '') !== positionId) {
-      // Bukan pengirim — cek apakah user adalah penerima/tembusan di naskah folder ini
-      const hasAccess = await this.sirkulasiRepository
-        .createQueryBuilder('ns')
-        .innerJoin('sde_masal', 'sm', 'sm.naskah_id = ns.id_naskah')
-        .where('sm.folder_id = :folderId', { folderId })
-        .andWhere('ns.position = :positionId', { positionId })
-        .andWhere('ns.sirkuler IN (:...sirkuler)', {
-          sirkuler: ['penerima', 'tembusan'],
-        })
-        .andWhere('ns.is_draft = 0')
-        .getCount();
-      if (hasAccess === 0) {
+    // Scope per-akun: pengirim folder, pembuat folder, verifikator, atau
+    // penerima/tembusan.
+    const isOwner =
+      positionId &&
+      (String(folder.pengirimId || '') === positionId ||
+        String(folder.createdBy || '') === positionId);
+    if (!isOwner) {
+      // Cek apakah user adalah verifikator di salah satu item folder ini.
+      const folderItems = await this.repo.find({ where: { folderId } });
+      const isVerifikator = folderItems.some((item) =>
+        (item.verifikators || []).some((v: any) => {
+          const samePersnum =
+            persnum && String(v.persnum) === String(persnum);
+          const samePosition =
+            positionId && String(v.position) === String(positionId);
+          return samePersnum || samePosition;
+        }),
+      );
+
+      // Cek apakah user adalah penerima/tembusan di naskah folder ini.
+      const hasSirkulasi = positionId
+        ? await this.sirkulasiRepository
+            .createQueryBuilder('ns')
+            .innerJoin('sde_masal', 'sm', 'sm.naskah_id = ns.id_naskah')
+            .where('sm.folder_id = :folderId', { folderId })
+            .andWhere('ns.position = :positionId', { positionId })
+            .andWhere('ns.sirkuler IN (:...sirkuler)', {
+              sirkuler: ['penerima', 'tembusan'],
+            })
+            .andWhere('ns.is_draft = 0')
+            .getCount()
+        : 0;
+
+      if (!isVerifikator && hasSirkulasi === 0) {
         throw new ForbiddenException(
           'Anda tidak memiliki akses ke folder SDE Massal ini',
         );
@@ -582,7 +732,14 @@ export class SdeMasalService {
           nomor: naskah?.nomor || null,
           perihal: naskah?.perihal || recipient?.perihal || '-',
           penerima: penerimaNama,
+          recipient,
+          emailTertuju: recipient?.emailTertuju || recipient?.email_tertuju || null,
+          emailCc: recipient?.emailCc || recipient?.email_cc || null,
+          emailBcc: recipient?.emailBcc || recipient?.email_bcc || null,
           status: naskah?.status || row.statusVerifikasi,
+          statusVerifikasi: row.statusVerifikasi,
+          verifikators: row.verifikators || [],
+          submittedAt: row.submittedAt || null,
           finalPdf: naskah?.final_pdf || null,
           createdAt: row.createdAt,
         };
@@ -682,6 +839,54 @@ export class SdeMasalService {
         tanggalKonsep: folder?.tanggal
           ? new Date(folder.tanggal).toISOString().slice(0, 10)
           : null,
+      };
+    });
+  }
+
+  /**
+   * Daftar folder yang perlu diverifikasi oleh user (verifikator).
+   * Mengelompokkan item sde_masal per folder, hanya folder yang punya
+   * minimal satu item di mana user adalah verifikator (waiting/verified/rejected).
+   */
+  async findVerificationFoldersForUser(user: any) {
+    const persnum = String(user?.persnum ?? user?.username ?? '').trim();
+    const position = String(user?.position ?? user?.positionId ?? '').trim();
+
+    const rows = await this.repo
+      .createQueryBuilder('s')
+      .andWhere('s.status_verifikasi IN (:...statuses)', {
+        statuses: ['MENUNGGU_VERIFIKASI', 'TERVERIFIKASI', 'DITOLAK'],
+      })
+      .getMany();
+
+    // Filter item di mana user adalah verifikator (waiting/verified/rejected).
+    const myItems = rows.filter((item) =>
+      (item.verifikators || []).some((verifikator: any) => {
+        const samePersnum = persnum && String(verifikator.persnum) === persnum;
+        const samePosition =
+          position && String(verifikator.position) === position;
+        return samePersnum || samePosition;
+      }),
+    );
+
+    // Kelompokkan per folder.
+    const folderIds = [
+      ...new Set(myItems.map((item) => item.folderId).filter(Boolean)),
+    ] as string[];
+    const folders = folderIds.length
+      ? await this.folderRepo.find({ where: { id: In(folderIds) } })
+      : [];
+    const folderMap = new Map(folders.map((f) => [f.id, f]));
+
+    return folders.map((folder) => {
+      const items = myItems.filter((item) => item.folderId === folder.id);
+      const waitingCount = items.filter(
+        (item) => item.statusVerifikasi === 'MENUNGGU_VERIFIKASI',
+      ).length;
+      return {
+        ...folder,
+        totalItems: items.length,
+        waitingCount,
       };
     });
   }
@@ -1084,6 +1289,9 @@ export class SdeMasalService {
           'tembusan_internal',
           'tembusan_eksternal',
           'is_revision',
+          'email_tertuju',
+          'email_cc',
+          'email_bcc',
         ],
         [
           1,
@@ -1098,6 +1306,9 @@ export class SdeMasalService {
           '',
           'Direktur Jenderal Perhubungan Udara;Ketua Dewan Pengawas Perum LPPNPI',
           0,
+          'penerima@example.com',
+          'cc@example.com',
+          'bcc@example.com',
         ],
         [
           2,
@@ -1112,6 +1323,9 @@ export class SdeMasalService {
           '',
           'Direktur Jenderal Perhubungan Udara',
           0,
+          'penerima@example.com',
+          '',
+          '',
         ],
         [
           3,
@@ -1126,6 +1340,9 @@ export class SdeMasalService {
           '',
           '',
           1,
+          '',
+          '',
+          '',
         ],
       ];
 
@@ -1143,6 +1360,9 @@ export class SdeMasalService {
         { wch: 40 },
         { wch: 50 },
         { wch: 12 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 25 },
       ];
       // Format tembusan_internal (J) dan tembusan_eksternal (K) sebagai text
       // agar Excel tidak menggabungkan "119,117" menjadi 119117
@@ -1186,8 +1406,13 @@ export class SdeMasalService {
           ,
         ],
         ['11. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
-        ['12. File upload harus format .xlsx atau .xls.'],
-        ['13. Maksimal 1000 baris per upload.'],
+        ['12. Kolom "email_tertuju" opsional. Email penerima utama surat.'],
+        ['13. Kolom "email_cc" opsional. Email tembusan (carbon copy).'],
+        [
+          '14. Kolom "email_bcc" opsional. Email tembusan tersembunyi (blind carbon copy).',
+        ],
+        ['15. File upload harus format .xlsx atau .xls.'],
+        ['16. Maksimal 1000 baris per upload.'],
         [''],
         ['Variabel dinamis yang bisa dipakai di konten surat:'],
         ['  {{perihal}}             → Perihal'],
@@ -1200,6 +1425,9 @@ export class SdeMasalService {
         ['  {{nama_signer}}         → Nama Signer'],
         ['  {{tembusan_internal}}  → Tembusan Internal'],
         ['  {{tembusan_eksternal}}  → Tembusan Eksternal'],
+        ['  {{email_tertuju}}       → Email Tertuju'],
+        ['  {{email_cc}}            → Email CC'],
+        ['  {{email_bcc}}           → Email BCC'],
       ];
 
       ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
@@ -1219,6 +1447,9 @@ export class SdeMasalService {
         ['tembusan_internal', '{{tembusan_internal}}', 'string', 'Tidak'],
         ['tembusan_eksternal', '{{tembusan_eksternal}}', 'string', 'Tidak'],
         ['is_revision', '-', 'number', 'Tidak'],
+        ['email_tertuju', '{{email_tertuju}}', 'string', 'Tidak'],
+        ['email_cc', '{{email_cc}}', 'string', 'Tidak'],
+        ['email_bcc', '{{email_bcc}}', 'string', 'Tidak'],
       ];
 
       ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
@@ -1242,6 +1473,9 @@ export class SdeMasalService {
           'tembusan_internal',
           'tembusan_eksternal',
           'is_revision',
+          'email_tertuju',
+          'email_cc',
+          'email_bcc',
         ],
         [
           1,
@@ -1260,6 +1494,9 @@ export class SdeMasalService {
           '',
           'Direktur Jenderal Perhubungan Udara;Ketua Dewan Pengawas Perum LPPNPI',
           0,
+          'penerima@example.com',
+          'cc@example.com',
+          'bcc@example.com',
         ],
         [
           2,
@@ -1278,6 +1515,9 @@ export class SdeMasalService {
           '',
           'Direktur Jenderal Perhubungan Udara',
           0,
+          'penerima@example.com',
+          '',
+          '',
         ],
         [
           3,
@@ -1296,6 +1536,9 @@ export class SdeMasalService {
           '',
           '',
           1,
+          '',
+          '',
+          '',
         ],
       ];
 
@@ -1317,6 +1560,9 @@ export class SdeMasalService {
         { wch: 40 },
         { wch: 50 },
         { wch: 12 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 25 },
       ];
       // Format tembusan_internal (O) dan tembusan_eksternal (P) sebagai text
       // agar Excel tidak menggabungkan "119,117" menjadi 119117
@@ -1364,8 +1610,13 @@ export class SdeMasalService {
           ,
         ],
         ['15. Kolom "is_revision" opsional (0 = bukan revisi, 1 = revisi).'],
-        ['16. File upload harus format .xlsx atau .xls.'],
-        ['17. Maksimal 1000 baris per upload.'],
+        ['16. Kolom "email_tertuju" opsional. Email penerima utama surat.'],
+        ['17. Kolom "email_cc" opsional. Email tembusan (carbon copy).'],
+        [
+          '18. Kolom "email_bcc" opsional. Email tembusan tersembunyi (blind carbon copy).',
+        ],
+        ['19. File upload harus format .xlsx atau .xls.'],
+        ['20. Maksimal 1000 baris per upload.'],
         [''],
         ['Variabel dinamis yang bisa dipakai di konten surat:'],
         ['  {{perihal}}            → Perihal'],
@@ -1382,6 +1633,9 @@ export class SdeMasalService {
         ['  {{nama_signer}}        → Nama Signer'],
         ['  {{tembusan_internal}}  → Tembusan Internal'],
         ['  {{tembusan_eksternal}}  → Tembusan Eksternal'],
+        ['  {{email_tertuju}}      → Email Tertuju'],
+        ['  {{email_cc}}           → Email CC'],
+        ['  {{email_bcc}}          → Email BCC'],
       ];
 
       ws2 = XLSX.utils.aoa_to_sheet(petunjukSheet);
@@ -1405,6 +1659,9 @@ export class SdeMasalService {
         ['tembusan_internal', '{{tembusan_internal}}', 'string', 'Tidak'],
         ['tembusan_eksternal', '{{tembusan_eksternal}}', 'string', 'Tidak'],
         ['is_revision', '-', 'number', 'Tidak'],
+        ['email_tertuju', '{{email_tertuju}}', 'string', 'Tidak'],
+        ['email_cc', '{{email_cc}}', 'string', 'Tidak'],
+        ['email_bcc', '{{email_bcc}}', 'string', 'Tidak'],
       ];
 
       ws3 = XLSX.utils.aoa_to_sheet(mappingSheet);
