@@ -369,7 +369,6 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'create-perusahaan', description: 'Button Tambah Perusahaan' },
       { action: 'update-perusahaan', description: 'Button Edit Perusahaan' },
       { action: 'delete-perusahaan', description: 'Button Delete Perusahaan' },
-      { action: 'export-perusahaan', description: 'Button Export Perusahaan' },
       {
         action: 'read-perusahaan-area',
         description: 'Button Action Area Perusahaan',
@@ -406,10 +405,6 @@ const resourcesWithPermissions: ResourceDef[] = [
       {
         action: 'delete-grup-penerima',
         description: 'Button Delete Grup Penerima',
-      },
-      {
-        action: 'export-grup-penerima',
-        description: 'Button Export Grup Penerima',
       },
       { action: 'read-template', description: 'Halaman Template' },
       { action: 'create-template', description: 'Button Tambah Template' },

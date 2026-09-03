@@ -62,9 +62,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Database files
 /db
 /src/migrations/
-!/src/migrations/
-/src/migrations/*
-!/src/migrations/1788400000000-CreateSdeMasalFolder.ts
 /scripts/
 
 #Docs
