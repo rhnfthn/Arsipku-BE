@@ -65,6 +65,7 @@ import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -3703,9 +3704,10 @@ export class SuratDinasInternalService {
         naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
-        await queryRunner.manager.update(
+        await updatePartitionedNaskah(
+          queryRunner.manager,
           NaskahEntity,
-          { id: naskahId },
+          { id: naskah.id, tanggal: naskah.tanggal },
           naskahUpdateData,
         );
       }
