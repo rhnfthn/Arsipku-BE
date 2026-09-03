@@ -8,88 +8,146 @@ import {
   Query,
   Body,
   Res,
-  UploadedFile,
   UseInterceptors,
   UseGuards,
+  HttpStatus,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { SdeMasalService } from '../services/sde-masal.service';
-import { CreateSdeMasalConceptDto } from '../dto/create-sde-masal-concept.dto';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
 import { SdeMasalFilterDto } from '../dto/sde-masal-filter.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser } from '../../../common/decorators';
+import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
+import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 
 /**
  * Controller API SDE Masal (Surat Dinas Eksternal Massal).
  *
  * Endpoint:
- * - POST   /sde-masal/concept          — simpan konsep
- * - POST   /sde-masal/upload            — upload Excel
- * - GET    /sde-masal/template          — download template Excel
- * - GET    /sde-masal                   — list dengan filter
- * - GET    /sde-masal/summary           — ringkasan dashboard
- * - GET    /sde-masal/:id               — detail
- * - PATCH  /sde-masal/:id               — update
- * - DELETE /sde-masal/:id               — hapus
- * - POST   /sde-masal/:id/lampiran      — upload lampiran
+ * - POST   /sde-masal/folder                — buat folder
+ * - PATCH  /sde-masal/folder/:folderId      — update folder
+ * - GET    /sde-masal/folders               — daftar folder
+ * - GET    /sde-masal/folder/:folderId/naskah — daftar naskah dalam folder
+ * - POST   /sde-masal/generate              — parse Excel → insert sde_masal
+ * - POST   /sde-masal/finalize              — langsung kirim (pembuat = penandatangan)
+ * - POST   /sde-masal/submit-verification   — submit ke verifikator
+ * - GET    /sde-masal/verification          — list verifikasi untuk user
+ * - PATCH  /sde-masal/:id/approve-verification
+ * - PATCH  /sde-masal/:id/reject-verification
+ * - POST   /sde-masal/preview-pdf           — preview PDF surat
+ * - GET    /sde-masal/template              — download template Excel
+ * - GET    /sde-masal/naskah/:naskahId      — detail naskah SDE individual
+ * - GET    /sde-masal                       — list item dengan filter
+ * - GET    /sde-masal/summary               — ringkasan dashboard
+ * - GET    /sde-masal/:id                   — detail item
+ * - PATCH  /sde-masal/:id                   — update item
+ * - DELETE /sde-masal/:id                   — hapus item
  */
 @ApiTags('SDE Masal')
 @ApiBearerAuth()
 @Controller('sde-masal')
 @UseGuards(JwtAuthGuard)
 export class SdeMasalController {
-  constructor(private readonly sdeMasalService: SdeMasalService) {}
+  constructor(
+    private readonly sdeMasalService: SdeMasalService,
+    private readonly sdeService: SuratDinasEksternalService,
+  ) {}
 
-  /**
-   * POST /sde-masal/concept — simpan konsep (Form 1).
-   */
-  @Post('concept')
-  async createConcept(@Body() dto: CreateSdeMasalConceptDto) {
-    const data = await this.sdeMasalService.createConcept(dto);
+  @Post('folder')
+  async createFolder(@Body() dto: CreateSdeMasalFolderDto, @CurrentUser() user: any) {
+    // Scope per-akun: catat position ID pembuat folder
+    dto.createdBy = String(user?.position ?? user?.positionId ?? '') || dto.createdBy;
+    const data = await this.sdeMasalService.createFolder(dto);
     return { success: true, data };
   }
 
-  /**
-   * POST /sde-masal/upload — upload Excel (Form 2).
-   * Multipart form-data: file, conceptId, skemaTemplate, versiTemplate
-   */
-  @Post('upload')
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
-  )
-  async uploadExcel(
-    @UploadedFile() file: Express.Multer.File,
-    @Body('conceptId') conceptId: string,
-    @Body('skemaTemplate') skemaTemplate: string,
-    @Body('versiTemplate') versiTemplate: string,
+  @Patch('folder/:folderId')
+  async updateFolder(
+    @Param('folderId') folderId: string,
+    @Body() dto: Partial<CreateSdeMasalFolderDto>,
   ) {
-    if (!file) {
-      return { success: false, message: 'File tidak ditemukan' };
-    }
-    if (!file.originalname.match(/\.(xlsx|xls)$/i)) {
-      return {
-        success: false,
-        message: 'File harus berformat .xlsx atau .xls',
-      };
-    }
-    const result = await this.sdeMasalService.processExcelUpload(
-      file.buffer,
-      conceptId,
-      skemaTemplate,
-      versiTemplate,
+    const data = await this.sdeMasalService.updateFolder(folderId, dto);
+    return { success: true, data };
+  }
+
+  @Get('folders')
+  async findFolders(@Query() filter: any, @CurrentUser() user: any) {
+    // Scope per-akun: hanya folder milik pengirim (position user) atau
+    // folder dimana user adalah penerima/tembusan.
+    const positionId = String(user?.position ?? user?.positionId ?? '');
+    const result = await this.sdeMasalService.findFolders(filter, positionId);
+    return { success: true, ...result };
+  }
+
+  @Get('folder/:folderId/naskah')
+  async findNaskahInFolder(
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: any,
+  ) {
+    const positionId = String(user?.position ?? user?.positionId ?? '');
+    const data = await this.sdeMasalService.findNaskahInFolder(
+      folderId,
+      positionId,
     );
-    return { success: true, data: result };
+    return { success: true, data };
+  }
+
+  @Post('finalize')
+  async finalizeDirect(
+    @Body()
+    body: {
+      folderId: string;
+      penerimaList: any[];
+      signOption: 'digsig' | 'qr_only' | 'ttd_basah';
+      passphrase?: string;
+    },
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.sdeMasalService.finalizeDirect(
+      body.folderId,
+      body.penerimaList,
+      body.signOption,
+      body.passphrase,
+      user?.position ?? user?.positionId,
+      user?.persnum ? Number(user.persnum) : undefined,
+    );
+    return {
+      success: true,
+      data,
+      message: `${data.success} naskah berhasil difinalisasi, ${data.failed} gagal.`,
+    };
   }
 
   /**
-   * POST /sde-masal/generate — generate massal dari data wizard (Step 4).
-   * Body: { konsep, penerimaList, template }
+   * POST /sde-masal/:id/retry — kirim ulang naskah yang gagal (status GAGAL).
+   * Hanya penandatangan folder yang boleh mengirim ulang.
+   */
+  @Post(':id/retry')
+  async retryNaskah(@Param('id') id: string, @CurrentUser() user: any) {
+    const data = await this.sdeMasalService.retryNaskah(
+      id,
+      user?.position ?? user?.positionId,
+      user?.persnum ? Number(user.persnum) : undefined,
+    );
+    return {
+      success: true,
+      data,
+      message: 'Naskah berhasil dikirim ulang',
+    };
+  }
+
+  /**
+   * POST /sde-masal/generate — generate massal dari data wizard.
+   * Body: { folderId, konsep, penerimaList, template }
+   * Hanya insert record sde_masal (folderId + recipientData). Naskah dibuat saat finalize.
    */
   @Post('generate')
-  async generateMassal(@Body() body: any) {
+  async generateMassal(@Body() body: any, @CurrentUser() user: any) {
+    // Scope per-akun: catat position ID pembuat item
+    body.createdBy = String(user?.position ?? user?.positionId ?? '') || body.createdBy;
     const result = await this.sdeMasalService.generateMassal(body);
     return { success: true, data: result };
   }
@@ -144,20 +202,133 @@ export class SdeMasalController {
   }
 
   /**
-   * POST /sde-masal/generate-naskah — buat naskah SDE individual per penerima.
-   * Body: { ids?: string[] } — jika kosong, proses semua yang MENUNGGU.
+   * POST /sde-masal/preview-pdf — generate preview PDF surat SDE Masal.
+   * Hanya butuh JWT (tanpa permission naskah-dinas) agar semua user BOD
+   * yang bisa mengakses wizard SDE Masal dapat melihat preview.
+   * Body (multipart/form-data): htmlContent, perihal, sifat, penerima (JSON array),
+   * tembusan (JSON array), nama_tempat, tgl.
    */
-  @Post('generate-naskah')
-  async generateNaskah(
-    @Body() body: { ids?: string[] },
+  @Post('preview-pdf')
+  @UseInterceptors(AnyFilesInterceptor())
+  async previewPdf(
+    @Body() body: any,
     @CurrentUser() user: any,
+    @Res() res: Response,
   ) {
-    const result = await this.sdeMasalService.generateAndSendNaskah(body?.ids, user?.position);
-    return {
-      success: true,
-      data: result,
-      message: `${result.success} naskah SDE berhasil dibuat, ${result.failed} gagal.`,
-    };
+    try {
+      if (!body?.htmlContent) {
+        return res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          message: ['htmlContent harus diisi'],
+        });
+      }
+
+      let penerimaArray = body.tertuju || body.penerima || [];
+      if (typeof penerimaArray === 'string') {
+        try {
+          penerimaArray = JSON.parse(penerimaArray);
+        } catch {
+          penerimaArray = [penerimaArray];
+        }
+      }
+
+      let tembusanArray = body.tembusan || [];
+      if (typeof tembusanArray === 'string') {
+        try {
+          tembusanArray = JSON.parse(tembusanArray);
+        } catch {
+          tembusanArray = [tembusanArray];
+        }
+      }
+
+      // Resolve tembusan_eksternal + tembusan_internal menjadi array nama
+      // (urutan: eksternal dulu, lalu internal) untuk di-hardcode di kanvas PDF.
+      const tembusanEksternal =
+        body.tembusan_eksternal || body.tembusanEksternal || '';
+      const tembusanInternal =
+        body.tembusan_internal || body.tembusanInternal || '';
+      // Fallback: tembusan lama (array dari body.tembusan) dipakai sebagai
+      // eksternal bila kolom baru tidak diisi (kompatibel Excel lama).
+      const legacyTembusan = Array.isArray(tembusanArray)
+        ? tembusanArray.filter(Boolean).join(',')
+        : String(tembusanArray || '');
+
+      // Resolve nama untuk {{tembusan_internal}} dan {{tembusan_eksternal}}
+      // secara terpisah. Masing-masing di-resolve ke list bernomor.
+      const [internalNames, externalNames] = await Promise.all([
+        this.sdeMasalService.resolveTembusanForPreview(
+          '',
+          tembusanInternal || legacyTembusan,
+          body.tgl || body.tanggal,
+        ),
+        this.sdeMasalService.resolveTembusanForPreview(
+          tembusanEksternal || legacyTembusan,
+          '',
+          body.tgl || body.tanggal,
+        ),
+      ]);
+
+      // Gabungan untuk blok "Tembusan Yth:" di kanvas PDF (eksternal dulu).
+      tembusanArray = [...externalNames, ...internalNames];
+
+      const headerInfo = await this.sdeService.getHeaderInfoByUser(
+        {
+          company: user?.company,
+          area: user?.area,
+          subArea: user?.subArea,
+        },
+        body.tgl || body.tanggal,
+      );
+
+      // Replace placeholder tembusan di htmlContent:
+      // {{tembusan_internal}} → list bernomor nama internal
+      // {{tembusan_eksternal}} → list bernomor nama eksternal
+      // {{tembusan}} → gabungan (eksternal dulu, lalu internal)
+      let htmlContent = body.htmlContent || '';
+      const buildNumberedList = (names: string[]): string =>
+        names.length > 0
+          ? names.map((nama, idx) => `${idx + 1}. ${nama}`).join('<br>')
+          : '';
+      const allNames = [...externalNames, ...internalNames];
+      htmlContent = htmlContent
+        .replace(/\{\{tembusan_internal\}\}/g, buildNumberedList(internalNames))
+        .replace(
+          /\{\{tembusan_eksternal\}\}/g,
+          buildNumberedList(externalNames),
+        )
+        .replace(/\{\{tembusan\}\}/g, buildNumberedList(allNames));
+
+      const pdfBuffer = await this.sdeService.generatePdfFromHtml(
+        htmlContent,
+        penerimaArray,
+        headerInfo?.kota || body.nama_tempat || 'Tangerang',
+        body.tanggal || body.tgl || '',
+        body.nama_jabatan || user?.positionText || '',
+        body.nama_lengkap || user?.nama || '',
+        tembusanArray,
+        [],
+        body.perihal || '',
+        body.sifat || 'Biasa',
+        body.nomor || '',
+        body.lampiran || '-',
+        headerInfo || undefined,
+        body.english === true || body.english === 'true',
+        body.atas_nama || '',
+      );
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-sde-masal.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+      return res.status(HttpStatus.OK).send(pdfBuffer);
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        message: 'Gagal generate preview PDF',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -165,18 +336,19 @@ export class SdeMasalController {
    * Query param `skema` untuk memilih skema template (default / KEUANGAN).
    */
   @Get('template')
-  async downloadTemplate(@Query('skema') skema: string | undefined, @Res() res: Response) {
-    const normalizedSkema = skema?.toUpperCase() === 'KEUANGAN' ? 'KEUANGAN' : 'UMUM';
+  async downloadTemplate(
+    @Query('skema') skema: string | undefined,
+    @Res() res: Response,
+  ) {
+    const normalizedSkema =
+      skema?.toUpperCase() === 'KEUANGAN' ? 'KEUANGAN' : 'UMUM';
     const buf = await this.sdeMasalService.generateTemplate(normalizedSkema);
     const filename = `template-sde-masal-${normalizedSkema.toLowerCase()}.xlsx`;
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buf);
   }
 
@@ -194,7 +366,7 @@ export class SdeMasalController {
   }
 
   /**
-   * GET /sde-masal — list dengan filter dan pagination.
+   * GET /sde-masal — list item dengan filter dan pagination.
    */
   @Get()
   async findAll(@Query() filter: SdeMasalFilterDto) {
@@ -245,26 +417,5 @@ export class SdeMasalController {
       return { success: false, message: 'Data tidak ditemukan' };
     }
     return { success: true, message: 'Data berhasil dihapus' };
-  }
-
-  /**
-   * POST /sde-masal/:id/lampiran — upload lampiran.
-   */
-  @Post(':id/lampiran')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadLampiran(
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    if (!file) {
-      return { success: false, message: 'File tidak ditemukan' };
-    }
-    // Simpan lampiran URL sederhana (bisa integrasi MinIO nanti)
-    const lampiranUrl = `sde-masal/${id}/${file.originalname}`;
-    const data = await this.sdeMasalService.uploadLampiran(id, lampiranUrl);
-    if (!data) {
-      return { success: false, message: 'Data tidak ditemukan', data: null };
-    }
-    return { success: true, data };
   }
 }
