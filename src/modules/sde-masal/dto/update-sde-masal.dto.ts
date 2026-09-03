@@ -1,40 +1,21 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 
 /**
- * DTO untuk update item SDE Masal.
+ * DTO untuk update item SDE Masal (versi ramping).
+ * Hanya field yang masih ada di tabel sde_masal.
  */
 export class UpdateSdeMasalDto {
   @IsOptional()
   @IsString()
-  perihal?: string;
+  folderId?: string;
 
   @IsOptional()
   @IsString()
-  tertuju?: string;
+  recipientData?: string;
 
   @IsOptional()
   @IsString()
-  alamat?: string;
-
-  @IsOptional()
-  @IsString()
-  kota?: string;
-
-  @IsOptional()
-  @IsString()
-  kodePos?: string;
-
-  @IsOptional()
-  @IsString()
-  jabatanPenerima?: string;
-
-  @IsOptional()
-  @IsString()
-  isiRingkasan?: string;
-
-  @IsOptional()
-  @IsString()
-  jenisTemplate?: string;
+  naskahId?: string;
 
   @IsOptional()
   @IsString()
@@ -42,61 +23,17 @@ export class UpdateSdeMasalDto {
 
   @IsOptional()
   @IsString()
-  idTertuju?: string;
+  errorMessage?: string;
+
+  @IsOptional()
+  @IsArray()
+  verifikators?: any[];
 
   @IsOptional()
   @IsString()
-  idramount?: string;
+  currentVerifikatorUrutan?: number;
 
   @IsOptional()
   @IsString()
-  usdamount?: string;
-
-  @IsOptional()
-  @IsString()
-  namacro?: string;
-
-  @IsOptional()
-  @IsString()
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  tembusan?: string;
-
-  @IsOptional()
-  @IsString()
-  emailTertuju?: string;
-
-  @IsOptional()
-  @IsString()
-  emailCc?: string;
-
-  @IsOptional()
-  @IsString()
-  emailBcc?: string;
-
-  @IsOptional()
-  @IsString()
-  jumlahTagihanIdr?: string;
-
-  @IsOptional()
-  @IsString()
-  jumlahTagihanUsd?: string;
-
-  @IsOptional()
-  @IsString()
-  namaCro?: string;
-
-  @IsOptional()
-  @IsString()
-  emailCro?: string;
-
-  @IsOptional()
-  @IsString()
-  jabatanSigner?: string;
-
-  @IsOptional()
-  @IsString()
-  namaSigner?: string;
+  submittedAt?: Date;
 }

@@ -69,12 +69,8 @@ export class EksternalService {
     return map;
   }
 
-  /**
-   * Generate kode unik 5 huruf acak (A-Z) untuk eksternal.
-   * Loop sampai dapat kode yang belum dipakai (kolom kode unique).
-   */
   private async generateKode(): Promise<string> {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let kode: string;
     let exists: boolean;
 
@@ -86,6 +82,13 @@ export class EksternalService {
     } while (exists);
 
     return kode;
+  }
+
+  /**
+   * Generate kode unik untuk ditampilkan di FE sebelum submit (preview).
+   */
+  async generateKodePreview(): Promise<string> {
+    return this.generateKode();
   }
 
   async create(
@@ -100,6 +103,8 @@ export class EksternalService {
       id: uuidv4(),
       kode,
       ...dtoWithoutKode,
+      // Nama selalu disimpan KAPITAL.
+      nama: dtoWithoutKode.nama?.toUpperCase(),
     });
 
     return await this.eksternalRepository.save(eksternal);
@@ -178,6 +183,8 @@ export class EksternalService {
     const { nama_pembuat, ...eksternal } = eksternalData;
 
     Object.assign(eksternal, updateEksternalDto);
+    // Nama selalu disimpan KAPITAL.
+    if (eksternal.nama) eksternal.nama = eksternal.nama.toUpperCase();
     const updated = await this.eksternalRepository.save(eksternal);
 
     // Add nama_pembuat to response

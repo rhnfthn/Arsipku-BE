@@ -21,8 +21,6 @@ export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   @Get()
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(86_400_000)
   findAll(): Promise<OmCompany[]> {
     return this.companyService.findAll();
   }
