@@ -39,6 +39,15 @@ export class KlasifikasiEntity {
   @Column({ type: 'int', nullable: true, default: 0 })
   retensi_inaktif_tahun: number;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  penyusutan: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  keamanan: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  hak_akses: string;
+
   // Relasi ke parent
   @ManyToOne(() => KlasifikasiEntity, (klasifikasi) => klasifikasi.children, {
     nullable: true,
