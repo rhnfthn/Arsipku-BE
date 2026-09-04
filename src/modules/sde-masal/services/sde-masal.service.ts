@@ -399,7 +399,10 @@ export class SdeMasalService {
         ? Number(pengirim.persnum_person)
         : undefined;
     const senderNama =
-      pengirim?.persnum_person_text || pengirim?.nama || folder.pengirimName || '';
+      pengirim?.persnum_person_text ||
+      pengirim?.nama ||
+      folder.pengirimName ||
+      '';
 
     try {
       await this.sdeService.sendSdeEmail(
@@ -651,8 +654,7 @@ export class SdeMasalService {
       const folderItems = await this.repo.find({ where: { folderId } });
       const isVerifikator = folderItems.some((item) =>
         (item.verifikators || []).some((v: any) => {
-          const samePersnum =
-            persnum && String(v.persnum) === String(persnum);
+          const samePersnum = persnum && String(v.persnum) === String(persnum);
           const samePosition =
             positionId && String(v.position) === String(positionId);
           return samePersnum || samePosition;
@@ -733,7 +735,8 @@ export class SdeMasalService {
           perihal: naskah?.perihal || recipient?.perihal || '-',
           penerima: penerimaNama,
           recipient,
-          emailTertuju: recipient?.emailTertuju || recipient?.email_tertuju || null,
+          emailTertuju:
+            recipient?.emailTertuju || recipient?.email_tertuju || null,
           emailCc: recipient?.emailCc || recipient?.email_cc || null,
           emailBcc: recipient?.emailBcc || recipient?.email_bcc || null,
           status: naskah?.status || row.statusVerifikasi,

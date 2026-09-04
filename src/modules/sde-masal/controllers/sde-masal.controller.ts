@@ -216,7 +216,8 @@ export class SdeMasalController {
    */
   @Get('verification-folders')
   async findVerificationFolders(@CurrentUser() user: any) {
-    const data = await this.sdeMasalService.findVerificationFoldersForUser(user);
+    const data =
+      await this.sdeMasalService.findVerificationFoldersForUser(user);
     return { success: true, data };
   }
 
