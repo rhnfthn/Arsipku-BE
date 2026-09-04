@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, DataSource } from 'typeorm';
+import { createHash } from 'crypto';
 import * as XLSX from 'xlsx';
+import PizZip from 'pizzip';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
@@ -39,6 +41,19 @@ type SdeMasalVerifikator = {
   rejectedAt?: string | null;
   catatan?: string | null;
 };
+
+type SdeMasalAttachmentRef = {
+  fileName: string;
+  key: string;
+  sha256: string;
+  size?: number;
+  url?: string;
+};
+
+const MAX_MASS_ATTACHMENT_ZIP_BYTES = 50 * 1024 * 1024;
+const MAX_MASS_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_MASS_ATTACHMENT_FILES = 200;
+const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
 
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
@@ -272,6 +287,7 @@ export class SdeMasalService {
     }
 
     const recipient = this.parseRecipientData(item);
+    const attachmentRefs = this.getAttachmentRefs(item, recipient);
     const external = await this.resolveRecipientExternal(
       folder,
       item,
@@ -313,6 +329,14 @@ export class SdeMasalService {
       tembusan: internalTembusan,
       sign_option: normalizedSignOption as SignOption,
       passphrase,
+      lampiran:
+        attachmentRefs.length > 0
+          ? attachmentRefs.map((ref) => ref.fileName).join(', ')
+          : undefined,
+      lampiran_direct_refs:
+        attachmentRefs.length > 0
+          ? attachmentRefs.map((ref) => ({ fileName: ref.fileName, key: ref.key }))
+          : undefined,
     };
 
     if (
@@ -515,6 +539,225 @@ export class SdeMasalService {
     return { buffer, mimetype, filename };
   }
 
+  async downloadMassAttachment(
+    itemId: string,
+    attachmentIndex: number,
+    positionId?: string | number,
+    persnum?: string | number,
+  ): Promise<{ buffer: Buffer; mimetype: string; filename: string }> {
+    const item = await this.repo.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
+    if (item.folderId) {
+      await this.findNaskahInFolder(
+        item.folderId,
+        String(positionId || ''),
+        String(persnum || ''),
+      );
+    }
+    const recipient = this.parseRecipientData(item);
+    const attachments = this.getAttachmentRefs(item, recipient);
+    const attachment = attachments[attachmentIndex];
+    if (!attachment?.key) throw new NotFoundException('Lampiran tidak ditemukan');
+    const buffer = await this.storageService.getFile(attachment.key);
+    return {
+      buffer,
+      mimetype: 'application/pdf',
+      filename: attachment.fileName || `lampiran-${attachmentIndex + 1}.pdf`,
+    };
+  }
+
+  /**
+   * Membaca ZIP, memvalidasi seluruh isinya, lalu menyimpan PDF unik dengan
+   * object key berbasis SHA-256. Database belum diubah sampai commit dipanggil.
+   */
+  async prepareMassAttachments(
+    folderId: string,
+    file: Express.Multer.File,
+    requestedFileNames: string[] = [],
+    creatorPosition?: string | number,
+  ): Promise<{
+    files: SdeMasalAttachmentRef[];
+    matched: Record<string, SdeMasalAttachmentRef>;
+    missing: string[];
+    uploadedCount: number;
+    reusedCount: number;
+  }> {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    const isSigner = String(creatorPosition || '') === String(folder.pengirimId || '');
+    const isCreator = String(creatorPosition || '') === String(folder.createdBy || '');
+    if (!isSigner && !isCreator) {
+      throw new ForbiddenException('Anda bukan pembuat atau penandatangan SDE Massal ini');
+    }
+    if (!file?.buffer || file.size > MAX_MASS_ATTACHMENT_ZIP_BYTES) {
+      throw new BadRequestException('Ukuran ZIP lampiran maksimal 50MB');
+    }
+    if (!/\.zip$/i.test(file.originalname || '')) {
+      throw new BadRequestException('File lampiran massal harus berformat ZIP');
+    }
+
+    let zip: PizZip;
+    try {
+      zip = new PizZip(file.buffer);
+    } catch {
+      throw new BadRequestException('ZIP lampiran tidak dapat dibaca');
+    }
+
+    const entries = Object.entries(zip.files).filter(([entryName, entry]: [string, any]) => {
+      const normalizedPath = entryName.replace(/\\/g, '/');
+      const fileName = normalizedPath.split('/').pop() || '';
+      return (
+        !entry.dir &&
+        !normalizedPath.startsWith('__MACOSX/') &&
+        fileName !== '.DS_Store' &&
+        !fileName.startsWith('._')
+      );
+    });
+    if (entries.length === 0) {
+      throw new BadRequestException('ZIP tidak berisi file PDF');
+    }
+    if (entries.length > MAX_MASS_ATTACHMENT_FILES) {
+      throw new BadRequestException(`Maksimal ${MAX_MASS_ATTACHMENT_FILES} PDF per ZIP`);
+    }
+
+    const files: SdeMasalAttachmentRef[] = [];
+    const names = new Set<string>();
+    let totalBytes = 0;
+    let uploadedCount = 0;
+    let reusedCount = 0;
+
+    for (const [entryName, entry] of entries) {
+      const fileName = this.normalizeMassAttachmentName(entryName);
+      if (!fileName || fileName === '.' || fileName === '..' || entryName.includes('..')) {
+        throw new BadRequestException(`Nama file ZIP tidak valid: ${entryName}`);
+      }
+      if (!/\.pdf$/i.test(fileName)) {
+        throw new BadRequestException(`ZIP hanya boleh berisi PDF: ${fileName}`);
+      }
+      const normalizedName = fileName.toLowerCase();
+      if (names.has(normalizedName)) {
+        throw new BadRequestException(`Nama file PDF duplikat: ${fileName}`);
+      }
+      names.add(normalizedName);
+
+      const buffer = entry.asNodeBuffer();
+      if (buffer.length > MAX_MASS_ATTACHMENT_FILE_BYTES) {
+        throw new BadRequestException(`Ukuran PDF maksimal 10MB: ${fileName}`);
+      }
+      totalBytes += buffer.length;
+      if (totalBytes > MAX_MASS_ATTACHMENT_TOTAL_BYTES) {
+        throw new BadRequestException('Total ukuran PDF dalam ZIP terlalu besar');
+      }
+      if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new BadRequestException(`Isi file bukan PDF yang valid: ${fileName}`);
+      }
+
+      const sha256 = createHash('sha256').update(buffer).digest('hex');
+      const key = `sde-masal/attachments/${sha256}.pdf`;
+      const exists = await this.storageService.fileExists(key);
+      if (exists) {
+        reusedCount++;
+      } else {
+        await this.storageService.uploadBufferAtKey(buffer, key, 'application/pdf');
+        uploadedCount++;
+      }
+      files.push({
+        fileName,
+        key,
+        sha256,
+        size: buffer.length,
+        url: await this.storageService.getFileUrl(key),
+      });
+    }
+
+    const matched: Record<string, SdeMasalAttachmentRef> = {};
+    const requested = Array.from(
+      new Set((requestedFileNames || []).map((name) => this.normalizeMassAttachmentName(name)).filter(Boolean)),
+    );
+    for (const requestedName of requested) {
+      const found = files.find((candidate) => candidate.fileName.toLowerCase() === requestedName);
+      if (found) matched[requestedName] = found;
+    }
+
+    return {
+      files,
+      matched,
+      missing: requested.filter((name) => !matched[name]),
+      uploadedCount,
+      reusedCount,
+    };
+  }
+
+  /**
+   * Menulis mapping lampiran ke recipient_data dan field kompatibilitas
+   * sde_masal.lampiran. Operasi ini idempotent sehingga aman dipanggil ulang.
+   */
+  async commitMassAttachments(
+    folderId: string,
+    payloadItems: Array<{ itemId: string; attachments: SdeMasalAttachmentRef[] }>,
+    creatorPosition?: string | number,
+  ): Promise<{ updated: number; files: number }> {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    const isSigner = String(creatorPosition || '') === String(folder.pengirimId || '');
+    const isCreator = String(creatorPosition || '') === String(folder.createdBy || '');
+    if (!isSigner && !isCreator) {
+      throw new ForbiddenException('Anda bukan pembuat atau penandatangan SDE Massal ini');
+    }
+    if (!Array.isArray(payloadItems) || payloadItems.length > 1000) {
+      throw new BadRequestException('Mapping lampiran tidak valid');
+    }
+
+    const ids = payloadItems.map((item) => item?.itemId).filter(Boolean);
+    const dbItems = ids.length
+      ? await this.repo.find({ where: { id: In(ids), folderId } })
+      : [];
+    const byId = new Map(dbItems.map((item) => [item.id, item]));
+    if (dbItems.length !== new Set(ids).size) {
+      throw new BadRequestException('Sebagian item lampiran tidak ditemukan dalam folder');
+    }
+
+    let files = 0;
+    for (const payload of payloadItems) {
+      const item = byId.get(payload.itemId);
+      if (!item || !Array.isArray(payload.attachments)) {
+        throw new BadRequestException('Mapping lampiran tidak valid');
+      }
+      if (payload.attachments.length > MAX_MASS_ATTACHMENT_FILES) {
+        throw new BadRequestException('Jumlah lampiran per mapping terlalu banyak');
+      }
+
+      const attachments = payload.attachments.map((attachment) => {
+        const fileName = this.normalizeMassAttachmentName(attachment.fileName);
+        const sha256 = String(attachment.sha256 || '').toLowerCase();
+        const key = String(attachment.key || '');
+        if (!/^[a-f0-9]{64}$/.test(sha256) || key !== `sde-masal/attachments/${sha256}.pdf` || !/\.pdf$/i.test(fileName)) {
+          throw new BadRequestException(`Referensi lampiran tidak valid: ${attachment.fileName || key}`);
+        }
+        return {
+          fileName,
+          key,
+          sha256,
+          ...(Number.isFinite(attachment.size) ? { size: attachment.size } : {}),
+        };
+      });
+
+      for (const attachment of attachments) {
+        if (!(await this.storageService.fileExists(attachment.key))) {
+          throw new BadRequestException(`File lampiran tidak ditemukan: ${attachment.fileName}`);
+        }
+      }
+      const recipient = this.parseRecipientData(item);
+      recipient.lampiran = attachments;
+      item.recipientData = JSON.stringify(recipient);
+      item.lampiran = JSON.stringify(attachments);
+      files += attachments.length;
+      await this.repo.save(item);
+    }
+
+    return { updated: payloadItems.length, files };
+  }
+
   async finalizeDirect(
     folderId: string,
     penerimaList: any[],
@@ -576,7 +819,52 @@ export class SdeMasalService {
     }
 
     await this.refreshFolderCounters(folderId);
+    if (failed === 0 && success > 0) {
+      folder.status = 'DIFINALISASI';
+      folder.rejectionReason = null;
+      await this.folderRepo.save(folder);
+    }
     return { total: penerimaList.length, success, failed };
+  }
+
+  async sendFolderToSigner(folderId: string, creatorPosition?: string | number) {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (String(folder.createdBy || '') !== String(creatorPosition || '')) {
+      throw new ForbiddenException('Hanya konseptor yang dapat mengirim SDE Massal');
+    }
+    if (!folder.pengirimId) {
+      throw new BadRequestException('Pengirim SDE Massal belum dipilih');
+    }
+    if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
+      if (folder.status === 'MENUNGGU_PENGIRIM') return folder;
+      throw new BadRequestException('Folder tidak dapat dikirim pada status saat ini');
+    }
+    const items = await this.repo.find({ where: { folderId } });
+    if (items.length === 0) throw new BadRequestException('Data penerima belum dibuat');
+    folder.status = 'MENUNGGU_PENGIRIM';
+    folder.rejectionReason = null;
+    return this.folderRepo.save(folder);
+  }
+
+  async rejectFolder(
+    folderId: string,
+    signerPosition?: string | number,
+    reason?: string,
+  ) {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (String(folder.pengirimId || '') !== String(signerPosition || '')) {
+      throw new ForbiddenException('Hanya pengirim yang dapat menolak SDE Massal');
+    }
+    if (folder.status !== 'MENUNGGU_PENGIRIM') {
+      throw new BadRequestException('Folder tidak sedang menunggu pengirim');
+    }
+    const cleanReason = String(reason || '').trim();
+    if (!cleanReason) throw new BadRequestException('Alasan penolakan wajib diisi');
+    folder.status = 'DIKEMBALIKAN';
+    folder.rejectionReason = cleanReason;
+    return this.folderRepo.save(folder);
   }
 
   // ============================================================
@@ -611,7 +899,15 @@ export class SdeMasalService {
     // dibuat user (created_by), ATAU folder dimana user adalah
     // penerima/tembusan di salah satu naskah.
     if (positionId) {
-      qb.andWhere(
+      if (filter?.createdByOnly) {
+        qb.andWhere('folder.created_by = :positionId', { positionId });
+      } else if (filter?.inboxOnly) {
+        qb.andWhere(
+          `folder.pengirim_id = :positionId AND folder.created_by IS NOT NULL AND folder.created_by <> :positionId`,
+          { positionId },
+        );
+      } else {
+        qb.andWhere(
         `(folder.pengirim_id = :positionId OR folder.created_by = :positionId OR EXISTS (
           SELECT 1 FROM sde_masal sm
           INNER JOIN naskah_sirkulasi ns ON ns.id_naskah = sm.naskah_id
@@ -621,13 +917,33 @@ export class SdeMasalService {
           AND ns.is_draft = 0
         ))`,
         { positionId },
-      );
+        );
+      }
     }
     const [data, total] = await qb
       .orderBy('folder.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
+    // Resolve pembuat folder untuk tampilan inbox/terkirim. Pengirim folder
+    // tetap disimpan sebagai penandatangan; baris inbox menampilkan konseptor.
+    try {
+      const org = await this.orgDataService.findLatestOrg();
+      const rawPositions = org?.position_json;
+      const parsedPositions = typeof rawPositions === 'string'
+        ? JSON.parse(rawPositions)
+        : rawPositions;
+      const positions = Array.isArray(parsedPositions) ? parsedPositions : [];
+      for (const folder of data) {
+        const creator = positions.find(
+          (position: any) => String(position.position) === String(folder.createdBy || ''),
+        );
+        (folder as any).createdByName = creator?.persnum_person_text || creator?.persnum_person || null;
+        (folder as any).createdByPositionText = creator?.position_text || null;
+      }
+    } catch {
+      // Metadata konseptor bersifat pelengkap; folder tetap dikembalikan.
+    }
     return {
       data,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -642,6 +958,22 @@ export class SdeMasalService {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    try {
+      const org = await this.orgDataService.findLatestOrg();
+      const rawPositions = org?.position_json;
+      const parsedPositions = typeof rawPositions === 'string'
+        ? JSON.parse(rawPositions)
+        : rawPositions;
+      const positions = Array.isArray(parsedPositions) ? parsedPositions : [];
+      const creator = positions.find(
+        (position: any) => String(position.position) === String(folder.createdBy || ''),
+      );
+      (folder as any).createdByName = creator?.persnum_person_text || creator?.persnum_person || null;
+      (folder as any).createdByPositionText = creator?.position_text || null;
+    } catch {
+      // Metadata konseptor bersifat pelengkap.
+    }
 
     // Scope per-akun: pengirim folder, pembuat folder, verifikator, atau
     // penerima/tembusan.
@@ -1142,6 +1474,16 @@ export class SdeMasalService {
     const finalPdfUrl = naskah.final_pdf
       ? await this.storageService.getFileUrl(naskah.final_pdf)
       : null;
+    const attachmentRefs = sdeMasalItem
+      ? this.getAttachmentRefs(sdeMasalItem, this.parseRecipientData(sdeMasalItem))
+      : [];
+    const lampiranFiles = await Promise.all(
+      attachmentRefs.map(async (attachment) => ({
+        file_name: attachment.fileName,
+        file_pdf: attachment.key,
+        url: await this.storageService.getFileUrl(attachment.key),
+      })),
+    );
 
     return {
       id: naskah.id,
@@ -1157,6 +1499,7 @@ export class SdeMasalService {
       english: naskah.english,
       final_pdf: naskah.final_pdf,
       finalPdfUrl,
+      lampiran_files: lampiranFiles,
       // Label jenis TTD: TTE BSrE (digsig), QR Code (qr_only), TTD Basah
       label_ttd: this.getLabelTtd(naskah.signOption),
       signOption: naskah.signOption,
@@ -1701,6 +2044,40 @@ export class SdeMasalService {
     } catch {
       return {};
     }
+  }
+
+  private normalizeMassAttachmentName(value: unknown): string {
+    const raw = String(value ?? '').replace(/\\/g, '/').trim();
+    return raw.split('/').pop()?.trim() || '';
+  }
+
+  private getAttachmentRefs(
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+  ): SdeMasalAttachmentRef[] {
+    const value = recipient.lampiran;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // String biasa adalah nama dari Excel, bukan object key storage.
+      }
+    }
+
+    // Kompatibilitas upload per-item lama: key disimpan langsung di
+    // sde_masal.lampiran, tanpa mengubah format data penerima.
+    if (item.lampiran && /^sde-masal\/lampiran\//i.test(item.lampiran)) {
+      return [
+        {
+          fileName: item.lampiran.split('/').pop() || 'lampiran.pdf',
+          key: item.lampiran,
+          sha256: '',
+        },
+      ];
+    }
+    return [];
   }
 
   private renderFolderKonten(

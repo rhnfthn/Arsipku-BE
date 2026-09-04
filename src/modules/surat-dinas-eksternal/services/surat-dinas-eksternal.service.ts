@@ -351,6 +351,7 @@ export class SuratDinasEksternalService {
     headerInfo?: { kantor: string; gedung: string; alamat: string },
     english: boolean = false,
     atasNama: string = '',
+    lampiranDirectRefs: Array<{ fileName: string; key: string }> = [],
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -365,6 +366,21 @@ export class SuratDinasEksternalService {
           lampiranText = english
             ? `${count} Attachment${count > 1 ? 's' : ''}`
             : `${count} Lampiran`;
+        }
+      }
+
+      if (lampiranDirectRefs && lampiranDirectRefs.length > 0) {
+        lampiranFiles = [
+          ...lampiranFiles,
+          ...lampiranDirectRefs.map((ref) => ({
+            fileName: ref.fileName,
+            filePath: ref.key,
+          })),
+        ];
+        if (lampiranFiles.length > 0) {
+          lampiranText = english
+            ? `${lampiranFiles.length} Attachment${lampiranFiles.length > 1 ? 's' : ''}`
+            : `${lampiranFiles.length} Lampiran`;
         }
       }
 
@@ -2003,6 +2019,24 @@ export class SuratDinasEksternalService {
         );
       }
 
+      // Referensi PDF content-addressed dari SDE Masal.
+      if (dto.lampiran_direct_refs && dto.lampiran_direct_refs.length > 0) {
+        for (const ref of dto.lampiran_direct_refs) {
+          const fileName = ref.fileName.trim();
+          const lampiran = this.naskahLampiranRepository.create({
+            id: uuidv4(),
+            id_naskah: naskahId,
+            tanggal: naskah.tanggal,
+            file_name: fileName,
+            file_pdf: ref.key,
+            jenis: 'SDE',
+            is_temporary: 0,
+          });
+          await queryRunner.manager.save(lampiran);
+          lampiranFileNames.push(fileName);
+        }
+      }
+
       // PHASE 9: (REMOVED) - SdiSdeEntity tidak lagi digunakan
       // Data sudah tersimpan di naskah dan naskah_sirkulasi
       const kepadaYthList = penerimaList.map((p) => p.nama);
@@ -2102,7 +2136,10 @@ export class SuratDinasEksternalService {
           penerima: kepadaYthList,
           tembusan: tembusanTextList,
           perihal: dto.perihal,
-          lampiran: dto.lampiran || undefined,
+          lampiran:
+            lampiranFileNames.length > 0
+              ? lampiranFileNames.join(', ')
+              : dto.lampiran || undefined,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
@@ -2124,10 +2161,19 @@ export class SuratDinasEksternalService {
         console.log(`[SDE] PDF generated successfully`);
 
         // Merge with lampiran if any
-        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-          const lampiranFiles = await this.getTemporaryLampiranFiles(
-            dto.lampiran_temp_ids,
-          );
+        if (
+          (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) ||
+          (dto.lampiran_direct_refs && dto.lampiran_direct_refs.length > 0)
+        ) {
+          const lampiranFiles = [
+            ...(dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0
+              ? await this.getTemporaryLampiranFiles(dto.lampiran_temp_ids)
+              : []),
+            ...(dto.lampiran_direct_refs || []).map((ref) => ({
+              fileName: ref.fileName,
+              filePath: ref.key,
+            })),
+          ];
           if (lampiranFiles && lampiranFiles.length > 0) {
             console.log(
               `[SDE] Merging ${lampiranFiles.length} lampiran file(s) to PDF`,
