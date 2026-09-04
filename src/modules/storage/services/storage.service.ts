@@ -143,8 +143,8 @@ export class StorageService implements OnModuleInit {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         ['.docx'],
       'application/msword': ['.doc'],
-      'application/zip': ['.docx', '.doc'],
-      'application/x-zip-compressed': ['.docx', '.doc'],
+      'application/zip': ['.zip', '.docx', '.doc'],
+      'application/x-zip-compressed': ['.zip', '.docx', '.doc'],
       'application/octet-stream': ['.docx', '.doc', '.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
@@ -154,7 +154,7 @@ export class StorageService implements OnModuleInit {
 
     const ext = path.extname(file.originalname).toLowerCase();
     const allowedExts = allowedMimeTypes[file.mimetype];
-    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp', '.zip'];
 
     if ((!allowedExts || !allowedExts.includes(ext)) && !validDocExtensions.includes(ext)) {
       throw new Error(`File tidak valid. MIME: ${file.mimetype}, Ext: ${ext}`);
@@ -195,8 +195,8 @@ export class StorageService implements OnModuleInit {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc'],
-      'application/zip': ['.docx', '.doc'],
-      'application/x-zip-compressed': ['.docx', '.doc'],
+      'application/zip': ['.zip', '.docx', '.doc'],
+      'application/x-zip-compressed': ['.zip', '.docx', '.doc'],
       'application/octet-stream': ['.docx', '.doc', '.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
@@ -206,7 +206,7 @@ export class StorageService implements OnModuleInit {
 
     const ext = path.extname(file.originalname).toLowerCase();
     const allowedExts = allowedMimeTypes[file.mimetype];
-    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp', '.zip'];
 
     if ((!allowedExts || !allowedExts.includes(ext)) && !validDocExtensions.includes(ext)) {
       throw new Error(`File tidak valid. MIME: ${file.mimetype}, Ext: ${ext}`);

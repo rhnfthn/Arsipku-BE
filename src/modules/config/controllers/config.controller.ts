@@ -1,7 +1,11 @@
 import { Controller, Get, Param, UseGuards, UseInterceptors } from '@nestjs/common';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
-import { ConfigDigsigService, ConfigMessageService } from '../services';
-import { ConfigDigsig, ConfigMessage, JenisNaskah } from '../entities';
+import {
+  ConfigDigsigService,
+  ConfigMessageService,
+  ConfigNaskahLainnyaService,
+} from '../services';
+import { ConfigDigsig, ConfigMessage, ConfigNaskahLainnya, JenisNaskah } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
 import { Public, RequirePermission } from '../../../common/decorators';
 
@@ -14,6 +18,7 @@ export class ConfigController {
   constructor(
     private readonly configDigsigService: ConfigDigsigService,
     private readonly configMessageService: ConfigMessageService,
+    private readonly configNaskahLainnyaService: ConfigNaskahLainnyaService,
   ) {}
 
   /**
@@ -55,5 +60,20 @@ export class ConfigController {
     @Param('jenis') jenis: JenisNaskah,
   ): Promise<ConfigDigsig> {
     return this.configDigsigService.findByJenis(jenis);
+  }
+
+  /**
+   * GET /config/naskah-lainnya/:jenis
+   * Default (Legal Drafting Ya/Tidak + klasifikasi) untuk form tulis naskah
+   * lainnya. Cukup auth login — bukan data sensitif; dipakai pemrakarsa biasa.
+   */
+  @Get('naskah-lainnya/:jenis')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(300_000)
+  @UseGuards(JwtAuthGuard)
+  async getNaskahLainnyaConfig(
+    @Param('jenis') jenis: string,
+  ): Promise<ConfigNaskahLainnya> {
+    return this.configNaskahLainnyaService.findByJenis(jenis.toUpperCase());
   }
 }

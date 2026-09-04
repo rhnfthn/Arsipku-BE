@@ -248,7 +248,31 @@ export class OrgDataController {
   async getBod(@Req() req) {
     const company = req.user?.company;
     const latestOrg = await this.orgBuildService.findLatestOrg();
-    return { data: this.orgBuildService.findBodByCompany(latestOrg ? [latestOrg] : [], company) };
+    return {
+      data: this.orgBuildService.findBodByCompany(
+        latestOrg ? [latestOrg] : [],
+        company,
+      ),
+    };
+  }
+
+  /**
+   * GET /org-data/bod-bod1
+   * Semua BOD & BOD-1 lintas direktorat — opsi pengganti penandatanga
+   * direksi di form blanko verbal / lembar persetujuan direksi
+   * (naskah-lainnya). Jabatan pengganti tetap jabatan BOD direksi.
+   */
+  @Get('bod-bod1')
+  @UseGuards(AuthGuard('jwt'))
+  async getBodBod1() {
+    const latestOrg = await this.orgBuildService.findLatestOrg();
+    return {
+      data: this.orgBuildService.findBodByCompany(
+        latestOrg ? [latestOrg] : [],
+        undefined,
+        ['BOD', 'BOD-1'],
+      ),
+    };
   }
 
   /**
@@ -280,6 +304,18 @@ export class OrgDataController {
     @Query() query: OrgFilterQueryDto,
   ) {
     return this.orgBuildService.getAtasanManagerial(
+      Number(positionId),
+      query.tgl,
+    );
+  }
+
+  @Get('managerial-satu-unit/:positionId')
+  @UseGuards(AuthGuard('jwt'))
+  async getManagerialSameUnit(
+    @Param('positionId') positionId: string,
+    @Query() query: OrgFilterQueryDto,
+  ) {
+    return this.orgBuildService.getManagerialSameUnit(
       Number(positionId),
       query.tgl,
     );

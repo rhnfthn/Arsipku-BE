@@ -11,6 +11,8 @@ export type Tahapan =
   | 'persetujuan'
   | 'legal_drafting'
   | 'evaluasi'
+  | 'persetujuan_lanjutan'
+  | 'evaluasi_final'
   | 'persetujuan_direksi'
   | 'blanko_verbal'
   | 'tanda_tangan'
@@ -33,9 +35,16 @@ export type JenisAksi =
   | 'kembalikan-legal'
   | 'evaluasi'
   | 'kembalikan-evaluasi'
+  | 'lanjut-persetujuan'
+  | 'legal-drafting-ulang'
+  | 'batalkan-evaluasi'
+  | 'teruskan-persetujuan'
+  | 'selesai-persetujuan'
   | 'kirim-approval-blanko'
+  | 'buka-blanko-verbal'
   | 'kirim-blanko'
   | 'tanda-tangan'
+  | 'tolak-tanda-tangan'
   | 'kirim-lembar-persetujuan-direksi'
   | 'complete'
   | 'paraf';
@@ -83,12 +92,23 @@ export class WorkflowService {
       { label: 'Persetujuan', key: 'persetujuan' },
       { label: 'Legal Drafting', key: 'legal_drafting' },
       { label: 'Evaluasi', key: 'evaluasi' },
-      { label: 'Persetujuan Direksi', key: 'persetujuan_direksi' },
-      { label: 'Blanko Verbal', key: 'blanko_verbal' },
+      { label: 'Persetujuan Lanjutan', key: 'persetujuan_lanjutan' },
+      { label: 'Evaluasi Final EVP', key: 'evaluasi_final' },
+      {
+        // Tahap ini bercabang: user memilih template Blanko Verbal atau
+        // Lembar Persetujuan Direksi.
+        label: 'Blanko Verbal / Persetujuan Direksi',
+        key: 'blanko_verbal',
+      },
     ];
-    // TTD manual/fisik hanya memakai approval pemrakarsa/verifikator.
-    // Tidak ada proses legal maupun tanda tangan per pejabat di aplikasi.
-    const signingStepCount = signOption === 'ttd_basah' ? 0 : N;
+    // TTD manual/fisik tetap melewati persetujuan draft oleh setiap penandatangan.
+    // Yang dilewati hanya proses injeksi tanda tangan digitalnya.
+    // Pada alur legal, pihak Ditetapkan/Disahkan menandatangani blanko sekaligus
+    // naskah final. Step tanda tangan terpisah hanya dipakai alur non-legal.
+    const signingStepCount =
+      butuhLegal && signOption !== 'ttd_basah' && tahapan !== 'tanda_tangan'
+        ? 0
+        : N;
     const signingSteps = Array.from({ length: signingStepCount }, (_, i) => ({
       label: `Tanda Tangan Penandatangan ${i + 1}`,
       key: `tanda_tangan_${i + 1}`,
@@ -100,9 +120,11 @@ export class WorkflowService {
     const activeKey =
       tahapan === 'selesai'
         ? 'selesai'
-        : tahapan === 'tanda_tangan'
-          ? `tanda_tangan_${signingIndex ?? 1}`
-          : tahapan;
+        : tahapan === 'persetujuan_direksi'
+          ? 'blanko_verbal'
+          : tahapan === 'tanda_tangan'
+            ? `tanda_tangan_${signingIndex ?? 1}`
+            : tahapan;
     // Recovery states (perlu_perbaikan/ditolak/dibatalkan) tidak ada di daftar step;
     // clamp ke 0 (konsep active) supaya tidak semua step render 'todo'.
     const activeIdx = Math.max(
@@ -119,7 +141,8 @@ export class WorkflowService {
       [
         'legal_drafting',
         'evaluasi',
-        'persetujuan_direksi',
+        'persetujuan_lanjutan',
+        'evaluasi_final',
         'blanko_verbal',
       ].includes(key);
 
@@ -178,17 +201,13 @@ export class WorkflowService {
         return ['kirim-approval-legal', 'kembalikan-legal'];
       }
       case 'evaluasi': {
-        // butuhLegal: setelah approval legal selesai, pemrakarsa mengevaluasi hasil
-        // legal drafting. Jika sesuai → lanjut persetujuan_direksi; jika belum sesuai
-        // → kembalikan ke legal drafting. Legal tetap punya aksi menyusun lembar
-        // persetujuan direksi saat tahap ini memang sudah menjadi tanggung jawab legal.
-        if (butuhLegal) {
-          return legal
-            ? ['kirim-lembar-persetujuan-direksi']
-            : ['evaluasi', 'kembalikan-evaluasi'];
-        }
-        return ['evaluasi'];
+        // Aksi evaluasi baru diberikan secara eksplisit oleh service kepada
+        // pemrakarsa/EVP aktif. Unit legal tidak lagi membuat lembar terpisah.
+        return [];
       }
+      case 'persetujuan_lanjutan':
+      case 'evaluasi_final':
+        return [];
       case 'persetujuan_direksi': {
         // Legal belum kirim lembar (belum ada baris BOD) → susun + kirim lembar
         // (recovery untuk naskah yang sudah masuk PD tanpa lembar, atau alur normal
@@ -199,14 +218,18 @@ export class WorkflowService {
         return ['paraf', 'tolak'];
       }
       case 'tanda_tangan':
-        return signOption === 'ttd_basah' ? [] : ['tanda-tangan'];
+        return ['tanda-tangan', 'tolak-tanda-tangan'];
       case 'tanda_tangan_pemrakarsa':
         return ['tanda-tangan'];
       case 'blanko_verbal':
         // Legal hanya mengirim blanko sekali, sebelum baris approval direksi
         // dibuat. Setelah ada baris, penyelesaian seluruh paraf harus maju
-        // otomatis melalui applyApproval(), bukan menunggu klik legal lagi.
-        return legal && !hasDireksiRows ? ['kirim-approval-blanko'] : [];
+        // otomatis melalui applyApproval(). Unit Legal tetap dapat membuka
+        // halaman blanko untuk memantau progres setelah approval dikirim.
+        if (!legal) return [];
+        return hasDireksiRows
+          ? ['buka-blanko-verbal']
+          : ['kirim-approval-blanko'];
       case 'tanda_tangan_legal':
         return legal ? ['tanda-tangan'] : [];
       case 'tanda_tangan_pejabat':
@@ -235,8 +258,7 @@ export class WorkflowService {
     // Digital:
     // - !butuhLegal: persetujuan selesai → langsung tanda tangan.
     // - butuhLegal: persetujuan selesai → legal drafting.
-    // Fisik/manual:
-    // - cukup approval pemrakarsa/verifikator, lalu selesai untuk upload final.
+    // Fisik/manual tetap masuk persetujuan draft oleh penandatangan.
     if (current === 'persetujuan') {
       return butuhLegal && signOption !== 'ttd_basah'
         ? 'legal_drafting'
@@ -248,16 +270,15 @@ export class WorkflowService {
   }
 
   /**
-   * Target fase signing:
-   * - Fisik/manual tidak punya signing task di aplikasi; workflow langsung selesai
-   *   dan pemrakarsa mengunggah dokumen final dari halaman detail.
-   * - Digital tetap masuk signing berjenjang bila ada penandatangan.
+   * Target fase penandatangan: digital maupun fisik masuk task berjenjang bila
+   * memiliki penandatangan. Untuk fisik, task ini berarti approval Naskah Draft;
+   * dokumen yang sudah ditandatangani basah tetap diunggah pemrakarsa sesudahnya.
    */
   signingTarget(
     N: number,
     signOption: NaskahEntity['signOption'] = null,
   ): Tahapan {
-    return signOption === 'ttd_basah' || N === 0 ? 'selesai' : 'tanda_tangan';
+    return N === 0 ? 'selesai' : 'tanda_tangan';
   }
 
   /** Jumlah penandatangan efektif: pakai penandatanganChain bila ada, fallback ke
@@ -289,7 +310,11 @@ export class WorkflowService {
     rows: NaskahLainnyaApprovalEntity[],
     approvalId: string,
     aksi: 'setuju' | 'tolak' | 'kembalikan',
-    ctx: { catatan?: string } & AktorCtx,
+    ctx: {
+      catatan?: string;
+      /** Alur template gabungan LPD selesai seperti Blanko Verbal, bukan lanjut ke Blanko legacy. */
+      completionTransitionFrom?: Tahapan;
+    } & AktorCtx,
   ): Promise<Tahapan> {
     const row = rows.find((r) => r.id === approvalId);
     if (!row) throw new BadRequestException('Baris approval tidak ditemukan');
@@ -325,7 +350,7 @@ export class WorkflowService {
 
       if (aksi === 'tolak') {
         for (const r of logicalTahapRows) {
-          if (r.status === 'waiting') {
+          if (r.status === 'waiting' || r.status === 'pending') {
             r.status = 'rejected';
             await ctx.manager.save(r);
           }
@@ -350,12 +375,39 @@ export class WorkflowService {
         return next;
       }
 
+      // Kedua pilihan template pada step Blanko Verbal berjalan berurutan per
+      // kelompok: seluruh Diketahui Oleh selesai lebih dulu, baru kelompok
+      // Ditetapkan/Disahkan diaktifkan.
+      if (
+        (logicalTahap === 'blanko_verbal' ||
+          logicalTahap === 'persetujuan_direksi') &&
+        row.tahap === logicalTahap
+      ) {
+        const diketahuiRows = logicalTahapRows.filter(
+          (r) => r.tahap === logicalTahap,
+        );
+        const allDiketahuiVerified = diketahuiRows.every(
+          (r) => r.status === 'verified',
+        );
+        if (allDiketahuiVerified) {
+          for (const r of logicalTahapRows) {
+            if (
+              r.tahap === `${logicalTahap}_ditetapkan` &&
+              r.status === 'pending'
+            ) {
+              r.status = 'waiting';
+              await ctx.manager.save(r);
+            }
+          }
+        }
+      }
+
       const allVerified = logicalTahapRows.every(
         (r) => r.status === 'verified',
       );
       if (allVerified) {
         const next = this.resolveNext(
-          t,
+          ctx.completionTransitionFrom ?? t,
           'complete',
           naskah.butuhLegal,
           signingIndex,
@@ -408,7 +460,12 @@ export class WorkflowService {
     row.tanggal = new Date();
     await ctx.manager.save(row);
 
-    const allVerified = rows.every((r) => r.status === 'verified');
+    // Kelengkapan diverifikasi hanya atas baris tahap aktif. Baris tahap lain
+    // (mis. evaluasi/legal yang rejected saat daur ulang) tidak boleh
+    // menghalangi persetujuan tahap yang sedang berjalan.
+    const allVerified = rows
+      .filter((r) => r.tahap === row.tahap)
+      .every((r) => r.status === 'verified');
     if (aksi === 'setuju' && allVerified) {
       const next = this.nextAfterApprovalSetuju(
         naskah.tahapan as Tahapan,
@@ -540,6 +597,10 @@ export class WorkflowService {
       tahapan: next,
       signingIndex: next === 'selesai' ? null : idx + 1,
     };
+    if (next === 'selesai' && naskah.signOption === 'ttd_basah') {
+      patch.status = 'pending';
+      naskah.status = 'pending';
+    }
     naskah.tahapan = next;
     naskah.signingIndex = patch.signingIndex as number | null;
     await ctx.manager.update(
@@ -580,7 +641,7 @@ export class WorkflowService {
     // (atau selesai untuk fisik/tanpa penandatangan). Tanpa ini resolveNext jatuh
     // ke default → kembali 'blanko_verbal' (stuck, harus klik manual oleh legal).
     if (t === 'blanko_verbal' && aksi === 'complete') {
-      return this.signingTarget(N, signOption);
+      return butuhLegal ? 'selesai' : this.signingTarget(N, signOption);
     }
     if (t === 'persetujuan_direksi' && aksi === 'tolak') {
       return 'legal_drafting';
@@ -601,6 +662,11 @@ export class WorkflowService {
         return t;
       case 'kirim-blanko':
         return t === 'blanko_verbal' ? t : this.signingTarget(N, signOption);
+      case 'kirim-lembar-persetujuan-direksi':
+        // Pada step gabungan, pilihan template Lembar Persetujuan Direksi
+        // mengubah state teknis agar endpoint paraf/tolak LPD yang ada dapat
+        // digunakan. Secara stepper keduanya tetap tampil sebagai satu tahap.
+        return t === 'blanko_verbal' ? 'persetujuan_direksi' : t;
       case 'kirim-approval-blanko':
         return t === 'blanko_verbal' ? this.signingTarget(N, signOption) : t;
       case 'tanda-tangan':

@@ -4,3 +4,4 @@ export {
   ConfigSearch,
   SearchEngineMode,
 } from './config-search.entity';
+export { ConfigNaskahLainnya } from './config-naskah-lainnya.entity';

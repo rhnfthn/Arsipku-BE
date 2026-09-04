@@ -41,6 +41,7 @@ import { NotificationType } from '../../notification/entities';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 
 import {
   CreateKonsepDto,
@@ -267,6 +268,9 @@ export class KonsepService {
       // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
       // ==========================================
       const naskahKonsepId = uuidv4();
+      const naskahAsliId = uuidv4();
+      const jumlahLampiranAwal =
+        dto.lampiran_temp_ids?.length || dto.lampiran?.length || 0;
       // Perihal = catatan langsung (tanpa format)
       const perihalKonsep = dto.catatan || '';
 
@@ -278,7 +282,7 @@ export class KonsepService {
         perihal: perihalKonsep,
         sifat: 'biasa',
         status: 'final',
-        id_naskah_asli: null, // Will be set after creating actual naskah
+        id_naskah_asli: naskahAsliId,
         id_naskah_parent: null, // No parent for first create
       });
       await queryRunner.manager.save(naskahKonsep);
@@ -286,7 +290,6 @@ export class KonsepService {
       // ==========================================
       // 2. CREATE NASKAH ASLI (jenis='ND/SDI/SDE')
       // ==========================================
-      const naskahAsliId = uuidv4();
       const naskahAsli = this.naskahRepository.create({
         id: naskahAsliId,
         jenis: dto.jenis,
@@ -295,9 +298,8 @@ export class KonsepService {
         sifat: dto.sifat || 'biasa',
         nomor: '-', // Konsep tidak perlu nomor, will be replaced on finalize
         tanggal: dto.tgl ? new Date(dto.tgl) : tanggalHariIni,
-        lampiran: dto.lampiran?.length
-          ? `${dto.lampiran.length} file`
-          : undefined,
+        lampiran:
+          jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined,
         perihal: dto.perihal,
         konten: dto.konten,
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
@@ -310,6 +312,7 @@ export class KonsepService {
         atasNamaPositionId: dto.atas_nama_position_id
           ? String(dto.atas_nama_position_id)
           : null,
+        tandaTangan: dto.tanda_tangan || null,
       });
       await queryRunner.manager.save(naskahAsli);
 
@@ -377,10 +380,6 @@ export class KonsepService {
           dto.from_position_id,
         );
       }
-
-      // Update naskah konsep with link to naskah asli
-      naskahKonsep.id_naskah_asli = naskahAsliId;
-      await queryRunner.manager.save(naskahKonsep);
 
       // ==========================================
       // 3. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
@@ -558,7 +557,6 @@ export class KonsepService {
       // Hanya tandaTangan yang perlu disimpan di tabel naskah.
       if (dto.tanda_tangan) {
         naskahAsli.tandaTangan = dto.tanda_tangan;
-        await queryRunner.manager.save(naskahAsli);
       }
 
       // ==========================================
@@ -592,7 +590,6 @@ export class KonsepService {
       // Update naskah dengan info lampiran
       if (jumlahLampiran > 0) {
         naskahAsli.lampiran = `${jumlahLampiran} file`;
-        await queryRunner.manager.save(naskahAsli);
       }
 
       // ==========================================
@@ -1894,7 +1891,18 @@ export class KonsepService {
         if (dto.klasifikasi_text)
           naskahAsli.klasifikasi_text = dto.klasifikasi_text;
         if (dto.sifat) naskahAsli.sifat = dto.sifat;
-        await queryRunner.manager.save(naskahAsli);
+        await updatePartitionedNaskah(
+          queryRunner.manager,
+          NaskahEntity,
+          naskahAsli,
+          {
+            perihal: naskahAsli.perihal,
+            konten: naskahAsli.konten,
+            klasifikasi: naskahAsli.klasifikasi,
+            klasifikasi_text: naskahAsli.klasifikasi_text,
+            sifat: naskahAsli.sifat,
+          },
+        );
 
         // Handle new lampiran if provided
         if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
@@ -2194,6 +2202,11 @@ export class KonsepService {
         );
       }
 
+      const naskahAsliPartitionKey = {
+        id: naskahAsli.id,
+        tanggal: naskahAsli.tanggal,
+      };
+
       // 4. Get pengirim naskah asli (untuk generate nomor)
       const pengirimSirkulasi = await queryRunner.manager.findOne(
         NaskahSirkulasi,
@@ -2492,8 +2505,25 @@ export class KonsepService {
         naskahAsli.final_pdf = pdfSnapshotUrl;
       }
 
-      // *** SAVE NASKAH ASLI - Satu kali save untuk semua perubahan (nomor, status, tanggal, lampiran, final_pdf) ***
-      await queryRunner.manager.save(naskahAsli);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        naskahAsliPartitionKey,
+        {
+          nomor: naskahAsli.nomor,
+          status: naskahAsli.status,
+          signOption: naskahAsli.signOption,
+          tandaTangan: naskahAsli.tandaTangan,
+          tanggal: naskahAsli.tanggal,
+          perihal: naskahAsli.perihal,
+          konten: naskahAsli.konten,
+          klasifikasi: naskahAsli.klasifikasi,
+          klasifikasi_text: naskahAsli.klasifikasi_text,
+          sifat: naskahAsli.sifat,
+          lampiran: naskahAsli.lampiran,
+          final_pdf: naskahAsli.final_pdf,
+        },
+      );
 
       // Save riwayat with NEW naskah K id (finalize K)
       await this.saveRiwayat(
@@ -4791,6 +4821,8 @@ export class KonsepService {
     try {
       const tanggalHariIni = new Date();
       const naskahDraftId = uuidv4();
+      const jumlahLampiranAwal =
+        dto.lampiran_temp_ids?.length || dto.lampiran?.length || 0;
 
       // Create naskah draft (status='draf')
       const naskahDraft = this.naskahRepository.create({
@@ -4806,6 +4838,9 @@ export class KonsepService {
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
         status: 'draf', // Status draft
         createdByPosition: String(dto.from_position_id),
+        tandaTangan: dto.tanda_tangan || null,
+        lampiran:
+          jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined,
       });
 
       // Simpan catatan konsep jika ada (gunakan field yang tersedia atau di lampiran metadata)
@@ -4912,7 +4947,6 @@ export class KonsepService {
       // Handle tanda tangan
       if (dto.tanda_tangan) {
         naskahDraft.tandaTangan = dto.tanda_tangan;
-        await queryRunner.manager.save(naskahDraft);
       }
 
       // Handle lampiran
@@ -4943,7 +4977,6 @@ export class KonsepService {
 
       if (jumlahLampiran > 0) {
         naskahDraft.lampiran = `${jumlahLampiran} file`;
-        await queryRunner.manager.save(naskahDraft);
       }
 
       // Simpan referensi disposisi jika ada
@@ -5473,6 +5506,11 @@ export class KonsepService {
       );
     }
 
+    const naskahPartitionKey = {
+      id: naskah.id,
+      tanggal: naskah.tanggal,
+    };
+
     // Validate ownership
     const pengirimSirkulasi = await this.naskahSirkulasiRepository.findOne({
       where: { idNaskah: idDraft, sirkuler: 'pengirim' },
@@ -5564,7 +5602,23 @@ export class KonsepService {
 
         // Update naskah asli dengan link ke konsep workflow
         naskah.id_naskah_konsep = naskahKonsepId;
-        await queryRunner.manager.save(naskah);
+        await updatePartitionedNaskah(
+          queryRunner.manager,
+          NaskahEntity,
+          naskahPartitionKey,
+          {
+            jenis: naskah.jenis,
+            perihal: naskah.perihal,
+            konten: naskah.konten,
+            klasifikasi: naskah.klasifikasi,
+            klasifikasi_text: naskah.klasifikasi_text,
+            sifat: naskah.sifat,
+            tanggal: naskah.tanggal,
+            tandaTangan: naskah.tandaTangan,
+            status: naskah.status,
+            id_naskah_konsep: naskah.id_naskah_konsep,
+          },
+        );
 
         // ==========================================
         // 2. CREATE SIRKULASI FOR KONSEP WORKFLOW (K)
@@ -5667,7 +5721,22 @@ export class KonsepService {
       naskah.createdByPosition = String(dto.from_position_id);
       if (dto.catatan) (naskah as any).catatan_konsep = dto.catatan;
 
-      await queryRunner.manager.save(naskah);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        naskahPartitionKey,
+        {
+          jenis: naskah.jenis,
+          perihal: naskah.perihal,
+          konten: naskah.konten,
+          klasifikasi: naskah.klasifikasi,
+          klasifikasi_text: naskah.klasifikasi_text,
+          sifat: naskah.sifat,
+          tanggal: naskah.tanggal,
+          tandaTangan: naskah.tandaTangan,
+          createdByPosition: naskah.createdByPosition,
+        },
+      );
       await this.setDraftOwnerPosition(
         queryRunner,
         idDraft,

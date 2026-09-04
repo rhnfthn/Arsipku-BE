@@ -1,4 +1,10 @@
-import { Entity, PrimaryColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryColumn,
+  Column,
+  CreateDateColumn,
+  Index,
+} from 'typeorm';
 
 /**
  * Dokumen pendukung / naskah fisik / dokumen tambahan untuk naskah-lainnya.
@@ -28,6 +34,20 @@ export class NaskahLainnyaDokumenEntity {
 
   @Column('bigint', { nullable: true })
   ukuran: number | null; // bytes
+
+  // Pasangan PDF untuk pratinjau versi DOCX. File utama minioKey tetap DOCX
+  // supaya pengguna dapat mengunduh dan melanjutkan revisi.
+  @Column('varchar', { name: 'preview_minio_key', length: 255, nullable: true })
+  previewMinioKey: string | null;
+
+  @Column('varchar', { name: 'preview_nama', length: 255, nullable: true })
+  previewNama: string | null;
+
+  @Column('varchar', { name: 'preview_mimetype', length: 100, nullable: true })
+  previewMimetype: string | null;
+
+  @Column('bigint', { name: 'preview_ukuran', nullable: true })
+  previewUkuran: number | null;
 
   // Versi naskah (hanya untuk tipe='naskah'); NULL untuk naskah_fisik/pendukung.
   @Column('varchar', { length: 32, nullable: true })

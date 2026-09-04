@@ -1,4 +1,4 @@
-import { formatTanggal } from './sheet-pdf.shared';
+import { formatSheetPosition, formatTanggal } from './sheet-pdf.shared';
 
 describe('sheet-pdf.shared', () => {
   describe('formatTanggal', () => {
@@ -10,6 +10,20 @@ describe('sheet-pdf.shared', () => {
       expect(formatTanggal(undefined)).toBe('');
       expect(formatTanggal('')).toBe('');
       expect(formatTanggal('bukan-tanggal')).toBe('');
+    });
+  });
+
+  describe('formatSheetPosition', () => {
+    it('menempatkan PH pada jabatan tepat satu kali', () => {
+      expect(
+        formatSheetPosition({ jabatan: 'Direktur Operasi', delegator: 'PH' }),
+      ).toBe('PH. Direktur Operasi');
+      expect(
+        formatSheetPosition({
+          jabatan: 'PH. Direktur Operasi',
+          delegator: 'PH',
+        }),
+      ).toBe('PH. Direktur Operasi');
     });
   });
 });
