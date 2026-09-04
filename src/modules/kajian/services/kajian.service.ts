@@ -34,6 +34,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { NotificationService } from '../../notification/services';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import {
   KajianRecipientResponseDto,
   OrgDataPositionDto,
@@ -2194,6 +2195,11 @@ export class KajianService {
       );
     }
 
+    const naskahPartitionKey = {
+      id: naskah.id,
+      tanggal: naskah.tanggal,
+    };
+
     const barisData = await this.getPositionData();
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -2215,7 +2221,20 @@ export class KajianService {
         naskah.klasifikasi_text = dto.klasifikasi_text;
       if (dto.lampiran !== undefined) naskah.lampiran = dto.lampiran;
 
-      await queryRunner.manager.save(naskah);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        naskahPartitionKey,
+        {
+          tanggal: naskah.tanggal,
+          sifat: naskah.sifat,
+          perihal: naskah.perihal,
+          konten: naskah.konten,
+          klasifikasi: naskah.klasifikasi,
+          klasifikasi_text: naskah.klasifikasi_text,
+          lampiran: naskah.lampiran,
+        },
+      );
 
       // Update penerima if provided
       if (dto.penerima && dto.penerima.length > 0) {
@@ -2432,6 +2451,11 @@ export class KajianService {
       );
     }
 
+    const naskahPartitionKey = {
+      id: naskah.id,
+      tanggal: naskah.tanggal,
+    };
+
     const barisData = await this.getPositionData();
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -2483,7 +2507,22 @@ export class KajianService {
 
       // Change status to final
       naskah.status = 'final';
-      await queryRunner.manager.save(naskah);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        naskahPartitionKey,
+        {
+          tanggal: naskah.tanggal,
+          sifat: naskah.sifat,
+          perihal: naskah.perihal,
+          konten: naskah.konten,
+          klasifikasi: naskah.klasifikasi,
+          klasifikasi_text: naskah.klasifikasi_text,
+          lampiran: naskah.lampiran,
+          nomor: naskah.nomor,
+          status: naskah.status,
+        },
+      );
 
       // Update penerima if provided
       if (dto.penerima && dto.penerima.length > 0) {
@@ -3430,7 +3469,23 @@ export class KajianService {
       naskah.status = status;
       naskah.signOption = dto.sign_option || null;
 
-      await queryRunner.manager.save(naskah);
+      await updatePartitionedNaskah(
+        queryRunner.manager,
+        NaskahEntity,
+        { id: naskah.id, tanggal: naskah.tanggal },
+        {
+          perihal: naskah.perihal,
+          konten: naskah.konten,
+          klasifikasi: naskah.klasifikasi,
+          klasifikasi_text: naskah.klasifikasi_text,
+          sifat: naskah.sifat,
+          english: naskah.english,
+          lampiran: naskah.lampiran,
+          nomor: naskah.nomor,
+          status: naskah.status,
+          signOption: naskah.signOption,
+        },
+      );
 
       // Update all sirkulasi - keep isDraft=true for pending/TTD basah
       const isPending = status === 'pending';

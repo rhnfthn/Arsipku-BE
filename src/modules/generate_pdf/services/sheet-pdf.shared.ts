@@ -5,6 +5,7 @@ export interface DirectorSlot {
   jabatan: string;
   qrBase64?: string; // legacy compatibility; sheet approval sekarang render visible digsig
   signatureVisible?: boolean;
+  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix pada jabatan
 }
 
 export interface SheetDirectorSlot {
@@ -13,6 +14,7 @@ export interface SheetDirectorSlot {
   nama: string;
   jabatan: string;
   signatureVisible?: boolean;
+  delegator?: string; // status delegasi: 'ybs' (default) / PT/PH/PS — di-prefix pada jabatan
 }
 
 export interface SheetPdfData {
@@ -104,14 +106,28 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+export function formatSheetName(signer?: { nama?: string }): string {
+  return (signer?.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase();
+}
+
+export function formatSheetPosition(
+  signer?: { jabatan?: string; delegator?: string },
+  fallback = 'DIREKTUR',
+): string {
+  const position = signer?.jabatan || fallback;
+  const status = signer?.delegator?.trim();
+  if (!status || status === 'ybs') return position;
+  return new RegExp(`^${status}\\.?\\s+`, 'i').test(position)
+    ? position
+    : `${status}. ${position}`;
+}
+
 export function renderVisibleDigsig(
-  signer: { nama?: string; jabatan?: string },
+  signer: { nama?: string; jabatan?: string; delegator?: string },
   variant: 'compact' | 'wide' = 'compact',
 ): string {
-  const nama = escapeHtml(
-    (signer.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase(),
-  );
-  const jabatan = escapeHtml(signer.jabatan || 'DIREKTUR');
+  const nama = escapeHtml(formatSheetName(signer));
+  const jabatan = escapeHtml(formatSheetPosition(signer));
   const logo = visibleDigsigLogoDataUrl();
   const logoHtml = logo
     ? `<img class="visible-digsig-logo" src="${logo}" alt="AirNav" />`
@@ -131,16 +147,20 @@ let cachedVisibleDigsigLogo: string | null | undefined;
 /** Memuat logo yang sama dengan Visualisasi Digsig di frontend sebagai data URL
  * agar Puppeteer tidak perlu mengakses URL/file eksternal ketika membuat PDF. */
 function visibleDigsigLogoDataUrl(): string | null {
+  // ponytail: hanya HIT yang di-cache. Miss tidak di-cache agar logo yang baru
+  // tersedia (file ditambahkan / cwd deploy berbeda) tetap terbaca tanpa restart.
   if (cachedVisibleDigsigLogo !== undefined) return cachedVisibleDigsigLogo;
   const candidates = [
     process.env.VISUAL_DIGSIG_LOGO_PATH,
     path.resolve(process.cwd(), '../fe/public/logoAirnav.png'),
     path.resolve(process.cwd(), 'public/logoAirnav.png'),
+    // Runtime container backend hanya membawa folder /app/public.
+    path.resolve(process.cwd(), 'public/logo_airnav.jpg'),
   ].filter((candidate): candidate is string => !!candidate);
   const logoPath = candidates.find((candidate) => fs.existsSync(candidate));
-  cachedVisibleDigsigLogo = logoPath
-    ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
-    : null;
+  if (!logoPath) return null;
+  const mime = /\.png$/i.test(logoPath) ? 'image/png' : 'image/jpeg';
+  cachedVisibleDigsigLogo = `data:${mime};base64,${fs.readFileSync(logoPath).toString('base64')}`;
   return cachedVisibleDigsigLogo;
 }
 import fs from 'fs';

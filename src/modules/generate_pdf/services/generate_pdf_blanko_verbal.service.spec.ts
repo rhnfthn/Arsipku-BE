@@ -78,6 +78,23 @@ describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
     expect(html).toContain('DIREKTUR KESELAMATAN');
   });
 
+  it('menempatkan status delegasi pada jabatan, bukan nama', () => {
+    const base = data();
+    const html = service.buildHtml({
+      ...base,
+      diketahuiOleh: [
+        { index: 1, nama: 'Andi', jabatan: 'DIREKTUR OPERASI' },
+        { index: 2, nama: 'Bina', jabatan: 'DIREKTUR TEKNIK', delegator: 'PT' },
+      ],
+    });
+    expect(html).toContain('PT. DIREKTUR TEKNIK');
+    expect(html).toContain('BINA');
+    expect(html).not.toContain('PT. BINA');
+    expect(html).toContain('ANDI');
+    expect(html).not.toContain('PT. ANDI');
+    expect(html).not.toContain('delegator-cell');
+  });
+
   it('merender visual digsig HANYA untuk direksi yang verified', () => {
     const html = service.buildHtml(data([1, 3], ['QR1', 'QR2', 'QR3']));
     expect(html).toContain('class="visible-digsig');

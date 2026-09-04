@@ -58,6 +58,7 @@ import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.s
 import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { MailServiceService } from '../../mail-service/services/mail-service.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -1332,6 +1333,17 @@ export class SuratDinasEksternalService {
       const tanggalHariIni = dto.tgl
         ? this.parseDateString(dto.tgl)
         : new Date();
+      const renderedKonten = (dto.konten || '')
+        .replace(/\{\{\s*nomor_surat\s*\}\}/gi, nomorSurat)
+        .replace(
+          /\{\{\s*tanggal_surat\s*\}\}/gi,
+          tanggalHariIni.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          }),
+        )
+        .replace(/\{\{\s*sifat_surat\s*\}\}/gi, dto.sifat || 'biasa');
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1343,7 +1355,7 @@ export class SuratDinasEksternalService {
         tanggal: tanggalHariIni,
         lampiran: dto.lampiran || undefined,
         perihal: dto.perihal,
-        konten: dto.konten,
+        konten: renderedKonten,
         tempat: dto.nama_tempat || undefined,
         status: status,
         signOption: dto.sign_option || null,
@@ -1784,6 +1796,8 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 4: Validate tembusan (internal)
+    // Catatan: validasi chief (managerial) dilepas — semua position internal
+    // (termasuk staff) boleh dijadikan tembusan dan menerima surat di kotak masuk.
     const tembusanList: SdeOrgDataPositionDto[] = [];
     if (dto.tembusan && dto.tembusan.length > 0) {
       for (const posId of dto.tembusan) {
@@ -1793,11 +1807,6 @@ export class SuratDinasEksternalService {
         if (!tembusan) {
           throw new NotFoundException(
             `Tembusan dengan positionId ${posId} tidak ditemukan dalam org_data`,
-          );
-        }
-        if (tembusan.chief !== 1) {
-          throw new ForbiddenException(
-            `Tembusan ${tembusan.position_text} (${posId}) bukan managerial (chief). SDE hanya dapat dikirim ke managerial.`,
           );
         }
         tembusanList.push(tembusan);
@@ -1825,6 +1834,17 @@ export class SuratDinasEksternalService {
       const tanggalHariIni = dto.tgl
         ? this.parseDateString(dto.tgl)
         : new Date();
+      const renderedKonten = (dto.konten || '')
+        .replace(/\{\{\s*nomor_surat\s*\}\}/gi, nomorSurat)
+        .replace(
+          /\{\{\s*tanggal_surat\s*\}\}/gi,
+          tanggalHariIni.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          }),
+        )
+        .replace(/\{\{\s*sifat_surat\s*\}\}/gi, dto.sifat || 'biasa');
 
       const naskah = this.naskahRepository.create({
         id: naskahId,
@@ -1836,7 +1856,7 @@ export class SuratDinasEksternalService {
         tanggal: tanggalHariIni,
         lampiran: dto.lampiran || undefined,
         perihal: dto.perihal,
-        konten: dto.konten,
+        konten: renderedKonten,
         tempat: dto.nama_tempat || undefined,
         status: status,
         signOption: dto.sign_option || null,
@@ -2077,8 +2097,8 @@ export class SuratDinasEksternalService {
         console.log(`[SDE] namaLengkap for PDF: ${finalNamaLengkap}`);
 
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
-          html: dto.konten,
-          htmlContent: dto.konten,
+          html: renderedKonten,
+          htmlContent: renderedKonten,
           nomor: nomorSurat,
           penerima: kepadaYthList,
           tembusan: tembusanTextList,
@@ -2639,9 +2659,10 @@ export class SuratDinasEksternalService {
         naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
       if (Object.keys(naskahUpdateData).length > 0) {
-        await queryRunner.manager.update(
+        await updatePartitionedNaskah(
+          queryRunner.manager,
           NaskahEntity,
-          { id: naskahId },
+          { id: naskah.id, tanggal: naskah.tanggal },
           naskahUpdateData,
         );
       }
