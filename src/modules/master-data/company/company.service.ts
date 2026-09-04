@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { OmCompany } from './entities/om-company.entity';
@@ -193,9 +193,170 @@ export class CompanyService {
     return this.companyRepo.save(updated);
   }
 
+  async checkUsage(id: string): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    details?: {
+      orgCount: number;
+      posCount: number;
+      userCount: number;
+      usedPosCount: number;
+      usedOrgCount: number;
+      suratCount: number;
+      relationCount: number;
+    };
+  }> {
+    const company = await this.findOne(id);
+    const companyCode = company.company;
+    const companyName = company.shortText || company.company;
+
+    // 1. Hitung jumlah Organisasi di company ini
+    const orgCount =
+      companyCode !== null && companyCode !== undefined
+        ? await this.organizationRepo.count({
+            where: { company: companyCode },
+          })
+        : 0;
+
+    // 2. Hitung jumlah Posisi / Jabatan di company ini
+    const posCount =
+      companyCode !== null && companyCode !== undefined
+        ? await this.positionRepo.count({
+            where: { company: companyCode },
+          })
+        : 0;
+
+    // 3. Cek apakah posisi/jabatan di company ini SUDAH TERPAKAI di naskah / sirkulasi / approval / berkas
+    let usedPosCount = 0;
+    try {
+      const posUsageRes = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT p.id) as cnt
+         FROM om_position p
+         WHERE p.company = ?
+           AND (
+             p.id IN (SELECT DISTINCT created_by_position FROM naskah WHERE created_by_position IS NOT NULL)
+             OR p.id IN (SELECT DISTINCT penandatangan_position_id FROM naskah WHERE penandatangan_position_id IS NOT NULL)
+             OR p.id IN (SELECT DISTINCT atas_nama_position_id FROM naskah WHERE atas_nama_position_id IS NOT NULL)
+             OR p.position IN (SELECT DISTINCT position FROM naskah_sirkulasi WHERE position IS NOT NULL)
+             OR p.id IN (SELECT DISTINCT position_id FROM naskah_lainnya_approval WHERE position_id IS NOT NULL)
+             OR p.id IN (SELECT DISTINCT pic_position_id FROM berkas WHERE pic_position_id IS NOT NULL)
+           )`,
+        [companyCode],
+      );
+      usedPosCount = Number(posUsageRes[0]?.cnt || 0);
+    } catch (e) {
+      console.warn('Gagal cek used positions in company:', e.message);
+    }
+
+    // 4. Cek apakah organisasi di company ini SUDAH TERPAKAI di naskah_sirkulasi / naskah_dinas_verifikator / konsep
+    let usedOrgCount = 0;
+    try {
+      const orgUsageRes = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT o.id) as cnt
+         FROM om_organization o
+         WHERE o.company = ?
+           AND (
+             o.organization IN (SELECT DISTINCT organization FROM naskah_sirkulasi WHERE organization IS NOT NULL)
+             OR o.organization IN (SELECT DISTINCT organization FROM naskah_dinas_verifikator WHERE organization IS NOT NULL)
+             OR o.organization IN (SELECT DISTINCT from_organization FROM konsep WHERE from_organization IS NOT NULL)
+             OR o.organization IN (SELECT DISTINCT to_organization FROM konsep WHERE to_organization IS NOT NULL)
+           )`,
+        [companyCode],
+      );
+      usedOrgCount = Number(orgUsageRes[0]?.cnt || 0);
+    } catch (e) {
+      console.warn('Gagal cek used organizations in company:', e.message);
+    }
+
+    // 5. Cek Users / Personel yang terkait dengan company ini atau relasi SP
+    let userCount = 0;
+    try {
+      const userRes = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT persnum) as cnt FROM om_relation_sp WHERE company = ?`,
+        [companyCode],
+      );
+      userCount = Number(userRes[0]?.cnt || 0);
+    } catch (e) {
+      console.warn('Gagal cek relation_sp by company:', e.message);
+    }
+
+    // 6. Cek Relasi Hierarki (OO, OA, OS) di company ini
+    let relationCount = 0;
+    try {
+      const relRes = await this.dataSource.query(
+        `SELECT 
+           (SELECT COUNT(id) FROM om_relation_oo WHERE company = ?) +
+           (SELECT COUNT(id) FROM om_relation_os WHERE company = ?) +
+           (SELECT COUNT(id) FROM om_relation_oa WHERE company = ?) as total_rel`,
+        [companyCode, companyCode, companyCode],
+      );
+      relationCount = Number(relRes[0]?.total_rel || 0);
+    } catch (e) {
+      console.warn('Gagal cek relations by company:', e.message);
+    }
+
+    // 7. Cek surat / naskah yang dibuat oleh posisi dari company ini
+    let suratCount = 0;
+    try {
+      const suratRes = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT n.id) as cnt 
+         FROM naskah n 
+         INNER JOIN om_position p ON (n.created_by_position = p.id OR n.penandatangan_position_id = p.id OR n.atas_nama_position_id = p.id)
+         WHERE p.company = ?`,
+        [companyCode],
+      );
+      suratCount = Number(suratRes[0]?.cnt || 0);
+    } catch (e) {
+      console.warn('Gagal cek naskah by company positions:', e.message);
+    }
+
+    if (
+      usedPosCount > 0 ||
+      usedOrgCount > 0 ||
+      suratCount > 0 ||
+      userCount > 0
+    ) {
+      const detailsList: string[] = [];
+      if (suratCount > 0) detailsList.push(`${suratCount} Naskah/Surat terbit`);
+      if (usedPosCount > 0) detailsList.push(`${usedPosCount} Posisi/Jabatan telah aktif digunakan di naskah/berkas`);
+      if (usedOrgCount > 0) detailsList.push(`${usedOrgCount} Unit Organisasi telah aktif digunakan di naskah/konsep`);
+      if (userCount > 0) detailsList.push(`${userCount} Pegawai aktif terhubung (Relasi SP)`);
+
+      return {
+        canDelete: false,
+        reason: `Perusahaan '${companyName}' tidak dapat dihapus karena sudah memiliki aktivitas data (${detailsList.join(', ')}). Data ini tidak dapat dihapus demi menjaga konsistensi riwayat persuratan dan arsip.`,
+        details: {
+          orgCount,
+          posCount,
+          userCount,
+          usedPosCount,
+          usedOrgCount,
+          suratCount,
+          relationCount,
+        },
+      };
+    }
+
+    return {
+      canDelete: true,
+      details: {
+        orgCount: 0,
+        posCount: 0,
+        userCount: 0,
+        usedPosCount: 0,
+        usedOrgCount: 0,
+        suratCount: 0,
+        relationCount: 0,
+      },
+    };
+  }
+
   async remove(id: string): Promise<{ message: string }> {
     const company = await this.findOne(id);
-    await this.companyRepo.remove(company);
-    return { message: `Company ${id} deleted successfully` };
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    company.endDate = yesterday.toISOString().slice(0, 10);
+    await this.companyRepo.save(company);
+    return { message: `Company ${company.shortText || id} deleted successfully` };
   }
 }

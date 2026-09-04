@@ -98,9 +98,10 @@ export class PersonController {
   @Get('position/:positionId')
   findByPosition(
     @Param('positionId', ParseIntPipe) positionId: number,
+    @Query('company') companyId?: number,
     @Query('search') search?: string,
   ) {
-    return this.personService.findByPosition(positionId, search);
+    return this.personService.findByPosition(positionId, companyId, search);
   }
 
   /**

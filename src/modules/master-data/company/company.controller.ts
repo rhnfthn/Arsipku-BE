@@ -37,6 +37,11 @@ export class CompanyController {
     return this.companyService.getCompanyTree(companyId);
   }
 
+  @Get(':id/check-usage')
+  checkUsage(@Param('id') id: string) {
+    return this.companyService.checkUsage(id);
+  }
+
   @Get(':id')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(86_400_000)

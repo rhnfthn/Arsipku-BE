@@ -155,6 +155,8 @@ export class PositionService {
 
     const newPosition = this.positionRepo.create({
       ...dto,
+      longText: dto.longText ? dto.longText.toUpperCase() : dto.longText,
+      abbreviation: dto.abbreviation ? dto.abbreviation.toUpperCase() : dto.abbreviation,
     });
     const savedPosition = await this.positionRepo.save(newPosition);
 
@@ -219,9 +221,10 @@ export class PositionService {
     if (dto.company !== undefined) position.company = dto.company;
     if (dto.position !== undefined) position.position = dto.position;
     if (dto.shortText !== undefined) position.shortText = dto.shortText;
-    if (dto.longText !== undefined) position.longText = dto.longText;
+    if (dto.longText !== undefined)
+      position.longText = dto.longText ? dto.longText.toUpperCase() : dto.longText;
     if (dto.abbreviation !== undefined)
-      position.abbreviation = dto.abbreviation;
+      position.abbreviation = dto.abbreviation ? dto.abbreviation.toUpperCase() : dto.abbreviation;
     if (dto.startDate !== undefined) position.startDate = dto.startDate;
     if (dto.endDate !== undefined) position.endDate = dto.endDate;
     if (dto.uname !== undefined) position.uname = dto.uname;
