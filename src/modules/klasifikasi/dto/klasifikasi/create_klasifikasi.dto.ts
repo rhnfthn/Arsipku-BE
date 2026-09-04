@@ -28,4 +28,24 @@ export class CreateKlasifikasiDto {
   @IsOptional()
   @IsNumber()
   active?: number;
+
+  @IsOptional()
+  @IsNumber()
+  retensi_aktif_tahun?: number;
+
+  @IsOptional()
+  @IsNumber()
+  retensi_inaktif_tahun?: number;
+
+  @IsOptional()
+  @IsString()
+  penyusutan?: string;
+
+  @IsOptional()
+  @IsString()
+  keamanan?: string;
+
+  @IsOptional()
+  @IsString()
+  hak_akses?: string;
 }

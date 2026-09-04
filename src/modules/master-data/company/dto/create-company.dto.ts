@@ -5,8 +5,9 @@ export class CreateCompanyDto {
   @IsString()
   id?: string;
 
+  @IsOptional()
   @IsNumber()
-  company: number;
+  company?: number;
 
   @IsString()
   @MaxLength(50)
