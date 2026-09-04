@@ -2,7 +2,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * Tambah kolom hak_akses pada tabel klasifikasi.
- * Nilai: 'BOD-1', 'BOD-2', 'Pengawas Internal', atau NULL (non tag).
+ * Nilai: 'Pejabat satu tingkat di bawah Direksi', 'Pejabat dua tingkat di bawah Direksi',
+ * 'Karyawan', 'Karyawan, Publik', 'Pengawas Internal', dst, atau NULL.
  */
 export class AddHakAksesToKlasifikasi1721801300000
   implements MigrationInterface
@@ -12,7 +13,7 @@ export class AddHakAksesToKlasifikasi1721801300000
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE \`klasifikasi\`
-        ADD COLUMN \`hak_akses\` VARCHAR(50) NULL
+        ADD COLUMN \`hak_akses\` VARCHAR(100) NULL
     `);
   }
 
