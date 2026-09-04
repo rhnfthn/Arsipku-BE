@@ -60,7 +60,7 @@ export class AreasubService {
     const newSubArea = this.subAreaRepo.create({
       area: dto.area,
       sub_area: dto.sub_area,
-      shortText: dto.shortText,
+      shortText: dto.shortText ? dto.shortText.toUpperCase() : dto.shortText,
       longText: dto.longText,
       startDate: dto.startDate,
       endDate: dto.endDate,
@@ -126,7 +126,8 @@ export class AreasubService {
     // Manually assign each field from DTO
     if (dto.area !== undefined) subAreaData.area = dto.area;
     if (dto.sub_area !== undefined) subAreaData.sub_area = dto.sub_area;
-    if (dto.shortText !== undefined) subAreaData.shortText = dto.shortText;
+    if (dto.shortText !== undefined)
+      subAreaData.shortText = dto.shortText ? dto.shortText.toUpperCase() : dto.shortText;
     if (dto.longText !== undefined) subAreaData.longText = dto.longText;
     if (dto.startDate !== undefined) subAreaData.startDate = dto.startDate;
     if (dto.endDate !== undefined) subAreaData.endDate = dto.endDate;
