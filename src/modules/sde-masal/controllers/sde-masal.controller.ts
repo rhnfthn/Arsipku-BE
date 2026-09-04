@@ -12,6 +12,7 @@ import {
   UseGuards,
   HttpStatus,
   UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -130,6 +131,65 @@ export class SdeMasalController {
     };
   }
 
+  @Post('folder/:folderId/reject')
+  async rejectFolder(
+    @Param('folderId') folderId: string,
+    @Body() body: { reason?: string },
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.sdeMasalService.rejectFolder(
+      folderId,
+      user?.position ?? user?.positionId,
+      body?.reason,
+    );
+    return { success: true, data, message: 'SDE Massal dikembalikan ke konseptor' };
+  }
+
+  @Post('folder/:folderId/lampiran-masal/prepare')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }),
+  )
+  async prepareMassAttachments(
+    @Param('folderId') folderId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('requestedFileNames') requestedFileNames: string | string[],
+    @CurrentUser() user: any,
+  ) {
+    let names: string[] = [];
+    if (Array.isArray(requestedFileNames)) names = requestedFileNames;
+    else if (requestedFileNames) {
+      try {
+        names = JSON.parse(requestedFileNames);
+      } catch {
+        throw new BadRequestException('Daftar nama lampiran tidak valid');
+      }
+    }
+    if (!Array.isArray(names)) {
+      throw new BadRequestException('Daftar nama lampiran tidak valid');
+    }
+    const data = await this.sdeMasalService.prepareMassAttachments(
+      folderId,
+      file,
+      names,
+      user?.position ?? user?.positionId,
+    );
+    return { success: true, data };
+  }
+
+  @Post('folder/:folderId/lampiran-masal/commit')
+  async commitMassAttachments(
+    @Param('folderId') folderId: string,
+    @Body() body: { items: Array<{ itemId: string; attachments: any[] }> },
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.sdeMasalService.commitMassAttachments(
+      folderId,
+      body?.items || [],
+      user?.position ?? user?.positionId,
+    );
+    return { success: true, data };
+  }
+
   /**
    * POST /sde-masal/:id/retry — kirim ulang naskah yang gagal (status GAGAL).
    * Hanya penandatangan folder yang boleh mengirim ulang.
@@ -175,6 +235,31 @@ export class SdeMasalController {
     return res.send(buffer);
   }
 
+  @Get(':id/lampiran/:index')
+  async downloadMassAttachment(
+    @Param('id') id: string,
+    @Param('index') index: string,
+    @Res() res: Response,
+    @CurrentUser() user: any,
+  ) {
+    const attachmentIndex = Number(index);
+    if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0) {
+      throw new BadRequestException('Index lampiran tidak valid');
+    }
+    const { buffer, mimetype, filename } =
+      await this.sdeMasalService.downloadMassAttachment(
+        id,
+        attachmentIndex,
+        user?.position ?? user?.positionId,
+        user?.persnum,
+      );
+    res.set({
+      'Content-Type': mimetype,
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
+    return res.send(buffer);
+  }
+
   /**
    * POST /sde-masal/generate — generate massal dari data wizard.
    * Body: { folderId, konsep, penerimaList, template }
@@ -191,11 +276,19 @@ export class SdeMasalController {
 
   @Post('submit-verification')
   async submitVerification(
-    @Body() body: { ids: string[]; verifikators: any[] },
+    @Body() body: { ids: string[]; verifikators?: any[]; folderId?: string; sendToSigner?: boolean },
+    @CurrentUser() user: any,
   ) {
+    if (body?.sendToSigner && body?.folderId) {
+      const data = await this.sdeMasalService.sendFolderToSigner(
+        body.folderId,
+        user?.position ?? user?.positionId,
+      );
+      return { success: true, data, message: 'SDE Massal berhasil dikirim ke pengirim' };
+    }
     const result = await this.sdeMasalService.submitVerification(
       body?.ids,
-      body?.verifikators,
+      body?.verifikators || [],
     );
     return {
       success: true,
@@ -319,6 +412,25 @@ export class SdeMasalController {
       // Gabungan untuk blok "Tembusan Yth:" di kanvas PDF (eksternal dulu).
       tembusanArray = [...externalNames, ...internalNames];
 
+      let lampiranDirectRefs: Array<{ fileName: string; key: string }> = [];
+      if (body.lampiran_direct_refs) {
+        try {
+          const parsed = typeof body.lampiran_direct_refs === 'string'
+            ? JSON.parse(body.lampiran_direct_refs)
+            : body.lampiran_direct_refs;
+          if (Array.isArray(parsed)) {
+            lampiranDirectRefs = parsed
+              .filter((ref) => ref?.fileName && ref?.key)
+              .map((ref) => ({ fileName: String(ref.fileName), key: String(ref.key) }));
+          }
+        } catch {
+          return res.status(HttpStatus.BAD_REQUEST).json({
+            success: false,
+            message: ['Referensi lampiran tidak valid'],
+          });
+        }
+      }
+
       const headerInfo = await this.sdeService.getHeaderInfoByUser(
         {
           company: user?.company,
@@ -362,6 +474,7 @@ export class SdeMasalController {
         headerInfo || undefined,
         body.english === true || body.english === 'true',
         body.atas_nama || '',
+        lampiranDirectRefs,
       );
 
       res.set({

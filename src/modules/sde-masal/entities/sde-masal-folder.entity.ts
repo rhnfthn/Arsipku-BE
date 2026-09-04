@@ -94,6 +94,9 @@ export class SdeMasalFolderEntity {
   @Column({ type: 'varchar', length: 20, default: 'DRAFT' })
   status: string;
 
+  @Column({ name: 'rejection_reason', type: 'text', nullable: true })
+  rejectionReason: string | null;
+
   // Position ID pembuat folder (scope per-akun)
   @Index('idx_sde_masal_folder_created_by')
   @Column({ name: 'created_by', type: 'varchar', length: 50, nullable: true })
