@@ -138,11 +138,14 @@ export class StorageService implements OnModuleInit {
     if (!file) {
       throw new Error('File tidak ditemukan');
     }
-    const allowedMimeTypes = {
+    const allowedMimeTypes: Record<string, string[]> = {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         ['.docx'],
       'application/msword': ['.doc'],
+      'application/zip': ['.docx', '.doc'],
+      'application/x-zip-compressed': ['.docx', '.doc'],
+      'application/octet-stream': ['.docx', '.doc', '.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
       'image/gif': ['.gif'],
@@ -151,8 +154,9 @@ export class StorageService implements OnModuleInit {
 
     const ext = path.extname(file.originalname).toLowerCase();
     const allowedExts = allowedMimeTypes[file.mimetype];
+    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp'];
 
-    if (!allowedExts || !allowedExts.includes(ext)) {
+    if ((!allowedExts || !allowedExts.includes(ext)) && !validDocExtensions.includes(ext)) {
       throw new Error(`File tidak valid. MIME: ${file.mimetype}, Ext: ${ext}`);
     }
 
@@ -176,6 +180,53 @@ export class StorageService implements OnModuleInit {
     return {
       key,
       url: await this.getFileUrl(key),
+      bucket: this.bucketName,
+    };
+  }
+
+  /**
+   * Upload file dengan key spesifik/custom
+   */
+  async uploadFileWithCustomKey(
+    file: Express.Multer.File,
+    customKey: string,
+  ): Promise<UploadResult> {
+    const allowedMimeTypes: Record<string, string[]> = {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+      'application/zip': ['.docx', '.doc'],
+      'application/x-zip-compressed': ['.docx', '.doc'],
+      'application/octet-stream': ['.docx', '.doc', '.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
+    };
+
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = allowedMimeTypes[file.mimetype];
+    const validDocExtensions = ['.docx', '.doc', '.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+
+    if ((!allowedExts || !allowedExts.includes(ext)) && !validDocExtensions.includes(ext)) {
+      throw new Error(`File tidak valid. MIME: ${file.mimetype}, Ext: ${ext}`);
+    }
+
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: customKey,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ContentDisposition: 'inline',
+      }),
+    );
+
+    this.logger.log(`✅ File uploaded with custom key: ${customKey}`);
+
+    return {
+      key: customKey,
+      url: await this.getFileUrl(customKey),
       bucket: this.bucketName,
     };
   }
