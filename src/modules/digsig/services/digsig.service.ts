@@ -24,6 +24,7 @@ import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pd
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 import axios, { AxiosError } from 'axios';
 
 export interface DigsigParams {
@@ -99,7 +100,7 @@ const COMPANY_ID = process.env.COMPANY_ID || '1000';
 // Base URL untuk verifikasi (ganti dengan URL production nanti)
 const VERIFICATION_BASE_URL =
   process.env.VERIFICATION_URL ||
-  'https://arsipku.a  irnavindonesia.co.id/verify';
+  'https://arsipku.airnavindonesia.co.id/verify';
 
 @Injectable()
 export class DigsigService {
@@ -147,11 +148,14 @@ export class DigsigService {
    */
   async hitDigsigEndpoint(params: DigsigParams, logContext?: DigsigLogContext) {
     try {
+      // Seluruh request BSrE menggunakan NIK bersama, termasuk request dari
+      // token lama yang masih menyimpan NIK personal pengguna.
+      const nik = DEFAULT_BSRE_NIK;
       console.log('[DigsigService] hitDigsigEndpoint - Starting...');
       console.log('[DigsigService] Params:', {
         key: params.key,
         filename: params.filename,
-        nik: params.nik,
+        nik,
         no_wa: params.no_wa,
         nomorDokumen: params.nomorDokumen,
         jenisNaskah: params.jenisNaskah,
@@ -187,7 +191,7 @@ export class DigsigService {
             data: base64File,
           },
         ],
-        nik: params.nik,
+        nik,
         passphrase: params.passphrase,
         no_wa: params.no_wa,
         path_dokumen: params.path_dokumen,
@@ -345,28 +349,23 @@ export class DigsigService {
    * @returns Object containing nik dan no_wa
    */
   getUserDataFromJwt(user: JwtPayload): { nik: string; no_wa: string } {
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
-
     console.log(
       `[DigsigService] Getting user data from JWT, persnum: ${user.persnum}`,
     );
     console.log(
-      `[DigsigService] NIK: ${user.nik.substring(0, 4)}****, noWa: ${user.noWa ? user.noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
+      `[DigsigService] NIK: ${DEFAULT_BSRE_NIK.substring(0, 4)}****, noWa: ${user.noWa ? user.noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
     );
 
     return {
-      nik: user.nik,
+      nik: DEFAULT_BSRE_NIK,
       no_wa: user.noWa || '',
     };
   }
 
   /**
-   * Get data user untuk BSrE signing (NIK dan no_wa) dari HR API
-   * @deprecated Gunakan getUserDataFromJwt() yang mengambil dari JWT payload
+   * Get data user untuk BSrE signing. NIK menggunakan nilai bersama,
+   * sedangkan no_wa tetap diambil dari HR API untuk kompatibilitas.
+   * @deprecated Gunakan getUserDataFromJwt() untuk fitur baru.
    * Method ini tetap ada untuk backward compatibility dengan service lain (nota-dinas, surat-dinas-internal, dll)
    * @param persnum - Persnum user yang login
    * @returns Object containing nik dan no_wa
@@ -375,46 +374,16 @@ export class DigsigService {
     persnum: string,
   ): Promise<{ nik: string; no_wa: string }> {
     console.log(
-      `[DigsigService] DEPRECATED: Getting user data for BSrE from HR API, persnum: ${persnum}`,
+      `[DigsigService] DEPRECATED: Getting phone data for BSrE from HR API, persnum: ${persnum}`,
     );
     console.log(
       `[DigsigService] Consider using getUserDataFromJwt() instead for better performance`,
     );
 
-    // Fetch NIK dari HR API
+    // Token masih diperlukan untuk mengambil nomor telepon opsional.
     const token = await this.getAirnavTokenFromSession(Number(persnum));
 
-    // Get KTP
-    let nik = '';
-    try {
-      const ktpResponse = await axios.get(
-        `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${persnum}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          timeout: 30000,
-        },
-      );
-      const ktpData = ktpResponse.data?.data ?? [];
-      const filterktp = ktpData.find((x) => x.subType === '01');
-      if (!filterktp) {
-        throw new BadRequestException(
-          'Data KTP dengan subType 01 tidak ditemukan',
-        );
-      }
-      nik = filterktp.number;
-    } catch (error: any) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      const message = axios.isAxiosError(error)
-        ? error.response?.data?.message ||
-          'Gagal mengambil data KTP dari HR API'
-        : error.message || 'Unexpected error';
-      throw new BadRequestException(message);
-    }
+    const nik = DEFAULT_BSRE_NIK;
 
     // Get phone (optional)
     let no_wa = '';
@@ -473,14 +442,7 @@ export class DigsigService {
       `[DigsigService] signNotaDinasBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
     );
 
-    // 1. Validasi NIK dari JWT payload
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
-
-    const nik = user.nik;
+    const nik = DEFAULT_BSRE_NIK;
     const noWa = user.noWa || '';
     console.log(
       `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
@@ -617,14 +579,7 @@ export class DigsigService {
       `[DigsigService] signSdiBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
     );
 
-    // 1. Validasi NIK dari JWT payload
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
-
-    const nik = user.nik;
+    const nik = DEFAULT_BSRE_NIK;
     const noWa = user.noWa || '';
     console.log(
       `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,
@@ -760,14 +715,7 @@ export class DigsigService {
       `[DigsigService] signSdeBsre - idNaskah: ${idNaskah}, persnum: ${user.persnum}`,
     );
 
-    // 1. Validasi NIK dari JWT payload
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
-
-    const nik = user.nik;
+    const nik = DEFAULT_BSRE_NIK;
     const noWa = user.noWa || '';
     console.log(
       `[DigsigService] User data from JWT - NIK: ${nik.substring(0, 4)}****, noWa: ${noWa ? noWa.substring(0, 6) + '****' : '(tidak tersedia)'}`,

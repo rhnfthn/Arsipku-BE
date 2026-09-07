@@ -21,6 +21,7 @@ import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from 'src/modules/storage/services/storage.service';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 
 @Controller('digsig')
 @UseGuards(JwtAuthGuard)
@@ -50,7 +51,7 @@ export class DigsigController {
       klasifikasi: 'Biasa',
       jenisNaskah: 'Nota Dinas',
       perihal: 'Test from New Arsipku',
-      nik: '1234567890123452',
+      nik: DEFAULT_BSRE_NIK,
       passphrase: 'Bsre2025.#!',
       path_dokumen: 'nota-dinas/digsig/',
       no_wa: '',
@@ -211,14 +212,9 @@ export class DigsigController {
   @Get('ktp')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
-  async getktp(@CurrentUser() user: JwtPayload) {
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
+  async getktp() {
     return {
-      noktp: user.nik,
+      noktp: DEFAULT_BSRE_NIK,
     };
   }
 

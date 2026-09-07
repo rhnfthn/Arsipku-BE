@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -25,6 +26,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    return payload;
+    return {
+      ...payload,
+      nik: DEFAULT_BSRE_NIK,
+    };
   }
 }

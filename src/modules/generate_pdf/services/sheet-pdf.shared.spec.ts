@@ -2,8 +2,8 @@ import { formatSheetPosition, formatTanggal } from './sheet-pdf.shared';
 
 describe('sheet-pdf.shared', () => {
   describe('formatTanggal', () => {
-    it('memformat YYYY-MM-DD ke "21 Agustus 2026"', () => {
-      expect(formatTanggal('2026-08-21')).toBe('21 Agustus 2026');
+    it('memformat YYYY-MM-DD ke DD/MM/YYYY', () => {
+      expect(formatTanggal('2026-08-21')).toBe('21/08/2026');
     });
 
     it('mengembalikan string kosong untuk input kosong/invalid', () => {
