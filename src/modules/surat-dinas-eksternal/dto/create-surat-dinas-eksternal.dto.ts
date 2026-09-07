@@ -167,6 +167,9 @@ export class CreateSuratDinasEksternalDto {
   @IsString({ each: true })
   lampiran_temp_ids?: string[];
 
+  /** Referensi PDF content-addressed dari SDE Masal (internal/additive). */
+  lampiran_direct_refs?: Array<{ fileName: string; key: string }>;
+
   // ============================================
   // SIGNING OPTIONS
   // ============================================
@@ -271,6 +274,7 @@ export class UpdateSdeDraftDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_temp_ids?: string[];
+
 }
 
 /**

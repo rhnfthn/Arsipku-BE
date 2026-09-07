@@ -4,6 +4,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
@@ -270,6 +271,32 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Simpan buffer pada object key yang sudah ditentukan oleh caller.
+   * Dipakai oleh alur yang membutuhkan content-addressed storage.
+   */
+  async uploadBufferAtKey(
+    buffer: Buffer,
+    key: string,
+    contentType: string,
+  ): Promise<UploadResult> {
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        ContentDisposition: 'inline',
+      }),
+    );
+
+    return {
+      key,
+      url: await this.getFileUrl(key),
+      bucket: this.bucketName,
+    };
+  }
+
+  /**
    * Get signed URL untuk akses file (menggunakan public URL)
    * @param key - Key file di MinIO
    * @param expiresIn - Waktu expired dalam detik (default 1 jam)
@@ -462,7 +489,7 @@ export class StorageService implements OnModuleInit {
   async fileExists(key: string): Promise<boolean> {
     try {
       await this.s3Client.send(
-        new GetObjectCommand({
+        new HeadObjectCommand({
           Bucket: this.bucketName,
           Key: key,
         }),
