@@ -7,11 +7,11 @@ export class NaskahEntity {
   id: string;
 
   @Column('enum', {
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPD', 'SED', 'SOP', 'KSB', 'PKS', 'KTP', 'PJL', 'LOA', 'SKU', 'BA', 'SKE', 'SPR', 'RRA', 'PUM', 'PIA', 'LAP'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC', 'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP'],
     comment:
-      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, K=Korespondensi Lama, UND=Surat Undangan, PER/KEP/INS/SPD/SED/SOP/KSB/PKS/KTP/PJL/LOA/SKU/BA/SKE/SPR/RRA/PUM/PIA/LAP=Naskah Lainnya',
+      'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, K=Korespondensi Lama, UND=Surat Undangan, PER/KEP/INS/SPR/EDR/SOP/MOU/PKS/PROC/PJJ/LOA/SKU/BAC/KET/SPE/RPT/PEN/PGM/LAP=Naskah Lainnya',
   })
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPD' | 'SED' | 'SOP' | 'KSB' | 'PKS' | 'KTP' | 'PJL' | 'LOA' | 'SKU' | 'BA' | 'SKE' | 'SPR' | 'RRA' | 'PUM' | 'PIA' | 'LAP';
+  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPR' | 'EDR' | 'SOP' | 'MOU' | 'PKS' | 'PROC' | 'PJJ' | 'LOA' | 'SKU' | 'BAC' | 'KET' | 'SPE' | 'RPT' | 'PEN' | 'PGM' | 'LAP';
 
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;

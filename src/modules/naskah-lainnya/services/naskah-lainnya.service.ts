@@ -44,6 +44,7 @@ import { buildNomorRegex } from './nomor-format.helper';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { GotenbergService } from '../../gotenberg/gotenberg.service';
 
 export interface CurrentUser {
   persnum: number;
@@ -89,6 +90,7 @@ export class NaskahLainnyaService {
     private readonly orgDataService: OrgDataService,
     private readonly notificationService: NotificationService,
     private readonly realtimeEmitService: RealtimeEmitService,
+    private readonly gotenberg: GotenbergService,
   ) {}
 
   /**
@@ -805,6 +807,13 @@ export class NaskahLainnyaService {
           (a) => a !== 'tanda-tangan' && a !== 'tolak-tanda-tangan',
         );
       }
+      // Digital tanpa proses Legal tidak mempunyai tujuan pengembalian ke Unit
+      // Legal, sehingga penandatangan hanya memperoleh aksi tanda tangan.
+      if (n.signOption !== 'ttd_basah' && !n.butuhLegal) {
+        availableActions = availableActions.filter(
+          (a) => a !== 'tolak-tanda-tangan',
+        );
+      }
     }
 
     return {
@@ -1217,11 +1226,6 @@ export class NaskahLainnyaService {
         'Tanggal naskah wajib diisi sebelum kirim (untuk penomoran).',
       );
     }
-    if (!user.abbreviation || !user.area || !user.company) {
-      throw new BadRequestException(
-        'Data jabatan/lokasi pemrakarsa belum lengkap (abbreviation/area/company), hubungi admin.',
-      );
-    }
     const klasifikasiNaskah = n.klasifikasi ?? null;
 
     await this.dataSource.transaction(async (manager) => {
@@ -1267,11 +1271,8 @@ export class NaskahLainnyaService {
       // hanya tidak menampilkan nomor tersebut di body template. Ini penting untuk
       // template tanda tangan fisik maupun template legacy.
 
-      // ── Refresh snapshot konteks pemrakarsa (untuk generasi nomor di signing) ──
-      // ponytail: di signing, current user = signer/evaluator (bukan pemrakarsa), jadi
-      // scope nomor (company/area/abbreviation) tidak bisa ambil dari user aktif. Snapshot
-      // di-refresh di kirim (user = pemrakarsa; guard di atas sudah validasi field ada)
-      // dan disimpan di dikirimOleh — ensureNomorFinal baca dari sana di tanda_tangan.
+      // Snapshot pengirim tetap disimpan untuk audit dan fallback data legacy.
+      // Nomor otomatis memakai konteks penandatangan terakhir saat finalisasi.
       n.dikirimOleh = {
         persnum: String(user.persnum),
         nama: user.nama,
@@ -1710,6 +1711,9 @@ export class NaskahLainnyaService {
     file: Express.Multer.File,
     user: CurrentUser,
   ) {
+    if (!file?.buffer || !file.originalname?.toLowerCase().endsWith('.docx')) {
+      throw new BadRequestException('File naskah wajib berformat DOCX.');
+    }
     const n = await this.findNaskah(id);
     // tanggal bagian PK — simpan tanggal ASLI (DB) untuk WHERE. Mutasi in-memory
     // n.tanggal (dari params.tanggal) TIDAK boleh ikut ke WHERE, kalau tidak row
@@ -1717,9 +1721,12 @@ export class NaskahLainnyaService {
     const originalTanggal = n.tanggal as any;
     const params = await this.docxReader.readParameters(file.buffer);
     const patch: Partial<NaskahEntity> = {};
-    if (params.perihal) {
-      n.perihal = params.perihal;
-      patch.perihal = params.perihal;
+    const parsedPerihal = params.perihal?.trim();
+    const shouldUseParsedPerihal =
+      !!parsedPerihal && (n.signOption !== 'ttd_basah' || !n.perihal?.trim());
+    if (shouldUseParsedPerihal && parsedPerihal) {
+      n.perihal = parsedPerihal;
+      patch.perihal = parsedPerihal;
     }
     // tanggal adalah bagian PK — skip update di sini (hindari PK change)
     if (params.tanggal) {
@@ -1732,49 +1739,67 @@ export class NaskahLainnyaService {
     // Struktur direktori: naskah-lainnya/{jenis}/{id}/naskah/{timestamp}-{nama-kanonik}.docx
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/naskah`;
     const filename = `${Date.now()}-${namaFile}`;
-    const result = await this.storage.uploadBuffer(
-      file.buffer,
-      filename,
-      file.mimetype || 'application/octet-stream',
-      folder,
-    );
-    patch.lampiran = result.key; // simpan MinIO key agar bisa di-fetch ulang saat buka draft
-    await this.naskahRepo.update({ id: n.id, tanggal: originalTanggal }, patch);
-    await this.catatVersiNaskah(
-      n.id,
-      n.tahapan,
-      result.key,
-      namaFile,
-      file.mimetype,
-      file.size,
-      user,
-    );
+    const uploadedKeys: string[] = [];
+    try {
+      const result = await this.storage.uploadBuffer(
+        file.buffer,
+        filename,
+        file.mimetype || 'application/octet-stream',
+        folder,
+      );
+      uploadedKeys.push(result.key);
+      const pdf = await this.gotenberg.convertDocxToPdf(file.buffer, namaFile);
+      const pdfResult = await this.storage.uploadBuffer(
+        pdf,
+        filename.replace(/\.docx$/i, '.pdf'),
+        'application/pdf',
+        folder,
+      );
+      uploadedKeys.push(pdfResult.key);
+      const preview = {
+        minioKey: pdfResult.key,
+        nama: namaFile.replace(/\.docx$/i, '.pdf'),
+        mimetype: 'application/pdf',
+        ukuran: pdf.length,
+      };
+      patch.lampiran = result.key; // simpan MinIO key agar bisa di-fetch ulang saat buka draft
+      await this.naskahRepo.update(
+        { id: n.id, tanggal: originalTanggal },
+        patch,
+      );
+      await this.catatVersiNaskah(
+        n.id,
+        n.tahapan,
+        result.key,
+        namaFile,
+        file.mimetype,
+        file.size,
+        user,
+        preview,
+      );
+    } catch (error) {
+      await Promise.all(
+        uploadedKeys.map((key) =>
+          this.storage.deleteFile(key).catch(() => undefined),
+        ),
+      );
+      throw error;
+    }
     return { success: true, data: { parameter: params } };
   }
 
   async uploadRevisiDokumen(
     id: string,
     docx: Express.Multer.File | undefined,
-    pdf: Express.Multer.File | undefined,
     user: CurrentUser,
   ) {
-    if (!docx || !pdf) {
-      throw new BadRequestException(
-        'Revisi wajib mengunggah pasangan file DOCX dan PDF.',
-      );
-    }
+    if (!docx)
+      throw new BadRequestException('File naskah DOCX wajib diunggah.');
     if (!docx.originalname.toLowerCase().endsWith('.docx')) {
       throw new BadRequestException(
         'File naskah editable wajib berformat DOCX.',
       );
     }
-    if (
-      !pdf.originalname.toLowerCase().endsWith('.pdf') ||
-      (pdf.mimetype && pdf.mimetype !== 'application/pdf')
-    ) {
-      throw new BadRequestException('File pratinjau wajib berformat PDF.');
-    }
-
     const n = await this.findNaskah(id);
     const originalTanggal = n.tanggal as any;
     let params: DocxParameter;
@@ -1787,11 +1812,17 @@ export class NaskahLainnyaService {
     }
 
     const namaDocx = this.buildNaskahFileName(
-      params.perihal || n.perihal,
+      n.signOption === 'ttd_basah' && n.perihal?.trim()
+        ? n.perihal
+        : params.perihal || n.perihal,
       n.jenis,
       n.id,
     );
     const namaPdf = namaDocx.replace(/\.docx$/i, '.pdf');
+    const generatedPdf = await this.gotenberg.convertDocxToPdf(
+      docx.buffer,
+      namaDocx,
+    );
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/naskah`;
     const stamp = Date.now();
     const uploadedKeys: string[] = [];
@@ -1805,7 +1836,7 @@ export class NaskahLainnyaService {
       );
       uploadedKeys.push(docxUpload.key);
       const pdfUpload = await this.storage.uploadBuffer(
-        pdf.buffer,
+        generatedPdf,
         `${stamp}-${namaPdf}`,
         'application/pdf',
         folder,
@@ -1813,7 +1844,12 @@ export class NaskahLainnyaService {
       uploadedKeys.push(pdfUpload.key);
 
       const patch: Partial<NaskahEntity> = { lampiran: docxUpload.key };
-      if (params.perihal) patch.perihal = params.perihal;
+      if (
+        params.perihal &&
+        (n.signOption !== 'ttd_basah' || !n.perihal?.trim())
+      ) {
+        patch.perihal = params.perihal;
+      }
       await this.naskahRepo.update(
         { id: n.id, tanggal: originalTanggal },
         patch,
@@ -1830,7 +1866,7 @@ export class NaskahLainnyaService {
           minioKey: pdfUpload.key,
           nama: namaPdf,
           mimetype: 'application/pdf',
-          ukuran: pdf.size,
+          ukuran: generatedPdf.length,
         },
       );
       return { success: true, data: { parameter: params } };
@@ -1906,13 +1942,7 @@ export class NaskahLainnyaService {
       const version = await this.dokumenRepo.findOne({
         where: { naskahId: n.id, minioKey: sourceKey },
       });
-      // Artifact hasil ttd digital (dittd/proses_ttd) selalu sajikan docx signed-nya
-      // sendiri: previewMinioKey di row itu adalah PDF warisan versi sumber yang
-      // BELUM bertanda tangan. FE merender docx inline via docx-preview.
-      const isSignedArtifact =
-        !!version &&
-        ['dittd', 'proses_ttd'].includes((version.status as string) ?? '');
-      if (version?.previewMinioKey && !isSignedArtifact) {
+      if (version?.previewMinioKey) {
         key = version.previewMinioKey;
         forcedMimetype = version.previewMimetype || 'application/pdf';
       }
@@ -2020,7 +2050,7 @@ export class NaskahLainnyaService {
     const rows = await this.approvalRepo.find({ where: { naskahId: id } });
 
     // Guard: hanya approver dengan status 'waiting' yang bisa melakukan aksi.
-    // Pemrakarsa/penandatangan tidak boleh approve naskah sendiri.
+    // Satu pejabat boleh merangkap pemrakarsa, verifikator, dan penandatangan.
     const targetRow = rows.find((r) => r.id === approvalId);
     if (!targetRow) {
       throw new BadRequestException('Baris approval tidak ditemukan');
@@ -2855,7 +2885,7 @@ export class NaskahLainnyaService {
     // Nomor baru diterbitkan setelah penandatangan terakhir menyetujui; dokumen
     // bertanda tangan basah diunggah pemrakarsa setelah workflow ini selesai.
     if (n.signOption === 'ttd_basah') {
-      if (isLast) await this.ensureNomorFinal(n);
+      if (isLast) await this.ensureNomorFinal(n, user);
       await this.dataSource.transaction(async (manager) => {
         await this.workflow.transisiTandaTangan(n, {
           aktor: user.nama,
@@ -2867,11 +2897,11 @@ export class NaskahLainnyaService {
       return this.getDetail(id, user);
     }
 
-    // ── Generate nomor final HANYA di signer terakhir (konteks pemrakarsa). ──
+    // ── Generate nomor final HANYA di signer terakhir (konteks signer terakhir). ──
     // Signer 1..N-1: nomor belum keluar (dokumen in-progress) → isi '' agar
     // placeholder {{nomor}} (bila ada) render kosong, bukan error docxtemplater.
     const nomor = isLast
-      ? await this.ensureNomorFinal(n)
+      ? await this.ensureNomorFinal(n, user)
       : n.nomor && !/{{\s*nomor\s*}}/i.test(n.nomor)
         ? n.nomor
         : '';
@@ -2897,6 +2927,10 @@ export class NaskahLainnyaService {
       signedSigners,
       { nomor },
     );
+    const signedPdf = await this.gotenberg.convertDocxToPdf(
+      signedBuffer,
+      'signed.docx',
+    );
 
     // Satu artifact signed yang DITIMPA tiap signer (filename stabil) — bukan
     // signed-1.docx, signed-2.docx menumpuk. File sebelumnya berganti.
@@ -2907,6 +2941,12 @@ export class NaskahLainnyaService {
       signedBuffer,
       filename,
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      folder,
+    );
+    const previewResult = await this.storage.uploadBuffer(
+      signedPdf,
+      'signed.pdf',
+      'application/pdf',
       folder,
     );
     // Hapus artifact signed sebelumnya agar storage tidak menumpuk (timpa, bukan tambah).
@@ -2928,7 +2968,12 @@ export class NaskahLainnyaService {
     n.signedLampiran = result.key;
     // Row dokumen signed: 'proses_ttd' (signer 1..N-1, belum final) → 'dittd'
     // (signer terakhir = final, terhighlight paling atas di section dokumen).
-    await this.upsertDittdRow(n.id, result.key, user, isLast);
+    await this.upsertDittdRow(n.id, result.key, user, isLast, {
+      minioKey: previewResult.key,
+      nama: 'signed.pdf',
+      mimetype: 'application/pdf',
+      ukuran: signedPdf.length,
+    });
 
     // Advance signing index / transisi ke selesai.
     await this.dataSource.transaction(async (manager) => {
@@ -3051,10 +3096,10 @@ export class NaskahLainnyaService {
       throw new BadRequestException('Dokumen final wajib diunggah.');
     }
     const lowerName = file.originalname.toLowerCase();
-    if (!lowerName.endsWith('.docx') && !lowerName.endsWith('.pdf')) {
-      throw new BadRequestException(
-        'Dokumen final harus berformat DOCX atau PDF.',
-      );
+    const isPdf =
+      lowerName.endsWith('.pdf') || file.mimetype === 'application/pdf';
+    if (!isPdf) {
+      throw new BadRequestException('Dokumen final harus berformat PDF.');
     }
 
     await this.ensureNomorFinal(n);
@@ -3065,6 +3110,7 @@ export class NaskahLainnyaService {
     const previousKey = n.signedLampiran;
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/final-manual`;
     const filename = `${Date.now()}-${file.originalname}`;
+    // PDF: simpan langsung — file itu sendiri adalah artifact final & preview.
     const result = await this.storage.uploadBuffer(
       file.buffer,
       filename,
@@ -3084,7 +3130,11 @@ export class NaskahLainnyaService {
     n.status = 'final';
     n.tahapan = 'selesai';
     n.signingIndex = null;
-    await this.upsertFinalManualRow(n.id, result.key, file, user);
+    await this.upsertFinalManualRow(n.id, result.key, file, user, {
+      minioKey: result.key,
+      nama: file.originalname,
+      ukuran: file.size,
+    });
     await this.catatRiwayatManual(
       n,
       user,
@@ -3284,19 +3334,34 @@ export class NaskahLainnyaService {
    * - null/placeholder → auto-generate via nomorService (counter naik) dalam tx + persist.
    * Idempotent: aman dipanggil ulang (signer ke-2 dst. menemukan n.nomor sudah ter-set).
    *
-   * ponytail: konteks generasi (company/area/abbreviation/dst) diambil dari snapshot
-   * dikirimOleh (pemrakarsa), bukan current user — di signing, user aktif adalah
-   * signer/evaluator (bukan pemrakarsa), jadi scope nomor harus ikut pemrakarsa.
+   * Saat dipanggil oleh aksi tanda tangan final, konteks generasi nomor memakai
+   * penandatangan terakhir. Snapshot dikirimOleh hanya menjadi fallback untuk
+   * perbaikan data legacy di luar fase tanda tangan.
    */
-  private async ensureNomorFinal(n: NaskahEntity): Promise<string> {
+  private async ensureNomorFinal(
+    n: NaskahEntity,
+    finalSigner?: CurrentUser,
+  ): Promise<string> {
     const existing =
       n.nomor && !/{{\s*nomor\s*}}/i.test(n.nomor) ? n.nomor : null;
     if (existing) return existing;
 
-    const ctx = n.dikirimOleh;
+    const ctx = finalSigner
+      ? {
+          company: finalSigner.company,
+          area: finalSigner.area,
+          subArea: finalSigner.subArea,
+          organization: finalSigner.organization,
+          position_id: finalSigner.positionId ?? finalSigner.position ?? '',
+          abbreviation:
+            finalSigner.positionAbbreviation ?? finalSigner.abbreviation,
+        }
+      : n.dikirimOleh;
     if (!ctx?.company || !ctx.area || !ctx.abbreviation) {
       throw new BadRequestException(
-        'Konteks pemrakarsa (company/area/abbreviation) tidak lengkap. Hubungi admin — naskah perlu di-kirim ulang.',
+        finalSigner
+          ? 'Data jabatan/lokasi penandatangan terakhir belum lengkap (abbreviation/area/company), hubungi admin.'
+          : 'Konteks penomoran legacy (company/area/abbreviation) tidak lengkap. Hubungi admin.',
       );
     }
     const tanggalNaskah =
@@ -3413,6 +3478,7 @@ export class NaskahLainnyaService {
     minioKey: string,
     file: Express.Multer.File,
     user: CurrentUser,
+    preview: { minioKey: string | null; nama: string | null; ukuran: number | null },
   ): Promise<void> {
     const existing = await this.dokumenRepo.findOne({
       where: { naskahId, tipe: 'naskah_fisik', status: 'final' as any },
@@ -3426,9 +3492,21 @@ export class NaskahLainnyaService {
       uploaderNama: user.nama,
       uploaderJabatan: user.positionText ?? null,
       uploaderPersnum: user.persnum,
+      previewMinioKey: preview.minioKey,
+      previewNama: preview.nama,
+      previewMimetype: 'application/pdf',
+      previewUkuran: preview.ukuran,
     };
     if (existing) {
       await this.dokumenRepo.update(existing.id, patch);
+      if (
+        existing.previewMinioKey &&
+        existing.previewMinioKey !== preview.minioKey
+      ) {
+        await this.storage
+          .deleteFile(existing.previewMinioKey)
+          .catch(() => undefined);
+      }
       return;
     }
     await this.dokumenRepo.save(
@@ -3472,6 +3550,12 @@ export class NaskahLainnyaService {
     minioKey: string,
     user: CurrentUser,
     final = true,
+    preview?: {
+      minioKey: string;
+      nama: string;
+      mimetype: string;
+      ukuran: number;
+    },
   ): Promise<void> {
     // Cari node signed yang sudah ada (status 'dittd' atau 'proses_ttd') — satu row
     // yang ditimpa tiap signer, bukan ditambah. Lalu update status sesuai final.
@@ -3485,15 +3569,11 @@ export class NaskahLainnyaService {
     const nama = minioKey.split('/').pop() ?? 'signed.docx';
     const status = final ? 'dittd' : 'proses_ttd';
     const tahapan = final ? 'selesai' : 'tanda_tangan';
-    // Preview PDF TIDAK diwariskan dari versi sumber: PDF itu belum bertanda tangan.
-    // Endpoint download menyajikan docx signed langsung untuk row status dittd/
-    // proses_ttd. Null-kan eksplisit agar row lama yang terlanjur mewarisi preview
-    // unsigned ikut bersih saat signer berikutnya menimpa row ini.
     const previewPatch = {
-      previewMinioKey: null,
-      previewNama: null,
-      previewMimetype: null,
-      previewUkuran: null,
+      previewMinioKey: preview?.minioKey ?? null,
+      previewNama: preview?.nama ?? null,
+      previewMimetype: preview?.mimetype ?? null,
+      previewUkuran: preview?.ukuran ?? null,
     };
     if (existing) {
       await this.dokumenRepo.update(existing.id, {
@@ -3524,6 +3604,14 @@ export class NaskahLainnyaService {
         ...previewPatch,
       });
       await this.dokumenRepo.save(doc);
+    }
+    if (
+      existing?.previewMinioKey &&
+      existing.previewMinioKey !== preview?.minioKey
+    ) {
+      await this.storage
+        .deleteFile(existing.previewMinioKey)
+        .catch(() => undefined);
     }
   }
 
@@ -3662,26 +3750,49 @@ export class NaskahLainnyaService {
     tipe: 'naskah_fisik' | 'pendukung',
     file: Express.Multer.File,
   ) {
+    const isPdf =
+      file?.originalname?.toLowerCase().endsWith('.pdf') ||
+      file?.mimetype === 'application/pdf';
+    if (!file?.buffer || !isPdf) {
+      throw new BadRequestException('Dokumen wajib berformat PDF.');
+    }
     const n = await this.findNaskah(id);
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/${tipe}`;
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.originalname}`;
-    const result = await this.storage.uploadBuffer(
-      file.buffer,
-      filename,
-      file.mimetype,
-      folder,
-    );
+    const uploadedKeys: string[] = [];
+    let doc: NaskahLainnyaDokumenEntity;
+    try {
+      const result = await this.storage.uploadBuffer(
+        file.buffer,
+        filename,
+        file.mimetype,
+        folder,
+      );
+      uploadedKeys.push(result.key);
 
-    const doc = this.dokumenRepo.create({
-      id: uuidv4(),
-      naskahId: n.id,
-      tipe,
-      nama: file.originalname,
-      minioKey: result.key,
-      mimetype: file.mimetype,
-      ukuran: file.size,
-    });
-    await this.dokumenRepo.save(doc);
+      doc = this.dokumenRepo.create({
+        id: uuidv4(),
+        naskahId: n.id,
+        tipe,
+        nama: file.originalname,
+        minioKey: result.key,
+        mimetype: file.mimetype,
+        ukuran: file.size,
+        // PDF: preview = file itu sendiri (inline viewer langsung).
+        previewMinioKey: result.key,
+        previewNama: file.originalname,
+        previewMimetype: 'application/pdf',
+        previewUkuran: file.size,
+      });
+      await this.dokumenRepo.save(doc);
+    } catch (error) {
+      await Promise.all(
+        uploadedKeys.map((key) =>
+          this.storage.deleteFile(key).catch(() => undefined),
+        ),
+      );
+      throw error;
+    }
 
     return {
       success: true,
@@ -3709,6 +3820,9 @@ export class NaskahLainnyaService {
     // Hapus file dari MinIO
     try {
       await this.storage.deleteFile(doc.minioKey);
+      if (doc.previewMinioKey) {
+        await this.storage.deleteFile(doc.previewMinioKey);
+      }
     } catch {
       /* abaikan */
     }
@@ -3726,16 +3840,7 @@ export class NaskahLainnyaService {
       where: { id: dokumenId, naskahId: id },
     });
     if (!doc) throw new NotFoundException('Dokumen tidak ditemukan');
-    // Row artifact hasil ttd digital (dittd/proses_ttd): previewMinioKey-nya adalah
-    // PDF warisan versi sumber yang belum bertanda tangan — sajikan docx signed-nya
-    // langsung (preview FE render inline via docx-preview, unduh = file aslinya).
-    const isSignedArtifact =
-      doc.tipe === 'naskah' &&
-      ['dittd', 'proses_ttd'].includes(doc.status ?? '');
-    const usePreview =
-      !isSignedArtifact &&
-      !!doc.previewMinioKey &&
-      (preview || ['final', 'dittd'].includes(doc.status ?? ''));
+    const usePreview = !!doc.previewMinioKey && preview;
     const key = usePreview ? doc.previewMinioKey! : doc.minioKey;
     const buffer = await this.storage.getFile(key);
     return {
@@ -4786,7 +4891,7 @@ export class NaskahLainnyaService {
       throw new BadRequestException('Lampiran naskah asli tidak ditemukan.');
     }
     const nomor = final
-      ? await this.ensureNomorFinal(naskah)
+      ? await this.ensureNomorFinal(naskah, user)
       : naskah.nomor && !/{{\s*nomor\s*}}/i.test(naskah.nomor)
         ? naskah.nomor
         : '';
@@ -4816,12 +4921,22 @@ export class NaskahLainnyaService {
       signedSigners,
       { nomor },
     );
+    const signedPdf = await this.gotenberg.convertDocxToPdf(
+      signedBuffer,
+      'signed.docx',
+    );
     const folder = `naskah-lainnya/${naskah.jenis}/${naskah.id}/signed`;
     const previousKey = naskah.signedLampiran;
     const upload = await this.storage.uploadBuffer(
       signedBuffer,
       'signed.docx',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      folder,
+    );
+    const previewUpload = await this.storage.uploadBuffer(
+      signedPdf,
+      'signed.pdf',
+      'application/pdf',
       folder,
     );
     if (
@@ -4840,7 +4955,12 @@ export class NaskahLainnyaService {
       { signedLampiran: upload.key },
     );
     naskah.signedLampiran = upload.key;
-    await this.upsertDittdRow(naskah.id, upload.key, user, final);
+    await this.upsertDittdRow(naskah.id, upload.key, user, final, {
+      minioKey: previewUpload.key,
+      nama: 'signed.pdf',
+      mimetype: 'application/pdf',
+      ukuran: signedPdf.length,
+    });
   }
 
   /**

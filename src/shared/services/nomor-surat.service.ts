@@ -72,7 +72,31 @@ const BULAN_ROMAWI: Record<number, string> = {
  * Parameter untuk generate nomor surat
  */
 export interface GenerateNomorParams {
-  jenis: 'DI' | 'ND' | 'SDI' | 'SDE' | 'KA' | 'PER' | 'KEP' | 'INS' | 'PKS' | 'BA';
+  jenis:
+    | 'DI'
+    | 'ND'
+    | 'SDI'
+    | 'SDE'
+    | 'KA'
+    | 'PER'
+    | 'KEP'
+    | 'INS'
+    | 'SPR'
+    | 'EDR'
+    | 'SOP'
+    | 'MOU'
+    | 'PKS'
+    | 'PROC'
+    | 'PJJ'
+    | 'LOA'
+    | 'SKU'
+    | 'BAC'
+    | 'KET'
+    | 'SPE'
+    | 'RPT'
+    | 'PEN'
+    | 'PGM'
+    | 'LAP';
   positionText: string;
   positionAbbreviation?: string; // Abbreviation dari org_data (untuk semua jenis surat)
   areaText: string;
