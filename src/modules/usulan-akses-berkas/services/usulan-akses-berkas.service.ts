@@ -32,6 +32,8 @@ import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
+import { NotificationService } from '../../notification/services/notification.service';
+import { NotificationType } from '../../notification/entities/notification.entity';
 
 /**
  * ID organization "Corporate Secretary Division" (TU)
@@ -83,6 +85,7 @@ export class UsulanAksesBerkasService {
     private readonly dataSource: DataSource,
     private readonly orgDataService: OrgDataService,
     private readonly storageService: StorageService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ── Helper: Generate Nomor Usulan ──────────────────────────────
@@ -471,6 +474,28 @@ export class UsulanAksesBerkasService {
 
     const saved = await this.usulanRepo.save(usulan);
     this.logger.log(`Usulan created: ${saved.nomor_usulan} by persnum=${userPersnum}`);
+
+    // Notifikasi ke Verifikator Pengusul Jenjang 1
+    const v1 = saved.verifikator_pengusul?.find((v) => v.urutan === 1);
+    if (v1) {
+      try {
+        await this.notificationService.createNotification({
+          positionId: '0',
+          userPersnum: v1.persnum,
+          type: NotificationType.SYSTEM,
+          title: 'Usulan Akses Berkas Menunggu Verifikasi',
+          body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu verifikasi Anda.`,
+          data: {
+            action: 'OPEN_USULAN_PINDAH', // fallback action atau route terdaftar
+            id: saved.id,
+            nomorUsulan: saved.nomor_usulan,
+          },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to send create notification: ${err?.message}`);
+      }
+    }
+
     return saved;
   }
 
@@ -870,6 +895,39 @@ export class UsulanAksesBerkasService {
     this.logger.log(
       `Verifikasi pengusul jenjang ${jenjang}: ${dto.keputusan} by persnum=${userPersnum}`,
     );
+
+    // Kirim notifikasi sesuai keputusan & status baru
+    try {
+      if (dto.keputusan === Keputusan.TOLAK || dto.keputusan === Keputusan.REVISI) {
+        // Notifikasi ke SE Pengusul
+        await this.notificationService.createNotification({
+          positionId: '0',
+          userPersnum: saved.pengusul_persnum,
+          type: NotificationType.SYSTEM,
+          title: 'Usulan Akses Berkas Perlu Revisi',
+          body: `Usulan ${saved.nomor_usulan} perlu revisi: ${dto.catatan_revisi || dto.catatan || 'Mohon disesuaikan.'}`,
+          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+        });
+      } else if (dto.keputusan === Keputusan.SETUJU) {
+        if (jenjang < totalJenjang) {
+          // Notifikasi ke Verifikator Pengusul berikutnya
+          const nextV = saved.verifikator_pengusul?.find((v) => v.urutan === jenjang + 1);
+          if (nextV) {
+            await this.notificationService.createNotification({
+              positionId: '0',
+              userPersnum: nextV.persnum,
+              type: NotificationType.SYSTEM,
+              title: 'Usulan Akses Berkas Menunggu Verifikasi',
+              body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu verifikasi Anda.`,
+              data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+            });
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to send verifikasiPengusul notification: ${err?.message}`);
+    }
+
     return saved;
   }
 
@@ -1036,6 +1094,24 @@ export class UsulanAksesBerkasService {
 
     const saved = await this.usulanRepo.save(usulan);
     this.logger.log(`Pilih berkas: ${dto.berkas_ids.length} berkas by persnum=${user.persnum}`);
+
+    // Notifikasi ke Verifikator Pemberi Jenjang 1
+    const v1 = saved.verifikator_pemberi?.find((v) => v.urutan === 1);
+    if (v1) {
+      try {
+        await this.notificationService.createNotification({
+          positionId: '0',
+          userPersnum: v1.persnum,
+          type: NotificationType.SYSTEM,
+          title: 'Usulan Akses Berkas Menunggu Persetujuan',
+          body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu persetujuan Anda.`,
+          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to send pilihBerkas notification: ${err?.message}`);
+      }
+    }
+
     return saved;
   }
 
@@ -1243,6 +1319,51 @@ export class UsulanAksesBerkasService {
     this.logger.log(
       `Persetujuan pemberi jenjang ${jenjang}: ${dto.keputusan} by persnum=${userPersnum}`,
     );
+
+    try {
+      if (dto.keputusan === Keputusan.SETUJU) {
+        if (jenjang < totalJenjang) {
+          const nextV = saved.verifikator_pemberi?.find((v) => v.urutan === jenjang + 1);
+          if (nextV) {
+            await this.notificationService.createNotification({
+              positionId: '0',
+              userPersnum: nextV.persnum,
+              type: NotificationType.SYSTEM,
+              title: 'Usulan Akses Berkas Menunggu Persetujuan',
+              body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu persetujuan Anda.`,
+              data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+            });
+          }
+        } else {
+          // Jenjang terakhir disetujui → Akses Diterbitkan! Notify pengusul & penerima tambahan
+          const recipients = Array.from(new Set([saved.pengusul_persnum, ...(saved.penerima_akses_tambahan || [])]));
+          await Promise.all(
+            recipients.map((persnum) =>
+              this.notificationService.createNotification({
+                positionId: '0',
+                userPersnum: persnum,
+                type: NotificationType.SYSTEM,
+                title: 'Akses Berkas Diterbitkan',
+                body: `Akses untuk usulan ${saved.nomor_usulan} — ${saved.judul_usulan} telah diterbitkan dan dapat diakses.`,
+                data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+              }),
+            ),
+          );
+        }
+      } else if (dto.keputusan === Keputusan.TOLAK || dto.keputusan === Keputusan.REVISI) {
+        await this.notificationService.createNotification({
+          positionId: '0',
+          userPersnum: saved.pengusul_persnum,
+          type: NotificationType.SYSTEM,
+          title: 'Persetujuan Akses Berkas Ditolak / Perlu Revisi',
+          body: `Usulan ${saved.nomor_usulan} permohonan akses berkas: ${dto.catatan_revisi || dto.catatan || 'Ditolak/perlu revisi.'}`,
+          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to send persetujuanPemberi notification: ${err?.message}`);
+    }
+
     return saved;
   }
 
