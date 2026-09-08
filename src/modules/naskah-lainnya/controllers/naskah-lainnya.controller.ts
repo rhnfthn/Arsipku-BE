@@ -351,7 +351,13 @@ export class NaskahLainnyaController {
     @Body() dto: TandaTanganDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.service.tandaTangan(id, dto.passphrase, user);
+    return this.service.tandaTangan(
+      id,
+      dto.passphrase,
+      user,
+      dto.signMethod,
+      dto.catatan,
+    );
   }
 
   @Post(':id/tanda-tangan/tolak')
