@@ -2778,6 +2778,7 @@ export class SdeMasalService {
   private async refreshFolderCounters(folderId: string): Promise<void> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) return;
+    const previousStatus = folder.status;
     const rows = await this.repo.find({ where: { folderId } });
     const totalItems = rows.length;
     const totalTerkirim = rows.filter(
@@ -2796,7 +2797,20 @@ export class SdeMasalService {
       (row) => row.statusVerifikasi === 'MENUNGGU_VERIFIKASI',
     ).length;
 
-    if (totalItems === 0) {
+    // Penolakan pengirim mengembalikan folder ke konseptor, sementara item
+    // yang sudah diverifikasi tetap berstatus TERVERIFIKASI. Jangan biarkan
+    // sinkronisasi counter otomatis mengubah DIKEMBALIKAN menjadi
+    // MENUNGGU_PENGIRIM sebelum konseptor mengajukan ulang foldernya.
+    const keepReturnedStatus =
+      previousStatus === 'DIKEMBALIKAN' &&
+      totalItems > 0 &&
+      totalMenungguVerifikasi === 0 &&
+      totalDitolak === 0 &&
+      totalTerkirim < totalItems;
+
+    if (keepReturnedStatus) {
+      folder.status = 'DIKEMBALIKAN';
+    } else if (totalItems === 0) {
       folder.status = 'DRAFT';
     } else if (totalTerkirim === totalItems) {
       folder.status = 'TERKIRIM';
