@@ -164,8 +164,7 @@ export class GeneratePdfKajianService {
 
     // Check masing-masing field terpisah
     const tertujuExceedsLimit = tertujuArray.length > 5;
-    const tembusanExceedsLimit = tembusanArray.length > 5;
-    const needsAddressPage = tertujuExceedsLimit || tembusanExceedsLimit;
+    const needsAddressPage = tertujuExceedsLimit;
 
     // Process tertuju
     let penerimaHtml = '';
@@ -188,20 +187,14 @@ export class GeneratePdfKajianService {
 
     // Process tembusan
     let tembusanHtml = '';
-    if (tembusanExceedsLimit) {
-      // Jika tembusan > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
-      tembusanHtml = 'Periksa Alamat Terlampir';
-    } else {
-      // <= 5 items, tampilkan semua normal
-      if (tembusanArray.length > 1) {
-        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
-        tembusanArray.forEach((item) => {
-          tembusanHtml += `<li>${item}</li>`;
-        });
-        tembusanHtml += '</ol>';
-      } else if (tembusanArray.length === 1) {
-        tembusanHtml = tembusanArray[0] || '';
-      }
+    if (tembusanArray.length > 1) {
+      tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
+      tembusanArray.forEach((item) => {
+        tembusanHtml += `<li>${item}</li>`;
+      });
+      tembusanHtml += '</ol>';
+    } else if (tembusanArray.length === 1) {
+      tembusanHtml = tembusanArray[0] || '';
     }
 
     // Header dengan logo
@@ -326,15 +319,6 @@ export class GeneratePdfKajianService {
         tertujuListHtml += '</ol>';
       }
 
-      let tembusanListHtml = '';
-      if (tembusanExceedsLimit) {
-        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
-        tembusanArray.forEach((item) => {
-          tembusanListHtml += `<li>${item}</li>`;
-        });
-        tembusanListHtml += '</ol>';
-      }
-
       addressPageContent = `
         <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
@@ -356,16 +340,6 @@ export class GeneratePdfKajianService {
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>KEPADA YTH :</b><br>
                 ${tertujuListHtml}
-              </td>
-            </tr>`
-                : ''
-            }
-            ${
-              tembusanExceedsLimit
-                ? `<tr>
-              <td style="vertical-align:top;">
-                <b>TEMBUSAN :</b><br>
-                ${tembusanListHtml}
               </td>
             </tr>`
                 : ''

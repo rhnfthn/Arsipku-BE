@@ -1061,9 +1061,18 @@ export class SdeMasalService {
     positionId?: string,
     persnum?: string,
   ) {
-    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    let folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    // Repair folder lama yang sudah berada di tahap finalisasi tetapi masih
+    // menyimpan pengirim otomatis yang salah.
+    if (folder.status === 'MENUNGGU_PENGIRIM') {
+      await this.refreshFolderCounters(folderId);
+      folder = await this.folderRepo.findOne({ where: { id: folderId } });
+      if (!folder)
+        throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    }
 
     try {
       const org = await this.orgDataService.findLatestOrg();
@@ -1102,13 +1111,15 @@ export class SdeMasalService {
     if (!isOwner) {
       // Cek apakah user adalah verifikator di salah satu item folder ini.
       const folderItems = await this.repo.find({ where: { folderId } });
-      const isVerifikator =
-        folder.status === 'MENUNGGU_VERIFIKASI' && folderItems.some((item) =>
+      const isVerifikator = folderItems.some((item) =>
         (item.verifikators || []).some((v: any) => {
           const samePersnum = persnum && String(v.persnum) === String(persnum);
           const samePosition =
             positionId && String(v.position) === String(positionId);
-          return (samePersnum || samePosition) && v.status === 'waiting';
+          return (
+            (samePersnum || samePosition) &&
+            ['waiting', 'verified', 'rejected'].includes(v.status)
+          );
         }),
       );
 
@@ -1353,20 +1364,20 @@ export class SdeMasalService {
     const persnum = String(user?.persnum ?? user?.username ?? '').trim();
     const position = String(user?.position ?? user?.positionId ?? '').trim();
 
-    const rows = await this.repo
-      .createQueryBuilder('s')
-      .andWhere('s.status_verifikasi = :status', {
-        status: 'MENUNGGU_VERIFIKASI',
-      })
-      .getMany();
+    // Ambil seluruh item agar riwayat keputusan verifikator tetap terlihat
+    // setelah status waiting berubah menjadi verified/rejected.
+    const rows = await this.repo.createQueryBuilder('s').getMany();
 
-    // Akses dibatasi ke verifikator yang sedang mendapat giliran.
+    // Tampilkan tugas aktif sekaligus riwayat keputusan user pada folder.
     const myItems = rows.filter((item) =>
       (item.verifikators || []).some((verifikator: any) => {
         const samePersnum = persnum && String(verifikator.persnum) === persnum;
         const samePosition =
           position && String(verifikator.position) === position;
-        return (samePersnum || samePosition) && verifikator.status === 'waiting';
+        return (
+          (samePersnum || samePosition) &&
+          ['waiting', 'verified', 'rejected'].includes(verifikator.status)
+        );
       }),
     );
 
@@ -1404,8 +1415,36 @@ export class SdeMasalService {
       : [];
 
     return folders.map((folder) => {
-      const assignedItems = myItems.filter((item) => item.folderId === folder.id);
       const items = allItems.filter((item) => item.folderId === folder.id);
+      const assignedItems = myItems.filter(
+        (item) =>
+          item.folderId === folder.id &&
+          (item.verifikators || []).some((verifikator: any) => {
+            const samePersnum = persnum && String(verifikator.persnum) === persnum;
+            const samePosition =
+              position && String(verifikator.position) === position;
+            return (
+              (samePersnum || samePosition) && verifikator.status === 'waiting'
+            );
+          }),
+      );
+      const myVerificationStatuses = items
+        .flatMap((item) => item.verifikators || [])
+        .filter((verifikator: any) => {
+          const samePersnum = persnum && String(verifikator.persnum) === persnum;
+          const samePosition =
+            position && String(verifikator.position) === position;
+          return samePersnum || samePosition;
+        });
+      const hasWaiting = myVerificationStatuses.some((v: any) => v.status === 'waiting');
+      const hasRejected = myVerificationStatuses.some((v: any) => v.status === 'rejected');
+      const myVerificationStatus = hasWaiting
+        ? 'MENUNGGU_VERIFIKASI'
+        : hasRejected
+          ? 'DITOLAK'
+          : myVerificationStatuses.some((v: any) => v.status === 'verified')
+            ? 'TERVERIFIKASI'
+            : null;
       const isFinalSender =
         String(folder.pengirimId || '') === position &&
         ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status);
@@ -1421,6 +1460,7 @@ export class SdeMasalService {
         totalItems: items.length,
         waitingCount,
         workflowRole: isFinalSender ? 'PENGIRIM_AKHIR' : 'VERIFIKATOR',
+        myVerificationStatus,
         verifiedCount: items.filter((item) => item.statusVerifikasi === 'TERVERIFIKASI').length,
         rejectedCount: items.filter((item) => item.statusVerifikasi === 'DITOLAK').length,
       };
@@ -2719,30 +2759,34 @@ export class SdeMasalService {
       folder.status = 'DRAFT';
     }
 
-    // Jika data lama pernah menimpa nama pengirim menjadi Direktur Utama,
-    // pulihkan identitas pengirim sebelumnya dari snapshot verifikator.
-    // Penandatangan akhir tetap disimpan pada pengirimId di bawah.
-    const previousSenderName = this.getPreviousVerifiedSenderName(rows);
-    // Pada alur berjenjang, setelah AVP/VP/EVP selesai, tugas akhir selalu
-    // berpindah ke Direktur Utama. Posisi diambil dari master organisasi,
-    // bukan dari nama yang dikirim oleh client, supaya akses pengirim tidak
-    // dapat dipalsukan dan label jabatan tetap konsisten dengan SDE biasa.
+    // Setelah seluruh jenjang verifikasi selesai, verifikator terakhir menjadi
+    // pengirim final. Ini juga memulihkan folder lama yang sebelumnya salah
+    // dipindahkan otomatis ke Direktur Utama.
     if (folder.status === 'MENUNGGU_PENGIRIM') {
-      const direkturUtama = await this.findPositionByRole(4);
-      if (direkturUtama) {
-        // pengirimName adalah identitas pengirim/konseptor sebelumnya dan
-        // tidak boleh berubah hanya karena tugas final berpindah ke Dirut.
-        // ID penandatangan akhir tetap dipindahkan agar akses dan finalisasi
-        // berjalan atas akun Direktur Utama.
-        if (previousSenderName) folder.pengirimName = previousSenderName;
-        folder.pengirimId = String(direkturUtama.position);
+      const previousSender = this.getPreviousVerifiedSender(rows);
+      if (previousSender?.position) {
+        folder.pengirimId = String(previousSender.position);
+        folder.pengirimName = [previousSender.nama, previousSender.jabatan]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .join(' - ');
       }
     }
     await this.folderRepo.save(folder);
   }
 
   private getPreviousVerifiedSenderName(rows: SdeMasalEntity[]): string {
-    const previousSender = rows
+    const previousSender = this.getPreviousVerifiedSender(rows);
+    return previousSender
+      ? [previousSender?.nama, previousSender?.jabatan || previousSender?.positionText]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .join(' - ')
+      : '';
+  }
+
+  private getPreviousVerifiedSender(rows: SdeMasalEntity[]): any | null {
+    return rows
       .flatMap((row) => Array.isArray(row.verifikators) ? row.verifikators : [])
       .filter((verifikator: any) =>
         verifikator?.status === 'verified' &&
@@ -2750,12 +2794,6 @@ export class SdeMasalService {
       )
       .sort((a: any, b: any) => Number(a?.urutan || 0) - Number(b?.urutan || 0))
       .pop();
-    return previousSender
-      ? [previousSender?.nama, previousSender?.jabatan || previousSender?.positionText]
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-          .join(' - ')
-      : '';
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
