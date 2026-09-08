@@ -35,6 +35,13 @@ import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SearchModule } from '../search/search.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
+import { CorrespondenceRoutingRole } from '../correspondence-routing/entities/correspondence-routing-role.entity';
+import { CorrespondenceRoutingRoleMember } from '../correspondence-routing/entities/correspondence-routing-role-member.entity';
+import { CorrespondenceRoutingRule } from '../correspondence-routing/entities/correspondence-routing-rule.entity';
+import { CorrespondenceRoutingRuleScope } from '../correspondence-routing/entities/correspondence-routing-rule-scope.entity';
+import { NaskahRoutingApplied } from '../correspondence-routing/entities/naskah-routing-applied.entity';
+import { CorrespondenceRoutingResolverService } from '../correspondence-routing/services/correspondence-routing-resolver.service';
+import { RoutingConfigCacheService } from '../correspondence-routing/services/routing-config-cache.service';
 
 @Module({
   imports: [
@@ -54,6 +61,11 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
       RelationOa,
       OmPosition,
       OmAreaSub,
+      CorrespondenceRoutingRole,
+      CorrespondenceRoutingRoleMember,
+      CorrespondenceRoutingRule,
+      CorrespondenceRoutingRuleScope,
+      NaskahRoutingApplied,
     ]),
     OrgDataModule,
     StorageModule,
@@ -63,7 +75,12 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
     NaskahSirkulasiModule,
   ],
   controllers: [DisposisiController],
-  providers: [DisposisiService, NomorSuratService],
+  providers: [
+    DisposisiService,
+    NomorSuratService,
+    CorrespondenceRoutingResolverService,
+    RoutingConfigCacheService,
+  ],
   exports: [DisposisiService],
 })
 export class DisposisiModule {}

@@ -26,6 +26,53 @@ describe('OrgDataService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('position-only snapshots', () => {
+    const snapshot = {
+      id: 'snapshot-1',
+      tgl: '2026-09-08',
+      position_json: [{ position: 70000001 }],
+    };
+
+    const useQueryBuilder = () => {
+      const qb = {
+        select: jest.fn(),
+        where: jest.fn(),
+        orderBy: jest.fn(),
+        limit: jest.fn(),
+        getOne: jest.fn().mockResolvedValue(snapshot),
+      };
+      qb.select.mockReturnValue(qb);
+      qb.where.mockReturnValue(qb);
+      qb.orderBy.mockReturnValue(qb);
+      qb.limit.mockReturnValue(qb);
+      (service as any).cRepo = { createQueryBuilder: jest.fn(() => qb) };
+      return qb;
+    };
+
+    it('loads latest position_json without selecting organization_json and caches it', async () => {
+      const qb = useQueryBuilder();
+      await service.findLatestPositionSnapshot();
+      await service.findLatestPositionSnapshot();
+
+      expect(qb.select).toHaveBeenCalledWith([
+        'organization_build.id',
+        'organization_build.tgl',
+        'organization_build.position_json',
+      ]);
+      expect(qb.getOne).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads an exact dated position snapshot with a bound parameter', async () => {
+      const qb = useQueryBuilder();
+      await service.findPositionSnapshot('2026-09-08');
+
+      expect(qb.where).toHaveBeenCalledWith('organization_build.tgl = :tgl', {
+        tgl: '2026-09-08',
+      });
+      expect(qb.getOne).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('getAtasanManagerial', () => {
     // Posisi pengaju (AVP) di direktorat 1, EVP di divisi yang sama, dan
     // Direktur Utama di direktorat berbeda (2). Tanpa jaminan "wajib ada",

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
   HttpException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -70,6 +71,12 @@ import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partitio
 import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
+import { CorrespondenceRoutingResolverService } from '../../correspondence-routing/services/correspondence-routing-resolver.service';
+import type {
+  EffectiveRoutingPlan,
+} from '../../correspondence-routing/services/correspondence-routing-resolver.service';
+import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
+import { NaskahRoutingApplied } from '../../correspondence-routing/entities/naskah-routing-applied.entity';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -162,6 +169,8 @@ export class DisposisiService {
     private readonly qrCodeService: QRCodeService,
     private readonly digsigService: DigsigService,
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
+    @Optional()
+    private readonly correspondenceRoutingResolver?: CorrespondenceRoutingResolverService,
   ) {}
 
   private pengirimSirkulasiFields(
@@ -1108,7 +1117,14 @@ export class DisposisiService {
     const recipientData = this.filterByPositionDispo(barisData, positionId);
 
     // Filter: exclude self
-    const recipients = recipientData.filter((r) => r.position !== positionId);
+    const structuralRecipients = recipientData.filter(
+      (r) => r.position !== positionId,
+    );
+    const recipients = await this.resolveDiRecipients(
+      positionId,
+      structuralRecipients,
+      'CREATE',
+    );
 
     const totalRecipients = recipients.length;
     const uniqueOrgIds = new Set(recipients.map((r) => r.organization_id));
@@ -1138,18 +1154,35 @@ export class DisposisiService {
    *
    * @throws ForbiddenException if any penerima is not a valid recipient
    */
-  private validateRecipients(
+  private async validateRecipients(
     barisData: PositionData[],
     pengirimPositionId: number,
     penerimaPositionIds: number[],
-  ): void {
+    actionType: 'CREATE' | 'FORWARD' = 'CREATE',
+  ): Promise<EffectiveRoutingPlan | null> {
     // Get valid recipients for this sender
     const validRecipients = this.filterByPositionDispo(
       barisData,
       pengirimPositionId,
     );
+    let effectiveRecipients: PositionData[] = validRecipients;
+    let routingPlan: EffectiveRoutingPlan | null = null;
+    if (
+      process.env.CORRESPONDENCE_ROUTING_ENABLED === 'true' &&
+      this.correspondenceRoutingResolver
+    ) {
+      const plan = await this.correspondenceRoutingResolver.resolve({
+        company: COMPANY_ID,
+        documentType: 'DI',
+        actionType,
+        senderPositionId: pengirimPositionId,
+        structuralRecipients: validRecipients,
+      });
+      routingPlan = plan;
+      effectiveRecipients = plan.effectiveRecipients as PositionData[];
+    }
     const validPositionIds = new Set(
-      validRecipients.map((r) => Number(r.position)),
+      effectiveRecipients.map((r) => Number(r.position)),
     );
 
     // Check each penerima
@@ -1166,6 +1199,67 @@ export class DisposisiService {
           `Disposisi hanya bisa dikirim ke bawahan langsung/tidak langsung dalam struktur organisasi yang sama.`,
       );
     }
+    return routingPlan;
+  }
+
+  private async resolveDiRecipients(
+    senderPositionId: number,
+    structuralRecipients: PositionData[],
+    actionType: 'CREATE' | 'FORWARD',
+  ): Promise<PositionData[]> {
+    if (
+      process.env.CORRESPONDENCE_ROUTING_ENABLED !== 'true' ||
+      !this.correspondenceRoutingResolver
+    )
+      return structuralRecipients;
+    const plan = await this.correspondenceRoutingResolver.resolve({
+      company: COMPANY_ID,
+      documentType: 'DI',
+      actionType,
+      senderPositionId,
+      structuralRecipients:
+        structuralRecipients as unknown as RoutingPosition[],
+    });
+    return plan.effectiveRecipients as PositionData[];
+  }
+
+  private async persistRoutingApplied(
+    manager: import('typeorm').EntityManager,
+    naskahId: string,
+    naskahDate: Date | string,
+    senderPositionId: number,
+    selectedPositionIds: number[],
+    plan: EffectiveRoutingPlan | null,
+  ): Promise<void> {
+    if (!plan || !plan.matchedRuleIds.length) return;
+    const selected = new Set(selectedPositionIds.map(Number));
+    const rows = plan.configuredRecipients
+      .filter((target) => selected.has(Number(target.position)))
+      .flatMap((target) => {
+        const metadata = plan.metadataByPositionId[Number(target.position)];
+        return (metadata?.routingRuleIds ?? []).map((ruleId) => ({
+          id: uuidv4(),
+          id_naskah: naskahId,
+          naskah_tanggal:
+            naskahDate instanceof Date
+              ? naskahDate.toISOString().slice(0, 10)
+              : String(naskahDate).slice(0, 10),
+          rule_id: ruleId,
+          source_position_id: senderPositionId,
+          target_position_id: Number(target.position),
+          delivery_type: 'PENERIMA' as const,
+          effect: metadata.effect,
+          mandatory: Number(metadata.mandatory),
+          rule_snapshot: {
+            routing_rule_ids: metadata.routingRuleIds,
+            effect: metadata.effect,
+            mandatory: metadata.mandatory,
+            document_type: 'DI',
+          },
+        }));
+      });
+    if (rows.length)
+      await manager.getRepository(NaskahRoutingApplied).insert(rows);
   }
 
   // ============================================================
@@ -1342,6 +1436,7 @@ export class DisposisiService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let routingPlan: EffectiveRoutingPlan | null = null;
     try {
       const isPending = dto.sign_option === SignOption.TTD_BASAH;
 
@@ -1391,7 +1486,7 @@ export class DisposisiService {
       }
 
       // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-      this.validateRecipients(
+      routingPlan = await this.validateRecipients(
         barisData,
         dto.pengirim_position_id,
         dto.penerima_position_ids,
@@ -1451,6 +1546,16 @@ export class DisposisiService {
       });
 
       await queryRunner.manager.save(naskah);
+
+      if (!isPending)
+        await this.persistRoutingApplied(
+          queryRunner.manager,
+          naskahId,
+          naskah.tanggal,
+          dto.pengirim_position_id,
+          dto.penerima_position_ids,
+          routingPlan,
+        );
 
       // PHASE 4: Insert ke tabel NASKAH_REFERENSI
       // Bisa dari 2 sumber:
@@ -1915,7 +2020,7 @@ export class DisposisiService {
       }
 
       // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-      this.validateRecipients(
+      await this.validateRecipients(
         barisData,
         dto.pengirim_position_id,
         dto.penerima_position_ids,
@@ -2478,6 +2583,7 @@ export class DisposisiService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let routingPlan: EffectiveRoutingPlan | null = null;
     try {
       // PHASE 3: Update tabel naskah
 
@@ -2596,7 +2702,7 @@ export class DisposisiService {
       // PHASE 5: Update penerima (jika ada perubahan)
       if (dto.penerima_position_ids && dto.penerima_position_ids.length > 0) {
         // Validate recipients: hanya bawahan yang valid (dari get-recipient)
-        this.validateRecipients(
+        routingPlan = await this.validateRecipients(
           barisData,
           dto.pengirim_position_id,
           dto.penerima_position_ids,
@@ -2762,6 +2868,16 @@ export class DisposisiService {
           },
         );
       }
+
+      if (!isDraft)
+        await this.persistRoutingApplied(
+          queryRunner.manager,
+          naskahId,
+          naskah.tanggal,
+          dto.pengirim_position_id,
+          dto.penerima_position_ids ?? [],
+          routingPlan,
+        );
 
       // PHASE 7: Update tabel "di" (jika ada perubahan field konten)
       const hasDiFields =
@@ -3274,6 +3390,7 @@ export class DisposisiService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let routingPlan: EffectiveRoutingPlan | null = null;
     try {
       // PHASE 1: Validasi naskah yang diterima exists
       const naskahDiterima = await this.naskahRepository.findOne({
@@ -3352,10 +3469,11 @@ export class DisposisiService {
       }
 
       // Validate recipients (hanya bawahan valid)
-      this.validateRecipients(
+      routingPlan = await this.validateRecipients(
         barisData,
         dto.pengirim_position_id,
         dto.penerima_position_ids,
+        'FORWARD',
       );
 
       // PHASE 5: Auto-generate nomor surat untuk forward disposisi dengan integrated numbering
@@ -3747,6 +3865,15 @@ export class DisposisiService {
           queryRunner.manager,
         );
       }
+
+      await this.persistRoutingApplied(
+        queryRunner.manager,
+        naskahId,
+        tanggalDisposisi,
+        dto.pengirim_position_id,
+        dto.penerima_position_ids,
+        routingPlan,
+      );
 
       // Commit transaction
       await queryRunner.commitTransaction();
