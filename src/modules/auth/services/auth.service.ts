@@ -23,6 +23,7 @@ import {
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { isDelegatedActor } from '../../../common/helpers/delegasi-rendering.helper';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 
 @Injectable()
 export class AuthService {
@@ -130,52 +131,7 @@ export class AuthService {
   }
 
   /**
-   * Get NIK/KTP user dari HR API berdasarkan persnum
-   * @param persnum - Persnum user
-   * @param accessToken - AirNav access token untuk authorization
-   * @returns NIK 16 digit atau null jika tidak ditemukan
-   */
-  private async fetchNikFromHrApi(
-    persnum: number,
-    accessToken: string,
-  ): Promise<string | null> {
-    try {
-      console.log(`[AuthService] Fetching NIK for persnum: ${persnum}`);
-
-      const response = await firstValueFrom(
-        this.httpService.get(
-          `https://api.airnavindonesia.co.id/dataset-dev/hc/personal-ids/${persnum}`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${accessToken}`,
-            },
-            timeout: 30000,
-          },
-        ),
-      );
-
-      const data = response.data?.data ?? [];
-      // subType '01' = KTP
-      const filterktp = data.find((x: any) => x.subType === '01');
-
-      if (filterktp) {
-        console.log(
-          `[AuthService] NIK found: ${filterktp.number.substring(0, 4)}****`,
-        );
-        return filterktp.number;
-      }
-
-      console.log('[AuthService] NIK not found in HR API');
-      return null;
-    } catch (error: any) {
-      console.error('[AuthService] Error fetching NIK:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Fetch NIK dari HR API (sama dengan logic di /digsig/ktp)
+   * Gunakan NIK bersama untuk seluruh integrasi BSrE.
    * noWa tidak di-fetch karena data kosong/tidak tersedia
    * @param persnum - Persnum user
    * @param accessToken - AirNav access token
@@ -183,16 +139,13 @@ export class AuthService {
    */
   private async fetchUserPersonalData(
     persnum: number,
-    accessToken: string,
+    _accessToken: string,
   ): Promise<{ nik: string | null; noWa: string | null }> {
-    console.log(`[AuthService] Fetching personal data for persnum: ${persnum}`);
-
-    // Fetch NIK dari HR API (sama dengan /digsig/ktp)
-    const nik = await this.fetchNikFromHrApi(persnum, accessToken);
+    console.log(`[AuthService] Using shared BSrE NIK for persnum: ${persnum}`);
 
     // noWa tidak di-fetch karena data kosong/tidak tersedia
     // Field tetap ada untuk compatibility
-    return { nik, noWa: null };
+    return { nik: DEFAULT_BSRE_NIK, noWa: null };
   }
 
   /**

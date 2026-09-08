@@ -4,26 +4,26 @@ import { Repository } from 'typeorm';
 import { ConfigNaskahLainnya } from '../entities';
 
 // Sumber kebenaran jenis naskah lainnya — selaras dengan FE JENIS_LABELS
-// (fe/app/types/naskah-lainnya.ts).
+// (fe/app/types/naskah-lainnya.ts) & docs/template_naskah_mapping.md.
 export const JENIS_NASKAH_LAINNYA = [
   'PER',
   'KEP',
   'INS',
-  'SPD',
-  'SED',
+  'SPR',
+  'EDR',
   'SOP',
-  'KSB',
+  'MOU',
   'PKS',
-  'KTP',
-  'PJL',
+  'PROC',
+  'PJJ',
   'LOA',
   'SKU',
-  'BA',
-  'SKE',
-  'SPR',
-  'RRA',
-  'PUM',
-  'PIA',
+  'BAC',
+  'KET',
+  'SPE',
+  'RPT',
+  'PEN',
+  'PGM',
   'LAP',
 ] as const;
 

@@ -14,10 +14,10 @@ export class NaskahReferensiEntity {
 
   @Column({
     type: 'enum',
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPD', 'SED', 'SOP', 'KSB', 'PKS', 'KTP', 'PJL', 'LOA', 'SKU', 'BA', 'SKE', 'SPR', 'RRA', 'PUM', 'PIA', 'LAP'],
+    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC', 'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP'],
     nullable: true,
   })
-  ref_jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPD' | 'SED' | 'SOP' | 'KSB' | 'PKS' | 'KTP' | 'PJL' | 'LOA' | 'SKU' | 'BA' | 'SKE' | 'SPR' | 'RRA' | 'PUM' | 'PIA' | 'LAP' | null;
+  ref_jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPR' | 'EDR' | 'SOP' | 'MOU' | 'PKS' | 'PROC' | 'PJJ' | 'LOA' | 'SKU' | 'BAC' | 'KET' | 'SPE' | 'RPT' | 'PEN' | 'PGM' | 'LAP' | null;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   ref_pengirim: string | null;
