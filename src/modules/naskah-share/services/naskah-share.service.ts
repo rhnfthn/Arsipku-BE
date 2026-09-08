@@ -824,30 +824,30 @@ export class NaskahShareService {
         }),
       );
 
-      // Send notification to pemberi
-      try {
-        await this.notificationService.createNotification(
-          {
-            positionId: share.pemberiId,
-            userPersnum: share.pemberiPersnum,
-            type: NotificationType.NASKAH_SHARE_DIBUKA,
-            title: `${user.nama} membuka naskah yang Anda bagikan`,
-            body: naskah?.perihal || '',
-            data: {
-              naskahId: share.naskahId,
-              shareId: id,
-              recipientName: user.nama,
-              perihal: naskah?.perihal || '',
-              action: 'OPEN_INBOX_DETAIL',
-            },
-          },
-          true,
-        );
-      } catch (err: any) {
-        this.logger.warn(
-          `⚠️ Failed to send open notification to pemberi: ${err?.message}`,
-        );
-      }
+      // Skip sending notification for NASKAH_SHARE_DIBUKA (read/open notification disabled per user preference)
+      // try {
+      //   await this.notificationService.createNotification(
+      //     {
+      //       positionId: share.pemberiId,
+      //       userPersnum: share.pemberiPersnum,
+      //       type: NotificationType.NASKAH_SHARE_DIBUKA,
+      //       title: `${user.nama} membuka naskah yang Anda bagikan`,
+      //       body: naskah?.perihal || '',
+      //       data: {
+      //         naskahId: share.naskahId,
+      //         shareId: id,
+      //         recipientName: user.nama,
+      //         perihal: naskah?.perihal || '',
+      //         action: 'OPEN_INBOX_DETAIL',
+      //       },
+      //     },
+      //     true,
+      //   );
+      // } catch (err: any) {
+      //   this.logger.warn(
+      //     `⚠️ Failed to send open notification to pemberi: ${err?.message}`,
+      //   );
+      // }
     }
 
     return {
