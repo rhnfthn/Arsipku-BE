@@ -1491,13 +1491,15 @@ export class SdeMasalService {
         });
       const hasWaiting = myVerificationStatuses.some((v: any) => v.status === 'waiting');
       const hasRejected = myVerificationStatuses.some((v: any) => v.status === 'rejected');
-      const myVerificationStatus = hasWaiting
-        ? 'MENUNGGU_VERIFIKASI'
-        : hasRejected
-          ? 'DITOLAK'
-          : myVerificationStatuses.some((v: any) => v.status === 'verified')
-            ? 'TERVERIFIKASI'
-            : null;
+      const myVerificationStatus = folder.status === 'TERKIRIM'
+        ? 'TERKIRIM'
+        : hasWaiting
+          ? 'MENUNGGU_VERIFIKASI'
+          : hasRejected
+            ? 'DITOLAK'
+            : myVerificationStatuses.some((v: any) => v.status === 'verified')
+              ? 'TERVERIFIKASI'
+              : null;
       const isFinalSender =
         String(folder.pengirimId || '') === position &&
         ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status);
