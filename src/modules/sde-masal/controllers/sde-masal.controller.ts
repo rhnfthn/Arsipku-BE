@@ -87,6 +87,19 @@ export class SdeMasalController {
     return { success: true, data };
   }
 
+  @Post('parent/:parentNaskahId/sync-follow-up')
+  async syncDispositionFollowUp(
+    @Param('parentNaskahId') parentNaskahId: string,
+    @CurrentUser() user: any,
+  ) {
+    const positionId = String(user?.position ?? user?.positionId ?? '');
+    const data = await this.sdeMasalService.syncDispositionFollowUp(
+      parentNaskahId,
+      positionId,
+    );
+    return { success: true, data };
+  }
+
   @Get('folders')
   async findFolders(@Query() filter: any, @CurrentUser() user: any) {
     // Scope per-akun: hanya folder milik pengirim (position user) atau
