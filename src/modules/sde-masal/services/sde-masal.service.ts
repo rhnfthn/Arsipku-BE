@@ -139,7 +139,22 @@ export class SdeMasalService {
       status: 'DRAFT',
       createdBy: dto.createdBy || null,
     });
-    return this.folderRepo.save(entity);
+    const saved = await this.folderRepo.save(entity);
+
+    // SDE Massal merupakan tindak lanjut dari disposisi yang diterima oleh
+    // pembuat folder, bukan oleh penandatangan akhir surat.
+    if (saved.parentNaskahId && creatorPosition) {
+      await this.sirkulasiRepository.update(
+        {
+          idNaskah: saved.parentNaskahId,
+          position: String(creatorPosition),
+          sirkuler: In(['penerima', 'tembusan']),
+        },
+        { tindakLanjut: 1 },
+      );
+    }
+
+    return saved;
   }
 
   /**
@@ -448,6 +463,19 @@ export class SdeMasalService {
       // Tembusan internal: masukkan ke kotak masuk tiap akun internal
       await this.addInternalTembusan(data.id, item, recipient, data.status);
       await this.refreshFolderCounters(folder.id);
+
+      // Repair folder lama: pembuat folder adalah pihak yang menindaklanjuti
+      // disposisi, bukan pengirim akhir SDE Massal.
+      if (folder.parentNaskahId && folder.createdBy) {
+        await this.sirkulasiRepository.update(
+          {
+            idNaskah: folder.parentNaskahId,
+            position: String(folder.createdBy),
+            sirkuler: In(['penerima', 'tembusan']),
+          },
+          { tindakLanjut: 1 },
+        );
+      }
 
       // Kirim email otomatis ke alamat dari kolom Excel
       // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
