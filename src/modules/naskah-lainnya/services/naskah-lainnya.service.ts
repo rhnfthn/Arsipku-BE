@@ -18,6 +18,7 @@ import { NaskahLainnyaDokumenEntity } from '../entities/naskah-lainnya-dokumen.e
 import { WorkflowService, Tahapan, JenisAksi } from './workflow.service';
 import { DocxReaderService, DocxParameter } from './docx-reader.service';
 import { DocxQrInlineService, SignedSigner } from './docx-qr-inline.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
 import { GeneratePdfLpdService } from '../../generate_pdf/services/generate_pdf_lpd.service';
 import { GeneratePdfBlankoVerbalService } from '../../generate_pdf/services/generate_pdf_blanko_verbal.service';
 import { SheetPdfData } from '../../generate_pdf/services/sheet-pdf.shared';
@@ -91,6 +92,7 @@ export class NaskahLainnyaService {
     private readonly notificationService: NotificationService,
     private readonly realtimeEmitService: RealtimeEmitService,
     private readonly gotenberg: GotenbergService,
+    private readonly digsigService: DigsigService,
   ) {}
 
   /**
@@ -1076,7 +1078,9 @@ export class NaskahLainnyaService {
     const naskah = this.naskahRepo.create({
       id: uuidv4(),
       jenis: dto.jenis as any,
-      klasifikasi: dto.klasifikasi ?? 'Biasa',
+      // Draft boleh belum lengkap. Jangan isi fallback "Biasa" karena akan
+      // menyamarkan klasifikasi yang belum dipilih ketika validasi kirim.
+      klasifikasi: dto.klasifikasi?.trim() || null,
       sifat: (dto.sifat ?? 'biasa') as any,
       // Kosong → diterbitkan saat penandatangan terakhir menyetujui. Nomor manual
       // tetap disimpan sebagai calon nomor dan divalidasi ketika naskah dikirim.
@@ -1206,6 +1210,7 @@ export class NaskahLainnyaService {
         'Hanya naskah konsep / perlu perbaikan yang bisa dikirim',
       );
     }
+    this.validateRequiredFieldsBeforeKirim(n);
     // Digital maupun fisik membutuhkan penandatangan. Pada TTD fisik,
     // penandatangan menyetujui Naskah Draft sebelum nomor diterbitkan.
     const N = this.workflow.effectiveSignerCount(n);
@@ -1301,6 +1306,36 @@ export class NaskahLainnyaService {
 
     await this.publishWorkflowUpdate(n, true);
     return this.getDetail(id, user);
+  }
+
+  private validateRequiredFieldsBeforeKirim(n: NaskahEntity): void {
+    if (!String(n.jenis ?? '').trim()) {
+      throw new BadRequestException('Jenis naskah wajib diisi sebelum kirim.');
+    }
+    if (!String(n.klasifikasi ?? '').trim()) {
+      throw new BadRequestException('Klasifikasi wajib diisi sebelum kirim.');
+    }
+    if (!String(n.sifat ?? '').trim()) {
+      throw new BadRequestException('Sifat naskah wajib diisi sebelum kirim.');
+    }
+    const hasSigner =
+      (Array.isArray(n.penandatanganChain) &&
+        n.penandatanganChain.length > 0) ||
+      !!n.penandatanganPositionId ||
+      !!String(n.atasNama ?? '').trim();
+    if (!hasSigner) {
+      throw new BadRequestException(
+        'Urutan penandatangan wajib diisi sebelum kirim.',
+      );
+    }
+    if (!Array.isArray(n.approvalChain) || n.approvalChain.length === 0) {
+      throw new BadRequestException('Verifikator wajib dipilih sebelum kirim.');
+    }
+    if (n.signOption !== 'ttd_basah' && !n.lampiran) {
+      throw new BadRequestException(
+        'Dokumen naskah DOCX wajib diunggah untuk metode tanda tangan Digital.',
+      );
+    }
   }
 
   // ---------- Persetujuan (antrian) ----------
@@ -2868,6 +2903,8 @@ export class NaskahLainnyaService {
     id: string,
     _passphrase: string | undefined,
     user: CurrentUser,
+    signMethod: 'qr_only' | 'digsig' = 'qr_only',
+    catatan?: string,
   ) {
     const n = await this.findNaskah(id);
     if (n.tahapan !== 'tanda_tangan') {
@@ -2875,7 +2912,11 @@ export class NaskahLainnyaService {
         'Naskah tidak dalam fase tanda tangan penandatangan.',
       );
     }
-    if (n.signOption !== 'qr_only' && n.signOption !== 'ttd_basah') {
+    if (
+      n.signOption !== 'qr_only' &&
+      n.signOption !== 'ttd_basah' &&
+      n.signOption !== 'digsig'
+    ) {
       throw new BadRequestException(
         'Approval penandatangan hanya tersedia untuk opsi TTD Digital atau TTD Fisik.',
       );
@@ -2916,6 +2957,7 @@ export class NaskahLainnyaService {
         await this.workflow.transisiTandaTangan(n, {
           aktor: user.nama,
           jabatan: user.positionText,
+          catatan,
           manager,
         });
       });
@@ -2965,31 +3007,118 @@ export class NaskahLainnyaService {
       signedDocxName,
     );
 
-    // Satu artifact signed yang DITIMPA tiap signer (filename stabil) — bukan
-    // signed-1.docx, signed-2.docx menumpuk. File sebelumnya berganti.
+    // Satu artifact signed aktif per naskah. uploadBuffer selalu menambah prefix
+    // {Date.now()}- sehingga "timpa" tidak pernah terjadi secara fisik — file
+    // lama harus dihapus eksplisit berdasarkan key yang tercatat di DB.
     const folder = `naskah-lainnya/${n.jenis}/${n.id}/signed`;
     const filename = 'signed.docx';
     const prevSignedKey = n.signedLampiran;
+    // Preview PDF lama (dari signer sebelumnya) — diambil dari row dokumen
+    // 'dittd'/'proses_ttd' existing agar bisa dihapus setelah artifact baru
+    // berhasil tersimpan.
+    const prevDittdRow = await this.dokumenRepo.findOne({
+      where: {
+        naskahId: n.id,
+        tipe: 'naskah',
+        status: In(['dittd', 'proses_ttd']) as any,
+      },
+    });
+    const prevPreviewKey = prevDittdRow?.previewMinioKey ?? null;
+
     const result = await this.storage.uploadBuffer(
       signedBuffer,
       filename,
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       folder,
     );
+    // Upload PDF visualisasi internal sebagai preview dasar.
     const previewResult = await this.storage.uploadBuffer(
       signedPdf,
       'signed.pdf',
       'application/pdf',
       folder,
     );
-    // Hapus artifact signed sebelumnya agar storage tidak menumpuk (timpa, bukan tambah).
-    if (
-      prevSignedKey &&
-      prevSignedKey !== n.lampiran &&
-      prevSignedKey !== result.key
-    ) {
+
+    // ── TTE BSrE (digsig) untuk penandatangan TERAKHIR ──
+    // Visualisasi internal tetap dirender seperti biasa; PDF final kemudian
+    // ditambah invisible signature BSrE via API v2. Passphrase wajib.
+    let finalPdfKey = previewResult.key;
+    let tteSourceKey: string | null = null;
+    if (isLast && signMethod === 'digsig') {
+      if (!_passphrase?.trim()) {
+        throw new BadRequestException(
+          'Passphrase BSrE wajib diisi untuk Tanda Tangan Elektronik (digsig).',
+        );
+      }
+      console.log(
+        `[NaskahLainnya] TTE BSrE untuk naskah ${n.id} (signer terakhir)`,
+      );
+      const bsreResponse = await this.digsigService.hitDigsigEndpoint(
+        {
+          key: previewResult.key,
+          filename: 'signed.pdf',
+          nomorDokumen: nomor || n.nomor || '-',
+          tanggalDokumen:
+            n.tanggal instanceof Date
+              ? n.tanggal.toISOString().split('T')[0]
+              : String(n.tanggal ?? new Date().toISOString().split('T')[0]),
+          klasifikasi: n.klasifikasi || 'Biasa',
+          jenisNaskah: n.jenis,
+          perihal: n.perihal || '-',
+          nik: String(current.persnum ?? ''),
+          passphrase: _passphrase,
+          path_dokumen: `naskah-lainnya/${n.jenis}/${n.id}/digsig`,
+          no_wa: '',
+        },
+        {
+          userPersnum: Number(user.persnum),
+          userName: user.nama,
+          idNaskah: n.id,
+          jenisNaskah: n.jenis,
+        },
+      );
+      // hitDigsigEndpoint v2 meng-upload signed PDF ke path_dokumen dan
+      // mengembalikan name_doc (key aktual MinIO). Ambil file TTE tersebut
+      // sebagai PDF final (timpa preview signed.pdf).
+      const bsreNameDoc =
+        bsreResponse?.name_doc?.[0] || bsreResponse?.data?.name_doc?.[0];
+      if (bsreNameDoc) {
+        tteSourceKey = `naskah-lainnya/${n.jenis}/${n.id}/digsig/${bsreNameDoc}`;
+        const ttePdfBuffer = await this.storage.getFile(tteSourceKey);
+        const tteUpload = await this.storage.uploadBuffer(
+          ttePdfBuffer,
+          'signed.pdf',
+          'application/pdf',
+          folder,
+        );
+        finalPdfKey = tteUpload.key;
+        console.log(
+          `[NaskahLainnya] PDF final TTE BSrE tersimpan: ${tteUpload.key} (${ttePdfBuffer.length} bytes)`,
+        );
+      }
+    }
+    // Hapus artifact signed sebelumnya agar storage tidak menumpuk (timpa, bukan tambah):
+    // - docx lama (prevSignedKey)
+    // - preview PDF lama (prevPreviewKey)
+    // - preview visualisasi dasar bila digsig (finalPdfKey sudah versi TTE)
+    // - file sumber TTE di digsif/ (sudah di-copy ke signed/)
+    const staleKeys = new Set<string>();
+    if (prevSignedKey && prevSignedKey !== n.lampiran && prevSignedKey !== result.key) {
+      staleKeys.add(prevSignedKey);
+    }
+    if (prevPreviewKey && prevPreviewKey !== finalPdfKey) {
+      staleKeys.add(prevPreviewKey);
+    }
+    if (finalPdfKey !== previewResult.key) {
+      // digsig sukses — preview visualisasi dasar tidak dipakai lagi
+      staleKeys.add(previewResult.key);
+    }
+    if (tteSourceKey) {
+      staleKeys.add(tteSourceKey);
+    }
+    for (const staleKey of staleKeys) {
       try {
-        await this.storage.deleteFile(prevSignedKey);
+        await this.storage.deleteFile(staleKey);
       } catch {
         /* abaikan — file lama mungkin sudah terhapus */
       }
@@ -3001,8 +3130,9 @@ export class NaskahLainnyaService {
     n.signedLampiran = result.key;
     // Row dokumen signed: 'proses_ttd' (signer 1..N-1, belum final) → 'dittd'
     // (signer terakhir = final, terhighlight paling atas di section dokumen).
+    // minioKey memakai finalPdfKey — versi TTE BSrE bila signMethod digsig.
     await this.upsertDittdRow(n.id, result.key, user, isLast, signedDocxName, {
-      minioKey: previewResult.key,
+      minioKey: finalPdfKey,
       nama: signedPdfName,
       mimetype: 'application/pdf',
       ukuran: signedPdf.length,
@@ -3013,6 +3143,7 @@ export class NaskahLainnyaService {
       await this.workflow.transisiTandaTangan(n, {
         aktor: user.nama,
         jabatan: user.positionText,
+        catatan,
         manager,
       });
     });
