@@ -2150,6 +2150,8 @@ describe('NaskahLainnyaService', () => {
       jenis: 'PER',
       tahapan: 'konsep',
       tanggal: new Date('2026-08-11'),
+      perihal: 'Peraturan Tata Naskah Dinas',
+      nomor: null,
     });
     naskahRepo.update.mockResolvedValue({});
     const dokumenRepo = (svc as any).dokumenRepo;
@@ -2169,10 +2171,11 @@ describe('NaskahLainnyaService', () => {
     } as any);
     expect(dokumenRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        // nama kanonik dari buildNaskahFileName(perihal, jenis, naskahId) — bukan originalname.
+        // nama kanonik format {JENIS}-{NOMOR}-{slug-perihal} — perihal dibaca
+        // dari parse docx (mock 'X'), nomor belum ada → DRAFT.
         naskahId: 'n1',
         tipe: 'naskah',
-        nama: 'x-n1.docx',
+        nama: 'PER-DRAFT-x.docx',
         tahapan: 'konsep',
         status: 'draf',
         uploaderNama: 'Budi',
@@ -2385,7 +2388,7 @@ describe('NaskahLainnyaService', () => {
     expect(download.nama).toBe('revisi.docx');
   });
 
-  it('downloadDokumenTambahan artifact dittd memakai PDF untuk preview dan DOCX untuk unduh', async () => {
+  it('downloadDokumenTambahan artifact dittd memakai PDF untuk preview dan unduh', async () => {
     const dokumenRepo = (svc as any).dokumenRepo;
     dokumenRepo.findOne.mockResolvedValue({
       id: 'd-final',
@@ -2402,11 +2405,9 @@ describe('NaskahLainnyaService', () => {
     });
 
     const download = await svc.downloadDokumenTambahan('n1', 'd-final', false);
-    expect(storageMock.getFile).toHaveBeenLastCalledWith('signed.docx');
-    expect(download.mimetype).toBe(
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    );
-    expect(download.nama).toBe('signed.docx');
+    expect(storageMock.getFile).toHaveBeenLastCalledWith('final.pdf');
+    expect(download.mimetype).toBe('application/pdf');
+    expect(download.nama).toBe('final.pdf');
 
     const preview = await svc.downloadDokumenTambahan('n1', 'd-final', true);
     expect(storageMock.getFile).toHaveBeenLastCalledWith('final.pdf');

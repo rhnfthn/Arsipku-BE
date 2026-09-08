@@ -17,10 +17,24 @@ interface CacheEntry<T> {
 const ORG_CACHE_TTL_MS = 5 * 60_000; // 5 menit
 const PERSNUM_CACHE_MAX = 5_000;
 
+export type OrgPositionSnapshot = Pick<
+  OrgDatum,
+  'id' | 'tgl' | 'position_json'
+>;
+
 @Injectable()
 export class OrgDataService {
   // Cache untuk findLatestOrg() — data sama untuk semua user
   private latestOrgCache: CacheEntry<OrgDatum | null> | null = null;
+
+  // Lightweight cache for consumers that only need position data. Keeping it
+  // separate prevents organization_json from being transferred and parsed.
+  private latestPositionCache: CacheEntry<OrgPositionSnapshot | null> | null =
+    null;
+  private positionByDateCache = new Map<
+    string,
+    CacheEntry<OrgPositionSnapshot | null>
+  >();
 
   // Cache findOrg(tgl) — per tanggal
   private orgByDateCache = new Map<string, CacheEntry<OrgDatum | null>>();
@@ -36,7 +50,9 @@ export class OrgDataService {
   /** Bust seluruh cache (panggil saat data org_data berubah / regenerate) */
   invalidateCache() {
     this.latestOrgCache = null;
+    this.latestPositionCache = null;
     this.orgByDateCache.clear();
+    this.positionByDateCache.clear();
     this.persnumCache.clear();
   }
 
@@ -214,6 +230,52 @@ export class OrgDataService {
       expires: now + ORG_CACHE_TTL_MS,
     };
 
+    return result || null;
+  }
+
+  /** Lightweight organization snapshot for position-based routing/lookups. */
+  async findPositionSnapshot(tgl: string): Promise<OrgPositionSnapshot | null> {
+    if (!tgl) throw new BadRequestException('Tanggal (tgl) is required');
+    const now = Date.now();
+    const cached = this.positionByDateCache.get(tgl);
+    if (cached && cached.expires > now) return cached.data;
+
+    const result = await this.cRepo
+      .createQueryBuilder('organization_build')
+      .select([
+        'organization_build.id',
+        'organization_build.tgl',
+        'organization_build.position_json',
+      ])
+      .where('organization_build.tgl = :tgl', { tgl })
+      .getOne();
+    this.positionByDateCache.set(tgl, {
+      data: result || null,
+      expires: now + ORG_CACHE_TTL_MS,
+    });
+    return result || null;
+  }
+
+  /** Latest lightweight snapshot without loading organization_json. */
+  async findLatestPositionSnapshot(): Promise<OrgPositionSnapshot | null> {
+    const now = Date.now();
+    if (this.latestPositionCache && this.latestPositionCache.expires > now)
+      return this.latestPositionCache.data;
+
+    const result = await this.cRepo
+      .createQueryBuilder('organization_build')
+      .select([
+        'organization_build.id',
+        'organization_build.tgl',
+        'organization_build.position_json',
+      ])
+      .orderBy('organization_build.tgl', 'DESC')
+      .limit(1)
+      .getOne();
+    this.latestPositionCache = {
+      data: result || null,
+      expires: now + ORG_CACHE_TTL_MS,
+    };
     return result || null;
   }
 

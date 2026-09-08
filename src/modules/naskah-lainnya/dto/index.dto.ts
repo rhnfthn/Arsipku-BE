@@ -85,7 +85,7 @@ export class BuatNaskahDto {
   @IsOptional()
   sifat?: string;
 
-  @IsIn(['digsig', 'qr_only', 'ttd_basah', 'tanpa_ttd'])
+  @IsIn(['digsig', 'qr_only', 'ttd_basah'])
   @IsOptional()
   signOption?: string;
 

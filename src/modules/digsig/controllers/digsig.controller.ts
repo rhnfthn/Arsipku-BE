@@ -33,13 +33,19 @@ export class DigsigController {
 
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
-  // Contoh passphrase BSrE: sesuai dengan passphrase akun BSrE masing-masing user
+  // Passphrase diinput oleh user (bukan hardcoded) — sama seperti alur produksi.
+  // NIK tetap shared (DEFAULT_BSRE_NIK).
   // ============================================
 
   @Post('sign')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('naskah-dinas', 'sign')
   async create(@Body() CreateDigsigDto: CreateDigsigDto) {
+    if (!CreateDigsigDto.passphrase) {
+      throw new BadRequestException(
+        'Passphrase wajib diisi — input passphrase BSrE Anda',
+      );
+    }
     const filename =
       '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
     const keypathfile = `/nota-dinas/final/${filename}`;
@@ -52,7 +58,7 @@ export class DigsigController {
       jenisNaskah: 'Nota Dinas',
       perihal: 'Test from New Arsipku',
       nik: DEFAULT_BSRE_NIK,
-      passphrase: 'Bsre2025.#!',
+      passphrase: CreateDigsigDto.passphrase,
       path_dokumen: 'nota-dinas/digsig/',
       no_wa: '',
     });
