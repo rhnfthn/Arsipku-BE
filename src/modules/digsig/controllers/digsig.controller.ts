@@ -21,6 +21,7 @@ import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from 'src/modules/storage/services/storage.service';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 
 @Controller('digsig')
 @UseGuards(JwtAuthGuard)
@@ -32,13 +33,19 @@ export class DigsigController {
 
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
-  // Contoh passphrase BSrE: sesuai dengan passphrase akun BSrE masing-masing user
+  // Passphrase diinput oleh user (bukan hardcoded) — sama seperti alur produksi.
+  // NIK tetap shared (DEFAULT_BSRE_NIK).
   // ============================================
 
   @Post('sign')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission('naskah-dinas', 'sign')
   async create(@Body() CreateDigsigDto: CreateDigsigDto) {
+    if (!CreateDigsigDto.passphrase) {
+      throw new BadRequestException(
+        'Passphrase wajib diisi — input passphrase BSrE Anda',
+      );
+    }
     const filename =
       '1767861265056-1767779306136-nd-030-goo1-ops.02-xii-2025-1767779306135.pdf';
     const keypathfile = `/nota-dinas/final/${filename}`;
@@ -50,8 +57,8 @@ export class DigsigController {
       klasifikasi: 'Biasa',
       jenisNaskah: 'Nota Dinas',
       perihal: 'Test from New Arsipku',
-      nik: '1234567890123452',
-      passphrase: 'Bsre2025.#!',
+      nik: DEFAULT_BSRE_NIK,
+      passphrase: CreateDigsigDto.passphrase,
       path_dokumen: 'nota-dinas/digsig/',
       no_wa: '',
     });
@@ -211,14 +218,9 @@ export class DigsigController {
   @Get('ktp')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
-  async getktp(@CurrentUser() user: JwtPayload) {
-    if (!user.nik) {
-      throw new BadRequestException(
-        'NIK tidak ditemukan di profile user. Silakan logout dan login kembali untuk memperbarui data profile.',
-      );
-    }
+  async getktp() {
     return {
-      noktp: user.nik,
+      noktp: DEFAULT_BSRE_NIK,
     };
   }
 

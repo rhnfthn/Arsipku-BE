@@ -958,6 +958,15 @@ export class KonsepService {
     jenis: 'ND' | 'SDI' | 'SDE',
     manager?: any,
   ): Promise<void> {
+    // Map kode jenis ke folder panjang yang konsisten dengan alur utama
+    // (nota-dinas/, surat-dinas-internal/, surat-dinas-eksternal/)
+    const jenisFolderMap: Record<'ND' | 'SDI' | 'SDE', string> = {
+      ND: 'nota-dinas',
+      SDI: 'surat-dinas-internal',
+      SDE: 'surat-dinas-eksternal',
+    };
+    const jenisFolder = jenisFolderMap[jenis];
+
     for (const tempId of lampiranTempIds) {
       const lampiran = manager
         ? await manager.findOne(NaskahLampiranEntity, { where: { id: tempId } })
@@ -969,7 +978,7 @@ export class KonsepService {
         // Move file from temporary to final location
         const oldKey = lampiran.file_pdf; // e.g., temporary/uuid/filename.pdf
         const fileName = oldKey.split('/').pop() || 'file.pdf';
-        const newKey = `${jenis.toLowerCase()}/${naskahId}/${fileName}`;
+        const newKey = `${jenisFolder}/lampiran/${naskahId}/${fileName}`;
 
         try {
           // Copy file to new location

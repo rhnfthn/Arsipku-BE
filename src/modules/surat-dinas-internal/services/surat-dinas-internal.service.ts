@@ -66,6 +66,13 @@ import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_s
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
+import { NaskahRoutingApplied } from '../../correspondence-routing/entities/naskah-routing-applied.entity';
+import { Optional } from '@nestjs/common';
+import {
+  CorrespondenceRoutingResolverService,
+  EffectiveRoutingPlan,
+} from '../../correspondence-routing/services/correspondence-routing-resolver.service';
+import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -113,6 +120,8 @@ export class SuratDinasInternalService {
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly konsepService: KonsepService,
+    @Optional()
+    private readonly correspondenceRoutingResolver?: CorrespondenceRoutingResolverService,
   ) {}
 
   // ============================================================
@@ -1511,6 +1520,105 @@ export class SuratDinasInternalService {
     return { REKAN: filtered, TEMBUSAN: tembusan };
   }
 
+  private async resolveSdiRouting(
+    barisData: SdiOrgDataPositionDto[],
+    senderPositionId: number,
+    penerimaIds: number[],
+    tembusanIds: number[],
+    effectiveDate: string,
+  ): Promise<{
+    penerimaIds: number[];
+    tembusanIds: number[];
+    plan: EffectiveRoutingPlan | null;
+  }> {
+    if (
+      process.env.CORRESPONDENCE_ROUTING_ENABLED !== 'true' ||
+      !this.correspondenceRoutingResolver
+    )
+      return { penerimaIds, tembusanIds, plan: null };
+
+    const structural = this.filterByPositionSdi(barisData, senderPositionId);
+    const plan = await this.correspondenceRoutingResolver.resolve({
+      company: COMPANY_ID,
+      documentType: 'SDI',
+      actionType: 'CREATE',
+      senderPositionId,
+      effectiveDate,
+      structuralRecipients: structural.REKAN as unknown as RoutingPosition[],
+      structuralCc: structural.TEMBUSAN as unknown as RoutingPosition[],
+    });
+    const allowed = new Set(
+      plan.effectiveRecipients.map((p) => Number(p.position)),
+    );
+    const selected = penerimaIds.map(Number);
+    const invalid = selected.filter((id) => !allowed.has(id));
+    if (invalid.length)
+      throw new ForbiddenException(
+        `Penerima dengan position_id [${invalid.join(', ')}] tidak valid untuk Surat Dinas Internal.`,
+      );
+
+    const cc = new Set(tembusanIds.map(Number));
+    for (const target of plan.mandatoryCc) cc.add(Number(target.position));
+    for (const id of selected) cc.delete(id);
+    cc.delete(Number(senderPositionId));
+    return {
+      penerimaIds: [...new Set(selected)],
+      tembusanIds: [...cc],
+      plan,
+    };
+  }
+
+  private async persistSdiRoutingApplied(
+    manager: import('typeorm').EntityManager,
+    naskahId: string,
+    naskahDate: Date | string,
+    senderPositionId: number,
+    selectedRecipientIds: number[],
+    appliedCcIds: number[],
+    plan: EffectiveRoutingPlan | null,
+  ): Promise<void> {
+    if (!plan || !plan.matchedRuleIds.length) return;
+    const selectedRecipients = new Set(selectedRecipientIds.map(Number));
+    const appliedCc = new Set(appliedCcIds.map(Number));
+    const rows = [
+      ...plan.effectiveRecipients.filter((target) =>
+        selectedRecipients.has(Number(target.position)),
+      ),
+      ...plan.mandatoryCc.filter((target) =>
+        appliedCc.has(Number(target.position)),
+      ),
+    ]
+      .filter((target) => target.routing_source === 'configured')
+      .flatMap((target) => {
+        const metadata = plan.metadataByPositionId[Number(target.position)];
+        return (metadata?.routingRuleIds ?? []).map((ruleId) => ({
+          id: uuidv4(),
+          id_naskah: naskahId,
+          naskah_tanggal:
+            naskahDate instanceof Date
+              ? naskahDate.toISOString().slice(0, 10)
+              : String(naskahDate).slice(0, 10),
+          rule_id: ruleId,
+          source_position_id: senderPositionId,
+          target_position_id: Number(target.position),
+          delivery_type:
+            metadata.effect === 'AUTO_INCLUDE'
+              ? ('TEMBUSAN' as const)
+              : ('PENERIMA' as const),
+          effect: metadata.effect,
+          mandatory: Number(metadata.mandatory),
+          rule_snapshot: {
+            routingRuleIds: metadata.routingRuleIds,
+            effect: metadata.effect,
+            mandatory: metadata.mandatory,
+            document_type: 'SDI',
+          },
+        }));
+      });
+    if (rows.length)
+      await manager.getRepository(NaskahRoutingApplied).insert(rows);
+  }
+
   /**
    * Get recipients for SDI using org_data
    * @param positionId - Position ID of the sender
@@ -1554,10 +1662,38 @@ export class SuratDinasInternalService {
 
     // Filter recipients using SDI logic
     const recipients = this.filterByPositionSdi(barisData, positionId);
+    const routing = await this.resolveSdiRouting(
+      barisData,
+      positionId,
+      recipients.REKAN.map((p) => Number(p.position)),
+      recipients.TEMBUSAN.map((p) => Number(p.position)),
+      tanggal,
+    );
+    const byPosition = new Map(barisData.map((p) => [Number(p.position), p]));
+    const decorate = (id: number) => {
+      const position = byPosition.get(id);
+      if (!position) return undefined;
+      const metadata = routing.plan?.metadataByPositionId[id];
+      return metadata
+        ? Object.assign({}, position, {
+            routing_source: metadata.routingSource,
+            routing_rule_ids: metadata.routingRuleIds,
+            routing_effect: metadata.effect,
+            routing_mandatory: metadata.mandatory,
+          })
+        : position;
+    };
 
     return {
       sender,
-      recipients,
+      recipients: {
+        REKAN: routing.penerimaIds
+          .map(decorate)
+          .filter(Boolean) as SdiOrgDataPositionDto[],
+        TEMBUSAN: routing.tembusanIds
+          .map(decorate)
+          .filter(Boolean) as SdiOrgDataPositionDto[],
+      },
     };
   }
 
@@ -1621,7 +1757,7 @@ export class SuratDinasInternalService {
       ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
       : new Map<number, string>();
 
-    const penerimaList: SdiOrgDataPositionDto[] = [];
+    let penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find(
         (x) => Number(x.position) === Number(posId),
@@ -1656,7 +1792,7 @@ export class SuratDinasInternalService {
       ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
       : new Map<number, string>();
 
-    const tembusanList: SdiOrgDataPositionDto[] = [];
+    let tembusanList: SdiOrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find(
@@ -1679,6 +1815,21 @@ export class SuratDinasInternalService {
         tembusanList.push(tembusan);
       }
     }
+
+    const routingPlan = await this.resolveSdiRouting(
+      barisData,
+      Number(dto.pengirim),
+      expandedPenerimaIds,
+      expandedTembusanIds,
+      tanggal,
+    );
+    const byPosition = new Map(barisData.map((p) => [Number(p.position), p]));
+    penerimaList = routingPlan.penerimaIds
+      .map((id) => byPosition.get(id))
+      .filter(Boolean) as SdiOrgDataPositionDto[];
+    tembusanList = routingPlan.tembusanIds
+      .map((id) => byPosition.get(id))
+      .filter(Boolean) as SdiOrgDataPositionDto[];
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -1736,6 +1887,16 @@ export class SuratDinasInternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
+      if (status !== 'draf' && status !== 'pending')
+        await this.persistSdiRoutingApplied(
+          queryRunner.manager,
+          naskahId,
+          naskah.tanggal,
+          Number(dto.pengirim),
+          routingPlan.penerimaIds,
+          routingPlan.tembusanIds,
+          routingPlan.plan,
+        );
 
       // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
       const isDraft = status === 'draf' || status === 'pending';
@@ -2147,7 +2308,7 @@ export class SuratDinasInternalService {
       ? await this.grupPenerimaService.buildPositionToGrupMap(dto.penerima_grup)
       : new Map<number, string>();
 
-    const penerimaList: SdiOrgDataPositionDto[] = [];
+    let penerimaList: SdiOrgDataPositionDto[] = [];
     for (const posId of expandedPenerimaIds) {
       const penerima = barisData.find(
         (x) => Number(x.position) === Number(posId),
@@ -2178,7 +2339,7 @@ export class SuratDinasInternalService {
       ? await this.grupPenerimaService.buildPositionToGrupMap(dto.tembusan_grup)
       : new Map<number, string>();
 
-    const tembusanList: SdiOrgDataPositionDto[] = [];
+    let tembusanList: SdiOrgDataPositionDto[] = [];
     if (expandedTembusanIds.length > 0) {
       for (const posId of expandedTembusanIds) {
         const tembusan = barisData.find(
@@ -2197,6 +2358,21 @@ export class SuratDinasInternalService {
         tembusanList.push(tembusan);
       }
     }
+
+    const routingPlan = await this.resolveSdiRouting(
+      barisData,
+      Number(dto.pengirim),
+      expandedPenerimaIds,
+      expandedTembusanIds,
+      tanggal,
+    );
+    const byPosition = new Map(barisData.map((p) => [Number(p.position), p]));
+    penerimaList = routingPlan.penerimaIds
+      .map((id) => byPosition.get(id))
+      .filter(Boolean) as SdiOrgDataPositionDto[];
+    tembusanList = routingPlan.tembusanIds
+      .map((id) => byPosition.get(id))
+      .filter(Boolean) as SdiOrgDataPositionDto[];
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2240,6 +2416,16 @@ export class SuratDinasInternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
+      if (status !== 'pending')
+        await this.persistSdiRoutingApplied(
+          queryRunner.manager,
+          naskah.id,
+          naskah.tanggal,
+          Number(dto.pengirim),
+          routingPlan.penerimaIds,
+          routingPlan.tembusanIds,
+          routingPlan.plan,
+        );
 
       // PHASE 6a: Insert ke naskah_referensi (HANYA jika ada id_referensi_naskah)
       // Fitur sirkulasi persuratan - surat baru bisa memiliki referensi ke surat sebelumnya
@@ -4903,7 +5089,7 @@ export class SuratDinasInternalService {
         await this.moveTemporaryLampiranToFinal(
           dto.lampiran_temp_ids,
           naskahId,
-          `${dto.jenis.toLowerCase()}/lampiran`,
+          'surat-dinas-internal/lampiran',
         );
 
         const movedLampiran = await queryRunner.manager.find(
@@ -4996,7 +5182,7 @@ export class SuratDinasInternalService {
           pdfBuffer,
           pdfFileName,
           'application/pdf',
-          `${dto.jenis.toLowerCase()}/final`,
+          'surat-dinas-internal/final',
         );
 
         finalPdfPath = uploadResult.key;

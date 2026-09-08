@@ -36,6 +36,18 @@ describe('ConfigNaskahLainnyaService', () => {
     expect(kep?.butuhLegal).toBe(true);
     const per = all.find((r) => r.jenisNaskah === 'PER');
     expect(per?.defaultKlasifikasi).toBeNull();
+    // Kode baru hasil penyamaan dengan nama file template (template_naskah_mapping.md)
+    expect(all.map((r) => r.jenisNaskah)).toContain('SPR');
+    expect(all.map((r) => r.jenisNaskah)).toContain('EDR');
+    expect(all.map((r) => r.jenisNaskah)).toContain('MOU');
+    expect(all.map((r) => r.jenisNaskah)).toContain('PROC');
+    expect(all.map((r) => r.jenisNaskah)).toContain('PJJ');
+    expect(all.map((r) => r.jenisNaskah)).toContain('BAC');
+    expect(all.map((r) => r.jenisNaskah)).toContain('KET');
+    expect(all.map((r) => r.jenisNaskah)).toContain('SPE');
+    expect(all.map((r) => r.jenisNaskah)).toContain('RPT');
+    expect(all.map((r) => r.jenisNaskah)).toContain('PEN');
+    expect(all.map((r) => r.jenisNaskah)).toContain('PGM');
   });
 
   it('update membuat row baru bila belum ada, update bila sudah ada', async () => {

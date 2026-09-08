@@ -4848,7 +4848,7 @@ export class SuratDinasEksternalService {
           pdfBuffer,
           pdfFileName,
           'application/pdf',
-          `${dto.jenis.toLowerCase()}/final`,
+          'surat-dinas-eksternal/final',
         );
 
         finalPdfPath = uploadResult.key;
