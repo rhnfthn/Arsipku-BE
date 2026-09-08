@@ -61,7 +61,7 @@ export interface DigsigLogContext {
 export interface DigsigResponse {
   status: string;
   message: string;
-  doc_id?: string;
+  doc_id?: string | null;
   signed_file_path?: string;
   data?: any;
 }
@@ -142,6 +142,16 @@ export class DigsigService {
   }
 
   /**
+   * Basic Auth header untuk BSrE API v2
+   * Format: Basic base64(username:password)
+   */
+  private get BSRE_BASIC_AUTH_HEADER(): string {
+    const user = process.env.BSRE_BASIC_USER || 'esign';
+    const pass = process.env.BSRE_BASIC_PASS || '';
+    return `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+  }
+
+  /**
    * Hit Digsig API Endpoint
    * @param params - DigsigParams for BSrE API
    * @param logContext - Optional context for logging (currently unused, for future logging)
@@ -178,41 +188,85 @@ export class DigsigService {
         `-${timestamp}.pdf`,
       );
 
-      // 2. Payload sesuai spesifikasi
+      // 2. Payload sesuai spesifikasi BSrE API v2
+      //    Metadata dokumen (nomor, tanggal, klasifikasi, perihal, no_wa) tidak
+      //    lagi dikirim — API v2 murni signing service.
       const payload = {
-        tanggalDokumen: params.tanggalDokumen,
-        klasifikasi: params.klasifikasi,
-        jenisNaskah: params.jenisNaskah,
-        perihal: params.perihal,
-        dokumen: [
-          {
-            nomorDokumen: params.nomorDokumen,
-            filename: newDokumenName,
-            data: base64File,
-          },
-        ],
         nik,
         passphrase: params.passphrase,
-        no_wa: params.no_wa,
-        path_dokumen: params.path_dokumen,
-        jenis_ttd_digital: 'Digsig',
-        tampilan_ttd_digital: 'INVISIBLE',
-        ttd64: '',
-        tag: '',
+        signatureProperties: [
+          {
+            imageBase64: '',
+            tampilan: 'INVISIBLE',
+            page: 1,
+            originX: 0.0,
+            originY: 0.0,
+            width: 100.0,
+            height: 75.0,
+            location: null,
+            reason: null,
+            contactInfo: null,
+          },
+        ],
+        file: [base64File],
       };
 
-      console.log('[DigsigService] Payload prepared, hitting BSrE API...');
+      console.log('[DigsigService] Payload prepared, hitting BSrE API v2...');
       console.log('[DigsigService] BSrE URL:', this.BSRE_SIGNIN_URL);
 
-      // 3. Hit endpoint
+      // 3. Hit endpoint (Basic Auth)
       const response = await axios.post(this.BSRE_SIGNIN_URL, payload, {
         headers: {
           'Content-Type': 'application/json',
+          Authorization: this.BSRE_BASIC_AUTH_HEADER,
         },
         timeout: 30000,
       });
 
-      console.log('[DigsigService] BSrE Response:', response.data);
+      console.log('[DigsigService] BSrE Response keys:', Object.keys(response.data || {}));
+
+      // 3a. API v2 mengembalikan signed PDF langsung sebagai base64 di body
+      //     (tidak lagi disimpan di server BSrE). Upload ke MinIO pada
+      //     path_dokumen agar alur downstream (download signed PDF) tetap jalan.
+      const rawV2Response = response.data;
+      const signedFileB64: string | undefined = rawV2Response?.file?.[0];
+      if (!signedFileB64) {
+        throw new Error(
+          'BSrE v2 tidak mengembalikan file hasil signing di response',
+        );
+      }
+      const signedBuffer = Buffer.from(signedFileB64, 'base64');
+      const signedUpload = await this.storageService.uploadBuffer(
+        signedBuffer,
+        newDokumenName,
+        'application/pdf',
+        params.path_dokumen.replace(/\/$/, ''),
+      );
+      console.log(
+        '[DigsigService] Signed PDF uploaded to MinIO:',
+        signedUpload.key,
+      );
+
+      // 3b. Adapter response v2 -> format lama (backward-compatible).
+      //     PENTING: gunakan signedUpload.key (key aktual di MinIO, termasuk
+      //     prefix {Date.now()}- yang ditambahkan uploadBuffer) sebagai
+      //     name_doc. Downstream (step 11g ND/SDI/SDE/KA) melakukan
+      //     getFile(`${path_dokumen}/${name_doc}`) — kalau name_doc tidak
+      //     persis sama dengan key aktual, download signed PDF akan 404 dan
+      //     naskah final tersimpan sebagai PDF TANPA TTE.
+      //     Base64 PDF sengaja TIDAK disertakan agar log/DB tidak membengkak.
+      const signedFileName = signedUpload.key.split('/').pop()!;
+      const adaptedResponse: DigsigResponse = {
+        status: 'success',
+        message: 'BSrE signing berhasil',
+        doc_id: null,
+        signed_file_path: signedUpload.key,
+        data: {
+          name_doc: [signedFileName],
+          time: rawV2Response?.time,
+        },
+      };
+      response.data = adaptedResponse as any;
 
       // Log success if context provided
       console.log('[DigsigService] logContext received:', logContext);
@@ -258,7 +312,9 @@ export class DigsigService {
             apiEndpoint: 'POST /signin',
             status: 'gagal',
             note: axios.isAxiosError(error)
-              ? error.response?.data?.message || error.message
+              ? error.response?.data?.error ||
+                error.response?.data?.message ||
+                error.message
               : error.message,
             bsreResponse: axios.isAxiosError(error)
               ? error.response?.data
@@ -285,9 +341,10 @@ export class DigsigService {
         const status =
           error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
 
+        // API v2 mengembalikan { error: "...", status_code: 2031 }
         const message =
-          error.response?.data?.message ||
           error.response?.data?.error ||
+          error.response?.data?.message ||
           'Gagal mengambil data dari service external';
 
         // 🔥 lempar ulang ke controller
@@ -1559,6 +1616,9 @@ export class DigsigService {
   /**
    * Verifikasi dokumen dengan BSrE menggunakan name_doc
    * name_doc adalah nama file yang dikembalikan oleh BSrE saat signing
+   *
+   * API v2: verify menerima base64 PDF langsung (bukan name_doc).
+   * Strategi: cari file di MinIO berdasarkan name_doc, lalu kirim base64-nya.
    */
   async verifyWithBsre(nameDoc: string): Promise<{
     valid: boolean;
@@ -1573,27 +1633,59 @@ export class DigsigService {
         };
       }
 
-      // Hit BSrE verify endpoint
-      // Note: URL endpoint verify BSrE perlu disesuaikan dengan dokumentasi BSrE
+      // API v2 tidak lagi menyimpan dokumen di server BSrE.
+      // Ambil file dari MinIO (path yang sama dengan hasil signing), lalu
+      // kirim base64-nya ke endpoint verify v2.
+      let fileB64: string | null = null;
+      const candidatePaths = [
+        `nota-dinas/digsig/${nameDoc}`,
+        `surat-dinas-internal/digsig/${nameDoc}`,
+        `surat-dinas-eksternal/digsig/${nameDoc}`,
+        `kajian/digsig/${nameDoc}`,
+        `disposisi/digsig/${nameDoc}`,
+        `digsig-document/signed/${nameDoc}`,
+      ];
+      for (const p of candidatePaths) {
+        try {
+          const buf = await this.storageService.getFile(p);
+          fileB64 = buf.toString('base64');
+          break;
+        } catch {
+          // coba path berikutnya
+        }
+      }
 
+      if (!fileB64) {
+        return {
+          valid: false,
+          message: `File ${nameDoc} tidak ditemukan di storage untuk verifikasi`,
+        };
+      }
+
+      // Hit BSrE verify API v2 — payload { file: "<base64>" } (string, bukan array)
       const response = await axios.post(
         this.BSRE_VERIFY_URL,
-        { name_doc: nameDoc },
+        { file: fileB64 },
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: this.BSRE_BASIC_AUTH_HEADER,
+          },
           timeout: 30000,
         },
       );
 
-      // Parse response dari BSrE
+      // Parse response dari BSrE v2
       const bsreData = response.data;
+      const conclusion = bsreData?.conclusion;
 
-      // Asumsi BSrE return status success jika dokumen valid
-      if (bsreData.status === 'success' || bsreData.valid === true) {
+      if (conclusion === 'VALID' || conclusion === 'WARNING') {
         return {
           valid: true,
           bsre_response: bsreData,
-          message: 'Dokumen valid dan terdaftar di BSrE',
+          message:
+            bsreData?.description ||
+            'Dokumen valid dan terdaftar di BSrE',
         };
       }
 
@@ -1601,7 +1693,8 @@ export class DigsigService {
         valid: false,
         bsre_response: bsreData,
         message:
-          bsreData.message ||
+          bsreData?.description ||
+          bsreData?.error ||
           'Dokumen tidak valid atau tidak terdaftar di BSrE',
       };
     } catch (error: any) {
@@ -1612,7 +1705,9 @@ export class DigsigService {
           valid: false,
           bsre_response: error.response?.data,
           message:
-            error.response?.data?.message || 'Gagal verifikasi dengan BSrE',
+            error.response?.data?.error ||
+            error.response?.data?.message ||
+            'Gagal verifikasi dengan BSrE',
         };
       }
 
@@ -1628,18 +1723,23 @@ export class DigsigService {
       console.log('[DigsigService] hitDigsigVerify - Starting...');
       const filename = params.filename;
       const fileurl = params.fileurl;
-      const finalfileurl = await this.storageService.getFileUrl(fileurl);
-      console.log(finalfileurl);
-      // 2. Payload sesuai spesifikasi
+
+      // API v2: verify menerima base64 PDF langsung, bukan URL.
+      // Ambil file dari MinIO lalu kirim base64-nya.
+      const buffer = await this.storageService.getFile(fileurl);
+      const fileB64 = buffer.toString('base64');
+
+      // 2. Payload sesuai spesifikasi API v2 — file berupa STRING base64
       const payload = {
-        filename: filename,
-        fileurl: finalfileurl,
+        filename,
+        file: fileB64,
       };
 
-      // 3. Hit endpoint
+      // 3. Hit endpoint (Basic Auth)
       const response = await axios.post(this.BSRE_VERIFY_URL, payload, {
         headers: {
           'Content-Type': 'application/json',
+          Authorization: this.BSRE_BASIC_AUTH_HEADER,
         },
         timeout: 30000,
       });

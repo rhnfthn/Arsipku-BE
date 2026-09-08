@@ -41,6 +41,10 @@ export class SdiOrgDataPositionDto {
   chief: number;
   bod_tag: string | null;
   departType: string | null;
+  routing_source?: 'structural' | 'configured';
+  routing_rule_ids?: string[];
+  routing_effect?: 'ALLOW_SELECT' | 'AUTO_INCLUDE';
+  routing_mandatory?: boolean;
 }
 
 /**
@@ -49,6 +53,7 @@ export class SdiOrgDataPositionDto {
  */
 export class SdiRecipientGroupDto {
   REKAN: SdiOrgDataPositionDto[];
+  TEMBUSAN?: SdiOrgDataPositionDto[];
 }
 
 /**
