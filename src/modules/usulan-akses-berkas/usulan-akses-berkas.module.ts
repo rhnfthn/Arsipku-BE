@@ -11,6 +11,7 @@ import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
 import { UsulanAksesBerkasController } from './controllers';
 import { UsulanAksesBerkasService } from './services';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       DelegasiEntity,
     ]),
     OrgDataModule,
+    NotificationModule,
   ],
   controllers: [UsulanAksesBerkasController],
   providers: [UsulanAksesBerkasService],
