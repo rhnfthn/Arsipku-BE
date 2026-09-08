@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { NaskahLainnyaService } from './naskah-lainnya.service';
@@ -22,6 +22,7 @@ import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NotificationService } from '../../notification/services';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { GotenbergService } from '../../gotenberg/gotenberg.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
 
 const repo = () => ({
   find: jest.fn(),
@@ -175,6 +176,12 @@ describe('NaskahLainnyaService', () => {
           useValue: {
             isConfigured: jest.fn(() => true),
             convertDocxToPdf: jest.fn(async () => Buffer.from('%PDF-test')),
+          },
+        },
+        {
+          provide: DigsigService,
+          useValue: {
+            hitDigsigEndpoint: jest.fn(),
           },
         },
       ],
@@ -643,8 +650,92 @@ describe('NaskahLainnyaService', () => {
     );
     expect(res.data.id).toBe('n9');
     expect(naskahRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ tahapan: 'konsep', butuhLegal: true }),
+      expect.objectContaining({
+        tahapan: 'konsep',
+        butuhLegal: true,
+        klasifikasi: null,
+      }),
     );
+  });
+
+  describe('validasi field wajib sebelum kirim', () => {
+    const validNaskah = () =>
+      ({
+        jenis: 'PER',
+        klasifikasi: 'HM.01',
+        sifat: 'biasa',
+        signOption: 'qr_only',
+        lampiran: 'naskah-lainnya/PER/naskah.docx',
+        penandatanganChain: [
+          {
+            positionId: 'POS_SIGNER',
+            persnum: 1001,
+            nama: 'Penandatangan',
+            jabatan: 'Direktur',
+          },
+        ],
+        approvalChain: [
+          { positionId: 'POS_APPROVER', nama: 'Approver', jabatan: 'VP' },
+        ],
+      }) as NaskahEntity;
+
+    it('menolak klasifikasi kosong', () => {
+      const naskah = validNaskah();
+      naskah.klasifikasi = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException('Klasifikasi wajib diisi sebelum kirim.'),
+      );
+    });
+
+    it('menolak verifikator kosong', () => {
+      const naskah = validNaskah();
+      naskah.approvalChain = null;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException('Verifikator wajib dipilih sebelum kirim.'),
+      );
+    });
+
+    it('menolak urutan penandatangan kosong', () => {
+      const naskah = validNaskah();
+      naskah.penandatanganChain = null;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException(
+          'Urutan penandatangan wajib diisi sebelum kirim.',
+        ),
+      );
+    });
+
+    it('mewajibkan unggah DOCX untuk Digital', () => {
+      const naskah = validNaskah();
+      naskah.lampiran = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException(
+          'Dokumen naskah DOCX wajib diunggah untuk metode tanda tangan Digital.',
+        ),
+      );
+    });
+
+    it('mengizinkan Naskah Draft kosong untuk Fisik', () => {
+      const naskah = validNaskah();
+      naskah.signOption = 'ttd_basah';
+      naskah.lampiran = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).not.toThrow();
+    });
   });
 
   it('createDraft menyimpan calon nomor manual TTD fisik agar tetap dapat dikoreksi', async () => {

@@ -157,6 +157,19 @@ export class BlankoDto {
 
 export class TandaTanganDto {
   @IsString() @IsOptional() passphrase?: string;
+
+  /** Catatan opsional penandatangan — tersimpan ke riwayat workflow. */
+  @IsString() @IsOptional() catatan?: string;
+
+  /**
+   * Metode signing untuk penandatangan TERAKHIR (signOption digsig/qr_only):
+   * - 'qr_only' (default): visualisasi internal saja (alur lama)
+   * - 'digsig': visualisasi internal + TTE BSrE invisible di PDF final
+   * Wajib 'digsig' disertai passphrase.
+   */
+  @IsIn(['qr_only', 'digsig'])
+  @IsOptional()
+  signMethod?: 'qr_only' | 'digsig';
 }
 
 export class ManualFinalStatusDto {
