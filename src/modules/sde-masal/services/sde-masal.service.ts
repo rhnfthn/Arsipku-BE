@@ -1065,14 +1065,13 @@ export class SdeMasalService {
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
-    // Repair folder lama yang sudah berada di tahap finalisasi tetapi masih
-    // menyimpan pengirim otomatis yang salah.
-    if (folder.status === 'MENUNGGU_PENGIRIM') {
-      await this.refreshFolderCounters(folderId);
-      folder = await this.folderRepo.findOne({ where: { id: folderId } });
-      if (!folder)
-        throw new NotFoundException('Folder SDE Massal tidak ditemukan');
-    }
+    // Selaraskan status folder dengan status item setiap kali detail dibuka.
+    // Ini juga memperbaiki folder lama yang seluruh naskahnya sudah terkirim
+    // tetapi status foldernya masih tersimpan sebagai tahap pengirim.
+    await this.refreshFolderCounters(folderId);
+    folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
     try {
       const org = await this.orgDataService.findLatestOrg();
