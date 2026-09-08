@@ -47,23 +47,10 @@ export class CekDokumenService {
     filename: string,
     message: string,
   ) {
-    const userData = await this.orgDataService
-      .findByPersnum(userPersnum)
-      .catch(() => null);
-    const positionId = userData?.position;
-    if (!positionId) return;
-
-    await this.notificationService.createNotification({
-      positionId: String(positionId),
-      userPersnum,
-      type: NotificationType.DIGSIG_VERIFIKASI,
-      title: 'Verifikasi dokumen selesai',
-      body: `${filename}: ${message}`,
-      data: {
-        action: 'OPEN_DIGSIG_VERIFIKASI',
-        filename,
-      },
-    });
+    // Disabled: Cek dokumen adalah aksi sinkron langsung di UI web/mobile,
+    // tidak perlu membanjiri notification center / push notification dengan spam
+    // "filename.pdf: Dokumen tidak valid / Gagal memverifikasi dokumen".
+    return;
   }
 
   /**

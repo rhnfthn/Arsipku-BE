@@ -360,6 +360,9 @@ export class NotificationService {
     );
     queryBuilder.andWhere(`notification.body NOT REGEXP '^[0-9]+$'`);
 
+    // Filter out NASKAH_SHARE_DIBUKA and DIGSIG_VERIFIKASI (verification check is synchronous user action, not a notification)
+    queryBuilder.andWhere("notification.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
+
     if (typeof isRead === 'boolean') {
       queryBuilder.andWhere('notification.is_read = :isRead', { isRead });
     }
@@ -411,7 +414,8 @@ export class NotificationService {
     qb.andWhere('1 = 1)')
       .andWhere('n.isRead = :isRead', { isRead: false })
       .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
-      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`);
+      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
+      .andWhere("n.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
     return qb.getCount();
   }
 
