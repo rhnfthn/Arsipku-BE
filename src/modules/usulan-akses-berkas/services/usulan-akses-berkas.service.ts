@@ -486,7 +486,7 @@ export class UsulanAksesBerkasService {
           title: 'Usulan Akses Berkas Menunggu Verifikasi',
           body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu verifikasi Anda.`,
           data: {
-            action: 'OPEN_USULAN_PINDAH', // fallback action atau route terdaftar
+            action: 'OPEN_USULAN_AKSES',
             id: saved.id,
             nomorUsulan: saved.nomor_usulan,
           },
@@ -906,7 +906,7 @@ export class UsulanAksesBerkasService {
           type: NotificationType.SYSTEM,
           title: 'Usulan Akses Berkas Perlu Revisi',
           body: `Usulan ${saved.nomor_usulan} perlu revisi: ${dto.catatan_revisi || dto.catatan || 'Mohon disesuaikan.'}`,
-          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+          data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
         });
       } else if (dto.keputusan === Keputusan.SETUJU) {
         if (jenjang < totalJenjang) {
@@ -919,7 +919,7 @@ export class UsulanAksesBerkasService {
               type: NotificationType.SYSTEM,
               title: 'Usulan Akses Berkas Menunggu Verifikasi',
               body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu verifikasi Anda.`,
-              data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+              data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
             });
           }
         }
@@ -1105,7 +1105,7 @@ export class UsulanAksesBerkasService {
           type: NotificationType.SYSTEM,
           title: 'Usulan Akses Berkas Menunggu Persetujuan',
           body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu persetujuan Anda.`,
-          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+          data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
         });
       } catch (err: any) {
         this.logger.warn(`Failed to send pilihBerkas notification: ${err?.message}`);
@@ -1331,7 +1331,7 @@ export class UsulanAksesBerkasService {
               type: NotificationType.SYSTEM,
               title: 'Usulan Akses Berkas Menunggu Persetujuan',
               body: `Usulan ${saved.nomor_usulan} — ${saved.judul_usulan} menunggu persetujuan Anda.`,
-              data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+              data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
             });
           }
         } else {
@@ -1345,7 +1345,7 @@ export class UsulanAksesBerkasService {
                 type: NotificationType.SYSTEM,
                 title: 'Akses Berkas Diterbitkan',
                 body: `Akses untuk usulan ${saved.nomor_usulan} — ${saved.judul_usulan} telah diterbitkan dan dapat diakses.`,
-                data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+                data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
               }),
             ),
           );
@@ -1357,7 +1357,7 @@ export class UsulanAksesBerkasService {
           type: NotificationType.SYSTEM,
           title: 'Persetujuan Akses Berkas Ditolak / Perlu Revisi',
           body: `Usulan ${saved.nomor_usulan} permohonan akses berkas: ${dto.catatan_revisi || dto.catatan || 'Ditolak/perlu revisi.'}`,
-          data: { action: 'OPEN_USULAN_PINDAH', id: saved.id, nomorUsulan: saved.nomor_usulan },
+          data: { action: 'OPEN_USULAN_AKSES', id: saved.id, nomorUsulan: saved.nomor_usulan },
         });
       }
     } catch (err: any) {
