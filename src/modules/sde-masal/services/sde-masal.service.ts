@@ -194,6 +194,32 @@ export class SdeMasalService {
     }
   }
 
+  async syncDispositionFollowUp(
+    parentNaskahId: string,
+    positionId?: string | number,
+  ): Promise<{ marked: boolean }> {
+    if (!parentNaskahId || !positionId) return { marked: false };
+
+    const folder = await this.folderRepo.findOne({
+      where: {
+        parentNaskahId,
+        createdBy: String(positionId),
+      },
+      select: ['id', 'parentNaskahId', 'createdBy'],
+    });
+    if (!folder) return { marked: false };
+
+    await this.sirkulasiRepository.update(
+      {
+        idNaskah: parentNaskahId,
+        position: String(positionId),
+        sirkuler: In(['penerima', 'tembusan']),
+      },
+      { tindakLanjut: 1 },
+    );
+    return { marked: true };
+  }
+
   async updateFolder(
     id: string,
     data: Partial<CreateSdeMasalFolderDto>,
