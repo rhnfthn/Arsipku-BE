@@ -66,7 +66,10 @@ export class SdeMasalController {
     // Scope per-akun: catat position ID pembuat folder
     dto.createdBy =
       String(user?.position ?? user?.positionId ?? '') || dto.createdBy;
-    const data = await this.sdeMasalService.createFolder(dto);
+    const data = await this.sdeMasalService.createFolder(
+      dto,
+      user?.position ?? user?.positionId,
+    );
     return { success: true, data };
   }
 
@@ -74,8 +77,13 @@ export class SdeMasalController {
   async updateFolder(
     @Param('folderId') folderId: string,
     @Body() dto: Partial<CreateSdeMasalFolderDto>,
+    @CurrentUser() user: any,
   ) {
-    const data = await this.sdeMasalService.updateFolder(folderId, dto);
+    const data = await this.sdeMasalService.updateFolder(
+      folderId,
+      dto,
+      user?.position ?? user?.positionId,
+    );
     return { success: true, data };
   }
 
@@ -270,7 +278,10 @@ export class SdeMasalController {
     // Scope per-akun: catat position ID pembuat item
     body.createdBy =
       String(user?.position ?? user?.positionId ?? '') || body.createdBy;
-    const result = await this.sdeMasalService.generateMassal(body);
+    const result = await this.sdeMasalService.generateMassal(
+      body,
+      user?.position ?? user?.positionId,
+    );
     return { success: true, data: result };
   }
 
@@ -289,6 +300,7 @@ export class SdeMasalController {
     const result = await this.sdeMasalService.submitVerification(
       body?.ids,
       body?.verifikators || [],
+      user?.position ?? user?.positionId,
     );
     return {
       success: true,
@@ -326,6 +338,34 @@ export class SdeMasalController {
       body?.catatan,
     );
     return { success: true, data, message: 'SDE Massal berhasil diverifikasi' };
+  }
+
+  @Patch('folder/:folderId/approve-verification')
+  async approveFolderVerification(
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: any,
+    @Body() body: { catatan?: string },
+  ) {
+    const data = await this.sdeMasalService.approveFolderVerification(
+      folderId,
+      user,
+      body?.catatan,
+    );
+    return { success: true, data, message: 'Folder SDE Massal berhasil diverifikasi' };
+  }
+
+  @Patch('folder/:folderId/reject-verification')
+  async rejectFolderVerification(
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: any,
+    @Body() body: { catatan?: string },
+  ) {
+    const data = await this.sdeMasalService.rejectFolderVerification(
+      folderId,
+      user,
+      body?.catatan,
+    );
+    return { success: true, data, message: 'Folder SDE Massal ditolak' };
   }
 
   @Patch(':id/reject-verification')
@@ -518,8 +558,15 @@ export class SdeMasalController {
    * Mengembalikan data naskah + sirkulasi lengkap untuk ditampilkan di detail.
    */
   @Get('naskah/:naskahId')
-  async findNaskahDetail(@Param('naskahId') naskahId: string) {
-    const data = await this.sdeMasalService.findNaskahDetail(naskahId);
+  async findNaskahDetail(
+    @Param('naskahId') naskahId: string,
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.sdeMasalService.findNaskahDetail(
+      naskahId,
+      user?.position ?? user?.positionId,
+      user?.persnum,
+    );
     if (!data) {
       return { success: false, message: 'Naskah tidak ditemukan', data: null };
     }
