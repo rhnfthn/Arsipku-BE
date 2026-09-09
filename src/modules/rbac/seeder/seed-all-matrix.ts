@@ -11,6 +11,7 @@ import { utamaResources } from './utama-matrix';
 import { utilitasResources } from './utilitas-matrix';
 import { shareResources } from './share-matrix';
 import { kelolaResources } from './kelola-matrix';
+import { administrasiResources } from './administrasi-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -388,6 +389,9 @@ async function main() {
     ...utilitasResources,
     ...shareResources,
     ...kelolaResources,
+    ...administrasiResources.filter(
+      (resource) => resource.name === 'correspondence-routing',
+    ),
     ...rbacManagementResources,
   ];
 
@@ -445,6 +449,11 @@ async function main() {
 
   // 4b. Also add ALL other permissions in DB (from seed-rbac.ts: administrasi, laporan, faq, etc.)
   const allDbPerms = await permRepo.find({ select: ['id'] });
+  const correspondenceRoutingPermissionIds = new Set(
+    Array.from(permIdByName.entries())
+      .filter(([name]) => name.startsWith('correspondence-routing.'))
+      .map(([, id]) => id),
+  );
   const allDbPermIds = allDbPerms.map((p) => p.id);
 
   // Append missing permissions to SUPERADMIN
@@ -476,7 +485,10 @@ async function main() {
       select: ['permissionId'],
     });
     const roleExistingIds = new Set(roleExisting.map((rp) => rp.permissionId));
+    // Routing configuration is a security-sensitive v1 feature. Generic seed
+    // keeps it SUPERADMIN-only; any broader grant must be explicit in RBAC UI.
     const roleExtra = allDbPermIds
+      .filter((pid) => !correspondenceRoutingPermissionIds.has(pid))
       .filter((pid) => !roleExistingIds.has(pid))
       .map((pid) => ({
         id: uuidv4(),

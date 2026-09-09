@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { NaskahLainnyaService } from './naskah-lainnya.service';
@@ -21,6 +21,8 @@ import { GeneratePdfBlankoVerbalService } from '../../generate_pdf/services/gene
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { NotificationService } from '../../notification/services';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { GotenbergService } from '../../gotenberg/gotenberg.service';
+import { DigsigService } from '../../digsig/services/digsig.service';
 
 const repo = () => ({
   find: jest.fn(),
@@ -167,6 +169,19 @@ describe('NaskahLainnyaService', () => {
           useValue: {
             emitNaskahLainnyaPersetujuanCount: jest.fn(),
             emitNaskahLainnyaLegalDraftingCount: jest.fn(),
+          },
+        },
+        {
+          provide: GotenbergService,
+          useValue: {
+            isConfigured: jest.fn(() => true),
+            convertDocxToPdf: jest.fn(async () => Buffer.from('%PDF-test')),
+          },
+        },
+        {
+          provide: DigsigService,
+          useValue: {
+            hitDigsigEndpoint: jest.fn(),
           },
         },
       ],
@@ -635,8 +650,92 @@ describe('NaskahLainnyaService', () => {
     );
     expect(res.data.id).toBe('n9');
     expect(naskahRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ tahapan: 'konsep', butuhLegal: true }),
+      expect.objectContaining({
+        tahapan: 'konsep',
+        butuhLegal: true,
+        klasifikasi: null,
+      }),
     );
+  });
+
+  describe('validasi field wajib sebelum kirim', () => {
+    const validNaskah = () =>
+      ({
+        jenis: 'PER',
+        klasifikasi: 'HM.01',
+        sifat: 'biasa',
+        signOption: 'qr_only',
+        lampiran: 'naskah-lainnya/PER/naskah.docx',
+        penandatanganChain: [
+          {
+            positionId: 'POS_SIGNER',
+            persnum: 1001,
+            nama: 'Penandatangan',
+            jabatan: 'Direktur',
+          },
+        ],
+        approvalChain: [
+          { positionId: 'POS_APPROVER', nama: 'Approver', jabatan: 'VP' },
+        ],
+      }) as NaskahEntity;
+
+    it('menolak klasifikasi kosong', () => {
+      const naskah = validNaskah();
+      naskah.klasifikasi = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException('Klasifikasi wajib diisi sebelum kirim.'),
+      );
+    });
+
+    it('menolak verifikator kosong', () => {
+      const naskah = validNaskah();
+      naskah.approvalChain = null;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException('Verifikator wajib dipilih sebelum kirim.'),
+      );
+    });
+
+    it('menolak urutan penandatangan kosong', () => {
+      const naskah = validNaskah();
+      naskah.penandatanganChain = null;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException(
+          'Urutan penandatangan wajib diisi sebelum kirim.',
+        ),
+      );
+    });
+
+    it('mewajibkan unggah DOCX untuk Digital', () => {
+      const naskah = validNaskah();
+      naskah.lampiran = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).toThrow(
+        new BadRequestException(
+          'Dokumen naskah DOCX wajib diunggah untuk metode tanda tangan Digital.',
+        ),
+      );
+    });
+
+    it('mengizinkan Naskah Draft kosong untuk Fisik', () => {
+      const naskah = validNaskah();
+      naskah.signOption = 'ttd_basah';
+      naskah.lampiran = null as any;
+
+      expect(() =>
+        (svc as any).validateRequiredFieldsBeforeKirim(naskah),
+      ).not.toThrow();
+    });
   });
 
   it('createDraft menyimpan calon nomor manual TTD fisik agar tetap dapat dikoreksi', async () => {
@@ -751,20 +850,36 @@ describe('NaskahLainnyaService', () => {
     expect(res.data.parameter).toEqual({ perihal: 'X', tanggal: '2026-08-11' });
   });
 
-  it('uploadRevisiDokumen mewajibkan DOCX dan PDF sebagai satu pasangan', async () => {
-    const docx = {
-      originalname: 'revisi.docx',
-      mimetype:
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      buffer: Buffer.from('docx'),
-      size: 4,
-    } as any;
+  it('uploadDokumen TTD fisik mempertahankan perihal yang diisi manual', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n-fisik-manual',
+      jenis: 'PER',
+      tahapan: 'konsep',
+      signOption: 'ttd_basah',
+      tanggal: new Date('2026-09-04'),
+      perihal: 'Perihal Manual',
+    });
+
+    await svc.uploadDokumen(
+      'n-fisik-manual',
+      { buffer: Buffer.from('x'), originalname: 'a.docx' } as any,
+      { persnum: 123, nama: 'Test' },
+    );
+
+    expect(naskahRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'n-fisik-manual' }),
+      expect.not.objectContaining({ perihal: expect.anything() }),
+    );
+  });
+
+  it('uploadRevisiDokumen mewajibkan file DOCX', async () => {
     await expect(
-      svc.uploadRevisiDokumen('n1', docx, undefined, {
+      svc.uploadRevisiDokumen('n1', undefined, {
         persnum: 1,
         nama: 'Legal',
       }),
-    ).rejects.toThrow('pasangan file DOCX dan PDF');
+    ).rejects.toThrow('DOCX wajib diunggah');
   });
 
   it('uploadRevisiDokumen menyimpan DOCX utama dan PDF preview pada versi yang sama', async () => {
@@ -795,14 +910,7 @@ describe('NaskahLainnyaService', () => {
       buffer: Buffer.from('docx'),
       size: 4,
     } as any;
-    const pdf = {
-      originalname: 'revisi.pdf',
-      mimetype: 'application/pdf',
-      buffer: Buffer.from('pdf'),
-      size: 3,
-    } as any;
-
-    await svc.uploadRevisiDokumen('n1', docx, pdf, {
+    await svc.uploadRevisiDokumen('n1', docx, {
       persnum: 1,
       nama: 'Legal',
       positionText: 'Kabag Hukum',
@@ -899,17 +1007,69 @@ describe('NaskahLainnyaService', () => {
     storageMock.getFile.mockClear();
     storageMock.uploadBuffer.mockClear();
 
-    await svc.tandaTangan('n-fisik-approval', undefined, {
+    const signer = {
       persnum: 123,
       nama: 'Penandatangan',
       positionId: 'POS_SIGNER',
       positionText: 'Direktur',
-    } as any);
+    } as any;
+    await svc.tandaTangan('n-fisik-approval', undefined, signer);
 
-    expect(ensureNomor).toHaveBeenCalledWith(naskah);
+    expect(ensureNomor).toHaveBeenCalledWith(naskah, signer);
     expect(workflowMock.transisiTandaTangan).toHaveBeenCalled();
     expect(storageMock.getFile).not.toHaveBeenCalled();
     expect(storageMock.uploadBuffer).not.toHaveBeenCalled();
+  });
+
+  it('ensureNomorFinal memakai abbreviation dan scope penandatangan terakhir', async () => {
+    const manager = {
+      getRepository: jest.fn(() => ({
+        findOne: jest.fn().mockResolvedValue({
+          formatPenomoran:
+            '{TIPE}.{NO_URUT}/{JABATAN}/{LOKASI}/{INSTANSI}/{TAHUN}',
+        }),
+        update: jest.fn(),
+      })),
+    };
+    (svc as any).dataSource.transaction.mockImplementation(async (cb: any) =>
+      cb(manager),
+    );
+    const generateNomor = (svc as any).nomorService.generateNomorForNaskah;
+    generateNomor.mockClear();
+
+    const nomor = await (svc as any).ensureNomorFinal(
+      {
+        id: 'n-final-signer',
+        jenis: 'PER',
+        nomor: null,
+        tanggal: new Date('2026-09-04'),
+        perihal: 'Pengujian',
+        dikirimOleh: {
+          company: 'COMPANY_PEMRAKARSA',
+          area: 'AREA_PEMRAKARSA',
+          abbreviation: 'STAF',
+        },
+      } as NaskahEntity,
+      {
+        persnum: 123,
+        nama: 'Penandatangan Terakhir',
+        positionId: 'POS_DIREKTUR',
+        abbreviation: 'DIRUT',
+        company: 'COMPANY_SIGNER',
+        area: 'AREA_SIGNER',
+      },
+    );
+
+    expect(nomor).toBe('PER.001/LPPNPI/I/2026');
+    expect(generateNomor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company: 'COMPANY_SIGNER',
+        area: 'AREA_SIGNER',
+        position: 'POS_DIREKTUR',
+        jabatanAbbrev: 'DIRUT',
+      }),
+      manager,
+    );
   });
 
   // ── Helper: query builder mock (chain returns `rows` via getMany, `rawRows` via getRawMany) ──
@@ -941,12 +1101,12 @@ describe('NaskahLainnyaService', () => {
       },
       {
         id: 'n2',
-        nomor: 'BA.1',
-        jenis: 'BA',
+        nomor: 'BAC.1',
+        jenis: 'BAC',
         tahapan: 'blanko_verbal',
         butuhLegal: true,
         pemrakarsa: { nama: 'Pemrakarsa B' },
-        perihal: 'BA',
+        perihal: 'BAC',
         tanggal: new Date('2026-08-18'),
         createdAt: new Date('2026-08-18'),
       },
@@ -1056,8 +1216,8 @@ describe('NaskahLainnyaService', () => {
       },
       {
         id: 'n2',
-        nomor: 'BA.1',
-        jenis: 'BA',
+        nomor: 'BAC.1',
+        jenis: 'BAC',
         tahapan: 'blanko_verbal',
         butuhLegal: true,
         pemrakarsa: { nama: 'B' },
@@ -1120,8 +1280,8 @@ describe('NaskahLainnyaService', () => {
     const qb = makeQb([
       {
         id: 'n3',
-        nomor: 'BA.2',
-        jenis: 'BA',
+        nomor: 'BAC.2',
+        jenis: 'BAC',
         tahapan: 'blanko_verbal',
         butuhLegal: true,
         pemrakarsa: { nama: 'C' },
@@ -1131,8 +1291,8 @@ describe('NaskahLainnyaService', () => {
       },
       {
         id: 'n4',
-        nomor: 'BA.3',
-        jenis: 'BA',
+        nomor: 'BAC.3',
+        jenis: 'BAC',
         tahapan: 'blanko_verbal',
         butuhLegal: true,
         pemrakarsa: { nama: 'D' },
@@ -2081,6 +2241,8 @@ describe('NaskahLainnyaService', () => {
       jenis: 'PER',
       tahapan: 'konsep',
       tanggal: new Date('2026-08-11'),
+      perihal: 'Peraturan Tata Naskah Dinas',
+      nomor: null,
     });
     naskahRepo.update.mockResolvedValue({});
     const dokumenRepo = (svc as any).dokumenRepo;
@@ -2100,10 +2262,11 @@ describe('NaskahLainnyaService', () => {
     } as any);
     expect(dokumenRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        // nama kanonik dari buildNaskahFileName(perihal, jenis, naskahId) — bukan originalname.
+        // nama kanonik format {JENIS}-{NOMOR}-{slug-perihal} — perihal dibaca
+        // dari parse docx (mock 'X'), nomor belum ada → DRAFT.
         naskahId: 'n1',
         tipe: 'naskah',
-        nama: 'x-n1.docx',
+        nama: 'PER-DRAFT-x.docx',
         tahapan: 'konsep',
         status: 'draf',
         uploaderNama: 'Budi',
@@ -2316,7 +2479,7 @@ describe('NaskahLainnyaService', () => {
     expect(download.nama).toBe('revisi.docx');
   });
 
-  it('downloadDokumenTambahan artifact dittd sajikan signed.docx sendiri (abaikan preview PDF warisan)', async () => {
+  it('downloadDokumenTambahan artifact dittd memakai PDF untuk preview dan unduh', async () => {
     const dokumenRepo = (svc as any).dokumenRepo;
     dokumenRepo.findOne.mockResolvedValue({
       id: 'd-final',
@@ -2332,18 +2495,15 @@ describe('NaskahLainnyaService', () => {
       previewMimetype: 'application/pdf',
     });
 
-    // Unduh: docx signed, BUKAN previewMinioKey warisan (PDF belum berttd).
     const download = await svc.downloadDokumenTambahan('n1', 'd-final', false);
-    expect(storageMock.getFile).toHaveBeenLastCalledWith('signed.docx');
-    expect(download.mimetype).toBe(
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    );
-    expect(download.nama).toBe('signed.docx');
+    expect(storageMock.getFile).toHaveBeenLastCalledWith('final.pdf');
+    expect(download.mimetype).toBe('application/pdf');
+    expect(download.nama).toBe('final.pdf');
 
-    // Preview pun docx signed — FE merender inline via docx-preview.
     const preview = await svc.downloadDokumenTambahan('n1', 'd-final', true);
-    expect(storageMock.getFile).toHaveBeenLastCalledWith('signed.docx');
-    expect(preview.nama).toBe('signed.docx');
+    expect(storageMock.getFile).toHaveBeenLastCalledWith('final.pdf');
+    expect(preview.nama).toBe('final.pdf');
+    expect(preview.mimetype).toBe('application/pdf');
   });
 
   it('upsertDittdRow insert bila belum ada row dittd, update bila sudah ada', async () => {

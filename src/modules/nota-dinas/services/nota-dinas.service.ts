@@ -5226,7 +5226,7 @@ export class NotaDinasService {
           dto.lampiran_temp_ids,
           naskahId,
           dto.jenis,
-          `${dto.jenis.toLowerCase()}/lampiran`,
+          'nota-dinas/lampiran',
         );
 
         const movedLampiran = await queryRunner.manager.find(
@@ -5316,7 +5316,7 @@ export class NotaDinasService {
           pdfBuffer,
           pdfFileName,
           'application/pdf',
-          `${dto.jenis.toLowerCase()}/final`,
+          'nota-dinas/final',
         );
 
         finalPdfPath = uploadResult.key;

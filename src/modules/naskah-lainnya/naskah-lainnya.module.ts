@@ -17,6 +17,7 @@ import { NaskahLainnyaDokumenEntity } from './entities/naskah-lainnya-dokumen.en
 import { NomorModule } from '../nomor/nomor.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
+import { GotenbergModule } from '../gotenberg/gotenberg.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     NomorModule,
     GeneratePdfModule,
     OrgDataModule,
+    GotenbergModule,
   ],
   controllers: [NaskahLainnyaController],
   providers: [

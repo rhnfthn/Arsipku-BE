@@ -9,16 +9,12 @@ import {
   Query,
   Res,
   UploadedFile,
-  UploadedFiles,
   UseInterceptors,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  FileFieldsInterceptor,
-  FileInterceptor,
-} from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { NaskahLainnyaService } from '../services/naskah-lainnya.service';
 import type { CurrentUser as CurrentUserType } from '../services/naskah-lainnya.service';
@@ -135,24 +131,13 @@ export class NaskahLainnyaController {
   }
 
   @Post(':id/dokumen/revisi')
-  @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'docx', maxCount: 1 },
-      { name: 'pdf', maxCount: 1 },
-    ]),
-  )
+  @UseInterceptors(FileInterceptor('docx'))
   uploadRevisi(
     @Param('id') id: string,
-    @UploadedFiles()
-    files: { docx?: Express.Multer.File[]; pdf?: Express.Multer.File[] },
+    @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.service.uploadRevisiDokumen(
-      id,
-      files?.docx?.[0],
-      files?.pdf?.[0],
-      user,
-    );
+    return this.service.uploadRevisiDokumen(id, file, user);
   }
 
   @Get(':id/file')
@@ -366,7 +351,13 @@ export class NaskahLainnyaController {
     @Body() dto: TandaTanganDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.service.tandaTangan(id, dto.passphrase, user);
+    return this.service.tandaTangan(
+      id,
+      dto.passphrase,
+      user,
+      dto.signMethod,
+      dto.catatan,
+    );
   }
 
   @Post(':id/tanda-tangan/tolak')

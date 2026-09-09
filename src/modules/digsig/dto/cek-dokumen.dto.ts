@@ -100,16 +100,65 @@ export class CekDokumenResponseDto {
 // ======== BSrE API Response (actual structure from BSrE) ========
 /**
  * Actual response structure dari BSrE API Verify
- * Based on real response:
+ *
+ * API v2 format (terverifikasi live 2026-09-08):
+ * {
+ *   "warning": [],
+ *   "description": "Dokumen valid, Sertifikat yang digunakan tidak terpercaya",
+ *   "conclusion": "WARNING",
+ *   "signatureCount": 1,
+ *   "signatureInformations": [...]
+ * }
+ *
+ * Legacy v1 format:
  * {
  *   "nama_dokumen": "...",
  *   "jumlah_signature": 1,
- *   "notes": "Dokumen valid, Sertifikat yang digunakan tidak terpercaya",
+ *   "notes": "...",
  *   "details": [...],
  *   "summary": "WARNING"
  * }
  */
 export interface BsreVerifyResponse {
+  // ===== API v2 fields =====
+  warning?: string[];
+  description?: string;
+  conclusion?: 'VALID' | 'WARNING' | 'INVALID' | string;
+  signatureCount?: number;
+  signatureInformations?: Array<{
+    location?: string | null;
+    id?: string;
+    fieldName?: string;
+    signatureFormat?: string;
+    signatureAlgorithm?: string | null;
+    modified?: boolean;
+    lastSignature?: boolean;
+    ltv?: boolean;
+    integrityValid?: boolean;
+    certificateTrusted?: boolean;
+    signatureDate?: string;
+    certLevelCode?: number;
+    timestampInfomation?: {
+      id?: string;
+      timestampDate?: string;
+      signerName?: string;
+    };
+    certificateDetails?: Array<{
+      id?: string;
+      signatureAlgoritm?: string; // typo "Algoritm" dari API v2
+      issuerName?: string;
+      notBeforeDate?: string;
+      notAfterDate?: string;
+      keyUsages?: string[];
+      serialNumber?: string;
+      commonName?: string;
+    }>;
+    digestAlgorithm?: string | null;
+    signerName?: string;
+    reason?: string | null;
+  }>;
+
+  // ===== Legacy v1 fields (backward compatibility) =====
   nama_dokumen?: string;
   jumlah_signature?: number;
   notes?: string;
