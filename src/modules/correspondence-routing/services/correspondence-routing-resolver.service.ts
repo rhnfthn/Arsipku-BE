@@ -70,6 +70,13 @@ export interface EffectiveRoutingPlan {
   };
 }
 
+export interface RoutingCapabilities {
+  feature_enabled: boolean;
+  can_create_sdi: boolean;
+  matched_role_codes: string[];
+  matched_rule_ids: string[];
+}
+
 interface RoutingInput {
   company: number;
   documentType: RoutingDocumentType;
@@ -116,6 +123,57 @@ export class CorrespondenceRoutingResolverService {
       structuralCc: dto.structuralCc as RoutingPosition[] | undefined,
       includeInactiveRuleId: dto.includeInactiveRuleId,
     });
+  }
+
+  async getCapabilities(
+    companyInput: string | number,
+    positionInput: string | number,
+  ): Promise<RoutingCapabilities> {
+    const disabled: RoutingCapabilities = {
+      feature_enabled: false,
+      can_create_sdi: false,
+      matched_role_codes: [],
+      matched_rule_ids: [],
+    };
+    if (process.env.CORRESPONDENCE_ROUTING_ENABLED !== 'true') return disabled;
+
+    const company = Number(companyInput);
+    const positionId = Number(positionInput);
+    if (!Number.isInteger(company) || company <= 0)
+      throw new BadRequestException('Company user tidak valid');
+    if (!Number.isInteger(positionId) || positionId <= 0)
+      throw new BadRequestException('Position user tidak valid');
+
+    const effectiveDate = new Date().toISOString().slice(0, 10);
+    const config = await this.loadConfig(
+      company,
+      'SDI',
+      'CREATE',
+      effectiveDate,
+    );
+    const managerRoles = config.roles.filter(
+      (role) =>
+        role.code.trim().toUpperCase() === 'MANAGER_OPERASI' &&
+        config.members.some(
+          (member) =>
+            member.role_id === role.id &&
+            Number(member.position_id) === positionId &&
+            this.effective(member, effectiveDate),
+        ),
+    );
+    const managerRoleIds = new Set(managerRoles.map((role) => role.id));
+    const primaryRules = config.rules.filter(
+      (rule) =>
+        managerRoleIds.has(rule.source_role_id) &&
+        rule.delivery_type === 'PENERIMA',
+    );
+
+    return {
+      feature_enabled: true,
+      can_create_sdi: managerRoles.length > 0 && primaryRules.length > 0,
+      matched_role_codes: managerRoles.map((role) => role.code).sort(),
+      matched_rule_ids: primaryRules.map((rule) => rule.id).sort(),
+    };
   }
 
   async resolve(input: RoutingInput): Promise<EffectiveRoutingPlan> {
