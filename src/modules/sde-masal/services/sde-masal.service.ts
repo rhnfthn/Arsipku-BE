@@ -1089,7 +1089,9 @@ export class SdeMasalService {
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak dapat dikirim pada status saat ini');
     }
-    const items = await this.repo.find({ where: { folderId } });
+    const items = this.deduplicateMassalRows(
+      await this.repo.find({ where: { folderId } }),
+    );
     if (items.length === 0) throw new BadRequestException('Data penerima belum dibuat');
     if (!items.every((item) => item.statusVerifikasi === 'TERVERIFIKASI')) {
       throw new BadRequestException('Folder harus menyelesaikan verifikasi terlebih dahulu');
@@ -1307,10 +1309,10 @@ export class SdeMasalService {
       }
     }
 
-    const rows = await this.repo.find({
+    const rows = this.deduplicateMassalRows(await this.repo.find({
       where: { folderId },
       order: { createdAt: 'ASC' },
-    });
+    }));
     const naskahIds = rows
       .map((row) => row.naskahId)
       .filter(Boolean) as string[];
@@ -1364,7 +1366,13 @@ export class SdeMasalService {
             recipient?.emailTertuju || recipient?.email_tertuju || null,
           emailCc: recipient?.emailCc || recipient?.email_cc || null,
           emailBcc: recipient?.emailBcc || recipient?.email_bcc || null,
-          status: naskah?.status || row.statusVerifikasi,
+          // Status alur SDE Massal menjadi sumber utama setelah pengiriman.
+          // Jangan biarkan status internal naskah (mis. `final`) menimpa
+          // label bisnis `Selesai` di daftar folder.
+          status:
+            row.statusVerifikasi === 'TERKIRIM'
+              ? 'TERKIRIM'
+              : naskah?.status || row.statusVerifikasi,
           statusVerifikasi: row.statusVerifikasi,
           verifikators: row.verifikators || [],
           submittedAt: row.submittedAt || null,
@@ -2635,6 +2643,41 @@ export class SdeMasalService {
       .digest('hex');
   }
 
+  private deduplicateMassalRows(rows: SdeMasalEntity[]): SdeMasalEntity[] {
+    const statusPriority: Record<string, number> = {
+      MENUNGGU: 10,
+      MENUNGGU_VERIFIKASI: 20,
+      DITOLAK: 30,
+      TERVERIFIKASI: 40,
+      GAGAL: 50,
+      TERKIRIM: 60,
+    };
+    const selected = new Map<string, SdeMasalEntity>();
+
+    for (const row of rows) {
+      const key = this.getMassalRecipientKey(row.recipientData);
+      const current = selected.get(key);
+      if (!current) {
+        selected.set(key, row);
+        continue;
+      }
+
+      const currentScore =
+        (current.naskahId ? 1000 : 0) +
+        (statusPriority[current.statusVerifikasi] || 0);
+      const rowScore =
+        (row.naskahId ? 1000 : 0) +
+        (statusPriority[row.statusVerifikasi] || 0);
+      if (rowScore > currentScore || row.updatedAt > current.updatedAt) {
+        selected.set(key, row);
+      }
+    }
+
+    return [...selected.values()].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    );
+  }
+
   private normalizeMassAttachmentName(value: unknown): string {
     const raw = String(value ?? '').replace(/\\/g, '/').trim();
     return raw.split('/').pop()?.trim() || '';
@@ -2990,7 +3033,9 @@ export class SdeMasalService {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) return;
     const previousStatus = folder.status;
-    const rows = await this.repo.find({ where: { folderId } });
+    const rows = this.deduplicateMassalRows(
+      await this.repo.find({ where: { folderId } }),
+    );
     const totalItems = rows.length;
     const totalTerkirim = rows.filter(
       (row) => row.statusVerifikasi === 'TERKIRIM',
