@@ -3,6 +3,7 @@ import { getBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
+import { resolveDocumentNumber } from '../utils/document-number.util';
 
 interface KajianPdfOptions {
   html: string;
@@ -19,6 +20,10 @@ interface KajianPdfOptions {
   penerima?: string[];
   tembusan?: string[];
   nomor?: string;
+  nomorSurat?: string;
+  nomor_surat?: string;
+  nomorDokumen?: string;
+  document_number?: string;
   nama_tempat?: string;
   namaTempat?: string;
   // Dynamic header info dari sub_area_alamat
@@ -95,7 +100,7 @@ export class GeneratePdfKajianService {
     const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
-    const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
+    const nomor = resolveDocumentNumber(body);
 
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
