@@ -10,6 +10,7 @@ import { In, Repository, DataSource } from 'typeorm';
 import { createHash } from 'crypto';
 import * as XLSX from 'xlsx';
 import PizZip from 'pizzip';
+import PQueue from 'p-queue';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
@@ -56,6 +57,16 @@ const MAX_MASS_ATTACHMENT_ZIP_BYTES = 50 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILES = 200;
 const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
+
+// Queue khusus finalisasi SDE Massal. Bounded concurrency menjaga BSrE,
+// database, storage, dan mail service tetap stabil ketika satu folder berisi
+// puluhan/ratusan naskah, tanpa mengubah alur SDE biasa.
+const sdeMasalFinalizeQueue = new PQueue({
+  concurrency: 4,
+  intervalCap: 8,
+  interval: 1000,
+  throwOnTimeout: true,
+});
 
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
@@ -963,25 +974,37 @@ export class SdeMasalService {
       throw new BadRequestException('Tidak ada surat yang sudah disetujui dan siap dikirim');
     }
 
+    // Jalankan beberapa item secara paralel dengan batas global khusus SDE
+    // Massal. Setiap item tetap punya transaksi, naskah, dan signature ID
+    // sendiri; yang dipercepat hanya overlap proses I/O antar-item.
+    const results = await Promise.allSettled(
+      eligibleItems.map((item) =>
+        sdeMasalFinalizeQueue.add(() =>
+          this.finalizeNaskah(
+            item.id,
+            signOption,
+            passphrase,
+            creatorPosition,
+            persnum,
+          ),
+        ),
+      ),
+    );
+
     let success = 0;
     let failed = 0;
-    for (const item of eligibleItems) {
-      try {
-        await this.finalizeNaskah(
-          item.id,
-          signOption,
-          passphrase,
-          creatorPosition,
-          persnum,
-        );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
         success++;
-      } catch (error) {
-        this.logger.error(
-          `Finalisasi langsung gagal untuk item ${item.id}: ${error?.message || error}`,
-        );
-        failed++;
+        return;
       }
-    }
+
+      const item = eligibleItems[index];
+      this.logger.error(
+        `Finalisasi langsung gagal untuk item ${item.id}: ${result.reason?.message || result.reason}`,
+      );
+      failed++;
+    });
 
     await this.refreshFolderCounters(folderId);
     if (success > 0) {
