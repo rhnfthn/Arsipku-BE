@@ -696,7 +696,17 @@ export class NotificationService {
 
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(data)) {
-      result[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      if (value === null || value === undefined) continue;
+      const str = typeof value === 'string' ? value : JSON.stringify(value);
+      if (
+        str === 'null' ||
+        str === 'undefined' ||
+        str === '""' ||
+        str.trim() === ''
+      ) {
+        continue;
+      }
+      result[key] = str;
     }
     return result;
   }
