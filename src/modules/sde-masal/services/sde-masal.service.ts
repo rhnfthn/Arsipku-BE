@@ -361,9 +361,9 @@ export class SdeMasalService {
       throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
     }
 
-    // Request ulang untuk folder yang sama harus idempotent. `no` pada data
-    // penerima tetap dipertahankan sebagai bagian dari key agar dua baris
-    // Excel yang memang berbeda tetap dapat dibuat, walaupun isinya sama.
+    // Request ulang untuk folder yang sama harus idempotent. `no` adalah
+    // identitas baris Excel; lampiran sengaja tidak dijadikan pembeda karena
+    // formatnya berubah dari nama file menjadi object setelah upload/commit.
     const existingKeys = new Set<string>();
     if (body.folderId) {
       const existingItems = await this.repo.find({
@@ -2609,10 +2609,18 @@ export class SdeMasalService {
       }
     }
 
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const rowNo = (parsed as Record<string, any>).no;
+      if (rowNo !== null && rowNo !== undefined && String(rowNo).trim()) {
+        return `row:${String(rowNo).trim()}`;
+      }
+    }
+
     const normalize = (input: any): any => {
       if (Array.isArray(input)) return input.map((item) => normalize(item));
       if (input && typeof input === 'object') {
         return Object.keys(input)
+          .filter((key) => key !== 'lampiran')
           .sort()
           .reduce((result, key) => {
             result[key] = normalize(input[key]);
