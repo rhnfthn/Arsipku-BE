@@ -11,6 +11,7 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 RUN npm run build
+RUN test -f /app/dist/main.js
 
 # ========================
 # Runtime stage (Puppeteer)
