@@ -3,6 +3,7 @@ import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
+import { resolveDocumentNumber } from '../utils/document-number.util';
 
 interface NodinPdfOptions {
   html?: string;
@@ -19,6 +20,10 @@ interface NodinPdfOptions {
   penerima?: string[];
   tembusan?: string[];
   nomor?: string;
+  nomorSurat?: string;
+  nomor_surat?: string;
+  nomorDokumen?: string;
+  document_number?: string;
   nama_tempat?: string;
   namaTempat?: string;
   sifat?: string;
@@ -123,7 +128,7 @@ export class GeneratePdfNodinService {
     const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
-    const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
+    const nomor = resolveDocumentNumber(body);
 
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
@@ -368,7 +373,7 @@ export class GeneratePdfNodinService {
               <td style="width: 50%; text-align: right; vertical-align: top;">
                 <div style="display: inline-block; text-align: left;">
                   Lampiran Surat<br>
-                  Nomor Surat :<br>
+                  Nomor Surat : ${nomor}<br>
                   Tanggal Surat : ${tanggalFormatted}
                 </div>
               </td>
