@@ -3,6 +3,7 @@ import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
+import { resolveDocumentNumber } from '../utils/document-number.util';
 
 interface SdiPdfOptions {
   html: string;
@@ -18,6 +19,10 @@ interface SdiPdfOptions {
   sifat?: string;
   lampiran?: string;
   nomor?: string;
+  nomorSurat?: string;
+  nomor_surat?: string;
+  nomorDokumen?: string;
+  document_number?: string;
   nama_tempat?: string;
   nama_jabatan?: string;
   // Garis Kewenangan (a.n.) — label pemberi kuasa. Null = tanpa a.n.
@@ -271,7 +276,7 @@ export class GeneratePdfSudinService {
     const perihal = body.perihal || '';
     const sifat = sifatToEnglish(body.sifat || 'Biasa');
     const lampiranText = body.lampiran === '-' ? '-' : body.lampiran || '-';
-    const nomor = body.nomor || '';
+    const nomor = resolveDocumentNumber(body);
 
     // Format penerima
     let penerimaArr: string[] = [];
@@ -309,9 +314,8 @@ export class GeneratePdfSudinService {
     };
 
     const penerimaExceedsLimit = penerimaArr.length > 5;
-    // Tembusan selalu ditampilkan sebagai daftar di bagian Copy to.
-    // Halaman alamat tambahan hanya diperlukan bila penerima terlalu banyak.
-    const needsAddressPage = penerimaExceedsLimit;
+    const tembusanExceedsLimit = tembusanArr.length > 5;
+    const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
 
     // Process penerima (English) - hanya tampilkan position_text (sebelum " - ")
     let penerimaHtml = '';
@@ -333,7 +337,9 @@ export class GeneratePdfSudinService {
     // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
     // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
     let tembusanHtml = '';
-    if (tembusanArr.length > 0) {
+    if (tembusanExceedsLimit) {
+      tembusanHtml = 'Please See Attached Address List';
+    } else if (tembusanArr.length > 0) {
       tembusanHtml =
         "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
       tembusanArr.forEach((item) => {
@@ -481,6 +487,16 @@ export class GeneratePdfSudinService {
         penerimaListHtml += '</ol>';
       }
 
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArr.forEach((item) => {
+          // Hanya tampilkan position_text (sebelum " - ")
+          tembusanListHtml += `<li>${extractPositionText(item)}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
       addressPageContent = `
         <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
@@ -502,6 +518,16 @@ export class GeneratePdfSudinService {
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>TO :</b><br>
                 ${penerimaListHtml}
+              </td>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
+              <td style="vertical-align:top;">
+                <b>COPY TO :</b><br>
+                ${tembusanListHtml}
               </td>
             </tr>`
                 : ''
@@ -726,7 +752,7 @@ export class GeneratePdfSudinService {
     const perihal = body.perihal || '';
     const sifat = body.sifat || 'Biasa';
     const lampiranText = body.lampiran || '-';
-    const nomor = body.nomor || '';
+    const nomor = resolveDocumentNumber(body);
 
     // Format penerima - ensure it's an array
     let penerimaArr: string[] = [];
@@ -756,7 +782,8 @@ export class GeneratePdfSudinService {
 
     // Check if address page is needed (>5 items)
     const penerimaExceedsLimit = penerimaArr.length > 5;
-    const needsAddressPage = penerimaExceedsLimit;
+    const tembusanExceedsLimit = tembusanArr.length > 5;
+    const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
 
     // Process penerima
     let penerimaHtml = '';
@@ -780,7 +807,10 @@ export class GeneratePdfSudinService {
     // Process tembusan
     // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
     let tembusanHtml = '';
-    if (tembusanArr.length > 0) {
+    if (tembusanExceedsLimit) {
+      // Jika tembusan > 5, ganti dengan "Periksa Alamat Terlampir"
+      tembusanHtml = 'Periksa Alamat Terlampir';
+    } else if (tembusanArr.length > 0) {
       tembusanHtml =
         "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
       tembusanArr.forEach((item) => {
@@ -929,6 +959,15 @@ export class GeneratePdfSudinService {
         penerimaListHtml += '</ol>';
       }
 
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArr.forEach((item) => {
+          tembusanListHtml += `<li>${item}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
       addressPageContent = `
         <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
@@ -950,6 +989,16 @@ export class GeneratePdfSudinService {
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>KEPADA YTH :</b><br>
                 ${penerimaListHtml}
+              </td>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
+              <td style="vertical-align:top;">
+                <b>TEMBUSAN :</b><br>
+                ${tembusanListHtml}
               </td>
             </tr>`
                 : ''

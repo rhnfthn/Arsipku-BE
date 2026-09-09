@@ -272,4 +272,20 @@ export class RealtimeEmitService {
       this.logger.warn(`⚠️ [emitFlagUpdate] failed: ${err?.message}`);
     }
   }
+
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    try {
+      this.gateway.emitCorrespondenceRoutingUpdate(payload);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitCorrespondenceRoutingUpdate] failed: ${err?.message}`,
+      );
+    }
+  }
 }
