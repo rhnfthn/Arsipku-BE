@@ -1267,10 +1267,6 @@ export class SdeMasalService {
       where: { folderId },
       order: { createdAt: 'ASC' },
     });
-    const previousSenderName = this.getPreviousVerifiedSenderName(rows);
-    if (previousSenderName && folder.status === 'MENUNGGU_PENGIRIM') {
-      (folder as any).pengirimName = previousSenderName;
-    }
     const naskahIds = rows
       .map((row) => row.naskahId)
       .filter(Boolean) as string[];
@@ -1582,12 +1578,8 @@ export class SdeMasalService {
       const waitingCount = isFinalSender
         ? items.filter((item) => ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) && !item.naskahId).length
         : assignedItems.length;
-      const previousSenderName = this.getPreviousVerifiedSenderName(items);
       return {
         ...folder,
-        ...(previousSenderName && folder.status === 'MENUNGGU_PENGIRIM'
-          ? { pengirimName: previousSenderName }
-          : {}),
         totalItems: items.length,
         waitingCount,
         workflowRole: isFinalSender ? 'PENGIRIM_AKHIR' : 'VERIFIKATOR',
@@ -2968,41 +2960,11 @@ export class SdeMasalService {
       folder.status = 'DRAFT';
     }
 
-    // Setelah seluruh jenjang verifikasi selesai, verifikator terakhir menjadi
-    // pengirim final. Ini juga memulihkan folder lama yang sebelumnya salah
-    // dipindahkan otomatis ke Direktur Utama.
-    if (folder.status === 'MENUNGGU_PENGIRIM') {
-      const previousSender = this.getPreviousVerifiedSender(rows);
-      if (previousSender?.position) {
-        folder.pengirimId = String(previousSender.position);
-        folder.pengirimName = [previousSender.nama, previousSender.jabatan]
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-          .join(' - ');
-      }
-    }
+    // Pengirim final tetap memakai pengirim yang dipilih saat konsep dibuat.
+    // Verifikator terakhir bukan otomatis pengirim; pada chain Direktur Teknik
+    // → EVP → VP → AVP → Staff, EVP selesai memverifikasi lalu tugas final
+    // berpindah ke Direktur Teknik untuk Tolak/Finalisasi.
     await this.folderRepo.save(folder);
-  }
-
-  private getPreviousVerifiedSenderName(rows: SdeMasalEntity[]): string {
-    const previousSender = this.getPreviousVerifiedSender(rows);
-    return previousSender
-      ? [previousSender?.nama, previousSender?.jabatan || previousSender?.positionText]
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-          .join(' - ')
-      : '';
-  }
-
-  private getPreviousVerifiedSender(rows: SdeMasalEntity[]): any | null {
-    return rows
-      .flatMap((row) => Array.isArray(row.verifikators) ? row.verifikators : [])
-      .filter((verifikator: any) =>
-        verifikator?.status === 'verified' &&
-        (this.getVerificationRoleRank(verifikator?.jabatan || verifikator?.positionText) || 0) < 4,
-      )
-      .sort((a: any, b: any) => Number(a?.urutan || 0) - Number(b?.urutan || 0))
-      .pop();
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
