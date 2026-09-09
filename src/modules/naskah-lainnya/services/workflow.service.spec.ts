@@ -719,10 +719,11 @@ describe('WorkflowService', () => {
 
   it('buildStepper menggabungkan persetujuan direksi dan blanko verbal', () => {
     const stepper = svc.buildStepper('persetujuan_direksi', true, 0);
-    expect(stepper.map((s) => s.label)).toContain(
-      'Blanko Verbal / Persetujuan Direksi',
-    );
-    expect(stepper.map((s) => s.label)).not.toContain('Persetujuan Direksi');
+    const labels = stepper.map((s) => s.label);
+    expect(labels).toContain('Blanko Verbal / Persetujuan Direksi');
+    expect(labels).not.toContain('Persetujuan Direksi');
+    expect(labels).not.toContain('Persetujuan Lanjutan');
+    expect(labels).not.toContain('Evaluasi Final EVP');
   });
 
   it('buildStepper TTD fisik menampilkan approval draft setiap penandatangan', () => {
