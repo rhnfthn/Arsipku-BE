@@ -92,8 +92,6 @@ export class WorkflowService {
       { label: 'Persetujuan', key: 'persetujuan' },
       { label: 'Legal Drafting', key: 'legal_drafting' },
       { label: 'Evaluasi', key: 'evaluasi' },
-      { label: 'Persetujuan Lanjutan', key: 'persetujuan_lanjutan' },
-      { label: 'Evaluasi Final EVP', key: 'evaluasi_final' },
       {
         // Tahap ini bercabang: user memilih template Blanko Verbal atau
         // Lembar Persetujuan Direksi.
@@ -118,7 +116,9 @@ export class WorkflowService {
 
     // Peta key → urutan aktif (skip Legal Drafting & Blanko Verbal sesuai kondisi).
     const activeKey =
-      tahapan === 'selesai'
+      tahapan === 'persetujuan_lanjutan' || tahapan === 'evaluasi_final'
+        ? 'evaluasi'
+        : tahapan === 'selesai'
         ? 'selesai'
         : tahapan === 'persetujuan_direksi'
           ? 'blanko_verbal'
@@ -141,8 +141,6 @@ export class WorkflowService {
       [
         'legal_drafting',
         'evaluasi',
-        'persetujuan_lanjutan',
-        'evaluasi_final',
         'blanko_verbal',
       ].includes(key);
 
