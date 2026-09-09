@@ -41,16 +41,14 @@ export interface SheetPdfData {
   verifiedIndices: Set<number>; // slot yang sudah paraf → QR di-render
 }
 
-/** Format YYYY-MM-DD → "21 Agustus 2026" (Indonesia). Kosong untuk input invalid. */
+/** Format tanggal sheet Naskah Lainnya menjadi DD/MM/YYYY. */
 export function formatTanggal(tanggal?: string): string {
   if (!tanggal) return '';
   const d = new Date(tanggal + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('id-ID', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${d.getFullYear()}`;
 }
 
 /**

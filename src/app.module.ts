@@ -29,6 +29,7 @@ import { RelationOdModule } from './modules/master-data/relation_od/relation_od.
 import { DisposisiModule } from './modules/disposisi/disposisi.module';
 import { NotaDinasModule } from './modules/nota-dinas/nota-dinas.module';
 import { SuratDinasInternalModule } from './modules/surat-dinas-internal/surat-dinas-internal.module';
+import { CorrespondenceRoutingModule } from './modules/correspondence-routing/correspondence-routing.module';
 import { SuratDinasEksternalModule } from './modules/surat-dinas-eksternal/surat-dinas-eksternal.module';
 import { NaskahDinasModule } from './modules/naskah-dinas/naskah-dinas.module';
 import { KajianModule } from './modules/kajian/kajian.module';
@@ -212,6 +213,7 @@ import { ArsipModule } from './modules/arsip/arsip.module';
     DisposisiModule,
     NotaDinasModule,
     SuratDinasInternalModule,
+    CorrespondenceRoutingModule,
     SuratDinasEksternalModule,
     NaskahDinasModule,
     KajianModule,

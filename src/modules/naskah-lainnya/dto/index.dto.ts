@@ -16,21 +16,21 @@ export const NASKAH_LAINNYA_JENIS = [
   'PER',
   'KEP',
   'INS',
-  'SPD',
-  'SED',
+  'SPR',
+  'EDR',
   'SOP',
-  'KSB',
+  'MOU',
   'PKS',
-  'KTP',
-  'PJL',
+  'PROC',
+  'PJJ',
   'LOA',
   'SKU',
-  'BA',
-  'SKE',
-  'SPR',
-  'RRA',
-  'PUM',
-  'PIA',
+  'BAC',
+  'KET',
+  'SPE',
+  'RPT',
+  'PEN',
+  'PGM',
   'LAP',
 ] as const;
 
@@ -85,7 +85,7 @@ export class BuatNaskahDto {
   @IsOptional()
   sifat?: string;
 
-  @IsIn(['digsig', 'qr_only', 'ttd_basah', 'tanpa_ttd'])
+  @IsIn(['digsig', 'qr_only', 'ttd_basah'])
   @IsOptional()
   signOption?: string;
 
@@ -157,6 +157,19 @@ export class BlankoDto {
 
 export class TandaTanganDto {
   @IsString() @IsOptional() passphrase?: string;
+
+  /** Catatan opsional penandatangan — tersimpan ke riwayat workflow. */
+  @IsString() @IsOptional() catatan?: string;
+
+  /**
+   * Metode signing untuk penandatangan TERAKHIR (signOption digsig/qr_only):
+   * - 'qr_only' (default): visualisasi internal saja (alur lama)
+   * - 'digsig': visualisasi internal + TTE BSrE invisible di PDF final
+   * Wajib 'digsig' disertai passphrase.
+   */
+  @IsIn(['qr_only', 'digsig'])
+  @IsOptional()
+  signMethod?: 'qr_only' | 'digsig';
 }
 
 export class ManualFinalStatusDto {

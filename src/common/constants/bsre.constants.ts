@@ -1,0 +1,1 @@
+export const DEFAULT_BSRE_NIK = '1234567890123452';

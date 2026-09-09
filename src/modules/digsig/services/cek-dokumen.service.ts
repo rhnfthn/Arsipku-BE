@@ -28,6 +28,7 @@ import { NotificationType } from '../../notification/entities';
 export class CekDokumenService {
   private readonly bsreVerifyUrl: string;
   private readonly bsreTimeout: number;
+  private readonly bsreBasicAuthHeader: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -38,8 +39,13 @@ export class CekDokumenService {
   ) {
     this.bsreVerifyUrl =
       this.configService.get<string>('BSRE_VERIFY_URL') ||
-      'http://172.20.16.115:7000/verify';
+      'http://172.20.8.68/api/v2/verify/pdf';
     this.bsreTimeout = this.configService.get<number>('BSRE_TIMEOUT') || 30000;
+
+    // Basic Auth untuk BSrE API v2
+    const basicUser = this.configService.get<string>('BSRE_BASIC_USER') || 'esign';
+    const basicPass = this.configService.get<string>('BSRE_BASIC_PASS') || '';
+    this.bsreBasicAuthHeader = `Basic ${Buffer.from(`${basicUser}:${basicPass}`).toString('base64')}`;
   }
 
   private async notifyVerificationResult(
@@ -55,11 +61,10 @@ export class CekDokumenService {
 
   /**
    * Verifikasi dokumen dengan upload file PDF
-   * Flow:
-   * 1. Upload file ke storage (temporary path)
-   * 2. Get file URL dari storage
-   * 3. Kirim filename + fileurl ke BSrE API
-   * 4. Return hasil verifikasi
+   * Flow (API v2):
+   * 1. Validasi file PDF
+   * 2. Kirim base64 PDF langsung ke BSrE API v2 (tidak perlu upload temp ke MinIO)
+   * 3. Return hasil verifikasi
    *
    * @param file - File PDF yang akan diverifikasi
    * @param userPersnum - Persnum user yang melakukan verifikasi
@@ -70,8 +75,6 @@ export class CekDokumenService {
     userName?: string,
     ipAddress?: string,
   ): Promise<CekDokumenResponseDto> {
-    let tempFilePath: string | null = null;
-
     try {
       // Validate file type
       if (file.mimetype !== 'application/pdf') {
@@ -82,50 +85,27 @@ export class CekDokumenService {
         `[CekDokumenService] Verifying file: ${file.originalname}, size: ${file.size} bytes`,
       );
 
-      // 1. Upload file ke storage (folder khusus untuk cek dokumen/verifikasi)
-      const folder = 'cek-dokumen';
+      // 1. Encode file ke base64 — API v2 menerima base64 langsung
+      const fileB64 = file.buffer.toString('base64');
 
-      const uploadResult = await this.storageService.uploadBuffer(
-        file.buffer,
-        file.originalname, // filename asli
-        file.mimetype,
-        folder, // folder tujuan
-      );
-
-      // Gunakan key dari hasil upload (format: folder/timestamp-filename)
-      tempFilePath = uploadResult.key;
-      console.log(
-        `[CekDokumenService] File uploaded to storage: ${tempFilePath}`,
-      );
-
-      // 2. Get file URL dari storage (sudah ada di uploadResult)
-      const fileUrl = uploadResult.url;
-      console.log(`[CekDokumenService] File URL: ${fileUrl}`);
-
-      // 3. Prepare payload sesuai BSrE API spec
-      // Ambil filename dari key (tanpa folder prefix)
-      const filenameForBsre =
-        tempFilePath.split('/').pop() || file.originalname;
+      // 2. Prepare payload sesuai BSrE API v2 spec
+      //    file berupa STRING base64 (bukan array, beda dari endpoint sign)
       const payload = {
-        filename: filenameForBsre,
-        fileurl: fileUrl,
+        file: fileB64,
       };
 
       console.log(
-        `[CekDokumenService] Calling BSrE API: ${this.bsreVerifyUrl}`,
-      );
-      console.log(
-        `[CekDokumenService] Payload:`,
-        JSON.stringify(payload, null, 2),
+        `[CekDokumenService] Calling BSrE API v2: ${this.bsreVerifyUrl}`,
       );
 
-      // 4. Hit BSrE Verify API
+      // 3. Hit BSrE Verify API v2 (Basic Auth)
       const response = await axios.post<BsreVerifyResponse>(
         this.bsreVerifyUrl,
         payload,
         {
           headers: {
             'Content-Type': 'application/json',
+            Authorization: this.bsreBasicAuthHeader,
           },
           timeout: this.bsreTimeout,
         },
@@ -146,16 +126,6 @@ export class CekDokumenService {
         status: 'sukses',
         note: `Verifikasi file: ${file.originalname}`,
       });
-
-      // 5. Cleanup temp file (optional - bisa dihapus atau dibiarkan)
-      try {
-        await this.storageService.deleteFile(tempFilePath);
-        console.log(`[CekDokumenService] Temp file deleted: ${tempFilePath}`);
-      } catch (deleteError) {
-        console.warn(
-          `[CekDokumenService] Failed to delete temp file: ${deleteError.message}`,
-        );
-      }
 
       // Transform response dari BSrE ke format standar
       const result = this.transformBsreResponse(
@@ -187,17 +157,6 @@ export class CekDokumenService {
         note: `Gagal verifikasi file: ${file.originalname} - ${error.message}`,
       });
 
-      // Cleanup temp file on error
-      if (tempFilePath) {
-        try {
-          await this.storageService.deleteFile(tempFilePath);
-        } catch (deleteError) {
-          console.warn(
-            `[CekDokumenService] Failed to delete temp file on error: ${deleteError.message}`,
-          );
-        }
-      }
-
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -207,8 +166,8 @@ export class CekDokumenService {
         const status =
           error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
         const message =
-          error.response?.data?.message ||
           error.response?.data?.error ||
+          error.response?.data?.message ||
           'Gagal memverifikasi dokumen dari BSrE';
 
         throw new HttpException(
@@ -384,14 +343,24 @@ export class CekDokumenService {
   /**
    * Helper untuk transform response BSrE ke format standar
    *
-   * BSrE Response Format:
+   * BSrE API v2 Response Format:
    * {
-   *   "nama_dokumen": "...",
-   *   "jumlah_signature": 1,
-   *   "notes": "Dokumen valid, Sertifikat yang digunakan tidak terpercaya",
-   *   "details": [...],
-   *   "summary": "WARNING" | "VALID" | "INVALID"
+   *   "warning": [],
+   *   "description": "Dokumen valid, Sertifikat yang digunakan tidak terpercaya",
+   *   "conclusion": "WARNING" | "VALID" | "INVALID",
+   *   "signatureCount": 1,
+   *   "signatureInformations": [{
+   *     "id": "S-...", "fieldName": "Signature1",
+   *     "signatureFormat": "PAdES-BASELINE-T",
+   *     "integrityValid": true, "certificateTrusted": false,
+   *     "signatureDate": "...", "signerName": "...",
+   *     "timestampInfomation": {...},
+   *     "certificateDetails": [{ "issuerName": "...", "commonName": "...", ... }]
+   *   }]
    * }
+   *
+   * Legacy v1 format (fallback):
+   * { "nama_dokumen": "...", "jumlah_signature": 1, "notes": "...", "details": [...], "summary": "WARNING" }
    */
   private transformBsreResponse(
     bsreResponse: BsreVerifyResponse,
@@ -405,7 +374,84 @@ export class CekDokumenService {
       };
     }
 
-    // Handle actual BSrE response format (nama_dokumen, jumlah_signature, notes, details, summary)
+    // ===== Format API v2 (conclusion + signatureInformations) =====
+    if (
+      bsreResponse.conclusion !== undefined ||
+      bsreResponse.signatureInformations !== undefined
+    ) {
+      const conclusion =
+        (bsreResponse.conclusion as string) || 'UNKNOWN';
+      const isValid = conclusion === 'VALID';
+      const isWarning = conclusion === 'WARNING';
+
+      // Map conclusion to status
+      let status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
+      if (conclusion === 'VALID') status = 'VALID';
+      else if (conclusion === 'WARNING') status = 'WARNING';
+      else if (conclusion === 'INVALID') status = 'INVALID';
+
+      // Transform signatureInformations array to signers
+      const signers = (bsreResponse.signatureInformations || []).map(
+        (sig) => {
+          const cert = sig.certificateDetails?.[0];
+          return {
+            // Identitas signer
+            nama: sig.signerName || cert?.commonName || '',
+            nik: undefined,
+            instansi: undefined,
+            email: undefined,
+
+            // Certificate info
+            diterbitkanOleh: cert?.issuerName,
+            subjectDN: cert?.commonName,
+
+            // Signature details
+            tanggalSign: sig.signatureDate || '',
+            reason: sig.reason || undefined,
+            location: sig.location || undefined,
+
+            // Algorithm & validity
+            algoritmaTandatangan: cert?.signatureAlgoritm,
+            validDari: cert?.notBeforeDate,
+            validHingga: cert?.notAfterDate,
+
+            // Verification status
+            valid: sig.integrityValid ?? false,
+            certificateValid: sig.certificateTrusted,
+            signatureValid: sig.integrityValid,
+
+            // Additional info
+            signatureField: sig.fieldName,
+            useTsa: !!sig.timestampInfomation,
+            tsaName: sig.timestampInfomation?.signerName,
+          };
+        },
+      );
+
+      return {
+        success: true,
+        message: isValid
+          ? 'Dokumen valid dan sudah ditandatangani'
+          : isWarning
+            ? 'Dokumen valid tetapi sertifikat tidak terpercaya'
+            : 'Dokumen tidak valid',
+        data: {
+          namaDokumen: filename || 'Unknown',
+          jumlahSignature: bsreResponse.signatureCount || signers.length,
+          status,
+          keterangan: bsreResponse.description || '',
+          isValid: isValid || isWarning, // WARNING masih dianggap dokumen valid, hanya cert tidak trusted
+          signers,
+          verificationDetails: {
+            summary: conclusion,
+          },
+          verifiedAt: new Date().toISOString(),
+          rawResponse: bsreResponse,
+        },
+      };
+    }
+
+    // ===== Legacy v1 format (nama_dokumen, jumlah_signature, notes, details, summary) =====
     if (
       bsreResponse.nama_dokumen !== undefined ||
       bsreResponse.summary !== undefined
