@@ -82,10 +82,15 @@ export class NotificationController {
       positionId,
       userPersnum,
     );
+    const sdeMasalCount = await this.notificationService.getUnreadCount(
+      positionId,
+      userPersnum,
+      'SDE_MASAL',
+    );
 
     return {
       success: true,
-      data: { count },
+      data: { count, sdeMasalCount },
     };
   }
 
