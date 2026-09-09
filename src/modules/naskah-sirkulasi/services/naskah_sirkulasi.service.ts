@@ -517,11 +517,20 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
-    // Filter by search (perihal / nomor)
+    // Filter by search (perihal / nomor / nama jabatan pengirim)
     if (query.search && query.search.trim()) {
       const keyword = `%${query.search.trim()}%`;
-      whereClause += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
-      params.push(keyword, keyword);
+      whereClause += ` AND (
+        n.perihal LIKE ? 
+        OR n.nomor LIKE ? 
+        OR EXISTS (
+          SELECT 1 FROM naskah_sirkulasi sp 
+          WHERE sp.id_naskah = s.id_naskah 
+          AND sp.sirkuler = 'pengirim' 
+          AND sp.position_text LIKE ?
+        )
+      )`;
+      params.push(keyword, keyword, keyword);
     }
 
     // Filter by status baca
@@ -1409,6 +1418,22 @@ export class NaskahSirkulasiService {
     if (query.jenis) {
       whereClause += ` AND n.jenis = ?`;
       params.push(query.jenis);
+    }
+
+    // Filter by search (perihal / nomor / nama penerima / jabatan penerima)
+    if (query.search && query.search.trim()) {
+      const keyword = `%${query.search.trim()}%`;
+      whereClause += ` AND (
+        n.perihal LIKE ? 
+        OR n.nomor LIKE ? 
+        OR EXISTS (
+          SELECT 1 FROM naskah_sirkulasi sp 
+          WHERE sp.id_naskah = s.id_naskah 
+          AND sp.sirkuler = 'penerima' 
+          AND (sp.nama_sirkuler LIKE ? OR sp.position_text LIKE ?)
+        )
+      )`;
+      params.push(keyword, keyword, keyword, keyword);
     }
 
     // Filter by read status.
