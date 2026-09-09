@@ -131,6 +131,26 @@ export class NotificationController {
     };
   }
 
+  @Patch('sde-masal/folder/:folderId/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark SDE Massal folder notifications as read' })
+  async markBySdeMasalFolderAsRead(
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const positionId = this.getPositionId(user);
+    const count = await this.notificationService.markBySdeMasalFolderAsRead(
+      positionId,
+      folderId,
+    );
+
+    return {
+      success: true,
+      message: `${count} notifications marked as read`,
+      data: { count },
+    };
+  }
+
   @Patch('read-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark all notifications as read' })
