@@ -27,10 +27,14 @@ const getTimestamp = (node: NaskahFlowNode): number => {
 
 /**
  * Urutan response rangkaian:
- * - chain level yang sedang dilihat tetap didahulukan;
+ * - chain disusun kronologis dari level awal ke level lanjutan;
  * - workflow konsep pada level yang sama selalu KONSEP-001, 002, dst.;
  * - naskah final ditempatkan setelah rangkaian konsepnya;
- * - node non-konsep lain mempertahankan urutan terbaru lebih dahulu.
+ * - node non-konsep lain disusun dari waktu terlama ke terbaru.
+ *
+ * Frontend membalik kontrak kronologis ini untuk tampilan timeline terbaru
+ * ke terlama. Dengan begitu urutan backend tetap deterministik dan tidak
+ * bergantung pada tanggal naskah yang sering hanya berisi tanggal tanpa jam.
  */
 export const compareNaskahFlow = (
   a: NaskahFlowNode,
@@ -38,7 +42,7 @@ export const compareNaskahFlow = (
 ): number => {
   const aLevel = Number(a.level || 0);
   const bLevel = Number(b.level || 0);
-  if (aLevel !== bLevel) return bLevel - aLevel;
+  if (aLevel !== bLevel) return aLevel - bLevel;
 
   const aKonsepSequence = getKonsepSequence(a);
   const bKonsepSequence = getKonsepSequence(b);
@@ -53,5 +57,5 @@ export const compareNaskahFlow = (
   if (aKonsepSequence !== null) return -1;
   if (bKonsepSequence !== null) return 1;
 
-  return getTimestamp(b) - getTimestamp(a);
+  return getTimestamp(a) - getTimestamp(b);
 };
