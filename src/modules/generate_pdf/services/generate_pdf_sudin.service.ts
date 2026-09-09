@@ -3,6 +3,7 @@ import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
+import { resolveDocumentNumber } from '../utils/document-number.util';
 
 interface SdiPdfOptions {
   html: string;
@@ -18,6 +19,10 @@ interface SdiPdfOptions {
   sifat?: string;
   lampiran?: string;
   nomor?: string;
+  nomorSurat?: string;
+  nomor_surat?: string;
+  nomorDokumen?: string;
+  document_number?: string;
   nama_tempat?: string;
   nama_jabatan?: string;
   // Garis Kewenangan (a.n.) — label pemberi kuasa. Null = tanpa a.n.
@@ -271,7 +276,7 @@ export class GeneratePdfSudinService {
     const perihal = body.perihal || '';
     const sifat = sifatToEnglish(body.sifat || 'Biasa');
     const lampiranText = body.lampiran === '-' ? '-' : body.lampiran || '-';
-    const nomor = body.nomor || '';
+    const nomor = resolveDocumentNumber(body);
 
     // Format penerima
     let penerimaArr: string[] = [];
@@ -747,7 +752,7 @@ export class GeneratePdfSudinService {
     const perihal = body.perihal || '';
     const sifat = body.sifat || 'Biasa';
     const lampiranText = body.lampiran || '-';
-    const nomor = body.nomor || '';
+    const nomor = resolveDocumentNumber(body);
 
     // Format penerima - ensure it's an array
     let penerimaArr: string[] = [];
