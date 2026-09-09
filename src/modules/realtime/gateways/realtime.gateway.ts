@@ -320,8 +320,18 @@ export class RealtimeGateway
    */
   emitFlagUpdate(positionId: string, payload: any) {
     if (!this.server) return;
-    this.server
-      .to(`position:${positionId}`)
-      .emit('flag:update', payload);
+    this.server.to(`position:${positionId}`).emit('flag:update', payload);
+  }
+
+  /** Broadcast perubahan konfigurasi routing setelah transaksi DB committed. */
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    if (!this.server) return;
+    this.server.emit('correspondence-routing:updated', payload);
   }
 }

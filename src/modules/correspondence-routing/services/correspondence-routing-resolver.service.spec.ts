@@ -79,6 +79,59 @@ describe('CorrespondenceRoutingResolverService', () => {
     expect(scopeRepo.find).not.toHaveBeenCalled();
   });
 
+  it('keeps additional SDI capability disabled without querying routing tables', async () => {
+    delete process.env.CORRESPONDENCE_ROUTING_ENABLED;
+    const { resolver, roleRepo, memberRepo, ruleRepo } = buildResolver();
+
+    await expect(resolver.getCapabilities(10000, 2)).resolves.toEqual({
+      feature_enabled: false,
+      can_create_sdi: false,
+      matched_role_codes: [],
+      matched_rule_ids: [],
+    });
+    expect(roleRepo.find).not.toHaveBeenCalled();
+    expect(memberRepo.find).not.toHaveBeenCalled();
+    expect(ruleRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('grants SDI capability only to an effective Manager Operasi with an active primary rule', async () => {
+    process.env.CORRESPONDENCE_ROUTING_ENABLED = 'true';
+    const { resolver, roleRepo, memberRepo, ruleRepo, scopeRepo } =
+      buildResolver();
+    roleRepo.find.mockResolvedValue([
+      { id: 'manager', code: 'MANAGER_OPERASI', company: 10000, is_active: 1 },
+      { id: 'inmc', code: 'VP_INMC', company: 10000, is_active: 1 },
+    ]);
+    memberRepo.find.mockResolvedValue([
+      {
+        role_id: 'manager',
+        position_id: 2,
+        is_active: 1,
+        valid_from: '2026-01-01',
+        valid_to: null,
+      },
+    ]);
+    ruleRepo.find.mockResolvedValue([
+      {
+        id: 'manager-to-inmc',
+        source_role_id: 'manager',
+        target_role_id: 'inmc',
+        delivery_type: 'PENERIMA',
+      },
+    ]);
+    scopeRepo.find.mockResolvedValue([]);
+
+    await expect(resolver.getCapabilities(10000, 2)).resolves.toEqual({
+      feature_enabled: true,
+      can_create_sdi: true,
+      matched_role_codes: ['MANAGER_OPERASI'],
+      matched_rule_ids: ['manager-to-inmc'],
+    });
+    await expect(resolver.getCapabilities(10000, 4)).resolves.toMatchObject({
+      can_create_sdi: false,
+    });
+  });
+
   it('uses the organization snapshot for the effective document date', async () => {
     const { resolver, org } = buildResolver();
     org.findOrg = jest.fn().mockResolvedValue({

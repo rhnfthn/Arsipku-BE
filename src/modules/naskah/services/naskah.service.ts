@@ -28,6 +28,7 @@ import {
   ReferensiDetailDto,
   DisposisiDetailDto,
 } from '../dto/naskah/naskah-detail.dto';
+import { compareNaskahFlow } from '../utils/naskah-flow-order.util';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -1078,14 +1079,9 @@ export class NaskahService {
       }
     }
 
-    // Sort: pertama by level desc (level tinggi di atas), kemudian by tanggal desc (terbaru di atas dalam level yang sama)
-    flow.sort((a, b) => {
-      if (a.level !== b.level) {
-        return b.level - a.level; // Higher level first
-      }
-      // Same level - sort by tanggal descending (terbaru di atas)
-      return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
-    });
+    // Nomor KONSEP adalah sumber urutan workflow yang deterministik. Tanggal
+    // saja tidak cukup karena semua versi konsep dapat memiliki tanggal sama.
+    flow.sort(compareNaskahFlow);
 
     return {
       success: true,

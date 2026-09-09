@@ -3,6 +3,7 @@ import { getBrowser } from './puppeteer.provider';
 import { pdfQueue } from './pdf.queue';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveDocumentNumber } from './utils/document-number.util';
 
 @Injectable()
 export class GeneratePdfService implements OnModuleInit {
@@ -75,6 +76,7 @@ export class GeneratePdfService implements OnModuleInit {
     // Support both 'penerima' (legacy) and 'tertuju' (new)
     const tertuju = body.tertuju || body.penerima || [];
     const tembusan = body.tembusan || [];
+    const nomor = resolveDocumentNumber(body);
 
     // Convert to arrays jika belum
     const tertujuArray = Array.isArray(tertuju) ? tertuju : [];
@@ -173,7 +175,7 @@ export class GeneratePdfService implements OnModuleInit {
             <td align="center" style="padding-top:20px;">
             <b style="font-size:18px;"><u>N O T A &nbsp; D I N A S</u></b>
             <br>
-            Nomor :     </td>
+            Nomor : ${nomor}</td>
         </tr>
         </tbody></table>`;
     const header3 = `<table style="margin:0 auto;width:65%; font-family: 'Times New Roman', Times, serif;">
@@ -261,7 +263,7 @@ export class GeneratePdfService implements OnModuleInit {
                         <td style="width: 50%; text-align: right; vertical-align: top;">
                             <div style="display: inline-block; text-align: left;">
                                 Lampiran Surat<br>
-                                Nomor Surat :<br>
+                                Nomor Surat : ${nomor}<br>
                                 Tanggal Surat : ${tanggal}
                             </div>
                         </td>
