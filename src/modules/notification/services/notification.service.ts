@@ -537,6 +537,63 @@ export class NotificationService {
     return notifications.length;
   }
 
+  async markBySdeMasalFolderAsRead(
+    positionId: string,
+    folderId: string,
+  ): Promise<number> {
+    if (!folderId) return 0;
+
+    const notifications = await this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.position_id = :positionId', { positionId })
+      .andWhere('notification.is_read = :isRead', { isRead: false })
+      .andWhere('notification.type = :type', { type: 'SDE_MASAL' })
+      .andWhere(
+        `(
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folder_id')) = :folderId
+        )`,
+        { folderId },
+      )
+      .getMany();
+
+    if (notifications.length === 0) return 0;
+
+    const readAt = new Date();
+    await this.notificationRepository.update(
+      { id: In(notifications.map((notification) => notification.id)) },
+      { isRead: true, readAt },
+    );
+
+    try {
+      for (const notification of notifications) {
+        this.notificationGateway.emitRead(
+          notification.positionId,
+          notification.userPersnum,
+          notification.id,
+        );
+      }
+      const unread = await this.getUnreadCount(positionId);
+      const sdeMasalUnread = await this.getUnreadCount(
+        positionId,
+        null,
+        'SDE_MASAL',
+      );
+      this.notificationGateway.emitUnreadCount(
+        positionId,
+        null,
+        unread,
+        sdeMasalUnread,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [markBySdeMasalFolderAsRead] WS emit failed: ${err?.message}`,
+      );
+    }
+
+    return notifications.length;
+  }
+
   /**
    * Mark all notifications as read for a position
    */
