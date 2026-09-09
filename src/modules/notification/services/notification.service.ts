@@ -547,11 +547,16 @@ export class NotificationService {
       .createQueryBuilder('notification')
       .where('notification.position_id = :positionId', { positionId })
       .andWhere('notification.is_read = :isRead', { isRead: false })
-      .andWhere('notification.type = :type', { type: 'SDE_MASAL' })
+      // Notifikasi SDE Massal dikirim sebagai type SYSTEM; kategorinya
+      // disimpan di payload data.category.
       .andWhere(
         `(
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = 'SDE_MASAL'
+          AND
+          (
           JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId
           OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folder_id')) = :folderId
+          )
         )`,
         { folderId },
       )
