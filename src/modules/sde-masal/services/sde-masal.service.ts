@@ -68,6 +68,14 @@ const sdeMasalFinalizeQueue = new PQueue({
   throwOnTimeout: true,
 });
 
+// Generate dipanggil dari beberapa jalur wizard (watcher, autosave, dan
+// tombol aksi). Serialisasi singkat ini mencegah dua request untuk folder yang
+// sama sama-sama lolos pengecekan lalu melakukan insert ganda.
+const sdeMasalGenerateQueue = new PQueue({
+  concurrency: 1,
+  throwOnTimeout: true,
+});
+
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
  *
@@ -311,6 +319,23 @@ export class SdeMasalService {
     failed: number;
     items: SdeMasalEntity[];
   }> {
+    return sdeMasalGenerateQueue.add(() =>
+      this.generateMassalLocked(body, creatorPosition),
+    );
+  }
+
+  private async generateMassalLocked(body: {
+    folderId?: string;
+    konsep?: any;
+    penerimaList: any[];
+    template?: any;
+    createdBy?: string;
+  }, creatorPosition?: string | number): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+    items: SdeMasalEntity[];
+  }> {
     const { penerimaList } = body;
     if (!penerimaList || penerimaList.length === 0) {
       throw new BadRequestException('Data penerima tidak boleh kosong');
@@ -334,6 +359,20 @@ export class SdeMasalService {
     }
     if (folder && !['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
+    }
+
+    // Request ulang untuk folder yang sama harus idempotent. `no` pada data
+    // penerima tetap dipertahankan sebagai bagian dari key agar dua baris
+    // Excel yang memang berbeda tetap dapat dibuat, walaupun isinya sama.
+    const existingKeys = new Set<string>();
+    if (body.folderId) {
+      const existingItems = await this.repo.find({
+        where: { folderId: body.folderId },
+        select: ['recipientData'],
+      });
+      existingItems.forEach((item) => {
+        existingKeys.add(this.getMassalRecipientKey(item.recipientData));
+      });
     }
 
     // Simpan template ke folder jika diberikan
@@ -366,6 +405,11 @@ export class SdeMasalService {
           failed++;
           continue;
         }
+        const recipientKey = this.getMassalRecipientKey(p);
+        if (existingKeys.has(recipientKey)) {
+          continue;
+        }
+        existingKeys.add(recipientKey);
         const item = this.repo.create({
           folderId: body.folderId || null,
           recipientData: JSON.stringify(p),
@@ -2553,6 +2597,34 @@ export class SdeMasalService {
     } catch {
       return {};
     }
+  }
+
+  private getMassalRecipientKey(value: unknown): string {
+    let parsed = value;
+    if (typeof value === 'string') {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        parsed = value;
+      }
+    }
+
+    const normalize = (input: any): any => {
+      if (Array.isArray(input)) return input.map((item) => normalize(item));
+      if (input && typeof input === 'object') {
+        return Object.keys(input)
+          .sort()
+          .reduce((result, key) => {
+            result[key] = normalize(input[key]);
+            return result;
+          }, {} as Record<string, any>);
+      }
+      return input;
+    };
+
+    return createHash('sha256')
+      .update(JSON.stringify(normalize(parsed)))
+      .digest('hex');
   }
 
   private normalizeMassAttachmentName(value: unknown): string {
