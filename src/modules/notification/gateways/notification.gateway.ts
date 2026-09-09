@@ -205,10 +205,11 @@ export class NotificationGateway
     positionId: string,
     userPersnum: number | null | undefined,
     count: number,
+    sdeMasalCount = 0,
   ) {
     if (!this.server) return;
 
-    const payload = { positionId, count };
+    const payload = { positionId, count, sdeMasalCount };
     this.server
       .to(`position:${positionId}`)
       .emit('notification:count', payload);

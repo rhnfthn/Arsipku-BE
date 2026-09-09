@@ -22,6 +22,8 @@ import { SdeMasalFolderEntity } from '../entities/sde-masal-folder.entity';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 import {
   CreateSuratDinasEksternalDto,
   SignOption,
@@ -82,6 +84,7 @@ export class SdeMasalService {
     private readonly dataSource: DataSource,
     private readonly sdeService: SuratDinasEksternalService,
     private readonly storageService: StorageService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ============================================================
@@ -984,6 +987,13 @@ export class SdeMasalService {
     if (success > 0) {
       folder.rejectionReason = null;
       await this.folderRepo.save(folder);
+      await this.notifySdeMasalPositions([folder.createdBy], {
+        title: 'SDE Massal Selesai Dikirim',
+        body: `Folder "${folder.judul || '-'}" berhasil difinalisasi dan dikirim.`,
+        action: 'OPEN_SDE_MASAL_FOLDER',
+        folderId: folder.id,
+        status: 'TERKIRIM',
+      });
     }
     return {
       total: eligibleItems.length,
@@ -1019,7 +1029,15 @@ export class SdeMasalService {
     }
     folder.status = 'MENUNGGU_PENGIRIM';
     folder.rejectionReason = null;
-    return this.folderRepo.save(folder);
+    const saved = await this.folderRepo.save(folder);
+    await this.notifySdeMasalPositions([saved.pengirimId], {
+      title: 'SDE Massal Menunggu Pengirim',
+      body: `Folder "${saved.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+      action: 'OPEN_SDE_MASAL_FOLDER',
+      folderId: saved.id,
+      status: saved.status,
+    });
+    return saved;
   }
 
   async rejectFolder(
@@ -1039,7 +1057,16 @@ export class SdeMasalService {
     if (!cleanReason) throw new BadRequestException('Alasan penolakan wajib diisi');
     folder.status = 'DIKEMBALIKAN';
     folder.rejectionReason = cleanReason;
-    return this.folderRepo.save(folder);
+    const saved = await this.folderRepo.save(folder);
+    await this.notifySdeMasalPositions([saved.createdBy], {
+      title: 'SDE Massal Dikembalikan',
+      body: `Folder "${saved.judul || '-'}" dikembalikan oleh pengirim. Catatan: ${cleanReason}`,
+      action: 'OPEN_SDE_MASAL_FOLDER',
+      folderId: saved.id,
+      status: saved.status,
+      reason: cleanReason,
+    });
+    return saved;
   }
 
   // ============================================================
@@ -1360,6 +1387,16 @@ export class SdeMasalService {
     )) {
       await this.refreshFolderCounters(folderId as string);
     }
+    await this.notifySdeMasalPositions(
+      verifierRows.filter((item) => item.status === 'waiting').map((item) => item.position),
+      {
+        title: 'SDE Massal Menunggu Verifikasi',
+        body: `Folder "${folder.judul || '-'}" menunggu verifikasi Anda.`,
+        action: 'OPEN_SDE_MASAL_VERIFIKASI',
+        folderId: folder.id,
+        status: 'MENUNGGU_VERIFIKASI',
+      },
+    );
     return { total: saved.length, items: saved };
   }
 
@@ -1638,6 +1675,38 @@ export class SdeMasalService {
     await this.repo.save(pendingRows);
     await this.refreshFolderCounters(folderId);
     const updatedFolder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (action === 'reject') {
+      await this.notifySdeMasalPositions([folder.createdBy], {
+        title: 'SDE Massal Dikembalikan',
+        body: `Folder "${folder.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+        action: 'OPEN_SDE_MASAL_FOLDER',
+        folderId: folder.id,
+        status: 'DIKEMBALIKAN',
+        reason: String(catatan || '').trim(),
+      });
+    } else {
+      const nextPositions = pendingRows
+        .flatMap((item) => item.verifikators || [])
+        .filter((verifikator: SdeMasalVerifikator) => verifikator.status === 'waiting')
+        .map((verifikator: SdeMasalVerifikator) => verifikator.position);
+      if (nextPositions.length > 0) {
+        await this.notifySdeMasalPositions(nextPositions, {
+          title: 'SDE Massal Menunggu Verifikasi',
+          body: `Folder "${folder.judul || '-'}" menunggu verifikasi Anda.`,
+          action: 'OPEN_SDE_MASAL_VERIFIKASI',
+          folderId: folder.id,
+          status: 'MENUNGGU_VERIFIKASI',
+        });
+      } else if (updatedFolder?.status === 'MENUNGGU_PENGIRIM') {
+        await this.notifySdeMasalPositions([updatedFolder.pengirimId], {
+          title: 'SDE Massal Menunggu Pengirim',
+          body: `Folder "${updatedFolder.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: updatedFolder.id,
+          status: updatedFolder.status,
+        });
+      }
+    }
     return {
       folder: updatedFolder,
       total: rows.length,
@@ -1685,7 +1754,18 @@ export class SdeMasalService {
       item.errorMessage = catatan || 'Ditolak verifikator';
       item.verifikators = verifikators;
       const rejected = await this.repo.save(item);
-      if (item.folderId) await this.refreshFolderCounters(item.folderId);
+      if (item.folderId) {
+        await this.refreshFolderCounters(item.folderId);
+        const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+        await this.notifySdeMasalPositions([folder?.createdBy], {
+          title: 'SDE Massal Dikembalikan',
+          body: `Folder "${folder?.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: item.folderId,
+          status: 'DIKEMBALIKAN',
+          reason: String(catatan || '').trim(),
+        });
+      }
       return rejected;
     }
 
@@ -1708,7 +1788,27 @@ export class SdeMasalService {
 
     item.verifikators = verifikators;
     const saved = await this.repo.save(item);
-    if (item.folderId) await this.refreshFolderCounters(item.folderId);
+    if (item.folderId) {
+      await this.refreshFolderCounters(item.folderId);
+      const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+      if (next) {
+        await this.notifySdeMasalPositions([next.position], {
+          title: 'SDE Massal Menunggu Verifikasi',
+          body: `Folder "${folder?.judul || '-'}" menunggu verifikasi Anda.`,
+          action: 'OPEN_SDE_MASAL_VERIFIKASI',
+          folderId: item.folderId,
+          status: 'MENUNGGU_VERIFIKASI',
+        });
+      } else if (folder?.status === 'MENUNGGU_PENGIRIM') {
+        await this.notifySdeMasalPositions([folder.pengirimId], {
+          title: 'SDE Massal Menunggu Pengirim',
+          body: `Folder "${folder.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: folder.id,
+          status: folder.status,
+        });
+      }
+    }
     return saved;
   }
 
@@ -2955,6 +3055,69 @@ export class SdeMasalService {
     const name = String(position?.persnum_person_text || position?.nama || '').trim();
     const job = String(position?.position_text || position?.jabatan || '').trim();
     return [name, job].filter(Boolean).join(' - ') || String(position?.position || '-');
+  }
+
+  /**
+   * Gunakan kanal notifikasi existing agar SDE Massal ikut mendapatkan
+   * unread badge, toast realtime, dan push notification bila tersedia.
+   * SYSTEM dipakai agar tidak membutuhkan perubahan enum database lama;
+   * kategori + action membedakan event SDE Massal di frontend.
+   */
+  private async notifySdeMasalPositions(
+    positionIds: Array<string | number | null | undefined>,
+    payload: {
+      title: string;
+      body: string;
+      action:
+        | 'OPEN_SDE_MASAL_FOLDER'
+        | 'OPEN_SDE_MASAL_VERIFIKASI';
+      folderId: string;
+      status: string;
+      reason?: string;
+    },
+  ): Promise<void> {
+    const targets = [
+      ...new Set(
+        positionIds
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (targets.length === 0) return;
+
+    const positions = await this.getLatestOrgPositions();
+    await Promise.all(
+      targets.map(async (positionId) => {
+        const position = positions.find(
+          (item) => String(item?.position ?? '').trim() === positionId,
+        );
+        const rawPersnum = String(position?.persnum_person ?? '').trim();
+        const userPersnum = rawPersnum && Number.isFinite(Number(rawPersnum))
+          ? Number(rawPersnum)
+          : undefined;
+        try {
+          await this.notificationService.createNotification({
+            positionId,
+            userPersnum,
+            type: NotificationType.SYSTEM,
+            title: payload.title,
+            body: payload.body,
+            data: {
+              category: 'SDE_MASAL',
+              action: payload.action,
+              folderId: payload.folderId,
+              status: payload.status,
+              ...(payload.reason ? { reason: payload.reason } : {}),
+            },
+          });
+        } catch (error: any) {
+          // Notifikasi tidak boleh membatalkan perubahan status workflow.
+          this.logger.warn(
+            `Gagal mengirim notifikasi SDE Massal ke ${positionId}: ${error?.message || error}`,
+          );
+        }
+      }),
+    );
   }
 
   private async findPositionByRole(roleRank: number): Promise<any | null> {
