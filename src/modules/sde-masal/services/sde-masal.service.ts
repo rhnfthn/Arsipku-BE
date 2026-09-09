@@ -234,6 +234,16 @@ export class SdeMasalService {
     ) {
       throw new ForbiddenException('Hanya konseptor folder yang dapat mengubahnya');
     }
+    // Folder yang pernah ditolak pengirim dapat sudah telanjur tersimpan
+    // sebagai MENUNGGU_PENGIRIM/SEBAGIAN_TERKIRIM oleh sinkronisasi versi
+    // lama. Catatan penolakan adalah penanda bahwa folder harus dipulihkan
+    // ke konseptor sebelum dapat diedit kembali.
+    if (
+      String(folder.rejectionReason || '').trim() &&
+      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status)
+    ) {
+      folder.status = 'DIKEMBALIKAN';
+    }
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
     }
@@ -991,6 +1001,12 @@ export class SdeMasalService {
     }
     if (!folder.pengirimId) {
       throw new BadRequestException('Pengirim SDE Massal belum dipilih');
+    }
+    if (
+      String(folder.rejectionReason || '').trim() &&
+      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status)
+    ) {
+      folder.status = 'DIKEMBALIKAN';
     }
     if (folder.status === 'MENUNGGU_PENGIRIM') return folder;
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
@@ -2778,6 +2794,7 @@ export class SdeMasalService {
   private async refreshFolderCounters(folderId: string): Promise<void> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) return;
+    const previousStatus = folder.status;
     const rows = await this.repo.find({ where: { folderId } });
     const totalItems = rows.length;
     const totalTerkirim = rows.filter(
@@ -2796,7 +2813,21 @@ export class SdeMasalService {
       (row) => row.statusVerifikasi === 'MENUNGGU_VERIFIKASI',
     ).length;
 
-    if (totalItems === 0) {
+    // Penolakan pengirim mengembalikan folder ke konseptor, sementara item
+    // yang sudah diverifikasi tetap berstatus TERVERIFIKASI. Jangan biarkan
+    // sinkronisasi counter otomatis mengubah DIKEMBALIKAN menjadi
+    // MENUNGGU_PENGIRIM sebelum konseptor mengajukan ulang foldernya.
+    const hasRejectionReason = String(folder.rejectionReason || '').trim().length > 0;
+    const keepReturnedStatus =
+      (previousStatus === 'DIKEMBALIKAN' || hasRejectionReason) &&
+      totalItems > 0 &&
+      totalMenungguVerifikasi === 0 &&
+      totalDitolak === 0 &&
+      totalTerkirim < totalItems;
+
+    if (keepReturnedStatus) {
+      folder.status = 'DIKEMBALIKAN';
+    } else if (totalItems === 0) {
       folder.status = 'DRAFT';
     } else if (totalTerkirim === totalItems) {
       folder.status = 'TERKIRIM';
