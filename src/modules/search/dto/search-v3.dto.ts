@@ -48,6 +48,10 @@ export class FacetsDto {
   favorit?: Record<string, number>;
   /** Priority facets: { "true": count, "false": count } */
   priority?: Record<string, number>;
+  /** Lock facets: { "true": count, "false": count } */
+  lock?: Record<string, number>;
+  /** Note facets: { "true": count, "false": count } */
+  note?: Record<string, number>;
 }
 
 /**
