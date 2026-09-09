@@ -198,6 +198,10 @@ export class UpdatePenandatanganFisikDto {
  */
 export class SheetDataDto {
   @IsString() @IsOptional() approvalId?: string;
+  @IsIn(['qr_only', 'digsig'])
+  @IsOptional()
+  signMethod?: 'qr_only' | 'digsig';
+  @IsString() @IsOptional() passphrase?: string;
   @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
   @IsString() @IsOptional() nomor?: string;
   @IsString() @IsOptional() diusulkanOleh?: string;
