@@ -3089,6 +3089,11 @@ export class SdeMasalService {
     // Verifikator terakhir bukan otomatis pengirim; pada chain Direktur Teknik
     // → EVP → VP → AVP → Staff, EVP selesai memverifikasi lalu tugas final
     // berpindah ke Direktur Teknik untuk Tolak/Finalisasi.
+    // Jadikan waktu perubahan workflow sebagai waktu aktivitas folder. Ini
+    // penting ketika status folder tetap MENUNGGU_VERIFIKASI, tetapi giliran
+    // verifikator berpindah; daftar verifikasi harus menaruh aktivitas terbaru
+    // di urutan paling atas.
+    folder.updatedAt = new Date();
     await this.folderRepo.save(folder);
   }
 
