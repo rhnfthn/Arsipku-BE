@@ -25,9 +25,7 @@ import { CurrentUser } from '../../../common/decorators';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 
-/**
- * Controller API SDE Masal (Surat Dinas Eksternal Massal).
- *
+/** 
  * Endpoint:
  * - POST   /sde-masal/folder                — buat folder
  * - PATCH  /sde-masal/folder/:folderId      — update folder

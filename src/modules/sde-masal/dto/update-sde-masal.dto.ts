@@ -1,9 +1,5 @@
 import { IsString, IsOptional, IsArray } from 'class-validator';
 
-/**
- * DTO untuk update item SDE Masal (versi ramping).
- * Hanya field yang masih ada di tabel sde_masal.
- */
 export class UpdateSdeMasalDto {
   @IsOptional()
   @IsString()
