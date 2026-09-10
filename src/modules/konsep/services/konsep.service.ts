@@ -42,6 +42,7 @@ import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_s
 import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
+import { compareNaskahFlow } from '../../naskah/utils/naskah-flow-order.util';
 
 import {
   CreateKonsepDto,
@@ -3725,13 +3726,11 @@ export class KonsepService {
         });
       }
 
-      // 8. Sort by level DESC, then tanggal DESC (sama seperti getDetailWithChain)
-      flow.sort((a, b) => {
-        if (a.level !== b.level) {
-          return b.level - a.level; // Higher level first
-        }
-        return new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime();
-      });
+      // Kontrak response backend selalu kronologis:
+      // disposisi awal -> disposisi lanjutan -> KONSEP-001..n -> naskah final.
+      // Jangan mengandalkan tanggal saja karena tanggal naskah final sering tidak
+      // memiliki jam dan semua snapshot konsep bisa berada pada tanggal yang sama.
+      flow.sort(compareNaskahFlow);
 
       return {
         success: true,
@@ -4079,8 +4078,67 @@ export class KonsepService {
       return [String(value)];
     };
 
-    const penerimaArray = parseArray(body.penerima || body.tertuju);
-    const tembusanArray = parseArray(body.tembusan);
+    const firstNonEmptyArray = (...values: any[]): string[] => {
+      for (const value of values) {
+        const parsed = parseArray(value).filter(
+          (item) => String(item).trim().length > 0,
+        );
+        if (parsed.length > 0) return parsed;
+      }
+      return [];
+    };
+
+    // Endpoint konsep menerima beberapa nama field untuk menjaga kompatibilitas
+    // form lama dan form konsep. Jangan gunakan operator `||` di sini karena
+    // string JSON "[]" maupun array kosong tetap dapat menutupi field ID yang
+    // sebenarnya berisi penerima.
+    let penerimaArray = firstNonEmptyArray(body.penerima, body.tertuju);
+    if (penerimaArray.length === 0 && jenis === 'SDE') {
+      const externalIds = firstNonEmptyArray(
+        body.penerima_ids,
+        body.penerima_eksternal,
+      );
+
+      if (externalIds.length > 0) {
+        const externalRecipients = await this.eksternalRepository.find({
+          where: { id: In(externalIds) },
+          select: { id: true, nama: true },
+        });
+        const externalNameById = new Map(
+          externalRecipients.map((recipient) => [
+            String(recipient.id),
+            recipient.nama,
+          ]),
+        );
+
+        // Pertahankan urutan pilihan dari UI. ID yang tidak ditemukan tetap
+        // dipertahankan agar jumlah penerima tidak diam-diam berkurang.
+        penerimaArray = externalIds.map(
+          (id) => externalNameById.get(String(id)) || String(id),
+        );
+      }
+    } else if (penerimaArray.length === 0) {
+      const positionIds = firstNonEmptyArray(body.penerima_position_ids);
+      if (positionIds.length > 0) {
+        penerimaArray = await this.convertPositionIdsToNames(
+          positionIds,
+          body.tgl || body.tanggal,
+        );
+      }
+    }
+
+    let tembusanArray = firstNonEmptyArray(body.tembusan);
+    if (tembusanArray.length === 0) {
+      const tembusanPositionIds = firstNonEmptyArray(
+        body.tembusan_position_ids,
+      );
+      if (tembusanPositionIds.length > 0) {
+        tembusanArray = await this.convertPositionIdsToNames(
+          tembusanPositionIds,
+          body.tgl || body.tanggal,
+        );
+      }
+    }
 
     // Generate preview QR code untuk preview PDF
     const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();

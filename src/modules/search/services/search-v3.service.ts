@@ -925,6 +925,38 @@ export class SearchV3Service {
       priorityFacets[row.is_priority] = parseInt(row.count, 10);
     });
 
+    // Lock facets
+    const lockQuery = `
+      SELECT 
+        CASE WHEN s.is_locked = 1 THEN 'true' ELSE 'false' END as is_locked,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY is_locked
+    `;
+    const lockRows = await this.dataSource.query(lockQuery, baseParams);
+    const lockFacets: Record<string, number> = {};
+    lockRows.forEach((row: any) => {
+      lockFacets[row.is_locked] = parseInt(row.count, 10);
+    });
+
+    // Note facets
+    const noteQuery = `
+      SELECT 
+        CASE WHEN s.flag_note = 1 THEN 'true' ELSE 'false' END as is_note,
+        COUNT(DISTINCT n.id) as count
+      FROM naskah n
+      INNER JOIN naskah_sirkulasi s ON s.id_naskah = n.id
+      ${whereString}
+      GROUP BY is_note
+    `;
+    const noteRows = await this.dataSource.query(noteQuery, baseParams);
+    const noteFacets: Record<string, number> = {};
+    noteRows.forEach((row: any) => {
+      noteFacets[row.is_note] = parseInt(row.count, 10);
+    });
+
     return {
       jenis: jenisFacets,
       status: statusFacets,
@@ -934,6 +966,8 @@ export class SearchV3Service {
       kategori: kategoriFacets,
       favorit: favoritFacets,
       priority: priorityFacets,
+      lock: lockFacets,
+      note: noteFacets,
     };
   }
 

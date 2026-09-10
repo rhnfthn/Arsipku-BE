@@ -25,15 +25,37 @@ export class JenisService {
    */
   async findAll(): Promise<JenisResponseDto> {
     const jenis = await this.jenisRepository.find({
+      where: { active: 1 },
       order: { jenisText: 'ASC' },
     });
 
-    const data: JenisData[] = jenis.map((j) => ({
-      id: j.id,
-      jenis: j.jenis,
-      jenis_text: j.jenisText,
-      format_penomoran: j.formatPenomoran,
-    }));
+    const data: JenisData[] = await Promise.all(
+      jenis.map(async (j) => {
+        const fileOriginalKey = j.fileOriginal || null;
+        const fileRegexKey = j.fileRegex || null;
+
+        const [fileOriginalUrl, fileRegexUrl, legacyFileUrl] =
+          await Promise.all([
+            fileOriginalKey ? this.getFileUrl(fileOriginalKey) : null,
+            fileRegexKey ? this.getFileUrl(fileRegexKey) : null,
+            j.fileName ? this.getFileUrl(j.fileName) : null,
+          ]);
+
+        return {
+          id: j.id,
+          jenis: j.jenis,
+          jenis_text: j.jenisText,
+          format_penomoran: j.formatPenomoran,
+          file_name: j.fileName,
+          file_url: legacyFileUrl || fileRegexUrl || fileOriginalUrl,
+          file_text: j.fileText,
+          file_original: fileOriginalKey,
+          file_original_url: fileOriginalUrl,
+          file_regex: fileRegexKey,
+          file_regex_url: fileRegexUrl,
+        };
+      }),
+    );
 
     return {
       success: true,
@@ -67,35 +89,75 @@ export class JenisService {
   }
 
   /**
-   * Create jenis baru dengan optional file upload
+   * Create jenis baru dengan 2 file template:
+   * - fileOriginal: disimpan ke templates/naskah-lainnya-original/{jenis}.docx
+   * - fileRegex: disimpan ke templates/naskah-lainnya/{jenis}.docx
    */
   async create(
     dto: CreateJenisDto,
-    file?: Express.Multer.File,
+    files?: {
+      fileOriginal?: Express.Multer.File;
+      fileRegex?: Express.Multer.File;
+      file?: Express.Multer.File;
+    },
   ): Promise<JenisEntity> {
+    const cleanCode = dto.jenis.trim().toUpperCase();
+
     // Check if jenis code already exists
     const existing = await this.jenisRepository.findOne({
-      where: { jenis: dto.jenis },
+      where: { jenis: cleanCode },
     });
 
     if (existing) {
-      throw new BadRequestException(`Jenis dengan kode ${dto.jenis} sudah ada`);
+      throw new BadRequestException(`Jenis dengan kode ${cleanCode} sudah ada`);
     }
 
-    let fileName: string | null = null;
+    let fileOriginalKey: string | null = null;
+    let fileRegexKey: string | null = null;
+    let legacyFileName: string | null = null;
 
-    // Upload file to storage if provided
-    if (file) {
-      const uploadResult = await this.storageService.uploadFile(file, 'jenis');
-      fileName = uploadResult.key;
+    // 1. Upload file original jika ada
+    if (files?.fileOriginal) {
+      const ext =
+        files.fileOriginal.originalname.split('.').pop()?.toLowerCase() ||
+        'docx';
+      const customKey = `templates/naskah-lainnya-original/${cleanCode}.${ext}`;
+      const uploadResult = await this.storageService.uploadFileWithCustomKey(
+        files.fileOriginal,
+        customKey,
+      );
+      fileOriginalKey = uploadResult.key;
+    }
+
+    // 2. Upload file regex jika ada
+    if (files?.fileRegex) {
+      const ext =
+        files.fileRegex.originalname.split('.').pop()?.toLowerCase() || 'docx';
+      const customKey = `templates/naskah-lainnya/${cleanCode}.${ext}`;
+      const uploadResult = await this.storageService.uploadFileWithCustomKey(
+        files.fileRegex,
+        customKey,
+      );
+      fileRegexKey = uploadResult.key;
+    }
+
+    // Fallback single file upload legacy
+    if (files?.file && !files?.fileRegex && !files?.fileOriginal) {
+      const uploadResult = await this.storageService.uploadFile(
+        files.file,
+        'jenis',
+      );
+      legacyFileName = uploadResult.key;
     }
 
     const jenis = this.jenisRepository.create({
       id: dto.id || uuidv4(),
-      jenis: dto.jenis,
+      jenis: cleanCode,
       jenisText: dto.jenis_text,
-      fileName: fileName,
+      fileName: legacyFileName || fileRegexKey || fileOriginalKey,
       fileText: dto.file_text || null,
+      fileOriginal: fileOriginalKey,
+      fileRegex: fileRegexKey,
       formatPenomoran: dto.format_penomoran || null,
     });
 
@@ -103,48 +165,70 @@ export class JenisService {
   }
 
   /**
-   * Update jenis dengan optional file upload
+   * Update jenis dengan optional file upload (original & regex)
    */
   async update(
     id: string,
     dto: UpdateJenisDto,
-    file?: Express.Multer.File,
+    files?: {
+      fileOriginal?: Express.Multer.File;
+      fileRegex?: Express.Multer.File;
+      file?: Express.Multer.File;
+    },
   ): Promise<JenisEntity> {
     const jenis = await this.findOne(id);
-    const oldFileName = jenis.fileName;
+    const targetCode = (dto.jenis || jenis.jenis || '')
+      .trim()
+      .toUpperCase();
 
     // Check if new jenis code already exists (if being changed)
-    if (dto.jenis && dto.jenis !== jenis.jenis) {
+    if (dto.jenis && targetCode !== (jenis.jenis || '').toUpperCase()) {
       const existing = await this.jenisRepository.findOne({
-        where: { jenis: dto.jenis },
+        where: { jenis: targetCode },
       });
       if (existing) {
         throw new BadRequestException(
-          `Jenis dengan kode ${dto.jenis} sudah ada`,
+          `Jenis dengan kode ${targetCode} sudah ada`,
         );
       }
     }
 
-    // Upload new file if provided
-    if (file) {
-      const uploadResult = await this.storageService.uploadFile(file, 'jenis');
-      jenis.fileName = uploadResult.key;
+    // 1. Update file original jika diupload
+    if (files?.fileOriginal) {
+      const ext =
+        files.fileOriginal.originalname.split('.').pop()?.toLowerCase() ||
+        'docx';
+      const customKey = `templates/naskah-lainnya-original/${targetCode}.${ext}`;
+      const uploadResult = await this.storageService.uploadFileWithCustomKey(
+        files.fileOriginal,
+        customKey,
+      );
+      jenis.fileOriginal = uploadResult.key;
+    }
 
-      // Delete old file from storage
-      if (oldFileName) {
-        try {
-          await this.storageService.deleteFile(oldFileName);
-        } catch (error) {
-          console.warn(
-            `Failed to delete old file ${oldFileName}:`,
-            error.message,
-          );
-        }
-      }
+    // 2. Update file regex jika diupload
+    if (files?.fileRegex) {
+      const ext =
+        files.fileRegex.originalname.split('.').pop()?.toLowerCase() || 'docx';
+      const customKey = `templates/naskah-lainnya/${targetCode}.${ext}`;
+      const uploadResult = await this.storageService.uploadFileWithCustomKey(
+        files.fileRegex,
+        customKey,
+      );
+      jenis.fileRegex = uploadResult.key;
+    }
+
+    // Fallback legacy file
+    if (files?.file && !files?.fileOriginal && !files?.fileRegex) {
+      const uploadResult = await this.storageService.uploadFile(
+        files.file,
+        'jenis',
+      );
+      jenis.fileName = uploadResult.key;
     }
 
     // Manually assign fields
-    if (dto.jenis !== undefined) jenis.jenis = dto.jenis;
+    if (dto.jenis !== undefined) jenis.jenis = targetCode;
     if (dto.jenis_text !== undefined) jenis.jenisText = dto.jenis_text;
     if (dto.file_text !== undefined) jenis.fileText = dto.file_text;
     if (dto.format_penomoran !== undefined)
@@ -154,22 +238,101 @@ export class JenisService {
   }
 
   /**
-   * Delete jenis dan file terkait dari storage
+   * Cek apakah jenis surat sudah digunakan pada naskah/surat
    */
-  async remove(id: string): Promise<{ message: string }> {
+  async checkUsage(id: string): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    details?: {
+      naskahCount: number;
+      konsepCount: number;
+      configCount: number;
+      nomorCount: number;
+    };
+  }> {
     const jenis = await this.findOne(id);
+    const kodeJenis = jenis.jenis;
+    const namaJenis = jenis.jenisText || jenis.jenis;
 
-    // Delete file from storage if exists
-    if (jenis.fileName) {
+    let naskahCount = 0;
+    let konsepCount = 0;
+    let configCount = 0;
+    let nomorCount = 0;
+
+    if (kodeJenis) {
+      // 1. Cek tabel naskah (Naskah Dinas, Naskah Keluar, Naskah Lainnya)
       try {
-        await this.storageService.deleteFile(jenis.fileName);
-      } catch (error) {
-        console.warn(`Failed to delete file ${jenis.fileName}:`, error.message);
+        const res = await this.jenisRepository.query(
+          `SELECT COUNT(id) as cnt FROM naskah WHERE jenis = ?`,
+          [kodeJenis],
+        );
+        naskahCount = Number(res[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek naskah by jenis:', err.message);
+      }
+
+      // 2. Cek tabel konsep (draf alur workflow naskah)
+      try {
+        const resKonsep = await this.jenisRepository.query(
+          `SELECT COUNT(id) as cnt FROM konsep WHERE jenis = ?`,
+          [kodeJenis],
+        );
+        konsepCount = Number(resKonsep[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek konsep by jenis:', err.message);
+      }
+
+      // 3. Cek konfigurasi naskah lainnya
+      try {
+        const resConfig = await this.jenisRepository.query(
+          `SELECT COUNT(id) as cnt FROM config_naskah_lainnya WHERE jenis_naskah = ?`,
+          [kodeJenis],
+        );
+        configCount = Number(resConfig[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek config_naskah_lainnya by jenis:', err.message);
+      }
+
+      // 4. Cek registrasi/request penomoran
+      try {
+        const resNomor = await this.jenisRepository.query(
+          `SELECT COUNT(id) as cnt FROM nomor_request WHERE jenis = ?`,
+          [kodeJenis],
+        );
+        nomorCount = Number(resNomor[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek nomor_request by jenis:', err.message);
       }
     }
 
-    await this.jenisRepository.remove(jenis);
-    return { message: `Jenis ${jenis.jenisText} berhasil dihapus` };
+    if (naskahCount > 0 || konsepCount > 0 || configCount > 0 || nomorCount > 0) {
+      const parts: string[] = [];
+      if (naskahCount > 0) parts.push(`${naskahCount} naskah (naskah dinas/keluar/naskah lainnya)`);
+      if (konsepCount > 0) parts.push(`${konsepCount} alur konsep/persetujuan`);
+      if (configCount > 0) parts.push(`${configCount} konfigurasi naskah`);
+      if (nomorCount > 0) parts.push(`${nomorCount} registrasi penomoran surat`);
+
+      return {
+        canDelete: false,
+        reason: `Jenis surat '${namaJenis}' (${kodeJenis}) sudah digunakan pada ${parts.join(', ')}. Data tidak dapat dihapus untuk menjaga keutuhan riwayat arsip dan tata naskah.`,
+        details: { naskahCount, konsepCount, configCount, nomorCount },
+      };
+    }
+
+    return {
+      canDelete: true,
+      details: { naskahCount: 0, konsepCount: 0, configCount: 0, nomorCount: 0 },
+    };
+  }
+
+  /**
+   * Soft delete jenis: set active = 0 agar tidak tampil dan tidak bisa dipilih lagi
+   */
+  async remove(id: string): Promise<{ message: string }> {
+    const jenis = await this.findOne(id);
+    jenis.active = 0;
+    await this.jenisRepository.save(jenis);
+    return { message: `Jenis ${jenis.jenisText || jenis.jenis} berhasil dihapus` };
   }
 
   /**

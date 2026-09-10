@@ -6,6 +6,7 @@ import {
   OnGatewayInit,
   SubscribeMessage,
   ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -35,10 +36,12 @@ import { RealtimeSyncService } from '../services/realtime-sync.service';
  *  - naskah-dinas:verifikator-count (verifikator waiting count change)
  *  - naskah-lainnya:persetujuan-count (approval/signing queue count)
  *  - naskah-lainnya:legal-drafting-count (legal drafting queue count)
+ *  - naskah-lainnya:updated (invalidasi detail naskah yang sedang dibuka)
  *
  * Event client -> server:
  *  - realtime:subscribe      (request initial summary)
  *  - realtime:ping
+ *  - naskah-lainnya:subscribe / unsubscribe
  */
 @WebSocketGateway({
   namespace: 'realtime',
@@ -169,6 +172,34 @@ export class RealtimeGateway
       client.emit('realtime:summary', summary);
     }
     return { status: 'subscribed', positionId: user.position };
+  }
+
+  @SubscribeMessage('naskah-lainnya:subscribe')
+  async onSubscribeNaskahLainnya(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { naskahId?: string },
+  ) {
+    if (!client.data?.user) return { status: 'error', message: 'Unauthorized' };
+    const naskahId = String(payload?.naskahId ?? '').trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        naskahId,
+      )
+    ) {
+      return { status: 'error', message: 'Invalid naskahId' };
+    }
+    await client.join(`naskah-lainnya:${naskahId}`);
+    return { status: 'subscribed', naskahId };
+  }
+
+  @SubscribeMessage('naskah-lainnya:unsubscribe')
+  async onUnsubscribeNaskahLainnya(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { naskahId?: string },
+  ) {
+    const naskahId = String(payload?.naskahId ?? '').trim();
+    if (naskahId) await client.leave(`naskah-lainnya:${naskahId}`);
+    return { status: 'unsubscribed', naskahId };
   }
 
   // ──────────────────────────────────────────────
@@ -305,6 +336,13 @@ export class RealtimeGateway
       .emit('naskah-lainnya:legal-drafting-count', { positionId, waiting });
   }
 
+  emitNaskahLainnyaUpdated(payload: { naskahId: string; occurredAt: string }) {
+    if (!this.server) return;
+    this.server
+      .to(`naskah-lainnya:${payload.naskahId}`)
+      .emit('naskah-lainnya:updated', payload);
+  }
+
   /**
    * Emit tracking update (read/follow-up status change) ke pengirim.
    */
@@ -320,8 +358,18 @@ export class RealtimeGateway
    */
   emitFlagUpdate(positionId: string, payload: any) {
     if (!this.server) return;
-    this.server
-      .to(`position:${positionId}`)
-      .emit('flag:update', payload);
+    this.server.to(`position:${positionId}`).emit('flag:update', payload);
+  }
+
+  /** Broadcast perubahan konfigurasi routing setelah transaksi DB committed. */
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    if (!this.server) return;
+    this.server.emit('correspondence-routing:updated', payload);
   }
 }

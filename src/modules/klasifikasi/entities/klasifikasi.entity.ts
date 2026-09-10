@@ -45,7 +45,7 @@ export class KlasifikasiEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   keamanan: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   hak_akses: string;
 
   // Relasi ke parent

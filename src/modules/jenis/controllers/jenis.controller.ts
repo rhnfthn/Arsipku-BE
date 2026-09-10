@@ -7,9 +7,11 @@ import {
   Body,
   Param,
   UseInterceptors,
-  UploadedFile,
+  UploadedFiles,
+  Logger,
+  BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JenisService } from '../services/jenis.service';
 import { JenisResponseDto } from '../dto/jenis.dto';
@@ -19,35 +21,17 @@ import { RequirePermission } from '../../../common/decorators';
 
 @Controller('jenis')
 export class JenisController {
+  private readonly logger = new Logger(JenisController.name);
+
   constructor(private readonly jenisService: JenisService) {}
 
   /**
    * GET /jenis
-   * Mengambil semua jenis surat dengan file URLs
+   * Mengambil semua jenis surat dengan file URLs (original & regex)
    */
   @Get()
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(86_400_000)
   async findAll(): Promise<any> {
-    const result = await this.jenisService.findAll();
-
-    // Add file URLs to response
-    const dataWithUrls = await Promise.all(
-      result.data.map(async (item) => {
-        const fileUrl = item.jenis
-          ? await this.jenisService.getFileUrl(item.jenis)
-          : null;
-        return {
-          ...item,
-          file_url: fileUrl,
-        };
-      }),
-    );
-
-    return {
-      ...result,
-      data: dataWithUrls,
-    };
+    return await this.jenisService.findAll();
   }
 
   /**
@@ -57,6 +41,15 @@ export class JenisController {
   @Get('code/:code')
   async findByCode(@Param('code') code: string) {
     const jenis = await this.jenisService.findByCode(code);
+    const fileOriginalKey = jenis.fileOriginal || null;
+    const fileRegexKey = jenis.fileRegex || null;
+
+    const [fileOriginalUrl, fileRegexUrl, legacyFileUrl] = await Promise.all([
+      fileOriginalKey ? this.jenisService.getFileUrl(fileOriginalKey) : null,
+      fileRegexKey ? this.jenisService.getFileUrl(fileRegexKey) : null,
+      jenis.fileName ? this.jenisService.getFileUrl(jenis.fileName) : null,
+    ]);
+
     return {
       success: true,
       data: {
@@ -64,7 +57,12 @@ export class JenisController {
         jenis: jenis.jenis,
         jenis_text: jenis.jenisText,
         file_name: jenis.fileName,
+        file_url: legacyFileUrl || fileRegexUrl || fileOriginalUrl,
         file_text: jenis.fileText,
+        file_original: fileOriginalKey,
+        file_original_url: fileOriginalUrl,
+        file_regex: fileRegexKey,
+        file_regex_url: fileRegexUrl,
         format_penomoran: jenis.formatPenomoran,
       },
     };
@@ -72,59 +70,93 @@ export class JenisController {
 
   /**
    * POST /jenis
-   * Membuat jenis baru dengan file upload
-   * Form-data:
-   * - jenis: string (kode jenis, required)
-   * - jenis_text: string (nama jenis, required)
-   * - file_text: string (optional)
-   * - format_penomoran: string (optional)
-   * - file: File (optional)
+   * Membuat jenis baru dengan 2 upload template:
+   * - file_original (templates/naskah-lainnya-original/)
+   * - file_regex (templates/naskah-lainnya/)
    */
   @Post()
   @RequirePermission('master-data', 'create')
   @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB max
+    FileFieldsInterceptor(
+      [
+        { name: 'file_original', maxCount: 1 },
+        { name: 'file_regex', maxCount: 1 },
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB max
+        },
       },
-    }),
+    ),
   )
   async create(
     @Body() dto: CreateJenisDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      file_original?: Express.Multer.File[];
+      file_regex?: Express.Multer.File[];
+      file?: Express.Multer.File[];
+    },
   ) {
-    const jenis = await this.jenisService.create(dto, file);
-    const fileUrl = jenis.fileName
-      ? await this.jenisService.getFileUrl(jenis.fileName)
-      : null;
+    try {
+      this.logger.log(`Creating jenis: ${JSON.stringify(dto)}`);
+      const jenis = await this.jenisService.create(dto, {
+        fileOriginal: files?.file_original?.[0],
+        fileRegex: files?.file_regex?.[0],
+        file: files?.file?.[0],
+      });
 
-    return {
-      success: true,
-      message: 'Jenis berhasil dibuat',
-      data: {
-        id: jenis.id,
-        jenis: jenis.jenis,
-        jenis_text: jenis.jenisText,
-        file_name: jenis.fileName,
-        file_url: fileUrl,
-        file_text: jenis.fileText,
-        format_penomoran: jenis.formatPenomoran,
-      },
-    };
+      const fileOriginalKey = jenis.fileOriginal || null;
+      const fileRegexKey = jenis.fileRegex || null;
+
+      const [fileOriginalUrl, fileRegexUrl, legacyFileUrl] = await Promise.all([
+        fileOriginalKey ? this.jenisService.getFileUrl(fileOriginalKey) : null,
+        fileRegexKey ? this.jenisService.getFileUrl(fileRegexKey) : null,
+        jenis.fileName ? this.jenisService.getFileUrl(jenis.fileName) : null,
+      ]);
+
+      return {
+        success: true,
+        message: 'Jenis berhasil dibuat',
+        data: {
+          id: jenis.id,
+          jenis: jenis.jenis,
+          jenis_text: jenis.jenisText,
+          file_name: jenis.fileName,
+          file_url: legacyFileUrl || fileRegexUrl || fileOriginalUrl,
+          file_text: jenis.fileText,
+          file_original: fileOriginalKey,
+          file_original_url: fileOriginalUrl,
+          file_regex: fileRegexKey,
+          file_regex_url: fileRegexUrl,
+          format_penomoran: jenis.formatPenomoran,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to create jenis: ${error.message}`, error.stack);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(error.message || 'Gagal membuat jenis');
+    }
   }
 
   /**
    * GET /jenis/:id
-   * Mengambil jenis by ID dengan file URL
+   * Mengambil jenis by ID dengan 2 file URLs
    */
   @Get(':id')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(86_400_000)
   async findOne(@Param('id') id: string) {
     const jenis = await this.jenisService.findOne(id);
-    const fileUrl = jenis.fileName
-      ? await this.jenisService.getFileUrl(jenis.fileName)
-      : null;
+    const fileOriginalKey = jenis.fileOriginal || null;
+    const fileRegexKey = jenis.fileRegex || null;
+
+    const [fileOriginalUrl, fileRegexUrl, legacyFileUrl] = await Promise.all([
+      fileOriginalKey ? this.jenisService.getFileUrl(fileOriginalKey) : null,
+      fileRegexKey ? this.jenisService.getFileUrl(fileRegexKey) : null,
+      jenis.fileName ? this.jenisService.getFileUrl(jenis.fileName) : null,
+    ]);
 
     return {
       success: true,
@@ -133,8 +165,12 @@ export class JenisController {
         jenis: jenis.jenis,
         jenis_text: jenis.jenisText,
         file_name: jenis.fileName,
-        file_url: fileUrl,
+        file_url: legacyFileUrl || fileRegexUrl || fileOriginalUrl,
         file_text: jenis.fileText,
+        file_original: fileOriginalKey,
+        file_original_url: fileOriginalUrl,
+        file_regex: fileRegexKey,
+        file_regex_url: fileRegexUrl,
         format_penomoran: jenis.formatPenomoran,
       },
     };
@@ -142,46 +178,84 @@ export class JenisController {
 
   /**
    * PUT /jenis/:id
-   * Update jenis dengan optional file upload
-   * Form-data:
-   * - jenis: string (optional)
-   * - jenis_text: string (optional)
-   * - file_text: string (optional)
-   * - format_penomoran: string (optional)
-   * - file: File (optional)
+   * Update jenis dengan 2 upload template opsional
    */
   @Put(':id')
   @RequirePermission('master-data', 'update')
   @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB max
+    FileFieldsInterceptor(
+      [
+        { name: 'file_original', maxCount: 1 },
+        { name: 'file_regex', maxCount: 1 },
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        limits: {
+          fileSize: 50 * 1024 * 1024, // 50MB max
+        },
       },
-    }),
+    ),
   )
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateJenisDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      file_original?: Express.Multer.File[];
+      file_regex?: Express.Multer.File[];
+      file?: Express.Multer.File[];
+    },
   ) {
-    const jenis = await this.jenisService.update(id, dto, file);
-    const fileUrl = jenis.fileName
-      ? await this.jenisService.getFileUrl(jenis.fileName)
-      : null;
+    try {
+      this.logger.log(`Updating jenis ${id}: ${JSON.stringify(dto)}`);
+      const jenis = await this.jenisService.update(id, dto, {
+        fileOriginal: files?.file_original?.[0],
+        fileRegex: files?.file_regex?.[0],
+        file: files?.file?.[0],
+      });
 
-    return {
-      success: true,
-      message: 'Jenis berhasil diupdate',
-      data: {
-        id: jenis.id,
-        jenis: jenis.jenis,
-        jenis_text: jenis.jenisText,
-        file_name: jenis.fileName,
-        file_url: fileUrl,
-        file_text: jenis.fileText,
-        format_penomoran: jenis.formatPenomoran,
-      },
-    };
+      const fileOriginalKey = jenis.fileOriginal || null;
+      const fileRegexKey = jenis.fileRegex || null;
+
+      const [fileOriginalUrl, fileRegexUrl, legacyFileUrl] = await Promise.all([
+        fileOriginalKey ? this.jenisService.getFileUrl(fileOriginalKey) : null,
+        fileRegexKey ? this.jenisService.getFileUrl(fileRegexKey) : null,
+        jenis.fileName ? this.jenisService.getFileUrl(jenis.fileName) : null,
+      ]);
+
+      return {
+        success: true,
+        message: 'Jenis berhasil diupdate',
+        data: {
+          id: jenis.id,
+          jenis: jenis.jenis,
+          jenis_text: jenis.jenisText,
+          file_name: jenis.fileName,
+          file_url: legacyFileUrl || fileRegexUrl || fileOriginalUrl,
+          file_text: jenis.fileText,
+          file_original: fileOriginalKey,
+          file_original_url: fileOriginalUrl,
+          file_regex: fileRegexKey,
+          file_regex_url: fileRegexUrl,
+          format_penomoran: jenis.formatPenomoran,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to update jenis ${id}: ${error.message}`, error.stack);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(error.message || 'Gagal mengupdate jenis');
+    }
+  }
+
+  /**
+   * GET /jenis/:id/check-usage
+   * Cek penggunaan jenis sebelum hapus
+   */
+  @Get(':id/check-usage')
+  async checkUsage(@Param('id') id: string) {
+    return this.jenisService.checkUsage(id);
   }
 
   /**

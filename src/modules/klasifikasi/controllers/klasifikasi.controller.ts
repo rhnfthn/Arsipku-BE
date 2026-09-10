@@ -33,6 +33,11 @@ export class KlasifikasiController {
     return this.klasifikasiService.create(createKlasifikasiDto);
   }
 
+  @Get(':id/check-usage')
+  checkUsage(@Param('id') id: string) {
+    return this.klasifikasiService.checkUsage(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.klasifikasiService.findOne(id);

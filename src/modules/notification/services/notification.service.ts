@@ -399,6 +399,9 @@ export class NotificationService {
     );
     queryBuilder.andWhere(`notification.body NOT REGEXP '^[0-9]+$'`);
 
+    // Filter out NASKAH_SHARE_DIBUKA and DIGSIG_VERIFIKASI (verification check is synchronous user action, not a notification)
+    queryBuilder.andWhere("notification.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
+
     if (typeof isRead === 'boolean') {
       queryBuilder.andWhere('notification.is_read = :isRead', { isRead });
     }
@@ -451,7 +454,8 @@ export class NotificationService {
     qb.andWhere('1 = 1)')
       .andWhere('n.isRead = :isRead', { isRead: false })
       .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
-      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`);
+      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
+      .andWhere("n.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
     if (category) {
       qb.andWhere(
         `JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.category')) = :category`,
@@ -826,7 +830,17 @@ export class NotificationService {
 
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(data)) {
-      result[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      if (value === null || value === undefined) continue;
+      const str = typeof value === 'string' ? value : JSON.stringify(value);
+      if (
+        str === 'null' ||
+        str === 'undefined' ||
+        str === '""' ||
+        str.trim() === ''
+      ) {
+        continue;
+      }
+      result[key] = str;
     }
     return result;
   }
