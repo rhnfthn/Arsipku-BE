@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UseGuards,
   HttpStatus,
+  HttpException,
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
@@ -25,9 +26,7 @@ import { CurrentUser } from '../../../common/decorators';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 
-/**
- * Controller API SDE Masal (Surat Dinas Eksternal Massal).
- *
+/** 
  * Endpoint:
  * - POST   /sde-masal/folder                — buat folder
  * - PATCH  /sde-masal/folder/:folderId      — update folder
@@ -584,6 +583,42 @@ export class SdeMasalController {
       return { success: false, message: 'Naskah tidak ditemukan', data: null };
     }
     return { success: true, data };
+  }
+
+  /**
+   * GET /sde-masal/naskah/:naskahId/preview-pdf
+   *
+   * Untuk BSrE endpoint mengirim file final asli agar signature tetap valid.
+   * Naskah non-BSrE dapat dirender dari data Excel penerima untuk menjaga
+   * seluruh placeholder tetap terisi pada preview/print Terkirim.
+   */
+  @Get('naskah/:naskahId/preview-pdf')
+  async previewSentNaskah(
+    @Param('naskahId') naskahId: string,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      const pdf = await this.sdeMasalService.generateSentNaskahPreviewPdf(
+        naskahId,
+        user,
+      );
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-sde-masal-${naskahId}.pdf"`,
+        'Content-Length': pdf.length,
+      });
+      return res.status(HttpStatus.OK).send(pdf);
+    } catch (error) {
+      const status =
+        error instanceof HttpException
+          ? error.getStatus()
+          : HttpStatus.INTERNAL_SERVER_ERROR;
+      return res.status(status).json({
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

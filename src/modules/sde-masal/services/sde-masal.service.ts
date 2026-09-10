@@ -10,6 +10,7 @@ import { In, Repository, DataSource } from 'typeorm';
 import { createHash } from 'crypto';
 import * as XLSX from 'xlsx';
 import PizZip from 'pizzip';
+import PQueue from 'p-queue';
 import { v4 as uuidv4 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
@@ -22,11 +23,14 @@ import { SdeMasalFolderEntity } from '../entities/sde-masal-folder.entity';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { NotificationService } from '../../notification/services';
+import { NotificationType } from '../../notification/entities';
 import {
   CreateSuratDinasEksternalDto,
   SignOption,
   SifatSurat,
 } from '../../surat-dinas-eksternal/dto/create-surat-dinas-eksternal.dto';
+import type { DigsigBatchContext } from '../../digsig/services/digsig.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -54,6 +58,28 @@ const MAX_MASS_ATTACHMENT_ZIP_BYTES = 50 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILES = 200;
 const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
+const RESERVED_NOMOR_KEY = '__sdeMasalReservedNomor';
+
+// Batas file per proses paralel/bulk signing. Folder besar dipecah menjadi
+// beberapa chunk supaya penggunaan memori, koneksi DB, dan payload tetap aman.
+const SDE_MASAL_FINALIZE_BATCH_SIZE = 8;
+
+// Email tidak menahan respons finalisasi, tetapi tetap dibatasi supaya batch
+// besar tidak membanjiri mail service.
+const sdeMasalEmailQueue = new PQueue({
+  concurrency: 4,
+  intervalCap: 8,
+  interval: 1000,
+  throwOnTimeout: true,
+});
+
+// Generate dipanggil dari beberapa jalur wizard (watcher, autosave, dan
+// tombol aksi). Serialisasi singkat ini mencegah dua request untuk folder yang
+// sama sama-sama lolos pengecekan lalu melakukan insert ganda.
+const sdeMasalGenerateQueue = new PQueue({
+  concurrency: 1,
+  throwOnTimeout: true,
+});
 
 /**
  * Service untuk fitur SDE Masal (Surat Dinas Eksternal Massal).
@@ -66,6 +92,12 @@ const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
 @Injectable()
 export class SdeMasalService {
   private readonly logger = new Logger(SdeMasalService.name);
+  // Beberapa approval item dapat masuk bersamaan. Coalesce pengiriman
+  // notifikasi yang sama agar race condition tidak membuat beberapa toast.
+  private readonly sdeMasalNotificationInFlight = new Map<
+    string,
+    Promise<void>
+  >();
 
   constructor(
     @InjectRepository(SdeMasalEntity)
@@ -82,6 +114,7 @@ export class SdeMasalService {
     private readonly dataSource: DataSource,
     private readonly sdeService: SuratDinasEksternalService,
     private readonly storageService: StorageService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ============================================================
@@ -137,7 +170,10 @@ export class SdeMasalService {
       originalFileUrl: dto.originalFileUrl || null,
       signOption: dto.signOption || null,
       status: 'DRAFT',
-      createdBy: dto.createdBy || null,
+      // Posisi dari token adalah sumber utama. Jangan bergantung pada
+      // createdBy dari frontend agar notifikasi pengembalian selalu kembali
+      // ke konseptor yang membuat folder.
+      createdBy: creatorPosition ? String(creatorPosition) : dto.createdBy || null,
     });
     const saved = await this.folderRepo.save(entity);
 
@@ -297,6 +333,23 @@ export class SdeMasalService {
     failed: number;
     items: SdeMasalEntity[];
   }> {
+    return sdeMasalGenerateQueue.add(() =>
+      this.generateMassalLocked(body, creatorPosition),
+    );
+  }
+
+  private async generateMassalLocked(body: {
+    folderId?: string;
+    konsep?: any;
+    penerimaList: any[];
+    template?: any;
+    createdBy?: string;
+  }, creatorPosition?: string | number): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+    items: SdeMasalEntity[];
+  }> {
     const { penerimaList } = body;
     if (!penerimaList || penerimaList.length === 0) {
       throw new BadRequestException('Data penerima tidak boleh kosong');
@@ -320,6 +373,20 @@ export class SdeMasalService {
     }
     if (folder && !['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
+    }
+
+    // Request ulang untuk folder yang sama harus idempotent. `no` adalah
+    // identitas baris Excel; lampiran sengaja tidak dijadikan pembeda karena
+    // formatnya berubah dari nama file menjadi object setelah upload/commit.
+    const existingKeys = new Set<string>();
+    if (body.folderId) {
+      const existingItems = await this.repo.find({
+        where: { folderId: body.folderId },
+        select: ['recipientData'],
+      });
+      existingItems.forEach((item) => {
+        existingKeys.add(this.getMassalRecipientKey(item.recipientData));
+      });
     }
 
     // Simpan template ke folder jika diberikan
@@ -352,11 +419,17 @@ export class SdeMasalService {
           failed++;
           continue;
         }
+        const recipientKey = this.getMassalRecipientKey(p);
+        if (existingKeys.has(recipientKey)) {
+          continue;
+        }
+        existingKeys.add(recipientKey);
+        const normalizedRecipient = this.normalizeMassalRecipient(p);
         const item = this.repo.create({
           folderId: body.folderId || null,
-          recipientData: JSON.stringify(p),
+          recipientData: JSON.stringify(normalizedRecipient),
           statusVerifikasi: 'MENUNGGU',
-          createdBy: body.createdBy || null,
+          createdBy: creatorPosition ? String(creatorPosition) : body.createdBy || null,
         });
         items.push(item);
       } catch (err) {
@@ -388,6 +461,9 @@ export class SdeMasalService {
     passphrase?: string,
     creatorPosition?: string | number,
     persnum?: number,
+    syncFolder = true,
+    bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<{ naskahId: string; nomor: string; status: string }> {
     const item = await this.repo.findOne({ where: { id: sdeMasalId } });
     if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
@@ -423,7 +499,9 @@ export class SdeMasalService {
       );
     }
 
-    const recipient = this.parseRecipientData(item);
+    const recipient = this.normalizeMassalRecipient(
+      this.parseRecipientData(item),
+    );
     const attachmentRefs = this.getAttachmentRefs(item, recipient);
     const external = await this.resolveRecipientExternal(
       folder,
@@ -486,7 +564,14 @@ export class SdeMasalService {
     }
 
     try {
-      const response: any = await this.sdeService.sendMessage(dto, persnum);
+      const reservedNomor = String(recipient[RESERVED_NOMOR_KEY] || '').trim();
+      const response: any = await this.sdeService.sendMessage(
+        dto,
+        persnum,
+        reservedNomor || undefined,
+        bsreUserData,
+        digsigBatch,
+      );
       const data = response?.data;
       if (!data?.id)
         throw new Error('Layanan SDE tidak mengembalikan ID naskah');
@@ -496,13 +581,14 @@ export class SdeMasalService {
       item.errorMessage = null;
       await this.repo.save(item);
       await this.addExternalTembusan(data.id, item, recipient, data.status);
-      // Tembusan internal: masukkan ke kotak masuk tiap akun internal
-      await this.addInternalTembusan(data.id, item, recipient, data.status);
-      await this.refreshFolderCounters(folder.id);
+      // Tembusan internal sudah dibuat oleh alur SDE biasa melalui
+      // dto.tembusan. Jangan insert ulang di sini karena menghasilkan dua
+      // sirkulasi untuk position ID yang sama dan dua nama pada PDF/terkirim.
+      if (syncFolder) await this.refreshFolderCounters(folder.id);
 
       // Repair folder lama: pembuat folder adalah pihak yang menindaklanjuti
       // disposisi, bukan pengirim akhir SDE Massal.
-      if (folder.parentNaskahId && folder.createdBy) {
+      if (syncFolder && folder.parentNaskahId && folder.createdBy) {
         await this.sirkulasiRepository.update(
           {
             idNaskah: folder.parentNaskahId,
@@ -515,15 +601,23 @@ export class SdeMasalService {
 
       // Kirim email otomatis ke alamat dari kolom Excel
       // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
-      await this.sendEmailForItem(
-        data.id,
-        recipient,
-        external,
-        pengirim,
-        folder,
-        creatorPosition,
-        persnum,
-      );
+      void sdeMasalEmailQueue
+        .add(() =>
+          this.sendEmailForItem(
+            data.id,
+            recipient,
+            external,
+            pengirim,
+            folder,
+            creatorPosition,
+            persnum,
+          ),
+        )
+        .catch((error) =>
+          this.logger.warn(
+            `[SDE Masal] Proses email lanjutan gagal untuk ${data.id}: ${error?.message || error}`,
+          ),
+        );
 
       return {
         naskahId: data.id,
@@ -531,10 +625,13 @@ export class SdeMasalService {
         status: data.status || 'final',
       };
     } catch (error) {
+      if (digsigBatch) {
+        this.sdeService.skipMassalSigningParticipant(digsigBatch);
+      }
       item.statusVerifikasi = 'GAGAL';
       item.errorMessage = String(error?.message || error).slice(0, 500);
       await this.repo.save(item);
-      await this.refreshFolderCounters(folder.id);
+      if (syncFolder) await this.refreshFolderCounters(folder.id);
       throw error;
     }
   }
@@ -960,30 +1057,120 @@ export class SdeMasalService {
       throw new BadRequestException('Tidak ada surat yang sudah disetujui dan siap dikirim');
     }
 
+    // Nomor surat harus dialokasikan lebih dulu dalam transaksi singkat. Jika
+    // lock nomor ikut ditahan selama PDF/BSrE, proses paralel akan saling
+    // menunggu dan sebagian item dapat gagal karena lock timeout.
+    const tanggal = folder.tanggal
+      ? new Date(folder.tanggal).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const itemsWithoutReservedNumber = eligibleItems.filter((item) => {
+      const recipient = this.parseRecipientData(item);
+      return !String(recipient[RESERVED_NOMOR_KEY] || '').trim();
+    });
+    if (itemsWithoutReservedNumber.length > 0) {
+      const reservedNumbers = await this.sdeService.reserveMassalNumbers(
+        itemsWithoutReservedNumber.map((item) => {
+          const recipient = this.parseRecipientData(item);
+          return {
+            pengirim: Number(folder.pengirimId),
+            tgl: tanggal,
+            klasifikasi: folder.klasifikasi || '',
+            perihal: recipient.perihal || '-',
+          };
+        }),
+      );
+      itemsWithoutReservedNumber.forEach((item, index) => {
+        const recipient = this.parseRecipientData(item);
+        recipient[RESERVED_NOMOR_KEY] = reservedNumbers[index];
+        item.recipientData = JSON.stringify(recipient);
+      });
+      await this.repo.save(itemsWithoutReservedNumber);
+    }
+
+    // Seluruh naskah dalam satu batch ditandatangani oleh user yang sama.
+    // Ambil NIK/no. WA sekali agar batch besar tidak memanggil HR API berulang.
+    const bsreUserData =
+      signOption === 'digsig' && persnum
+        ? await this.sdeService.getBsreUserDataForMassal(persnum)
+        : undefined;
+
+    // Jalankan alur SDE biasa untuk tiap naskah secara paralel dalam satu
+    // request finalisasi. Endpoint BSrE /api/v2/sign/pdf terbukti mengembalikan
+    // HTTP 500 ketika beberapa PDF dikirim dalam satu payload, sedangkan satu
+    // PDF per request adalah alur yang stabil pada SDE biasa.
+    const results: PromiseSettledResult<{
+      naskahId: string;
+      nomor: string;
+      status: string;
+    }>[] = [];
+    for (
+      let offset = 0;
+      offset < eligibleItems.length;
+      offset += SDE_MASAL_FINALIZE_BATCH_SIZE
+    ) {
+      const chunk = eligibleItems.slice(
+        offset,
+        offset + SDE_MASAL_FINALIZE_BATCH_SIZE,
+      );
+
+      const chunkResults = await Promise.allSettled(
+        chunk.map((item) =>
+          this.finalizeNaskah(
+            item.id,
+            signOption,
+            passphrase,
+            creatorPosition,
+            persnum,
+            false,
+            bsreUserData,
+            undefined,
+          ),
+        ),
+      );
+      results.push(...chunkResults);
+    }
+
     let success = 0;
     let failed = 0;
-    for (const item of eligibleItems) {
-      try {
-        await this.finalizeNaskah(
-          item.id,
-          signOption,
-          passphrase,
-          creatorPosition,
-          persnum,
-        );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
         success++;
-      } catch (error) {
-        this.logger.error(
-          `Finalisasi langsung gagal untuk item ${item.id}: ${error?.message || error}`,
-        );
-        failed++;
+        return;
       }
-    }
+
+      const item = eligibleItems[index];
+      this.logger.error(
+        `Finalisasi langsung gagal untuk item ${item.id}: ${result.reason?.message || result.reason}`,
+      );
+      failed++;
+    });
 
     await this.refreshFolderCounters(folderId);
     if (success > 0) {
-      folder.rejectionReason = null;
-      await this.folderRepo.save(folder);
+      // Update hanya kolom alasan. Menyimpan objek `folder` yang dibaca sebelum
+      // finalisasi akan menimpa status TERKIRIM hasil refreshFolderCounters.
+      await this.folderRepo.update(
+        { id: folder.id },
+        { rejectionReason: null },
+      );
+
+      if (folder.parentNaskahId && folder.createdBy) {
+        await this.sirkulasiRepository.update(
+          {
+            idNaskah: folder.parentNaskahId,
+            position: String(folder.createdBy),
+            sirkuler: In(['penerima', 'tembusan']),
+          },
+          { tindakLanjut: 1 },
+        );
+      }
+      await this.notifySdeMasalPositions([folder.createdBy], {
+        title: 'SDE Massal Selesai Dikirim',
+        body: `Folder "${folder.judul || '-'}" berhasil difinalisasi dan dikirim.`,
+        action: 'OPEN_SDE_MASAL_FOLDER',
+        folderId: folder.id,
+        status: 'TERKIRIM',
+      });
     }
     return {
       total: eligibleItems.length,
@@ -1012,14 +1199,24 @@ export class SdeMasalService {
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak dapat dikirim pada status saat ini');
     }
-    const items = await this.repo.find({ where: { folderId } });
+    const items = this.deduplicateMassalRows(
+      await this.repo.find({ where: { folderId } }),
+    );
     if (items.length === 0) throw new BadRequestException('Data penerima belum dibuat');
     if (!items.every((item) => item.statusVerifikasi === 'TERVERIFIKASI')) {
       throw new BadRequestException('Folder harus menyelesaikan verifikasi terlebih dahulu');
     }
     folder.status = 'MENUNGGU_PENGIRIM';
     folder.rejectionReason = null;
-    return this.folderRepo.save(folder);
+    const saved = await this.folderRepo.save(folder);
+    await this.notifySdeMasalPositions([saved.pengirimId], {
+      title: 'SDE Massal Menunggu Pengirim',
+      body: `Folder "${saved.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+      action: 'OPEN_SDE_MASAL_FOLDER',
+      folderId: saved.id,
+      status: saved.status,
+    });
+    return saved;
   }
 
   async rejectFolder(
@@ -1037,9 +1234,19 @@ export class SdeMasalService {
     }
     const cleanReason = String(reason || '').trim();
     if (!cleanReason) throw new BadRequestException('Alasan penolakan wajib diisi');
+    const creatorPosition = await this.resolveSdeMasalCreatorPosition(folder);
     folder.status = 'DIKEMBALIKAN';
     folder.rejectionReason = cleanReason;
-    return this.folderRepo.save(folder);
+    const saved = await this.folderRepo.save(folder);
+    await this.notifySdeMasalPositions([creatorPosition || saved.createdBy], {
+      title: 'SDE Massal Dikembalikan',
+      body: `Folder "${saved.judul || '-'}" dikembalikan oleh pengirim. Catatan: ${cleanReason}`,
+      action: 'OPEN_SDE_MASAL_FOLDER',
+      folderId: saved.id,
+      status: saved.status,
+      reason: cleanReason,
+    });
+    return saved;
   }
 
   // ============================================================
@@ -1089,7 +1296,7 @@ export class SdeMasalService {
       }
     }
     const [data, total] = await qb
-      .orderBy('folder.created_at', 'DESC')
+      .orderBy('folder.updated_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -1213,14 +1420,10 @@ export class SdeMasalService {
       }
     }
 
-    const rows = await this.repo.find({
+    const rows = this.deduplicateMassalRows(await this.repo.find({
       where: { folderId },
       order: { createdAt: 'ASC' },
-    });
-    const previousSenderName = this.getPreviousVerifiedSenderName(rows);
-    if (previousSenderName && folder.status === 'MENUNGGU_PENGIRIM') {
-      (folder as any).pengirimName = previousSenderName;
-    }
+    }));
     const naskahIds = rows
       .map((row) => row.naskahId)
       .filter(Boolean) as string[];
@@ -1274,7 +1477,13 @@ export class SdeMasalService {
             recipient?.emailTertuju || recipient?.email_tertuju || null,
           emailCc: recipient?.emailCc || recipient?.email_cc || null,
           emailBcc: recipient?.emailBcc || recipient?.email_bcc || null,
-          status: naskah?.status || row.statusVerifikasi,
+          // Status alur SDE Massal menjadi sumber utama setelah pengiriman.
+          // Jangan biarkan status internal naskah (mis. `final`) menimpa
+          // label bisnis `Selesai` di daftar folder.
+          status:
+            row.statusVerifikasi === 'TERKIRIM'
+              ? 'TERKIRIM'
+              : naskah?.status || row.statusVerifikasi,
           statusVerifikasi: row.statusVerifikasi,
           verifikators: row.verifikators || [],
           submittedAt: row.submittedAt || null,
@@ -1360,6 +1569,16 @@ export class SdeMasalService {
     )) {
       await this.refreshFolderCounters(folderId as string);
     }
+    await this.notifySdeMasalPositions(
+      verifierRows.filter((item) => item.status === 'waiting').map((item) => item.position),
+      {
+        title: 'SDE Massal Menunggu Verifikasi',
+        body: `Folder "${folder.judul || '-'}" menunggu verifikasi Anda.`,
+        action: 'OPEN_SDE_MASAL_VERIFIKASI',
+        folderId: folder.id,
+        status: 'MENUNGGU_VERIFIKASI',
+      },
+    );
     return { total: saved.length, items: saved };
   }
 
@@ -1522,12 +1741,8 @@ export class SdeMasalService {
       const waitingCount = isFinalSender
         ? items.filter((item) => ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) && !item.naskahId).length
         : assignedItems.length;
-      const previousSenderName = this.getPreviousVerifiedSenderName(items);
       return {
         ...folder,
-        ...(previousSenderName && folder.status === 'MENUNGGU_PENGIRIM'
-          ? { pengirimName: previousSenderName }
-          : {}),
         totalItems: items.length,
         waitingCount,
         workflowRole: isFinalSender ? 'PENGIRIM_AKHIR' : 'VERIFIKATOR',
@@ -1638,6 +1853,42 @@ export class SdeMasalService {
     await this.repo.save(pendingRows);
     await this.refreshFolderCounters(folderId);
     const updatedFolder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (action === 'reject') {
+      const creatorPosition = await this.resolveSdeMasalCreatorPosition(
+        folder,
+        pendingRows.find((item) => item.createdBy)?.createdBy,
+      );
+      await this.notifySdeMasalPositions([creatorPosition || folder.createdBy], {
+        title: 'SDE Massal Dikembalikan',
+        body: `Folder "${folder.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+        action: 'OPEN_SDE_MASAL_FOLDER',
+        folderId: folder.id,
+        status: 'DIKEMBALIKAN',
+        reason: String(catatan || '').trim(),
+      });
+    } else {
+      const nextPositions = pendingRows
+        .flatMap((item) => item.verifikators || [])
+        .filter((verifikator: SdeMasalVerifikator) => verifikator.status === 'waiting')
+        .map((verifikator: SdeMasalVerifikator) => verifikator.position);
+      if (nextPositions.length > 0) {
+        await this.notifySdeMasalPositions(nextPositions, {
+          title: 'SDE Massal Menunggu Verifikasi',
+          body: `Folder "${folder.judul || '-'}" menunggu verifikasi Anda.`,
+          action: 'OPEN_SDE_MASAL_VERIFIKASI',
+          folderId: folder.id,
+          status: 'MENUNGGU_VERIFIKASI',
+        });
+      } else if (updatedFolder?.status === 'MENUNGGU_PENGIRIM') {
+        await this.notifySdeMasalPositions([updatedFolder.pengirimId], {
+          title: 'SDE Massal Menunggu Pengirim',
+          body: `Folder "${updatedFolder.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: updatedFolder.id,
+          status: updatedFolder.status,
+        });
+      }
+    }
     return {
       folder: updatedFolder,
       total: rows.length,
@@ -1685,7 +1936,21 @@ export class SdeMasalService {
       item.errorMessage = catatan || 'Ditolak verifikator';
       item.verifikators = verifikators;
       const rejected = await this.repo.save(item);
-      if (item.folderId) await this.refreshFolderCounters(item.folderId);
+      if (item.folderId) {
+        await this.refreshFolderCounters(item.folderId);
+        const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+        const creatorPosition = folder
+          ? await this.resolveSdeMasalCreatorPosition(folder, item.createdBy)
+          : item.createdBy;
+        await this.notifySdeMasalPositions([creatorPosition || folder?.createdBy], {
+          title: 'SDE Massal Dikembalikan',
+          body: `Folder "${folder?.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: item.folderId,
+          status: 'DIKEMBALIKAN',
+          reason: String(catatan || '').trim(),
+        });
+      }
       return rejected;
     }
 
@@ -1708,7 +1973,45 @@ export class SdeMasalService {
 
     item.verifikators = verifikators;
     const saved = await this.repo.save(item);
-    if (item.folderId) await this.refreshFolderCounters(item.folderId);
+    if (item.folderId) {
+      await this.refreshFolderCounters(item.folderId);
+      const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+      // Approval is performed per recipient, but the notification belongs to the
+      // folder transition. Only notify when this is the first row waiting for
+      // the next verifier; subsequent row approvals must not create duplicate
+      // toasts for the same folder.
+      let shouldNotifyNextVerifier = false;
+      if (next) {
+        const rowsAfterApproval = await this.repo.find({
+          where: { folderId: item.folderId },
+        });
+        const waitingNextCount = rowsAfterApproval.filter((row) =>
+          (row.verifikators || []).some(
+            (verifikator: SdeMasalVerifikator) =>
+              verifikator.status === 'waiting' &&
+              String(verifikator.position) === String(next.position),
+          ),
+        ).length;
+        shouldNotifyNextVerifier = waitingNextCount === 1;
+      }
+      if (next && shouldNotifyNextVerifier) {
+        await this.notifySdeMasalPositions([next.position], {
+          title: 'SDE Massal Menunggu Verifikasi',
+          body: `Folder "${folder?.judul || '-'}" menunggu verifikasi Anda.`,
+          action: 'OPEN_SDE_MASAL_VERIFIKASI',
+          folderId: item.folderId,
+          status: 'MENUNGGU_VERIFIKASI',
+        });
+      } else if (folder?.status === 'MENUNGGU_PENGIRIM') {
+        await this.notifySdeMasalPositions([folder.pengirimId], {
+          title: 'SDE Massal Menunggu Pengirim',
+          body: `Folder "${folder.judul || '-'}" sudah diverifikasi dan menunggu difinalisasi.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: folder.id,
+          status: folder.status,
+        });
+      }
+    }
     return saved;
   }
 
@@ -1938,6 +2241,141 @@ export class SdeMasalService {
           }
         : null,
     };
+  }
+
+  /**
+   * Ambil PDF untuk preview/print SDE Massal dari Terkirim.
+   *
+   * Naskah BSrE harus memakai final_pdf asli karena render ulang akan membuang
+   * signature digital. Naskah non-BSrE tetap dapat dirender dari data Excel
+   * agar placeholder penerima historis yang kosong dapat dipulihkan.
+   */
+  async generateSentNaskahPreviewPdf(
+    naskahId: string,
+    user: any,
+  ): Promise<Buffer> {
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+    if (!naskah) throw new NotFoundException('Naskah tidak ditemukan');
+
+    const item = await this.repo.findOne({ where: { naskahId } });
+    if (!item?.folderId) {
+      throw new NotFoundException('Naskah SDE Massal tidak ditemukan');
+    }
+
+    const folder = await this.folderRepo.findOne({
+      where: { id: item.folderId },
+    });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    // Dokumen BSrE wajib memakai file final hasil signing. Merender ulang PDF
+    // akan menghilangkan struktur signature (/Sig + ByteRange), sehingga file
+    // yang diunduh dari tombol print terbaca NO_SIGNATURE di Cek Dokumen.
+    // Data Excel untuk naskah baru sudah dirender sebelum proses signing, jadi
+    // final_pdf tetap memuat placeholder penerima sekaligus tanda tangan asli.
+    if (naskah.signOption === 'digsig' && naskah.final_pdf) {
+      return this.storageService.getFile(naskah.final_pdf);
+    }
+
+    const recipient = this.normalizeMassalRecipient(
+      this.parseRecipientData(item),
+    );
+    const tanggal = naskah.tanggal
+      ? new Date(naskah.tanggal).toISOString().slice(0, 10)
+      : folder.tanggal
+        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+
+    const tembusanEksternal = String(
+      recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        '',
+    );
+    const tembusanInternal = String(
+      recipient.tembusanInternal ||
+        recipient.tembusan_internal ||
+        '',
+    );
+    const [tembusanNames, tembusanInternalNames, tembusanEksternalNames] =
+      await Promise.all([
+        this.resolveTembusanForPreview(
+          tembusanEksternal,
+          tembusanInternal,
+          tanggal,
+          recipient.tembusan,
+        ),
+        this.resolveTembusanForPreview('', tembusanInternal, tanggal),
+        this.resolveTembusanForPreview(
+          tembusanEksternal,
+          '',
+          tanggal,
+          !tembusanEksternal ? recipient.tembusan : undefined,
+        ),
+      ]);
+    const formatTembusan = (names: string[]): string =>
+      names.length > 0
+        ? names.map((name, index) => `${index + 1}. ${name}`).join('\n')
+        : '';
+    const hasTembusanPlaceholder = /\{\{\s*tembusan(?:_internal|_eksternal)?\s*\}\}/i.test(
+      folder.kontenTemplate || '',
+    );
+    const konten = this.renderFolderKonten(folder, item, {
+      ...recipient,
+      // Semua placeholder tembusan dirender ke label yang benar. Khusus
+      // tembusan internal, resolver memakai position ID -> position_text,
+      // bukan persnum_person_text/nama personelnya.
+      tembusan: formatTembusan(tembusanNames),
+      tembusan_internal: formatTembusan(tembusanInternalNames),
+      tembusan_eksternal: formatTembusan(tembusanEksternalNames),
+    });
+
+    const pengirim = await this.sirkulasiRepository.findOne({
+      where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+    });
+    const penerima = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'penerima' },
+      order: { urutan: 'ASC' },
+    });
+    const tembusan = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+      order: { urutan: 'ASC' },
+    });
+    const attachmentRefs = this.getAttachmentRefs(item, recipient);
+    const headerInfo = await this.sdeService.getHeaderInfoByUser(
+      {
+        company: user?.company,
+        area: user?.area,
+        subArea: user?.subArea,
+      },
+      tanggal,
+    );
+
+    return this.sdeService.generatePdfFromHtml(
+      konten,
+      penerima.map((row) => row.namaSirkuler || ''),
+      naskah.tempat || headerInfo?.kota || 'Tangerang',
+      tanggal,
+      pengirim?.positionText || '',
+      pengirim?.namaSirkuler || '',
+      // Jika template sudah memiliki placeholder tembusan, jangan tambahkan
+      // blok Tembusan Yth. kedua dari generator PDF. Jika tidak, gunakan hasil
+      // resolver position ID -> jabatan agar tidak menampilkan nama orang.
+      hasTembusanPlaceholder
+        ? []
+        : tembusanNames.length > 0
+          ? tembusanNames
+          : tembusan.map((row) => row.positionText || row.namaSirkuler || ''),
+      [],
+      naskah.perihal || recipient.perihal || '',
+      naskah.sifat || folder.sifat || 'biasa',
+      naskah.nomor || '',
+      naskah.lampiran || '-',
+      headerInfo || undefined,
+      naskah.english === true,
+      folder.atasNama || '',
+      attachmentRefs.map((ref) => ({ fileName: ref.fileName, key: ref.key })),
+    );
   }
 
   // ============================================================
@@ -2440,6 +2878,128 @@ export class SdeMasalService {
     }
   }
 
+  /**
+   * Samakan field standar dengan nilai dari kolom Excel dinamis.
+   * Parser Excel menyimpan seluruh kolom di `variables`, sementara beberapa
+   * field kompatibilitas pada object utama sengaja dibuat kosong/null.
+   */
+  private normalizeMassalRecipient(
+    recipient: Record<string, any>,
+  ): Record<string, any> {
+    const variables =
+      recipient.variables && typeof recipient.variables === 'object'
+        ? recipient.variables
+        : {};
+
+    const value = (...keys: string[]): string => {
+      for (const key of keys) {
+        const direct = recipient[key];
+        if (direct !== null && direct !== undefined && String(direct).trim()) {
+          return String(direct).trim();
+        }
+        const variable = variables[key.toLowerCase()];
+        if (
+          variable !== null &&
+          variable !== undefined &&
+          String(variable).trim()
+        ) {
+          return String(variable).trim();
+        }
+      }
+      return '';
+    };
+
+    const normalized = {
+      ...recipient,
+      variables,
+      nama: value('nama'),
+      alamat: value('alamat') || null,
+      kota: value('kota') || null,
+      kodePos: value('kodePos', 'kode_pos', 'kodepos') || null,
+      jabatan: value('jabatan'),
+      keterangan: value('keterangan') || null,
+      jabatanPenerima: value('jabatanPenerima', 'jabatan_penerima') || null,
+      alamatPenerima: value('alamatPenerima', 'alamat_penerima') || null,
+      panggilanPenerima:
+        value('panggilanPenerima', 'panggilan_penerima') || null,
+    };
+
+    return normalized;
+  }
+
+  private getMassalRecipientKey(value: unknown): string {
+    let parsed = value;
+    if (typeof value === 'string') {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        parsed = value;
+      }
+    }
+
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const rowNo = (parsed as Record<string, any>).no;
+      if (rowNo !== null && rowNo !== undefined && String(rowNo).trim()) {
+        return `row:${String(rowNo).trim()}`;
+      }
+    }
+
+    const normalize = (input: any): any => {
+      if (Array.isArray(input)) return input.map((item) => normalize(item));
+      if (input && typeof input === 'object') {
+        return Object.keys(input)
+          .filter(
+            (key) => key !== 'lampiran' && key !== RESERVED_NOMOR_KEY,
+          )
+          .sort()
+          .reduce((result, key) => {
+            result[key] = normalize(input[key]);
+            return result;
+          }, {} as Record<string, any>);
+      }
+      return input;
+    };
+
+    return createHash('sha256')
+      .update(JSON.stringify(normalize(parsed)))
+      .digest('hex');
+  }
+
+  private deduplicateMassalRows(rows: SdeMasalEntity[]): SdeMasalEntity[] {
+    const statusPriority: Record<string, number> = {
+      MENUNGGU: 10,
+      MENUNGGU_VERIFIKASI: 20,
+      DITOLAK: 30,
+      TERVERIFIKASI: 40,
+      GAGAL: 50,
+      TERKIRIM: 60,
+    };
+    const selected = new Map<string, SdeMasalEntity>();
+
+    for (const row of rows) {
+      const key = this.getMassalRecipientKey(row.recipientData);
+      const current = selected.get(key);
+      if (!current) {
+        selected.set(key, row);
+        continue;
+      }
+
+      const currentScore =
+        (current.naskahId ? 1000 : 0) +
+        (statusPriority[current.statusVerifikasi] || 0);
+      const rowScore =
+        (row.naskahId ? 1000 : 0) +
+        (statusPriority[row.statusVerifikasi] || 0);
+      if (rowScore > currentScore || row.updatedAt > current.updatedAt) {
+        selected.set(key, row);
+      }
+    }
+
+    return [...selected.values()].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    );
+  }
+
   private normalizeMassAttachmentName(value: unknown): string {
     const raw = String(value ?? '').replace(/\\/g, '/').trim();
     return raw.split('/').pop()?.trim() || '';
@@ -2479,16 +3039,33 @@ export class SdeMasalService {
     item: SdeMasalEntity,
     recipient: Record<string, any>,
   ): string {
+    // Field standar dari parser Excel juga disalin ke `variables`. Pada data
+    // lama, field langsung seperti `nama: ''` atau `alamat: null` dapat
+    // menimpa nilai Excel jika spread dilakukan dengan urutan yang salah.
+    // Nilai variable yang terisi harus menjadi fallback/rujukan untuk konten
+    // template, terutama saat PDF final dibuat setelah folder dikirim.
+    const variableValues =
+      recipient.variables && typeof recipient.variables === 'object'
+        ? recipient.variables
+        : {};
     const values = {
-      ...(recipient.variables || {}),
       ...recipient,
-      tertuju: recipient.tertuju || '',
-      perihal: recipient.perihal || '',
-      tembusan: recipient.tembusan || '',
+      ...variableValues,
+      tertuju: recipient.tertuju || variableValues.tertuju || '',
+      perihal: recipient.perihal || variableValues.perihal || '',
+      tembusan: recipient.tembusan || variableValues.tembusan || '',
       tembusan_internal:
-        recipient.tembusanInternal || recipient.tembusan_internal || '',
+        recipient.tembusanInternal ||
+        recipient.tembusan_internal ||
+        variableValues.tembusan_internal ||
+        variableValues.tembusanInternal ||
+        '',
       tembusan_eksternal:
-        recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
+        recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        variableValues.tembusan_eksternal ||
+        variableValues.tembusanEksternal ||
+        '',
     };
     return (folder.kontenTemplate || '').replace(
       /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
@@ -2711,91 +3288,13 @@ export class SdeMasalService {
     }
   }
 
-  /**
-   * Tambah tembusan internal ke naskah_sirkulasi.
-   * Dipanggil saat naskah terkirim (finalize) agar setiap akun internal
-   * yang dijadikan tembusan menerima surat di kotak masuknya.
-   * - sirkuler = 'tembusan', position_status = 'ybs' (bukan 'ext')
-   * - position = position ID dari tembusan_internal (Excel)
-   * - is_draft = false, is_konsep = 0 → langsung tampil di inbox
-   */
-  private async addInternalTembusan(
-    naskahId: string,
-    item: SdeMasalEntity,
-    recipient: Record<string, any>,
-    status: string,
-  ): Promise<void> {
-    const positions = String(
-      recipient.tembusanInternal || recipient.tembusan_internal || '',
-    )
-      .split(/[,;]/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    if (!positions.length) return;
-    const naskah = await this.naskahRepository.findOne({
-      where: { id: naskahId },
-    });
-
-    // Pre-load org_data sekali untuk resolve position ID → jabatan
-    let positionJson: any[] = [];
-    const parsePositionJson = (raw: unknown): any[] => {
-      if (Array.isArray(raw)) return raw;
-      if (typeof raw === 'string' && raw.trim()) {
-        try {
-          const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    };
-    try {
-      const latest = await this.orgDataService.findLatestOrg();
-      positionJson = parsePositionJson(latest?.position_json);
-    } catch {
-      /* org_data tidak tersedia → fallback tampilkan kode */
-    }
-
-    let urutan = 100; // urutan tinggi agar tampil setelah tembusan eksternal
-    for (const posId of positions) {
-      const pos = positionJson.find(
-        (p) => String(p.position) === String(posId),
-      );
-      const positionText = pos?.position_text || posId;
-      // Catatan: is_konsep tidak di-set di sini — kolom DB punya default 0
-      // (entity shared tidak mendeklarasikan field tersebut).
-      const row = this.sirkulasiRepository.create({
-        id: uuidv4(),
-        tanggal: naskah?.tanggal || new Date(),
-        idNaskah: naskahId,
-        sirkuler: 'tembusan',
-        company: pos?.company != null ? String(pos.company) : null,
-        companyText: pos?.company_name || 'PERUM LPPNPI',
-        area: pos?.area != null ? String(pos.area) : null,
-        areaText: pos?.area_text || null,
-        subArea: pos?.sub_area != null ? String(pos.sub_area) : null,
-        subAreaText: pos?.sub_area_text || null,
-        organization:
-          pos?.organization_id != null ? String(pos.organization_id) : null,
-        organizationText: pos?.organization_text || null,
-        position: String(posId),
-        positionText,
-        positionStatus: 'ybs',
-        idSirkuler: null,
-        namaSirkuler: pos?.persnum_person_text || positionText,
-        isDraft: status === 'pending',
-        urutan: urutan++,
-      });
-      await this.sirkulasiRepository.save(row);
-    }
-  }
-
   private async refreshFolderCounters(folderId: string): Promise<void> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) return;
     const previousStatus = folder.status;
-    const rows = await this.repo.find({ where: { folderId } });
+    const rows = this.deduplicateMassalRows(
+      await this.repo.find({ where: { folderId } }),
+    );
     const totalItems = rows.length;
     const totalTerkirim = rows.filter(
       (row) => row.statusVerifikasi === 'TERKIRIM',
@@ -2845,41 +3344,18 @@ export class SdeMasalService {
       folder.status = 'DRAFT';
     }
 
-    // Setelah seluruh jenjang verifikasi selesai, verifikator terakhir menjadi
-    // pengirim final. Ini juga memulihkan folder lama yang sebelumnya salah
-    // dipindahkan otomatis ke Direktur Utama.
-    if (folder.status === 'MENUNGGU_PENGIRIM') {
-      const previousSender = this.getPreviousVerifiedSender(rows);
-      if (previousSender?.position) {
-        folder.pengirimId = String(previousSender.position);
-        folder.pengirimName = [previousSender.nama, previousSender.jabatan]
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-          .join(' - ');
-      }
+    // Pengirim final tetap memakai pengirim yang dipilih saat konsep dibuat.
+    // Verifikator terakhir bukan otomatis pengirim; pada chain Direktur Teknik
+    // → EVP → VP → AVP → Staff, EVP selesai memverifikasi lalu tugas final
+    // berpindah ke Direktur Teknik untuk Tolak/Finalisasi.
+    // Jangan menyimpan ulang folder ketika statusnya tidak berubah. Method ini
+    // juga dipanggil saat detail dibuka; menyimpan tanpa perubahan akan
+    // memperbarui updatedAt dan membuat folder tiba-tiba naik ke urutan teratas.
+    // Jika status memang berubah karena aksi workflow, save tetap dilakukan
+    // agar waktu aktivitas folder ikut berubah secara valid.
+    if (folder.status !== previousStatus) {
+      await this.folderRepo.save(folder);
     }
-    await this.folderRepo.save(folder);
-  }
-
-  private getPreviousVerifiedSenderName(rows: SdeMasalEntity[]): string {
-    const previousSender = this.getPreviousVerifiedSender(rows);
-    return previousSender
-      ? [previousSender?.nama, previousSender?.jabatan || previousSender?.positionText]
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-          .join(' - ')
-      : '';
-  }
-
-  private getPreviousVerifiedSender(rows: SdeMasalEntity[]): any | null {
-    return rows
-      .flatMap((row) => Array.isArray(row.verifikators) ? row.verifikators : [])
-      .filter((verifikator: any) =>
-        verifikator?.status === 'verified' &&
-        (this.getVerificationRoleRank(verifikator?.jabatan || verifikator?.positionText) || 0) < 4,
-      )
-      .sort((a: any, b: any) => Number(a?.urutan || 0) - Number(b?.urutan || 0))
-      .pop();
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
@@ -2955,6 +3431,124 @@ export class SdeMasalService {
     const name = String(position?.persnum_person_text || position?.nama || '').trim();
     const job = String(position?.position_text || position?.jabatan || '').trim();
     return [name, job].filter(Boolean).join(' - ') || String(position?.position || '-');
+  }
+
+  /**
+   * Gunakan kanal notifikasi existing agar SDE Massal ikut mendapatkan
+   * unread badge, toast realtime, dan push notification bila tersedia.
+   * SYSTEM dipakai agar tidak membutuhkan perubahan enum database lama;
+   * kategori + action membedakan event SDE Massal di frontend.
+   */
+  private async notifySdeMasalPositions(
+    positionIds: Array<string | number | null | undefined>,
+    payload: {
+      title: string;
+      body: string;
+      action:
+        | 'OPEN_SDE_MASAL_FOLDER'
+        | 'OPEN_SDE_MASAL_VERIFIKASI';
+      folderId: string;
+      status: string;
+      reason?: string;
+    },
+  ): Promise<void> {
+    const targets = [
+      ...new Set(
+        positionIds
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (targets.length === 0) return;
+
+    const positions = await this.getLatestOrgPositions();
+    await Promise.all(
+      targets.map(async (positionId) => {
+        const notificationKey = [
+          payload.folderId,
+          payload.status,
+          payload.action,
+          positionId,
+        ].join('|');
+        const inFlight = this.sdeMasalNotificationInFlight.get(notificationKey);
+        if (inFlight) {
+          await inFlight;
+          return;
+        }
+
+        const notificationPromise = (async () => {
+          const position = positions.find(
+            (item) => String(item?.position ?? '').trim() === positionId,
+          );
+          const rawPersnum = String(position?.persnum_person ?? '').trim();
+          const userPersnum = rawPersnum && Number.isFinite(Number(rawPersnum))
+            ? Number(rawPersnum)
+            : undefined;
+          try {
+            await this.notificationService.createNotification({
+              positionId,
+              userPersnum,
+              type: NotificationType.SYSTEM,
+              title: payload.title,
+              body: payload.body,
+              data: {
+                category: 'SDE_MASAL',
+                action: payload.action,
+                folderId: payload.folderId,
+                status: payload.status,
+                ...(payload.reason ? { reason: payload.reason } : {}),
+              },
+            });
+          } catch (error: any) {
+            // Notifikasi tidak boleh membatalkan perubahan status workflow.
+            this.logger.warn(
+              `Gagal mengirim notifikasi SDE Massal ke ${positionId}: ${error?.message || error}`,
+            );
+          }
+        })();
+
+        this.sdeMasalNotificationInFlight.set(notificationKey, notificationPromise);
+        try {
+          await notificationPromise;
+        } finally {
+          if (this.sdeMasalNotificationInFlight.get(notificationKey) === notificationPromise) {
+            this.sdeMasalNotificationInFlight.delete(notificationKey);
+          }
+        }
+      }),
+    );
+  }
+
+  /**
+   * Resolve posisi konseptor untuk notifikasi pengembalian.
+   * Folder lama dapat belum memiliki created_by, sehingga gunakan posisi item
+   * SDE atau posisi disposisi yang ditandai sebagai tindak lanjut.
+   */
+  private async resolveSdeMasalCreatorPosition(
+    folder: SdeMasalFolderEntity,
+    fallbackPosition?: string | null,
+  ): Promise<string> {
+    const direct = String(folder.createdBy || fallbackPosition || '').trim();
+    if (direct) return direct;
+
+    if (folder.parentNaskahId) {
+      const followUp = await this.sirkulasiRepository
+        .createQueryBuilder('sirkulasi')
+        .where('sirkulasi.id_naskah = :naskahId', {
+          naskahId: folder.parentNaskahId,
+        })
+        .andWhere('sirkulasi.tindak_lanjut = :followUp', { followUp: 1 })
+        .andWhere('sirkulasi.sirkuler IN (:...sirkuler)', {
+          sirkuler: ['penerima', 'tembusan'],
+        })
+        .orderBy('sirkulasi.updated_at', 'DESC')
+        .getOne();
+
+      const position = String(followUp?.position || '').trim();
+      if (position) return position;
+    }
+
+    return '';
   }
 
   private async findPositionByRole(roleRank: number): Promise<any | null> {

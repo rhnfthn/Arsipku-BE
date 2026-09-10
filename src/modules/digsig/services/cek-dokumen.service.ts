@@ -131,6 +131,7 @@ export class CekDokumenService {
       const result = this.transformBsreResponse(
         response.data,
         file.originalname,
+        file.buffer,
       );
       this.notifyVerificationResult(
         userPersnum,
@@ -365,6 +366,7 @@ export class CekDokumenService {
   private transformBsreResponse(
     bsreResponse: BsreVerifyResponse,
     filename?: string,
+    pdfBuffer?: Buffer,
   ): CekDokumenResponseDto {
     // Handle jika response kosong atau tidak valid
     if (!bsreResponse) {
@@ -381,17 +383,30 @@ export class CekDokumenService {
     ) {
       const conclusion =
         (bsreResponse.conclusion as string) || 'UNKNOWN';
-      const isValid = conclusion === 'VALID';
-      const isWarning = conclusion === 'WARNING';
+      const signatureInformations = bsreResponse.signatureInformations || [];
+      const isLtvOnlyUpdate =
+        conclusion === 'INVALID' &&
+        signatureInformations.length > 0 &&
+        signatureInformations.every((signature) => signature.integrityValid === true) &&
+        this.hasOnlyLtvIncrementalUpdate(pdfBuffer);
+      const hasUntrustedCertificate = signatureInformations.some(
+        (signature) => signature.certificateTrusted === false,
+      );
+      const isWarning =
+        conclusion === 'WARNING' ||
+        (isLtvOnlyUpdate && hasUntrustedCertificate);
+      const isValid =
+        conclusion === 'VALID' ||
+        (isLtvOnlyUpdate && !hasUntrustedCertificate);
 
       // Map conclusion to status
       let status: 'VALID' | 'WARNING' | 'INVALID' | 'UNKNOWN' = 'UNKNOWN';
-      if (conclusion === 'VALID') status = 'VALID';
-      else if (conclusion === 'WARNING') status = 'WARNING';
+      if (isWarning) status = 'WARNING';
+      else if (isValid) status = 'VALID';
       else if (conclusion === 'INVALID') status = 'INVALID';
 
       // Transform signatureInformations array to signers
-      const signers = (bsreResponse.signatureInformations || []).map(
+      const signers = signatureInformations.map(
         (sig) => {
           const cert = sig.certificateDetails?.[0];
           return {
@@ -439,11 +454,13 @@ export class CekDokumenService {
           namaDokumen: filename || 'Unknown',
           jumlahSignature: bsreResponse.signatureCount || signers.length,
           status,
-          keterangan: bsreResponse.description || '',
+          keterangan: isLtvOnlyUpdate
+            ? 'Dokumen valid. Perubahan setelah tanda tangan hanya data validasi jangka panjang (DSS/LTV) dan tidak mengubah isi dokumen.'
+            : bsreResponse.description || '',
           isValid: isValid || isWarning, // WARNING masih dianggap dokumen valid, hanya cert tidak trusted
           signers,
           verificationDetails: {
-            summary: conclusion,
+            summary: isLtvOnlyUpdate ? status : conclusion,
           },
           verifiedAt: new Date().toISOString(),
           rawResponse: bsreResponse,
@@ -548,5 +565,75 @@ export class CekDokumenService {
         rawResponse: bsreResponse,
       },
     };
+  }
+
+  /**
+   * BSrE dapat menambahkan DSS/VRI setelah signature untuk menyimpan rantai
+   * sertifikat dan data revocation (LTV). Revision tersebut berada di luar
+   * ByteRange, tetapi tidak mengubah halaman atau isi yang ditandatangani.
+   *
+   * Pemeriksaan ini sengaja ketat. Kesimpulan INVALID hanya boleh dipulihkan
+   * jika seluruh signature tetap integrity-valid dan suffix PDF hanya berisi
+   * struktur LTV; perubahan konten/halaman tetap dianggap tidak valid.
+   */
+  private hasOnlyLtvIncrementalUpdate(pdfBuffer?: Buffer): boolean {
+    if (!pdfBuffer?.length) return false;
+
+    const pdfText = pdfBuffer.toString('latin1');
+    const byteRangePattern =
+      /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/g;
+    let signedRevisionEnd = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = byteRangePattern.exec(pdfText)) !== null) {
+      const secondRangeStart = Number(match[3]);
+      const secondRangeLength = Number(match[4]);
+      if (
+        !Number.isFinite(secondRangeStart) ||
+        !Number.isFinite(secondRangeLength)
+      ) {
+        return false;
+      }
+      signedRevisionEnd = Math.max(
+        signedRevisionEnd,
+        secondRangeStart + secondRangeLength,
+      );
+    }
+
+    if (
+      signedRevisionEnd <= 0 ||
+      signedRevisionEnd >= pdfBuffer.length
+    ) {
+      return false;
+    }
+
+    const suffix = pdfBuffer.subarray(signedRevisionEnd).toString('latin1');
+    const requiredLtvMarkers = [
+      /\/DSS\b/,
+      /\/VRI\b/,
+      /\/Certs\b/,
+      /\/CRLs\b/,
+      /\/Prev\b/,
+      /startxref/,
+      /%%EOF/,
+    ];
+    if (!requiredLtvMarkers.every((marker) => marker.test(suffix))) {
+      return false;
+    }
+
+    const forbiddenDocumentChanges = [
+      /\/Type\s*\/Page\b/,
+      /\/Contents\s*(?:\[|<|\()/,
+      /\/Annots\b/,
+      /\/OpenAction\b/,
+      /\/AA\b/,
+      /\/JavaScript\b/,
+      /\/EmbeddedFile\b/,
+      /\/Launch\b/,
+      /\/RichMedia\b/,
+      /\/ByteRange\b/,
+    ];
+
+    return !forbiddenDocumentChanges.some((pattern) => pattern.test(suffix));
   }
 }
