@@ -43,7 +43,10 @@ import { NomorSuratService } from '../../../shared/services/nomor-surat.service'
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
-import { DigsigService } from '../../digsig/services/digsig.service';
+import {
+  DigsigService,
+  type DigsigBatchContext,
+} from '../../digsig/services/digsig.service';
 import {
   QRCodeService,
   QRCodeData,
@@ -850,10 +853,8 @@ export class SuratDinasEksternalService {
   }
 
   /** Ambil identitas BSrE sekali untuk dipakai seluruh item satu batch. */
-  async getBsreUserDataForMassal(
-    persnum: number,
-  ): Promise<{ nik: string; no_wa: string }> {
-    return this.digsigService.getUserDataForBsre(String(persnum));
+  getBsreUserDataForMassal(_persnum: number): { nik: string; no_wa: string } {
+    return this.digsigService.getUserDataForMassalBsre();
   }
 
   /**
@@ -1824,6 +1825,7 @@ export class SuratDinasEksternalService {
     persnum?: number,
     reservedNomor?: string,
     bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<SdeSendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -2336,6 +2338,7 @@ export class SuratDinasEksternalService {
               userName: signerName || 'User',
               idNaskah: naskahId,
               jenisNaskah: 'SDE',
+              batch: digsigBatch,
             },
           );
           console.log(
@@ -2667,6 +2670,7 @@ export class SuratDinasEksternalService {
     persnum?: number,
     reservedNomor?: string,
     bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<SdeSendMessageResponseDto> {
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
@@ -2697,7 +2701,16 @@ export class SuratDinasEksternalService {
       persnum,
       reservedNomor,
       bsreUserData,
+      digsigBatch,
     );
+  }
+
+  skipMassalSigningParticipant(batch: DigsigBatchContext): void {
+    this.digsigService.skipBatchParticipant(batch);
+  }
+
+  startMassalSigningBatch(batchId: string, expectedCount: number): void {
+    this.digsigService.startBatch(batchId, expectedCount);
   }
 
   /**

@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UseGuards,
   HttpStatus,
+  HttpException,
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
@@ -582,6 +583,43 @@ export class SdeMasalController {
       return { success: false, message: 'Naskah tidak ditemukan', data: null };
     }
     return { success: true, data };
+  }
+
+  /**
+   * GET /sde-masal/naskah/:naskahId/preview-pdf — generate ulang preview
+   * naskah SDE Massal dari data Excel penerima.
+   *
+   * PDF final lama tidak diubah. Endpoint ini dipakai agar preview/print dari
+   * Terkirim tetap menampilkan seluruh placeholder, termasuk nama dan alamat,
+   * meskipun PDF historis dibuat sebelum data Excel dinormalisasi.
+   */
+  @Get('naskah/:naskahId/preview-pdf')
+  async previewSentNaskah(
+    @Param('naskahId') naskahId: string,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      const pdf = await this.sdeMasalService.generateSentNaskahPreviewPdf(
+        naskahId,
+        user,
+      );
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-sde-masal-${naskahId}.pdf"`,
+        'Content-Length': pdf.length,
+      });
+      return res.status(HttpStatus.OK).send(pdf);
+    } catch (error) {
+      const status =
+        error instanceof HttpException
+          ? error.getStatus()
+          : HttpStatus.INTERNAL_SERVER_ERROR;
+      return res.status(status).json({
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
