@@ -90,6 +90,39 @@ export class NotificationService {
       const pushTitle = display.title;
       const pushBody = display.body;
 
+      // Satu perubahan workflow SDE Massal hanya boleh menghasilkan satu
+      // notifikasi aktif untuk posisi/folder/status yang sama. Guard ini
+      // mencegah duplicate toast dan duplicate badge ketika beberapa jalur
+      // workflow memanggil pengiriman notifikasi secara berdekatan.
+      if (dto.data?.category === 'SDE_MASAL') {
+        const folderId = String(dto.data?.folderId || dto.data?.folder_id || '').trim();
+        const status = String(dto.data?.status || '').trim();
+        if (folderId && status) {
+          const existing = await this.notificationRepository
+            .createQueryBuilder('notification')
+            .where('notification.position_id = :positionId', {
+              positionId: dto.positionId,
+            })
+            .andWhere('notification.is_read = :isRead', { isRead: false })
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = :category`,
+              { category: 'SDE_MASAL' },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId`,
+              { folderId },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.status')) = :status`,
+              { status },
+            )
+            .orderBy('notification.created_at', 'DESC')
+            .getOne();
+
+          if (existing) return existing;
+        }
+      }
+
       const notification = this.notificationRepository.create({
         id: uuidv4(),
         positionId: dto.positionId,
