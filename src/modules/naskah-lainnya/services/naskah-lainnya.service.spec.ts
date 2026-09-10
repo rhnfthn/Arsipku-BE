@@ -224,6 +224,72 @@ describe('NaskahLainnyaService', () => {
     });
   });
 
+  it('getDetail memberi penandatangan aktif aksi tolak untuk digital tanpa legal', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-sign-digital-no-legal',
+      nomor: 'KD.1/2026',
+      jenis: 'KD',
+      perihal: 'Keputusan Direksi',
+      tanggal: new Date('2026-09-10'),
+      createdAt: new Date('2026-09-10'),
+      tahapan: 'tanda_tangan',
+      signOption: 'digsig',
+      butuhLegal: false,
+      signingIndex: 1,
+      penandatanganChain: [{ positionId: 'POS_SIGNER' }],
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([]);
+    (svc as any).blankoRepo.find.mockResolvedValue([]);
+    (svc as any).dokumenRepo.find.mockResolvedValue([]);
+    workflowMock.buildAvailableActions.mockResolvedValueOnce([
+      'tanda-tangan',
+      'tolak-tanda-tangan',
+    ]);
+
+    const res = await svc.getDetail('n-sign-digital-no-legal', {
+      positionId: 'POS_SIGNER',
+      nama: 'Penandatangan Aktif',
+    } as any);
+
+    expect(res.data.availableActions).toEqual([
+      'tanda-tangan',
+      'tolak-tanda-tangan',
+    ]);
+  });
+
+  it('getDetail mengizinkan penandatangan melengkapi final TTD fisik yang masih belum final', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-physical-awaiting-final',
+      nomor: 'KD.2/2026',
+      jenis: 'KD',
+      perihal: 'Keputusan Direksi Fisik',
+      tanggal: new Date('2026-09-10'),
+      createdAt: new Date('2026-09-10'),
+      tahapan: 'selesai',
+      status: 'pending',
+      signOption: 'ttd_basah',
+      butuhLegal: false,
+      signingIndex: null,
+      penandatanganChain: [{ positionId: 'POS_SIGNER' }],
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([]);
+    (svc as any).blankoRepo.find.mockResolvedValue([]);
+    (svc as any).dokumenRepo.find.mockResolvedValue([]);
+    workflowMock.buildAvailableActions.mockResolvedValueOnce([]);
+
+    const res = await svc.getDetail('n-physical-awaiting-final', {
+      positionId: 'POS_SIGNER',
+      nama: 'Penandatangan Fisik',
+    } as any);
+
+    expect(res.data).toMatchObject({
+      manualFinalStatus: 'belum_final',
+      canManageManualFinal: true,
+    });
+  });
+
   it('getDetail: approver legal yang sudah selesai tidak mendapat aksi membuat lembar direksi pada evaluasi', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue({
@@ -4736,6 +4802,67 @@ describe('NaskahLainnyaService', () => {
         tahap: 'tanda_tangan',
         status: 'perlu_perbaikan',
         catatan: 'Draft perlu diperbaiki',
+      }),
+    );
+  });
+
+  it('tolakTandaTangan TTD digital tanpa legal membatalkan naskah dan tidak mengaktifkan legal', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-sign-digital-no-legal',
+      tanggal: new Date('2026-08-31'),
+      tahapan: 'tanda_tangan',
+      signOption: 'digsig',
+      signingIndex: 1,
+      signedLampiran: 'signed/proses.pdf',
+      butuhLegal: false,
+      penandatanganChain: [
+        { positionId: 'POS_1', nama: 'Signer 1', jabatan: 'Direktur' },
+      ],
+    });
+    const txManager = {
+      save: jest.fn((entity) => entity),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementationOnce((cb: any) =>
+      cb(txManager),
+    );
+    jest
+      .spyOn(svc as any, 'publishWorkflowUpdate')
+      .mockResolvedValueOnce(undefined);
+    jest
+      .spyOn(svc, 'getDetail')
+      .mockResolvedValueOnce({ success: true } as any);
+
+    await svc.tolakTandaTangan(
+      'n-sign-digital-no-legal',
+      'Naskah tidak dapat ditandatangani',
+      {
+        nama: 'Signer 1',
+        positionId: 'POS_1',
+        positionText: 'Direktur',
+      } as any,
+    );
+
+    expect(txManager.delete).not.toHaveBeenCalledWith(
+      NaskahLainnyaApprovalEntity,
+      expect.objectContaining({ tahap: 'legal_drafting' }),
+    );
+    expect(txManager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.anything(),
+      {
+        tahapan: 'dibatalkan',
+        signingIndex: null,
+        signedLampiran: null,
+      },
+    );
+    expect(txManager.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aksi: 'tolak-tanda-tangan',
+        tahap: 'tanda_tangan',
+        status: 'dibatalkan',
+        catatan: 'Naskah tidak dapat ditandatangani',
       }),
     );
   });
