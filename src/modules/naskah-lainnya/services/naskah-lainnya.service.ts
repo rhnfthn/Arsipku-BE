@@ -801,7 +801,7 @@ export class NaskahLainnyaService {
       }
     }
 
-    // Hanya penandatangan aktif yang boleh menandatangani atau menolak ke legal.
+    // Hanya penandatangan aktif yang boleh menandatangani atau menolak.
     if (n.tahapan === 'tanda_tangan') {
       const chain = n.penandatanganChain?.length
         ? n.penandatanganChain
@@ -824,13 +824,6 @@ export class NaskahLainnyaService {
       if (!isCurrent) {
         availableActions = availableActions.filter(
           (a) => a !== 'tanda-tangan' && a !== 'tolak-tanda-tangan',
-        );
-      }
-      // Digital tanpa proses Legal tidak mempunyai tujuan pengembalian ke Unit
-      // Legal, sehingga penandatangan hanya memperoleh aksi tanda tangan.
-      if (n.signOption !== 'ttd_basah' && !n.butuhLegal) {
-        availableActions = availableActions.filter(
-          (a) => a !== 'tolak-tanda-tangan',
         );
       }
     }
@@ -3252,12 +3245,15 @@ export class NaskahLainnyaService {
     }
 
     const isPhysical = n.signOption === 'ttd_basah';
+    const isDigitalWithLegal = !isPhysical && n.butuhLegal;
     const returnTahap: Tahapan = isPhysical
       ? 'perlu_perbaikan'
-      : 'legal_drafting';
+      : isDigitalWithLegal
+        ? 'legal_drafting'
+        : 'dibatalkan';
 
     await this.dataSource.transaction(async (manager) => {
-      if (!isPhysical) {
+      if (isDigitalWithLegal) {
         await manager.delete(NaskahLainnyaApprovalEntity, {
           naskahId: id,
           tahap: 'legal_drafting',
@@ -3281,11 +3277,17 @@ export class NaskahLainnyaService {
               signingIndex: null,
               signedLampiran: null,
             }
-          : {
+          : isDigitalWithLegal
+            ? {
+                tahapan: returnTahap,
+                signingIndex: null,
+                signedLampiran: null,
+                butuhLegal: true,
+              }
+            : {
               tahapan: returnTahap,
               signingIndex: null,
               signedLampiran: null,
-              butuhLegal: true,
             },
       );
       await this.tulisRiwayatEvaluasi(
@@ -3301,7 +3303,6 @@ export class NaskahLainnyaService {
     n.tahapan = returnTahap;
     n.signingIndex = null;
     n.signedLampiran = null;
-    if (!isPhysical) n.butuhLegal = true;
     await this.publishWorkflowUpdate(n, true);
     return this.getDetail(id, user);
   }
