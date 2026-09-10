@@ -293,8 +293,15 @@ export class NaskahLainnyaService {
     naskah: NaskahEntity,
     notify = false,
   ): Promise<void> {
+    // Detail client hanya menerima invalidasi ringan dan mengambil ulang data
+    // melalui endpoint GET yang tetap menjadi sumber data + otorisasi utama.
+    this.emitDetailUpdate(naskah.id);
     await this.emitQueueCounts(naskah);
     if (notify) await this.notifyCurrentQueue(naskah);
+  }
+
+  private emitDetailUpdate(naskahId: string): void {
+    this.realtimeEmitService.emitNaskahLainnyaUpdated(naskahId);
   }
 
   private async resolvePenandatanganSnapshot(p: {
@@ -948,10 +955,24 @@ export class NaskahLainnyaService {
       ) {
         return mapped;
       }
+      const delegateName = matchingApproval.delegateName?.trim();
+      const delegateStatus = matchingApproval.delegatePositionStatus
+        ?.trim()
+        .replace(/\.+$/, '');
+      const originalPosition = matchingApproval.jabatan?.trim();
+      const delegatedPosition =
+        delegateName && delegateStatus && originalPosition
+          ? new RegExp(`^${delegateStatus}\\.\\s*`, 'i').test(originalPosition)
+            ? originalPosition
+            : `${delegateStatus}. ${originalPosition}`
+          : originalPosition;
       return {
         ...mapped,
-        aktor: matchingApproval.nama || mapped.aktor,
-        jabatan: matchingApproval.jabatan || mapped.jabatan,
+        // Approval delegasi ditampilkan atas nama orang yang benar-benar
+        // melakukan aksi. Jabatan tetap jabatan pejabat asal dengan prefix
+        // status delegasi (PH/PT/PS).
+        aktor: delegateName || matchingApproval.nama || mapped.aktor,
+        jabatan: delegatedPosition || mapped.jabatan,
       };
     });
   }
@@ -1197,6 +1218,7 @@ export class NaskahLainnyaService {
         { id: n.id, tanggal: originalTanggal },
         patch,
       );
+      this.emitDetailUpdate(n.id);
     }
     return this.getDetail(id, { persnum: 0, nama: '' });
   }
@@ -1810,6 +1832,7 @@ export class NaskahLainnyaService {
         user,
         preview,
       );
+      this.emitDetailUpdate(n.id);
     } catch (error) {
       await Promise.all(
         uploadedKeys.map((key) =>
@@ -1903,6 +1926,7 @@ export class NaskahLainnyaService {
           ukuran: generatedPdf.length,
         },
       );
+      this.emitDetailUpdate(n.id);
       return { success: true, data: { parameter: params } };
     } catch (error) {
       await Promise.all(
@@ -2525,6 +2549,7 @@ export class NaskahLainnyaService {
       status: 'draf',
     });
     await this.blankoRepo.save(blanko);
+    this.emitDetailUpdate(n.id);
     return this.getDetail(id, user);
   }
 
@@ -3280,6 +3305,7 @@ export class NaskahLainnyaService {
         /* file lama mungkin sudah tidak ada */
       }
     }
+    this.emitDetailUpdate(n.id);
     return this.getDetail(id, user);
   }
 
@@ -3329,6 +3355,7 @@ export class NaskahLainnyaService {
       'ubah-status-final-manual',
       final ? 'manual_final' : 'belum_final',
     );
+    this.emitDetailUpdate(n.id);
     return this.getDetail(id, user);
   }
 
@@ -3395,6 +3422,7 @@ export class NaskahLainnyaService {
       'manual_final',
       `Nomor naskah fisik diubah menjadi ${cleanNomor}`,
     );
+    this.emitDetailUpdate(n.id);
     return this.getDetail(id, user);
   }
 
@@ -3451,6 +3479,7 @@ export class NaskahLainnyaService {
       'metadata_penandatangan',
       'Data penandatangan fisik diperbarui sebagai metadata sistem.',
     );
+    this.emitDetailUpdate(n.id);
     return this.getDetail(id, user);
   }
 
@@ -3996,6 +4025,8 @@ export class NaskahLainnyaService {
       throw error;
     }
 
+    this.emitDetailUpdate(n.id);
+
     return {
       success: true,
       data: {
@@ -4030,6 +4061,7 @@ export class NaskahLainnyaService {
     }
 
     await this.dokumenRepo.delete(dokumenId);
+    this.emitDetailUpdate(id);
     return { success: true, data: { id: dokumenId } };
   }
 
@@ -4659,7 +4691,9 @@ export class NaskahLainnyaService {
     row.delegatePositionStatus = dto.positionStatus;
     row.assignedByPersnum = user.persnum;
     row.assignedAt = new Date();
-    return this.toApprovalRow(await this.approvalRepo.save(row));
+    const saved = await this.approvalRepo.save(row);
+    this.emitDetailUpdate(id);
+    return this.toApprovalRow(saved);
   }
 
   async removeDelegasiDireksi(
@@ -4681,6 +4715,7 @@ export class NaskahLainnyaService {
     row.assignedByPersnum = null;
     row.assignedAt = null;
     await this.approvalRepo.save(row);
+    this.emitDetailUpdate(id);
   }
 
   // ---------- Sheet helpers ----------
