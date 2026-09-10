@@ -228,6 +228,19 @@ export class RealtimeEmitService {
     }
   }
 
+  emitNaskahLainnyaUpdated(naskahId: string) {
+    try {
+      this.gateway.emitNaskahLainnyaUpdated({
+        naskahId,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahLainnyaUpdated] failed for ${naskahId}: ${err?.message}`,
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Tracking update (read status / tindak lanjut)
   // ──────────────────────────────────────────────
