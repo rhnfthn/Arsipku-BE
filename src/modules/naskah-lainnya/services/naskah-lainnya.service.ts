@@ -560,34 +560,42 @@ export class NaskahLainnyaService {
           'urutan',
         ],
       })) ?? [];
-    const latest = new Map<
-      string,
-      {
-        urutan: number;
-        pejabat: { nama: string; jabatan: string; positionId?: string };
-      }
-    >();
+    const grouped = new Map<string, NaskahLainnyaApprovalEntity[]>();
     for (const row of rows) {
       if (row.tahap !== 'persetujuan' || !naskahIds.includes(row.naskahId)) {
         continue;
       }
-      const current = latest.get(row.naskahId);
-      if (current && current.urutan >= row.urutan) continue;
-      latest.set(row.naskahId, {
-        urutan: row.urutan,
-        pejabat: {
-          nama: row.nama,
-          jabatan: row.jabatan,
-          positionId: row.positionId ?? undefined,
-        },
-      });
+      const group = grouped.get(row.naskahId) ?? [];
+      group.push(row);
+      grouped.set(row.naskahId, group);
     }
     return new Map(
-      [...latest.entries()].map(([naskahId, value]) => [
-        naskahId,
-        value.pejabat,
-      ]),
+      [...grouped.entries()].flatMap(([naskahId, group]) => {
+        const pejabat = this.resolvePemrakarsaPejabat(group);
+        return pejabat ? [[naskahId, pejabat]] : [];
+      }),
     );
+  }
+
+  /**
+   * Pemrakarsa pejabat adalah approval paling akhir pada rantai persetujuan
+   * awal. Identitas pembuat/konseptor tetap disimpan terpisah di `pemrakarsa`
+   * karena masih dipakai untuk otorisasi edit dan pengelolaan naskah.
+   */
+  private resolvePemrakarsaPejabat(
+    approval: NaskahLainnyaApprovalEntity[],
+  ): { nama: string; jabatan: string; positionId?: string } | undefined {
+    const lastApproval = approval
+      .filter((row) => row.tahap === 'persetujuan')
+      .reduce<
+        NaskahLainnyaApprovalEntity | undefined
+      >((latest, row) => (!latest || row.urutan > latest.urutan ? row : latest), undefined);
+    if (!lastApproval) return undefined;
+    return {
+      nama: lastApproval.nama,
+      jabatan: lastApproval.jabatan,
+      positionId: lastApproval.positionId ?? undefined,
+    };
   }
 
   // ---------- Detail ----------
@@ -620,6 +628,7 @@ export class NaskahLainnyaService {
     await this.recoverCompletedBlankoVerbal(n, approval, user);
     await this.recoverEvaluasiEvpRow(n, approval);
     this.applySheetDocumentStatuses(dokumen, approval);
+    const pemrakarsaPejabat = this.resolvePemrakarsaPejabat(approval);
 
     // Cek apakah user adalah approver yang sedang menunggu (status='waiting')
     // untuk naskah ini. Berjenjang: hanya urutan terendah yang masih waiting yang
@@ -830,6 +839,9 @@ export class NaskahLainnyaService {
       success: true,
       data: {
         ...this.toListItem(n),
+        // Untuk display: pejabat tertinggi/terakhir pada approval awal.
+        // `pemrakarsa` tetap menunjuk konseptor agar authorization existing aman.
+        pemrakarsaPejabat,
         klasifikasi: n.klasifikasi ?? 'Biasa',
         sifat: n.sifat,
         signOption: n.signOption ?? 'digsig',
@@ -1377,6 +1389,23 @@ export class NaskahLainnyaService {
 
     const rows: NaskahEntity[] = [];
     const seen = new Set<string>();
+    const approvalStatusByNaskah = new Map<
+      string,
+      'waiting' | 'verified' | 'rejected'
+    >();
+    const approvalStatusPriority = { verified: 1, rejected: 2, waiting: 3 };
+    const markApprovalStatus = (
+      naskahId: string,
+      approvalStatus: 'waiting' | 'verified' | 'rejected',
+    ) => {
+      const current = approvalStatusByNaskah.get(naskahId);
+      if (
+        !current ||
+        approvalStatusPriority[approvalStatus] > approvalStatusPriority[current]
+      ) {
+        approvalStatusByNaskah.set(naskahId, approvalStatus);
+      }
+    };
     const push = (r: NaskahEntity) => {
       if (!seen.has(r.id)) {
         seen.add(r.id);
@@ -1394,6 +1423,7 @@ export class NaskahLainnyaService {
         user,
         'waiting',
       );
+      approvalNaskahIds.forEach((id) => markApprovalStatus(id, 'waiting'));
       if (approvalNaskahIds.length > 0) {
         const r1 = await this.naskahRepo
           .createQueryBuilder('n')
@@ -1436,7 +1466,12 @@ export class NaskahLainnyaService {
         // Hanya naskah di mana user adalah penandatangan AKTIF (signingIndex menunjuk
         // ke posisi user di chain). Naskah yang SUDAH ditandatangani user (signingIndex
         // lewat posisi user) tidak boleh muncul di "Menunggu".
-        ttdRows.filter((n) => this.isCurrentSigner(n, posId)).forEach(push);
+        ttdRows
+          .filter((n) => this.isCurrentSigner(n, posId))
+          .forEach((n) => {
+            markApprovalStatus(n.id, 'waiting');
+            push(n);
+          });
       }
     }
 
@@ -1448,8 +1483,12 @@ export class NaskahLainnyaService {
           ? ['verified', 'rejected']
           : [filter === 'disetujui' ? 'verified' : 'rejected'];
       const ids: string[] = [];
-      for (const s of approvalStatuses)
-        ids.push(...(await this.getNaskahIdsForApproverStatus(user, s)));
+      for (const s of approvalStatuses) {
+        const statusIds = await this.getNaskahIdsForApproverStatus(user, s);
+        const responseStatus = s === 'verified' ? 'verified' : 'rejected';
+        statusIds.forEach((id) => markApprovalStatus(id, responseStatus));
+        ids.push(...statusIds);
+      }
       if (ids.length > 0) {
         const r2 = await this.naskahRepo
           .createQueryBuilder('n')
@@ -1483,7 +1522,10 @@ export class NaskahLainnyaService {
           )
           .orderBy('n.createdAt', 'DESC')
           .getMany();
-        ttdDone.forEach(push);
+        ttdDone.forEach((n) => {
+          markApprovalStatus(n.id, 'verified');
+          push(n);
+        });
       }
     }
 
@@ -1510,6 +1552,9 @@ export class NaskahLainnyaService {
       data: rows.map((r) => ({
         ...this.toListItem(r),
         pemrakarsaPejabat: pemrakarsaPejabatByNaskah.get(r.id),
+        // Status aksi user pada menu Persetujuan. Tidak diturunkan dari tahapan
+        // naskah karena naskah yang sudah disetujui dapat lanjut ke tahap lain.
+        approvalStatus: approvalStatusByNaskah.get(r.id),
       })),
     };
   }
@@ -1520,12 +1565,11 @@ export class NaskahLainnyaService {
   //  - semua: semua naskah legal_drafting (butuh legal) + blanko_verbal, tanpa
   //    sub-filter status (campur belum-dikirim/menunggu/revisi/sudah-dikerjakan).
   //  - belum-dikirim: legal_drafting tanpa baris approval (belum pernah kirim approval legal).
-  //  - menunggu: status legacy untuk tahapan selain pekerjaan drafting aktif.
-  //    Setelah drafter mengirim approval legal, pekerjaan unit legal dianggap selesai;
-  //    row waiting menjadi antrean approver di menu Persetujuan.
+  //  - menunggu: sudah dikirim dan masih ada approval legal/direksi yang waiting.
   //  - revisi: ada baris rejected, tidak ada waiting (ditolak approver → balik ke
   //    drafter legal untuk direvisi & kirim ulang).
-  //  - aksi-saya: alias kompatibilitas untuk status sudah_dikerjakan. Filter ini
+  //  - sudah-dikerjakan: seluruh approval selesai; `aksi-saya` tetap diterima
+  //    sebagai alias kompatibilitas. Filter ini
   //    murni berdasarkan statusLegal, bukan berdasarkan nama aktor yang login.
   async getLegalDrafting(user: CurrentUser, status: string = 'belum-dikirim') {
     const activeLegalIds = await this.legalRoleService.getActivePositionIds();
@@ -1650,7 +1694,7 @@ export class NaskahLainnyaService {
   //  - blanko_verbal: belum kirim blanko (tanpa baris BOD) → belum_dikirim;
   //    ada waiting → menunggu_persetujuan; semua verified → sudah_dikerjakan (siap lanjut).
   //  - tahapan lain (evaluasi/tanda tangan/selesai) → sudah_dikerjakan.
-  //  - legal_drafting: waiting → sudah_dikerjakan (drafter sudah mengirim);
+  //  - legal_drafting: waiting → menunggu_persetujuan;
   //    rejected (no waiting) → revisi;
   //    ada baris (all verified) → sudah_dikerjakan; tanpa baris → belum_dikirim
   //    (kecuali dikembalikan dari evaluasi → revisi).
@@ -1676,10 +1720,7 @@ export class NaskahLainnyaService {
     }
     if (tahapan !== 'legal_drafting') return 'sudah_dikerjakan';
     if (statuses.includes('rejected')) return 'revisi';
-    // Waiting adalah pekerjaan approver yang dipilih dan ditampilkan di menu
-    // Persetujuan. Dari POV menu Legal Drafting, pengiriman approval menandakan
-    // pekerjaan drafting sudah selesai.
-    if (statuses.includes('waiting')) return 'sudah_dikerjakan';
+    if (statuses.includes('waiting')) return 'menunggu_persetujuan';
     if (statuses.length > 0) return 'sudah_dikerjakan';
     // tanpa baris legal_drafting: dikembalikan dari evaluasi oleh pemrakarsa → revisi.
     if (latestAksi === 'kembalikan-evaluasi') return 'revisi';

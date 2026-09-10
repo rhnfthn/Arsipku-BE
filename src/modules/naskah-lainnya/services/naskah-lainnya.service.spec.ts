@@ -542,6 +542,56 @@ describe('NaskahLainnyaService', () => {
     ]);
   });
 
+  it('getDetail: pemrakarsaPejabat memakai approval terakhir, bukan konseptor', async () => {
+    ((await svc) as any).naskahRepo.findOne.mockResolvedValue({
+      ...naskahPov,
+      dikirimOleh: {
+        position_id: 'POS_KONSEPTOR',
+        nama: 'Nama Konseptor',
+        position_text: 'Staf Konseptor',
+      },
+    });
+    ((await svc) as any).approvalRepo.find.mockResolvedValue([
+      {
+        id: 'approval-1',
+        naskahId: 'n1',
+        tahap: 'persetujuan',
+        positionId: 'POS_MANAGER',
+        nama: 'Approval Pertama',
+        jabatan: 'Manager',
+        urutan: 1,
+        status: 'verified',
+      },
+      {
+        id: 'approval-2',
+        naskahId: 'n1',
+        tahap: 'persetujuan',
+        positionId: 'POS_EVP',
+        nama: 'Approval Terakhir',
+        jabatan: 'EVP Pemrakarsa',
+        urutan: 2,
+        status: 'verified',
+      },
+    ]);
+    ((await svc) as any).riwayatRepo.find.mockResolvedValue([]);
+    ((await svc) as any).blankoRepo.find.mockResolvedValue([]);
+    ((await svc) as any).dokumenRepo.find.mockResolvedValue([]);
+
+    const res = await svc.getDetail('n1', {
+      positionId: 'POS_KONSEPTOR',
+      nama: 'Nama Konseptor',
+    } as any);
+
+    expect(res.data.pemrakarsa).toEqual(
+      expect.objectContaining({ nama: 'Nama Konseptor' }),
+    );
+    expect(res.data.pemrakarsaPejabat).toEqual({
+      positionId: 'POS_EVP',
+      nama: 'Approval Terakhir',
+      jabatan: 'EVP Pemrakarsa',
+    });
+  });
+
   it('getDetail POV lain (bukan legal/pemrakarsa): approvalByTahap semua tahap', async () => {
     const legalRole = ((await svc) as any).legalRoleService as any;
     legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
@@ -1240,7 +1290,7 @@ describe('NaskahLainnyaService', () => {
     expect(byId['n2']).toBe('belum_dikirim');
   });
 
-  it('getLegalDrafting: filter aksi-saya mengembalikan status sudah_dikerjakan, bukan berdasarkan aktor', async () => {
+  it('getLegalDrafting: filter sudah-dikerjakan hanya mengembalikan approval yang selesai', async () => {
     const legalRole = ((await svc) as any).legalRoleService as any;
     legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
     const naskahRepo = ((await svc) as any).naskahRepo;
@@ -1272,18 +1322,56 @@ describe('NaskahLainnyaService', () => {
       {
         naskahId: 'n-waiting-legal',
         tahap: 'legal_drafting',
+        status: 'verified',
+      },
+    ]);
+
+    const res = await svc.getLegalDrafting(
+      { positionId: 'POS_LEGAL', nama: 'Drafter Legal' } as any,
+      'sudah-dikerjakan',
+    );
+
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].id).toBe('n-waiting-legal');
+    expect(res.data[0].statusLegal).toBe('sudah_dikerjakan');
+  });
+
+  it('getLegalDrafting: approval legal waiting masuk filter Menunggu Persetujuan', async () => {
+    const legalRole = ((await svc) as any).legalRoleService as any;
+    legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
+    const naskahRepo = ((await svc) as any).naskahRepo;
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(
+      makeQb([
+        {
+          id: 'n-menunggu-legal',
+          nomor: 'PER.4',
+          jenis: 'PER',
+          tahapan: 'legal_drafting',
+          butuhLegal: true,
+          perihal: 'Menunggu approval legal',
+          tanggal: new Date('2026-08-26'),
+          createdAt: new Date('2026-08-26'),
+        },
+      ]),
+    );
+    ((await svc) as any).approvalRepo.find.mockResolvedValue([
+      {
+        naskahId: 'n-menunggu-legal',
+        tahap: 'legal_drafting',
         status: 'waiting',
       },
     ]);
 
     const res = await svc.getLegalDrafting(
       { positionId: 'POS_LEGAL', nama: 'Drafter Legal' } as any,
-      'aksi-saya',
+      'menunggu',
     );
 
     expect(res.data).toHaveLength(1);
-    expect(res.data[0].id).toBe('n-waiting-legal');
-    expect(res.data[0].statusLegal).toBe('sudah_dikerjakan');
+    expect(res.data[0]).toMatchObject({
+      id: 'n-menunggu-legal',
+      statusLegal: 'menunggu_persetujuan',
+    });
   });
 
   it('getLegalDrafting: blanko_verbal dengan baris BOD waiting → menunggu_persetujuan, all verified → sudah_dikerjakan', async () => {
@@ -1568,7 +1656,10 @@ describe('NaskahLainnyaService', () => {
     );
     expect(res.success).toBe(true);
     expect(res.data).toHaveLength(1);
-    expect(res.data[0]).toMatchObject({ id: 'n1' });
+    expect(res.data[0]).toMatchObject({
+      id: 'n1',
+      approvalStatus: 'verified',
+    });
     expect(aqb.setParameters).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'verified' }),
     );
@@ -1629,7 +1720,11 @@ describe('NaskahLainnyaService', () => {
     // Naskah selesai muncul di "Disetujui" walau user tidak punya baris approval
     // (penandatangan disimpan di penandatangan_chain, bukan tabel approval).
     expect(res.data).toHaveLength(1);
-    expect(res.data[0]).toMatchObject({ id: 'n-ttd', tahapan: 'selesai' });
+    expect(res.data[0]).toMatchObject({
+      id: 'n-ttd',
+      tahapan: 'selesai',
+      approvalStatus: 'verified',
+    });
   });
 
   it('getPersetujuan(status=ditolak): maps filter ke approval status rejected', async () => {
@@ -1657,6 +1752,7 @@ describe('NaskahLainnyaService', () => {
       'ditolak',
     );
     expect(res.data).toHaveLength(1);
+    expect(res.data[0].approvalStatus).toBe('rejected');
     expect(aqb.setParameters).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'rejected' }),
     );
@@ -1695,7 +1791,12 @@ describe('NaskahLainnyaService', () => {
     );
     // Dedupe by id → satu baris n1 meski ketiga himpunan overlap di mock.
     expect(res.data).toHaveLength(1);
-    expect(res.data[0]).toMatchObject({ id: 'n1' });
+    expect(res.data[0]).toMatchObject({
+      id: 'n1',
+      // Bila satu naskah punya riwayat lama sekaligus pekerjaan aktif,
+      // status Menunggu menjadi status paling relevan pada tab Semua.
+      approvalStatus: 'waiting',
+    });
   });
 
   it('getPersetujuan(status tak dikenal) → fallback menunggu', async () => {
