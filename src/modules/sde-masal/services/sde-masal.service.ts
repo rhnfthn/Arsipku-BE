@@ -2279,26 +2279,47 @@ export class SdeMasalService {
         ? new Date(folder.tanggal).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10);
 
-    const tembusanList = await this.resolveTembusanList(folder, {
-      ...recipient,
-      tembusan:
-        recipient.tembusanEksternal ||
+    const tembusanEksternal = String(
+      recipient.tembusanEksternal ||
         recipient.tembusan_eksternal ||
-        recipient.tembusan ||
         '',
-    });
+    );
+    const tembusanInternal = String(
+      recipient.tembusanInternal ||
+        recipient.tembusan_internal ||
+        '',
+    );
+    const [tembusanNames, tembusanInternalNames, tembusanEksternalNames] =
+      await Promise.all([
+        this.resolveTembusanForPreview(
+          tembusanEksternal,
+          tembusanInternal,
+          tanggal,
+          recipient.tembusan,
+        ),
+        this.resolveTembusanForPreview('', tembusanInternal, tanggal),
+        this.resolveTembusanForPreview(
+          tembusanEksternal,
+          '',
+          tanggal,
+          !tembusanEksternal ? recipient.tembusan : undefined,
+        ),
+      ]);
+    const formatTembusan = (names: string[]): string =>
+      names.length > 0
+        ? names.map((name, index) => `${index + 1}. ${name}`).join('\n')
+        : '';
+    const hasTembusanPlaceholder = /\{\{\s*tembusan(?:_internal|_eksternal)?\s*\}\}/i.test(
+      folder.kontenTemplate || '',
+    );
     const konten = this.renderFolderKonten(folder, item, {
       ...recipient,
-      tembusan:
-        tembusanList ||
-        recipient.tembusanEksternal ||
-        recipient.tembusan_eksternal ||
-        recipient.tembusan ||
-        '',
-      tembusan_internal:
-        recipient.tembusanInternal || recipient.tembusan_internal || '',
-      tembusan_eksternal:
-        recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
+      // Semua placeholder tembusan dirender ke label yang benar. Khusus
+      // tembusan internal, resolver memakai position ID -> position_text,
+      // bukan persnum_person_text/nama personelnya.
+      tembusan: formatTembusan(tembusanNames),
+      tembusan_internal: formatTembusan(tembusanInternalNames),
+      tembusan_eksternal: formatTembusan(tembusanEksternalNames),
     });
 
     const pengirim = await this.sirkulasiRepository.findOne({
@@ -2329,7 +2350,14 @@ export class SdeMasalService {
       tanggal,
       pengirim?.positionText || '',
       pengirim?.namaSirkuler || '',
-      tembusan.map((row) => row.namaSirkuler || ''),
+      // Jika template sudah memiliki placeholder tembusan, jangan tambahkan
+      // blok Tembusan Yth. kedua dari generator PDF. Jika tidak, gunakan hasil
+      // resolver position ID -> jabatan agar tidak menampilkan nama orang.
+      hasTembusanPlaceholder
+        ? []
+        : tembusanNames.length > 0
+          ? tembusanNames
+          : tembusan.map((row) => row.positionText || row.namaSirkuler || ''),
       [],
       naskah.perihal || recipient.perihal || '',
       naskah.sifat || folder.sifat || 'biasa',
