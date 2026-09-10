@@ -2244,13 +2244,11 @@ export class SdeMasalService {
   }
 
   /**
-   * Generate preview PDF SDE Massal dari data penerima yang tersimpan.
+   * Ambil PDF untuk preview/print SDE Massal dari Terkirim.
    *
-   * Naskah lama bisa memiliki `konten`/`final_pdf` yang sudah dibuat ketika
-   * field standar seperti nama dan alamat masih kosong, sementara nilai asli
-   * tetap tersedia di `recipient_data.variables`. Preview ini sengaja dirender
-   * ulang agar tombol print di Terkirim menampilkan data Excel terbaru tanpa
-   * menimpa PDF final yang sudah ditandatangani.
+   * Naskah BSrE harus memakai final_pdf asli karena render ulang akan membuang
+   * signature digital. Naskah non-BSrE tetap dapat dirender dari data Excel
+   * agar placeholder penerima historis yang kosong dapat dipulihkan.
    */
   async generateSentNaskahPreviewPdf(
     naskahId: string,
@@ -2270,6 +2268,15 @@ export class SdeMasalService {
       where: { id: item.folderId },
     });
     if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    // Dokumen BSrE wajib memakai file final hasil signing. Merender ulang PDF
+    // akan menghilangkan struktur signature (/Sig + ByteRange), sehingga file
+    // yang diunduh dari tombol print terbaca NO_SIGNATURE di Cek Dokumen.
+    // Data Excel untuk naskah baru sudah dirender sebelum proses signing, jadi
+    // final_pdf tetap memuat placeholder penerima sekaligus tanda tangan asli.
+    if (naskah.signOption === 'digsig' && naskah.final_pdf) {
+      return this.storageService.getFile(naskah.final_pdf);
+    }
 
     const recipient = this.normalizeMassalRecipient(
       this.parseRecipientData(item),

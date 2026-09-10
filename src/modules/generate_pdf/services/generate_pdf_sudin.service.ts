@@ -432,14 +432,15 @@ export class GeneratePdfSudinService {
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section (English) - rata kiri (jabatan & nama penandatangan), tanpa QR preview
+    // TTD section (English) - tanggal, jabatan, QR, lalu nama penandatangan.
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:left;">
+            <td style="width:50%;text-align:center;">
+              ${tanggalFormatted}<br>
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
-              <br><br><br><br><br>
+              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
             <td style="width:50%;"></td>
@@ -880,14 +881,15 @@ export class GeneratePdfSudinService {
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // TTD section - rata kiri (jabatan & nama penandatangan), tanpa QR preview
+    // TTD section - tanggal, jabatan, QR, lalu nama penandatangan.
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:left;">
+            <td style="width:50%;text-align:center;">
+              ${tanggalFormatted}<br>
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
-              <br><br><br><br><br>
+              ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
             </td>
             <td style="width:50%;"></td>
