@@ -30,6 +30,7 @@ import {
   SignOption,
   SifatSurat,
 } from '../../surat-dinas-eksternal/dto/create-surat-dinas-eksternal.dto';
+import type { DigsigBatchContext } from '../../digsig/services/digsig.service';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -59,15 +60,9 @@ const MAX_MASS_ATTACHMENT_FILES = 200;
 const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
 const RESERVED_NOMOR_KEY = '__sdeMasalReservedNomor';
 
-// Queue khusus finalisasi SDE Massal. Bounded concurrency menjaga BSrE,
-// database, storage, dan mail service tetap stabil ketika satu folder berisi
-// puluhan/ratusan naskah, tanpa mengubah alur SDE biasa.
-const sdeMasalFinalizeQueue = new PQueue({
-  concurrency: 8,
-  intervalCap: 8,
-  interval: 1000,
-  throwOnTimeout: true,
-});
+// Batas file per proses paralel/bulk signing. Folder besar dipecah menjadi
+// beberapa chunk supaya penggunaan memori, koneksi DB, dan payload tetap aman.
+const SDE_MASAL_FINALIZE_BATCH_SIZE = 8;
 
 // Email tidak menahan respons finalisasi, tetapi tetap dibatasi supaya batch
 // besar tidak membanjiri mail service.
@@ -97,6 +92,12 @@ const sdeMasalGenerateQueue = new PQueue({
 @Injectable()
 export class SdeMasalService {
   private readonly logger = new Logger(SdeMasalService.name);
+  // Beberapa approval item dapat masuk bersamaan. Coalesce pengiriman
+  // notifikasi yang sama agar race condition tidak membuat beberapa toast.
+  private readonly sdeMasalNotificationInFlight = new Map<
+    string,
+    Promise<void>
+  >();
 
   constructor(
     @InjectRepository(SdeMasalEntity)
@@ -423,9 +424,10 @@ export class SdeMasalService {
           continue;
         }
         existingKeys.add(recipientKey);
+        const normalizedRecipient = this.normalizeMassalRecipient(p);
         const item = this.repo.create({
           folderId: body.folderId || null,
-          recipientData: JSON.stringify(p),
+          recipientData: JSON.stringify(normalizedRecipient),
           statusVerifikasi: 'MENUNGGU',
           createdBy: creatorPosition ? String(creatorPosition) : body.createdBy || null,
         });
@@ -461,6 +463,7 @@ export class SdeMasalService {
     persnum?: number,
     syncFolder = true,
     bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<{ naskahId: string; nomor: string; status: string }> {
     const item = await this.repo.findOne({ where: { id: sdeMasalId } });
     if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
@@ -496,7 +499,9 @@ export class SdeMasalService {
       );
     }
 
-    const recipient = this.parseRecipientData(item);
+    const recipient = this.normalizeMassalRecipient(
+      this.parseRecipientData(item),
+    );
     const attachmentRefs = this.getAttachmentRefs(item, recipient);
     const external = await this.resolveRecipientExternal(
       folder,
@@ -565,6 +570,7 @@ export class SdeMasalService {
         persnum,
         reservedNomor || undefined,
         bsreUserData,
+        digsigBatch,
       );
       const data = response?.data;
       if (!data?.id)
@@ -618,6 +624,9 @@ export class SdeMasalService {
         status: data.status || 'final',
       };
     } catch (error) {
+      if (digsigBatch) {
+        this.sdeService.skipMassalSigningParticipant(digsigBatch);
+      }
       item.statusVerifikasi = 'GAGAL';
       item.errorMessage = String(error?.message || error).slice(0, 500);
       await this.repo.save(item);
@@ -1084,12 +1093,27 @@ export class SdeMasalService {
         ? await this.sdeService.getBsreUserDataForMassal(persnum)
         : undefined;
 
-    // Jalankan beberapa item secara paralel dengan batas global khusus SDE
-    // Massal. Setiap item tetap punya transaksi, naskah, dan signature ID
-    // sendiri; yang dipercepat hanya overlap proses I/O antar-item.
-    const results = await Promise.allSettled(
-      eligibleItems.map((item) =>
-        sdeMasalFinalizeQueue.add(() =>
+    // Jalankan alur SDE biasa untuk tiap naskah secara paralel dalam satu
+    // request finalisasi. Endpoint BSrE /api/v2/sign/pdf terbukti mengembalikan
+    // HTTP 500 ketika beberapa PDF dikirim dalam satu payload, sedangkan satu
+    // PDF per request adalah alur yang stabil pada SDE biasa.
+    const results: PromiseSettledResult<{
+      naskahId: string;
+      nomor: string;
+      status: string;
+    }>[] = [];
+    for (
+      let offset = 0;
+      offset < eligibleItems.length;
+      offset += SDE_MASAL_FINALIZE_BATCH_SIZE
+    ) {
+      const chunk = eligibleItems.slice(
+        offset,
+        offset + SDE_MASAL_FINALIZE_BATCH_SIZE,
+      );
+
+      const chunkResults = await Promise.allSettled(
+        chunk.map((item) =>
           this.finalizeNaskah(
             item.id,
             signOption,
@@ -1098,10 +1122,12 @@ export class SdeMasalService {
             persnum,
             false,
             bsreUserData,
+            undefined,
           ),
         ),
-      ),
-    );
+      );
+      results.push(...chunkResults);
+    }
 
     let success = 0;
     let failed = 0;
@@ -1949,7 +1975,25 @@ export class SdeMasalService {
     if (item.folderId) {
       await this.refreshFolderCounters(item.folderId);
       const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+      // Approval is performed per recipient, but the notification belongs to the
+      // folder transition. Only notify when this is the first row waiting for
+      // the next verifier; subsequent row approvals must not create duplicate
+      // toasts for the same folder.
+      let shouldNotifyNextVerifier = false;
       if (next) {
+        const rowsAfterApproval = await this.repo.find({
+          where: { folderId: item.folderId },
+        });
+        const waitingNextCount = rowsAfterApproval.filter((row) =>
+          (row.verifikators || []).some(
+            (verifikator: SdeMasalVerifikator) =>
+              verifikator.status === 'waiting' &&
+              String(verifikator.position) === String(next.position),
+          ),
+        ).length;
+        shouldNotifyNextVerifier = waitingNextCount === 1;
+      }
+      if (next && shouldNotifyNextVerifier) {
         await this.notifySdeMasalPositions([next.position], {
           title: 'SDE Massal Menunggu Verifikasi',
           body: `Folder "${folder?.judul || '-'}" menunggu verifikasi Anda.`,
@@ -2196,6 +2240,106 @@ export class SdeMasalService {
           }
         : null,
     };
+  }
+
+  /**
+   * Generate preview PDF SDE Massal dari data penerima yang tersimpan.
+   *
+   * Naskah lama bisa memiliki `konten`/`final_pdf` yang sudah dibuat ketika
+   * field standar seperti nama dan alamat masih kosong, sementara nilai asli
+   * tetap tersedia di `recipient_data.variables`. Preview ini sengaja dirender
+   * ulang agar tombol print di Terkirim menampilkan data Excel terbaru tanpa
+   * menimpa PDF final yang sudah ditandatangani.
+   */
+  async generateSentNaskahPreviewPdf(
+    naskahId: string,
+    user: any,
+  ): Promise<Buffer> {
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: naskahId },
+    });
+    if (!naskah) throw new NotFoundException('Naskah tidak ditemukan');
+
+    const item = await this.repo.findOne({ where: { naskahId } });
+    if (!item?.folderId) {
+      throw new NotFoundException('Naskah SDE Massal tidak ditemukan');
+    }
+
+    const folder = await this.folderRepo.findOne({
+      where: { id: item.folderId },
+    });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+
+    const recipient = this.normalizeMassalRecipient(
+      this.parseRecipientData(item),
+    );
+    const tanggal = naskah.tanggal
+      ? new Date(naskah.tanggal).toISOString().slice(0, 10)
+      : folder.tanggal
+        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+
+    const tembusanList = await this.resolveTembusanList(folder, {
+      ...recipient,
+      tembusan:
+        recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        recipient.tembusan ||
+        '',
+    });
+    const konten = this.renderFolderKonten(folder, item, {
+      ...recipient,
+      tembusan:
+        tembusanList ||
+        recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        recipient.tembusan ||
+        '',
+      tembusan_internal:
+        recipient.tembusanInternal || recipient.tembusan_internal || '',
+      tembusan_eksternal:
+        recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
+    });
+
+    const pengirim = await this.sirkulasiRepository.findOne({
+      where: { idNaskah: naskahId, sirkuler: 'pengirim' },
+    });
+    const penerima = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'penerima' },
+      order: { urutan: 'ASC' },
+    });
+    const tembusan = await this.sirkulasiRepository.find({
+      where: { idNaskah: naskahId, sirkuler: 'tembusan' },
+      order: { urutan: 'ASC' },
+    });
+    const attachmentRefs = this.getAttachmentRefs(item, recipient);
+    const headerInfo = await this.sdeService.getHeaderInfoByUser(
+      {
+        company: user?.company,
+        area: user?.area,
+        subArea: user?.subArea,
+      },
+      tanggal,
+    );
+
+    return this.sdeService.generatePdfFromHtml(
+      konten,
+      penerima.map((row) => row.namaSirkuler || ''),
+      naskah.tempat || headerInfo?.kota || 'Tangerang',
+      tanggal,
+      pengirim?.positionText || '',
+      pengirim?.namaSirkuler || '',
+      tembusan.map((row) => row.namaSirkuler || ''),
+      [],
+      naskah.perihal || recipient.perihal || '',
+      naskah.sifat || folder.sifat || 'biasa',
+      naskah.nomor || '',
+      naskah.lampiran || '-',
+      headerInfo || undefined,
+      naskah.english === true,
+      folder.atasNama || '',
+      attachmentRefs.map((ref) => ({ fileName: ref.fileName, key: ref.key })),
+    );
   }
 
   // ============================================================
@@ -2698,6 +2842,55 @@ export class SdeMasalService {
     }
   }
 
+  /**
+   * Samakan field standar dengan nilai dari kolom Excel dinamis.
+   * Parser Excel menyimpan seluruh kolom di `variables`, sementara beberapa
+   * field kompatibilitas pada object utama sengaja dibuat kosong/null.
+   */
+  private normalizeMassalRecipient(
+    recipient: Record<string, any>,
+  ): Record<string, any> {
+    const variables =
+      recipient.variables && typeof recipient.variables === 'object'
+        ? recipient.variables
+        : {};
+
+    const value = (...keys: string[]): string => {
+      for (const key of keys) {
+        const direct = recipient[key];
+        if (direct !== null && direct !== undefined && String(direct).trim()) {
+          return String(direct).trim();
+        }
+        const variable = variables[key.toLowerCase()];
+        if (
+          variable !== null &&
+          variable !== undefined &&
+          String(variable).trim()
+        ) {
+          return String(variable).trim();
+        }
+      }
+      return '';
+    };
+
+    const normalized = {
+      ...recipient,
+      variables,
+      nama: value('nama'),
+      alamat: value('alamat') || null,
+      kota: value('kota') || null,
+      kodePos: value('kodePos', 'kode_pos', 'kodepos') || null,
+      jabatan: value('jabatan'),
+      keterangan: value('keterangan') || null,
+      jabatanPenerima: value('jabatanPenerima', 'jabatan_penerima') || null,
+      alamatPenerima: value('alamatPenerima', 'alamat_penerima') || null,
+      panggilanPenerima:
+        value('panggilanPenerima', 'panggilan_penerima') || null,
+    };
+
+    return normalized;
+  }
+
   private getMassalRecipientKey(value: unknown): string {
     let parsed = value;
     if (typeof value === 'string') {
@@ -2810,16 +3003,33 @@ export class SdeMasalService {
     item: SdeMasalEntity,
     recipient: Record<string, any>,
   ): string {
+    // Field standar dari parser Excel juga disalin ke `variables`. Pada data
+    // lama, field langsung seperti `nama: ''` atau `alamat: null` dapat
+    // menimpa nilai Excel jika spread dilakukan dengan urutan yang salah.
+    // Nilai variable yang terisi harus menjadi fallback/rujukan untuk konten
+    // template, terutama saat PDF final dibuat setelah folder dikirim.
+    const variableValues =
+      recipient.variables && typeof recipient.variables === 'object'
+        ? recipient.variables
+        : {};
     const values = {
-      ...(recipient.variables || {}),
       ...recipient,
-      tertuju: recipient.tertuju || '',
-      perihal: recipient.perihal || '',
-      tembusan: recipient.tembusan || '',
+      ...variableValues,
+      tertuju: recipient.tertuju || variableValues.tertuju || '',
+      perihal: recipient.perihal || variableValues.perihal || '',
+      tembusan: recipient.tembusan || variableValues.tembusan || '',
       tembusan_internal:
-        recipient.tembusanInternal || recipient.tembusan_internal || '',
+        recipient.tembusanInternal ||
+        recipient.tembusan_internal ||
+        variableValues.tembusan_internal ||
+        variableValues.tembusanInternal ||
+        '',
       tembusan_eksternal:
-        recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
+        recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        variableValues.tembusan_eksternal ||
+        variableValues.tembusanEksternal ||
+        '',
     };
     return (folder.kontenTemplate || '').replace(
       /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
@@ -3298,33 +3508,56 @@ export class SdeMasalService {
     const positions = await this.getLatestOrgPositions();
     await Promise.all(
       targets.map(async (positionId) => {
-        const position = positions.find(
-          (item) => String(item?.position ?? '').trim() === positionId,
-        );
-        const rawPersnum = String(position?.persnum_person ?? '').trim();
-        const userPersnum = rawPersnum && Number.isFinite(Number(rawPersnum))
-          ? Number(rawPersnum)
-          : undefined;
-        try {
-          await this.notificationService.createNotification({
-            positionId,
-            userPersnum,
-            type: NotificationType.SYSTEM,
-            title: payload.title,
-            body: payload.body,
-            data: {
-              category: 'SDE_MASAL',
-              action: payload.action,
-              folderId: payload.folderId,
-              status: payload.status,
-              ...(payload.reason ? { reason: payload.reason } : {}),
-            },
-          });
-        } catch (error: any) {
-          // Notifikasi tidak boleh membatalkan perubahan status workflow.
-          this.logger.warn(
-            `Gagal mengirim notifikasi SDE Massal ke ${positionId}: ${error?.message || error}`,
+        const notificationKey = [
+          payload.folderId,
+          payload.status,
+          payload.action,
+          positionId,
+        ].join('|');
+        const inFlight = this.sdeMasalNotificationInFlight.get(notificationKey);
+        if (inFlight) {
+          await inFlight;
+          return;
+        }
+
+        const notificationPromise = (async () => {
+          const position = positions.find(
+            (item) => String(item?.position ?? '').trim() === positionId,
           );
+          const rawPersnum = String(position?.persnum_person ?? '').trim();
+          const userPersnum = rawPersnum && Number.isFinite(Number(rawPersnum))
+            ? Number(rawPersnum)
+            : undefined;
+          try {
+            await this.notificationService.createNotification({
+              positionId,
+              userPersnum,
+              type: NotificationType.SYSTEM,
+              title: payload.title,
+              body: payload.body,
+              data: {
+                category: 'SDE_MASAL',
+                action: payload.action,
+                folderId: payload.folderId,
+                status: payload.status,
+                ...(payload.reason ? { reason: payload.reason } : {}),
+              },
+            });
+          } catch (error: any) {
+            // Notifikasi tidak boleh membatalkan perubahan status workflow.
+            this.logger.warn(
+              `Gagal mengirim notifikasi SDE Massal ke ${positionId}: ${error?.message || error}`,
+            );
+          }
+        })();
+
+        this.sdeMasalNotificationInFlight.set(notificationKey, notificationPromise);
+        try {
+          await notificationPromise;
+        } finally {
+          if (this.sdeMasalNotificationInFlight.get(notificationKey) === notificationPromise) {
+            this.sdeMasalNotificationInFlight.delete(notificationKey);
+          }
         }
       }),
     );
