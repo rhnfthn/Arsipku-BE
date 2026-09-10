@@ -82,10 +82,15 @@ export class NotificationController {
       positionId,
       userPersnum,
     );
+    const sdeMasalCount = await this.notificationService.getUnreadCount(
+      positionId,
+      userPersnum,
+      'SDE_MASAL',
+    );
 
     return {
       success: true,
-      data: { count },
+      data: { count, sdeMasalCount },
     };
   }
 
@@ -117,6 +122,26 @@ export class NotificationController {
     const count = await this.notificationService.markByNaskahAsRead(
       positionId,
       naskahId,
+    );
+
+    return {
+      success: true,
+      message: `${count} notifications marked as read`,
+      data: { count },
+    };
+  }
+
+  @Patch('sde-masal/folder/:folderId/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark SDE Massal folder notifications as read' })
+  async markBySdeMasalFolderAsRead(
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const positionId = this.getPositionId(user);
+    const count = await this.notificationService.markBySdeMasalFolderAsRead(
+      positionId,
+      folderId,
     );
 
     return {

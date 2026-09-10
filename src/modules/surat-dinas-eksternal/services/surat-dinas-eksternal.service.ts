@@ -43,7 +43,10 @@ import { NomorSuratService } from '../../../shared/services/nomor-surat.service'
 import { StorageService } from '../../storage/services/storage.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
-import { DigsigService } from '../../digsig/services/digsig.service';
+import {
+  DigsigService,
+  type DigsigBatchContext,
+} from '../../digsig/services/digsig.service';
 import {
   QRCodeService,
   QRCodeData,
@@ -770,6 +773,88 @@ export class SuratDinasEksternalService {
     await queryRunner.manager.save(nomorRequestDetail);
 
     return nomorLengkap;
+  }
+
+  /**
+   * Reservasi nomor untuk SDE Massal dalam satu transaksi singkat.
+   *
+   * Finalisasi biasa menahan lock counter nomor sampai PDF dan BSrE selesai.
+   * Jika banyak naskah dijalankan paralel, transaksi lain dapat timeout saat
+   * menunggu lock yang sama. Reservasi di awal membuat lock segera dilepas,
+   * lalu pekerjaan PDF/signing aman dijalankan secara paralel.
+   */
+  async reserveMassalNumbers(
+    requests: Array<{
+      pengirim: number;
+      tgl?: string;
+      klasifikasi?: string;
+      perihal?: string;
+    }>,
+  ): Promise<string[]> {
+    if (requests.length === 0) return [];
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const orgDataByDate = new Map<string, SdeOrgDataPositionDto[]>();
+      const numbers: string[] = [];
+
+      for (const request of requests) {
+        const tanggal = request.tgl
+          ? this.parseDateString(request.tgl)
+          : new Date();
+        const dateKey = request.tgl || tanggal.toISOString().slice(0, 10);
+
+        let positions = orgDataByDate.get(dateKey);
+        if (!positions) {
+          const orgData = await this.orgDataService.findOrg(dateKey);
+          if (!orgData?.position_json) {
+            throw new NotFoundException(
+              `Data organisasi untuk tanggal ${dateKey} tidak ditemukan`,
+            );
+          }
+          const loadedPositions: SdeOrgDataPositionDto[] =
+            orgData.position_json;
+          positions = loadedPositions;
+          orgDataByDate.set(dateKey, loadedPositions);
+        }
+
+        const pengirim = positions.find(
+          (position) =>
+            Number(position.position) === Number(request.pengirim),
+        );
+        if (!pengirim || pengirim.chief !== 1) {
+          throw new ForbiddenException(
+            'Penandatangan tidak ditemukan atau bukan pejabat managerial aktif',
+          );
+        }
+
+        numbers.push(
+          await this.generateNomorWithIntegration(
+            pengirim,
+            request.klasifikasi || '',
+            request.perihal || '-',
+            tanggal,
+            queryRunner,
+          ),
+        );
+      }
+
+      await queryRunner.commitTransaction();
+      return numbers;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /** Ambil identitas BSrE sekali untuk dipakai seluruh item satu batch. */
+  getBsreUserDataForMassal(_persnum: number): { nik: string; no_wa: string } {
+    return this.digsigService.getUserDataForMassalBsre();
   }
 
   /**
@@ -1738,6 +1823,9 @@ export class SuratDinasEksternalService {
     dto: CreateSuratDinasEksternalDto,
     status: 'pending' | 'final' | 'final_tte',
     persnum?: number,
+    reservedNomor?: string,
+    bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<SdeSendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1837,13 +1925,15 @@ export class SuratDinasEksternalService {
     try {
       // PHASE 5: Generate nomor surat
       const tanggalNomor = dto.tgl ? this.parseDateString(dto.tgl) : new Date();
-      const nomorSurat = await this.generateNomorWithIntegration(
-        pengirim,
-        dto.klasifikasi,
-        dto.perihal,
-        tanggalNomor,
-        queryRunner,
-      );
+      const nomorSurat =
+        reservedNomor ||
+        (await this.generateNomorWithIntegration(
+          pengirim,
+          dto.klasifikasi,
+          dto.perihal,
+          tanggalNomor,
+          queryRunner,
+        ));
 
       // PHASE 6: Insert naskah
       const naskahId = uuidv4();
@@ -1901,12 +1991,16 @@ export class SuratDinasEksternalService {
           });
           await queryRunner.manager.save(referensi);
 
-          // Mark tindak_lanjut=1 on the original naskah
-          await this.naskahSirkulasiService.markTindakLanjut(
-            dto.id_referensi_naskah,
-            String(dto.pengirim),
-            queryRunner.manager,
-          );
+          // SDE Massal memakai nomor reservasi dan menandai tindak lanjut satu
+          // kali setelah seluruh batch selesai. Meng-update baris induk yang
+          // sama dari setiap transaksi paralel akan membuat lock baru.
+          if (!reservedNomor) {
+            await this.naskahSirkulasiService.markTindakLanjut(
+              dto.id_referensi_naskah,
+              String(dto.pengirim),
+              queryRunner.manager,
+            );
+          }
         }
       }
 
@@ -2201,9 +2295,11 @@ export class SuratDinasEksternalService {
           console.log(
             `[SDE] Step 11a - Fetching user data for persnum: ${persnum}`,
           );
-          const userData = await this.digsigService.getUserDataForBsre(
-            persnum.toString(),
-          );
+          const userData =
+            bsreUserData ||
+            (await this.digsigService.getUserDataForBsre(
+              persnum.toString(),
+            ));
           console.log(`[SDE] Step 11a - Got userData:`, {
             nik: userData.nik,
             no_wa: userData.no_wa,
@@ -2242,6 +2338,7 @@ export class SuratDinasEksternalService {
               userName: signerName || 'User',
               idNaskah: naskahId,
               jenisNaskah: 'SDE',
+              batch: digsigBatch,
             },
           );
           console.log(
@@ -2571,6 +2668,9 @@ export class SuratDinasEksternalService {
   async sendMessage(
     dto: CreateSuratDinasEksternalDto,
     persnum?: number,
+    reservedNomor?: string,
+    bsreUserData?: { nik: string; no_wa: string },
+    digsigBatch?: DigsigBatchContext,
   ): Promise<SdeSendMessageResponseDto> {
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
@@ -2595,7 +2695,22 @@ export class SuratDinasEksternalService {
     }
 
     // Call createSdeWithSigning with signing options
-    return this.createSdeWithSigning(dto, status, persnum);
+    return this.createSdeWithSigning(
+      dto,
+      status,
+      persnum,
+      reservedNomor,
+      bsreUserData,
+      digsigBatch,
+    );
+  }
+
+  skipMassalSigningParticipant(batch: DigsigBatchContext): void {
+    this.digsigService.skipBatchParticipant(batch);
+  }
+
+  startMassalSigningBatch(batchId: string, expectedCount: number): void {
+    this.digsigService.startBatch(batchId, expectedCount);
   }
 
   /**
