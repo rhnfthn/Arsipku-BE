@@ -581,8 +581,9 @@ export class SdeMasalService {
       item.errorMessage = null;
       await this.repo.save(item);
       await this.addExternalTembusan(data.id, item, recipient, data.status);
-      // Tembusan internal: masukkan ke kotak masuk tiap akun internal
-      await this.addInternalTembusan(data.id, item, recipient, data.status);
+      // Tembusan internal sudah dibuat oleh alur SDE biasa melalui
+      // dto.tembusan. Jangan insert ulang di sini karena menghasilkan dua
+      // sirkulasi untuk position ID yang sama dan dua nama pada PDF/terkirim.
       if (syncFolder) await this.refreshFolderCounters(folder.id);
 
       // Repair folder lama: pembuat folder adalah pihak yang menindaklanjuti
@@ -3273,86 +3274,6 @@ export class SdeMasalService {
         alamat: external.alamat || null,
         telepon: external.telepon || null,
         email: external.email || null,
-        isDraft: status === 'pending',
-        urutan: urutan++,
-      });
-      await this.sirkulasiRepository.save(row);
-    }
-  }
-
-  /**
-   * Tambah tembusan internal ke naskah_sirkulasi.
-   * Dipanggil saat naskah terkirim (finalize) agar setiap akun internal
-   * yang dijadikan tembusan menerima surat di kotak masuknya.
-   * - sirkuler = 'tembusan', position_status = 'ybs' (bukan 'ext')
-   * - position = position ID dari tembusan_internal (Excel)
-   * - is_draft = false, is_konsep = 0 → langsung tampil di inbox
-   */
-  private async addInternalTembusan(
-    naskahId: string,
-    item: SdeMasalEntity,
-    recipient: Record<string, any>,
-    status: string,
-  ): Promise<void> {
-    const positions = String(
-      recipient.tembusanInternal || recipient.tembusan_internal || '',
-    )
-      .split(/[,;]/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    if (!positions.length) return;
-    const naskah = await this.naskahRepository.findOne({
-      where: { id: naskahId },
-    });
-
-    // Pre-load org_data sekali untuk resolve position ID → jabatan
-    let positionJson: any[] = [];
-    const parsePositionJson = (raw: unknown): any[] => {
-      if (Array.isArray(raw)) return raw;
-      if (typeof raw === 'string' && raw.trim()) {
-        try {
-          const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    };
-    try {
-      const latest = await this.orgDataService.findLatestOrg();
-      positionJson = parsePositionJson(latest?.position_json);
-    } catch {
-      /* org_data tidak tersedia → fallback tampilkan kode */
-    }
-
-    let urutan = 100; // urutan tinggi agar tampil setelah tembusan eksternal
-    for (const posId of positions) {
-      const pos = positionJson.find(
-        (p) => String(p.position) === String(posId),
-      );
-      const positionText = pos?.position_text || posId;
-      // Catatan: is_konsep tidak di-set di sini — kolom DB punya default 0
-      // (entity shared tidak mendeklarasikan field tersebut).
-      const row = this.sirkulasiRepository.create({
-        id: uuidv4(),
-        tanggal: naskah?.tanggal || new Date(),
-        idNaskah: naskahId,
-        sirkuler: 'tembusan',
-        company: pos?.company != null ? String(pos.company) : null,
-        companyText: pos?.company_name || 'PERUM LPPNPI',
-        area: pos?.area != null ? String(pos.area) : null,
-        areaText: pos?.area_text || null,
-        subArea: pos?.sub_area != null ? String(pos.sub_area) : null,
-        subAreaText: pos?.sub_area_text || null,
-        organization:
-          pos?.organization_id != null ? String(pos.organization_id) : null,
-        organizationText: pos?.organization_text || null,
-        position: String(posId),
-        positionText,
-        positionStatus: 'ybs',
-        idSirkuler: null,
-        namaSirkuler: pos?.persnum_person_text || positionText,
         isDraft: status === 'pending',
         urutan: urutan++,
       });
