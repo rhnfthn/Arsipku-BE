@@ -1149,6 +1149,11 @@ export class NaskahLainnyaService {
 
   async updateDraft(id: string, dto: UpdateNaskahDto) {
     const n = await this.findNaskah(id);
+    if (n.tahapan === 'dibatalkan') {
+      throw new BadRequestException(
+        'Naskah yang sudah dibatalkan tidak dapat diperbaiki atau diubah.',
+      );
+    }
     if (
       dto.nomor !== undefined &&
       (n.tahapan ?? 'konsep') !== 'konsep' &&
@@ -1611,7 +1616,7 @@ export class NaskahLainnyaService {
     const rows = await qb.getMany();
     // statusLegal per-row (badge kolom Status — dibutuhkan terutama untuk filter
     // 'semua' yang mencampur sub-status). Batch-query baris legal_drafting approval
-    // + aksi riwayat TERAKHIR per naskah (sinyal 'revisi' untuk kembalikan-evaluasi).
+    // + aksi riwayat TERAKHIR per naskah (sinyal revisi dari tahap evaluasi).
     const ids = rows.map((r) => r.id);
     // Batch-query baris approval untuk legal_drafting, persetujuan_direksi, dan
     // blanko_verbal — supaya sub-status per tahap akurat (badge kolom Status).
@@ -1721,9 +1726,17 @@ export class NaskahLainnyaService {
     if (tahapan !== 'legal_drafting') return 'sudah_dikerjakan';
     if (statuses.includes('rejected')) return 'revisi';
     if (statuses.includes('waiting')) return 'menunggu_persetujuan';
+    // Penolakan Blanko Verbal/LPD mengembalikan naskah ke legal_drafting, tetapi
+    // approval Legal Drafting dari siklus sebelumnya tetap verified sebagai jejak
+    // proses. Karena itu sinyal riwayat terbaru harus diperiksa sebelum fallback
+    // statuses.length, supaya naskah masuk antrean Revisi dan bukan Sudah Dikerjakan.
+    if (
+      latestAksi === 'tolak' ||
+      latestAksi === 'kembalikan-evaluasi' ||
+      latestAksi === 'legal_drafting_ulang'
+    )
+      return 'revisi';
     if (statuses.length > 0) return 'sudah_dikerjakan';
-    // tanpa baris legal_drafting: dikembalikan dari evaluasi oleh pemrakarsa → revisi.
-    if (latestAksi === 'kembalikan-evaluasi') return 'revisi';
     return 'belum_dikirim';
   }
 
@@ -1806,6 +1819,11 @@ export class NaskahLainnyaService {
       throw new BadRequestException('File naskah wajib berformat DOCX.');
     }
     const n = await this.findNaskah(id);
+    if (n.tahapan === 'dibatalkan') {
+      throw new BadRequestException(
+        'Naskah yang sudah dibatalkan tidak dapat diperbaiki atau diubah.',
+      );
+    }
     // tanggal bagian PK — simpan tanggal ASLI (DB) untuk WHERE. Mutasi in-memory
     // n.tanggal (dari params.tanggal) TIDAK boleh ikut ke WHERE, kalau tidak row
     // tidak ditemukan & lampiran/docx tidak tersimpan.
@@ -1898,6 +1916,11 @@ export class NaskahLainnyaService {
       );
     }
     const n = await this.findNaskah(id);
+    if (n.tahapan === 'dibatalkan') {
+      throw new BadRequestException(
+        'Naskah yang sudah dibatalkan tidak dapat diperbaiki atau diubah.',
+      );
+    }
     const originalTanggal = n.tanggal as any;
     let params: DocxParameter;
     try {
@@ -2177,10 +2200,23 @@ export class NaskahLainnyaService {
     if (targetRow.status !== 'waiting') {
       throw new BadRequestException('Baris approval sudah diproses');
     }
-    if (targetRow.tahap === 'legal_drafting') {
+    // Approval Legal diselesaikan melalui Kirim/Teruskan di workspace Legal.
+    // Pengecualian hanya untuk penolakan oleh pengesah aktif; aksi ini tetap
+    // melewati validasi tahap, urutan, dan identitas approver di bawah.
+    if (targetRow.tahap === 'legal_drafting' && aksi !== 'tolak') {
       throw new BadRequestException(
         'Gunakan aksi Kirim atau Teruskan pada halaman Legal Drafting.',
       );
+    }
+    if (targetRow.tahap === 'legal_drafting') {
+      const legalCertifier = rows
+        .filter((row) => row.tahap === 'legal_drafting')
+        .sort((a, b) => b.urutan - a.urutan)[0];
+      if (!legalCertifier || legalCertifier.id !== targetRow.id) {
+        throw new ForbiddenException(
+          'Hanya Pejabat yang Mengesahkan yang dapat menolak Legal Drafting.',
+        );
+      }
     }
     if (targetRow.tahap !== n.tahapan) {
       throw new BadRequestException(
@@ -2349,10 +2385,9 @@ export class NaskahLainnyaService {
     }
 
     let next: Tahapan;
-    // Legal Drafting Ulang → balik ke pemrakarsa konseptor untuk merevisi form
-    // awal (form terisi data sebelumnya). Setelah kirim ulang, naskah menempuh
-    // rantai persetujuan → legal drafting dari awal.
-    if (dto.keputusan === 'legal_drafting_ulang') next = 'perlu_perbaikan';
+    // Legal Drafting Ulang kembali langsung ke workspace Unit Legal. Ini bukan
+    // revisi oleh konseptor, sehingga tidak boleh memakai tahap perlu_perbaikan.
+    if (dto.keputusan === 'legal_drafting_ulang') next = 'legal_drafting';
     else if (dto.keputusan === 'batalkan') next = 'dibatalkan';
     else next = 'blanko_verbal';
 
@@ -2363,6 +2398,14 @@ export class NaskahLainnyaService {
       evpRow.tanggal = new Date();
       await manager.save(evpRow);
 
+      if (next === 'legal_drafting') {
+        // Mulai satu siklus Legal Drafting baru. Riwayat approval sebelumnya
+        // tetap tersimpan pada tabel riwayat, sedangkan state aktif di-reset.
+        await manager.delete(NaskahLainnyaApprovalEntity, {
+          naskahId: id,
+          tahap: 'legal_drafting',
+        });
+      }
       if (next === 'blanko_verbal') {
         // Pengiriman ulang setelah penolakan selalu menyusun satu blanko baru.
         // Riwayat keputusan lama tetap tersimpan di tabel riwayat.
@@ -4413,6 +4456,13 @@ export class NaskahLainnyaService {
           manager,
         },
       );
+      // Penolakan LPD memulai siklus Legal Drafting baru. Hapus state approval
+      // legal lama agar section Alur Legal Drafting kembali kosong; histori
+      // persetujuan sebelumnya tetap tersedia di naskah_lainnya_riwayat.
+      await manager.delete(NaskahLainnyaApprovalEntity, {
+        naskahId: id,
+        tahap: 'legal_drafting',
+      });
       await manager.update(
         NaskahEntity,
         { id: n.id, tanggal: n.tanggal as any },
@@ -4683,6 +4733,12 @@ export class NaskahLainnyaService {
           manager,
         },
       );
+      // Penolakan Blanko Verbal memulai siklus Legal Drafting baru. State aktif
+      // lama di-reset supaya alur dapat disusun ulang tanpa menduplikasi node.
+      await manager.delete(NaskahLainnyaApprovalEntity, {
+        naskahId: id,
+        tahap: 'legal_drafting',
+      });
       await manager.update(
         NaskahEntity,
         { id: n.id, tanggal: n.tanggal as any },
