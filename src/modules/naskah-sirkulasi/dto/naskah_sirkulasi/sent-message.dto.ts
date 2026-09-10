@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsDateString,
   IsBoolean,
+  IsString,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
@@ -11,6 +12,10 @@ import { Type, Transform } from 'class-transformer';
  * Query params untuk filter sent messages (kotak keluar)
  */
 export class SentMessageQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @IsOptional()
   @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], {
     message: 'Jenis naskah tidak valid',

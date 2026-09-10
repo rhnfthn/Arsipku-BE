@@ -104,6 +104,11 @@ export class EksternalController {
     };
   }
 
+  @Get(':id/check-usage')
+  async checkUsage(@Param('id') id: string) {
+    return this.eksternalService.checkUsage(id);
+  }
+
   @Delete(':id')
   @RequirePermission('master-data', 'delete-tertuju')
   async remove(@Param('id') id: string): Promise<EksternalActionResponseDto> {
