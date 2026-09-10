@@ -653,6 +653,86 @@ describe('NaskahLainnyaService', () => {
     );
   });
 
+  it('tolak: Pejabat yang Mengesahkan aktif dapat menolak dari workspace Legal Drafting', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    const approvalRepo = (svc as any).approvalRepo;
+    const certifier = {
+      id: 'approval-pengesah',
+      naskahId: 'n-legal',
+      tahap: 'legal_drafting',
+      positionId: 'POS_PENGESAH',
+      nama: 'Pengesah Legal',
+      jabatan: 'Pejabat yang Mengesahkan',
+      urutan: 2,
+      status: 'waiting',
+    };
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n-legal',
+      tanggal: new Date('2026-09-10'),
+      tahapan: 'legal_drafting',
+      butuhLegal: true,
+    });
+    approvalRepo.find.mockResolvedValue([
+      { ...certifier, id: 'approval-drafter', urutan: 1, status: 'verified' },
+      certifier,
+    ]);
+    workflowMock.applyApproval.mockResolvedValueOnce('legal_drafting');
+    jest
+      .spyOn(svc as any, 'publishWorkflowUpdate')
+      .mockResolvedValue(undefined);
+    jest.spyOn(svc, 'getDetail').mockResolvedValue({ success: true } as any);
+
+    await svc.tolak('n-legal', certifier.id, 'Perbaiki substansi pasal.', {
+      positionId: 'POS_PENGESAH',
+      nama: 'Pengesah Legal',
+      positionText: 'Pejabat yang Mengesahkan',
+    } as any);
+
+    expect(workflowMock.applyApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'n-legal' }),
+      expect.any(Array),
+      certifier.id,
+      'tolak',
+      expect.objectContaining({ catatan: 'Perbaiki substansi pasal.' }),
+    );
+  });
+
+  it('tolak: penerima Legal Drafting selain pengesah tidak dapat menolak', async () => {
+    const naskahRepo = (svc as any).naskahRepo;
+    const approvalRepo = (svc as any).approvalRepo;
+    naskahRepo.findOne.mockResolvedValue({
+      id: 'n-legal',
+      tanggal: new Date('2026-09-10'),
+      tahapan: 'legal_drafting',
+      butuhLegal: true,
+    });
+    approvalRepo.find.mockResolvedValue([
+      {
+        id: 'approval-drafter',
+        tahap: 'legal_drafting',
+        positionId: 'POS_DRAFTER',
+        urutan: 1,
+        status: 'waiting',
+      },
+      {
+        id: 'approval-pengesah',
+        tahap: 'legal_drafting',
+        positionId: 'POS_PENGESAH',
+        urutan: 2,
+        status: 'pending',
+      },
+    ]);
+
+    await expect(
+      svc.tolak('n-legal', 'approval-drafter', 'Saya menolak.', {
+        positionId: 'POS_DRAFTER',
+        nama: 'Drafter Legal',
+      } as any),
+    ).rejects.toThrow(
+      'Hanya Pejabat yang Mengesahkan yang dapat menolak Legal Drafting.',
+    );
+  });
+
   it('notifikasi legal_drafting yang sudah dikirim ditujukan ke approver aktif', async () => {
     const approvalRepo = ((await svc) as any).approvalRepo;
     approvalRepo.find.mockResolvedValue([
@@ -1508,6 +1588,89 @@ describe('NaskahLainnyaService', () => {
       { positionId: 'POS_LEGAL', nama: 'Legal' } as any,
       'semua',
     );
+    expect(res.data[0].statusLegal).toBe('revisi');
+  });
+
+  it('getLegalDrafting: keputusan legal drafting ulang masuk filter revisi Unit Legal', async () => {
+    const legalRole = ((await svc) as any).legalRoleService as any;
+    legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
+    const naskahRepo = ((await svc) as any).naskahRepo;
+    const qb = makeQb([
+      {
+        id: 'n1',
+        nomor: 'PER.1',
+        jenis: 'PER',
+        tahapan: 'legal_drafting',
+        butuhLegal: true,
+        pemrakarsa: { nama: 'A' },
+        perihal: 'p',
+        tanggal: new Date('2026-08-18'),
+        createdAt: new Date('2026-08-18'),
+      },
+    ]);
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+    ((await svc) as any).approvalRepo.find.mockResolvedValue([]);
+    ((await svc) as any).riwayatRepo.find.mockResolvedValue([
+      {
+        naskahId: 'n1',
+        aksi: 'legal_drafting_ulang',
+        createdAt: new Date('2026-08-19'),
+      },
+    ]);
+
+    const res = await svc.getLegalDrafting(
+      { positionId: 'POS_LEGAL', nama: 'Legal' } as any,
+      'revisi',
+    );
+
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].statusLegal).toBe('revisi');
+  });
+
+  it('getLegalDrafting: penolakan Blanko Verbal atau LPD mengalahkan approval legal lama yang sudah verified', async () => {
+    const legalRole = ((await svc) as any).legalRoleService as any;
+    legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
+    const naskahRepo = ((await svc) as any).naskahRepo;
+    const qb = makeQb([
+      {
+        id: 'n-rejected-sheet',
+        nomor: 'PER.2',
+        jenis: 'PER',
+        tahapan: 'legal_drafting',
+        butuhLegal: true,
+        pemrakarsa: { nama: 'A' },
+        perihal: 'Naskah ditolak direksi',
+        tanggal: new Date('2026-08-18'),
+        createdAt: new Date('2026-08-18'),
+      },
+    ]);
+    naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+    ((await svc) as any).approvalRepo.find.mockResolvedValue([
+      {
+        naskahId: 'n-rejected-sheet',
+        tahap: 'legal_drafting',
+        status: 'verified',
+      },
+      {
+        naskahId: 'n-rejected-sheet',
+        tahap: 'blanko_verbal',
+        status: 'rejected',
+      },
+    ]);
+    ((await svc) as any).riwayatRepo.find.mockResolvedValue([
+      {
+        naskahId: 'n-rejected-sheet',
+        aksi: 'tolak',
+        createdAt: new Date('2026-08-19'),
+      },
+    ]);
+
+    const res = await svc.getLegalDrafting(
+      { positionId: 'POS_LEGAL', nama: 'Legal' } as any,
+      'revisi',
+    );
+
+    expect(res.data).toHaveLength(1);
     expect(res.data[0].statusLegal).toBe('revisi');
   });
 
@@ -3608,6 +3771,13 @@ describe('NaskahLainnyaService', () => {
       expect.anything(),
       expect.objectContaining({ tahapan: 'legal_drafting' }),
     );
+    expect(txManager.delete).toHaveBeenCalledWith(
+      NaskahLainnyaApprovalEntity,
+      {
+        naskahId: 'n-sheet',
+        tahap: 'legal_drafting',
+      },
+    );
     expect(res.success).toBe(true);
   });
 
@@ -4108,7 +4278,7 @@ describe('NaskahLainnyaService', () => {
     );
   });
 
-  it('keputusanEvaluasi legal_drafting_ulang → perlu_perbaikan (balik ke konseptor untuk revisi form awal)', async () => {
+  it('keputusanEvaluasi legal_drafting_ulang → kembali langsung ke legal_drafting dan reset approval legal', async () => {
     (svc as any).naskahRepo.findOne.mockResolvedValue({
       id: 'n-eval-ulang',
       tanggal: new Date('2026-08-31'),
@@ -4150,8 +4320,12 @@ describe('NaskahLainnyaService', () => {
     expect(txManager.update).toHaveBeenCalledWith(
       NaskahEntity,
       expect.anything(),
-      { tahapan: 'perlu_perbaikan' },
+      { tahapan: 'legal_drafting' },
     );
+    expect(txManager.delete).toHaveBeenCalledWith(NaskahLainnyaApprovalEntity, {
+      naskahId: 'n-eval-ulang',
+      tahap: 'legal_drafting',
+    });
   });
 
   it('getDetail pada evaluasi tanpa baris evaluasi → recovery seed tugas EVP; tanpa aksi kirim-evaluasi', async () => {
@@ -4289,6 +4463,71 @@ describe('NaskahLainnyaService', () => {
       naskahId: 'n-eval-direct-blanko',
       tahap: In(['persetujuan_lanjutan', 'evaluasi_final']),
     });
+  });
+
+  it('keputusanEvaluasi batalkan → dibatalkan dan menjadi tahap terminal', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-eval-batal',
+      tanggal: new Date('2026-08-31'),
+      tahapan: 'evaluasi',
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([
+      {
+        id: 'evp-active',
+        tahap: 'evaluasi',
+        positionId: '200',
+        nama: 'EVP Operasi',
+        jabatan: 'EVP',
+        urutan: 1,
+        status: 'waiting',
+      },
+    ]);
+    const txManager = {
+      save: jest.fn((entity) => entity),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementationOnce((cb: any) =>
+      cb(txManager),
+    );
+    jest
+      .spyOn(svc as any, 'publishWorkflowUpdate')
+      .mockResolvedValueOnce(undefined);
+    jest
+      .spyOn(svc, 'getDetail')
+      .mockResolvedValueOnce({ success: true } as any);
+
+    await svc.keputusanEvaluasi(
+      'n-eval-batal',
+      { keputusan: 'batalkan', catatan: 'Naskah tidak lagi diperlukan.' },
+      { nama: 'EVP Operasi', positionId: '200' } as any,
+    );
+
+    expect(txManager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.anything(),
+      { tahapan: 'dibatalkan' },
+    );
+    expect(txManager.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'rejected',
+        catatan: 'Naskah tidak lagi diperlukan.',
+      }),
+    );
+  });
+
+  it('updateDraft menolak perubahan naskah yang sudah dibatalkan', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-batal',
+      tanggal: new Date('2026-08-31'),
+      tahapan: 'dibatalkan',
+    });
+
+    await expect(
+      svc.updateDraft('n-batal', { perihal: 'Tidak boleh berubah' }),
+    ).rejects.toThrow(
+      'Naskah yang sudah dibatalkan tidak dapat diperbaiki atau diubah.',
+    );
   });
 
   it('keputusanEvaluasi mewajibkan alasan untuk kedua opsi penolakan', async () => {
