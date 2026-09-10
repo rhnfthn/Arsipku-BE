@@ -632,6 +632,25 @@ export class ArsipDinamisService {
       return { message: 'Tidak ada naskah yang dipilih', count: 0 };
     }
 
+    // Naskah yang sudah berada di berkas TERTUTUP (closed_retensi_aktif /
+    // retensi_inaktif) tidak boleh dipindahkan ke berkas lain — arsipnya sudah
+    // final. Naskah di berkas AKTIF boleh dipindah (pindah folder).
+    const lockedRows: any[] = await this.dataSource.query(
+      `SELECT DISTINCT bn.naskah_id, b.kode_berkas
+       FROM berkas_naskah bn
+       INNER JOIN berkas b ON b.id = bn.berkas_id
+       WHERE bn.naskah_id IN (?)
+         AND b.status IN ('closed_retensi_aktif', 'retensi_inaktif')
+         AND b.deleted_at IS NULL`,
+      [requestedIds],
+    );
+    if (lockedRows.length > 0) {
+      const kode = lockedRows.map((r: any) => r.kode_berkas).join(', ');
+      throw new BadRequestException(
+        `Naskah sudah berada di berkas yang sudah ditutup (${kode}) dan tidak bisa dipindahkan`,
+      );
+    }
+
     // Konteks sirkulasi: naskah yang user (position) adalah pengirim/penerima.
     // Naskah yang sama boleh masuk ke berkas unit berbeda (per id_sirkuler).
     // Sekretaris (positions dari divisi/unitnya) boleh menambah atas nama seluruh
