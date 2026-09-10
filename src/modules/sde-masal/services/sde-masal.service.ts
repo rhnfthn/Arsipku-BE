@@ -169,7 +169,10 @@ export class SdeMasalService {
       originalFileUrl: dto.originalFileUrl || null,
       signOption: dto.signOption || null,
       status: 'DRAFT',
-      createdBy: dto.createdBy || null,
+      // Posisi dari token adalah sumber utama. Jangan bergantung pada
+      // createdBy dari frontend agar notifikasi pengembalian selalu kembali
+      // ke konseptor yang membuat folder.
+      createdBy: creatorPosition ? String(creatorPosition) : dto.createdBy || null,
     });
     const saved = await this.folderRepo.save(entity);
 
@@ -424,7 +427,7 @@ export class SdeMasalService {
           folderId: body.folderId || null,
           recipientData: JSON.stringify(p),
           statusVerifikasi: 'MENUNGGU',
-          createdBy: body.createdBy || null,
+          createdBy: creatorPosition ? String(creatorPosition) : body.createdBy || null,
         });
         items.push(item);
       } catch (err) {
@@ -1204,10 +1207,11 @@ export class SdeMasalService {
     }
     const cleanReason = String(reason || '').trim();
     if (!cleanReason) throw new BadRequestException('Alasan penolakan wajib diisi');
+    const creatorPosition = await this.resolveSdeMasalCreatorPosition(folder);
     folder.status = 'DIKEMBALIKAN';
     folder.rejectionReason = cleanReason;
     const saved = await this.folderRepo.save(folder);
-    await this.notifySdeMasalPositions([saved.createdBy], {
+    await this.notifySdeMasalPositions([creatorPosition || saved.createdBy], {
       title: 'SDE Massal Dikembalikan',
       body: `Folder "${saved.judul || '-'}" dikembalikan oleh pengirim. Catatan: ${cleanReason}`,
       action: 'OPEN_SDE_MASAL_FOLDER',
@@ -1823,7 +1827,11 @@ export class SdeMasalService {
     await this.refreshFolderCounters(folderId);
     const updatedFolder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (action === 'reject') {
-      await this.notifySdeMasalPositions([folder.createdBy], {
+      const creatorPosition = await this.resolveSdeMasalCreatorPosition(
+        folder,
+        pendingRows.find((item) => item.createdBy)?.createdBy,
+      );
+      await this.notifySdeMasalPositions([creatorPosition || folder.createdBy], {
         title: 'SDE Massal Dikembalikan',
         body: `Folder "${folder.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
         action: 'OPEN_SDE_MASAL_FOLDER',
@@ -1904,7 +1912,10 @@ export class SdeMasalService {
       if (item.folderId) {
         await this.refreshFolderCounters(item.folderId);
         const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
-        await this.notifySdeMasalPositions([folder?.createdBy], {
+        const creatorPosition = folder
+          ? await this.resolveSdeMasalCreatorPosition(folder, item.createdBy)
+          : item.createdBy;
+        await this.notifySdeMasalPositions([creatorPosition || folder?.createdBy], {
           title: 'SDE Massal Dikembalikan',
           body: `Folder "${folder?.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
           action: 'OPEN_SDE_MASAL_FOLDER',
@@ -3317,6 +3328,38 @@ export class SdeMasalService {
         }
       }),
     );
+  }
+
+  /**
+   * Resolve posisi konseptor untuk notifikasi pengembalian.
+   * Folder lama dapat belum memiliki created_by, sehingga gunakan posisi item
+   * SDE atau posisi disposisi yang ditandai sebagai tindak lanjut.
+   */
+  private async resolveSdeMasalCreatorPosition(
+    folder: SdeMasalFolderEntity,
+    fallbackPosition?: string | null,
+  ): Promise<string> {
+    const direct = String(folder.createdBy || fallbackPosition || '').trim();
+    if (direct) return direct;
+
+    if (folder.parentNaskahId) {
+      const followUp = await this.sirkulasiRepository
+        .createQueryBuilder('sirkulasi')
+        .where('sirkulasi.id_naskah = :naskahId', {
+          naskahId: folder.parentNaskahId,
+        })
+        .andWhere('sirkulasi.tindak_lanjut = :followUp', { followUp: 1 })
+        .andWhere('sirkulasi.sirkuler IN (:...sirkuler)', {
+          sirkuler: ['penerima', 'tembusan'],
+        })
+        .orderBy('sirkulasi.updated_at', 'DESC')
+        .getOne();
+
+      const position = String(followUp?.position || '').trim();
+      if (position) return position;
+    }
+
+    return '';
   }
 
   private async findPositionByRole(roleRank: number): Promise<any | null> {
