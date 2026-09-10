@@ -83,6 +83,11 @@ export class GrupPenerimaController {
     return this.grupPenerimaService.toggleAktif(id);
   }
 
+  @Get(':id/check-usage')
+  checkUsage(@Param('id') id: string) {
+    return this.grupPenerimaService.checkUsage(id);
+  }
+
   @Delete(':id')
   @RequirePermission('master-data', 'delete-grup-penerima')
   remove(@Param('id') id: string) {

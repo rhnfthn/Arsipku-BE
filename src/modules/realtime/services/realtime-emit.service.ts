@@ -228,6 +228,19 @@ export class RealtimeEmitService {
     }
   }
 
+  emitNaskahLainnyaUpdated(naskahId: string) {
+    try {
+      this.gateway.emitNaskahLainnyaUpdated({
+        naskahId,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahLainnyaUpdated] failed for ${naskahId}: ${err?.message}`,
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Tracking update (read status / tindak lanjut)
   // ──────────────────────────────────────────────
@@ -270,6 +283,22 @@ export class RealtimeEmitService {
       this.gateway.emitFlagUpdate(positionId, payload);
     } catch (err: any) {
       this.logger.warn(`⚠️ [emitFlagUpdate] failed: ${err?.message}`);
+    }
+  }
+
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    try {
+      this.gateway.emitCorrespondenceRoutingUpdate(payload);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitCorrespondenceRoutingUpdate] failed: ${err?.message}`,
+      );
     }
   }
 }

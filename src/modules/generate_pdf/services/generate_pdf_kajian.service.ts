@@ -3,6 +3,7 @@ import { getBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
+import { resolveDocumentNumber } from '../utils/document-number.util';
 
 interface KajianPdfOptions {
   html: string;
@@ -19,6 +20,10 @@ interface KajianPdfOptions {
   penerima?: string[];
   tembusan?: string[];
   nomor?: string;
+  nomorSurat?: string;
+  nomor_surat?: string;
+  nomorDokumen?: string;
+  document_number?: string;
   nama_tempat?: string;
   namaTempat?: string;
   // Dynamic header info dari sub_area_alamat
@@ -95,7 +100,7 @@ export class GeneratePdfKajianService {
     const tembusan = body.tembusan || [];
     const perihal = body.perihal || '';
     const dari = body.dari || '';
-    const nomor = body.nomor || ''; // Nomor surat yang sudah di-generate
+    const nomor = resolveDocumentNumber(body);
 
     // Support both old single field and new separate fields for signature
     const positionText = body.positionText || body.dari || '';
@@ -164,7 +169,8 @@ export class GeneratePdfKajianService {
 
     // Check masing-masing field terpisah
     const tertujuExceedsLimit = tertujuArray.length > 5;
-    const needsAddressPage = tertujuExceedsLimit;
+    const tembusanExceedsLimit = tembusanArray.length > 5;
+    const needsAddressPage = tertujuExceedsLimit || tembusanExceedsLimit;
 
     // Process tertuju
     let penerimaHtml = '';
@@ -187,14 +193,20 @@ export class GeneratePdfKajianService {
 
     // Process tembusan
     let tembusanHtml = '';
-    if (tembusanArray.length > 1) {
-      tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
-      tembusanArray.forEach((item) => {
-        tembusanHtml += `<li>${item}</li>`;
-      });
-      tembusanHtml += '</ol>';
-    } else if (tembusanArray.length === 1) {
-      tembusanHtml = tembusanArray[0] || '';
+    if (tembusanExceedsLimit) {
+      // Jika tembusan > 5, SEMUA item diganti dengan "Periksa Alamat Terlampir"
+      tembusanHtml = 'Periksa Alamat Terlampir';
+    } else {
+      // <= 5 items, tampilkan semua normal
+      if (tembusanArray.length > 1) {
+        tembusanHtml = "<ol style='margin-top:0px;margin-left:-20px;'>";
+        tembusanArray.forEach((item) => {
+          tembusanHtml += `<li>${item}</li>`;
+        });
+        tembusanHtml += '</ol>';
+      } else if (tembusanArray.length === 1) {
+        tembusanHtml = tembusanArray[0] || '';
+      }
     }
 
     // Header dengan logo
@@ -319,6 +331,15 @@ export class GeneratePdfKajianService {
         tertujuListHtml += '</ol>';
       }
 
+      let tembusanListHtml = '';
+      if (tembusanExceedsLimit) {
+        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanArray.forEach((item) => {
+          tembusanListHtml += `<li>${item}</li>`;
+        });
+        tembusanListHtml += '</ol>';
+      }
+
       addressPageContent = `
         <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
           <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
@@ -340,6 +361,16 @@ export class GeneratePdfKajianService {
               <td style="vertical-align:top; padding-bottom:20px;">
                 <b>KEPADA YTH :</b><br>
                 ${tertujuListHtml}
+              </td>
+            </tr>`
+                : ''
+            }
+            ${
+              tembusanExceedsLimit
+                ? `<tr>
+              <td style="vertical-align:top;">
+                <b>TEMBUSAN :</b><br>
+                ${tembusanListHtml}
               </td>
             </tr>`
                 : ''

@@ -32,6 +32,7 @@ import {
   RoutingToggleDto,
 } from '../dto/routing-admin.dto';
 import { RoutingPreviewDto } from '../dto/routing-preview.dto';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 // PartialType/IsOptional otherwise allow explicit null on required fields.
 class RoutingNullPipe implements PipeTransform {
@@ -68,6 +69,11 @@ export class CorrespondenceRoutingController {
     private readonly admin: CorrespondenceRoutingAdminService,
     private readonly resolver: CorrespondenceRoutingResolverService,
   ) {}
+
+  @Get('me/capabilities')
+  getMyCapabilities(@CurrentUser() user: JwtPayload) {
+    return this.resolver.getCapabilities(user.company, user.position);
+  }
 
   @Get('roles')
   @RequirePermission('correspondence-routing', 'read')

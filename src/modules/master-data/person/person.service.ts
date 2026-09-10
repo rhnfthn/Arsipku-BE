@@ -228,7 +228,7 @@ export class PersonService {
    * @param positionId - Position ID
    * @param search - Optional search query to filter persons by name
    */
-  async findByPosition(positionId: number, search?: string) {
+  async findByPosition(positionId: number, companyId?: number, search?: string) {
     let query = `
       SELECT DISTINCT p.*, rsp.id as id_relation_sp, rsp.position, pos.short_text as position_name,
              rsp.start_date, rsp.end_date
@@ -239,6 +239,11 @@ export class PersonService {
     `;
 
     const params: any[] = [positionId];
+
+    if (companyId) {
+      query += ` AND rsp.company = ?`;
+      params.push(companyId);
+    }
 
     // Add search filter if provided
     if (search && search.trim()) {
@@ -358,7 +363,10 @@ export class PersonService {
       );
     }
 
-    const newPerson = this.cRepo.create(dto);
+    const newPerson = this.cRepo.create({
+      ...dto,
+      name: dto.name ? dto.name.toUpperCase() : dto.name,
+    });
     const savedPerson = await this.cRepo.save(newPerson);
 
     // Create relation to position (om_relation_sp) if provided
@@ -376,7 +384,7 @@ export class PersonService {
         position: dto.position,
         position_text: positionData?.shortText || dto.positionText,
         relation_persnum: dto.persnum,
-        relation_persnum_text: dto.name,
+        relation_persnum_text: dto.name ? dto.name.toUpperCase() : dto.name,
         startDate: dto.startDate || '2025-01-01',
         endDate: dto.endDate || '9999-12-31',
         uname: dto.uname,
@@ -395,6 +403,9 @@ export class PersonService {
     }
 
     // Update person fields
+    if (dto.name) {
+      dto.name = dto.name.toUpperCase();
+    }
     const updated = Object.assign(person, dto);
     const savedPerson = await this.cRepo.save(updated);
 
@@ -677,7 +688,7 @@ export class PersonService {
       position: dto.position,
       position_text: positionText,
       relation_persnum: dto.persnum,
-      relation_persnum_text: person.name,
+      relation_persnum_text: person.name ? person.name.toUpperCase() : person.name,
       startDate: dto.startDate || '2025-01-01',
       endDate: dto.endDate || '9999-12-31',
       uname: dto.uname,
