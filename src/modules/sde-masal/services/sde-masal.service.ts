@@ -57,11 +57,21 @@ const MAX_MASS_ATTACHMENT_ZIP_BYTES = 50 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MASS_ATTACHMENT_FILES = 200;
 const MAX_MASS_ATTACHMENT_TOTAL_BYTES = 200 * 1024 * 1024;
+const RESERVED_NOMOR_KEY = '__sdeMasalReservedNomor';
 
 // Queue khusus finalisasi SDE Massal. Bounded concurrency menjaga BSrE,
 // database, storage, dan mail service tetap stabil ketika satu folder berisi
 // puluhan/ratusan naskah, tanpa mengubah alur SDE biasa.
 const sdeMasalFinalizeQueue = new PQueue({
+  concurrency: 8,
+  intervalCap: 8,
+  interval: 1000,
+  throwOnTimeout: true,
+});
+
+// Email tidak menahan respons finalisasi, tetapi tetap dibatasi supaya batch
+// besar tidak membanjiri mail service.
+const sdeMasalEmailQueue = new PQueue({
   concurrency: 4,
   intervalCap: 8,
   interval: 1000,
@@ -446,6 +456,8 @@ export class SdeMasalService {
     passphrase?: string,
     creatorPosition?: string | number,
     persnum?: number,
+    syncFolder = true,
+    bsreUserData?: { nik: string; no_wa: string },
   ): Promise<{ naskahId: string; nomor: string; status: string }> {
     const item = await this.repo.findOne({ where: { id: sdeMasalId } });
     if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
@@ -544,7 +556,13 @@ export class SdeMasalService {
     }
 
     try {
-      const response: any = await this.sdeService.sendMessage(dto, persnum);
+      const reservedNomor = String(recipient[RESERVED_NOMOR_KEY] || '').trim();
+      const response: any = await this.sdeService.sendMessage(
+        dto,
+        persnum,
+        reservedNomor || undefined,
+        bsreUserData,
+      );
       const data = response?.data;
       if (!data?.id)
         throw new Error('Layanan SDE tidak mengembalikan ID naskah');
@@ -556,11 +574,11 @@ export class SdeMasalService {
       await this.addExternalTembusan(data.id, item, recipient, data.status);
       // Tembusan internal: masukkan ke kotak masuk tiap akun internal
       await this.addInternalTembusan(data.id, item, recipient, data.status);
-      await this.refreshFolderCounters(folder.id);
+      if (syncFolder) await this.refreshFolderCounters(folder.id);
 
       // Repair folder lama: pembuat folder adalah pihak yang menindaklanjuti
       // disposisi, bukan pengirim akhir SDE Massal.
-      if (folder.parentNaskahId && folder.createdBy) {
+      if (syncFolder && folder.parentNaskahId && folder.createdBy) {
         await this.sirkulasiRepository.update(
           {
             idNaskah: folder.parentNaskahId,
@@ -573,15 +591,23 @@ export class SdeMasalService {
 
       // Kirim email otomatis ke alamat dari kolom Excel
       // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
-      await this.sendEmailForItem(
-        data.id,
-        recipient,
-        external,
-        pengirim,
-        folder,
-        creatorPosition,
-        persnum,
-      );
+      void sdeMasalEmailQueue
+        .add(() =>
+          this.sendEmailForItem(
+            data.id,
+            recipient,
+            external,
+            pengirim,
+            folder,
+            creatorPosition,
+            persnum,
+          ),
+        )
+        .catch((error) =>
+          this.logger.warn(
+            `[SDE Masal] Proses email lanjutan gagal untuk ${data.id}: ${error?.message || error}`,
+          ),
+        );
 
       return {
         naskahId: data.id,
@@ -592,7 +618,7 @@ export class SdeMasalService {
       item.statusVerifikasi = 'GAGAL';
       item.errorMessage = String(error?.message || error).slice(0, 500);
       await this.repo.save(item);
-      await this.refreshFolderCounters(folder.id);
+      if (syncFolder) await this.refreshFolderCounters(folder.id);
       throw error;
     }
   }
@@ -1018,6 +1044,43 @@ export class SdeMasalService {
       throw new BadRequestException('Tidak ada surat yang sudah disetujui dan siap dikirim');
     }
 
+    // Nomor surat harus dialokasikan lebih dulu dalam transaksi singkat. Jika
+    // lock nomor ikut ditahan selama PDF/BSrE, proses paralel akan saling
+    // menunggu dan sebagian item dapat gagal karena lock timeout.
+    const tanggal = folder.tanggal
+      ? new Date(folder.tanggal).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const itemsWithoutReservedNumber = eligibleItems.filter((item) => {
+      const recipient = this.parseRecipientData(item);
+      return !String(recipient[RESERVED_NOMOR_KEY] || '').trim();
+    });
+    if (itemsWithoutReservedNumber.length > 0) {
+      const reservedNumbers = await this.sdeService.reserveMassalNumbers(
+        itemsWithoutReservedNumber.map((item) => {
+          const recipient = this.parseRecipientData(item);
+          return {
+            pengirim: Number(folder.pengirimId),
+            tgl: tanggal,
+            klasifikasi: folder.klasifikasi || '',
+            perihal: recipient.perihal || '-',
+          };
+        }),
+      );
+      itemsWithoutReservedNumber.forEach((item, index) => {
+        const recipient = this.parseRecipientData(item);
+        recipient[RESERVED_NOMOR_KEY] = reservedNumbers[index];
+        item.recipientData = JSON.stringify(recipient);
+      });
+      await this.repo.save(itemsWithoutReservedNumber);
+    }
+
+    // Seluruh naskah dalam satu batch ditandatangani oleh user yang sama.
+    // Ambil NIK/no. WA sekali agar batch besar tidak memanggil HR API berulang.
+    const bsreUserData =
+      signOption === 'digsig' && persnum
+        ? await this.sdeService.getBsreUserDataForMassal(persnum)
+        : undefined;
+
     // Jalankan beberapa item secara paralel dengan batas global khusus SDE
     // Massal. Setiap item tetap punya transaksi, naskah, dan signature ID
     // sendiri; yang dipercepat hanya overlap proses I/O antar-item.
@@ -1030,6 +1093,8 @@ export class SdeMasalService {
             passphrase,
             creatorPosition,
             persnum,
+            false,
+            bsreUserData,
           ),
         ),
       ),
@@ -1052,8 +1117,23 @@ export class SdeMasalService {
 
     await this.refreshFolderCounters(folderId);
     if (success > 0) {
-      folder.rejectionReason = null;
-      await this.folderRepo.save(folder);
+      // Update hanya kolom alasan. Menyimpan objek `folder` yang dibaca sebelum
+      // finalisasi akan menimpa status TERKIRIM hasil refreshFolderCounters.
+      await this.folderRepo.update(
+        { id: folder.id },
+        { rejectionReason: null },
+      );
+
+      if (folder.parentNaskahId && folder.createdBy) {
+        await this.sirkulasiRepository.update(
+          {
+            idNaskah: folder.parentNaskahId,
+            position: String(folder.createdBy),
+            sirkuler: In(['penerima', 'tembusan']),
+          },
+          { tindakLanjut: 1 },
+        );
+      }
       await this.notifySdeMasalPositions([folder.createdBy], {
         title: 'SDE Massal Selesai Dikirim',
         body: `Folder "${folder.judul || '-'}" berhasil difinalisasi dan dikirim.`,
@@ -1185,7 +1265,7 @@ export class SdeMasalService {
       }
     }
     const [data, total] = await qb
-      .orderBy('folder.created_at', 'DESC')
+      .orderBy('folder.updated_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -2628,7 +2708,9 @@ export class SdeMasalService {
       if (Array.isArray(input)) return input.map((item) => normalize(item));
       if (input && typeof input === 'object') {
         return Object.keys(input)
-          .filter((key) => key !== 'lampiran')
+          .filter(
+            (key) => key !== 'lampiran' && key !== RESERVED_NOMOR_KEY,
+          )
           .sort()
           .reduce((result, key) => {
             result[key] = normalize(input[key]);
@@ -3089,12 +3171,14 @@ export class SdeMasalService {
     // Verifikator terakhir bukan otomatis pengirim; pada chain Direktur Teknik
     // → EVP → VP → AVP → Staff, EVP selesai memverifikasi lalu tugas final
     // berpindah ke Direktur Teknik untuk Tolak/Finalisasi.
-    // Jadikan waktu perubahan workflow sebagai waktu aktivitas folder. Ini
-    // penting ketika status folder tetap MENUNGGU_VERIFIKASI, tetapi giliran
-    // verifikator berpindah; daftar verifikasi harus menaruh aktivitas terbaru
-    // di urutan paling atas.
-    folder.updatedAt = new Date();
-    await this.folderRepo.save(folder);
+    // Jangan menyimpan ulang folder ketika statusnya tidak berubah. Method ini
+    // juga dipanggil saat detail dibuka; menyimpan tanpa perubahan akan
+    // memperbarui updatedAt dan membuat folder tiba-tiba naik ke urutan teratas.
+    // Jika status memang berubah karena aksi workflow, save tetap dilakukan
+    // agar waktu aktivitas folder ikut berubah secara valid.
+    if (folder.status !== previousStatus) {
+      await this.folderRepo.save(folder);
+    }
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
