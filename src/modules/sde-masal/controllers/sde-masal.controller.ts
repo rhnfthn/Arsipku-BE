@@ -586,12 +586,11 @@ export class SdeMasalController {
   }
 
   /**
-   * GET /sde-masal/naskah/:naskahId/preview-pdf — generate ulang preview
-   * naskah SDE Massal dari data Excel penerima.
+   * GET /sde-masal/naskah/:naskahId/preview-pdf
    *
-   * PDF final lama tidak diubah. Endpoint ini dipakai agar preview/print dari
-   * Terkirim tetap menampilkan seluruh placeholder, termasuk nama dan alamat,
-   * meskipun PDF historis dibuat sebelum data Excel dinormalisasi.
+   * Untuk BSrE endpoint mengirim file final asli agar signature tetap valid.
+   * Naskah non-BSrE dapat dirender dari data Excel penerima untuk menjaga
+   * seluruh placeholder tetap terisi pada preview/print Terkirim.
    */
   @Get('naskah/:naskahId/preview-pdf')
   async previewSentNaskah(
