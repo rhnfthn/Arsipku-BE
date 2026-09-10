@@ -72,6 +72,7 @@ export class RelationOaService {
         'om_area',
         'oa',
         `oa.area = o.area
+        AND oa.company = o.company
         AND :tgl BETWEEN oa.startDate AND oa.endDate`,
         { tgl },
       )
