@@ -169,6 +169,7 @@ describe('NaskahLainnyaService', () => {
           useValue: {
             emitNaskahLainnyaPersetujuanCount: jest.fn(),
             emitNaskahLainnyaLegalDraftingCount: jest.fn(),
+            emitNaskahLainnyaUpdated: jest.fn(),
           },
         },
         {
@@ -3860,6 +3861,44 @@ describe('NaskahLainnyaService', () => {
         nama: 'Penandatangan Delegasi',
         jabatan: `${positionStatus}. Direktur Operasi`,
       });
+    },
+  );
+
+  it.each(['PH', 'PT', 'PS'])(
+    'response timeline delegate %s tidak ditimpa kembali oleh identitas pejabat asli',
+    (positionStatus) => {
+      const tanggal = new Date('2026-09-10T08:00:00.000Z');
+      const result = (svc as any).mapRiwayatForResponse(
+        [
+          {
+            id: 'history-delegate',
+            aksi: 'setuju',
+            aktor: 'Penandatangan Delegasi',
+            jabatan: `${positionStatus}. Direktur Operasi`,
+            tahap: 'blanko_verbal',
+            status: 'verified',
+            tanggal,
+          },
+        ],
+        [
+          {
+            id: 'approval-delegate',
+            tahap: 'blanko_verbal_ditetapkan',
+            nama: 'Pejabat Asli',
+            jabatan: 'Direktur Operasi',
+            delegateName: 'Penandatangan Delegasi',
+            delegatePositionStatus: positionStatus,
+            tanggal,
+          },
+        ],
+      );
+
+      expect(result[0]).toEqual(
+        expect.objectContaining({
+          aktor: 'Penandatangan Delegasi',
+          jabatan: `${positionStatus}. Direktur Operasi`,
+        }),
+      );
     },
   );
 
