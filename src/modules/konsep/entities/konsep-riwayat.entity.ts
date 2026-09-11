@@ -67,6 +67,9 @@ export class KonsepRiwayatEntity {
   @Column({ type: 'text', nullable: true })
   catatan: string | null;
 
+  @Column({ type: 'text', nullable: true, name: 'perihal_snapshot' })
+  perihalSnapshot: string | null;
+
   @Column({
     type: 'varchar',
     length: 500,
