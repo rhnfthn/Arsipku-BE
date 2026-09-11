@@ -43,17 +43,17 @@ export class GrupPenerimaController {
    * GET /persuratan/grup-penerima?company=10000&jenis=SDI
    */
   @Get()
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   findAll(
     @Query('company') company?: string,
     @Query('tgl') tgl?: string,
     @Query('jenis') jenis?: string,
+    @Query('includeInactive') includeInactive?: string,
   ) {
     return this.grupPenerimaService.findAllWithPositionDetail(
       company,
       tgl,
       jenis,
+      includeInactive === 'true',
     );
   }
 
@@ -62,8 +62,6 @@ export class GrupPenerimaController {
    * Get single grup penerima with enriched position detail
    */
   @Get(':id')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   findOne(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.findOneWithPositionDetail(id, tgl);
   }
@@ -110,8 +108,6 @@ export class GrupPenerimaController {
    * Get members with enriched position detail from org_data
    */
   @Get(':id/members')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   getMembers(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.getMembersWithPositionDetail(id, tgl);
   }
