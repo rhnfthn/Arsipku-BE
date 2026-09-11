@@ -1534,6 +1534,14 @@ export class SdeMasalService {
     // position/persnum ke snapshot organisasi lalu gunakan label master
     // untuk menentukan jenjang dan menyimpan snapshot verifikator.
     const positions = await this.getLatestOrgPositions();
+    const selectedSender = positions.find(
+      (position) =>
+        String(position?.position ?? '').trim() ===
+        String(folder.pengirimId ?? '').trim(),
+    );
+    const selectedSenderRank = this.getVerificationRoleRank(
+      selectedSender?.position_text,
+    );
     const resolvedVerifikators = verifikators.map((item) => {
       const positionId = String(item?.position ?? item?.positionId ?? '').trim();
       const persnum = String(item?.persnum ?? item?.persnumPerson ?? '').trim();
@@ -1550,7 +1558,32 @@ export class SdeMasalService {
             jabatan: master.position_text || '-',
           }
         : { ...item, jabatan: '' };
+    }).filter((item) => {
+      const verifierPosition = String(
+        item?.position ?? item?.positionId ?? '',
+      ).trim();
+      const verifierRank = this.getVerificationRoleRank(
+        item?.jabatan || item?.positionText,
+      );
+
+      // Pengirim yang dipilih pada konsep tetap menjadi verifikator terakhir,
+      // kemudian menerima folder kembali sebagai penandatangan/final sender.
+      // Pejabat lain pada level yang sama atau lebih tinggi berada di luar
+      // batas chain disposisi dan tidak boleh ikut tersimpan.
+      if (verifierPosition === String(folder.pengirimId ?? '').trim()) {
+        return true;
+      }
+      return (
+        selectedSenderRank === null ||
+        verifierRank === null ||
+        verifierRank < selectedSenderRank
+      );
     });
+    if (resolvedVerifikators.length === 0) {
+      throw new BadRequestException(
+        'Chain verifikator tidak valid terhadap pengirim SDE Massal yang dipilih',
+      );
+    }
     const verifierRows = this.normalizeVerifikators(resolvedVerifikators);
     for (const item of rows) {
       item.verifikators = verifierRows;
