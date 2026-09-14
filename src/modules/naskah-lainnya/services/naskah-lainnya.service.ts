@@ -4377,6 +4377,13 @@ export class NaskahLainnyaService {
     // di section Dokumen. Saat paraf, file yang sama di-render ulang dengan visual
     // digsig para direksi yang sudah menyetujui.
     await this.dataSource.transaction(async (manager) => {
+      // Ganti template (mis. blanko verbal ditolak direksi → legal menyusun ulang
+      // dan memilih LPD): dokumen blanko verbal lama tidak lagi berlaku — hapus
+      // agar tidak muncul di section Dokumen / halaman selesai.
+      await manager.delete(NaskahLainnyaDokumenEntity, {
+        naskahId: n.id,
+        tipe: 'blanko_verbal_pdf',
+      });
       // Idempotent: hapus baris PD lama (re-kirim / recovery) lalu seed ulang.
       await manager.delete(NaskahLainnyaApprovalEntity, {
         naskahId: n.id,
@@ -4488,8 +4495,10 @@ export class NaskahLainnyaService {
     let newTahap = n.tahapan as Tahapan;
     await this.dataSource.transaction(async (manager) => {
       const historyActor = this.resolveSheetHistoryActor(row, user);
+      // approvalNote = catatan approver (riwayat approval saja); dto.catatan
+      // tetap catatan lembar/blanko dari form — jangan tertukar.
       newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
-        catatan: dto.catatan,
+        catatan: dto.approvalNote,
         aktor: historyActor.nama,
         jabatan: historyActor.jabatan,
         manager,
@@ -4684,6 +4693,13 @@ export class NaskahLainnyaService {
       diketahuiOleh,
     );
     await this.dataSource.transaction(async (manager) => {
+      // Ganti template (mis. LPD ditolak direksi → legal menyusun ulang dan
+      // memilih blanko verbal): dokumen LPD lama tidak lagi berlaku — hapus
+      // agar tidak muncul di section Dokumen / halaman selesai.
+      await manager.delete(NaskahLainnyaDokumenEntity, {
+        naskahId: n.id,
+        tipe: 'lembar_persetujuan_direksi_pdf',
+      });
       await manager.delete(NaskahLainnyaApprovalEntity, {
         naskahId: n.id,
         tahap: 'blanko_verbal_ditetapkan',
@@ -4772,8 +4788,10 @@ export class NaskahLainnyaService {
     let newTahap = n.tahapan as Tahapan;
     await this.dataSource.transaction(async (manager) => {
       const historyActor = this.resolveSheetHistoryActor(row, user);
+      // approvalNote = catatan approver (riwayat approval saja); dto.catatan
+      // tetap catatan lembar/blanko dari form — jangan tertukar.
       newTahap = await this.workflow.applyApproval(n, rows, row.id, 'setuju', {
-        catatan: dto.catatan,
+        catatan: dto.approvalNote,
         aktor: historyActor.nama,
         jabatan: historyActor.jabatan,
         manager,

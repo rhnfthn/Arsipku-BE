@@ -219,6 +219,11 @@ export class SheetDataDto {
   @IsString() @IsOptional() bodyHtml?: string;
   @IsString() @IsOptional() catatan?: string;
 
+  // Catatan approver direksi (paraf/tolak) — beda konteks dgn `catatan`
+  // (catatan lembar/blanko yang tercetak di template dokumen).
+  // approvalNote hanya masuk riwayat approval, TIDAK dirender ke template.
+  @IsString() @IsOptional() approvalNote?: string;
+
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
