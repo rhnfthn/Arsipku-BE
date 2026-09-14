@@ -95,7 +95,9 @@ export class NotificationService {
       // mencegah duplicate toast dan duplicate badge ketika beberapa jalur
       // workflow memanggil pengiriman notifikasi secara berdekatan.
       if (dto.data?.category === 'SDE_MASAL') {
-        const folderId = String(dto.data?.folderId || dto.data?.folder_id || '').trim();
+        const folderId = String(
+          dto.data?.folderId || dto.data?.folder_id || '',
+        ).trim();
         const status = String(dto.data?.status || '').trim();
         if (folderId && status) {
           const existing = await this.notificationRepository
@@ -400,7 +402,9 @@ export class NotificationService {
     queryBuilder.andWhere(`notification.body NOT REGEXP '^[0-9]+$'`);
 
     // Filter out NASKAH_SHARE_DIBUKA and DIGSIG_VERIFIKASI (verification check is synchronous user action, not a notification)
-    queryBuilder.andWhere("notification.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
+    queryBuilder.andWhere(
+      "notification.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')",
+    );
 
     if (typeof isRead === 'boolean') {
       queryBuilder.andWhere('notification.is_read = :isRead', { isRead });
@@ -471,10 +475,21 @@ export class NotificationService {
   async markAsRead(
     positionId: string,
     notificationId: string,
+    userPersnum?: number | null,
   ): Promise<NotificationEntity> {
-    const notification = await this.notificationRepository.findOne({
-      where: { id: notificationId, positionId },
-    });
+    const queryBuilder = this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.id = :notificationId', { notificationId })
+      .andWhere('(notification.position_id = :positionId', { positionId });
+
+    if (userPersnum != null) {
+      queryBuilder.orWhere('notification.user_persnum = :userPersnum', {
+        userPersnum,
+      });
+    }
+    queryBuilder.andWhere('1=1)'); // close paren
+
+    const notification = await queryBuilder.getOne();
 
     if (!notification) {
       throw new NotFoundException('Notification not found');
@@ -519,13 +534,21 @@ export class NotificationService {
   async markByNaskahAsRead(
     positionId: string,
     naskahId: string,
+    userPersnum?: number | null,
   ): Promise<number> {
-    if (!naskahId) return 0;
-
-    const notifications = await this.notificationRepository
+    // Cari semua notifikasi UNREAD yang berkaitan dengan naskah_id ini, milik user saat ini (via positionId atau userPersnum).
+    const queryBuilder = this.notificationRepository
       .createQueryBuilder('notification')
-      .where('notification.position_id = :positionId', { positionId })
-      .andWhere('notification.is_read = :isRead', { isRead: false })
+      .where('notification.is_read = :isRead', { isRead: 0 })
+      .andWhere('(notification.position_id = :positionId', { positionId });
+
+    if (userPersnum != null) {
+      queryBuilder.orWhere('notification.user_persnum = :userPersnum', {
+        userPersnum,
+      });
+    }
+    const notifications = await queryBuilder
+      .andWhere('1=1)') // close paren
       .andWhere(
         `(
           JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskahId')) = :naskahId
@@ -909,7 +932,7 @@ export class NotificationService {
     title: string;
     body: string;
   } {
-    const data = (dto.data || {}) as Record<string, any>;
+    const data = dto.data || {};
     const typeLabel = this.getTypeLabel(dto.type);
     const jenisLabel = this.getJenisLabel(String(data.jenis ?? ''));
     const senderName = String(data.pengirim ?? '').trim();
@@ -943,7 +966,12 @@ export class NotificationService {
     const isDisposisi =
       dto.type === NotificationType.DISPOSISI ||
       dto.type === NotificationType.DISPOSISI_SELESAI;
-    if (instruksi && !isDisposisi && instruksi !== '-' && instruksi !== perihal) {
+    if (
+      instruksi &&
+      !isDisposisi &&
+      instruksi !== '-' &&
+      instruksi !== perihal
+    ) {
       lines.push(`Instruksi: ${instruksi}`);
     }
     const nomor = String(data.nomor ?? '').trim();
