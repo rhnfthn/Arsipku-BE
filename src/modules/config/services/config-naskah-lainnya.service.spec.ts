@@ -17,7 +17,11 @@ describe('ConfigNaskahLainnyaService', () => {
     const res = await svc.findByJenis('PER');
     expect(res.jenisNaskah).toBe('PER');
     expect(res.butuhLegal).toBe(false);
+    expect(res.shareEnabled).toBe(false);
     expect(res.defaultKlasifikasi).toBeNull();
+
+    const edaran = await svc.findByJenis('EDR');
+    expect(edaran.shareEnabled).toBe(true);
   });
 
   it('findAll mengembalikan semua jenis, row tersimpan menimpa stub', async () => {
@@ -26,6 +30,7 @@ describe('ConfigNaskahLainnyaService', () => {
       {
         jenisNaskah: 'KEP',
         butuhLegal: true,
+        shareEnabled: true,
         defaultKlasifikasi: 'Biasa',
       } as any,
     ]);
@@ -34,6 +39,7 @@ describe('ConfigNaskahLainnyaService', () => {
     expect(all.length).toBe(19);
     const kep = all.find((r) => r.jenisNaskah === 'KEP');
     expect(kep?.butuhLegal).toBe(true);
+    expect(kep?.shareEnabled).toBe(true);
     const per = all.find((r) => r.jenisNaskah === 'PER');
     expect(per?.defaultKlasifikasi).toBeNull();
     // Kode baru hasil penyamaan dengan nama file template (template_naskah_mapping.md)
@@ -55,21 +61,25 @@ describe('ConfigNaskahLainnyaService', () => {
     const svc = new ConfigNaskahLainnyaService(repo as any);
     const saved = await svc.update('PER', {
       butuhLegal: true,
+      shareEnabled: true,
       defaultKlasifikasi: 'Penting',
     });
     expect(repo.save).toHaveBeenCalledWith(
       expect.objectContaining({
         jenisNaskah: 'PER',
         butuhLegal: true,
+        shareEnabled: true,
         defaultKlasifikasi: 'Penting',
       }),
     );
     expect(saved.butuhLegal).toBe(true);
+    expect(saved.shareEnabled).toBe(true);
 
     // Row sudah ada → properti tidak dikirim tidak tertimpa.
     repo.findOne.mockResolvedValue({
       jenisNaskah: 'PER',
       butuhLegal: true,
+      shareEnabled: true,
       defaultKlasifikasi: 'Penting',
     } as any);
     await svc.update('PER', { defaultKlasifikasi: '' });

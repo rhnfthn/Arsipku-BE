@@ -1,6 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 @Entity('legal_role')
+@Index('UQ_legal_role_first_recipient', ['isFirstRecipient'], {
+  unique: true,
+})
 export class LegalRoleEntity {
   @PrimaryGeneratedColumn('increment')
   id: number;
@@ -25,6 +35,11 @@ export class LegalRoleEntity {
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
+
+  // NULL untuk anggota biasa, TRUE hanya untuk satu penerima pertama.
+  // Unique index tetap mengizinkan banyak NULL tetapi mencegah dua TRUE.
+  @Column({ name: 'is_first_recipient', type: 'boolean', nullable: true })
+  isFirstRecipient: boolean | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
