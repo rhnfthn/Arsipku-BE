@@ -496,6 +496,52 @@ describe('WorkflowService', () => {
     expect(naskah.tahapan).toBe('selesai');
   });
 
+  it('applyApproval sheet baru: Direktur Pemrakarsa membuka seluruh Diketahui secara paralel, lalu Ditetapkan', async () => {
+    const naskah = {
+      id: 'n-sheet-three-groups',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'initiator-director',
+        tahap: 'blanko_verbal_pemrakarsa',
+        status: 'waiting',
+        urutan: 1,
+      },
+      { id: 'known-1', tahap: 'blanko_verbal', status: 'pending', urutan: 1 },
+      { id: 'known-2', tahap: 'blanko_verbal', status: 'pending', urutan: 2 },
+      {
+        id: 'established',
+        tahap: 'blanko_verbal_ditetapkan',
+        status: 'pending',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    await svc.applyApproval(naskah, rows, 'initiator-director', 'setuju', {
+      aktor: 'Direktur Pemrakarsa',
+      manager: manager as any,
+    });
+    expect(rows.slice(1, 3).every((row) => row.status === 'waiting')).toBe(
+      true,
+    );
+    expect(rows[3].status).toBe('pending');
+
+    await svc.applyApproval(naskah, rows, 'known-2', 'setuju', {
+      aktor: 'Direktur Dua',
+      manager: manager as any,
+    });
+    expect(rows[3].status).toBe('pending');
+
+    await svc.applyApproval(naskah, rows, 'known-1', 'setuju', {
+      aktor: 'Direktur Satu',
+      manager: manager as any,
+    });
+    expect(rows[3].status).toBe('waiting');
+  });
+
   it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
     const naskah = {
       id: 'n-reject',
