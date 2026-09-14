@@ -4110,6 +4110,7 @@ export class DisposisiService {
             position_text: pengirimSirkulasi.positionText || '',
             organization_text: pengirimSirkulasi.organizationText || '',
             nama: pengirimSirkulasi.namaSirkuler || null,
+            persnum: pengirimSirkulasi.idSirkuler || null,
           }
         : null;
 
@@ -4119,6 +4120,7 @@ export class DisposisiService {
         position_text: p.positionText || '',
         organization_text: p.organizationText || '',
         nama: p.namaSirkuler || null,
+        persnum: p.idSirkuler || null,
         status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));

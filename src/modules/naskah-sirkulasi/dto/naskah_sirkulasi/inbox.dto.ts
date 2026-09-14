@@ -130,6 +130,7 @@ export class InboxItemDto {
     position_text: string;
     organization_text: string;
     nama: string;
+    persnum?: number;
   };
 
   // Info Penerima (data user yang menerima - current user)
