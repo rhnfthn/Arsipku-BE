@@ -2276,6 +2276,10 @@ export class NaskahLainnyaService {
       n,
       aksi === 'setuju' || n.tahapan === 'legal_drafting',
     );
+    const userPosId = String(user.positionId ?? user.position ?? '');
+    if (userPosId) {
+      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
@@ -2434,6 +2438,10 @@ export class NaskahLainnyaService {
     });
     n.tahapan = next;
     await this.publishWorkflowUpdate(n, true);
+    const userPosId = String(user.positionId ?? user.position ?? '');
+    if (userPosId) {
+      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
@@ -4414,6 +4422,10 @@ export class NaskahLainnyaService {
       verifiedDitetapkanIndices,
     );
     await this.publishWorkflowUpdate(n, newTahap !== 'persetujuan_direksi');
+    const userPosId = String(user.positionId ?? user.position ?? '');
+    if (userPosId) {
+      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
@@ -4471,6 +4483,10 @@ export class NaskahLainnyaService {
       );
     });
     await this.publishWorkflowUpdate(n, true);
+    const tolakPosId = String(user.positionId ?? user.position ?? '');
+    if (tolakPosId) {
+      this.notificationService.markByNaskahAsRead(tolakPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
@@ -4662,6 +4678,10 @@ export class NaskahLainnyaService {
       verifiedDitetapkanIndices,
     );
     await this.publishWorkflowUpdate(n, newTahap !== 'blanko_verbal');
+    const userPosId = String(user.positionId ?? user.position ?? '');
+    if (userPosId) {
+      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
@@ -4747,6 +4767,10 @@ export class NaskahLainnyaService {
       );
     });
     await this.publishWorkflowUpdate(n, true);
+    const tolakPosId = String(user.positionId ?? user.position ?? '');
+    if (tolakPosId) {
+      this.notificationService.markByNaskahAsRead(tolakPosId, id).catch(() => {});
+    }
     return this.getDetail(id, user);
   }
 
