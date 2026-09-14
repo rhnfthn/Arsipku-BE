@@ -25,11 +25,22 @@ export class CreateNaskahShareDto {
   @IsString({ each: true })
   naskahIds?: string[];
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(50)
   @IsString({ each: true })
-  recipientIds: string[];
+  recipientIds?: string[];
+
+  /**
+   * ALL_EMPLOYEES hanya dipakai untuk penyebarluasan Surat Edaran dari halaman
+   * selesai. Daftar penerima diselesaikan di server agar browser tidak perlu
+   * memuat dan mengirim ribuan position id.
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(['SELECTED', 'ALL_EMPLOYEES'])
+  distributionScope?: 'SELECTED' | 'ALL_EMPLOYEES';
 
   @IsOptional()
   @IsString()
