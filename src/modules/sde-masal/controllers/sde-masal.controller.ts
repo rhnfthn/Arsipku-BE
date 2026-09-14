@@ -416,6 +416,11 @@ export class SdeMasalController {
         });
       }
 
+      // SDE massal hanya memiliki satu tanggal surat. `tanggal` dipertahankan
+      // untuk kompatibilitas payload lama, tetapi `tgl` menjadi sumber utama
+      // untuk resolver, header, dan generator PDF.
+      const tanggalSurat = String(body.tgl || body.tanggal || '').trim();
+
       let penerimaArray = body.tertuju || body.penerima || [];
       if (typeof penerimaArray === 'string') {
         try {
@@ -452,12 +457,12 @@ export class SdeMasalController {
         this.sdeMasalService.resolveTembusanForPreview(
           '',
           tembusanInternal || legacyTembusan,
-          body.tgl || body.tanggal,
+          tanggalSurat,
         ),
         this.sdeMasalService.resolveTembusanForPreview(
           tembusanEksternal || legacyTembusan,
           '',
-          body.tgl || body.tanggal,
+          tanggalSurat,
         ),
       ]);
 
@@ -489,7 +494,7 @@ export class SdeMasalController {
           area: user?.area,
           subArea: user?.subArea,
         },
-        body.tgl || body.tanggal,
+        tanggalSurat,
       );
 
       // Replace placeholder tembusan di htmlContent:
@@ -514,7 +519,7 @@ export class SdeMasalController {
         htmlContent,
         penerimaArray,
         headerInfo?.kota || body.nama_tempat || 'Tangerang',
-        body.tanggal || body.tgl || '',
+        tanggalSurat,
         body.nama_jabatan || user?.positionText || '',
         body.nama_lengkap || user?.nama || '',
         tembusanArray,
