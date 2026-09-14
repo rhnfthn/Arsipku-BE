@@ -31,6 +31,7 @@ export type JenisNaskahLainnya = (typeof JENIS_NASKAH_LAINNYA)[number];
 
 export interface UpdateNaskahLainnyaConfigDto {
   butuhLegal?: boolean;
+  shareEnabled?: boolean;
   defaultKlasifikasi?: string | null;
 }
 
@@ -43,7 +44,9 @@ export class ConfigNaskahLainnyaService {
 
   private assertJenis(jenis: string): asserts jenis is JenisNaskahLainnya {
     if (!JENIS_NASKAH_LAINNYA.includes(jenis as JenisNaskahLainnya)) {
-      throw new BadRequestException(`Jenis naskah lainnya tidak dikenal: ${jenis}`);
+      throw new BadRequestException(
+        `Jenis naskah lainnya tidak dikenal: ${jenis}`,
+      );
     }
   }
 
@@ -58,6 +61,7 @@ export class ConfigNaskahLainnyaService {
       stub.id = '';
       stub.jenisNaskah = jenis;
       stub.butuhLegal = false;
+      stub.shareEnabled = jenis === 'EDR' || jenis === 'KEP';
       stub.defaultKlasifikasi = null;
       return stub;
     });
@@ -72,25 +76,41 @@ export class ConfigNaskahLainnyaService {
     stub.id = '';
     stub.jenisNaskah = jenis;
     stub.butuhLegal = false;
+    stub.shareEnabled = jenis === 'EDR' || jenis === 'KEP';
     stub.defaultKlasifikasi = null;
     return stub;
   }
 
-  async update(jenis: string, dto: UpdateNaskahLainnyaConfigDto): Promise<ConfigNaskahLainnya> {
+  async update(
+    jenis: string,
+    dto: UpdateNaskahLainnyaConfigDto,
+  ): Promise<ConfigNaskahLainnya> {
     this.assertJenis(jenis);
-    if (dto.defaultKlasifikasi !== undefined && dto.defaultKlasifikasi !== null) {
+    if (
+      dto.defaultKlasifikasi !== undefined &&
+      dto.defaultKlasifikasi !== null
+    ) {
       const v = String(dto.defaultKlasifikasi).trim();
       if (v.length > 100) {
-        throw new BadRequestException('Default klasifikasi maksimal 100 karakter');
+        throw new BadRequestException(
+          'Default klasifikasi maksimal 100 karakter',
+        );
       }
       dto.defaultKlasifikasi = v || null;
     }
     let row = await this.repo.findOne({ where: { jenisNaskah: jenis } });
     if (!row) {
-      row = this.repo.create({ jenisNaskah: jenis, butuhLegal: false, defaultKlasifikasi: null });
+      row = this.repo.create({
+        jenisNaskah: jenis,
+        butuhLegal: false,
+        shareEnabled: jenis === 'EDR' || jenis === 'KEP',
+        defaultKlasifikasi: null,
+      });
     }
     if (dto.butuhLegal !== undefined) row.butuhLegal = !!dto.butuhLegal;
-    if (dto.defaultKlasifikasi !== undefined) row.defaultKlasifikasi = dto.defaultKlasifikasi || null;
+    if (dto.shareEnabled !== undefined) row.shareEnabled = !!dto.shareEnabled;
+    if (dto.defaultKlasifikasi !== undefined)
+      row.defaultKlasifikasi = dto.defaultKlasifikasi || null;
     return this.repo.save(row);
   }
 }
