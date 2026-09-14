@@ -119,12 +119,12 @@ export class WorkflowService {
       tahapan === 'persetujuan_lanjutan' || tahapan === 'evaluasi_final'
         ? 'evaluasi'
         : tahapan === 'selesai'
-        ? 'selesai'
-        : tahapan === 'persetujuan_direksi'
-          ? 'blanko_verbal'
-          : tahapan === 'tanda_tangan'
-            ? `tanda_tangan_${signingIndex ?? 1}`
-            : tahapan;
+          ? 'selesai'
+          : tahapan === 'persetujuan_direksi'
+            ? 'blanko_verbal'
+            : tahapan === 'tanda_tangan'
+              ? `tanda_tangan_${signingIndex ?? 1}`
+              : tahapan;
     // Recovery states (perlu_perbaikan/ditolak/dibatalkan) tidak ada di daftar step;
     // clamp ke 0 (konsep active) supaya tidak semua step render 'todo'.
     const activeIdx = Math.max(
@@ -138,11 +138,7 @@ export class WorkflowService {
     const skipLegalFlow = !butuhLegal || signOption === 'ttd_basah';
     const isSkip = (key: string) =>
       skipLegalFlow &&
-      [
-        'legal_drafting',
-        'evaluasi',
-        'blanko_verbal',
-      ].includes(key);
+      ['legal_drafting', 'evaluasi', 'blanko_verbal'].includes(key);
 
     const mapped = all
       .map((s, i) => {
@@ -324,22 +320,23 @@ export class WorkflowService {
     // pada tahap yang sama sudah verified.
     const isDireksiTahap =
       row.tahap === 'persetujuan_direksi' ||
+      row.tahap === 'persetujuan_direksi_pemrakarsa' ||
       row.tahap === 'persetujuan_direksi_ditetapkan' ||
       row.tahap === 'blanko_verbal' ||
+      row.tahap === 'blanko_verbal_pemrakarsa' ||
       row.tahap === 'blanko_verbal_ditetapkan';
     if (isDireksiTahap) {
       const t = naskah.tahapan as Tahapan;
       const N = this.effectiveSignerCount(naskah);
       const signingIndex = naskah.signingIndex ?? 1;
-      const logicalTahap =
-        row.tahap === 'persetujuan_direksi_ditetapkan'
-          ? 'persetujuan_direksi'
-          : row.tahap === 'blanko_verbal_ditetapkan'
-            ? 'blanko_verbal'
-            : row.tahap;
+      const logicalTahap = row.tahap.startsWith('persetujuan_direksi')
+        ? 'persetujuan_direksi'
+        : 'blanko_verbal';
       const logicalTahapRows = rows.filter(
         (r) =>
-          r.tahap === logicalTahap || r.tahap === `${logicalTahap}_ditetapkan`,
+          r.tahap === logicalTahap ||
+          r.tahap === `${logicalTahap}_pemrakarsa` ||
+          r.tahap === `${logicalTahap}_ditetapkan`,
       );
       row.status = aksi === 'setuju' ? 'verified' : 'rejected';
       row.catatan = ctx.catatan ?? row.catatan;
@@ -373,14 +370,26 @@ export class WorkflowService {
         return next;
       }
 
-      // Kedua pilihan template pada step Blanko Verbal berjalan berurutan per
-      // kelompok: seluruh Diketahui Oleh selesai lebih dulu, baru kelompok
-      // Ditetapkan/Disahkan diaktifkan.
+      // Tiga kelompok berjalan berurutan: Direktur Pemrakarsa lebih dulu,
+      // lalu seluruh Diketahui Oleh secara paralel, terakhir Ditetapkan/Disahkan.
       if (
         (logicalTahap === 'blanko_verbal' ||
           logicalTahap === 'persetujuan_direksi') &&
-        row.tahap === logicalTahap
+        row.tahap === `${logicalTahap}_pemrakarsa`
       ) {
+        const pemrakarsaRows = logicalTahapRows.filter(
+          (r) => r.tahap === `${logicalTahap}_pemrakarsa`,
+        );
+        if (pemrakarsaRows.every((r) => r.status === 'verified')) {
+          for (const r of logicalTahapRows) {
+            if (r.tahap === logicalTahap && r.status === 'pending') {
+              r.status = 'waiting';
+              await ctx.manager.save(r);
+            }
+          }
+        }
+      }
+      if (row.tahap === logicalTahap) {
         const diketahuiRows = logicalTahapRows.filter(
           (r) => r.tahap === logicalTahap,
         );
@@ -595,9 +604,14 @@ export class WorkflowService {
       tahapan: next,
       signingIndex: next === 'selesai' ? null : idx + 1,
     };
-    if (next === 'selesai' && naskah.signOption === 'ttd_basah') {
-      patch.status = 'pending';
-      naskah.status = 'pending';
+    if (next === 'selesai') {
+      patch.status =
+        naskah.signOption === 'ttd_basah'
+          ? 'pending'
+          : naskah.signOption === 'digsig'
+            ? 'final_tte'
+            : 'final';
+      naskah.status = patch.status;
     }
     naskah.tahapan = next;
     naskah.signingIndex = patch.signingIndex as number | null;

@@ -645,6 +645,7 @@ export class NaskahSirkulasiService {
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
         pengirim.nama_sirkuler as pengirim_nama,
+        pengirim.id_sirkuler as pengirim_persnum,
         s.position as penerima_position_id,
         s.id_sirkuler as penerima_persnum,
         s.nama_sirkuler as penerima_nama,
@@ -747,6 +748,7 @@ export class NaskahSirkulasiService {
           position_text: row.pengirim_position_text || '',
           organization_text: row.pengirim_organization_text || '',
           nama: row.pengirim_nama || '',
+          persnum: parseInt(row.pengirim_persnum || '0', 10),
         },
         penerima: {
           position_id: row.penerima_position_id || '',
@@ -1582,6 +1584,7 @@ export class NaskahSirkulasiService {
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
         s.nama_sirkuler as pengirim_nama,
+        s.id_sirkuler as pengirim_persnum,
         s.flag_favorit,
         s.flag_note,
         s.note_text,
@@ -1698,6 +1701,7 @@ export class NaskahSirkulasiService {
       position_text: p.position_text || '',
       organization_text: p.organization_text || '',
       nama: p.nama || null,
+      persnum: p.persnum ? parseInt(p.persnum, 10) || 0 : 0,
       status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
       read_time: p.send_read_time || null,
       is_tindak_lanjut: p.tindak_lanjut === 1,
@@ -1907,6 +1911,7 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
+            id_sirkuler as persnum,
             send_read_time,
             tindak_lanjut
           FROM naskah_sirkulasi
@@ -1926,6 +1931,7 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
+            id_sirkuler as persnum,
             send_read_time,
             tindak_lanjut
           FROM naskah_sirkulasi
@@ -2022,6 +2028,7 @@ export class NaskahSirkulasiService {
           position_text: row.pengirim_position_text || '',
           organization_text: row.pengirim_organization_text || '',
           nama: row.pengirim_nama || null,
+          persnum: parseInt(row.pengirim_persnum || '0', 10),
         },
         penerima,
         tembusan,
@@ -2783,6 +2790,7 @@ export class NaskahSirkulasiService {
           (SELECT position_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_text,
           (SELECT organization_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_organization_text,
           (SELECT nama_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_nama,
+          (SELECT id_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_persnum,
           
           s.position as my_position_id,
           s.id_sirkuler as my_persnum,
@@ -2824,6 +2832,7 @@ export class NaskahSirkulasiService {
           s.position_text as pengirim_position_text,
           s.organization_text as pengirim_organization_text,
           s.nama_sirkuler as pengirim_nama,
+          s.id_sirkuler as pengirim_persnum,
 
           NULL as my_position_id,
           NULL as my_persnum,
@@ -2969,6 +2978,7 @@ export class NaskahSirkulasiService {
             position_text: row.pengirim_position_text || '',
             organization_text: row.pengirim_organization_text || '',
             nama: row.pengirim_nama || '',
+            persnum: parseInt(row.pengirim_persnum || '0', 10),
           },
           penerima: {
             position_id: row.my_position_id || '',

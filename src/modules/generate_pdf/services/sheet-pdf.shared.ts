@@ -37,6 +37,7 @@ export interface SheetPdfData {
   catatan?: string;
   directors: DirectorSlot[]; // daftar BOD untuk slot tanda tangan/paraf sheet
   ditetapkanOleh?: SheetDirectorSlot[];
+  direkturPemrakarsa?: SheetDirectorSlot[];
   diketahuiOleh?: DirectorSlot[];
   verifiedIndices: Set<number>; // slot yang sudah paraf → QR di-render
 }
