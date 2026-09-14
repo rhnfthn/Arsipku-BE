@@ -114,6 +114,7 @@ export class SirkulasiInfoDto {
   position_text: string;
   organization_text: string;
   nama: string | null;
+  persnum?: number;
 }
 
 /**
@@ -124,6 +125,7 @@ export class PenerimaWithStatusDto {
   position_text: string;
   organization_text: string;
   nama: string | null;
+  persnum?: number;
   status_baca: 'terbaca' | 'belum_terbaca';
   read_time: Date | null;
   is_tindak_lanjut?: boolean;
