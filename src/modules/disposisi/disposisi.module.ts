@@ -42,6 +42,7 @@ import { CorrespondenceRoutingRuleScope } from '../correspondence-routing/entiti
 import { NaskahRoutingApplied } from '../correspondence-routing/entities/naskah-routing-applied.entity';
 import { CorrespondenceRoutingResolverService } from '../correspondence-routing/services/correspondence-routing-resolver.service';
 import { RoutingConfigCacheService } from '../correspondence-routing/services/routing-config-cache.service';
+import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { RoutingConfigCacheService } from '../correspondence-routing/services/ro
       CorrespondenceRoutingRule,
       CorrespondenceRoutingRuleScope,
       NaskahRoutingApplied,
+      DelegasiEntity,
     ]),
     OrgDataModule,
     StorageModule,
