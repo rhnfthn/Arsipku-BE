@@ -98,3 +98,52 @@ export interface AirNavRefreshResponse {
   refreshToken: string;
   expireToken: string;
 }
+
+export interface AirNavOidcTokenData {
+  accessToken: string;
+  refreshToken: string;
+  tokenType?: string;
+  expiresIn: number;
+  refreshTokenExpiresAt?: string;
+  idToken?: string;
+  scope?: string;
+}
+
+export interface AirNavOidcTokenWireData {
+  access_token?: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  refresh_token_expires_at?: string;
+  id_token?: string;
+  scope?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenType?: string;
+  expiresIn?: number;
+  refreshTokenExpiresAt?: string;
+  idToken?: string;
+}
+
+export interface AirNavOidcTokenResponse extends AirNavOidcTokenWireData {
+  success?: boolean;
+  data?: AirNavOidcTokenWireData;
+}
+
+export interface AirNavOidcUserInfo {
+  sub: string;
+  name?: string;
+  fullname?: string;
+  username?: string;
+  preferred_username?: string;
+  email: string | null;
+  employee_no: string | null;
+  is_admin?: boolean;
+  groups?: string[];
+  application?: {
+    code: string;
+    name: string;
+    client_id: string;
+    image_app: string | null;
+  };
+}
