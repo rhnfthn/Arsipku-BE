@@ -9,14 +9,9 @@ import { EksternalEntity } from '../eksternal/entities/eksternal.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { SuratDinasEksternalModule } from '../surat-dinas-eksternal/surat-dinas-eksternal.module';
 import { StorageModule } from '../storage/storage.module';
+import { NotificationModule } from '../notification/notification.module';
 import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
 
-/**
- * Module SDE Masal (Surat Dinas Eksternal Massal).
- *
- * Fitur untuk mengirim banyak SDE sekaligus melalui upload file Excel.
- * Tidak mengubah logic bisnis utama modul korespondensi.
- */
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -29,6 +24,7 @@ import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
     OrgDataModule,
     SuratDinasEksternalModule,
     StorageModule,
+    NotificationModule,
   ],
   controllers: [SdeMasalController],
   providers: [SdeMasalService],

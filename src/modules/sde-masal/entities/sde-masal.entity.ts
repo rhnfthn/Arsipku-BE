@@ -7,22 +7,6 @@ import {
   Index,
 } from 'typeorm';
 
-/**
- * Entity untuk tabel `sde_masal` (versi ramping sesuai perombakan SDE Masal).
- *
- * SDE Masal = SDE biasa × N. Setiap baris = 1 surat SDE lengkap yang
- * dibuat saat finalize. Field surat (perihal, konten, nomor, tanggal,
- * klasifikasi, sifat, pengirim, dll) disimpan di tabel `naskah`.
- * Field penerima/tembusan disimpan di `naskah_sirkulasi`.
- * Metadata yang sama untuk semua surat disimpan di `sde_masal_folder`.
- * Variabel dinamis dari Excel disimpan di `recipient_data` (JSON) dan
- * di-render ke `naskah.konten` saat finalize.
- *
- * Sisa field inti:
- *  id, folder_id, recipient_data, naskah_id,
- *  status_verifikasi, verifikators, current_verifikator_urutan,
- *  submitted_at, error_message, created_at, updated_at.
- */
 @Entity('sde_masal')
 export class SdeMasalEntity {
   @PrimaryGeneratedColumn('uuid')
