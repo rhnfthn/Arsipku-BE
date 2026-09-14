@@ -27,7 +27,6 @@ import { VerifyTokenDto } from '../dto/verify-token.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
 import { SwitchProfileDto } from '../dto/switch-profile.dto';
-import { OidcCodeExchangeDto } from '../dto/oidc-code-exchange.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
@@ -91,72 +90,6 @@ export class AuthController {
     const finalUrl = `${baseUrl}/?redirect_uri=${encoded}`;
 
     return { url: finalUrl, statusCode: 302 };
-  }
-
-  @Public()
-  @Get('oidc/config')
-  @ApiOperation({ summary: 'Konfigurasi publik client OIDC AirNav Auth' })
-  getOidcConfig() {
-    return this.authService.getOidcClientConfig();
-  }
-
-  @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ auth: { limit: 20, ttl: 60000 } })
-  @Post('oidc/exchange')
-  @ApiOperation({
-    summary: 'Tukar authorization code OIDC menjadi sesi ArsipKu',
-  })
-  async exchangeOidcCode(
-    @Body() dto: OidcCodeExchangeDto,
-    @Req() req: Request,
-  ) {
-    const userAgent = req.headers['user-agent'];
-    const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
-    return this.authService.loginWithOidcCode(
-      dto.code,
-      dto.codeVerifier,
-      userAgent,
-      ip,
-    );
-  }
-
-  @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ auth: { limit: 20, ttl: 60000 } })
-  @Post('oidc/refresh')
-  @ApiOperation({ summary: 'Refresh sesi OIDC ArsipKu dengan token rotation' })
-  async refreshOidc(@Body() dto: RefreshTokenDto, @Req() req: Request) {
-    const bearer = req.headers.authorization || '';
-    const appToken = bearer.startsWith('Bearer ') ? bearer.slice(7) : '';
-    if (!appToken) {
-      throw new UnauthorizedException('Authorization token required');
-    }
-    const result = await this.authService.refreshOidcWithSession(
-      dto.sessionId,
-      appToken,
-    );
-    return {
-      message: result.message,
-      accessToken: result.accessToken,
-      expiredToken: result.expiredToken,
-      sessionId: result.sessionId,
-      user: result.payloadRefresh,
-    };
-  }
-
-  @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ auth: { limit: 20, ttl: 60000 } })
-  @Post('oidc/logout')
-  @ApiOperation({ summary: 'Revoke sesi AirNav Auth dan hapus sesi ArsipKu' })
-  async logoutOidc(@Body() dto: RefreshTokenDto, @Req() req: Request) {
-    const bearer = req.headers.authorization || '';
-    const appToken = bearer.startsWith('Bearer ') ? bearer.slice(7) : '';
-    if (!appToken) {
-      throw new UnauthorizedException('Authorization token required');
-    }
-    return this.authService.logoutOidcSession(dto.sessionId, appToken);
   }
 
   /**
