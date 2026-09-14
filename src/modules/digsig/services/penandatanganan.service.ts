@@ -411,6 +411,12 @@ export class PenandatangananService {
         );
       }
 
+      // Mark unread notification for the signer on this document as read
+      const signerPosId = signer.positionId ? String(signer.positionId) : '0';
+      this.notificationService
+        .markByNaskahAsRead(signerPosId, document.id, persnum)
+        .catch(() => {});
+
       return {
         success: true,
         message: 'Dokumen berhasil ditandatangani',
@@ -532,8 +538,13 @@ export class PenandatangananService {
       apiEndpoint: 'REJECT_DOCUMENT',
       action: 'sign',
       status: 'gagal',
-      note: `Dokumen ditolak: ${dto.alasan}`,
     });
+
+    // Mark unread notification for the signer on this document as read
+    const signerPosId = signer.positionId ? String(signer.positionId) : '0';
+    this.notificationService
+      .markByNaskahAsRead(signerPosId, document.id, persnum)
+      .catch(() => {});
 
     return {
       success: true,
