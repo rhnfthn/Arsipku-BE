@@ -149,6 +149,7 @@ export class DisposisiController {
       return await this.disposisiService.getDisposisiDetail(
         id,
         String(user.position),
+        user?.persnum ? Number(user.persnum) : undefined,
       );
     } catch (error) {
       if (error instanceof HttpException) {
@@ -1536,6 +1537,7 @@ export class DisposisiController {
       return await this.disposisiService.unsetPriority(
         id,
         String(user.position),
+        user?.persnum ? Number(user.persnum) : undefined,
       );
     } catch (error) {
       if (error instanceof HttpException) {
