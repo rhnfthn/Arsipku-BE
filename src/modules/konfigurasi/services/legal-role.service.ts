@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LegalRoleEntity } from '../entities/legal-role.entity';
@@ -18,6 +22,7 @@ export interface LegalPerson {
   level: number;
   chief: boolean;
   isActive: boolean;
+  isFirstRecipient: boolean;
   /** Aktor pengganti dari delegasi PT/PH/PS yang masih aktif. */
   isDelegasi?: boolean;
   positionStatus?: PositionStatus | null;
@@ -47,7 +52,7 @@ export class LegalRoleService {
         : orgData.organization_json;
 
     // Walk tree, collect all persons under unit 10002099
-    const persons: Omit<LegalPerson, 'isActive'>[] = [];
+    const persons: Omit<LegalPerson, 'isActive' | 'isFirstRecipient'>[] = [];
     const walk = (node: any) => {
       if (!node) return;
       // Cek apakah node ini atau ancestor-nya adalah unit Legal
@@ -128,21 +133,41 @@ export class LegalRoleService {
 
     // Merge: jika ada di legal_role, pakai isActive dari sana.
     // Jika belum ada, default isActive = true.
-    return persons.map((p) => {
+    const merged = persons.map((p) => {
       const delegasi = delegasiMap.get(p.positionId);
+      const role = roleMap.get(p.positionId);
       return {
         ...p,
         // Aktor PT/PH/PS yang aktif harus menjadi tujuan approval. Fallback ke
         // penghuni definitif/(kosong) bila tidak ada delegasi aktif.
         persnum: delegasi?.as_persnum ? Number(delegasi.as_persnum) : p.persnum,
         nama: delegasi?.as_name?.trim() || p.nama,
-        isActive: roleMap.has(p.positionId)
-          ? roleMap.get(p.positionId)!.isActive
-          : true,
+        isActive: role ? role.isActive : true,
+        isFirstRecipient: !!role?.isFirstRecipient,
         isDelegasi: !!delegasi,
         positionStatus: delegasi?.position_status ?? null,
       };
     });
+
+    // Instalasi lama belum memiliki pilihan tersimpan. Agar workflow tidak
+    // terhenti setelah migrasi, anggota aktif teratas menjadi fallback dinamis.
+    const configuredFirst = merged.find(
+      (person) => person.isActive && person.isFirstRecipient,
+    );
+    const fallbackFirst = [...merged]
+      .filter((person) => person.isActive)
+      .sort(
+        (a, b) =>
+          Number(b.chief) - Number(a.chief) || Number(a.level) - Number(b.level),
+      )[0];
+    const effectiveFirstPositionId =
+      configuredFirst?.positionId ?? fallbackFirst?.positionId;
+
+    return merged.map((person) => ({
+      ...person,
+      isFirstRecipient:
+        person.isActive && person.positionId === effectiveFirstPositionId,
+    }));
   }
 
   /**
@@ -174,8 +199,67 @@ export class LegalRoleService {
         isActive: false,
       });
     }
+    if (!role.isActive && person.isFirstRecipient) {
+      role.isFirstRecipient = null;
+    }
     await this.legalRoleRepo.save(role);
+
+    // Jika penerima pertama dinonaktifkan, pindahkan otomatis ke anggota aktif
+    // berikutnya supaya entry point Legal Drafting tidak kosong.
+    if (!role.isActive && person.isFirstRecipient) {
+      const nextRecipient = all.find(
+        (candidate) =>
+          candidate.positionId !== positionId && candidate.isActive,
+      );
+      if (nextRecipient) {
+        await this.setFirstRecipient(nextRecipient.positionId);
+      }
+    }
     return { positionId, isActive: role.isActive };
+  }
+
+  async setFirstRecipient(
+    positionId: string,
+  ): Promise<{ positionId: string; isFirstRecipient: true }> {
+    const all = await this.findAll();
+    const person = all.find((item) => item.positionId === positionId);
+    if (!person) {
+      throw new NotFoundException('Personil Unit Legal tidak ditemukan.');
+    }
+    if (!person.isActive) {
+      throw new BadRequestException(
+        'Penerima pertama harus merupakan personil yang aktif.',
+      );
+    }
+
+    await this.legalRoleRepo.manager.transaction(async (manager) => {
+      await manager.update(
+        LegalRoleEntity,
+        { isFirstRecipient: true },
+        { isFirstRecipient: null },
+      );
+
+      let role = await manager.findOne(LegalRoleEntity, {
+        where: { positionId },
+      });
+      if (!role) {
+        role = manager.create(LegalRoleEntity, {
+          positionId,
+          persnum: person.persnum,
+          nama: person.nama,
+          jabatan: person.jabatan,
+          unitId: person.unitId,
+          unitName: person.unitName,
+          isActive: true,
+          isFirstRecipient: true,
+        });
+      } else {
+        role.isFirstRecipient = true;
+      }
+      await manager.save(role);
+    });
+
+    return { positionId, isFirstRecipient: true };
   }
 
   /**

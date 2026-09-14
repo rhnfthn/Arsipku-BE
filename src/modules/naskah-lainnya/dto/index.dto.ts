@@ -229,6 +229,12 @@ export class SheetDataDto {
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => SheetDirectorDto)
+  direkturPemrakarsa?: SheetDirectorDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SheetDirectorDto)
   diketahuiOleh?: SheetDirectorDto[];
 
   // FE SheetFormModel mengirim alamatInfo (kantor/gedung/kota/alamat dari data

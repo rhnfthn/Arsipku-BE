@@ -190,6 +190,66 @@ describe('NaskahLainnyaService', () => {
     svc = mod.get(NaskahLainnyaService);
   });
 
+  it('memetakan Direktur Pemrakarsa dari pejabat tertinggi approval awal, bukan konseptor pengirim', async () => {
+    orgDataMock.findLatestOrg.mockResolvedValueOnce({
+      position_json: [
+        {
+          position: '70016786',
+          persnum_person: '10010105',
+          direktorat_id: '10002094',
+          company: '10000',
+          bod_tag: 'BOD-1',
+        },
+        {
+          position: '70016582',
+          position_text: 'Direktur Teknik',
+          persnum_person: '10099172',
+          persnum_person_text: 'ZAINAL ARIFIN HARAHAP',
+          direktorat_id: '10002094',
+          company: '10000',
+          bod_tag: 'BOD',
+        },
+      ],
+    } as any);
+    const identity = (svc as any).buildSheetInitiatorIdentity(
+      {
+        dikirimOleh: {
+          position_id: '70017167',
+          persnum: '10010593',
+          nama: 'ARYA BIMA SETYANTORO',
+        },
+      },
+      [
+        {
+          tahap: 'persetujuan',
+          urutan: 2,
+          positionId: '70016786',
+          nama: 'MADE GEDE NUGRAHA DEWANTARA',
+        },
+      ],
+    );
+    const director = await (svc as any).resolveInitiatorDirector(
+      [
+        {
+          positionId: '70016582',
+          persnum: 10099172,
+          nama: 'ZAINAL ARIFIN HARAHAP',
+          jabatan: 'Direktur Teknik',
+        },
+      ],
+      identity,
+    );
+
+    expect(identity.position_id).toBe('70016786');
+    expect(director).toEqual(
+      expect.objectContaining({
+        positionId: '70016582',
+        nama: 'ZAINAL ARIFIN HARAHAP',
+        jabatan: 'Direktur Teknik',
+      }),
+    );
+  });
+
   it('getDetail mengembalikan shape kontrak (dokumen, approval, riwayat, stepper, availableActions)', async () => {
     const naskahRepo = ((await svc) as any).naskahRepo;
     naskahRepo.findOne.mockResolvedValue({
@@ -523,8 +583,10 @@ describe('NaskahLainnyaService', () => {
     expect(Object.keys(res.data.approvalByTahap)).toEqual([
       'legal_drafting',
       'persetujuan_direksi',
+      'persetujuan_direksi_pemrakarsa',
       'persetujuan_direksi_ditetapkan',
       'blanko_verbal',
+      'blanko_verbal_pemrakarsa',
       'blanko_verbal_ditetapkan',
     ]);
     expect(res.data.approvalByTahap.persetujuan_direksi).toHaveLength(1);
@@ -1331,6 +1393,63 @@ describe('NaskahLainnyaService', () => {
       .map((c: any[]) => c[0])
       .filter((s): s is string => typeof s === 'string');
     expect(calls.some((s) => s.includes('NOT EXISTS'))).toBe(false);
+  });
+
+  it('getLegalDrafting: naskah awal hanya muncul untuk penerima pertama', async () => {
+    const legalRole = (svc as any).legalRoleService as any;
+    legalRole.getActivePositionIds.mockResolvedValue([
+      'POS_FIRST',
+      'POS_OTHER',
+    ]);
+    legalRole.findAll.mockResolvedValue([
+      {
+        positionId: 'POS_FIRST',
+        isActive: true,
+        isFirstRecipient: true,
+      },
+      {
+        positionId: 'POS_OTHER',
+        isActive: true,
+        isFirstRecipient: false,
+      },
+    ]);
+    const qb = makeQb([
+      {
+        id: 'n-first-recipient',
+        nomor: 'PER.2',
+        jenis: 'PER',
+        tahapan: 'legal_drafting',
+        butuhLegal: true,
+        perihal: 'Perlu Legal Drafting',
+        tanggal: new Date('2026-09-14'),
+        createdAt: new Date('2026-09-14'),
+      },
+    ]);
+    (svc as any).naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+    const result = await svc.getLegalDrafting(
+      { positionId: 'POS_OTHER', nama: 'Legal Lain' } as any,
+      'belum-dikirim',
+    );
+
+    expect(result.data).toEqual([]);
+  });
+
+  it('menolak proses awal Legal Drafting dari anggota selain penerima pertama', () => {
+    expect(() =>
+      (svc as any).assertFirstLegalRecipient({ positionId: 'POS_OTHER' }, [
+        {
+          positionId: 'POS_FIRST',
+          isActive: true,
+          isFirstRecipient: true,
+        },
+        {
+          positionId: 'POS_OTHER',
+          isActive: true,
+          isFirstRecipient: false,
+        },
+      ]),
+    ).toThrow('ditujukan kepada penerima pertama');
   });
 
   it('getLegalDrafting: status=menunggu → base query, tanpa sub-filter EXISTS waiting', async () => {
@@ -3440,10 +3559,15 @@ describe('NaskahLainnyaService', () => {
     const savedDitetapkan = (txManager.save as jest.Mock).mock.calls
       .map((c) => c[0])
       .filter((e: any) => e.tahap === 'persetujuan_direksi_ditetapkan');
+    const savedPemrakarsa = (txManager.save as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .filter((e: any) => e.tahap === 'persetujuan_direksi_pemrakarsa');
     expect(savedApprovals).toHaveLength(2);
     expect(savedDitetapkan).toHaveLength(1);
+    expect(savedPemrakarsa).toHaveLength(1);
+    expect(savedPemrakarsa[0].status).toBe('waiting');
     expect(savedApprovals.map((a: any) => a.urutan)).toEqual([1, 2]);
-    expect(savedApprovals.every((a: any) => a.status === 'waiting')).toBe(true);
+    expect(savedApprovals.every((a: any) => a.status === 'pending')).toBe(true);
     expect(workflowMock.transisi).not.toHaveBeenCalled();
     expect(res.success).toBe(true);
   });
@@ -3545,7 +3669,7 @@ describe('NaskahLainnyaService', () => {
         positionId: 'POS_DIR1',
         nama: 'Delegasi Operasi',
         jabatan: 'Direktur Operasi',
-        status: 'waiting',
+        status: 'pending',
       }),
     );
     expect(savedDitetapkan).toHaveLength(1);
@@ -3837,13 +3961,10 @@ describe('NaskahLainnyaService', () => {
       expect.anything(),
       expect.objectContaining({ tahapan: 'legal_drafting' }),
     );
-    expect(txManager.delete).toHaveBeenCalledWith(
-      NaskahLainnyaApprovalEntity,
-      {
-        naskahId: 'n-sheet',
-        tahap: 'legal_drafting',
-      },
-    );
+    expect(txManager.delete).toHaveBeenCalledWith(NaskahLainnyaApprovalEntity, {
+      naskahId: 'n-sheet',
+      tahap: 'legal_drafting',
+    });
     expect(res.success).toBe(true);
   });
 
@@ -3878,10 +3999,15 @@ describe('NaskahLainnyaService', () => {
     const savedDitetapkan = (txManager.save as jest.Mock).mock.calls
       .map((c) => c[0])
       .filter((e: any) => e.tahap === 'blanko_verbal_ditetapkan');
+    const savedPemrakarsa = (txManager.save as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .filter((e: any) => e.tahap === 'blanko_verbal_pemrakarsa');
     expect(savedApprovals).toHaveLength(2);
     expect(savedDitetapkan).toHaveLength(1);
+    expect(savedPemrakarsa).toHaveLength(1);
+    expect(savedPemrakarsa[0].status).toBe('waiting');
     expect(savedApprovals.map((a: any) => a.urutan)).toEqual([1, 2]);
-    expect(savedApprovals.every((a: any) => a.status === 'waiting')).toBe(true);
+    expect(savedApprovals.every((a: any) => a.status === 'pending')).toBe(true);
     expect(savedDitetapkan.every((a: any) => a.status === 'pending')).toBe(
       true,
     );
