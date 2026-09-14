@@ -99,9 +99,11 @@ export class NotificationController {
   @ApiOperation({ summary: 'Mark notification as read' })
   async markAsRead(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     const positionId = this.getPositionId(user);
+    const userPersnum = this.getUserPersnum(user);
     const notification = await this.notificationService.markAsRead(
       positionId,
       id,
+      userPersnum,
     );
 
     return {
@@ -113,15 +115,17 @@ export class NotificationController {
 
   @Patch('naskah/:naskahId/read')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark notifications related to a naskah as read' })
+  @ApiOperation({ summary: 'Mark unread notifications for a naskah as read' })
   async markByNaskahAsRead(
     @Param('naskahId') naskahId: string,
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
+    const userPersnum = this.getUserPersnum(user);
     const count = await this.notificationService.markByNaskahAsRead(
       positionId,
       naskahId,
+      userPersnum,
     );
 
     return {
@@ -212,7 +216,9 @@ export class NotificationController {
    */
   @Post('test-push')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Send real test notification (10010105 → 10099233)' })
+  @ApiOperation({
+    summary: 'Send real test notification (10010105 → 10099233)',
+  })
   async testPush(
     @Body()
     body: {
