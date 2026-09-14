@@ -889,6 +889,14 @@ export class TuVerifikasiService {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
     }
 
+    // Auto-mark notification as read for the approver
+    try {
+      const userPos = user.position ? String(user.position) : '0';
+      this.notificationService
+        .markByNaskahAsRead(userPos, saved.id, Number(user.persnum))
+        .catch(() => {});
+    } catch (_) {}
+
     return saved;
   }
 
@@ -947,6 +955,14 @@ export class TuVerifikasiService {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
     }
 
+    // Auto-mark notification as read for the rejector
+    try {
+      const userPos = user.position ? String(user.position) : '0';
+      this.notificationService
+        .markByNaskahAsRead(userPos, saved.id, Number(user.persnum))
+        .catch(() => {});
+    } catch (_) {}
+
     return saved;
   }
 
@@ -1004,6 +1020,14 @@ export class TuVerifikasiService {
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error).message}`);
     }
+
+    // Auto-mark notification as read for the approver
+    try {
+      const userPos = user.position ? String(user.position) : '0';
+      this.notificationService
+        .markByNaskahAsRead(userPos, saved.id, Number(user.persnum))
+        .catch(() => {});
+    } catch (_) {}
 
     return saved;
   }
