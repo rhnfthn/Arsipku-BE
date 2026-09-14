@@ -1364,6 +1364,12 @@ export class UsulanAksesBerkasService {
       this.logger.warn(`Failed to send persetujuanPemberi notification: ${err?.message}`);
     }
 
+    try {
+      this.notificationService
+        .markByNaskahAsRead('0', saved.id, userPersnum)
+        .catch(() => {});
+    } catch (_) {}
+
     return saved;
   }
 
