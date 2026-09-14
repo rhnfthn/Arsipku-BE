@@ -77,6 +77,7 @@ import type {
 } from '../../correspondence-routing/services/correspondence-routing-resolver.service';
 import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
 import { NaskahRoutingApplied } from '../../correspondence-routing/entities/naskah-routing-applied.entity';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -169,6 +170,8 @@ export class DisposisiService {
     private readonly qrCodeService: QRCodeService,
     private readonly digsigService: DigsigService,
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
+    @InjectRepository(DelegasiEntity)
+    private readonly delegasiRepository: Repository<DelegasiEntity>,
     @Optional()
     private readonly correspondenceRoutingResolver?: CorrespondenceRoutingResolverService,
   ) {}
@@ -1932,6 +1935,14 @@ export class DisposisiService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Mark unread notification for the sender on the original/referenced naskah as read
+      const refNaskahId = dto.id_referensi_naskah;
+      if (refNaskahId && dto.pengirim_position_id) {
+        this.notificationService
+          .markByNaskahAsRead(String(dto.pengirim_position_id), refNaskahId)
+          .catch(() => {});
+      }
 
       // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
       for (const send of pendingNotifications) {
@@ -3878,6 +3889,16 @@ export class DisposisiService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Mark unread notification for the forwarder on the received naskah as read
+      if (dto.id_naskah_diterima && dto.pengirim_position_id) {
+        this.notificationService
+          .markByNaskahAsRead(
+            String(dto.pengirim_position_id),
+            dto.id_naskah_diterima,
+          )
+          .catch(() => {});
+      }
+
       this.naskahSirkulasiRepository
         .findOne({
           where: {
@@ -3959,6 +3980,7 @@ export class DisposisiService {
   async getDisposisiDetail(
     naskahId: string,
     userPosition: string,
+    userPersnum?: number | string | null,
   ): Promise<any> {
     // Get naskah data
     const naskah = await this.naskahRepository.findOne({
@@ -3975,7 +3997,11 @@ export class DisposisiService {
       throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
     }
 
-    await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+    await this.assertUserHasAccessToNaskah(
+      naskahId,
+      userPosition,
+      userPersnum,
+    );
 
     // ============================================================
     // BUILD ANCESTOR CHAIN (scoped: root -> naskah yang dilihat)
@@ -4217,7 +4243,11 @@ export class DisposisiService {
    * @param naskahId - ID Naskah Disposisi
    * @returns Respons dengan status update
    */
-  async unsetPriority(naskahId: string, userPosition: string): Promise<any> {
+  async unsetPriority(
+    naskahId: string,
+    userPosition: string,
+    userPersnum?: number | string | null,
+  ): Promise<any> {
     try {
       // Check if naskah exists dan merupakan DI
       const naskah = await this.naskahRepository.findOne({
@@ -4228,7 +4258,11 @@ export class DisposisiService {
         throw new NotFoundException('Disposisi tidak ditemukan');
       }
 
-      await this.assertUserHasAccessToNaskah(naskahId, userPosition);
+      await this.assertUserHasAccessToNaskah(
+        naskahId,
+        userPosition,
+        userPersnum,
+      );
 
       // Find DI record
       const di = await this.diRepository.findOne({
@@ -4261,11 +4295,25 @@ export class DisposisiService {
     }
   }
 
+  /**
+   * Verifikasi bahwa user (berdasarkan positionId atau delegasi aktif) memiliki
+   * akses ke naskah.
+   *
+   * Logika:
+   * 1. Cek langsung via `naskah_sirkulasi.position == userPosition`.
+   * 2. Jika tidak ada akses langsung DAN `userPersnum` tersedia, cek apakah
+   *    user memiliki entri delegasi aktif (as_persnum == userPersnum) yang
+   *    memberikan akses ke posisi yang memiliki naskah tersebut.
+   *    Ini memungkinkan user ME (mode akun pribadi) mengakses notifikasi
+   *    disposisi yang ditujukan ke posisi yang ia delegasikan.
+   */
   private async assertUserHasAccessToNaskah(
     naskahId: string,
     userPosition: string,
+    userPersnum?: number | string | null,
   ): Promise<void> {
-    const access = await this.naskahSirkulasiRepository.findOne({
+    // Step 1: Direct position check
+    const directAccess = await this.naskahSirkulasiRepository.findOne({
       where: {
         idNaskah: naskahId,
         position: String(userPosition),
@@ -4275,8 +4323,37 @@ export class DisposisiService {
       },
     });
 
-    if (!access) {
-      throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
+    if (directAccess) return;
+
+    // Step 2: Delegation fallback — only if userPersnum is provided
+    if (userPersnum != null) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Cari sirkulasi yang terkait naskah ini, lalu cek apakah userPersnum
+      // adalah pemegang delegasi aktif (as_persnum) untuk posisi tersebut.
+      const sirkulasiRows = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: naskahId },
+        select: { position: true },
+      });
+
+      const positions = sirkulasiRows.map((s) => s.position);
+
+      if (positions.length > 0) {
+        const delegasi = await this.delegasiRepository
+          .createQueryBuilder('d')
+          .where('d.as_persnum = :persnum', {
+            persnum: String(userPersnum),
+          })
+          .andWhere('d.as_position IN (:...positions)', { positions })
+          .andWhere('d.start_date <= :today', { today })
+          .andWhere('d.end_date >= :today', { today })
+          .getOne();
+
+        if (delegasi) return;
+      }
     }
+
+    throw new ForbiddenException('Anda tidak memiliki akses ke naskah ini');
   }
 }
