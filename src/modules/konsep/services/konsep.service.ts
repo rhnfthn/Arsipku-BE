@@ -3248,6 +3248,25 @@ export class KonsepService {
       // agar bisa mencari pembuat konsep asli (untuk fitur turunkan)
       const allRiwayat = [...riwayatList];
 
+      // Persnum penerima disimpan sebagai snapshot pada sirkulasi masing-masing
+      // naskah K. Ambil sekaligus supaya flow dan riwayat memakai sumber yang
+      // sama tanpa query per node.
+      const konsepPenerimaSirkulasi =
+        konsepIds.length > 0
+          ? await this.naskahSirkulasiRepository.find({
+              where: {
+                idNaskah: In(konsepIds),
+                sirkuler: 'penerima',
+              },
+            })
+          : [];
+      const penerimaPersnumByKonsepPosition = new Map(
+        konsepPenerimaSirkulasi.map((sirkulasi) => [
+          `${sirkulasi.idNaskah}:${sirkulasi.position}`,
+          sirkulasi.idSirkuler || null,
+        ]),
+      );
+
       // ponytail: leak X konsep — batasi trail K workflow (flow) ke urutan <=
       // node yang dilihat (viewed). Tampil history yang membentuk titik ini
       // (ancestor/origin); aksi SETELAHnya (downstream, termasuk forward user
@@ -3398,6 +3417,7 @@ export class KonsepService {
                 position_text: pengirimDI.positionText || '',
                 organization_text: pengirimDI.organizationText || '',
                 nama: pengirimDI.namaSirkuler || null,
+                persnum: pengirimDI.idSirkuler || null,
               }
             : null,
 
@@ -3406,6 +3426,7 @@ export class KonsepService {
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
             nama: p.namaSirkuler || null,
+            persnum: p.idSirkuler || null,
             status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
             read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
           })),
@@ -3415,6 +3436,7 @@ export class KonsepService {
             position_text: t.positionText || '',
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
+            persnum: t.idSirkuler || null,
           })),
           penerima_grup: penerimaGrupInfoDI,
           tembusan_grup: tembusanGrupInfoDI,
@@ -3564,6 +3586,7 @@ export class KonsepService {
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
             nama: p.namaSirkuler || null,
+            persnum: p.idSirkuler || null,
             status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
             read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
           }));
@@ -3572,6 +3595,7 @@ export class KonsepService {
             position_text: t.positionText || '',
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
+            persnum: t.idSirkuler || null,
           }));
         } else if (riwayat.toPositionId) {
           penerimaNode = [
@@ -3580,6 +3604,10 @@ export class KonsepService {
               position_text: riwayat.toPositionText || '',
               organization_text: '',
               nama: riwayat.toNama || null,
+              persnum:
+                penerimaPersnumByKonsepPosition.get(
+                  `${naskahRef.id}:${riwayat.toPositionId}`,
+                ) ?? null,
             },
           ];
         }
@@ -3590,6 +3618,8 @@ export class KonsepService {
               pengirim: pengirimAsli
                 ? {
                     position_id: pengirimAsli.position || '',
+                    id_sirkuler: pengirimAsli.idSirkuler || null,
+                    persnum: pengirimAsli.idSirkuler || null,
                     position_text: pengirimAsli.positionText || '',
                     organization_text: pengirimAsli.organizationText || '',
                     nama: pengirimAsli.namaSirkuler || null,
@@ -3598,6 +3628,7 @@ export class KonsepService {
               penerima: penerimaAsliList.map((p) => ({
                 position_id: p.position || '',
                 id_sirkuler: p.idSirkuler || null,
+                persnum: p.idSirkuler || null,
                 position_text: p.positionText || '',
                 organization_text: p.organizationText || '',
                 nama: p.namaSirkuler || null,
@@ -3607,6 +3638,7 @@ export class KonsepService {
               tembusan: tembusanAsliList.map((t) => ({
                 position_id: t.position || '',
                 id_sirkuler: t.idSirkuler || null,
+                persnum: t.idSirkuler || null,
                 position_text: t.positionText || '',
                 organization_text: t.organizationText || '',
                 nama: t.namaSirkuler || null,
@@ -3628,9 +3660,7 @@ export class KonsepService {
           // Jangan memakai naskahAsli lebih dulu karena record tersebut terus
           // diperbarui dan akan membuat seluruh riwayat menampilkan perihal terbaru.
           perihal:
-            riwayat.perihalSnapshot ??
-            naskahAsli?.perihal ??
-            naskahRef.perihal,
+            riwayat.perihalSnapshot ?? naskahAsli?.perihal ?? naskahRef.perihal,
           konten: naskahAsli?.konten ?? null,
           sifat: naskahAsli?.sifat ?? naskahRef.sifat,
           klasifikasi: naskahAsli?.klasifikasi ?? naskahRef.klasifikasi,
@@ -3644,6 +3674,7 @@ export class KonsepService {
             position_text: riwayat.fromPositionText || '',
             organization_text: '',
             nama: riwayat.fromNama || null,
+            persnum: riwayat.createdBy || null,
           },
 
           penerima: penerimaNode,
@@ -3720,12 +3751,14 @@ export class KonsepService {
                 position_text: pengirimAsli.positionText || '',
                 organization_text: pengirimAsli.organizationText || '',
                 nama: pengirimAsli.namaSirkuler || null,
+                persnum: pengirimAsli.idSirkuler || null,
               }
             : null,
 
           penerima: penerimaAsliList.map((p) => ({
             position_id: p.position || '',
             id_sirkuler: p.idSirkuler || null,
+            persnum: p.idSirkuler || null,
             position_text: p.positionText || '',
             organization_text: p.organizationText || '',
             nama: p.namaSirkuler || null,
@@ -3735,6 +3768,7 @@ export class KonsepService {
           tembusan: tembusanAsliList.map((t) => ({
             position_id: t.position || '',
             id_sirkuler: t.idSirkuler || null,
+            persnum: t.idSirkuler || null,
             position_text: t.positionText || '',
             organization_text: t.organizationText || '',
             nama: t.namaSirkuler || null,
@@ -3793,6 +3827,12 @@ export class KonsepService {
             aksi: r.aksi,
             fromPositionId: r.fromPositionId,
             toPositionId: r.toPositionId,
+            fromPersnum: r.createdBy || null,
+            toPersnum: r.toPositionId
+              ? (penerimaPersnumByKonsepPosition.get(
+                  `${r.idNaskahKonsep}:${r.toPositionId}`,
+                ) ?? null)
+              : null,
             catatan: r.catatan,
             createdBy: r.createdBy,
             createdAt: r.createdAt,
@@ -4397,6 +4437,16 @@ export class KonsepService {
         order: { urutan: 'ASC' },
       });
 
+      const penerimaSirkulasi = await this.naskahSirkulasiRepository.find({
+        where: { idNaskah: id, sirkuler: 'penerima' },
+      });
+      const penerimaPersnumByPosition = new Map(
+        penerimaSirkulasi.map((sirkulasi) => [
+          String(sirkulasi.position),
+          sirkulasi.idSirkuler || null,
+        ]),
+      );
+
       // Convert pdf_snapshot paths to URLs
       const riwayatWithUrls = await Promise.all(
         riwayatList.map(async (r) => {
@@ -4413,12 +4463,16 @@ export class KonsepService {
               position_id: r.fromPositionId,
               position_text: r.fromPositionText,
               nama: r.fromNama,
+              persnum: r.createdBy || null,
             },
             to: r.toPositionId
               ? {
                   position_id: r.toPositionId,
                   position_text: r.toPositionText,
                   nama: r.toNama,
+                  persnum:
+                    penerimaPersnumByPosition.get(String(r.toPositionId)) ??
+                    null,
                 }
               : null,
             aksi: r.aksi,
@@ -4768,10 +4822,7 @@ export class KonsepService {
       });
       tanggal = parentNaskah?.tanggal ?? new Date();
 
-      if (
-        perihalSnapshotInput === undefined &&
-        parentNaskah?.id_naskah_asli
-      ) {
+      if (perihalSnapshotInput === undefined && parentNaskah?.id_naskah_asli) {
         const naskahAsli = await queryRunner.manager.findOne(NaskahEntity, {
           where: { id: parentNaskah.id_naskah_asli },
           select: { perihal: true },
