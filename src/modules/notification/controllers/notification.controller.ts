@@ -119,9 +119,11 @@ export class NotificationController {
     @CurrentUser() user: JwtPayload,
   ) {
     const positionId = this.getPositionId(user);
+    const userPersnum = this.getUserPersnum(user);
     const count = await this.notificationService.markByNaskahAsRead(
       positionId,
       naskahId,
+      userPersnum,
     );
 
     return {

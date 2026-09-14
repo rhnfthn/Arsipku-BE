@@ -33,6 +33,15 @@ export class RegisterFcmTokenDto {
   @IsString()
   @IsNotEmpty({ message: 'deviceId is required' })
   deviceId: string;
+
+  @ApiPropertyOptional({
+    description: 'Active position ID at the time of registration (re-sent on switchRole)',
+    example: '12345',
+  })
+  @IsOptional()
+  @Transform(({ obj }) => obj.positionId || obj.position_id || null)
+  @IsString()
+  positionId?: string | null;
 }
 
 export class RemoveFcmTokenDto {
