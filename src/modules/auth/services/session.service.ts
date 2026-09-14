@@ -79,26 +79,6 @@ export class SessionService {
   }
 
   /**
-   * Ganti pasangan token OIDC hanya jika refresh token lama masih aktif.
-   * Kondisi ini mencegah dua instance backend menyimpan hasil rotation berbeda.
-   */
-  async rotateOidcTokens(
-    sessionId: string,
-    previousRefreshToken: string,
-    data: {
-      airnavAccessToken: string;
-      airnavRefreshToken: string;
-      airnavExpiredAt: Date;
-    },
-  ): Promise<boolean> {
-    const result = await this.sessionRepo.update(
-      { id: sessionId, airnavRefreshToken: previousRefreshToken },
-      data,
-    );
-    return result.affected === 1;
-  }
-
-  /**
    * Delete expired sessions (cleanup)
    */
   async deleteExpiredSessions(): Promise<void> {
