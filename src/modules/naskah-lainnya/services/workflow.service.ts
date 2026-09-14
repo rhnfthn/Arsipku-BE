@@ -604,9 +604,14 @@ export class WorkflowService {
       tahapan: next,
       signingIndex: next === 'selesai' ? null : idx + 1,
     };
-    if (next === 'selesai' && naskah.signOption === 'ttd_basah') {
-      patch.status = 'pending';
-      naskah.status = 'pending';
+    if (next === 'selesai') {
+      patch.status =
+        naskah.signOption === 'ttd_basah'
+          ? 'pending'
+          : naskah.signOption === 'digsig'
+            ? 'final_tte'
+            : 'final';
+      naskah.status = patch.status;
     }
     naskah.tahapan = next;
     naskah.signingIndex = patch.signingIndex as number | null;

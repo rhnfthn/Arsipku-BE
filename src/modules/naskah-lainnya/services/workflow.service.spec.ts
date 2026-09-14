@@ -1041,6 +1041,7 @@ describe('WorkflowService', () => {
       id: 's2',
       tahapan: 'tanda_tangan',
       signingIndex: 2,
+      signOption: 'qr_only',
       penandatanganChain: [
         { nama: 'A', jabatan: 'X' },
         { nama: 'B', jabatan: 'Y' },
@@ -1055,6 +1056,37 @@ describe('WorkflowService', () => {
     });
     expect(naskah.tahapan).toBe('selesai');
     expect(naskah.signingIndex).toBeNull();
+    expect(naskah.status).toBe('final');
+    expect(manager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.any(Object),
+      expect.objectContaining({ status: 'final' }),
+    );
+  });
+
+  it('transisiTandaTangan terakhir digsig menyimpan status final_tte', async () => {
+    const naskah = {
+      id: 's-digsig',
+      tahapan: 'tanda_tangan',
+      signingIndex: 1,
+      signOption: 'digsig',
+      penandatanganChain: [{ nama: 'A', jabatan: 'X' }],
+      tanggal: new Date('2026-08-18'),
+    } as any;
+    const manager = { save: jest.fn(), update: jest.fn() };
+
+    await svc.transisiTandaTangan(naskah, {
+      aktor: 'A',
+      jabatan: 'X',
+      manager: manager as any,
+    });
+
+    expect(naskah.status).toBe('final_tte');
+    expect(manager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.any(Object),
+      expect.objectContaining({ status: 'final_tte' }),
+    );
   });
 
   it('buildAvailableActions tanda_tangan hanya menyediakan tanda tangan atau tolak ke legal', async () => {
