@@ -90,6 +90,39 @@ export class NotificationService {
       const pushTitle = display.title;
       const pushBody = display.body;
 
+      // Satu perubahan workflow SDE Massal hanya boleh menghasilkan satu
+      // notifikasi aktif untuk posisi/folder/status yang sama. Guard ini
+      // mencegah duplicate toast dan duplicate badge ketika beberapa jalur
+      // workflow memanggil pengiriman notifikasi secara berdekatan.
+      if (dto.data?.category === 'SDE_MASAL') {
+        const folderId = String(dto.data?.folderId || dto.data?.folder_id || '').trim();
+        const status = String(dto.data?.status || '').trim();
+        if (folderId && status) {
+          const existing = await this.notificationRepository
+            .createQueryBuilder('notification')
+            .where('notification.position_id = :positionId', {
+              positionId: dto.positionId,
+            })
+            .andWhere('notification.is_read = :isRead', { isRead: false })
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = :category`,
+              { category: 'SDE_MASAL' },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId`,
+              { folderId },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.status')) = :status`,
+              { status },
+            )
+            .orderBy('notification.created_at', 'DESC')
+            .getOne();
+
+          if (existing) return existing;
+        }
+      }
+
       const notification = this.notificationRepository.create({
         id: uuidv4(),
         positionId: dto.positionId,
@@ -171,10 +204,16 @@ export class NotificationService {
           saved,
         );
         const unread = await this.getUnreadCount(saved.positionId);
+        const sdeMasalUnread = await this.getUnreadCount(
+          saved.positionId,
+          saved.userPersnum,
+          'SDE_MASAL',
+        );
         this.notificationGateway.emitUnreadCount(
           saved.positionId,
           saved.userPersnum,
           unread,
+          sdeMasalUnread,
         );
         await this.emitInboxCountIfNeeded(saved);
       } catch (err: any) {
@@ -444,6 +483,7 @@ export class NotificationService {
   async getUnreadCount(
     positionId: string,
     userPersnum?: number | null,
+    category?: string,
   ): Promise<number> {
     const persuratanTypes = [
       NotificationType.NASKAH_MASUK,
@@ -470,6 +510,12 @@ export class NotificationService {
       .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
       .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
       .andWhere("n.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
+    if (category) {
+      qb.andWhere(
+        `JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.category')) = :category`,
+        { category },
+      );
+    }
     return qb.getCount();
   }
 
@@ -501,10 +547,16 @@ export class NotificationService {
         saved.id,
       );
       const unread = await this.getUnreadCount(saved.positionId);
+      const sdeMasalUnread = await this.getUnreadCount(
+        saved.positionId,
+        saved.userPersnum,
+        'SDE_MASAL',
+      );
       this.notificationGateway.emitUnreadCount(
         saved.positionId,
         saved.userPersnum,
         unread,
+        sdeMasalUnread,
       );
     } catch (err: any) {
       this.logger.warn(`⚠️ [markAsRead] WS emit failed: ${err?.message}`);
@@ -571,10 +623,82 @@ export class NotificationService {
         );
       }
       const unread = await this.getUnreadCount(positionId);
-      this.notificationGateway.emitUnreadCount(positionId, null, unread);
+      const sdeMasalUnread = await this.getUnreadCount(
+        positionId,
+        null,
+        'SDE_MASAL',
+      );
+      this.notificationGateway.emitUnreadCount(
+        positionId,
+        null,
+        unread,
+        sdeMasalUnread,
+      );
     } catch (err: any) {
       this.logger.warn(
         `⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`,
+      );
+    }
+
+    return notifications.length;
+  }
+
+  async markBySdeMasalFolderAsRead(
+    positionId: string,
+    folderId: string,
+  ): Promise<number> {
+    if (!folderId) return 0;
+
+    const notifications = await this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.position_id = :positionId', { positionId })
+      .andWhere('notification.is_read = :isRead', { isRead: false })
+      // Notifikasi SDE Massal dikirim sebagai type SYSTEM; kategorinya
+      // disimpan di payload data.category.
+      .andWhere(
+        `(
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = 'SDE_MASAL'
+          AND
+          (
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folder_id')) = :folderId
+          )
+        )`,
+        { folderId },
+      )
+      .getMany();
+
+    if (notifications.length === 0) return 0;
+
+    const readAt = new Date();
+    await this.notificationRepository.update(
+      { id: In(notifications.map((notification) => notification.id)) },
+      { isRead: true, readAt },
+    );
+
+    try {
+      for (const notification of notifications) {
+        this.notificationGateway.emitRead(
+          notification.positionId,
+          notification.userPersnum,
+          notification.id,
+        );
+      }
+      const unread = await this.getUnreadCount(positionId);
+      const sdeMasalUnread = await this.getUnreadCount(
+        positionId,
+        null,
+        'SDE_MASAL',
+      );
+      this.notificationGateway.emitUnreadCount(
+        positionId,
+        null,
+        unread,
+        sdeMasalUnread,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [markBySdeMasalFolderAsRead] WS emit failed: ${err?.message}`,
       );
     }
 
@@ -595,7 +719,7 @@ export class NotificationService {
     // Emit realtime
     try {
       this.notificationGateway.emitReadAll(positionId, null);
-      this.notificationGateway.emitUnreadCount(positionId, null, 0);
+      this.notificationGateway.emitUnreadCount(positionId, null, 0, 0);
     } catch (err: any) {
       this.logger.warn(`⚠️ [markAllAsRead] WS emit failed: ${err?.message}`);
     }
@@ -621,7 +745,17 @@ export class NotificationService {
       try {
         this.notificationGateway.emitDeleted(positionId, null, notificationId);
         const unread = await this.getUnreadCount(positionId);
-        this.notificationGateway.emitUnreadCount(positionId, null, unread);
+        const sdeMasalUnread = await this.getUnreadCount(
+          positionId,
+          null,
+          'SDE_MASAL',
+        );
+        this.notificationGateway.emitUnreadCount(
+          positionId,
+          null,
+          unread,
+          sdeMasalUnread,
+        );
       } catch (err: any) {
         this.logger.warn(
           `⚠️ [deleteNotification] WS emit failed: ${err?.message}`,
