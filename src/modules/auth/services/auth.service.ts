@@ -191,12 +191,14 @@ export class AuthService {
       console.log(res.data);
       airnavResponse = res.data;
     } catch (err) {
+      console.error("AirNav login error:", err.message);
       throw new UnauthorizedException({
         error: 'Failed to login to AirNav',
+        message: err.message, // Send actual error message to mobile
         details: {
-          message: err.message,
           status: err.response?.status,
           data: err.response?.data,
+          stack: err.stack,
         },
       });
     }
