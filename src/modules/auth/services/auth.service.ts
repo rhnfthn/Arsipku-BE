@@ -769,9 +769,14 @@ export class AuthService {
           ignoreExpiration: true,
         });
       } catch {
-        throw new UnauthorizedException('Application token tidak valid');
+        // Token aplikasi dapat menjadi stale setelah restart/deploy atau saat
+        // pengguna berpindah antara instance lokal dan server. Sesi Auth v2
+        // (cookie HttpOnly) adalah sumber kebenaran yang sudah diverifikasi di
+        // atas, jadi token lama tidak boleh membuat sesi valid ikut logout.
+        // Bangun payload baru dari data sesi setelah refresh provider selesai.
+        previousPayload = undefined;
       }
-      if (previousPayload.persnum !== appSession.userPersnum) {
+      if (previousPayload && previousPayload.persnum !== appSession.userPersnum) {
         throw new UnauthorizedException('Token tidak terkait dengan sesi');
       }
     }
