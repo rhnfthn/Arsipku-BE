@@ -2314,10 +2314,13 @@ export class SdeMasalService {
     const recipient = this.normalizeMassalRecipient(
       this.parseRecipientData(item),
     );
-    const tanggal = naskah.tanggal
-      ? new Date(naskah.tanggal).toISOString().slice(0, 10)
-      : folder.tanggal
-        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+    // Tanggal folder adalah tanggal konsep yang dipilih user dan menjadi
+    // sumber kanonik untuk preview maupun PDF final. Fallback ke tanggal
+    // naskah hanya untuk data lama yang belum memiliki tanggal folder.
+    const tanggal = folder.tanggal
+      ? new Date(folder.tanggal).toISOString().slice(0, 10)
+      : naskah.tanggal
+        ? new Date(naskah.tanggal).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10);
 
     const tembusanEksternal = String(
