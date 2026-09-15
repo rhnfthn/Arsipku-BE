@@ -607,6 +607,15 @@ export class AuthService {
         'Transaksi login tidak ditemukan atau sudah kedaluwarsa',
       );
     }
+    // Pending session hanya boleh dipakai dalam window singkat (10 menit).
+    // Tanpa ini, sesi pending lama bisa dipakai menyelesaikan login basi.
+    const PENDING_TTL_MS = 10 * 60 * 1000;
+    if (Date.now() - pending.createdAt > PENDING_TTL_MS) {
+      await this.oidcSessionService.delete(pendingSessionId);
+      throw new UnauthorizedException(
+        'Transaksi login sudah kedaluwarsa, silakan login ulang',
+      );
+    }
     if (!safeStateEquals(pending.state, state)) {
       throw new BadRequestException('State callback tidak valid');
     }
@@ -776,7 +785,10 @@ export class AuthService {
         // Bangun payload baru dari data sesi setelah refresh provider selesai.
         previousPayload = undefined;
       }
-      if (previousPayload && previousPayload.persnum !== appSession.userPersnum) {
+      if (
+        previousPayload &&
+        previousPayload.persnum !== appSession.userPersnum
+      ) {
         throw new UnauthorizedException('Token tidak terkait dengan sesi');
       }
     }
