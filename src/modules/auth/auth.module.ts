@@ -16,6 +16,8 @@ import { DelegasiModule } from '../delegasi/delegasi.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
 import { KonfigurasiModule } from '../konfigurasi/konfigurasi.module';
+import { AirnavAuthV2Client } from './clients/airnav-auth-v2.client';
+import { OidcSessionService } from './services/oidc-session.service';
 
 @Module({
   imports: [
@@ -39,7 +41,13 @@ import { KonfigurasiModule } from '../konfigurasi/konfigurasi.module';
       inject: [ConfigService],
     }),
   ],
-  providers: [SessionService, AuthService, JwtStrategy],
+  providers: [
+    SessionService,
+    OidcSessionService,
+    AirnavAuthV2Client,
+    AuthService,
+    JwtStrategy,
+  ],
   controllers: [AuthController],
   exports: [SessionService, AuthService, JwtModule],
 })

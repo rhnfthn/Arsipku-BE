@@ -59,7 +59,7 @@ describe('AiController', () => {
       }),
     );
     app.useGlobalInterceptors(new TransformResponseInterceptor(reflector));
-    app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
+    app.useGlobalFilters(new HttpExceptionFilter(), new AllExceptionsFilter());
     await app.init();
   });
 
