@@ -24,9 +24,24 @@ import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { isDelegatedActor } from '../../../common/helpers/delegasi-rendering.helper';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
+import { AirnavAuthV2Client } from '../clients/airnav-auth-v2.client';
+import type {
+  OidcServerSession,
+  OidcUserInfo,
+} from '../interfaces/oidc.interface';
+import { OidcSessionService } from './oidc-session.service';
+import {
+  generateCodeChallenge,
+  generateCodeVerifier,
+  generateOidcSessionId,
+  generateOidcState,
+  safeStateEquals,
+} from '../utils/pkce.util';
 
 @Injectable()
 export class AuthService {
+  private readonly oidcRefreshRequests = new Map<string, Promise<any>>();
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly httpService: HttpService,
@@ -38,6 +53,8 @@ export class AuthService {
     @Inject(forwardRef(() => RbacService))
     private readonly rbacService: RbacService,
     private readonly organizationTuService: OrganizationTuService,
+    private readonly airnavAuthV2Client: AirnavAuthV2Client,
+    private readonly oidcSessionService: OidcSessionService,
   ) {}
 
   // ============================================
@@ -532,6 +549,483 @@ export class AuthService {
       refreshToken: ssoResponse.data.refresh_token,
       sessionId: session.id,
       user: payload,
+    };
+  }
+
+  /**
+   * Mulai Authorization Code Flow + PKCE. State dan verifier hanya disimpan
+   * di server; browser menerima opaque session id lewat cookie HttpOnly.
+   */
+  async beginOidcLogin(
+    returnTo?: string,
+    frontendOrigin?: string,
+  ): Promise<{
+    sessionId: string;
+    url: string;
+  }> {
+    const sessionId = generateOidcSessionId();
+    const codeVerifier = generateCodeVerifier();
+    const resolvedFrontendOrigin = this.sanitizeFrontendOrigin(frontendOrigin);
+    const flowType = this.isLocalFrontend(resolvedFrontendOrigin)
+      ? 'local'
+      : 'server';
+    const state = `${flowType}.${generateOidcState()}`;
+    const session: OidcServerSession = {
+      state,
+      codeVerifier,
+      returnTo: this.sanitizeReturnTo(returnTo),
+      frontendOrigin: resolvedFrontendOrigin,
+      createdAt: Date.now(),
+    };
+
+    await this.oidcSessionService.create(sessionId, session);
+    return {
+      sessionId,
+      url: this.airnavAuthV2Client.getAuthorizationUrl({
+        redirectUri: this.getOidcRedirectUri(),
+        state,
+        codeChallenge: generateCodeChallenge(codeVerifier),
+      }),
+    };
+  }
+
+  /** Tukar code provider dan buat sesi internal ArsipKu. */
+  async completeOidcLogin(
+    pendingSessionId: string,
+    code: string,
+    state: string,
+    userAgent?: string,
+    ip?: string,
+  ): Promise<{
+    sessionId: string;
+    returnTo: string;
+    frontendOrigin?: string;
+  }> {
+    const pending = await this.oidcSessionService.get(pendingSessionId);
+    if (!pending || pending.appSessionId) {
+      throw new UnauthorizedException(
+        'Transaksi login tidak ditemukan atau sudah kedaluwarsa',
+      );
+    }
+    if (!safeStateEquals(pending.state, state)) {
+      throw new BadRequestException('State callback tidak valid');
+    }
+
+    // State dan authorization code hanya boleh digunakan satu kali.
+    await this.oidcSessionService.delete(pendingSessionId);
+
+    const tokenData = await this.airnavAuthV2Client.exchangeCode({
+      code,
+      redirectUri: this.getOidcRedirectUri(),
+      codeVerifier: pending.codeVerifier,
+    });
+    const userInfo = await this.airnavAuthV2Client.getUserInfo(
+      tokenData.accessToken,
+    );
+    const persnum = this.resolveOidcPersnum(userInfo);
+    const payload = await this.buildApplicationPayload(
+      persnum,
+      tokenData.accessToken,
+    );
+    const refreshExpiry = this.resolveOidcRefreshExpiry(
+      tokenData.refreshTokenExpiresAt,
+    );
+    const appSession = await this.sessionService.createSession(persnum, {
+      airnavAccessToken: tokenData.accessToken,
+      airnavRefreshToken: tokenData.refreshToken,
+      airnavExpiredAt: refreshExpiry,
+      idPosition: payload.position ? Number(payload.position) : undefined,
+      userAgent,
+      ipAddress: ip,
+    });
+
+    try {
+      await this.oidcSessionService.create(appSession.id, {
+        ...pending,
+        codeVerifier: '',
+        appSessionId: appSession.id,
+        persnum,
+        accessToken: tokenData.accessToken,
+        refreshToken: tokenData.refreshToken,
+        idToken: tokenData.idToken,
+        accessTokenExpiresAt: Date.now() + tokenData.expiresIn * 1000,
+        refreshTokenExpiresAt: refreshExpiry.toISOString(),
+      });
+    } catch (error) {
+      await this.sessionService.deleteSessionById(appSession.id);
+      throw error;
+    }
+
+    return {
+      sessionId: appSession.id,
+      returnTo: pending.returnTo,
+      frontendOrigin: pending.frontendOrigin,
+    };
+  }
+
+  /**
+   * Pulihkan JWT aplikasi dari cookie sesi Auth v2. Provider access/refresh
+   * token tidak pernah dikirim ke browser.
+   */
+  async getOidcBrowserSession(sessionId: string): Promise<{
+    accessToken: string;
+    expiredToken: string;
+    sessionId: string;
+    user: JwtPayload;
+  }> {
+    const oidcSession = await this.requireOidcSession(sessionId);
+    if (
+      !oidcSession.accessTokenExpiresAt ||
+      oidcSession.accessTokenExpiresAt <= Date.now() + 60_000
+    ) {
+      return this.refreshOidcBrowserSession(sessionId);
+    }
+
+    const appSession = await this.sessionService.findSession(sessionId);
+    if (!appSession || appSession.userPersnum !== oidcSession.persnum) {
+      await this.oidcSessionService.delete(sessionId);
+      throw new UnauthorizedException('Sesi ArsipKu tidak valid');
+    }
+
+    const user = await this.buildApplicationPayload(
+      appSession.userPersnum,
+      oidcSession.accessToken!,
+    );
+    const expiresIn = Math.max(
+      1,
+      Math.floor((oidcSession.accessTokenExpiresAt - Date.now()) / 1000),
+    );
+    const accessToken = await this.jwtService.signAsync(user, { expiresIn });
+    return {
+      accessToken,
+      expiredToken: new Date(oidcSession.accessTokenExpiresAt).toISOString(),
+      sessionId,
+      user,
+    };
+  }
+
+  refreshOidcBrowserSession(
+    sessionId: string,
+    previousAppToken?: string,
+  ): Promise<{
+    accessToken: string;
+    expiredToken: string;
+    sessionId: string;
+    user: JwtPayload;
+  }> {
+    const inflight = this.oidcRefreshRequests.get(sessionId);
+    if (inflight) return inflight;
+
+    const request = this.performOidcBrowserRefresh(
+      sessionId,
+      previousAppToken,
+    ).finally(() => {
+      if (this.oidcRefreshRequests.get(sessionId) === request) {
+        this.oidcRefreshRequests.delete(sessionId);
+      }
+    });
+    this.oidcRefreshRequests.set(sessionId, request);
+    return request;
+  }
+
+  async logoutOidcBrowserSession(sessionId?: string): Promise<void> {
+    if (!sessionId) return;
+    const oidcSession = await this.oidcSessionService.get(sessionId);
+    const appSession = await this.sessionService.findSession(sessionId);
+    const providerToken =
+      oidcSession?.accessToken ?? appSession?.airnavAccessToken;
+
+    try {
+      if (providerToken) await this.airnavAuthV2Client.logout(providerToken);
+    } catch (error) {
+      console.warn('[AuthService] Logout Auth v2 upstream gagal', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      await this.oidcSessionService.delete(sessionId);
+      await this.sessionService.deleteSessionById(sessionId);
+    }
+  }
+
+  private async performOidcBrowserRefresh(
+    sessionId: string,
+    previousAppToken?: string,
+  ): Promise<{
+    accessToken: string;
+    expiredToken: string;
+    sessionId: string;
+    user: JwtPayload;
+  }> {
+    const oidcSession = await this.requireOidcSession(sessionId);
+    const appSession = await this.sessionService.findSession(sessionId);
+    if (!appSession || appSession.userPersnum !== oidcSession.persnum) {
+      throw new UnauthorizedException('Sesi ArsipKu tidak valid');
+    }
+
+    let previousPayload: JwtPayload | undefined;
+    if (previousAppToken) {
+      try {
+        previousPayload = this.jwtService.verify<JwtPayload>(previousAppToken, {
+          ignoreExpiration: true,
+        });
+      } catch {
+        throw new UnauthorizedException('Application token tidak valid');
+      }
+      if (previousPayload.persnum !== appSession.userPersnum) {
+        throw new UnauthorizedException('Token tidak terkait dengan sesi');
+      }
+    }
+
+    const tokenData = await this.airnavAuthV2Client.refreshToken(
+      oidcSession.refreshToken!,
+    );
+    const refreshExpiry = this.resolveOidcRefreshExpiry(
+      tokenData.refreshTokenExpiresAt,
+      appSession.airnavExpiredAt,
+    );
+    const rotated = await this.sessionService.rotateOidcTokens(
+      sessionId,
+      oidcSession.refreshToken!,
+      {
+        airnavAccessToken: tokenData.accessToken,
+        airnavRefreshToken: tokenData.refreshToken,
+        airnavExpiredAt: refreshExpiry,
+      },
+    );
+    if (!rotated) {
+      throw new UnauthorizedException(
+        'Refresh token telah digunakan oleh request lain',
+      );
+    }
+
+    const updated: OidcServerSession = {
+      ...oidcSession,
+      accessToken: tokenData.accessToken,
+      refreshToken: tokenData.refreshToken,
+      idToken: tokenData.idToken ?? oidcSession.idToken,
+      accessTokenExpiresAt: Date.now() + tokenData.expiresIn * 1000,
+      refreshTokenExpiresAt: refreshExpiry.toISOString(),
+    };
+    await this.oidcSessionService.update(sessionId, updated);
+
+    const user = previousPayload
+      ? await this.buildOidcRefreshPayload(
+          previousPayload,
+          tokenData.accessToken,
+        )
+      : await this.buildApplicationPayload(
+          appSession.userPersnum,
+          tokenData.accessToken,
+        );
+    const accessToken = await this.jwtService.signAsync(user, {
+      expiresIn: tokenData.expiresIn,
+    });
+    return {
+      accessToken,
+      expiredToken: new Date(updated.accessTokenExpiresAt!).toISOString(),
+      sessionId,
+      user,
+    };
+  }
+
+  private async requireOidcSession(
+    sessionId: string,
+  ): Promise<OidcServerSession> {
+    const session = await this.oidcSessionService.get(sessionId);
+    if (
+      !session?.appSessionId ||
+      !session.accessToken ||
+      !session.refreshToken ||
+      !session.persnum
+    ) {
+      throw new UnauthorizedException(
+        'Sesi Auth v2 tidak ditemukan atau sudah kedaluwarsa',
+      );
+    }
+    return session;
+  }
+
+  private getOidcRedirectUri(): string {
+    const redirectUri =
+      this.configService.get<string>('AUTH_REDIRECT_URI') ||
+      this.configService.get<string>('AIRNAV_OIDC_REDIRECT_URI');
+    if (!redirectUri) {
+      throw new BadRequestException('AUTH_REDIRECT_URI belum dikonfigurasi');
+    }
+    return redirectUri;
+  }
+
+  private sanitizeReturnTo(returnTo?: string): string {
+    if (
+      !returnTo ||
+      !returnTo.startsWith('/') ||
+      returnTo.startsWith('//') ||
+      returnTo.startsWith('/auth') ||
+      returnTo.includes('\\')
+    ) {
+      return '/beranda';
+    }
+    return returnTo;
+  }
+
+  private sanitizeFrontendOrigin(frontendOrigin?: string): string {
+    const configuredOrigins = [
+      this.configService.get<string>('AUTH_FRONTEND_URL'),
+      this.configService.get<string>('FRONTEND_URL'),
+    ]
+      .flatMap((value) => (value || '').split(','))
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean);
+
+    if (frontendOrigin) {
+      try {
+        const requestedOrigin = new URL(frontendOrigin).origin;
+        if (configuredOrigins.includes(requestedOrigin)) return requestedOrigin;
+      } catch {
+        // Gunakan origin default yang sudah dikonfigurasi.
+      }
+    }
+
+    return configuredOrigins[0] || 'http://localhost:3000';
+  }
+
+  private isLocalFrontend(frontendOrigin: string): boolean {
+    try {
+      const hostname = new URL(frontendOrigin).hostname;
+      return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private resolveOidcPersnum(userInfo: OidcUserInfo): number {
+    const raw = String(
+      userInfo.employee_no ??
+        userInfo.employeeNo ??
+        userInfo.preferred_username ??
+        userInfo.username ??
+        userInfo.sub ??
+        '',
+    ).trim();
+    if (!/^\d+$/.test(raw)) {
+      throw new UnauthorizedException(
+        'Identitas AirNav Auth tidak dapat dipetakan ke persnum',
+      );
+    }
+    return Number(raw);
+  }
+
+  private resolveOidcRefreshExpiry(value?: string, fallback?: Date): Date {
+    const parsed = value ? new Date(value) : null;
+    if (parsed && !Number.isNaN(parsed.getTime()) && parsed > new Date()) {
+      return parsed;
+    }
+    if (fallback && fallback > new Date()) return fallback;
+    const seconds = Number(
+      this.configService.get<string>('AUTH_SESSION_TTL_SECONDS', '28800'),
+    );
+    return new Date(
+      Date.now() +
+        (Number.isFinite(seconds) && seconds > 0 ? seconds : 28800) * 1000,
+    );
+  }
+
+  private async buildApplicationPayload(
+    persnum: number,
+    providerAccessToken: string,
+  ): Promise<JwtPayload> {
+    const orgData = await this.orgDataService.findByPersnum(persnum);
+    if (!orgData) {
+      throw new UnauthorizedException(
+        'User tidak terdaftar di sistem organisasi',
+      );
+    }
+    const userRole = await this.userRoleRepo.findOne({ where: { persnum } });
+    const rbacCtx = await this.buildRbacContext(persnum);
+    const role = rbacCtx.role || userRole?.role || 'user';
+    const tuRoles = await this.buildTuRoles(persnum);
+    const personalData = await this.fetchUserPersonalData(
+      persnum,
+      providerAccessToken,
+    );
+
+    return {
+      persnum: orgData.persnum,
+      nama: orgData.nama || '',
+      role,
+      activeRole: rbacCtx.activeRole ?? undefined,
+      activePermissions: rbacCtx.activePermissions,
+      roles: rbacCtx.roles,
+      tuRoles: tuRoles.length > 0 ? tuRoles : undefined,
+      ...this.buildSecretaryProfileContext(tuRoles),
+      company: orgData.company?.toString() || '',
+      companyText: orgData.companyText || '',
+      area: orgData.area || '',
+      areaText: orgData.areaText || '',
+      subArea: orgData.subArea?.toString() || '',
+      subAreaText: orgData.subAreaText || '',
+      organization: orgData.organization?.toString() || '',
+      organizationText: orgData.organizationText || '',
+      position: orgData.position?.toString() || '',
+      positionText: orgData.positionText || '',
+      bodTag: orgData.bodTag || '',
+      abbreviation: orgData.abbreviation || '',
+      atasan_langsung: orgData.atasan_langsung || null,
+      nik: personalData.nik || undefined,
+      noWa: personalData.noWa || undefined,
+    };
+  }
+
+  private async buildOidcRefreshPayload(
+    previousPayload: JwtPayload,
+    providerAccessToken: string,
+  ): Promise<JwtPayload> {
+    const fresh = await this.buildApplicationPayload(
+      previousPayload.persnum,
+      providerAccessToken,
+    );
+    if (!isDelegatedActor(previousPayload)) {
+      return {
+        ...fresh,
+        ...this.buildSecretaryProfileContext(
+          fresh.tuRoles ?? [],
+          previousPayload.active_profile,
+        ),
+      };
+    }
+
+    const { exp: _exp, iat: _iat, ...delegated } = previousPayload as any;
+    let activePermissions = fresh.activePermissions;
+    if (previousPayload.delegator_persnum) {
+      activePermissions = (
+        await this.buildRbacContext(previousPayload.delegator_persnum)
+      ).activePermissions;
+    }
+    return {
+      ...delegated,
+      role: fresh.role,
+      activeRole: fresh.activeRole,
+      activePermissions,
+      roles: fresh.roles,
+      tuRoles: fresh.tuRoles,
+      ...this.buildSecretaryProfileContext(
+        fresh.tuRoles ?? [],
+        previousPayload.active_profile,
+      ),
+      nik: fresh.nik,
+      noWa: fresh.noWa,
     };
   }
 
