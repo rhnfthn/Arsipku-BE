@@ -29,7 +29,9 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
 
   // Global Exception Filters
-  app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
+  // Match specific HTTP exceptions first; the catch-all filter handles only
+  // non-HTTP/unhandled errors.
+  app.useGlobalFilters(new HttpExceptionFilter(), new AllExceptionsFilter());
 
   // Global Interceptors
   const reflector = app.get(Reflector);
@@ -44,13 +46,24 @@ async function bootstrap() {
     }),
   );
 
-  // Enable CORS if needed
-  app.enableCors();
+  // Auth v2 memakai cookie HttpOnly dari origin frontend, sehingga browser
+  // membutuhkan origin eksplisit dan credentials=true (wildcard tidak valid).
+  const corsOrigins = [process.env.FRONTEND_URL, process.env.WS_CORS_ORIGIN]
+    .flatMap((value) => (value || '').split(','))
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  app.enableCors({
+    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    credentials: true,
+  });
 
   // Trust proxy agar Express membaca x-forwarded-for / x-real-ip dengan benar
   // (diperlukan untuk audit trail IP address yang akurat di balik reverse proxy)
   const httpAdapter = app.getHttpAdapter();
-  if (httpAdapter && typeof (httpAdapter.getInstance() as any).set === 'function') {
+  if (
+    httpAdapter &&
+    typeof (httpAdapter.getInstance() as any).set === 'function'
+  ) {
     (httpAdapter.getInstance() as any).set('trust proxy', true);
   }
 

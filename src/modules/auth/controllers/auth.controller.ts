@@ -9,14 +9,13 @@ import {
   Res,
   UnauthorizedException,
   BadRequestException,
-  Redirect,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtService } from '@nestjs/jwt';
 import { computeEffectivePersnum } from '../../../common/helpers/delegasi-rendering.helper';
-import type { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SessionService } from '../services/session.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
@@ -34,6 +33,19 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 
+const readCookie = (req: Request, name: string): string | undefined => {
+  const cookie = req.headers.cookie
+    ?.split(';')
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${name}=`));
+  if (!cookie) return undefined;
+  try {
+    return decodeURIComponent(cookie.slice(name.length + 1));
+  } catch {
+    return undefined;
+  }
+};
+
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
@@ -48,6 +60,161 @@ export class AuthController {
     private readonly jwtService: JwtService,
     private readonly legalRoleService: LegalRoleService,
   ) {}
+
+  private get oidcCookieName(): string {
+    // Local dan QA menggunakan redirect URI masing-masing dari environment.
+    return this.configService.get<string>('AUTH_COOKIE_NAME', 'arsipku_sid');
+  }
+
+  private get oidcCookieOptions(): CookieOptions {
+    const configuredSecure =
+      this.configService.get<string>('AUTH_COOKIE_SECURE');
+    const secure =
+      configuredSecure === undefined
+        ? this.configService.get<string>('NODE_ENV') === 'production'
+        : configuredSecure === 'true';
+    const sameSite = this.configService.get<string>(
+      'AUTH_COOKIE_SAME_SITE',
+      'lax',
+    ) as CookieOptions['sameSite'];
+    const maxAgeSeconds = Number(
+      this.configService.get<string>('AUTH_SESSION_TTL_SECONDS', '28800'),
+    );
+    return {
+      httpOnly: true,
+      secure,
+      sameSite,
+      path: '/',
+      maxAge:
+        (Number.isFinite(maxAgeSeconds) && maxAgeSeconds > 0
+          ? maxAgeSeconds
+          : 28800) * 1000,
+    };
+  }
+
+  private frontendUrl(): string {
+    // Dipisahkan dari daftar origin CORS agar callback dapat kembali ke
+    // frontend lokal walaupun redirect_uri provider memakai bridge QA.
+    const configuredUrl =
+      this.configService.get<string>('AUTH_FRONTEND_URL') ||
+      this.configService.get<string>('FRONTEND_URL') ||
+      'http://localhost:3000';
+    return configuredUrl.split(',')[0].trim().replace(/\/+$/, '');
+  }
+
+  private serverFrontendUrl(): string {
+    const configuredUrls = (
+      this.configService.get<string>('FRONTEND_URL') || ''
+    )
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const serverUrl = configuredUrls.find((value) => {
+      try {
+        const hostname = new URL(value).hostname;
+        return hostname !== 'localhost' && hostname !== '127.0.0.1';
+      } catch {
+        return false;
+      }
+    });
+    return (serverUrl || this.frontendUrl()).replace(/\/+$/, '');
+  }
+
+  /** Mulai login Auth v2 (Authorization Code + PKCE). */
+  @Public()
+  @SkipTransform()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @Get('login')
+  async loginV2(
+    @Query('redirect') returnTo: string | undefined,
+    @Query('origin') frontendOrigin: string | undefined,
+    @Res() res: Response,
+  ) {
+    const login = await this.authService.beginOidcLogin(
+      returnTo,
+      frontendOrigin,
+    );
+    res.cookie(this.oidcCookieName, login.sessionId, this.oidcCookieOptions);
+    return res.redirect(login.url);
+  }
+
+  /** Callback server-side: browser tidak pernah menerima token provider. */
+  @Public()
+  @SkipTransform()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @Get('callback')
+  async oidcCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('code') code?: string,
+    @Query('state') state?: string,
+    @Query('error') providerError?: string,
+    @Query('error_description') providerErrorDescription?: string,
+  ) {
+    const pendingSessionId = readCookie(req, this.oidcCookieName);
+    try {
+      if (providerError) {
+        throw new UnauthorizedException(
+          providerErrorDescription || `Login ditolak (${providerError})`,
+        );
+      }
+      if (!code || !state || !pendingSessionId) {
+        throw new BadRequestException(
+          'Authorization code, state, atau sesi login tidak ditemukan',
+        );
+      }
+      const result = await this.authService.completeOidcLogin(
+        pendingSessionId,
+        code,
+        state,
+        req.headers['user-agent'],
+        (req.headers['x-forwarded-for'] as string) || req.ip,
+      );
+      res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
+      const destination = new URL(
+        result.returnTo,
+        `${result.frontendOrigin || this.frontendUrl()}/`,
+      );
+      return res.redirect(destination.toString());
+    } catch (error) {
+      res.clearCookie(this.oidcCookieName, { path: '/' });
+      const callbackOrigin = state?.startsWith('local.')
+        ? 'http://localhost:3000'
+        : this.serverFrontendUrl();
+      const callback = new URL('/auth/callback', `${callbackOrigin}/`);
+      callback.searchParams.set(
+        'error',
+        error instanceof Error ? error.message : 'Login Auth v2 gagal',
+      );
+      return res.redirect(callback.toString());
+    }
+  }
+
+  /** Ambil JWT aplikasi ArsipKu dari sesi HttpOnly Auth v2. */
+  @Public()
+  @SkipTransform()
+  @Get('session')
+  async oidcSession(@Req() req: Request) {
+    const sessionId = readCookie(req, this.oidcCookieName);
+    if (!sessionId) throw new UnauthorizedException('Sesi Auth v2 tidak ada');
+    return this.authService.getOidcBrowserSession(sessionId);
+  }
+
+  /** Rotasi refresh token provider dan terbitkan ulang JWT aplikasi. */
+  @Public()
+  @SkipTransform()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @Post('refresh')
+  async refreshV2(@Req() req: Request) {
+    const sessionId = readCookie(req, this.oidcCookieName);
+    if (!sessionId) throw new UnauthorizedException('Sesi Auth v2 tidak ada');
+    const bearer = req.headers.authorization || '';
+    const appToken = bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined;
+    return this.authService.refreshOidcBrowserSession(sessionId, appToken);
+  }
 
   /**
    * SSO Redirect - arahkan user ke AirNav SSO
@@ -130,8 +297,7 @@ export class AuthController {
     try {
       if (!token) {
         // Redirect ke frontend dengan error
-        const frontendUrl =
-          this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+        const frontendUrl = this.frontendUrl();
         return res.redirect(
           `${frontendUrl}/auth/error?message=Token tidak ditemukan`,
         );
@@ -148,15 +314,13 @@ export class AuthController {
       );
 
       // Redirect ke frontend dengan JWT token
-      const frontendUrl =
-        this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+      const frontendUrl = this.frontendUrl();
       const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&sessionId=${result.sessionId}&expiredToken=${result.expiredToken}`;
 
       return res.redirect(redirectUrl);
     } catch (error) {
       // Redirect ke frontend dengan error
-      const frontendUrl =
-        this.configService.get('FRONTEND_URL') || 'http://localhost:3001';
+      const frontendUrl = this.frontendUrl();
       const errorMessage = encodeURIComponent(error.message || 'Login gagal');
       return res.redirect(`${frontendUrl}/auth/error?message=${errorMessage}`);
     }
@@ -296,36 +460,24 @@ export class AuthController {
     };
   }
 
-  /**
-   * Logout - hapus session
-   */
-  /**
-   * Logout - hapus session dan redirect ke AirNav logout
-   */
+  /** Logout lokal + revoke sesi Auth v2 menggunakan Bearer server-to-server. */
   @Get('logout')
   @Public()
-  @Redirect()
+  @SkipTransform()
   @ApiOperation({
     summary: 'Logout',
-    description:
-      'Logout user, hapus session, dan redirect ke AirNav SSO logout.',
+    description: 'Revoke sesi AirNav Auth v2 dan hapus sesi ArsipKu.',
   })
-  async logout(@Query('sessionId') sessionId: string) {
-    if (!sessionId) {
-      throw new BadRequestException('sessionId is required');
-    }
-
-    await this.sessionService.deleteSessionById(sessionId);
-
-    const ssoLogoutBase = this.configService.get<string>('AIRNAV_LOGOUT_URL');
-    const redirectUri = this.configService.get<string>('AIRNAV_CALLBACK_URL');
-
-    const encoded = Buffer.from(redirectUri ?? '', 'utf-8').toString('base64');
-
-    return {
-      url: `${ssoLogoutBase}?redirect_uri=${encoded}`,
-      statusCode: 302,
-    };
+  async logout(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('sessionId') legacySessionId?: string,
+  ) {
+    const sessionId =
+      readCookie(req, this.oidcCookieName) || legacySessionId || undefined;
+    await this.authService.logoutOidcBrowserSession(sessionId);
+    res.clearCookie(this.oidcCookieName, { path: '/' });
+    return res.redirect(this.frontendUrl());
   }
 
   /**
