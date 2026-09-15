@@ -1887,6 +1887,15 @@ export class NaskahLainnyaService {
     return { success: true, data: { parameter } };
   }
 
+  /** Buat PDF pratinjau sementara tanpa upload storage atau perubahan database. */
+  async previewDokumenPdf(file: Express.Multer.File | undefined) {
+    if (!file?.buffer || !file.originalname?.toLowerCase().endsWith('.docx')) {
+      throw new BadRequestException('File pratinjau wajib berformat DOCX.');
+    }
+
+    return this.gotenberg.convertDocxToPdf(file.buffer, file.originalname);
+  }
+
   async uploadDokumen(
     id: string,
     file: Express.Multer.File,
