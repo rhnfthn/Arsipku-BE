@@ -383,28 +383,36 @@ export class WorkflowService {
         if (pemrakarsaRows.every((r) => r.status === 'verified')) {
           for (const r of logicalTahapRows) {
             if (r.tahap === logicalTahap && r.status === 'pending') {
-              r.status = 'waiting';
+              // Orang yang sama tidak perlu menyetujui dua kali ketika menjadi
+              // Direktur Pemrakarsa sekaligus tercantum di Diketahui Oleh.
+              const sameDirector = this.isSameSheetApprovalActor(row, r);
+              r.status = sameDirector ? 'verified' : 'waiting';
+              if (sameDirector) {
+                r.catatan = ctx.catatan ?? r.catatan;
+                r.tanggal = row.tanggal;
+              }
               await ctx.manager.save(r);
             }
           }
         }
       }
-      if (row.tahap === logicalTahap) {
-        const diketahuiRows = logicalTahapRows.filter(
-          (r) => r.tahap === logicalTahap,
-        );
-        const allDiketahuiVerified = diketahuiRows.every(
-          (r) => r.status === 'verified',
-        );
-        if (allDiketahuiVerified) {
-          for (const r of logicalTahapRows) {
-            if (
-              r.tahap === `${logicalTahap}_ditetapkan` &&
-              r.status === 'pending'
-            ) {
-              r.status = 'waiting';
-              await ctx.manager.save(r);
-            }
+
+      // Jalankan juga setelah approval Pemrakarsa karena seluruh Diketahui
+      // bisa langsung selesai melalui auto-approval di atas.
+      const diketahuiRows = logicalTahapRows.filter(
+        (r) => r.tahap === logicalTahap,
+      );
+      const allDiketahuiVerified =
+        diketahuiRows.length > 0 &&
+        diketahuiRows.every((r) => r.status === 'verified');
+      if (allDiketahuiVerified) {
+        for (const r of logicalTahapRows) {
+          if (
+            r.tahap === `${logicalTahap}_ditetapkan` &&
+            r.status === 'pending'
+          ) {
+            r.status = 'waiting';
+            await ctx.manager.save(r);
           }
         }
       }
@@ -536,6 +544,35 @@ export class WorkflowService {
     );
     if (aksi !== 'setuju') naskah.tahapan = nextStatus;
     return naskah.tahapan as Tahapan;
+  }
+
+  private isSameSheetApprovalActor(
+    pemrakarsa: NaskahLainnyaApprovalEntity,
+    diketahui: NaskahLainnyaApprovalEntity,
+  ): boolean {
+    const pemrakarsaDelegate = Number(pemrakarsa.delegatePersnum ?? 0);
+    const diketahuiDelegate = Number(diketahui.delegatePersnum ?? 0);
+    if (pemrakarsaDelegate || diketahuiDelegate) {
+      return (
+        pemrakarsaDelegate > 0 &&
+        diketahuiDelegate > 0 &&
+        pemrakarsaDelegate === diketahuiDelegate
+      );
+    }
+
+    const pemrakarsaPosition = String(pemrakarsa.positionId ?? '').trim();
+    const diketahuiPosition = String(diketahui.positionId ?? '').trim();
+    if (pemrakarsaPosition && diketahuiPosition) {
+      return pemrakarsaPosition === diketahuiPosition;
+    }
+
+    const normalizeName = (value?: string | null) =>
+      String(value ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+    const pemrakarsaName = normalizeName(pemrakarsa.nama);
+    return !!pemrakarsaName && pemrakarsaName === normalizeName(diketahui.nama);
   }
 
   // ---------- Transisi utama (dipakai NaskahLainnyaService) ----------

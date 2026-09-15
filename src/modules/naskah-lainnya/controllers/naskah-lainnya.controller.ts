@@ -95,6 +95,19 @@ export class NaskahLainnyaController {
     return this.service.parseDokumen(file);
   }
 
+  /** Konversi DOCX menjadi PDF untuk pratinjau tanpa menyimpan versi naskah. */
+  @Post('preview-docx')
+  @UseInterceptors(FileInterceptor('file'))
+  async previewDocx(
+    @UploadedFile() file: Express.Multer.File,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.previewDokumenPdf(file);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.send(pdf);
+  }
+
   @Get(':id')
   getDetail(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
     return this.service.getDetail(id, user);
