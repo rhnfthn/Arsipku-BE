@@ -472,12 +472,47 @@ export class AuthController {
     @Req() req: Request,
     @Res() res: Response,
     @Query('sessionId') legacySessionId?: string,
+    @Query('origin') frontendOrigin?: string,
   ) {
     const sessionId =
       readCookie(req, this.oidcCookieName) || legacySessionId || undefined;
     await this.authService.logoutOidcBrowserSession(sessionId);
     res.clearCookie(this.oidcCookieName, { path: '/' });
-    return res.redirect(this.frontendUrl());
+    // Redirect balik ke origin frontend yang meminta logout (mis. QA 172.x),
+    // bukan selalu AUTH_FRONTEND_URL default. Origin divalidasi terhadap
+    // whitelist FRONTEND_URL; fallback ke frontendUrl() bila tidak valid.
+    const requestedOrigin = this.resolveFrontendOrigin(frontendOrigin);
+    return res.redirect(requestedOrigin);
+  }
+
+  /**
+   * Validasi origin frontend terhadap whitelist FRONTEND_URL/AUTH_FRONTEND_URL.
+   * Mengembalikan origin default bila origin tidak terdaftar.
+   */
+  private resolveFrontendOrigin(frontendOrigin?: string): string {
+    if (!frontendOrigin) return this.frontendUrl();
+    try {
+      const requested = new URL(frontendOrigin).origin;
+      const allowed = [
+        this.configService.get<string>('AUTH_FRONTEND_URL'),
+        this.configService.get<string>('FRONTEND_URL'),
+      ]
+        .flatMap((value) => (value || '').split(','))
+        .map((value) => value.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+        .map((value) => {
+          try {
+            return new URL(value).origin;
+          } catch {
+            return '';
+          }
+        })
+        .filter(Boolean);
+      if (allowed.includes(requested)) return requested;
+    } catch {
+      // Origin tidak valid → gunakan default.
+    }
+    return this.frontendUrl();
   }
 
   /**
