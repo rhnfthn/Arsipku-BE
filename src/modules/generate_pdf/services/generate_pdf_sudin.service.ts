@@ -916,8 +916,7 @@ export class GeneratePdfSudinService {
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:center;">
-              ${tanggalFormatted}<br>
+            <td style="width:50%;text-align:left;">
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}

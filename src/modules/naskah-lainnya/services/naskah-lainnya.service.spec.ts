@@ -1141,6 +1141,33 @@ describe('NaskahLainnyaService', () => {
     ).rejects.toThrow('DOCX wajib diunggah');
   });
 
+  it('previewDokumenPdf mengonversi DOCX tanpa menyimpan naskah', async () => {
+    const gotenberg = (svc as any).gotenberg;
+    const naskahRepo = (svc as any).naskahRepo;
+    const file = {
+      originalname: 'revisi.docx',
+      buffer: Buffer.from('docx'),
+    } as any;
+
+    await expect(svc.previewDokumenPdf(file)).resolves.toEqual(
+      Buffer.from('%PDF-test'),
+    );
+    expect(gotenberg.convertDocxToPdf).toHaveBeenCalledWith(
+      file.buffer,
+      'revisi.docx',
+    );
+    expect(naskahRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('previewDokumenPdf menolak file selain DOCX', async () => {
+    await expect(
+      svc.previewDokumenPdf({
+        originalname: 'revisi.pdf',
+        buffer: Buffer.from('pdf'),
+      } as any),
+    ).rejects.toThrow('wajib berformat DOCX');
+  });
+
   it('uploadRevisiDokumen menyimpan DOCX utama dan PDF preview pada versi yang sama', async () => {
     const naskahRepo = (svc as any).naskahRepo;
     const dokumenRepo = (svc as any).dokumenRepo;

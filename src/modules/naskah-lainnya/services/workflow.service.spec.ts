@@ -542,6 +542,105 @@ describe('WorkflowService', () => {
     expect(rows[3].status).toBe('waiting');
   });
 
+  it.each([
+    ['blanko_verbal', 'blanko_verbal_pemrakarsa'],
+    ['persetujuan_direksi', 'persetujuan_direksi_pemrakarsa'],
+  ])(
+    'applyApproval %s: Direktur Pemrakarsa yang sama otomatis verified pada Diketahui Oleh',
+    async (logicalTahap, pemrakarsaTahap) => {
+      const naskah = {
+        id: `n-auto-${logicalTahap}`,
+        tahapan: logicalTahap,
+        butuhLegal: true,
+      } as any;
+      const rows = [
+        {
+          id: 'pemrakarsa',
+          tahap: pemrakarsaTahap,
+          positionId: 'POS-ZAINAL',
+          nama: 'Zainal Arifin Harahap',
+          status: 'waiting',
+          urutan: 1,
+        },
+        {
+          id: 'diketahui-sama',
+          tahap: logicalTahap,
+          positionId: 'POS-ZAINAL',
+          nama: 'ZAINAL ARIFIN HARAHAP',
+          status: 'pending',
+          urutan: 1,
+        },
+        {
+          id: 'ditetapkan',
+          tahap: `${logicalTahap}_ditetapkan`,
+          positionId: 'POS-DIRUT',
+          nama: 'Direktur Utama',
+          status: 'pending',
+          urutan: 1,
+        },
+      ] as any[];
+      const manager = { save: jest.fn((entity) => entity) };
+
+      const next = await svc.applyApproval(
+        naskah,
+        rows,
+        'pemrakarsa',
+        'setuju',
+        {
+          aktor: 'Zainal Arifin Harahap',
+          catatan: '<p>Setuju</p>',
+          manager: manager as any,
+        },
+      );
+
+      expect(next).toBe(logicalTahap);
+      expect(rows[1]).toEqual(
+        expect.objectContaining({
+          status: 'verified',
+          catatan: '<p>Setuju</p>',
+        }),
+      );
+      expect(rows[1].tanggal).toEqual(rows[0].tanggal);
+      expect(rows[2].status).toBe('waiting');
+    },
+  );
+
+  it('applyApproval sheet: delegasi berbeda tidak otomatis menyetujui Diketahui Oleh', async () => {
+    const naskah = {
+      id: 'n-auto-delegate-safe',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'pemrakarsa',
+        tahap: 'blanko_verbal_pemrakarsa',
+        positionId: 'POS-ZAINAL',
+        nama: 'Zainal Arifin Harahap',
+        delegatePersnum: 100,
+        status: 'waiting',
+        urutan: 1,
+      },
+      {
+        id: 'diketahui-sama',
+        tahap: 'blanko_verbal',
+        positionId: 'POS-ZAINAL',
+        nama: 'Zainal Arifin Harahap',
+        delegatePersnum: 200,
+        status: 'pending',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    await svc.applyApproval(naskah, rows, 'pemrakarsa', 'setuju', {
+      aktor: 'Delegasi Pemrakarsa',
+      manager: manager as any,
+    });
+
+    expect(rows[1].status).toBe('waiting');
+  });
+
   it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
     const naskah = {
       id: 'n-reject',
