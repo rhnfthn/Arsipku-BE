@@ -79,6 +79,26 @@ export class SessionService {
   }
 
   /**
+   * Rotasi refresh token bersifat single-use. Compare-and-swap mencegah dua
+   * request paralel menyimpan pasangan token yang berbeda untuk sesi sama.
+   */
+  async rotateOidcTokens(
+    sessionId: string,
+    previousRefreshToken: string,
+    data: {
+      airnavAccessToken: string;
+      airnavRefreshToken: string;
+      airnavExpiredAt: Date;
+    },
+  ): Promise<boolean> {
+    const result = await this.sessionRepo.update(
+      { id: sessionId, airnavRefreshToken: previousRefreshToken },
+      data,
+    );
+    return result.affected === 1;
+  }
+
+  /**
    * Delete expired sessions (cleanup)
    */
   async deleteExpiredSessions(): Promise<void> {
