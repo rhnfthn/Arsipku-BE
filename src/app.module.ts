@@ -90,6 +90,7 @@ import { OrganizationTuModule } from './modules/organization-tu/organization-tu.
 import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module';
 import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
 import { ArsipModule } from './modules/arsip/arsip.module';
+import { TugasModule } from './modules/tugas/tugas.module';
 
 @Module({
   imports: [
@@ -274,6 +275,7 @@ import { ArsipModule } from './modules/arsip/arsip.module';
     TuVerifikasiModule,
     PenyusutanModule,
     ArsipModule,
+    TugasModule,
   ],
   controllers: [AppController],
   providers: [
