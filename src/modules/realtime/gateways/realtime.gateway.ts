@@ -10,10 +10,12 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { RealtimeSyncService } from '../services/realtime-sync.service';
+import { TugasAccessReader } from '../../tugas/services/tugas-access.reader';
 
 /**
  * RealtimeGateway
@@ -73,6 +75,7 @@ export class RealtimeGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly syncService: RealtimeSyncService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   afterInit(_server: Server) {
@@ -200,6 +203,64 @@ export class RealtimeGateway
     const naskahId = String(payload?.naskahId ?? '').trim();
     if (naskahId) await client.leave(`naskah-lainnya:${naskahId}`);
     return { status: 'unsubscribed', naskahId };
+  }
+
+  // ──────────────────────────────────────────────
+  // Tugas board rooms (Phase 6)
+  // ──────────────────────────────────────────────
+
+  private static readonly UUID_V4 =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  /**
+   * Join room board Tugas. Validasi UUID lalu resolve membership via
+   * TugasAccessReader secara LAZY (ModuleRef) agar tidak membuat circular
+   * dependency antara RealtimeModule dan TugasModule — pola yang sama
+   * dengan RealtimeSyncService → RealtimeSummaryService.
+   */
+  @SubscribeMessage('tugas:subscribe')
+  async onSubscribeTugas(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { boardId?: string },
+  ) {
+    const user = client.data?.user as JwtPayload | undefined;
+    if (!user) return { status: 'error', message: 'Unauthorized' };
+
+    const boardId = String(payload?.boardId ?? '').trim();
+    if (!RealtimeGateway.UUID_V4.test(boardId)) {
+      return { status: 'error', message: 'Invalid boardId' };
+    }
+
+    try {
+      const accessReader = this.moduleRef.get(TugasAccessReader, {
+        strict: false,
+      });
+      if (!accessReader) {
+        return { status: 'error', message: 'Tugas module not available' };
+      }
+      // Join hanya setelah company + membership posisi aktif valid.
+      await accessReader.assertBoardMember(
+        boardId,
+        user.company,
+        user.position,
+      );
+      await client.join(`tugas:board:${boardId}`);
+      return { status: 'subscribed', boardId };
+    } catch {
+      // Non-member / company lain / board terhapus → tolak tanpa membocorkan
+      // keberadaan objek.
+      return { status: 'error', message: 'Board not found' };
+    }
+  }
+
+  @SubscribeMessage('tugas:unsubscribe')
+  async onUnsubscribeTugas(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { boardId?: string },
+  ) {
+    const boardId = String(payload?.boardId ?? '').trim();
+    if (boardId) await client.leave(`tugas:board:${boardId}`);
+    return { status: 'unsubscribed', boardId };
   }
 
   // ──────────────────────────────────────────────
@@ -371,5 +432,64 @@ export class RealtimeGateway
   }) {
     if (!this.server) return;
     this.server.emit('correspondence-routing:updated', payload);
+  }
+
+  // ──────────────────────────────────────────────
+  // Tugas emits (Phase 6) — dipanggil oleh RealtimeEmitService
+  // ──────────────────────────────────────────────
+
+  /** Emit perubahan papan (task dibuat/ubah/pindah/hapus, member berubah). */
+  emitTugasBoardUpdated(payload: {
+    boardId: string;
+    revision: number;
+    action: string;
+    taskId?: string | null;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:board-updated', payload);
+  }
+
+  /** Emit perubahan satu task agar client dapat melakukan invalidasi terarah. */
+  emitTugasTaskUpdated(payload: {
+    boardId: string;
+    taskId: string;
+    revision: number;
+    action: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:task-updated', payload);
+  }
+
+  /** Emit task dipindahkan antar status/urutan. */
+  emitTugasTaskMoved(payload: {
+    boardId: string;
+    taskId: string;
+    from: string;
+    to: string;
+    urutan: number;
+    revision: number;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:task-moved', payload);
+  }
+
+  /** Emit assigned-open count delta ke room posisi (badge sidebar). */
+  emitTugasAssignedCount(positionId: string, count: number) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('tugas:assigned-count', { positionId, count });
   }
 }

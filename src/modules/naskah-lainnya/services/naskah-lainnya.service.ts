@@ -62,6 +62,7 @@ export interface CurrentUser {
   company?: string;
   subArea?: string;
   organization?: string;
+  role?: string;
 }
 
 @Injectable()
@@ -619,14 +620,17 @@ export class NaskahLainnyaService {
 
   // ---------- Detail ----------
 
-  async getDetail(id: string, user: CurrentUser) {
+  async getDetail(id: string, user: CurrentUser, enforceReadAccess = false) {
     const n = await this.findNaskah(id);
+    const approval = await this.approvalRepo.find({
+      where: { naskahId: id },
+      order: { urutan: 'ASC' },
+    });
+    if (enforceReadAccess) {
+      await this.assertCanReadDetail(n, approval, user);
+    }
     await this.repairLegacyManualFinalDocument(n);
-    const [approval, riwayat, dokumen, manualFinalDoc] = await Promise.all([
-      this.approvalRepo.find({
-        where: { naskahId: id },
-        order: { urutan: 'ASC' },
-      }),
+    const [riwayat, dokumen, manualFinalDoc] = await Promise.all([
       this.riwayatRepo.find({
         where: { naskahId: id },
         order: { tanggal: 'ASC' },
@@ -955,14 +959,16 @@ export class NaskahLainnyaService {
 
   // ---------- Riwayat (kontrak: GET /:id/riwayat) ----------
 
-  async getRiwayat(id: string) {
-    const [rows, approval] = await Promise.all([
+  async getRiwayat(id: string, user: CurrentUser) {
+    const [naskah, rows, approval] = await Promise.all([
+      this.findNaskah(id),
       this.riwayatRepo.find({
         where: { naskahId: id },
         order: { tanggal: 'ASC' },
       }),
       this.approvalRepo.find({ where: { naskahId: id } }),
     ]);
+    await this.assertCanReadDetail(naskah, approval, user);
     const riwayat = this.mapRiwayatForResponse(rows, approval);
     return {
       success: true,
@@ -2371,7 +2377,9 @@ export class NaskahLainnyaService {
     );
     const userPosId = String(user.positionId ?? user.position ?? '');
     if (userPosId) {
-      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(userPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }
@@ -2537,7 +2545,9 @@ export class NaskahLainnyaService {
     await this.publishWorkflowUpdate(n, true);
     const userPosId = String(user.positionId ?? user.position ?? '');
     if (userPosId) {
-      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(userPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }
@@ -3794,6 +3804,53 @@ export class NaskahLainnyaService {
     return n;
   }
 
+  private async assertCanReadDetail(
+    n: NaskahEntity,
+    approvals: NaskahLainnyaApprovalEntity[],
+    user: CurrentUser,
+  ): Promise<void> {
+    const role = String(user.role ?? '').toLowerCase();
+    if (role === 'admin' || role === 'superadmin') return;
+
+    const sourceCompany = n.dikirimOleh?.company;
+    if (
+      sourceCompany &&
+      user.company &&
+      String(sourceCompany) !== String(user.company)
+    ) {
+      throw new NotFoundException('Naskah tidak ditemukan');
+    }
+
+    const positionId = String(user.positionId ?? user.position ?? '');
+    const isSigner = (n.penandatanganChain ?? []).some(
+      (signer) =>
+        String(signer.positionId ?? '') === positionId ||
+        Number(signer.persnum) === Number(user.persnum),
+    );
+    const isApprover = approvals.some((row) =>
+      this.isApprovalAssignedToUser(row, user),
+    );
+    if (this.isPemrakarsa(n, user) || isSigner || isApprover) return;
+
+    const legalPositionIds = await this.legalRoleService.getActivePositionIds();
+    const legalStages = new Set([
+      'legal_drafting',
+      'evaluasi',
+      'persetujuan_lanjutan',
+      'evaluasi_final',
+      'persetujuan_direksi',
+      'blanko_verbal',
+    ]);
+    if (
+      positionId &&
+      legalPositionIds.includes(positionId) &&
+      legalStages.has(String(n.tahapan ?? ''))
+    ) {
+      return;
+    }
+    throw new NotFoundException('Naskah tidak ditemukan');
+  }
+
   private isPemrakarsa(n: NaskahEntity, user: CurrentUser): boolean {
     const userPositionId = String(user.positionId ?? user.position ?? '');
     const pemrakarsaPositionId = String(n.dikirimOleh?.position_id ?? '');
@@ -4586,7 +4643,9 @@ export class NaskahLainnyaService {
     await this.publishWorkflowUpdate(n, newTahap !== 'persetujuan_direksi');
     const userPosId = String(user.positionId ?? user.position ?? '');
     if (userPosId) {
-      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(userPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }
@@ -4651,7 +4710,9 @@ export class NaskahLainnyaService {
     await this.publishWorkflowUpdate(n, true);
     const tolakPosId = String(user.positionId ?? user.position ?? '');
     if (tolakPosId) {
-      this.notificationService.markByNaskahAsRead(tolakPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(tolakPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }
@@ -4865,7 +4926,9 @@ export class NaskahLainnyaService {
     await this.publishWorkflowUpdate(n, newTahap !== 'blanko_verbal');
     const userPosId = String(user.positionId ?? user.position ?? '');
     if (userPosId) {
-      this.notificationService.markByNaskahAsRead(userPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(userPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }
@@ -4954,7 +5017,9 @@ export class NaskahLainnyaService {
     await this.publishWorkflowUpdate(n, true);
     const tolakPosId = String(user.positionId ?? user.position ?? '');
     if (tolakPosId) {
-      this.notificationService.markByNaskahAsRead(tolakPosId, id).catch(() => {});
+      this.notificationService
+        .markByNaskahAsRead(tolakPosId, id)
+        .catch(() => {});
     }
     return this.getDetail(id, user);
   }

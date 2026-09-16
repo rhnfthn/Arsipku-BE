@@ -120,6 +120,7 @@ export class AuditInterceptor implements NestInterceptor {
     { prefix: '/klasifikasi', module: AuditModule.MASTER_DATA },
     { prefix: '/grup-penerima', module: AuditModule.MASTER_DATA },
     { prefix: '/short-url', module: AuditModule.NASKAH },
+    { prefix: '/tugas', module: AuditModule.TUGAS },
     { prefix: '/company-switch', module: AuditModule.CONFIG },
   ];
 
