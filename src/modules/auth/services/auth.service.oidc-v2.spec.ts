@@ -135,4 +135,24 @@ describe('AuthService Auth v2 server-side flow', () => {
       }),
     );
   });
+
+  it('menolak sesi pending yang lebih tua dari 10 menit', async () => {
+    oidcSession.get.mockResolvedValueOnce({
+      state: 'valid-state',
+      codeVerifier: 'v'.repeat(64),
+      returnTo: '/beranda',
+      frontendOrigin: 'http://localhost:3000',
+      createdAt: Date.now() - 11 * 60 * 1000,
+    });
+
+    await expect(
+      service.completeOidcLogin(
+        'pending-id',
+        'authorization-code',
+        'valid-state',
+      ),
+    ).rejects.toThrow('kedaluwarsa');
+    expect(oidcSession.delete).toHaveBeenCalledWith('pending-id');
+    expect(provider.exchangeCode).not.toHaveBeenCalled();
+  });
 });
