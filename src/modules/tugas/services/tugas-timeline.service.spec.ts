@@ -50,9 +50,25 @@ describe('TugasTimelineService', () => {
     const activityRepository = {
       createQueryBuilder: jest.fn(() => query),
     };
+    const memberRepository = {
+      find: jest.fn(() =>
+        Promise.resolve([
+          {
+            boardId: 'board-1',
+            persnum: 100,
+            positionId: 'POS-1',
+            namaSnapshot: 'Pemilik',
+            positionTextSnapshot: 'Manager',
+          },
+        ]),
+      ),
+    };
     const access = {
       assertBoardMember: jest.fn(() => Promise.resolve({})),
-      repositories: { activity: activityRepository },
+      repositories: {
+        activity: activityRepository,
+        member: memberRepository,
+      },
     } as unknown as TugasAccessReader;
     const service = new TugasTimelineService(access);
 
@@ -72,6 +88,12 @@ describe('TugasTimelineService', () => {
       id: 'a-1',
       taskId: null,
       aksi: TugasActivityAction.DELETE_TASK,
+      actor: {
+        persnum: 100,
+        positionId: 'POS-1',
+        nama: 'Pemilik',
+        positionText: 'Manager',
+      },
     });
     expect(response.meta).toEqual({
       page: 1,
