@@ -17,13 +17,22 @@ export interface RecordTugasActivity {
 export class TugasActivityService {
   record(manager: EntityManager, input: RecordTugasActivity) {
     const repository = manager.getRepository(TugasActivityEntity);
+    const detail = {
+      ...(input.detail ?? {}),
+      actor: {
+        persnum: input.actor.persnum,
+        positionId: input.actor.position,
+        nama: input.actor.nama || `Pengguna ${input.actor.persnum}`,
+        positionText: input.actor.positionText || null,
+      },
+    };
     return repository.save(
       repository.create({
         id: uuidv4(),
         boardId: input.boardId,
         taskId: input.taskId ?? null,
         aksi: input.aksi,
-        detail: input.detail ?? null,
+        detail,
         actorPersnum: input.actor.persnum,
         actorPositionId: input.actor.position,
       }),
