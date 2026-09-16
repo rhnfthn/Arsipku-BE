@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { NaskahSirkulasiService } from 'src/modules/naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { LabelService } from 'src/modules/label/services/label.service';
 import { BsreAlertService } from 'src/modules/digsig/services/bsre-alert.service';
 import { NaskahDinasVerifikatorEntity } from 'src/modules/naskah-dinas/entities/naskah-dinas-verifikator.entity';
 import { NomorService } from 'src/modules/nomor/services/nomor.service';
 import { NaskahLainnyaService } from 'src/modules/naskah-lainnya/services/naskah-lainnya.service';
+import { TugasAccessReader } from 'src/modules/tugas/services/tugas-access.reader';
 
 interface CacheEntry {
   data: any;
@@ -34,7 +36,19 @@ export class RealtimeSummaryService {
     private readonly verifikatorRepository: Repository<NaskahDinasVerifikatorEntity>,
     private readonly dataSource: DataSource,
     private readonly naskahLainnyaService: NaskahLainnyaService,
+    // Lazy resolve via ModuleRef — menghindari circular dependency
+    // DashboardModule ↔ TugasModule (pola sama dengan RealtimeSyncService).
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /** Resolve TugasAccessReader secara lazy; null bila modul belum siap. */
+  private get tugasAccessReader(): TugasAccessReader | null {
+    try {
+      return this.moduleRef.get(TugasAccessReader, { strict: false }) ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async getSummary(positionId: string, persnum?: number) {
     const cacheKey = `realtime:${positionId}:${persnum ?? 'all'}`;
@@ -55,6 +69,7 @@ export class RealtimeSummaryService {
       arsipPersetujuanWaitingCount,
       naskahLainnyaPersetujuanWaitingCount,
       naskahLainnyaLegalDraftingWaitingCount,
+      tugasAssignedWaitingCount,
     ] = await Promise.all([
       this.sirkulasiService.countUnreadInbox(positionId).catch(() => null),
       this.labelService.countNaskahPerLabel(positionId).catch(() => ({})),
@@ -120,6 +135,13 @@ export class RealtimeSummaryService {
             : 0,
         )
         .catch(() => 0),
+      // Tugas: task aktif yang ditugaskan ke posisi ini dan belum done.
+      // Count hanya task aktif, board tidak terhapus, task tidak archived.
+      this.tugasAccessReader
+        ? this.tugasAccessReader
+            .countAssignedOpenByPosition(String(positionId))
+            .catch(() => 0)
+        : Promise.resolve(0),
     ]);
 
     const data = {
@@ -130,6 +152,7 @@ export class RealtimeSummaryService {
       arsipPersetujuanWaitingCount,
       naskahLainnyaPersetujuanWaitingCount,
       naskahLainnyaLegalDraftingWaitingCount,
+      tugasAssignedWaitingCount,
       nomorCounts: {
         admin: nomorAdminCount?.data ?? null,
         user: nomorUserCount?.data ?? null,

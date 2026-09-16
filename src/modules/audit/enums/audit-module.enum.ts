@@ -13,4 +13,5 @@ export enum AuditModule {
   USULAN_PINDAH = 'USULAN_PINDAH',
   FAQ = 'FAQ',
   AUDIT = 'AUDIT',
+  TUGAS = 'TUGAS',
 }
