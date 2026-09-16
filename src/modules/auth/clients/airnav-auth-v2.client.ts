@@ -125,6 +125,17 @@ export class AirnavAuthV2Client {
       return this.normalizeTokenResponse(response.data);
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
+      // Log detail respons provider supaya penyebab penolakan (redirect_uri
+      // mismatch, code_verifier salah, code expired) terlihat di log server.
+      const axiosError = error as {
+        response?: { status?: number; data?: unknown };
+        message?: string;
+      };
+      console.error('[AirnavAuthV2Client] Token exchange gagal:', {
+        status: axiosError.response?.status,
+        data: axiosError.response?.data,
+        message: axiosError.message,
+      });
       throw new UnauthorizedException('Authorization code tidak valid');
     }
   }
