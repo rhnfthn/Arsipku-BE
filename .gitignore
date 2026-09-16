@@ -63,6 +63,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /db
 /src/migrations/
 /src/modules/correspondence-routing/migrations/
+/src/modules/tugas/migrations/
 /scripts/*
 !/scripts/preflight-correspondence-routing.ts
 
