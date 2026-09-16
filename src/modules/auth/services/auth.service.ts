@@ -215,7 +215,6 @@ export class AuthService {
         details: {
           status: err.response?.status,
           data: err.response?.data,
-          stack: err.stack,
         },
       });
     }
