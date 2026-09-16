@@ -71,6 +71,7 @@ export class NotificationService {
   async createNotification(
     dto: CreateNotificationDto,
     sendPush = true,
+    toleratePushFailure = false,
   ): Promise<NotificationEntity> {
     this.logger.log('='.repeat(60));
     this.logger.log('📥 [createNotification] CALLED');
@@ -173,25 +174,42 @@ export class NotificationService {
           NotificationType.NASKAH_DINAS_VERIFIKATOR,
           NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
           NotificationType.NASKAH_DINAS_DITOLAK,
+          NotificationType.TUGAS_MEMBER_ADDED,
+          NotificationType.TUGAS_ASSIGNED,
+          NotificationType.TUGAS_DONE,
+          NotificationType.TUGAS_DUE,
         ].includes(dto.type as NotificationType);
 
-        if (isPersuratanType && dto.positionId) {
-          await this.fcmService.sendToUserForPosition(
-            dto.userPersnum,
-            dto.positionId,
-            pushTitle,
-            pushBody,
-            dataWithId,
-          );
-        } else {
-          await this.fcmService.sendToUser(
-            dto.userPersnum,
-            pushTitle, // title informatif: [Tipe • Jenis] Pengirim (Jabatan)
-            pushBody, // body informatif: Perihal — Instruksi
-            dataWithId,
+        let pushDelivered = false;
+        try {
+          if (isPersuratanType && dto.positionId) {
+            await this.fcmService.sendToUserForPosition(
+              dto.userPersnum,
+              dto.positionId,
+              pushTitle,
+              pushBody,
+              dataWithId,
+            );
+          } else {
+            await this.fcmService.sendToUser(
+              dto.userPersnum,
+              pushTitle,
+              pushBody,
+              dataWithId,
+            );
+          }
+          pushDelivered = true;
+        } catch (pushError) {
+          if (!toleratePushFailure) throw pushError;
+          const message =
+            pushError instanceof Error ? pushError.message : String(pushError);
+          this.logger.warn(
+            `⚠️ [createNotification] Push failed after notification persisted: ${message}`,
           );
         }
-        this.logger.log(`✅ [createNotification] Push notification sent`);
+        if (pushDelivered) {
+          this.logger.log(`✅ [createNotification] Push notification sent`);
+        }
       } else {
         this.logger.log(
           `⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`,
@@ -421,9 +439,14 @@ export class NotificationService {
       NotificationType.NASKAH_DINAS_VERIFIKATOR,
       NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
       NotificationType.NASKAH_DINAS_DITOLAK,
+      NotificationType.TUGAS_MEMBER_ADDED,
+      NotificationType.TUGAS_ASSIGNED,
+      NotificationType.TUGAS_DONE,
+      NotificationType.TUGAS_DUE,
     ];
 
-    const queryBuilder = this.notificationRepository.createQueryBuilder('notification');
+    const queryBuilder =
+      this.notificationRepository.createQueryBuilder('notification');
 
     if (userPersnum != null) {
       queryBuilder.where(
@@ -431,7 +454,9 @@ export class NotificationService {
         { positionId, userPersnum, persuratanTypes },
       );
     } else {
-      queryBuilder.where('notification.position_id = :positionId', { positionId });
+      queryBuilder.where('notification.position_id = :positionId', {
+        positionId,
+      });
     }
 
     // Jangan pernah tampilkan notifikasi junk (body murni angka / kosong).
@@ -499,6 +524,10 @@ export class NotificationService {
       NotificationType.NASKAH_DINAS_VERIFIKATOR,
       NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
       NotificationType.NASKAH_DINAS_DITOLAK,
+      NotificationType.TUGAS_MEMBER_ADDED,
+      NotificationType.TUGAS_ASSIGNED,
+      NotificationType.TUGAS_DONE,
+      NotificationType.TUGAS_DUE,
     ];
 
     const qb = this.notificationRepository.createQueryBuilder('n');

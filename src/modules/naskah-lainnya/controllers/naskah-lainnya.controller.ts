@@ -110,12 +110,12 @@ export class NaskahLainnyaController {
 
   @Get(':id')
   getDetail(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
-    return this.service.getDetail(id, user);
+    return this.service.getDetail(id, user, true);
   }
 
   @Get(':id/riwayat')
-  getRiwayat(@Param('id') id: string) {
-    return this.service.getRiwayat(id);
+  getRiwayat(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+    return this.service.getRiwayat(id, user);
   }
 
   @Put(':id')

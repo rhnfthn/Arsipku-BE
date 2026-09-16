@@ -1,5 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
 import { NaskahLainnyaService } from './naskah-lainnya.service';
@@ -162,7 +166,10 @@ describe('NaskahLainnyaService', () => {
         },
         {
           provide: NotificationService,
-          useValue: { createNotification: jest.fn() },
+          useValue: {
+            createNotification: jest.fn(),
+            markByNaskahAsRead: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: RealtimeEmitService,
@@ -188,6 +195,80 @@ describe('NaskahLainnyaService', () => {
       ],
     }).compile();
     svc = mod.get(NaskahLainnyaService);
+  });
+
+  it('getDetail menyamarkan naskah milik objek lain sebagai 404', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-private',
+      tahapan: 'persetujuan',
+      dikirimOleh: {
+        company: '10000',
+        position_id: 'POS_OWNER',
+        persnum: 100,
+      },
+      penandatanganChain: [],
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+
+    await expect(
+      svc.getDetail(
+        'n-private',
+        {
+          company: '10000',
+          positionId: 'POS_STRANGER',
+          persnum: 999,
+          nama: 'Bukan Peserta',
+        },
+        true,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('getRiwayat menerapkan pemeriksaan object-level yang sama', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-private',
+      tahapan: 'persetujuan',
+      dikirimOleh: {
+        company: '10000',
+        position_id: 'POS_OWNER',
+        persnum: 100,
+      },
+      penandatanganChain: [],
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+    (svc as any).riwayatRepo.find.mockResolvedValue([]);
+
+    await expect(
+      svc.getRiwayat('n-private', {
+        company: '10000',
+        positionId: 'POS_STRANGER',
+        persnum: 999,
+        nama: 'Bukan Peserta',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('getDetail menolak participant dari company JWT yang berbeda', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'n-company-a',
+      tahapan: 'tanda_tangan',
+      dikirimOleh: { company: '10000', position_id: 'POS_OWNER' },
+      penandatanganChain: [{ positionId: 'POS_SIGNER' }],
+    });
+    (svc as any).approvalRepo.find.mockResolvedValue([]);
+
+    await expect(
+      svc.getDetail(
+        'n-company-a',
+        {
+          company: '20000',
+          positionId: 'POS_SIGNER',
+          persnum: 200,
+          nama: 'Signer Company Lain',
+        },
+        true,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('memetakan Direktur Pemrakarsa dari pejabat tertinggi approval awal, bukan konseptor pengirim', async () => {
