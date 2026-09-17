@@ -63,6 +63,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /db
 /src/migrations/
 /src/modules/correspondence-routing/migrations/
+/src/modules/tugas/migrations/
 /scripts/*
 !/scripts/preflight-correspondence-routing.ts
 
@@ -74,3 +75,14 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 #K6 TEST
 /test
+
+# Sertifikat & key (sensitive)
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+
+# SQL one-off (di luar migrations)
+*.sql

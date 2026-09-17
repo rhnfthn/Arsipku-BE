@@ -16,4 +16,10 @@ export class LegalRoleController {
     const result = await this.legalRoleService.toggle(positionId);
     return { success: true, data: result };
   }
+
+  @Patch(':positionId/first-recipient')
+  async setFirstRecipient(@Param('positionId') positionId: string) {
+    const result = await this.legalRoleService.setFirstRecipient(positionId);
+    return { success: true, data: result };
+  }
 }

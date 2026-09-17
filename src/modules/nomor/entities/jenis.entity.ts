@@ -17,6 +17,15 @@ export class JenisEntity {
   @Column('varchar', { name: 'file_text', length: 255, nullable: true })
   fileText: string | null;
 
+  @Column('varchar', { name: 'file_original', length: 255, nullable: true })
+  fileOriginal: string | null;
+
+  @Column('varchar', { name: 'file_regex', length: 255, nullable: true })
+  fileRegex: string | null;
+
   @Column('text', { name: 'format_penomoran', nullable: true })
   formatPenomoran: string | null;
+
+  @Column('tinyint', { width: 1, default: 1 })
+  active: number;
 }

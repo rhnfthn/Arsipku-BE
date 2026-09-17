@@ -6,13 +6,16 @@ import {
   OnGatewayInit,
   SubscribeMessage,
   ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { RealtimeSyncService } from '../services/realtime-sync.service';
+import { TugasAccessReader } from '../../tugas/services/tugas-access.reader';
 
 /**
  * RealtimeGateway
@@ -35,10 +38,12 @@ import { RealtimeSyncService } from '../services/realtime-sync.service';
  *  - naskah-dinas:verifikator-count (verifikator waiting count change)
  *  - naskah-lainnya:persetujuan-count (approval/signing queue count)
  *  - naskah-lainnya:legal-drafting-count (legal drafting queue count)
+ *  - naskah-lainnya:updated (invalidasi detail naskah yang sedang dibuka)
  *
  * Event client -> server:
  *  - realtime:subscribe      (request initial summary)
  *  - realtime:ping
+ *  - naskah-lainnya:subscribe / unsubscribe
  */
 @WebSocketGateway({
   namespace: 'realtime',
@@ -70,6 +75,7 @@ export class RealtimeGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly syncService: RealtimeSyncService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   afterInit(_server: Server) {
@@ -169,6 +175,92 @@ export class RealtimeGateway
       client.emit('realtime:summary', summary);
     }
     return { status: 'subscribed', positionId: user.position };
+  }
+
+  @SubscribeMessage('naskah-lainnya:subscribe')
+  async onSubscribeNaskahLainnya(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { naskahId?: string },
+  ) {
+    if (!client.data?.user) return { status: 'error', message: 'Unauthorized' };
+    const naskahId = String(payload?.naskahId ?? '').trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        naskahId,
+      )
+    ) {
+      return { status: 'error', message: 'Invalid naskahId' };
+    }
+    await client.join(`naskah-lainnya:${naskahId}`);
+    return { status: 'subscribed', naskahId };
+  }
+
+  @SubscribeMessage('naskah-lainnya:unsubscribe')
+  async onUnsubscribeNaskahLainnya(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { naskahId?: string },
+  ) {
+    const naskahId = String(payload?.naskahId ?? '').trim();
+    if (naskahId) await client.leave(`naskah-lainnya:${naskahId}`);
+    return { status: 'unsubscribed', naskahId };
+  }
+
+  // ──────────────────────────────────────────────
+  // Tugas board rooms (Phase 6)
+  // ──────────────────────────────────────────────
+
+  private static readonly UUID_V4 =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  /**
+   * Join room board Tugas. Validasi UUID lalu resolve membership via
+   * TugasAccessReader secara LAZY (ModuleRef) agar tidak membuat circular
+   * dependency antara RealtimeModule dan TugasModule — pola yang sama
+   * dengan RealtimeSyncService → RealtimeSummaryService.
+   */
+  @SubscribeMessage('tugas:subscribe')
+  async onSubscribeTugas(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { boardId?: string },
+  ) {
+    const user = client.data?.user as JwtPayload | undefined;
+    if (!user) return { status: 'error', message: 'Unauthorized' };
+
+    const boardId = String(payload?.boardId ?? '').trim();
+    if (!RealtimeGateway.UUID_V4.test(boardId)) {
+      return { status: 'error', message: 'Invalid boardId' };
+    }
+
+    try {
+      const accessReader = this.moduleRef.get(TugasAccessReader, {
+        strict: false,
+      });
+      if (!accessReader) {
+        return { status: 'error', message: 'Tugas module not available' };
+      }
+      // Join hanya setelah company + membership posisi aktif valid.
+      await accessReader.assertBoardMember(
+        boardId,
+        user.company,
+        user.position,
+      );
+      await client.join(`tugas:board:${boardId}`);
+      return { status: 'subscribed', boardId };
+    } catch {
+      // Non-member / company lain / board terhapus → tolak tanpa membocorkan
+      // keberadaan objek.
+      return { status: 'error', message: 'Board not found' };
+    }
+  }
+
+  @SubscribeMessage('tugas:unsubscribe')
+  async onUnsubscribeTugas(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { boardId?: string },
+  ) {
+    const boardId = String(payload?.boardId ?? '').trim();
+    if (boardId) await client.leave(`tugas:board:${boardId}`);
+    return { status: 'unsubscribed', boardId };
   }
 
   // ──────────────────────────────────────────────
@@ -305,6 +397,13 @@ export class RealtimeGateway
       .emit('naskah-lainnya:legal-drafting-count', { positionId, waiting });
   }
 
+  emitNaskahLainnyaUpdated(payload: { naskahId: string; occurredAt: string }) {
+    if (!this.server) return;
+    this.server
+      .to(`naskah-lainnya:${payload.naskahId}`)
+      .emit('naskah-lainnya:updated', payload);
+  }
+
   /**
    * Emit tracking update (read/follow-up status change) ke pengirim.
    */
@@ -320,8 +419,105 @@ export class RealtimeGateway
    */
   emitFlagUpdate(positionId: string, payload: any) {
     if (!this.server) return;
+    this.server.to(`position:${positionId}`).emit('flag:update', payload);
+  }
+
+  /** Broadcast perubahan konfigurasi routing setelah transaksi DB committed. */
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    if (!this.server) return;
+    this.server.emit('correspondence-routing:updated', payload);
+  }
+
+  // ──────────────────────────────────────────────
+  // Tugas emits (Phase 6) — dipanggil oleh RealtimeEmitService
+  // ──────────────────────────────────────────────
+
+  /** Emit perubahan papan (task dibuat/ubah/pindah/hapus, member berubah). */
+  emitTugasBoardUpdated(payload: {
+    boardId: string;
+    revision: number;
+    action: string;
+    taskId?: string | null;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:board-updated', payload);
+  }
+
+  /** Emit perubahan satu task agar client dapat melakukan invalidasi terarah. */
+  emitTugasTaskUpdated(payload: {
+    boardId: string;
+    taskId: string;
+    revision: number;
+    action: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:task-updated', payload);
+  }
+
+  /** Emit task dipindahkan antar status/urutan. */
+  emitTugasTaskMoved(payload: {
+    boardId: string;
+    taskId: string;
+    from: string;
+    to: string;
+    urutan: number;
+    revision: number;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:task-moved', payload);
+  }
+
+  /** Emit assigned-open count delta ke room posisi (badge sidebar). */
+  emitTugasAssignedCount(positionId: string, count: number) {
+    if (!this.server) return;
     this.server
       .to(`position:${positionId}`)
-      .emit('flag:update', payload);
+      .emit('tugas:assigned-count', { positionId, count });
+  }
+
+  /** Emit komentar task baru ke room board (forum diskusi realtime). */
+  emitTugasCommentAdded(payload: {
+    boardId: string;
+    taskId: string | null;
+    commentId: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:comment-added', payload);
+  }
+
+  /** Emit komentar task dihapus ke room board (forum diskusi realtime). */
+  emitTugasCommentDeleted(payload: {
+    boardId: string;
+    taskId: string | null;
+    commentId: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:comment-deleted', payload);
   }
 }

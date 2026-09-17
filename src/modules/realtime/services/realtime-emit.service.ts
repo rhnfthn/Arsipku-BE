@@ -228,6 +228,19 @@ export class RealtimeEmitService {
     }
   }
 
+  emitNaskahLainnyaUpdated(naskahId: string) {
+    try {
+      this.gateway.emitNaskahLainnyaUpdated({
+        naskahId,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitNaskahLainnyaUpdated] failed for ${naskahId}: ${err?.message}`,
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Tracking update (read status / tindak lanjut)
   // ──────────────────────────────────────────────
@@ -270,6 +283,149 @@ export class RealtimeEmitService {
       this.gateway.emitFlagUpdate(positionId, payload);
     } catch (err: any) {
       this.logger.warn(`⚠️ [emitFlagUpdate] failed: ${err?.message}`);
+    }
+  }
+
+  emitCorrespondenceRoutingUpdate(payload: {
+    mutationId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    occurredAt: string;
+  }) {
+    try {
+      this.gateway.emitCorrespondenceRoutingUpdate(payload);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitCorrespondenceRoutingUpdate] failed: ${err?.message}`,
+      );
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // Tugas (Phase 6)
+  // ──────────────────────────────────────────────
+
+  /**
+   * Emit perubahan papan Tugas ke room board.
+   * HARUS dipanggil setelah transaction database commit — bukan di dalam
+   * callback transaction (rollback tidak boleh mengirim event).
+   */
+  emitTugasBoardUpdated(payload: {
+    boardId: string;
+    revision: number;
+    action: string;
+    taskId?: string | null;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasBoardUpdated({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasBoardUpdated] failed for board ${payload.boardId}: ${err?.message}`,
+      );
+    }
+  }
+
+  emitTugasTaskUpdated(payload: {
+    boardId: string;
+    taskId: string;
+    revision: number;
+    action: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasTaskUpdated({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasTaskUpdated] failed for task ${payload.taskId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit task dipindahkan antar status/urutan ke room board.
+   */
+  emitTugasTaskMoved(payload: {
+    boardId: string;
+    taskId: string;
+    from: string;
+    to: string;
+    urutan: number;
+    revision: number;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasTaskMoved({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasTaskMoved] failed for task ${payload.taskId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit assigned-open count delta ke room posisi (badge sidebar Tugas).
+   */
+  emitTugasAssignedCount(positionId: string, count: number) {
+    try {
+      this.gateway.emitTugasAssignedCount(positionId, count);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasAssignedCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit komentar task baru ke room board — client menambahkan komentar
+   * secara realtime tanpa refetch penuh.
+   */
+  emitTugasCommentAdded(payload: {
+    boardId: string;
+    taskId: string | null;
+    commentId: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasCommentAdded({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasCommentAdded] failed for task ${payload.taskId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit komentar task dihapus ke room board.
+   */
+  emitTugasCommentDeleted(payload: {
+    boardId: string;
+    taskId: string | null;
+    commentId: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasCommentDeleted({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasCommentDeleted] failed for task ${payload.taskId}: ${err?.message}`,
+      );
     }
   }
 }

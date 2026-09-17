@@ -198,6 +198,42 @@ export class EksternalService {
     };
   }
 
+  async checkUsage(id: string): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    details?: {
+      suratCount: number;
+    };
+  }> {
+    const eksternal = await this.findOne(id);
+    let suratCount = 0;
+
+    if (eksternal.nama) {
+      try {
+        const sdeRes = await this.eksternalRepository.query(
+          `SELECT COUNT(id) as cnt FROM sdi_sde WHERE nama = ? OR kepada_yth LIKE ?`,
+          [eksternal.nama, `%${eksternal.nama}%`],
+        );
+        suratCount = Number(sdeRes[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek sdi_sde by eksternal:', err.message);
+      }
+    }
+
+    if (suratCount > 0) {
+      return {
+        canDelete: false,
+        reason: `Tertuju eksternal '${eksternal.nama}' sudah digunakan pada ${suratCount} arsip/surat keluar. Data ini akan dinonaktifkan alih-alih dihapus fisik agar riwayat persuratan tetap terjaga.`,
+        details: { suratCount },
+      };
+    }
+
+    return {
+      canDelete: true,
+      details: { suratCount: 0 },
+    };
+  }
+
   async remove(id: string): Promise<void> {
     const eksternal = await this.eksternalRepository.findOne({ where: { id } });
     if (!eksternal) {

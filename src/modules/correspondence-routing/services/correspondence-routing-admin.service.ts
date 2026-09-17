@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -33,6 +34,7 @@ import {
   UpdateRoutingRuleDto,
 } from '../dto/routing-admin.dto';
 import { RoutingConfigCacheService } from './routing-config-cache.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import {
   matchesScopes,
   periodsOverlap,
@@ -68,6 +70,7 @@ export class CorrespondenceRoutingAdminService {
     private readonly org: OrgDataService,
     private readonly audit: AuditTrailService,
     private readonly cache: RoutingConfigCacheService,
+    @Optional() private readonly realtime?: RealtimeEmitService,
   ) {}
 
   private async mutate<T>(
@@ -154,6 +157,13 @@ export class CorrespondenceRoutingAdminService {
       auditStatus = 'confirmation_pending';
       this.logger.error(`Routing audit confirmation missing: ${mutationId}`);
     }
+    this.realtime?.emitCorrespondenceRoutingUpdate({
+      mutationId,
+      entityType,
+      entityId,
+      action,
+      occurredAt: new Date().toISOString(),
+    });
     return { data: value, mutation_id: mutationId, audit_status: auditStatus };
   }
 

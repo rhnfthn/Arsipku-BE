@@ -11,6 +11,8 @@ import { Person } from '../master-data/person/entities/person.entity';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { NotificationModule } from '../notification/notification.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { ConfigAdminModule } from '../config/config.module';
+import { NaskahLainnyaDokumenEntity } from '../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
 
 @Module({
   imports: [
@@ -20,11 +22,13 @@ import { RealtimeModule } from '../realtime/realtime.module';
       NaskahShareLogEntity,
       NaskahSirkulasi,
       NaskahEntity,
+      NaskahLainnyaDokumenEntity,
       Person,
     ]),
     OrgDataModule,
     NotificationModule,
     RealtimeModule,
+    ConfigAdminModule,
   ],
   controllers: [NaskahShareController],
   providers: [NaskahShareService],

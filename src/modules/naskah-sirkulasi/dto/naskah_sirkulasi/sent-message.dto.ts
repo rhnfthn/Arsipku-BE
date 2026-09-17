@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsDateString,
   IsBoolean,
+  IsString,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
@@ -11,6 +12,10 @@ import { Type, Transform } from 'class-transformer';
  * Query params untuk filter sent messages (kotak keluar)
  */
 export class SentMessageQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @IsOptional()
   @IsEnum(['ND', 'SDI', 'SDE', 'DI', 'KA', 'K'], {
     message: 'Jenis naskah tidak valid',
@@ -109,6 +114,7 @@ export class SirkulasiInfoDto {
   position_text: string;
   organization_text: string;
   nama: string | null;
+  persnum?: number;
 }
 
 /**
@@ -119,6 +125,7 @@ export class PenerimaWithStatusDto {
   position_text: string;
   organization_text: string;
   nama: string | null;
+  persnum?: number;
   status_baca: 'terbaca' | 'belum_terbaca';
   read_time: Date | null;
   is_tindak_lanjut?: boolean;

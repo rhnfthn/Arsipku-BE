@@ -189,13 +189,11 @@ export class NotificationGateway
     if (!this.server) return;
 
     const positionRoom = `position:${positionId}`;
-    this.server.to(positionRoom).emit('notification:new', notification);
-
-    if (userPersnum != null) {
-      this.server
-        .to(`user:${userPersnum}`)
-        .emit('notification:new', notification);
-    }
+    const emitter = this.server.to(positionRoom);
+    if (userPersnum != null) emitter.to(`user:${userPersnum}`);
+    // Socket.IO melakukan union room: client yang join kedua room tetap
+    // menerima satu event, bukan dua event yang sama.
+    emitter.emit('notification:new', notification);
   }
 
   /**

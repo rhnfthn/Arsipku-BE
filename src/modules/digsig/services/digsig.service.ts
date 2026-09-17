@@ -56,15 +56,46 @@ export interface DigsigLogContext {
   idNaskah?: string;
   jenisNaskah?: string;
   ipAddress?: string;
+  batch?: DigsigBatchContext;
 }
+
+export interface DigsigBatchContext {
+  id: string;
+  participantId: string;
+  expectedCount: number;
+}
+
+type PendingDigsigBatchEntry = {
+  params: DigsigParams;
+  logContext: DigsigLogContext;
+  resolve: (value: DigsigResponse) => void;
+  reject: (reason: unknown) => void;
+};
+
+type PendingDigsigBatch = {
+  expectedCount: number;
+  entries: Map<string, PendingDigsigBatchEntry>;
+  skipped: Set<string>;
+  timer: NodeJS.Timeout;
+  processing: boolean;
+};
 
 export interface DigsigResponse {
   status: string;
   message: string;
   doc_id?: string | null;
+  signature_id?: string | null;
+  name_doc?: string[];
   signed_file_path?: string;
   data?: any;
 }
+
+type BsreV2Response = {
+  file?: string[];
+  time?: unknown;
+  error?: string;
+  message?: string;
+};
 
 export interface SignResultResponse {
   message: string;
@@ -104,6 +135,8 @@ const VERIFICATION_BASE_URL =
 
 @Injectable()
 export class DigsigService {
+  private readonly pendingBatches = new Map<string, PendingDigsigBatch>();
+
   constructor(
     private readonly storageService: StorageService,
     private readonly qrCodeService: QRCodeService,
@@ -157,6 +190,275 @@ export class DigsigService {
    * @param logContext - Optional context for logging (currently unused, for future logging)
    */
   async hitDigsigEndpoint(params: DigsigParams, logContext?: DigsigLogContext) {
+    if (logContext?.batch && logContext.batch.expectedCount > 1) {
+      return this.enqueueBulkSigning(params, logContext);
+    }
+
+    return this.hitDigsigEndpointSingle(params, logContext);
+  }
+
+  /**
+   * Tandai satu peserta batch yang gagal sebelum mencapai proses BSrE.
+   * Ini mencegah PDF lain menunggu peserta tersebut sampai timeout.
+   */
+  startBatch(batchId: string, expectedCount: number): void {
+    this.getOrCreateBatch({
+      id: batchId,
+      participantId: '__batch_start__',
+      expectedCount,
+    });
+  }
+
+  skipBatchParticipant(batch: DigsigBatchContext): void {
+    const state = this.pendingBatches.get(batch.id);
+    // Batch yang sudah selesai tidak perlu dibuat ulang hanya untuk skip.
+    if (!state) return;
+    if (state.entries.has(batch.participantId)) return;
+    state.skipped.add(batch.participantId);
+    this.flushBatchWhenReady(batch.id, state);
+  }
+
+  private enqueueBulkSigning(
+    params: DigsigParams,
+    logContext: DigsigLogContext,
+  ): Promise<DigsigResponse> {
+    const batch = logContext.batch!;
+    const state = this.getOrCreateBatch(batch);
+
+    return new Promise<DigsigResponse>((resolve, reject) => {
+      state.skipped.delete(batch.participantId);
+      state.entries.set(batch.participantId, {
+        params,
+        logContext,
+        resolve,
+        reject,
+      });
+      this.flushBatchWhenReady(batch.id, state);
+    });
+  }
+
+  private getOrCreateBatch(batch: DigsigBatchContext): PendingDigsigBatch {
+    const existing = this.pendingBatches.get(batch.id);
+    if (existing) {
+      existing.expectedCount = Math.max(
+        existing.expectedCount,
+        batch.expectedCount,
+      );
+      return existing;
+    }
+
+    const state: PendingDigsigBatch = {
+      expectedCount: batch.expectedCount,
+      entries: new Map(),
+      skipped: new Set(),
+      processing: false,
+      // Safety net: jika salah satu generator PDF berhenti sebelum mendaftar,
+      // dokumen yang sudah siap tetap diproses dalam satu bulk request.
+      timer: setTimeout(() => void this.flushBatch(batch.id), 30_000),
+    };
+    this.pendingBatches.set(batch.id, state);
+    return state;
+  }
+
+  private flushBatchWhenReady(
+    batchId: string,
+    state: PendingDigsigBatch,
+  ): void {
+    if (
+      !state.processing &&
+      state.entries.size + state.skipped.size >= state.expectedCount
+    ) {
+      void this.flushBatch(batchId);
+    }
+  }
+
+  private async flushBatch(batchId: string): Promise<void> {
+    const state = this.pendingBatches.get(batchId);
+    if (!state || state.processing) return;
+
+    state.processing = true;
+    clearTimeout(state.timer);
+    this.pendingBatches.delete(batchId);
+    const entries = [...state.entries.values()];
+    if (entries.length === 0) return;
+
+    try {
+      const responses = await this.hitDigsigEndpointBulk(entries);
+      entries.forEach((entry, index) => entry.resolve(responses[index]));
+    } catch (error) {
+      entries.forEach((entry) => entry.reject(error));
+    }
+  }
+
+  /**
+   * BSrE API v2 mendukung array file. Seluruh PDF SDE Massal dikirim dengan
+   * satu autentikasi/passphrase, lalu hasilnya dikembalikan sesuai urutan.
+   */
+  private async hitDigsigEndpointBulk(
+    entries: PendingDigsigBatchEntry[],
+  ): Promise<DigsigResponse[]> {
+    const first = entries[0];
+    try {
+      const buffers = await Promise.all(
+        entries.map((entry) => this.storageService.getFile(entry.params.key)),
+      );
+      const timestamp = Date.now();
+      const outputNames = entries.map((entry, index) =>
+        entry.params.filename.replace(
+          /\.pdf$/i,
+          `-${timestamp}-${index + 1}.pdf`,
+        ),
+      );
+      const signatureProperty = {
+        imageBase64: '',
+        tampilan: 'INVISIBLE',
+        page: 1,
+        originX: 0.0,
+        originY: 0.0,
+        width: 100.0,
+        height: 75.0,
+        location: null,
+        reason: null,
+        contactInfo: null,
+      };
+      const response = await axios.post<BsreV2Response>(
+        this.BSRE_SIGNIN_URL,
+        {
+          nik: DEFAULT_BSRE_NIK,
+          passphrase: first.params.passphrase,
+          // Satu properti berlaku untuk seluruh file (semuanya invisible).
+          signatureProperties: [signatureProperty],
+          file: buffers.map((buffer) => buffer.toString('base64')),
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: this.BSRE_BASIC_AUTH_HEADER,
+          },
+          timeout: 120_000,
+        },
+      );
+
+      const signedFiles: string[] = response.data?.file || [];
+      if (signedFiles.length !== entries.length) {
+        throw new Error(
+          `BSrE mengembalikan ${signedFiles.length} dari ${entries.length} file hasil signing`,
+        );
+      }
+
+      const uploads = await Promise.all(
+        entries.map((entry, index) =>
+          this.storageService.uploadBuffer(
+            Buffer.from(signedFiles[index], 'base64'),
+            outputNames[index],
+            'application/pdf',
+            entry.params.path_dokumen.replace(/\/$/, ''),
+          ),
+        ),
+      );
+
+      const results = uploads.map((upload) => {
+        const signedFileName = upload.key.split('/').pop()!;
+        return {
+          status: 'success',
+          message: 'BSrE bulk signing berhasil',
+          doc_id: null,
+          signed_file_path: upload.key,
+          data: {
+            name_doc: [signedFileName],
+            time: response.data?.time,
+          },
+        } satisfies DigsigResponse;
+      });
+
+      await Promise.all(
+        entries.map(async (entry, index) => {
+          try {
+            await this.digsigLogService.logSignActivity({
+              userPersnum: entry.logContext.userPersnum,
+              userName: entry.logContext.userName,
+              ipAddress: entry.logContext.ipAddress,
+              idNaskah: entry.logContext.idNaskah,
+              nomorNaskah: entry.params.nomorDokumen,
+              jenisNaskah: entry.logContext.jenisNaskah,
+              apiEndpoint: 'POST /signin (bulk)',
+              status: 'sukses',
+              note: `BSrE bulk signing berhasil (${index + 1}/${entries.length})`,
+              bsreResponse: results[index],
+            });
+          } catch (logError) {
+            console.error(
+              '[DigsigService] Failed to log bulk success:',
+              logError,
+            );
+          }
+        }),
+      );
+
+      return results;
+    } catch (error: any) {
+      await Promise.all(
+        entries.map(async (entry) => {
+          try {
+            await this.digsigLogService.logSignActivity({
+              userPersnum: entry.logContext.userPersnum,
+              userName: entry.logContext.userName,
+              ipAddress: entry.logContext.ipAddress,
+              idNaskah: entry.logContext.idNaskah,
+              nomorNaskah: entry.params.nomorDokumen,
+              jenisNaskah: entry.logContext.jenisNaskah,
+              apiEndpoint: 'POST /signin (bulk)',
+              status: 'gagal',
+              note: axios.isAxiosError(error)
+                ? error.response?.data?.error ||
+                  error.response?.data?.message ||
+                  error.message
+                : error.message,
+              bsreResponse: axios.isAxiosError(error)
+                ? error.response?.data
+                : { error: error.message },
+            });
+          } catch (logError) {
+            console.error(
+              '[DigsigService] Failed to log bulk failure:',
+              logError,
+            );
+          }
+        }),
+      );
+
+      if (axios.isAxiosError(error)) {
+        const status =
+          error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR;
+        const message =
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          'Gagal mengambil data dari service external';
+        throw new HttpException(
+          {
+            success: false,
+            message,
+            source: 'external-service',
+            detail: error.response?.data,
+          },
+          status,
+        );
+      }
+
+      throw new HttpException(
+        {
+          success: false,
+          message: error?.message || 'Bulk signing gagal',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  private async hitDigsigEndpointSingle(
+    params: DigsigParams,
+    logContext?: DigsigLogContext,
+  ): Promise<DigsigResponse> {
     try {
       // Seluruh request BSrE menggunakan NIK bersama, termasuk request dari
       // token lama yang masih menyimpan NIK personal pengguna.
@@ -295,7 +597,7 @@ export class DigsigService {
         );
       }
 
-      return response.data;
+      return response.data as DigsigResponse;
     } catch (error: any) {
       // Log failure if context provided
       console.log('[DigsigService] Error occurred, logContext:', logContext);
@@ -416,6 +718,17 @@ export class DigsigService {
     return {
       nik: DEFAULT_BSRE_NIK,
       no_wa: user.noWa || '',
+    };
+  }
+
+  /**
+   * BSrE v2 hanya memakai NIK bersama dan passphrase pada payload signing.
+   * Batch tidak perlu menunggu lookup nomor telepon ke HR API.
+   */
+  getUserDataForMassalBsre(): { nik: string; no_wa: string } {
+    return {
+      nik: DEFAULT_BSRE_NIK,
+      no_wa: '',
     };
   }
 

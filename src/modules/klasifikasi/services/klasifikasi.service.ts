@@ -55,8 +55,10 @@ export class KlasifikasiService {
   async findAll(company?: string): Promise<KlasifikasiEntity[]> {
     const query = this.klasifikasiRepository.createQueryBuilder('klasifikasi');
 
+    query.where('klasifikasi.active = :active', { active: 1 });
+
     if (company) {
-      query.where('klasifikasi.company = :company', { company });
+      query.andWhere('klasifikasi.company = :company', { company });
     }
 
     return await query.orderBy('klasifikasi.klasifikasi', 'ASC').getMany();
@@ -140,23 +142,126 @@ export class KlasifikasiService {
     return await this.klasifikasiRepository.save(klasifikasi);
   }
 
-  async remove(id: string): Promise<{ message: string }> {
+  /**
+   * Mengambil semua id dan kode klasifikasi turunan (recursive)
+   */
+  private async getAllDescendantKlasifikasi(id: string): Promise<{ ids: string[]; codes: string[] }> {
+    const ids: string[] = [id];
+    const target = await this.klasifikasiRepository.findOne({ where: { id } });
+    const codes: string[] = target ? [target.klasifikasi] : [];
+
+    const getChildren = async (parentId: string) => {
+      const children = await this.klasifikasiRepository.find({
+        where: { id_parent: parentId },
+      });
+      for (const child of children) {
+        ids.push(child.id);
+        if (child.klasifikasi) codes.push(child.klasifikasi);
+        await getChildren(child.id);
+      }
+    };
+
+    await getChildren(id);
+    return { ids, codes };
+  }
+
+  /**
+   * Cek apakah klasifikasi (atau salah satu child di bawahnya) sudah digunakan di naskah/berkas
+   */
+  async checkUsage(id: string): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    details?: {
+      hasChildren: boolean;
+      childrenCount: number;
+      usedInNaskahCount: number;
+      usedInBerkasCount: number;
+    };
+  }> {
     const klasifikasi = await this.findOne(id);
+    const { ids, codes } = await this.getAllDescendantKlasifikasi(id);
+    const childrenCount = ids.length - 1;
 
-    // Check if has children
-    const childrenCount = await this.klasifikasiRepository.count({
-      where: { id_parent: id },
-    });
+    let usedInNaskahCount = 0;
+    let usedInBerkasCount = 0;
 
-    if (childrenCount > 0) {
-      throw new BadRequestException(
-        'Tidak dapat menghapus klasifikasi yang memiliki sub-klasifikasi',
-      );
+    if (codes.length > 0) {
+      try {
+        const naskahRes = await this.klasifikasiRepository.query(
+          `SELECT COUNT(id) as cnt FROM naskah WHERE klasifikasi IN (?)`,
+          [codes],
+        );
+        usedInNaskahCount = Number(naskahRes[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek naskah usage:', err.message);
+      }
+
+      try {
+        const berkasRes = await this.klasifikasiRepository.query(
+          `SELECT COUNT(id) as cnt FROM berkas WHERE klasifikasi IN (?)`,
+          [codes],
+        );
+        usedInBerkasCount = Number(berkasRes[0]?.cnt || 0);
+      } catch (err) {
+        console.warn('Gagal cek berkas usage:', err.message);
+      }
     }
 
-    await this.klasifikasiRepository.remove(klasifikasi);
+    if (usedInNaskahCount > 0 || usedInBerkasCount > 0) {
+      const usageList: string[] = [];
+      if (usedInNaskahCount > 0) usageList.push(`${usedInNaskahCount} Naskah Surat`);
+      if (usedInBerkasCount > 0) usageList.push(`${usedInBerkasCount} Berkas Arsip`);
+
+      return {
+        canDelete: false,
+        reason: `Klasifikasi ${klasifikasi.klasifikasi} (atau sub-klasifikasi di bawahnya) sudah digunakan pada ${usageList.join(' dan ')}. Data tidak dapat dihapus untuk menjaga keutuhan riwayat arsip.`,
+        details: {
+          hasChildren: childrenCount > 0,
+          childrenCount,
+          usedInNaskahCount,
+          usedInBerkasCount,
+        },
+      };
+    }
+
+    if (childrenCount > 0) {
+      return {
+        canDelete: false,
+        reason: `Klasifikasi ${klasifikasi.klasifikasi} memiliki ${childrenCount} sub-klasifikasi di bawahnya. Hapus atau pindahkan sub-klasifikasi terlebih dahulu.`,
+        details: {
+          hasChildren: true,
+          childrenCount,
+          usedInNaskahCount: 0,
+          usedInBerkasCount: 0,
+        },
+      };
+    }
+
     return {
-      message: `Klasifikasi ${klasifikasi.klasifikasi} berhasil dihapus`,
+      canDelete: true,
+      details: {
+        hasChildren: false,
+        childrenCount: 0,
+        usedInNaskahCount: 0,
+        usedInBerkasCount: 0,
+      },
+    };
+  }
+
+  async remove(id: string): Promise<{ message: string }> {
+    const klasifikasi = await this.findOne(id);
+    const { ids } = await this.getAllDescendantKlasifikasi(id);
+
+    // Soft delete: set active = 0 untuk parent dan semua child di bawahnya
+    await this.klasifikasiRepository
+      .createQueryBuilder()
+      .update(KlasifikasiEntity)
+      .set({ active: 0 })
+      .whereInIds(ids)
+      .execute();
+
+    return {
+      message: `Klasifikasi ${klasifikasi.klasifikasi} beserta sub-klasifikasinya berhasil dihapus`,
     };
   }
 

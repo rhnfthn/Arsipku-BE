@@ -24,6 +24,8 @@ import { NotificationService } from '../../notification/services/notification.se
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { ConfigNaskahLainnyaService } from '../../config/services';
+import { NaskahLainnyaDokumenEntity } from '../../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
 
 @Injectable()
 export class NaskahShareService {
@@ -40,12 +42,15 @@ export class NaskahShareService {
     private readonly sirkulasiRepo: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahEntity)
     private readonly naskahRepo: Repository<NaskahEntity>,
+    @InjectRepository(NaskahLainnyaDokumenEntity)
+    private readonly naskahLainnyaDokumenRepo: Repository<NaskahLainnyaDokumenEntity>,
     @InjectRepository(Person)
     private readonly personRepo: Repository<Person>,
     private readonly orgDataService: OrgDataService,
     private readonly notificationService: NotificationService,
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
+    private readonly configNaskahLainnyaService: ConfigNaskahLainnyaService,
   ) {}
 
   // ────────────────────────────────────────────────────────────────
@@ -76,6 +81,30 @@ export class NaskahShareService {
     }
     const naskahMap = new Map(naskahs.map((n) => [n.id, n]));
 
+    const distributionScope = dto.distributionScope ?? 'SELECTED';
+
+    for (const naskah of naskahs) {
+      if (naskah.tahapan == null) continue;
+      const config = await this.configNaskahLainnyaService.findByJenis(
+        naskah.jenis,
+      );
+      if (!config.shareEnabled) {
+        throw new BadRequestException(
+          `Jenis naskah ${naskah.jenis} tidak diizinkan untuk dibagikan`,
+        );
+      }
+    }
+
+    if (distributionScope === 'ALL_EMPLOYEES') {
+      if (naskahIds.length !== 1 || naskahs[0]?.jenis !== 'EDR') {
+        throw new BadRequestException(
+          'Penyebarluasan ke seluruh karyawan hanya tersedia untuk satu Surat Edaran',
+        );
+      }
+    } else if (!dto.recipientIds?.length) {
+      throw new BadRequestException('Penerima wajib dipilih');
+    }
+
     // 2. Validate sender has access to ALL naskah
     for (const naskahId of naskahIds) {
       const hasAccess = await this.sirkulasiRepo.findOne({
@@ -84,19 +113,27 @@ export class NaskahShareService {
           position: user.position,
         },
       });
-      if (!hasAccess) {
+      // Naskah Lainnya memakai workflow approval sendiri dan tidak membuat
+      // naskah_sirkulasi. Untuk jenis ini, hanya pemrakarsa yang tersimpan pada
+      // snapshot dikirimOleh yang boleh menyebarluaskan naskah final.
+      const naskah = naskahMap.get(naskahId)!;
+      const isNaskahLainnyaOwner =
+        naskah.tahapan != null &&
+        (String(naskah.dikirimOleh?.position_id ?? '') ===
+          String(user.position ?? '') ||
+          Number(naskah.dikirimOleh?.persnum) === Number(user.persnum));
+      if (!hasAccess && !isNaskahLainnyaOwner) {
         throw new ForbiddenException(
           `Anda tidak memiliki akses ke naskah ${naskahId}`,
         );
       }
     }
 
-    // 2b. Validate all naskah are finalized (status final/final_tte)
-    // Catatan: final_pdf bisa kosong untuk naskah yang tidak punya file attachment
-    // (konten ada di naskah.konten). Yang penting status sudah final.
-    const naskahsNotFinal = naskahs.filter(
-      (n) => n.status !== 'final' && n.status !== 'final_tte',
-    );
+    // 2b. Validasi finalisasi. Data Naskah Lainnya lama dapat sudah selesai dan
+    // memiliki artifact `dittd`, tetapi status induknya masih `draf` karena bug
+    // transisi terdahulu. Artifact final menjadi bukti finalisasi untuk kasus
+    // legacy tersebut; TTD fisik `pending` tetap tidak boleh dibagikan.
+    const naskahsNotFinal = await this.findNotFinalizedNaskahs(naskahs);
     if (naskahsNotFinal.length > 0) {
       const missingTitles = naskahsNotFinal
         .map((n) => n.perihal || n.id)
@@ -107,14 +144,21 @@ export class NaskahShareService {
     }
 
     // 3. Prevent sharing to self
-    if (dto.recipientIds.includes(user.position)) {
+    const requestedRecipientIds = dto.recipientIds ?? [];
+    if (
+      distributionScope === 'SELECTED' &&
+      requestedRecipientIds.includes(user.position)
+    ) {
       throw new BadRequestException(
         'Tidak dapat membagikan naskah kepada diri sendiri',
       );
     }
 
     // 4. Fetch recipient data from org_data + person
-    const recipients = await this.fetchRecipientData(dto.recipientIds);
+    let recipients =
+      distributionScope === 'ALL_EMPLOYEES'
+        ? await this.fetchAllEmployeeData(user.position, user.persnum)
+        : await this.fetchRecipientData(requestedRecipientIds);
     if (recipients.length === 0) {
       throw new BadRequestException('Tidak ada penerima valid yang ditemukan');
     }
@@ -127,7 +171,10 @@ export class NaskahShareService {
     const existingByNaskah = new Map<string, string[]>();
     for (const s of existingShares) {
       const positions = s.recipients.map((r) => r.recipientId);
-      existingByNaskah.set(s.naskahId, positions);
+      existingByNaskah.set(s.naskahId, [
+        ...(existingByNaskah.get(s.naskahId) ?? []),
+        ...positions,
+      ]);
     }
     for (const naskahId of naskahIds) {
       const existingPositions = existingByNaskah.get(naskahId) || [];
@@ -135,6 +182,17 @@ export class NaskahShareService {
         existingPositions.includes(r.id),
       );
       if (duplicates.length > 0) {
+        if (distributionScope === 'ALL_EMPLOYEES') {
+          recipients = recipients.filter(
+            (recipient) => !existingPositions.includes(recipient.id),
+          );
+          if (recipients.length === 0) {
+            throw new BadRequestException(
+              'Surat Edaran ini sudah dibagikan kepada seluruh karyawan aktif',
+            );
+          }
+          continue;
+        }
         const naskah = naskahMap.get(naskahId);
         throw new BadRequestException(
           `${duplicates.map((d) => d.nama).join(', ')} sudah menerima share naskah "${naskah?.perihal || naskahId}"`,
@@ -192,7 +250,7 @@ export class NaskahShareService {
             status: RecipientStatus.TERKIRIM,
           }),
         );
-        await queryRunner.manager.save(recipientEntities);
+        await queryRunner.manager.save(recipientEntities, { chunk: 500 });
 
         // Log audit trail
         await queryRunner.manager.save(
@@ -224,41 +282,47 @@ export class NaskahShareService {
 
       await queryRunner.commitTransaction();
 
-      // 7. Send notification to each recipient (outside transaction)
-      for (const recipient of recipients) {
-        try {
-          await this.notificationService.createNotification(
-            {
-              positionId: recipient.id,
-              userPersnum: recipient.persnum,
-              type: NotificationType.NASKAH_SHARE_DITERIMA,
-              title: `Anda mendapat akses ${naskahIds.length} naskah dari ${user.nama}`,
-              body:
-                naskahs
-                  .map((n) => n.perihal)
-                  .filter(Boolean)
-                  .join(', ') ||
-                dto.catatan ||
-                'Lihat detail di menu Berbagi',
-              data: {
-                naskahId: naskahIds[0],
-                shareId: createdShares[0]?.id,
-                pemberiName: user.nama,
-                perihal:
-                  naskahs
-                    .map((n) => n.perihal)
-                    .filter(Boolean)
-                    .join(', ') || '',
-                action: 'OPEN_SHARE',
-              },
-            },
-            true,
-          );
-        } catch (err: any) {
-          this.logger.warn(
-            `⚠️ Failed to send share notification to ${recipient.nama}: ${err?.message}`,
-          );
-        }
+      // 7. Send notification outside transaction. Batasi konkurensi agar
+      // penyebarluasan Edaran tidak menghabiskan connection pool.
+      for (let offset = 0; offset < recipients.length; offset += 25) {
+        const batch = recipients.slice(offset, offset + 25);
+        await Promise.allSettled(
+          batch.map(async (recipient) => {
+            try {
+              await this.notificationService.createNotification(
+                {
+                  positionId: recipient.id,
+                  userPersnum: recipient.persnum,
+                  type: NotificationType.NASKAH_SHARE_DITERIMA,
+                  title: `Anda mendapat akses ${naskahIds.length} naskah dari ${user.nama}`,
+                  body:
+                    naskahs
+                      .map((n) => n.perihal)
+                      .filter(Boolean)
+                      .join(', ') ||
+                    dto.catatan ||
+                    'Lihat detail di menu Berbagi',
+                  data: {
+                    naskahId: naskahIds[0],
+                    shareId: createdShares[0]?.id,
+                    pemberiName: user.nama,
+                    perihal:
+                      naskahs
+                        .map((n) => n.perihal)
+                        .filter(Boolean)
+                        .join(', ') || '',
+                    action: 'OPEN_SHARE',
+                  },
+                },
+                true,
+              );
+            } catch (err: any) {
+              this.logger.warn(
+                `⚠️ Failed to send share notification to ${recipient.nama}: ${err?.message}`,
+              );
+            }
+          }),
+        );
       }
 
       return {
@@ -271,6 +335,8 @@ export class NaskahShareService {
         data: {
           shares: createdShares,
           count: createdShares.length,
+          recipientCount: recipients.length,
+          distributionScope,
           pemberiId: user.position,
           status: ShareStatus.AKTIF,
           accessType,
@@ -317,8 +383,38 @@ export class NaskahShareService {
       });
     }
 
-    if (query.status) {
-      qb.andWhere('share.status = :status', { status: query.status });
+    const now = new Date();
+    if (query.status === ShareStatus.AKTIF) {
+      qb.andWhere('share.status = :aktifStatus', {
+        aktifStatus: ShareStatus.AKTIF,
+      });
+      qb.andWhere('(share.expiresAt IS NULL OR share.expiresAt > :now)', {
+        now,
+      });
+      if (tab === 'shared-to-me') {
+        qb.andWhere('recipients.status != :recBerakhir', {
+          recBerakhir: RecipientStatus.BERAKHIR,
+        });
+      }
+    } else if (query.status === ShareStatus.BERAKHIR) {
+      if (tab === 'shared-to-me') {
+        qb.andWhere(
+          '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now) OR recipients.status = :recBerakhir)',
+          {
+            berakhirStatus: ShareStatus.BERAKHIR,
+            now,
+            recBerakhir: RecipientStatus.BERAKHIR,
+          },
+        );
+      } else {
+        qb.andWhere(
+          '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now))',
+          {
+            berakhirStatus: ShareStatus.BERAKHIR,
+            now,
+          },
+        );
+      }
     }
 
     // Join naskah table directly (no entity relation defined)
@@ -378,14 +474,16 @@ export class NaskahShareService {
           new Date() > new Date(share.expiresAt);
 
         // SEKALI_LIHAT: show BERAKHIR if all recipients already BERAKHIR (opened)
-        const isAllRecipientsEnded = share.status === ShareStatus.AKTIF &&
+        const isAllRecipientsEnded =
+          share.status === ShareStatus.AKTIF &&
           share.accessType === ShareAccessType.SEKALI_LIHAT &&
           share.recipients?.length > 0 &&
           share.recipients.every((r) => r.status === RecipientStatus.BERAKHIR);
 
-        const displayStatus = (isExpired || isAllRecipientsEnded)
-          ? ShareStatus.BERAKHIR
-          : share.status;
+        const displayStatus =
+          isExpired || isAllRecipientsEnded
+            ? ShareStatus.BERAKHIR
+            : share.status;
 
         return {
           id: share.id,
@@ -735,9 +833,10 @@ export class NaskahShareService {
 
     // Resolve PDF URL FIRST — before updating any status
     let pdfUrl: string | null = null;
-    if (naskah?.final_pdf) {
+    const pdfKey = naskah ? await this.resolveFinalPdfKey(naskah) : null;
+    if (pdfKey) {
       try {
-        pdfUrl = await this.storageService.getFileUrl(naskah.final_pdf);
+        pdfUrl = await this.storageService.getFileUrl(pdfKey);
       } catch (err: any) {
         this.logger.warn(
           `⚠️ Failed to resolve PDF URL for naskah ${share.naskahId}: ${err?.message}`,
@@ -824,30 +923,30 @@ export class NaskahShareService {
         }),
       );
 
-      // Send notification to pemberi
-      try {
-        await this.notificationService.createNotification(
-          {
-            positionId: share.pemberiId,
-            userPersnum: share.pemberiPersnum,
-            type: NotificationType.NASKAH_SHARE_DIBUKA,
-            title: `${user.nama} membuka naskah yang Anda bagikan`,
-            body: naskah?.perihal || '',
-            data: {
-              naskahId: share.naskahId,
-              shareId: id,
-              recipientName: user.nama,
-              perihal: naskah?.perihal || '',
-              action: 'OPEN_INBOX_DETAIL',
-            },
-          },
-          true,
-        );
-      } catch (err: any) {
-        this.logger.warn(
-          `⚠️ Failed to send open notification to pemberi: ${err?.message}`,
-        );
-      }
+      // Skip sending notification for NASKAH_SHARE_DIBUKA (read/open notification disabled per user preference)
+      // try {
+      //   await this.notificationService.createNotification(
+      //     {
+      //       positionId: share.pemberiId,
+      //       userPersnum: share.pemberiPersnum,
+      //       type: NotificationType.NASKAH_SHARE_DIBUKA,
+      //       title: `${user.nama} membuka naskah yang Anda bagikan`,
+      //       body: naskah?.perihal || '',
+      //       data: {
+      //         naskahId: share.naskahId,
+      //         shareId: id,
+      //         recipientName: user.nama,
+      //         perihal: naskah?.perihal || '',
+      //         action: 'OPEN_INBOX_DETAIL',
+      //       },
+      //     },
+      //     true,
+      //   );
+      // } catch (err: any) {
+      //   this.logger.warn(
+      //     `⚠️ Failed to send open notification to pemberi: ${err?.message}`,
+      //   );
+      // }
     }
 
     return {
@@ -872,6 +971,87 @@ export class NaskahShareService {
     };
   }
 
+  /**
+   * Naskah dinas reguler menyimpan PDF di `naskah.final_pdf`, sedangkan
+   * Naskah Lainnya menyimpan artifact final di tabel versi dokumen. Resolver
+   * ini menyatukan kedua pola penyimpanan untuk fitur berbagi.
+   */
+  private async resolveFinalPdfKey(naskah: NaskahEntity) {
+    if (naskah.final_pdf) return naskah.final_pdf;
+    if (naskah.tahapan == null) return null;
+
+    const documents = await this.naskahLainnyaDokumenRepo.find({
+      where: {
+        naskahId: naskah.id,
+        status: In(['dittd', 'final']) as any,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    const preferredDocuments =
+      naskah.signOption === 'ttd_basah'
+        ? [
+            ...documents.filter((doc) => doc.tipe === 'naskah_fisik'),
+            ...documents.filter((doc) => doc.tipe !== 'naskah_fisik'),
+          ]
+        : [
+            ...documents.filter((doc) => doc.tipe === 'naskah'),
+            ...documents.filter((doc) => doc.tipe !== 'naskah'),
+          ];
+
+    for (const document of preferredDocuments) {
+      if (document.previewMinioKey) return document.previewMinioKey;
+      if (
+        document.mimetype === 'application/pdf' ||
+        document.minioKey.toLowerCase().endsWith('.pdf')
+      ) {
+        return document.minioKey;
+      }
+    }
+
+    return naskah.signedLampiran?.toLowerCase().endsWith('.pdf')
+      ? naskah.signedLampiran
+      : null;
+  }
+
+  private async findNotFinalizedNaskahs(naskahs: NaskahEntity[]) {
+    const legacyCandidates = naskahs.filter(
+      (naskah) =>
+        !['final', 'final_tte'].includes(naskah.status) &&
+        naskah.tahapan === 'selesai' &&
+        naskah.signOption !== 'ttd_basah',
+    );
+    if (legacyCandidates.length === 0) {
+      return naskahs.filter(
+        (naskah) => !['final', 'final_tte'].includes(naskah.status),
+      );
+    }
+
+    const finalDocuments = await this.naskahLainnyaDokumenRepo.find({
+      where: {
+        naskahId: In(legacyCandidates.map((naskah) => naskah.id)),
+        tipe: 'naskah',
+        status: 'dittd' as any,
+      },
+    });
+    const finalizedLegacyIds = new Set(
+      finalDocuments
+        .filter(
+          (document) =>
+            !!document.previewMinioKey ||
+            document.mimetype === 'application/pdf' ||
+            document.minioKey.toLowerCase().endsWith('.pdf'),
+        )
+        .map((document) => document.naskahId),
+    );
+
+    return naskahs.filter(
+      (naskah) =>
+        !['final', 'final_tte'].includes(naskah.status) &&
+        !finalizedLegacyIds.has(naskah.id),
+    );
+  }
+
   // ────────────────────────────────────────────────────────────────
   // GET /naskah-share/unread-count — Jumlah share diterima yang belum dibaca
   // ────────────────────────────────────────────────────────────────
@@ -882,7 +1062,9 @@ export class NaskahShareService {
       .innerJoin(NaskahShareEntity, 'share', 'share.id = r.shareId')
       .where('r.recipientId = :positionId', { positionId: user.position })
       .andWhere('r.status = :status', { status: RecipientStatus.TERKIRIM })
-      .andWhere('share.status = :shareStatus', { shareStatus: ShareStatus.AKTIF })
+      .andWhere('share.status = :shareStatus', {
+        shareStatus: ShareStatus.AKTIF,
+      })
       .getCount();
     return count;
   }
@@ -971,6 +1153,80 @@ export class NaskahShareService {
   // ────────────────────────────────────────────────────────────────
   // Helpers
   // ────────────────────────────────────────────────────────────────
+
+  /**
+   * Resolve satu posisi utama untuk setiap karyawan aktif dari snapshot org
+   * terbaru. Dedupe berdasarkan persnum mengikuti pola endpoint my-position
+   * (posisi pertama pada snapshot) dan mencegah satu orang menerima share serta
+   * notifikasi berulang karena assignment/delegasi tambahan.
+   */
+  private async fetchAllEmployeeData(
+    senderPositionId: string,
+    senderPersnum: number,
+  ): Promise<
+    Array<{
+      id: string;
+      persnum: number;
+      nama: string;
+      positionText: string;
+      organizationText: string;
+    }>
+  > {
+    const orgData = await this.orgDataService.findLatestOrg();
+    const positions = Array.isArray(orgData?.position_json)
+      ? orgData.position_json
+      : [];
+
+    const positionByPersnum = new Map<number, any>();
+    for (const position of positions) {
+      const positionId = String(position.position ?? '');
+      const persnum = Number(position.persnum_person ?? position.persnum);
+      if (
+        !positionId ||
+        !Number.isFinite(persnum) ||
+        persnum <= 0 ||
+        positionId === String(senderPositionId) ||
+        persnum === Number(senderPersnum) ||
+        positionByPersnum.has(persnum)
+      ) {
+        continue;
+      }
+      positionByPersnum.set(persnum, position);
+    }
+
+    const persnums = [...positionByPersnum.keys()];
+    const people: Person[] = [];
+    for (let offset = 0; offset < persnums.length; offset += 1000) {
+      people.push(
+        ...(await this.personRepo.find({
+          where: {
+            persnum: In(persnums.slice(offset, offset + 1000)),
+            endDate: '9999-12-31',
+          },
+        })),
+      );
+    }
+    const personByPersnum = new Map(
+      people
+        .filter((person) => person.persnum != null)
+        .map((person) => [Number(person.persnum), person]),
+    );
+
+    return persnums.flatMap((persnum) => {
+      const person = personByPersnum.get(persnum);
+      const position = positionByPersnum.get(persnum);
+      if (!person || !position) return [];
+      return [
+        {
+          id: String(position.position),
+          persnum,
+          nama: person.name || position.persnum_person_text || '',
+          positionText: position.position_text || '',
+          organizationText: position.organization_text || '',
+        },
+      ];
+    });
+  }
 
   private async fetchRecipientData(recipientIds: string[]): Promise<
     Array<{

@@ -130,6 +130,7 @@ export class InboxItemDto {
     position_text: string;
     organization_text: string;
     nama: string;
+    persnum?: number;
   };
 
   // Info Penerima (data user yang menerima - current user)
@@ -194,6 +195,10 @@ export class InboxResponseDto {
   summary: {
     total_semua: number;
     total_belum_dibaca: number;
+    total_favorit?: number;
+    total_priority?: number;
+    total_lock?: number;
+    total_note?: number;
     total_per_jenis: {
       ND: number;
       SDI: number;

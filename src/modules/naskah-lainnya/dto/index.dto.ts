@@ -198,6 +198,10 @@ export class UpdatePenandatanganFisikDto {
  */
 export class SheetDataDto {
   @IsString() @IsOptional() approvalId?: string;
+  @IsIn(['qr_only', 'digsig'])
+  @IsOptional()
+  signMethod?: 'qr_only' | 'digsig';
+  @IsString() @IsOptional() passphrase?: string;
   @IsString() @IsOptional() tanggal?: string; // YYYY-MM-DD
   @IsString() @IsOptional() nomor?: string;
   @IsString() @IsOptional() diusulkanOleh?: string;
@@ -215,11 +219,22 @@ export class SheetDataDto {
   @IsString() @IsOptional() bodyHtml?: string;
   @IsString() @IsOptional() catatan?: string;
 
+  // Catatan approver direksi (paraf/tolak) — beda konteks dgn `catatan`
+  // (catatan lembar/blanko yang tercetak di template dokumen).
+  // approvalNote hanya masuk riwayat approval, TIDAK dirender ke template.
+  @IsString() @IsOptional() approvalNote?: string;
+
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => SheetDirectorDto)
   ditetapkanOleh?: SheetDirectorDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SheetDirectorDto)
+  direkturPemrakarsa?: SheetDirectorDto[];
 
   @IsArray()
   @IsOptional()

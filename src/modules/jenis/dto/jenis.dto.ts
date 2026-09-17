@@ -6,6 +6,13 @@ export interface JenisData {
   jenis: string | null;
   jenis_text: string | null;
   format_penomoran: string | null;
+  file_name?: string | null;
+  file_url?: string | null;
+  file_text?: string | null;
+  file_original?: string | null;
+  file_original_url?: string | null;
+  file_regex?: string | null;
+  file_regex_url?: string | null;
 }
 
 /**

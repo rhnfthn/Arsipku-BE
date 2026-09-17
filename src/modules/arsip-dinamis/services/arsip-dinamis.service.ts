@@ -632,6 +632,25 @@ export class ArsipDinamisService {
       return { message: 'Tidak ada naskah yang dipilih', count: 0 };
     }
 
+    // Naskah yang sudah berada di berkas TERTUTUP (closed_retensi_aktif /
+    // retensi_inaktif) tidak boleh dipindahkan ke berkas lain — arsipnya sudah
+    // final. Naskah di berkas AKTIF boleh dipindah (pindah folder).
+    const lockedRows: any[] = await this.dataSource.query(
+      `SELECT DISTINCT bn.naskah_id, b.kode_berkas
+       FROM berkas_naskah bn
+       INNER JOIN berkas b ON b.id = bn.berkas_id
+       WHERE bn.naskah_id IN (?)
+         AND b.status IN ('closed_retensi_aktif', 'retensi_inaktif')
+         AND b.deleted_at IS NULL`,
+      [requestedIds],
+    );
+    if (lockedRows.length > 0) {
+      const kode = lockedRows.map((r: any) => r.kode_berkas).join(', ');
+      throw new BadRequestException(
+        `Naskah sudah berada di berkas yang sudah ditutup (${kode}) dan tidak bisa dipindahkan`,
+      );
+    }
+
     // Konteks sirkulasi: naskah yang user (position) adalah pengirim/penerima.
     // Naskah yang sama boleh masuk ke berkas unit berbeda (per id_sirkuler).
     // Sekretaris (positions dari divisi/unitnya) boleh menambah atas nama seluruh
@@ -1414,7 +1433,23 @@ export class ArsipDinamisService {
     }
 
     if (nextVerifikator) {
-      // Masih ada verifikator berikutnya → status tetap menunggu
+      // Masih ada verifikator berikutnya → kirim notifikasi ke verifikator berikutnya
+      try {
+        await this.notificationService.createNotification(
+          {
+            positionId: String(nextVerifikator.verifikatorPositionId),
+            userPersnum: Number(nextVerifikator.verifikatorPersnum),
+            type: NotificationType.BERKAS_VERIFIKASI,
+            title: 'Persetujuan penutupan berkas',
+            body: `Berkas "${berkas.judulBerkas}" menunggu persetujuan Anda`,
+            data: { berkasId, kodeBerkas: berkas.kodeBerkas },
+          },
+          false,
+        );
+      } catch (e) {
+        console.warn('[arsip-dinamis] failed to notify next verifikator:', (e as Error).message);
+      }
+
       return {
         message: 'Verifikasi berhasil, menunggu verifikator berikutnya',
         statusBerkas: berkas.status,
@@ -1440,6 +1475,25 @@ export class ArsipDinamisService {
     }
 
     await this.berkasRepository.save(berkas);
+
+    // Notifikasi ke pembuat berkas bahwa penutupan disetujui
+    try {
+      if (berkas.createdBy) {
+        await this.notificationService.createNotification(
+          {
+            positionId: '0',
+            userPersnum: berkas.createdBy,
+            type: NotificationType.BERKAS_VERIFIKASI,
+            title: 'Penutupan Berkas Disetujui',
+            body: `Pengajuan penutupan berkas "${berkas.judulBerkas}" telah disetujui.`,
+            data: { berkasId, kodeBerkas: berkas.kodeBerkas },
+          },
+          false,
+        );
+      }
+    } catch (e) {
+      console.warn('[arsip-dinamis] failed to notify owner:', (e as Error).message);
+    }
 
     // Catat riwayat retensi
     const riwayat = this.berkasRiwayatRetensiRepository.create({
@@ -1510,8 +1564,21 @@ export class ArsipDinamisService {
     // Realtime count update ke rejecter (−). Gagal tidak batalkan reject.
     try {
       await this.emitCountForVerifikator(verifikatorPersnum);
+      if (berkas.createdBy) {
+        await this.notificationService.createNotification(
+          {
+            positionId: '0',
+            userPersnum: berkas.createdBy,
+            type: NotificationType.BERKAS_VERIFIKASI,
+            title: 'Penutupan Berkas Ditolak',
+            body: `Pengajuan penutupan berkas "${berkas.judulBerkas}" ditolak: ${dto.catatan || 'Mohon disesuaikan.'}`,
+            data: { berkasId, kodeBerkas: berkas.kodeBerkas },
+          },
+          false,
+        );
+      }
     } catch (err: any) {
-      console.warn('[arsip-dinamis] realtime reject gagal:', err?.message);
+      console.warn('[arsip-dinamis] realtime reject / notif gagal:', err?.message);
     }
 
     return { message: 'Penutupan berkas ditolak' };
