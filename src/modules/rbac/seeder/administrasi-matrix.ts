@@ -614,6 +614,36 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
+    {
+      key: 'audit',
+      label: 'Audit Trail',
+      subMenus: [
+        {
+          key: 'audit',
+          label: 'Audit Trail',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Audit Trail',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat log, anomali, dan laporan audit',
+                  resource: 'audit',
+                },
+                {
+                  action: 'export',
+                  label: 'Export',
+                  description: 'Export laporan audit',
+                  resource: 'audit',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 

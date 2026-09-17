@@ -53,6 +53,14 @@ const rbacManagementResources: {
       { action: 'update', description: 'Update konfigurasi sistem' },
     ],
   },
+  {
+    name: 'audit',
+    description: 'Audit Trail dan laporan audit (Superadmin)',
+    permissions: [
+      { action: 'read', description: 'Melihat log, anomali, dan laporan audit' },
+      { action: 'export', description: 'Export laporan audit' },
+    ],
+  },
   // Legacy resources yang masih dipakai endpoint lama
   {
     name: 'delegasi',
