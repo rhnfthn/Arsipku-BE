@@ -448,6 +448,126 @@ export const utamaMatrix: MatrixHalaman = {
         },
       ],
     },
+    {
+      key: 'sde-masal',
+      label: 'SDE Massal',
+      subMenus: [
+        {
+          key: 'sde-masal',
+          label: 'SDE Massal',
+          fiturs: [
+            {
+              key: 'halaman-pengajuan',
+              label: 'Pengajuan',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat halaman Pengajuan SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'read-detail',
+                  label: 'Read Detail',
+                  description: 'Melihat detail folder dan naskah SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Membuat dan mengajukan SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'update',
+                  label: 'Update',
+                  description: 'Mengubah folder atau data SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'delete',
+                  label: 'Delete',
+                  description: 'Menghapus data SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'finalize',
+                  label: 'Finalize',
+                  description: 'Memfinalisasi dan mengirim SDE Massal',
+                  resource: 'sde-masal',
+                },
+              ],
+            },
+            {
+              key: 'halaman-verifikasi',
+              label: 'Verifikasi',
+              permissions: [
+                {
+                  action: 'read-verification',
+                  label: 'Read',
+                  description: 'Melihat daftar dan detail verifikasi SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'verify',
+                  label: 'Verify',
+                  description: 'Menyetujui verifikasi SDE Massal',
+                  resource: 'sde-masal',
+                },
+                {
+                  action: 'reject',
+                  label: 'Reject',
+                  description: 'Menolak atau mengembalikan SDE Massal',
+                  resource: 'sde-masal',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      key: 'berbagi',
+      label: 'Berbagi',
+      subMenus: [
+        {
+          key: 'berbagi',
+          label: 'Berbagi Naskah',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Halaman Berbagi',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Melihat naskah yang dibagikan',
+                  resource: 'naskah-share',
+                },
+                {
+                  action: 'create',
+                  label: 'Create',
+                  description: 'Membagikan naskah ke user lain',
+                  resource: 'naskah-share',
+                },
+                {
+                  action: 'open',
+                  label: 'Open',
+                  description: 'Membuka naskah yang dibagikan',
+                  resource: 'naskah-share',
+                },
+                {
+                  action: 'delete',
+                  label: 'Delete',
+                  description: 'Mencabut akses naskah yang dibagikan',
+                  resource: 'naskah-share',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 
