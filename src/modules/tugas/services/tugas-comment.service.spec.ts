@@ -53,6 +53,7 @@ describe('TugasCommentService', () => {
   let notification: {
     emitCommentAddedSafe: jest.Mock;
     emitCommentDeletedSafe: jest.Mock;
+    notifyTagged: jest.Mock;
   };
   let commentRepository: {
     createQueryBuilder: jest.Mock;
@@ -179,6 +180,7 @@ describe('TugasCommentService', () => {
     notification = {
       emitCommentAddedSafe: jest.fn(),
       emitCommentDeletedSafe: jest.fn(),
+      notifyTagged: jest.fn(async () => undefined),
     };
 
     service = new TugasCommentService(
@@ -253,6 +255,65 @@ describe('TugasCommentService', () => {
         service.add('board-1', { isi: 'Halo', taskId: 'task-lain' }, actor),
       ).rejects.toThrow(NotFoundException);
       expect(commentRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('mengirim notifikasi hanya kepada anggota lain yang di-tag', async () => {
+      const saved = buildComment({ isi: 'Halo @Other dan @Tester' });
+      commentRepository.save.mockResolvedValue(saved);
+
+      await service.add('board-1', { isi: 'Halo @Other dan @Tester' }, actor);
+
+      expect(notification.notifyTagged).toHaveBeenCalledWith({
+        board,
+        taggedMembers: [
+          {
+            memberId: otherMember.id,
+            positionId: otherMember.positionId,
+            persnum: otherMember.persnum,
+            nama: otherMember.namaSnapshot,
+          },
+        ],
+        actor,
+      });
+    });
+
+    it('tidak ikut men-tag nama pendek ketika nama panjang yang disebut', async () => {
+      const shortNameMember = {
+        ...otherMember,
+        id: 'member-short',
+        persnum: 30,
+        positionId: 'POSITION-3',
+        namaSnapshot: 'Budi',
+      } as TugasBoardMemberEntity;
+      const longNameMember = {
+        ...otherMember,
+        id: 'member-long',
+        persnum: 40,
+        positionId: 'POSITION-4',
+        namaSnapshot: 'Budi Santoso',
+      } as TugasBoardMemberEntity;
+      access.repositories.member.find.mockResolvedValue([
+        member,
+        shortNameMember,
+        longNameMember,
+      ]);
+      commentRepository.save.mockResolvedValue(
+        buildComment({ isi: 'Mohon dicek @Budi Santoso' }),
+      );
+
+      await service.add(
+        'board-1',
+        { isi: 'Mohon dicek @Budi Santoso' },
+        actor,
+      );
+
+      expect(notification.notifyTagged).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taggedMembers: [
+            expect.objectContaining({ memberId: longNameMember.id }),
+          ],
+        }),
+      );
     });
   });
 
