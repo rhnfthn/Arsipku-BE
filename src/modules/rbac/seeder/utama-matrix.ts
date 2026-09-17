@@ -254,25 +254,25 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'read',
                   label: 'Read',
                   description: 'Melihat halaman Tulis Naskah Lainnya',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.halaman-tulis-naskah',
                 },
                 {
                   action: 'create',
                   label: 'Create',
                   description: 'Button Pratinjau',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.button-pratinjau',
                 },
                 {
-                  action: 'create-draft',
+                  action: 'create',
                   label: 'Create',
                   description: 'Button Simpan Draft',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.button-simpan-draft',
                 },
                 {
-                  action: 'create-send',
+                  action: 'create',
                   label: 'Create',
                   description: 'Button Kirim',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.button-kirim',
                 },
               ],
             },
@@ -290,7 +290,7 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'read',
                   label: 'Read',
                   description: 'Melihat daftar Naskah Lainnya',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.halaman-daftar-naskah',
                 },
               ],
             },
@@ -308,7 +308,7 @@ export const utamaMatrix: MatrixHalaman = {
                   action: 'read',
                   label: 'Read',
                   description: 'Melihat halaman Persetujuan Naskah Lainnya',
-                  resource: 'utama.tulis.naskah-lainnya',
+                  resource: 'utama.tulis.naskah-lainnya.halaman-persetujuan',
                 },
               ],
             },
@@ -453,11 +453,11 @@ export const utamaMatrix: MatrixHalaman = {
       label: 'SDE Massal',
       subMenus: [
         {
-          key: 'sde-masal',
-          label: 'SDE Massal',
+          key: 'pengajuan',
+          label: 'Pengajuan',
           fiturs: [
             {
-              key: 'halaman-pengajuan',
+              key: 'permissions',
               label: 'Pengajuan',
               permissions: [
                 {
@@ -472,51 +472,33 @@ export const utamaMatrix: MatrixHalaman = {
                   description: 'Melihat detail folder dan naskah SDE Massal',
                   resource: 'sde-masal',
                 },
-                {
-                  action: 'create',
-                  label: 'Create',
-                  description: 'Membuat dan mengajukan SDE Massal',
-                  resource: 'sde-masal',
-                },
-                {
-                  action: 'update',
-                  label: 'Update',
-                  description: 'Mengubah folder atau data SDE Massal',
-                  resource: 'sde-masal',
-                },
-                {
-                  action: 'delete',
-                  label: 'Delete',
-                  description: 'Menghapus data SDE Massal',
-                  resource: 'sde-masal',
-                },
-                {
-                  action: 'finalize',
-                  label: 'Finalize',
-                  description: 'Memfinalisasi dan mengirim SDE Massal',
-                  resource: 'sde-masal',
-                },
               ],
             },
+          ],
+        },
+        {
+          key: 'verifikasi',
+          label: 'Verifikasi',
+          fiturs: [
             {
-              key: 'halaman-verifikasi',
+              key: 'permissions',
               label: 'Verifikasi',
               permissions: [
                 {
                   action: 'read-verification',
                   label: 'Read',
-                  description: 'Melihat daftar dan detail verifikasi SDE Massal',
+                  description: 'Melihat daftar verifikasi SDE Massal',
                   resource: 'sde-masal',
                 },
                 {
                   action: 'verify',
-                  label: 'Verify',
+                  label: 'Button Verifikasi',
                   description: 'Menyetujui verifikasi SDE Massal',
                   resource: 'sde-masal',
                 },
                 {
                   action: 'reject',
-                  label: 'Reject',
+                  label: 'Button Tolak',
                   description: 'Menolak atau mengembalikan SDE Massal',
                   resource: 'sde-masal',
                 },
@@ -531,35 +513,35 @@ export const utamaMatrix: MatrixHalaman = {
       label: 'Berbagi',
       subMenus: [
         {
-          key: 'berbagi',
-          label: 'Berbagi Naskah',
+          key: 'saya-bagikan',
+          label: 'Saya Bagikan',
           fiturs: [
             {
               key: 'halaman',
-              label: 'Halaman Berbagi',
+              label: 'Saya Bagikan',
               permissions: [
                 {
-                  action: 'read',
+                  action: 'read-saya-bagikan',
                   label: 'Read',
-                  description: 'Melihat naskah yang dibagikan',
+                  description: 'Melihat naskah yang saya bagikan',
                   resource: 'naskah-share',
                 },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'dibagikan-kepada-saya',
+          label: 'Dibagikan Kepada Saya',
+          fiturs: [
+            {
+              key: 'halaman',
+              label: 'Dibagikan Kepada Saya',
+              permissions: [
                 {
-                  action: 'create',
-                  label: 'Create',
-                  description: 'Membagikan naskah ke user lain',
-                  resource: 'naskah-share',
-                },
-                {
-                  action: 'open',
-                  label: 'Open',
-                  description: 'Membuka naskah yang dibagikan',
-                  resource: 'naskah-share',
-                },
-                {
-                  action: 'delete',
-                  label: 'Delete',
-                  description: 'Mencabut akses naskah yang dibagikan',
+                  action: 'read-dibagikan-kepada-saya',
+                  label: 'Read',
+                  description: 'Melihat naskah yang dibagikan kepada saya',
                   resource: 'naskah-share',
                 },
               ],
@@ -612,5 +594,5 @@ export const utamaResources = flattenMatrix(utamaMatrix);
 
 // Super Admin default assignments: semua permission Utama aktif
 export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap(
-  (r) => r.permissions.map((p) => `${r.name}:${p.action}`),
+  (r) => r.permissions.map((p) => `${r.name}.${p.action}`),
 );

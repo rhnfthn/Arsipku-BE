@@ -14,6 +14,7 @@ import { PermissionCacheService } from '../../../common/guards/permission-cache.
 import { Person } from '../../master-data/person/entities/person.entity';
 import { RbacService } from './rbac.service';
 import { NotificationGateway } from '../../notification/gateways/notification.gateway';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 
 describe('RbacService', () => {
   let service: RbacService;
@@ -25,6 +26,7 @@ describe('RbacService', () => {
   let dataSource: any;
   let txManager: any;
   let notificationGateway: any;
+  let realtimeEmitService: any;
 
   beforeEach(async () => {
     roleRepo = {
@@ -87,6 +89,9 @@ describe('RbacService', () => {
       emitRbacRoleChanged: jest.fn(),
       emitRbacPermissionChanged: jest.fn(),
     };
+    realtimeEmitService = {
+      emitRbacPermissionChanged: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -112,6 +117,7 @@ describe('RbacService', () => {
         { provide: PermissionCacheService, useValue: permissionCache },
         { provide: DataSource, useValue: dataSource },
         { provide: NotificationGateway, useValue: notificationGateway },
+        { provide: RealtimeEmitService, useValue: realtimeEmitService },
       ],
     }).compile();
 
