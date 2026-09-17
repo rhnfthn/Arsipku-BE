@@ -34,9 +34,11 @@ import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 
 const readCookie = (req: Request, name: string): string | undefined => {
-  const cookie = req.headers.cookie
-    ?.split(';')
-    .map((value) => value.trim())
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  const cookie = header
+    .split(';')
+    .map((part) => part.trim())
     .find((value) => value.startsWith(`${name}=`));
   if (!cookie) return undefined;
   try {
