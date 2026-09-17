@@ -392,7 +392,7 @@ export class RealtimeEmitService {
    */
   emitTugasCommentAdded(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor?: { persnum: number; nama: string } | null;
   }) {
@@ -413,7 +413,7 @@ export class RealtimeEmitService {
    */
   emitTugasCommentDeleted(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor?: { persnum: number; nama: string } | null;
   }) {

@@ -887,6 +887,10 @@ export class AuthService {
   }
 
   private sanitizeFrontendOrigin(frontendOrigin?: string): string {
+    if (frontendOrigin === 'mobile') {
+      return 'mobile';
+    }
+
     const configuredOrigins = [
       this.configService.get<string>('AUTH_FRONTEND_URL'),
       this.configService.get<string>('FRONTEND_URL'),
@@ -916,6 +920,7 @@ export class AuthService {
   }
 
   private isLocalFrontend(frontendOrigin: string): boolean {
+    if (frontendOrigin === 'mobile') return false;
     try {
       const hostname = new URL(frontendOrigin).hostname;
       return (
