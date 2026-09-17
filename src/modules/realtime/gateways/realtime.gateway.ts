@@ -496,7 +496,7 @@ export class RealtimeGateway
   /** Emit komentar task baru ke room board (forum diskusi realtime). */
   emitTugasCommentAdded(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     occurredAt: string;
     actor?: { persnum: number; nama: string } | null;
@@ -510,7 +510,7 @@ export class RealtimeGateway
   /** Emit komentar task dihapus ke room board (forum diskusi realtime). */
   emitTugasCommentDeleted(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     occurredAt: string;
     actor?: { persnum: number; nama: string } | null;
