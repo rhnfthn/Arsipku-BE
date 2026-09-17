@@ -13,6 +13,7 @@ import { TugasTaskPriority, TugasTaskStatus } from '../enums';
 import { TugasActivityEntity } from './tugas-activity.entity';
 import { TugasBoardMemberEntity } from './tugas-board-member.entity';
 import { TugasBoardEntity } from './tugas-board.entity';
+import { TugasTaskCommentEntity } from './tugas-task-comment.entity';
 import { TugasTaskReferenceEntity } from './tugas-task-reference.entity';
 import { TugasTaskEvidenceEntity } from './tugas-task-evidence.entity';
 
@@ -145,6 +146,9 @@ export class TugasTaskEntity {
 
   @OneToMany(() => TugasTaskEvidenceEntity, (evidence) => evidence.task)
   evidences: TugasTaskEvidenceEntity[];
+
+  @OneToMany(() => TugasTaskCommentEntity, (comment) => comment.task)
+  comments: TugasTaskCommentEntity[];
 
   @OneToMany(() => TugasActivityEntity, (activity) => activity.task)
   activities: TugasActivityEntity[];
