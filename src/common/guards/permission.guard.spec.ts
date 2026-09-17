@@ -71,26 +71,32 @@ describe('PermissionGuard', () => {
   });
 
   // ============================================================
-  // SUPERADMIN bypass — selalu lolos (README §3.2 rule 2)
+  // SUPERADMIN tetap mengikuti permission role di database.
   // ============================================================
-  it('should bypass SUPERADMIN without DB query (activeRole.name)', async () => {
+  it('should check SUPERADMIN permission from DB (activeRole.name)', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'role', actions: ['create'] },
+    ]);
     const ctx = mockContext(
       { persnum: 1, activeRole: { name: 'SUPERADMIN' } },
       { resource: 'role', action: 'create' },
     );
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
-    expect(rbacService.buildActiveRoleAndPermissions).not.toHaveBeenCalled();
+    expect(permissionCache.get).toHaveBeenCalledWith(1);
   });
 
-  it('should bypass SUPERADMIN without DB query (legacy role field)', async () => {
+  it('should check SUPERADMIN permission from DB (legacy role field)', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'dashboard', actions: ['read'] },
+    ]);
     const ctx = mockContext(
       { persnum: 1, role: 'superadmin' },
       { resource: 'dashboard', action: 'read' },
     );
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
-    expect(rbacService.buildActiveRoleAndPermissions).not.toHaveBeenCalled();
+    expect(permissionCache.get).toHaveBeenCalledWith(1);
   });
 
   // ============================================================

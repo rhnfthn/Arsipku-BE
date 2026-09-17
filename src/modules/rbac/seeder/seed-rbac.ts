@@ -8,6 +8,9 @@ import { PermissionEntity } from '../entities/permission.entity';
 import { RolePermissionEntity } from '../entities/role-permission.entity';
 import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
 import { utamaResources } from './utama-matrix';
+import { shareResources } from './share-matrix';
+import { kelolaResources } from './kelola-matrix';
+import { tugasResources } from './tugas-matrix';
 
 // Load .env dari root arsipku-be
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -256,13 +259,6 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
-    name: 'pemeliharaan.retensi',
-    description: 'Pemeliharaan arsip - Riwayat & Retensi',
-    permissions: [
-      { action: 'read', description: 'Melihat riwayat retensi' },
-    ],
-  },
-  {
     name: 'tata-naskah-pyb',
     description: 'Pengaturan akses PYB/Direksi Pekerjaan/Ketua Tim',
     permissions: [
@@ -332,6 +328,17 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'export-permission', description: 'Button Export Permission' },
       { action: 'export-resource', description: 'Button Export Resource' },
       { action: 'export', description: 'Button Export (Role / User Role)' },
+    ],
+  },
+  {
+    name: 'audit',
+    description: 'Audit Trail dan laporan audit (Superadmin)',
+    permissions: [
+      { action: 'read', description: 'Melihat audit trail (legacy)' },
+      { action: 'read-log', description: 'Melihat log aktivitas audit' },
+      { action: 'read-anomaly', description: 'Melihat anomali dan alert audit' },
+      { action: 'read-report', description: 'Melihat ringkasan dan laporan audit' },
+      { action: 'export', description: 'Export laporan audit' },
     ],
   },
   {
@@ -583,13 +590,14 @@ const basePermissions = resourcesWithPermissions.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
 
-// Build utama matrix permissions from utamaResources
-const utamaPermissions = utamaResources.flatMap((r) =>
+// Build permissions from the current menu matrices.
+const matrixResources = [...utamaResources, ...shareResources, ...kelolaResources, ...tugasResources];
+const matrixPermissions = matrixResources.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
 
-// All permissions: base + utama (for all roles)
-const allPermissions = [...basePermissions, ...utamaPermissions];
+// All permissions: legacy/base + current menu matrices (for all roles)
+const allPermissions = [...basePermissions, ...matrixPermissions];
 
 // User permissions: all except template CRUD (create/update/delete)
 const userPermissions = allPermissions.filter(
@@ -700,9 +708,9 @@ async function main() {
     `✅ ${resourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`,
   );
 
-  // 2b. Upsert Utama matrix resources (utama.beranda, utama.tulis.nota-dinas, etc.)
-  //     These are used by the RBAC matrix editor UI and frontend useFeatureAccess.ts
-  for (const rDef of utamaResources) {
+  // 2b. Upsert current menu matrix resources. These are used by the RBAC
+  // matrix editor UI and frontend useFeatureAccess.ts.
+  for (const rDef of matrixResources) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
     if (!resource) {
       resource = resourceRepo.create({
@@ -736,7 +744,7 @@ async function main() {
     }
   }
   console.log(
-    `✅ ${utamaResources.length} Utama matrix resources added (total permissions: ${permIdByName.size})`,
+    `✅ ${matrixResources.length} menu matrix resources added (total permissions: ${permIdByName.size})`,
   );
 
   // 3. Assign permissions to roles (replace per role)

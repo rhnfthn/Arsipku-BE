@@ -304,6 +304,21 @@ export class RealtimeGateway
   }
 
   /**
+   * Emit perubahan permission role ke semua user yang sedang memakai role itu.
+   * Frontend menggunakan namespace /realtime untuk menyegarkan permission.
+   */
+  emitRbacPermissionChanged(roleName: string, data: { roleId: string }) {
+    if (!this.server) return;
+    const lowerRole = roleName.toLowerCase();
+    this.logger.log(
+      `📢 Emit rbac:permission-changed to role:${lowerRole} — ${data.roleId}`,
+    );
+    this.server
+      .to(`role:${lowerRole}`)
+      .emit('rbac:permission-changed', { roleName, ...data });
+  }
+
+  /**
    * Emit nomor request count change.
    */
   emitNomorCount(positionId: string, scope: 'admin' | 'user', counts: any) {

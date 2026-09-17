@@ -30,7 +30,7 @@ export class OrganizationTuController {
 
   @Get()
   @ApiOperation({ summary: 'List semua data organization_tu (paginated)' })
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-unit-tu')
   findAll(@Query() query: QueryOrganizationTuDto) {
     return this.service.findAll(query);
   }
@@ -43,7 +43,7 @@ export class OrganizationTuController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Detail satu data organization_tu' })
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-unit-tu')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }

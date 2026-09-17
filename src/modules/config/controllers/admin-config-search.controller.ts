@@ -28,7 +28,7 @@ export class AdminConfigSearchController {
    * Mengambil konfigurasi mesin pencarian
    */
   @Get()
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('smart-search', 'read')
   async getConfig(): Promise<ConfigSearch> {
     return this.configSearchService.getConfig();
   }
