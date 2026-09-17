@@ -218,6 +218,22 @@ export class RbacController {
     return { success: true, data: result };
   }
 
+  @Get('matrix/kelola')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getKelolaMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findKelolaMatrix(roleId);
+    return { success: true, data: result };
+  }
+
+  @Get('matrix/tugas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RequirePermission('role', 'read')
+  async getTugasMatrix(@Query('roleId') roleId?: string) {
+    const result = await this.rbacService.findTugasMatrix(roleId);
+    return { success: true, data: result };
+  }
+
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'assign-permission')

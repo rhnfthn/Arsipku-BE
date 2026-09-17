@@ -32,7 +32,7 @@ export class AdminConfigMessageController {
    * Mengambil semua pesan
    */
   @Get()
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-pengumuman')
   async findAll(): Promise<ConfigMessage[]> {
     return this.configMessageService.findAll();
   }
@@ -77,7 +77,7 @@ export class AdminConfigMessageController {
    * Mengambil pesan berdasarkan ID
    */
   @Get(':id')
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-pengumuman')
   async findOne(@Param('id') id: string): Promise<ConfigMessage> {
     return this.configMessageService.findOne(id);
   }

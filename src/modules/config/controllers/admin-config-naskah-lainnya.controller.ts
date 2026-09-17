@@ -30,7 +30,7 @@ export class AdminConfigNaskahLainnyaController {
 
   /** GET /admin/config/naskah-lainnya — semua jenis (yang belum diset → default). */
   @Get()
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-naskah-lainnya')
   async findAll(): Promise<ConfigNaskahLainnya[]> {
     return this.configNaskahLainnyaService.findAll();
   }

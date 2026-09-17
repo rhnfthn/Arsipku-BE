@@ -10,6 +10,7 @@ import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
 import { utamaResources } from './utama-matrix';
 import { shareResources } from './share-matrix';
 import { kelolaResources } from './kelola-matrix';
+import { tugasResources } from './tugas-matrix';
 
 // Load .env dari root arsipku-be
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -258,13 +259,6 @@ const resourcesWithPermissions: ResourceDef[] = [
     ],
   },
   {
-    name: 'pemeliharaan.retensi',
-    description: 'Pemeliharaan arsip - Riwayat & Retensi',
-    permissions: [
-      { action: 'read', description: 'Melihat riwayat retensi' },
-    ],
-  },
-  {
     name: 'tata-naskah-pyb',
     description: 'Pengaturan akses PYB/Direksi Pekerjaan/Ketua Tim',
     permissions: [
@@ -340,7 +334,10 @@ const resourcesWithPermissions: ResourceDef[] = [
     name: 'audit',
     description: 'Audit Trail dan laporan audit (Superadmin)',
     permissions: [
-      { action: 'read', description: 'Melihat log, anomali, dan laporan audit' },
+      { action: 'read', description: 'Melihat audit trail (legacy)' },
+      { action: 'read-log', description: 'Melihat log aktivitas audit' },
+      { action: 'read-anomaly', description: 'Melihat anomali dan alert audit' },
+      { action: 'read-report', description: 'Melihat ringkasan dan laporan audit' },
       { action: 'export', description: 'Export laporan audit' },
     ],
   },
@@ -594,7 +591,7 @@ const basePermissions = resourcesWithPermissions.flatMap((r) =>
 );
 
 // Build permissions from the current menu matrices.
-const matrixResources = [...utamaResources, ...shareResources, ...kelolaResources];
+const matrixResources = [...utamaResources, ...shareResources, ...kelolaResources, ...tugasResources];
 const matrixPermissions = matrixResources.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );

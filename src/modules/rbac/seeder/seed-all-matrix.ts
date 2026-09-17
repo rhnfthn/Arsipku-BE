@@ -11,6 +11,7 @@ import { utamaResources } from './utama-matrix';
 import { utilitasResources } from './utilitas-matrix';
 import { shareResources } from './share-matrix';
 import { kelolaResources } from './kelola-matrix';
+import { tugasResources } from './tugas-matrix';
 import { administrasiResources } from './administrasi-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -57,7 +58,10 @@ const rbacManagementResources: {
     name: 'audit',
     description: 'Audit Trail dan laporan audit (Superadmin)',
     permissions: [
-      { action: 'read', description: 'Melihat log, anomali, dan laporan audit' },
+      { action: 'read', description: 'Melihat audit trail (legacy)' },
+      { action: 'read-log', description: 'Melihat log aktivitas audit' },
+      { action: 'read-anomaly', description: 'Melihat anomali dan alert audit' },
+      { action: 'read-report', description: 'Melihat ringkasan dan laporan audit' },
       { action: 'export', description: 'Export laporan audit' },
     ],
   },
@@ -397,8 +401,12 @@ async function main() {
     ...utilitasResources,
     ...shareResources,
     ...kelolaResources,
+    ...tugasResources,
     ...administrasiResources.filter(
-      (resource) => resource.name === 'correspondence-routing',
+      (resource) =>
+        resource.name === 'correspondence-routing' ||
+        resource.name === 'konfigurasi' ||
+        resource.name === 'smart-search',
     ),
     ...rbacManagementResources,
   ];
