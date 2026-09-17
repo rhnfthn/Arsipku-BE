@@ -178,6 +178,7 @@ export class NotificationService {
           NotificationType.TUGAS_ASSIGNED,
           NotificationType.TUGAS_DONE,
           NotificationType.TUGAS_DUE,
+          NotificationType.TUGAS_TAGGED,
         ].includes(dto.type as NotificationType);
 
         let pushDelivered = false;

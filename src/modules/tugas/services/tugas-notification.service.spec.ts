@@ -135,6 +135,51 @@ describe('TugasNotificationService (Phase 6)', () => {
     );
   });
 
+  it('mengirim notifikasi tag forum dan melanjutkan ketika satu penerima gagal', async () => {
+    const harness = createService();
+    (harness.notificationService.createNotification as jest.Mock)
+      .mockRejectedValueOnce(new Error('push gagal'))
+      .mockResolvedValueOnce({ id: 'n-2' });
+
+    await harness.service.notifyTagged({
+      board,
+      taggedMembers: [
+        {
+          memberId: 'm-2',
+          positionId: 'POS-2',
+          persnum: 200,
+          nama: 'Anggota 2',
+        },
+        {
+          memberId: 'm-3',
+          positionId: 'POS-3',
+          persnum: 300,
+          nama: 'Anggota 3',
+        },
+      ],
+      actor,
+    });
+
+    expect(
+      harness.notificationService.createNotification,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      harness.notificationService.createNotification,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        positionId: 'POS-2',
+        type: 'TUGAS_TAGGED',
+        data: expect.objectContaining({
+          action: 'OPEN_TUGAS_FORUM',
+          boardId: board.id,
+        }),
+      }),
+      true,
+      true,
+    );
+  });
+
   it('emitBoardUpdatedSafe meneruskan payload ringkas ke emit service', () => {
     const harness = createService();
 
