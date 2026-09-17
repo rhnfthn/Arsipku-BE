@@ -29,6 +29,7 @@ export enum NotificationType {
   TUGAS_ASSIGNED = 'TUGAS_ASSIGNED',
   TUGAS_DONE = 'TUGAS_DONE',
   TUGAS_DUE = 'TUGAS_DUE',
+  TUGAS_TAGGED = 'TUGAS_TAGGED',
 }
 
 @Entity('notification')
