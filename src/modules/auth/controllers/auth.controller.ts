@@ -433,8 +433,18 @@ export class AuthController {
   }
 
   /**
-   * Refresh Token - perpanjang session
+   * Refresh Token - perpanjang session.
+   *
+   * @Public() diperlukan karena token yang dikirim mobile bisa saja sudah
+   * expired — itu memang alasan utama endpoint ini dipanggil. JwtAuthGuard
+   * global akan menolak request dengan 401 sebelum logika refresh berjalan
+   * jika tidak ditandai Public. Keamanan dijaga oleh:
+   *  - Validasi sessionId terhadap store (Redis/DB) di dalam handler.
+   *  - jwtService.verify(..., { ignoreExpiration: true }) di dalam service
+   *    yang tetap memeriksa signature dan binding persnum ↔ session.
+   *  - ThrottlerGuard membatasi 20 request/menit per IP.
    */
+  @Public()
   @UseGuards(ThrottlerGuard)
   @Throttle({ auth: { limit: 20, ttl: 60000 } })
   @Post('refresh-token')
@@ -451,6 +461,25 @@ export class AuthController {
       throw new UnauthorizedException('Authorization token required');
     }
 
+    // Cek apakah session ID adalah sesi OIDC Auth v2
+    const oidcSession = await this.oidcSessionService.get(dto.sessionId);
+    if (oidcSession) {
+      const refreshed = await this.authService.refreshOidcBrowserSession(
+        dto.sessionId,
+        appToken,
+      );
+      return {
+        message: 'Refresh token success',
+        data: {
+          accessToken: refreshed.accessToken,
+          expiredToken: refreshed.expiredToken,
+          sessionId: refreshed.sessionId,
+          user: refreshed.user,
+        },
+      };
+    }
+
+    // Fallback ke session legacy (v1)
     const result = await this.authService.refreshWithSession(
       dto.sessionId,
       appToken,
