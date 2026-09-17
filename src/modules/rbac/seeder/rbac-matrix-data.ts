@@ -1518,8 +1518,8 @@ export const rbacResourcesWithPermissions = [
     description: 'utama.tulis.naskah-lainnya.button-pratinjau',
     permissions: [
       {
-        action: 'read',
-        description: 'Button Pratinjau - Read',
+        action: 'create',
+        description: 'Button Pratinjau - Create',
       },
     ],
   },
@@ -1540,6 +1540,36 @@ export const rbacResourcesWithPermissions = [
       {
         action: 'read',
         description: 'Halaman Naskah Lainnya - Read',
+      },
+    ],
+  },
+  {
+    name: 'utama.tulis.naskah-lainnya.halaman-tulis-naskah',
+    description: 'utama.tulis.naskah-lainnya.halaman-tulis-naskah',
+    permissions: [
+      {
+        action: 'read',
+        description: 'Halaman Tulis Naskah - Read',
+      },
+    ],
+  },
+  {
+    name: 'utama.tulis.naskah-lainnya.halaman-daftar-naskah',
+    description: 'utama.tulis.naskah-lainnya.halaman-daftar-naskah',
+    permissions: [
+      {
+        action: 'read',
+        description: 'Halaman Daftar Naskah - Read',
+      },
+    ],
+  },
+  {
+    name: 'utama.tulis.naskah-lainnya.halaman-persetujuan',
+    description: 'utama.tulis.naskah-lainnya.halaman-persetujuan',
+    permissions: [
+      {
+        action: 'read',
+        description: 'Halaman Persetujuan Naskah - Read',
       },
     ],
   },
@@ -4163,8 +4193,8 @@ export const rbacMatrixTree: MatrixHalaman[] = [
                 label: 'Button Pratinjau',
                 permissions: [
                   {
-                    action: 'read',
-                    label: 'Read',
+                    action: 'create',
+                    label: 'Create',
                     resource: 'utama.tulis.naskah-lainnya.button-pratinjau',
                   },
                 ],
@@ -5210,8 +5240,11 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     'utama.tulis.kajian.button-template-saya:read',
     'utama.tulis.kajian.halaman-kajian:read',
     'utama.tulis.naskah-lainnya.button-kirim:create',
-    'utama.tulis.naskah-lainnya.button-pratinjau:read',
-    'utama.tulis.naskah-lainnya.halaman-naskah-lainnya:read',
+    'utama.tulis.naskah-lainnya.button-pratinjau:create',
+    'utama.tulis.naskah-lainnya.button-simpan-draft:create',
+    'utama.tulis.naskah-lainnya.halaman-tulis-naskah:read',
+    'utama.tulis.naskah-lainnya.halaman-daftar-naskah:read',
+    'utama.tulis.naskah-lainnya.halaman-persetujuan:read',
     'utilitas.layanan-email.kirim-email.halaman-kirim-email:read',
     'utilitas.layanan-email.log-email.halaman-log-email:read',
     'utilitas.penyingkatan-tautan.button-delete-tautan:delete',
@@ -5424,9 +5457,11 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     'utama.tulis.kajian.button-template-saya:read',
     'utama.tulis.kajian.halaman-kajian:read',
     'utama.tulis.naskah-lainnya.button-kirim:create',
-    'utama.tulis.naskah-lainnya.button-pratinjau:read',
+    'utama.tulis.naskah-lainnya.button-pratinjau:create',
     'utama.tulis.naskah-lainnya.button-simpan-draft:create',
-    'utama.tulis.naskah-lainnya.halaman-naskah-lainnya:read',
+    'utama.tulis.naskah-lainnya.halaman-tulis-naskah:read',
+    'utama.tulis.naskah-lainnya.halaman-daftar-naskah:read',
+    'utama.tulis.naskah-lainnya.halaman-persetujuan:read',
     'utama.tulis.nota-dinas.button-generate-ai:generate-ai',
     'utama.tulis.nota-dinas.button-pilih-template:read',
     'utama.tulis.nota-dinas.button-pratinjau:read',
@@ -5472,3 +5507,14 @@ export const rbacRolePermissionAssignments: Record<string, string[]> = {
     'utilitas.ttd-digital.verifikasi-dokumen.halaman-verifikasi-dokumen:read',
   ],
 };
+
+// Permission halaman Naskah Lainnya dipisah per fitur agar checkbox dan akses
+// Tulis, Daftar, serta Persetujuan tidak saling mengikuti.
+const naskahLainnyaPagePermissions = [
+  'utama.tulis.naskah-lainnya.halaman-tulis-naskah:read',
+  'utama.tulis.naskah-lainnya.halaman-daftar-naskah:read',
+  'utama.tulis.naskah-lainnya.halaman-persetujuan:read',
+];
+for (const role of ['superadmin', 'admin', 'user']) {
+  rbacRolePermissionAssignments[role].push(...naskahLainnyaPagePermissions);
+}

@@ -25,7 +25,7 @@ import { PermissionCacheService } from './permission-cache.service';
  * PermissionGuard (granular, resource+action) — V2: baca permission dari DB live.
  *
  * - Jika endpoint TIDAK punya @RequirePermission -> allow (endpoint terbuka bagi yang login)
- * - SUPERADMIN juga dicek permission-nya via DB (no bypass — Opsi C hybrid)
+ * - Semua role, termasuk SUPERADMIN, dicek permission-nya via DB.
  * - Cek permission user dari DB live (via RbacService.buildActiveRoleAndPermissions)
  *   dengan cache in-memory (TTL 1 detik) — invalidateAll dipanggil saat save matrix.
  *
@@ -159,18 +159,6 @@ export class PermissionGuard implements CanActivate {
 
     if (!user) throw new ForbiddenException('User not authenticated');
 
-    // 🛡️ SUPERADMIN bypass — selalu lolos (README §3.2 rule 2)
-    const activeRoleName =
-      user.activeRole?.name ??
-      (user.role ? String(user.role).toUpperCase() : undefined);
-    if (
-      activeRoleName &&
-      activeRoleName.toUpperCase().replace(/[\s_-]/g, '') ===
-        String(RoleName.SUPERADMIN)
-    ) {
-      return true;
-    }
-
     // Ambil persnum EFEKTIF dari JWT (delegasi sadar).
     // The `delegasi` resource is the delegation CONTROL PLANE (switch/reset/manage
     // delegations) — always authorized by the delegate's OWN perms, never the
@@ -249,7 +237,7 @@ export class PermissionGuard implements CanActivate {
   }
 
   /**
-   * Ambil permission user dari DB live dengan cache 30 detik.
+   * Ambil permission user dari DB live dengan cache 1 detik.
    *
    * @param persnum - user persnum
    * @param jwtFallback - permission dari JWT, dipakai jika DB query gagal

@@ -22,7 +22,7 @@ import { SdeMasalService } from '../services/sde-masal.service';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
 import { SdeMasalFilterDto } from '../dto/sde-masal-filter.dto';
 import { JwtAuthGuard } from '../../../common/guards';
-import { CurrentUser } from '../../../common/decorators';
+import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 
@@ -58,6 +58,7 @@ export class SdeMasalController {
   ) {}
 
   @Post('folder')
+  @RequirePermission('sde-masal', 'create')
   async createFolder(
     @Body() dto: CreateSdeMasalFolderDto,
     @CurrentUser() user: any,
@@ -73,6 +74,7 @@ export class SdeMasalController {
   }
 
   @Patch('folder/:folderId')
+  @RequirePermission('sde-masal', 'update')
   async updateFolder(
     @Param('folderId') folderId: string,
     @Body() dto: Partial<CreateSdeMasalFolderDto>,
@@ -87,6 +89,7 @@ export class SdeMasalController {
   }
 
   @Post('parent/:parentNaskahId/sync-follow-up')
+  @RequirePermission('sde-masal', 'create')
   async syncDispositionFollowUp(
     @Param('parentNaskahId') parentNaskahId: string,
     @CurrentUser() user: any,
@@ -100,6 +103,7 @@ export class SdeMasalController {
   }
 
   @Get('folders')
+  @RequirePermission('sde-masal', 'read')
   async findFolders(@Query() filter: any, @CurrentUser() user: any) {
     // Scope per-akun: hanya folder milik pengirim (position user) atau
     // folder dimana user adalah penerima/tembusan.
@@ -109,6 +113,7 @@ export class SdeMasalController {
   }
 
   @Get('folder/:folderId/naskah')
+  @RequirePermission('sde-masal', 'read-detail')
   async findNaskahInFolder(
     @Param('folderId') folderId: string,
     @CurrentUser() user: any,
@@ -124,6 +129,7 @@ export class SdeMasalController {
   }
 
   @Post('finalize')
+  @RequirePermission('sde-masal', 'finalize')
   async finalizeDirect(
     @Body()
     body: {
@@ -152,6 +158,7 @@ export class SdeMasalController {
   }
 
   @Post('folder/:folderId/reject')
+  @RequirePermission('sde-masal', 'reject')
   async rejectFolder(
     @Param('folderId') folderId: string,
     @Body() body: { reason?: string },
@@ -166,6 +173,7 @@ export class SdeMasalController {
   }
 
   @Post('folder/:folderId/lampiran-masal/prepare')
+  @RequirePermission('sde-masal', 'update')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }),
   )
@@ -197,6 +205,7 @@ export class SdeMasalController {
   }
 
   @Post('folder/:folderId/lampiran-masal/commit')
+  @RequirePermission('sde-masal', 'update')
   async commitMassAttachments(
     @Param('folderId') folderId: string,
     @Body() body: { items: Array<{ itemId: string; attachments: any[] }> },
@@ -215,6 +224,7 @@ export class SdeMasalController {
    * Hanya penandatangan folder yang boleh mengirim ulang.
    */
   @Post(':id/retry')
+  @RequirePermission('sde-masal', 'finalize')
   async retryNaskah(@Param('id') id: string, @CurrentUser() user: any) {
     const data = await this.sdeMasalService.retryNaskah(
       id,
@@ -232,6 +242,7 @@ export class SdeMasalController {
    * POST /sde-masal/:id/lampiran — upload lampiran per item (pdf/zip).
    */
   @Post(':id/lampiran')
+  @RequirePermission('sde-masal', 'update')
   @UseInterceptors(FileInterceptor('file'))
   async uploadLampiran(
     @Param('id') id: string,
@@ -245,6 +256,7 @@ export class SdeMasalController {
    * GET /sde-masal/:id/lampiran — download lampiran per item.
    */
   @Get(':id/lampiran')
+  @RequirePermission('sde-masal', 'read-detail')
   async downloadLampiran(@Param('id') id: string, @Res() res: Response) {
     const { buffer, mimetype, filename } =
       await this.sdeMasalService.downloadLampiran(id);
@@ -256,6 +268,7 @@ export class SdeMasalController {
   }
 
   @Get(':id/lampiran/:index')
+  @RequirePermission('sde-masal', 'read-detail')
   async downloadMassAttachment(
     @Param('id') id: string,
     @Param('index') index: string,
@@ -286,6 +299,7 @@ export class SdeMasalController {
    * Hanya insert record sde_masal (folderId + recipientData). Naskah dibuat saat finalize.
    */
   @Post('generate')
+  @RequirePermission('sde-masal', 'create')
   async generateMassal(@Body() body: any, @CurrentUser() user: any) {
     // Scope per-akun: catat position ID pembuat item
     body.createdBy =
@@ -298,6 +312,7 @@ export class SdeMasalController {
   }
 
   @Post('submit-verification')
+  @RequirePermission('sde-masal', 'create')
   async submitVerification(
     @Body() body: { ids: string[]; verifikators?: any[]; folderId?: string; sendToSigner?: boolean },
     @CurrentUser() user: any,
@@ -322,6 +337,7 @@ export class SdeMasalController {
   }
 
   @Get('verification')
+  @RequirePermission('sde-masal', 'read-verification')
   async findVerification(@CurrentUser() user: any) {
     const data = await this.sdeMasalService.findVerificationForUser(user);
     return { success: true, data };
@@ -332,6 +348,7 @@ export class SdeMasalController {
    * oleh user (verifikator). Dipakai halaman verifikasi agar tampil per folder.
    */
   @Get('verification-folders')
+  @RequirePermission('sde-masal', 'read-verification')
   async findVerificationFolders(@CurrentUser() user: any) {
     const data =
       await this.sdeMasalService.findVerificationFoldersForUser(user);
@@ -339,6 +356,7 @@ export class SdeMasalController {
   }
 
   @Patch(':id/approve-verification')
+  @RequirePermission('sde-masal', 'verify')
   async approveVerification(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -353,6 +371,7 @@ export class SdeMasalController {
   }
 
   @Patch('folder/:folderId/approve-verification')
+  @RequirePermission('sde-masal', 'verify')
   async approveFolderVerification(
     @Param('folderId') folderId: string,
     @CurrentUser() user: any,
@@ -367,6 +386,7 @@ export class SdeMasalController {
   }
 
   @Patch('folder/:folderId/reject-verification')
+  @RequirePermission('sde-masal', 'reject')
   async rejectFolderVerification(
     @Param('folderId') folderId: string,
     @CurrentUser() user: any,
@@ -381,6 +401,7 @@ export class SdeMasalController {
   }
 
   @Patch(':id/reject-verification')
+  @RequirePermission('sde-masal', 'reject')
   async rejectVerification(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -402,6 +423,7 @@ export class SdeMasalController {
    * tembusan (JSON array), nama_tempat, tgl.
    */
   @Post('preview-pdf')
+  @RequirePermission('sde-masal', 'read-detail')
   @UseInterceptors(AnyFilesInterceptor())
   async previewPdf(
     @Body() body: any,
@@ -554,6 +576,7 @@ export class SdeMasalController {
    * Query param `skema` untuk memilih skema template (default / KEUANGAN).
    */
   @Get('template')
+  @RequirePermission('sde-masal', 'read')
   async downloadTemplate(
     @Query('skema') skema: string | undefined,
     @Res() res: Response,
@@ -575,6 +598,7 @@ export class SdeMasalController {
    * Mengembalikan data naskah + sirkulasi lengkap untuk ditampilkan di detail.
    */
   @Get('naskah/:naskahId')
+  @RequirePermission('sde-masal', 'read-detail')
   async findNaskahDetail(
     @Param('naskahId') naskahId: string,
     @CurrentUser() user: any,
@@ -598,6 +622,7 @@ export class SdeMasalController {
    * seluruh placeholder tetap terisi pada preview/print Terkirim.
    */
   @Get('naskah/:naskahId/preview-pdf')
+  @RequirePermission('sde-masal', 'read-detail')
   async previewSentNaskah(
     @Param('naskahId') naskahId: string,
     @CurrentUser() user: any,
@@ -630,6 +655,7 @@ export class SdeMasalController {
    * GET /sde-masal — list item dengan filter dan pagination.
    */
   @Get()
+  @RequirePermission('sde-masal', 'read')
   async findAll(@Query() filter: SdeMasalFilterDto) {
     const result = await this.sdeMasalService.findAll(filter);
     return { success: true, ...result };
@@ -639,6 +665,7 @@ export class SdeMasalController {
    * GET /sde-masal/summary — ringkasan dashboard.
    */
   @Get('summary')
+  @RequirePermission('sde-masal', 'read')
   async getSummary() {
     const data = await this.sdeMasalService.getSummary();
     return { success: true, data };
@@ -648,6 +675,7 @@ export class SdeMasalController {
    * GET /sde-masal/:id — detail item.
    */
   @Get(':id')
+  @RequirePermission('sde-masal', 'read-detail')
   async findOne(@Param('id') id: string) {
     const data = await this.sdeMasalService.findOne(id);
     if (!data) {
@@ -660,6 +688,7 @@ export class SdeMasalController {
    * PATCH /sde-masal/:id — update item.
    */
   @Patch(':id')
+  @RequirePermission('sde-masal', 'update')
   async update(@Param('id') id: string, @Body() dto: UpdateSdeMasalDto) {
     const data = await this.sdeMasalService.update(id, dto);
     if (!data) {
@@ -672,6 +701,7 @@ export class SdeMasalController {
    * DELETE /sde-masal/:id — hapus item.
    */
   @Delete(':id')
+  @RequirePermission('sde-masal', 'delete')
   async remove(@Param('id') id: string) {
     const ok = await this.sdeMasalService.remove(id);
     if (!ok) {

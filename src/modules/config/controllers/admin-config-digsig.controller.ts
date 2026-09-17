@@ -30,7 +30,7 @@ export class AdminConfigDigsigController {
    * Mengambil semua konfigurasi digsig
    */
   @Get()
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-digsig')
   async findAll(): Promise<ConfigDigsig[]> {
     return this.configDigsigService.findAll();
   }
@@ -40,7 +40,7 @@ export class AdminConfigDigsigController {
    * Mengambil konfigurasi berdasarkan jenis naskah
    */
   @Get(':jenis')
-  @RequirePermission('konfigurasi', 'read')
+  @RequirePermission('konfigurasi', 'read-digsig')
   async findByJenis(@Param('jenis') jenis: JenisNaskah): Promise<ConfigDigsig> {
     return this.configDigsigService.findByJenis(jenis);
   }
