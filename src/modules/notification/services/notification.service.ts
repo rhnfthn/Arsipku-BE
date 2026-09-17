@@ -71,6 +71,7 @@ export class NotificationService {
   async createNotification(
     dto: CreateNotificationDto,
     sendPush = true,
+    toleratePushFailure = false,
   ): Promise<NotificationEntity> {
     this.logger.log('='.repeat(60));
     this.logger.log('📥 [createNotification] CALLED');
@@ -89,6 +90,41 @@ export class NotificationService {
       const display = this.buildDisplayContent(dto);
       const pushTitle = display.title;
       const pushBody = display.body;
+
+      // Satu perubahan workflow SDE Massal hanya boleh menghasilkan satu
+      // notifikasi aktif untuk posisi/folder/status yang sama. Guard ini
+      // mencegah duplicate toast dan duplicate badge ketika beberapa jalur
+      // workflow memanggil pengiriman notifikasi secara berdekatan.
+      if (dto.data?.category === 'SDE_MASAL') {
+        const folderId = String(
+          dto.data?.folderId || dto.data?.folder_id || '',
+        ).trim();
+        const status = String(dto.data?.status || '').trim();
+        if (folderId && status) {
+          const existing = await this.notificationRepository
+            .createQueryBuilder('notification')
+            .where('notification.position_id = :positionId', {
+              positionId: dto.positionId,
+            })
+            .andWhere('notification.is_read = :isRead', { isRead: false })
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = :category`,
+              { category: 'SDE_MASAL' },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId`,
+              { folderId },
+            )
+            .andWhere(
+              `JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.status')) = :status`,
+              { status },
+            )
+            .orderBy('notification.created_at', 'DESC')
+            .getOne();
+
+          if (existing) return existing;
+        }
+      }
 
       const notification = this.notificationRepository.create({
         id: uuidv4(),
@@ -124,13 +160,57 @@ export class NotificationService {
           type: dto.type,
           notificationId: saved.id,
         };
-        await this.fcmService.sendToUser(
-          dto.userPersnum,
-          pushTitle, // title informatif: [Tipe • Jenis] Pengirim (Jabatan)
-          pushBody, // body informatif: Perihal — Instruksi
-          dataWithId,
-        );
-        this.logger.log(`✅ [createNotification] Push notification sent`);
+
+        // Persuratan-type notifications are institutional (bound to positionId).
+        // Only deliver push to tokens whose active position matches, to prevent
+        // leakage to devices in a different role context (e.g. SE in main-account mode).
+        const isPersuratanType = [
+          NotificationType.NASKAH_MASUK,
+          NotificationType.NASKAH_TEMBUSAN,
+          NotificationType.DISPOSISI,
+          NotificationType.DISPOSISI_SELESAI,
+          NotificationType.KONSEP_DISETUJUI,
+          NotificationType.KONSEP_DITOLAK,
+          NotificationType.NASKAH_DINAS_VERIFIKATOR,
+          NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
+          NotificationType.NASKAH_DINAS_DITOLAK,
+          NotificationType.TUGAS_MEMBER_ADDED,
+          NotificationType.TUGAS_ASSIGNED,
+          NotificationType.TUGAS_DONE,
+          NotificationType.TUGAS_DUE,
+          NotificationType.TUGAS_TAGGED,
+        ].includes(dto.type as NotificationType);
+
+        let pushDelivered = false;
+        try {
+          if (isPersuratanType && dto.positionId) {
+            await this.fcmService.sendToUserForPosition(
+              dto.userPersnum,
+              dto.positionId,
+              pushTitle,
+              pushBody,
+              dataWithId,
+            );
+          } else {
+            await this.fcmService.sendToUser(
+              dto.userPersnum,
+              pushTitle,
+              pushBody,
+              dataWithId,
+            );
+          }
+          pushDelivered = true;
+        } catch (pushError) {
+          if (!toleratePushFailure) throw pushError;
+          const message =
+            pushError instanceof Error ? pushError.message : String(pushError);
+          this.logger.warn(
+            `⚠️ [createNotification] Push failed after notification persisted: ${message}`,
+          );
+        }
+        if (pushDelivered) {
+          this.logger.log(`✅ [createNotification] Push notification sent`);
+        }
       } else {
         this.logger.log(
           `⏭️ [createNotification] Skip push: sendPush=${sendPush}, userPersnum=${dto.userPersnum}`,
@@ -347,17 +427,38 @@ export class NotificationService {
     const { page = 1, limit = 20, isRead, type } = query;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.notificationRepository
-      .createQueryBuilder('notification')
-      .where('(notification.position_id = :positionId', { positionId });
+    // Notifikasi naskah/disposisi/konsep bersifat institusional (terikat ke jabatan aktif/positionId).
+    // userPersnum hanya untuk notifikasi tingkat akun/personal (delegasi, akun, sistem, dll).
+    // Ini mencegah notifikasi disposisi/naskah dari jabatan lain bocor ke akun user saat jabatan aktif berbeda.
+    const persuratanTypes = [
+      NotificationType.NASKAH_MASUK,
+      NotificationType.NASKAH_TEMBUSAN,
+      NotificationType.DISPOSISI,
+      NotificationType.DISPOSISI_SELESAI,
+      NotificationType.KONSEP_DISETUJUI,
+      NotificationType.KONSEP_DITOLAK,
+      NotificationType.NASKAH_DINAS_VERIFIKATOR,
+      NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
+      NotificationType.NASKAH_DINAS_DITOLAK,
+      NotificationType.TUGAS_MEMBER_ADDED,
+      NotificationType.TUGAS_ASSIGNED,
+      NotificationType.TUGAS_DONE,
+      NotificationType.TUGAS_DUE,
+    ];
+
+    const queryBuilder =
+      this.notificationRepository.createQueryBuilder('notification');
+
     if (userPersnum != null) {
-      queryBuilder.orWhere('notification.user_persnum = :userPersnum', {
-        userPersnum,
+      queryBuilder.where(
+        '((notification.position_id = :positionId) OR (notification.user_persnum = :userPersnum AND notification.type NOT IN (:...persuratanTypes)))',
+        { positionId, userPersnum, persuratanTypes },
+      );
+    } else {
+      queryBuilder.where('notification.position_id = :positionId', {
+        positionId,
       });
     }
-    queryBuilder.andWhere(
-      '1 = 1)', // tutup paren WHERE yang dibuka di atas
-    );
 
     // Jangan pernah tampilkan notifikasi junk (body murni angka / kosong).
     // Backlog lama sebelum sanitizeBody dipasang masih ada di DB.
@@ -365,6 +466,11 @@ export class NotificationService {
       `(notification.body IS NOT NULL AND TRIM(notification.body) <> '')`,
     );
     queryBuilder.andWhere(`notification.body NOT REGEXP '^[0-9]+$'`);
+
+    // Filter out NASKAH_SHARE_DIBUKA and DIGSIG_VERIFIKASI (verification check is synchronous user action, not a notification)
+    queryBuilder.andWhere(
+      "notification.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')",
+    );
 
     if (typeof isRead === 'boolean') {
       queryBuilder.andWhere('notification.is_read = :isRead', { isRead });
@@ -409,16 +515,35 @@ export class NotificationService {
     userPersnum?: number | null,
     category?: string,
   ): Promise<number> {
-    const qb = this.notificationRepository
-      .createQueryBuilder('n')
-      .where('(n.positionId = :positionId', { positionId });
+    const persuratanTypes = [
+      NotificationType.NASKAH_MASUK,
+      NotificationType.NASKAH_TEMBUSAN,
+      NotificationType.DISPOSISI,
+      NotificationType.DISPOSISI_SELESAI,
+      NotificationType.KONSEP_DISETUJUI,
+      NotificationType.KONSEP_DITOLAK,
+      NotificationType.NASKAH_DINAS_VERIFIKATOR,
+      NotificationType.NASKAH_DINAS_VERIFIKASI_SELESAI,
+      NotificationType.NASKAH_DINAS_DITOLAK,
+      NotificationType.TUGAS_MEMBER_ADDED,
+      NotificationType.TUGAS_ASSIGNED,
+      NotificationType.TUGAS_DONE,
+      NotificationType.TUGAS_DUE,
+    ];
+
+    const qb = this.notificationRepository.createQueryBuilder('n');
     if (userPersnum != null) {
-      qb.orWhere('n.userPersnum = :userPersnum', { userPersnum });
+      qb.where(
+        '((n.positionId = :positionId) OR (n.userPersnum = :userPersnum AND n.type NOT IN (:...persuratanTypes)))',
+        { positionId, userPersnum, persuratanTypes },
+      );
+    } else {
+      qb.where('n.positionId = :positionId', { positionId });
     }
-    qb.andWhere('1 = 1)')
-      .andWhere('n.isRead = :isRead', { isRead: false })
+    qb.andWhere('n.isRead = :isRead', { isRead: false })
       .andWhere(`(n.body IS NOT NULL AND TRIM(n.body) <> '')`)
-      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`);
+      .andWhere(`n.body NOT REGEXP '^[0-9]+$'`)
+      .andWhere("n.type NOT IN ('NASKAH_SHARE_DIBUKA', 'DIGSIG_VERIFIKASI')");
     if (category) {
       qb.andWhere(
         `JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.category')) = :category`,
@@ -434,10 +559,21 @@ export class NotificationService {
   async markAsRead(
     positionId: string,
     notificationId: string,
+    userPersnum?: number | null,
   ): Promise<NotificationEntity> {
-    const notification = await this.notificationRepository.findOne({
-      where: { id: notificationId, positionId },
-    });
+    const queryBuilder = this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.id = :notificationId', { notificationId })
+      .andWhere('(notification.position_id = :positionId', { positionId });
+
+    if (userPersnum != null) {
+      queryBuilder.orWhere('notification.user_persnum = :userPersnum', {
+        userPersnum,
+      });
+    }
+    queryBuilder.andWhere('1=1)'); // close paren
+
+    const notification = await queryBuilder.getOne();
 
     if (!notification) {
       throw new NotFoundException('Notification not found');
@@ -482,21 +618,98 @@ export class NotificationService {
   async markByNaskahAsRead(
     positionId: string,
     naskahId: string,
+    userPersnum?: number | null,
   ): Promise<number> {
     if (!naskahId) return 0;
+
+    const qb = this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.is_read = :isRead', { isRead: false });
+
+    if (userPersnum != null && userPersnum > 0) {
+      qb.andWhere(
+        '(notification.position_id = :positionId OR notification.user_persnum = :userPersnum)',
+        { positionId, userPersnum },
+      );
+    } else {
+      qb.andWhere('notification.position_id = :positionId', { positionId });
+    }
+
+    qb.andWhere(
+      `(
+        JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskahId')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.idNaskah')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.id_naskah')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskah_id')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.id')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.documentId')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.usulanId')) = :naskahId
+        OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.requestId')) = :naskahId
+      )`,
+      { naskahId },
+    );
+
+    const notifications = await qb.getMany();
+
+    if (notifications.length === 0) return 0;
+
+    const readAt = new Date();
+    await this.notificationRepository.update(
+      { id: In(notifications.map((notification) => notification.id)) },
+      { isRead: true, readAt },
+    );
+
+    try {
+      for (const notification of notifications) {
+        this.notificationGateway.emitRead(
+          notification.positionId,
+          notification.userPersnum,
+          notification.id,
+        );
+      }
+      const unread = await this.getUnreadCount(positionId);
+      const sdeMasalUnread = await this.getUnreadCount(
+        positionId,
+        null,
+        'SDE_MASAL',
+      );
+      this.notificationGateway.emitUnreadCount(
+        positionId,
+        null,
+        unread,
+        sdeMasalUnread,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`,
+      );
+    }
+
+    return notifications.length;
+  }
+
+  async markBySdeMasalFolderAsRead(
+    positionId: string,
+    folderId: string,
+  ): Promise<number> {
+    if (!folderId) return 0;
 
     const notifications = await this.notificationRepository
       .createQueryBuilder('notification')
       .where('notification.position_id = :positionId', { positionId })
       .andWhere('notification.is_read = :isRead', { isRead: false })
+      // Notifikasi SDE Massal dikirim sebagai type SYSTEM; kategorinya
+      // disimpan di payload data.category.
       .andWhere(
         `(
-          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskahId')) = :naskahId
-          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.idNaskah')) = :naskahId
-          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.id_naskah')) = :naskahId
-          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.naskah_id')) = :naskahId
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.category')) = 'SDE_MASAL'
+          AND
+          (
+          JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folderId')) = :folderId
+          OR JSON_UNQUOTE(JSON_EXTRACT(notification.data, '$.folder_id')) = :folderId
+          )
         )`,
-        { naskahId },
+        { folderId },
       )
       .getMany();
 
@@ -530,7 +743,7 @@ export class NotificationService {
       );
     } catch (err: any) {
       this.logger.warn(
-        `⚠️ [markByNaskahAsRead] WS emit failed: ${err?.message}`,
+        `⚠️ [markBySdeMasalFolderAsRead] WS emit failed: ${err?.message}`,
       );
     }
 
@@ -731,7 +944,17 @@ export class NotificationService {
 
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(data)) {
-      result[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      if (value === null || value === undefined) continue;
+      const str = typeof value === 'string' ? value : JSON.stringify(value);
+      if (
+        str === 'null' ||
+        str === 'undefined' ||
+        str === '""' ||
+        str.trim() === ''
+      ) {
+        continue;
+      }
+      result[key] = str;
     }
     return result;
   }
@@ -800,7 +1023,7 @@ export class NotificationService {
     title: string;
     body: string;
   } {
-    const data = (dto.data || {}) as Record<string, any>;
+    const data = dto.data || {};
     const typeLabel = this.getTypeLabel(dto.type);
     const jenisLabel = this.getJenisLabel(String(data.jenis ?? ''));
     const senderName = String(data.pengirim ?? '').trim();
@@ -834,7 +1057,12 @@ export class NotificationService {
     const isDisposisi =
       dto.type === NotificationType.DISPOSISI ||
       dto.type === NotificationType.DISPOSISI_SELESAI;
-    if (instruksi && !isDisposisi && instruksi !== '-' && instruksi !== perihal) {
+    if (
+      instruksi &&
+      !isDisposisi &&
+      instruksi !== '-' &&
+      instruksi !== perihal
+    ) {
       lines.push(`Instruksi: ${instruksi}`);
     }
     const nomor = String(data.nomor ?? '').trim();

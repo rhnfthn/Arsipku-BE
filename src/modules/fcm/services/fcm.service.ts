@@ -162,13 +162,15 @@ export class FcmService implements OnModuleInit {
   }
 
   /**
-   * Register or update FCM token for a user
+   * Register or update FCM token for a user.
+   * The optional `positionId` is stored so that persuratan-type push
+   * notifications can be filtered to tokens whose active position matches.
    */
   async registerToken(
     userPersnum: number,
     dto: RegisterFcmTokenDto,
   ): Promise<FcmTokenEntity> {
-    const { token, deviceId, platform } = dto;
+    const { token, deviceId, platform, positionId = null } = dto;
 
     // Check if token already exists for this user and device
     const existingToken = await this.fcmTokenRepository.findOne({
@@ -176,33 +178,48 @@ export class FcmService implements OnModuleInit {
     });
 
     if (existingToken) {
-      // Update existing token
+      // Update existing token — also refresh positionId on switchRole
       existingToken.token = token;
       existingToken.platform = platform;
+      existingToken.positionId = positionId ?? null;
       existingToken.isActive = true;
       existingToken.lastUsedAt = new Date();
       return this.fcmTokenRepository.save(existingToken);
     }
 
-    // Check if same token exists for different device (token is unique)
+    // Check if same token exists for a different user (token is device-unique)
+    // This happens when a different user logs in on the same device.
+    // We MUST delete the old record (not just update userPersnum) to prevent
+    // notifications from the old user leaking to the new user's device
+    // if any stale tokens remain associated with the previous userPersnum.
     const tokenExists = await this.fcmTokenRepository.findOne({
       where: { token },
     });
 
     if (tokenExists) {
-      // Update the existing token record with new device info
-      tokenExists.userPersnum = userPersnum;
-      tokenExists.deviceId = deviceId;
-      tokenExists.platform = platform;
-      tokenExists.isActive = true;
-      tokenExists.lastUsedAt = new Date();
-      return this.fcmTokenRepository.save(tokenExists);
+      if (tokenExists.userPersnum !== userPersnum) {
+        // Token belongs to a different user — delete the stale record first
+        // to avoid duplicate entries, then fall through to create a fresh one.
+        this.logger.log(
+          `[registerToken] Token reassigned: persnum ${tokenExists.userPersnum} → ${userPersnum}. Removing stale record.`,
+        );
+        await this.fcmTokenRepository.delete({ id: tokenExists.id });
+      } else {
+        // Same user, just update
+        tokenExists.deviceId = deviceId;
+        tokenExists.platform = platform;
+        tokenExists.positionId = positionId ?? null;
+        tokenExists.isActive = true;
+        tokenExists.lastUsedAt = new Date();
+        return this.fcmTokenRepository.save(tokenExists);
+      }
     }
 
     // Create new token
     const newToken = this.fcmTokenRepository.create({
       id: uuidv4(),
       userPersnum,
+      positionId: positionId ?? null,
       token,
       deviceId,
       platform,
@@ -259,7 +276,7 @@ export class FcmService implements OnModuleInit {
   }
 
   /**
-   * Send push notification to a single user
+   * Send push notification to a single user — all active tokens.
    */
   async sendToUser(
     userPersnum: number,
@@ -279,6 +296,52 @@ export class FcmService implements OnModuleInit {
     }
 
     const tokenStrings = tokens.map((t) => t.token);
+    return this.sendToTokens(tokenStrings, title, body, data);
+  }
+
+  /**
+   * Send push notification scoped to a specific position.
+   *
+   * For persuratan-type notifications (naskah masuk, disposisi, etc.) only
+   * tokens whose `position_id` matches `targetPositionId` should receive a
+   * push, preventing notifications from leaking to devices in a different
+   * role context (e.g., SE user in main-account mode receiving delegated-
+   * position notifications).
+   *
+   * Fallback: tokens with NULL `position_id` (registered before this feature)
+   * are always included so legacy clients don't miss notifications.
+   */
+  async sendToUserForPosition(
+    userPersnum: number,
+    targetPositionId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<{ success: number; failure: number }> {
+    if (!this.isFirebaseInitialized()) {
+      this.logger.warn('Firebase not initialized. Skipping push notification.');
+      return { success: 0, failure: 0 };
+    }
+
+    const allTokens = await this.getUserTokens(userPersnum);
+    if (allTokens.length === 0) {
+      this.logger.debug(`No FCM tokens found for user ${userPersnum}`);
+      return { success: 0, failure: 0 };
+    }
+
+    // Include tokens that match the target position OR have no position set (legacy).
+    const filtered = allTokens.filter(
+      (t) => t.positionId === null || t.positionId === targetPositionId,
+    );
+
+    if (filtered.length === 0) {
+      this.logger.debug(
+        `[sendToUserForPosition] No tokens for user ${userPersnum} with position ${targetPositionId} — push skipped`,
+      );
+      return { success: 0, failure: 0 };
+    }
+
+    const tokenStrings = filtered.map((t) => t.token);
     return this.sendToTokens(tokenStrings, title, body, data);
   }
 

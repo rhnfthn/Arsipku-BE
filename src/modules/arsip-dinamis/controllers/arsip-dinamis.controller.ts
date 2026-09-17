@@ -71,6 +71,7 @@ export class ArsipDinamisController {
         'klasifikasi_text',
         'retensi_aktif_tahun',
         'retensi_inaktif_tahun',
+        'penyusutan',
       ],
       order: { klasifikasi: 'ASC' },
     });

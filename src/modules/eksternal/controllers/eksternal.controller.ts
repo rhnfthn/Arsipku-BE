@@ -9,6 +9,7 @@ import {
   Query,
   HttpStatus,
   HttpException,
+  UseGuards,
 } from '@nestjs/common';
 import { EksternalService } from '../services/eksternal.service';
 import { CreateEksternalDto } from '../dto/eksternal/create_eksternal.dto';
@@ -19,12 +20,17 @@ import {
   EksternalActionResponseDto,
 } from '../dto/eksternal/eksternal-response.dto';
 import { RequirePermission } from '../../../common/decorators';
+import { RolesGuard } from '../../../common/guards';
+import { RoleName } from '../../../common/enums/role-name.enum';
+import { Roles } from '../../../common/decorators/roles.decorator';
 
 @Controller('persuratan/eksternal')
 export class EksternalController {
   constructor(private readonly eksternalService: EksternalService) {}
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('master-data', 'create-tertuju')
   async create(
     @Body() createEksternalDto: CreateEksternalDto,
@@ -80,6 +86,8 @@ export class EksternalController {
   }
 
   @Put(':id')
+  @UseGuards(RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('master-data', 'update-tertuju')
   async update(
     @Param('id') id: string,
@@ -93,6 +101,8 @@ export class EksternalController {
   }
 
   @Put(':id/toggle-aktif')
+  @UseGuards(RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('master-data', 'update-tertuju')
   async toggleAktif(
     @Param('id') id: string,
@@ -104,7 +114,14 @@ export class EksternalController {
     };
   }
 
+  @Get(':id/check-usage')
+  async checkUsage(@Param('id') id: string) {
+    return this.eksternalService.checkUsage(id);
+  }
+
   @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('master-data', 'delete-tertuju')
   async remove(@Param('id') id: string): Promise<EksternalActionResponseDto> {
     await this.eksternalService.remove(id);

@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
  * - defaultKlasifikasi: kode klasifikasi bawaan saat jenis dipilih
  *   (disimpan sebagai KODE klasifikasi, bukan id — payload create naskah
  *   juga mengirim kode, lihat tulis.vue).
+ * - shareEnabled: jenis ini boleh disebarluaskan setelah naskah final.
  */
 @Entity('config_naskah_lainnya')
 export class ConfigNaskahLainnya {
@@ -41,6 +42,18 @@ export class ConfigNaskahLainnya {
     },
   })
   butuhLegal: boolean;
+
+  @Column({
+    name: 'share_enabled',
+    type: 'tinyint',
+    default: 0,
+    comment: 'Naskah final jenis ini boleh disebarluaskan',
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
+  shareEnabled: boolean;
 
   @Column({
     name: 'default_klasifikasi',

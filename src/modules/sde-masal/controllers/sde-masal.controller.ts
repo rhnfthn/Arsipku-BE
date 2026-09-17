@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UseGuards,
   HttpStatus,
+  HttpException,
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
@@ -25,9 +26,7 @@ import { CurrentUser } from '../../../common/decorators';
 import { SuratDinasEksternalService } from '../../surat-dinas-eksternal/services/surat-dinas-eksternal.service';
 import { CreateSdeMasalFolderDto } from '../dto/create-sde-masal-folder.dto';
 
-/**
- * Controller API SDE Masal (Surat Dinas Eksternal Massal).
- *
+/** 
  * Endpoint:
  * - POST   /sde-masal/folder                — buat folder
  * - PATCH  /sde-masal/folder/:folderId      — update folder
@@ -417,6 +416,11 @@ export class SdeMasalController {
         });
       }
 
+      // SDE massal hanya memiliki satu tanggal surat. `tanggal` dipertahankan
+      // untuk kompatibilitas payload lama, tetapi `tgl` menjadi sumber utama
+      // untuk resolver, header, dan generator PDF.
+      const tanggalSurat = String(body.tgl || body.tanggal || '').trim();
+
       let penerimaArray = body.tertuju || body.penerima || [];
       if (typeof penerimaArray === 'string') {
         try {
@@ -453,12 +457,12 @@ export class SdeMasalController {
         this.sdeMasalService.resolveTembusanForPreview(
           '',
           tembusanInternal || legacyTembusan,
-          body.tgl || body.tanggal,
+          tanggalSurat,
         ),
         this.sdeMasalService.resolveTembusanForPreview(
           tembusanEksternal || legacyTembusan,
           '',
-          body.tgl || body.tanggal,
+          tanggalSurat,
         ),
       ]);
 
@@ -490,7 +494,7 @@ export class SdeMasalController {
           area: user?.area,
           subArea: user?.subArea,
         },
-        body.tgl || body.tanggal,
+        tanggalSurat,
       );
 
       // Replace placeholder tembusan di htmlContent:
@@ -515,7 +519,7 @@ export class SdeMasalController {
         htmlContent,
         penerimaArray,
         headerInfo?.kota || body.nama_tempat || 'Tangerang',
-        body.tanggal || body.tgl || '',
+        tanggalSurat,
         body.nama_jabatan || user?.positionText || '',
         body.nama_lengkap || user?.nama || '',
         tembusanArray,
@@ -584,6 +588,42 @@ export class SdeMasalController {
       return { success: false, message: 'Naskah tidak ditemukan', data: null };
     }
     return { success: true, data };
+  }
+
+  /**
+   * GET /sde-masal/naskah/:naskahId/preview-pdf
+   *
+   * Untuk BSrE endpoint mengirim file final asli agar signature tetap valid.
+   * Naskah non-BSrE dapat dirender dari data Excel penerima untuk menjaga
+   * seluruh placeholder tetap terisi pada preview/print Terkirim.
+   */
+  @Get('naskah/:naskahId/preview-pdf')
+  async previewSentNaskah(
+    @Param('naskahId') naskahId: string,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    try {
+      const pdf = await this.sdeMasalService.generateSentNaskahPreviewPdf(
+        naskahId,
+        user,
+      );
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="preview-sde-masal-${naskahId}.pdf"`,
+        'Content-Length': pdf.length,
+      });
+      return res.status(HttpStatus.OK).send(pdf);
+    } catch (error) {
+      const status =
+        error instanceof HttpException
+          ? error.getStatus()
+          : HttpStatus.INTERNAL_SERVER_ERROR;
+      return res.status(status).json({
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

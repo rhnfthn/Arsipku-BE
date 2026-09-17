@@ -75,6 +75,7 @@ export class AreaService {
   async create(companyId: number, dto: CreateAreaDto): Promise<OmArea> {
     const newArea = this.areaRepo.create({
       ...dto,
+      shortText: dto.shortText ? dto.shortText.toUpperCase() : dto.shortText,
       company: companyId,
     });
     return this.areaRepo.save(newArea);
@@ -90,7 +91,8 @@ export class AreaService {
 
     // Manually assign each field from DTO
     if (dto.area !== undefined) area.area = dto.area;
-    if (dto.shortText !== undefined) area.shortText = dto.shortText;
+    if (dto.shortText !== undefined)
+      area.shortText = dto.shortText ? dto.shortText.toUpperCase() : dto.shortText;
     if (dto.longText !== undefined) area.longText = dto.longText;
     if (dto.startDate !== undefined) area.startDate = dto.startDate;
     if (dto.endDate !== undefined) area.endDate = dto.endDate;

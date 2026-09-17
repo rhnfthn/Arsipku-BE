@@ -12,12 +12,6 @@ import { StorageModule } from '../storage/storage.module';
 import { NotificationModule } from '../notification/notification.module';
 import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
 
-/**
- * Module SDE Masal (Surat Dinas Eksternal Massal).
- *
- * Fitur untuk mengirim banyak SDE sekaligus melalui upload file Excel.
- * Tidak mengubah logic bisnis utama modul korespondensi.
- */
 @Module({
   imports: [
     TypeOrmModule.forFeature([

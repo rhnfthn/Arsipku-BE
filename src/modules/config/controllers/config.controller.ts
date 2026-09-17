@@ -66,10 +66,8 @@ export class ConfigController {
    * GET /config/naskah-lainnya/:jenis
    * Default (Legal Drafting Ya/Tidak + klasifikasi) untuk form tulis naskah
    * lainnya. Cukup auth login — bukan data sensitif; dipakai pemrakarsa biasa.
-   */
+  */
   @Get('naskah-lainnya/:jenis')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   @UseGuards(JwtAuthGuard)
   async getNaskahLainnyaConfig(
     @Param('jenis') jenis: string,

@@ -496,6 +496,151 @@ describe('WorkflowService', () => {
     expect(naskah.tahapan).toBe('selesai');
   });
 
+  it('applyApproval sheet baru: Direktur Pemrakarsa membuka seluruh Diketahui secara paralel, lalu Ditetapkan', async () => {
+    const naskah = {
+      id: 'n-sheet-three-groups',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'initiator-director',
+        tahap: 'blanko_verbal_pemrakarsa',
+        status: 'waiting',
+        urutan: 1,
+      },
+      { id: 'known-1', tahap: 'blanko_verbal', status: 'pending', urutan: 1 },
+      { id: 'known-2', tahap: 'blanko_verbal', status: 'pending', urutan: 2 },
+      {
+        id: 'established',
+        tahap: 'blanko_verbal_ditetapkan',
+        status: 'pending',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    await svc.applyApproval(naskah, rows, 'initiator-director', 'setuju', {
+      aktor: 'Direktur Pemrakarsa',
+      manager: manager as any,
+    });
+    expect(rows.slice(1, 3).every((row) => row.status === 'waiting')).toBe(
+      true,
+    );
+    expect(rows[3].status).toBe('pending');
+
+    await svc.applyApproval(naskah, rows, 'known-2', 'setuju', {
+      aktor: 'Direktur Dua',
+      manager: manager as any,
+    });
+    expect(rows[3].status).toBe('pending');
+
+    await svc.applyApproval(naskah, rows, 'known-1', 'setuju', {
+      aktor: 'Direktur Satu',
+      manager: manager as any,
+    });
+    expect(rows[3].status).toBe('waiting');
+  });
+
+  it.each([
+    ['blanko_verbal', 'blanko_verbal_pemrakarsa'],
+    ['persetujuan_direksi', 'persetujuan_direksi_pemrakarsa'],
+  ])(
+    'applyApproval %s: Direktur Pemrakarsa yang sama otomatis verified pada Diketahui Oleh',
+    async (logicalTahap, pemrakarsaTahap) => {
+      const naskah = {
+        id: `n-auto-${logicalTahap}`,
+        tahapan: logicalTahap,
+        butuhLegal: true,
+      } as any;
+      const rows = [
+        {
+          id: 'pemrakarsa',
+          tahap: pemrakarsaTahap,
+          positionId: 'POS-ZAINAL',
+          nama: 'Zainal Arifin Harahap',
+          status: 'waiting',
+          urutan: 1,
+        },
+        {
+          id: 'diketahui-sama',
+          tahap: logicalTahap,
+          positionId: 'POS-ZAINAL',
+          nama: 'ZAINAL ARIFIN HARAHAP',
+          status: 'pending',
+          urutan: 1,
+        },
+        {
+          id: 'ditetapkan',
+          tahap: `${logicalTahap}_ditetapkan`,
+          positionId: 'POS-DIRUT',
+          nama: 'Direktur Utama',
+          status: 'pending',
+          urutan: 1,
+        },
+      ] as any[];
+      const manager = { save: jest.fn((entity) => entity) };
+
+      const next = await svc.applyApproval(
+        naskah,
+        rows,
+        'pemrakarsa',
+        'setuju',
+        {
+          aktor: 'Zainal Arifin Harahap',
+          catatan: '<p>Setuju</p>',
+          manager: manager as any,
+        },
+      );
+
+      expect(next).toBe(logicalTahap);
+      expect(rows[1]).toEqual(
+        expect.objectContaining({
+          status: 'verified',
+          catatan: '<p>Setuju</p>',
+        }),
+      );
+      expect(rows[1].tanggal).toEqual(rows[0].tanggal);
+      expect(rows[2].status).toBe('waiting');
+    },
+  );
+
+  it('applyApproval sheet: delegasi berbeda tidak otomatis menyetujui Diketahui Oleh', async () => {
+    const naskah = {
+      id: 'n-auto-delegate-safe',
+      tahapan: 'blanko_verbal',
+      butuhLegal: true,
+    } as any;
+    const rows = [
+      {
+        id: 'pemrakarsa',
+        tahap: 'blanko_verbal_pemrakarsa',
+        positionId: 'POS-ZAINAL',
+        nama: 'Zainal Arifin Harahap',
+        delegatePersnum: 100,
+        status: 'waiting',
+        urutan: 1,
+      },
+      {
+        id: 'diketahui-sama',
+        tahap: 'blanko_verbal',
+        positionId: 'POS-ZAINAL',
+        nama: 'Zainal Arifin Harahap',
+        delegatePersnum: 200,
+        status: 'pending',
+        urutan: 1,
+      },
+    ] as any[];
+    const manager = { save: jest.fn((entity) => entity) };
+
+    await svc.applyApproval(naskah, rows, 'pemrakarsa', 'setuju', {
+      aktor: 'Delegasi Pemrakarsa',
+      manager: manager as any,
+    });
+
+    expect(rows[1].status).toBe('waiting');
+  });
+
   it('applyApproval blanko: satu penolakan menolak kelompok aktif dan pending lalu kembali ke legal', async () => {
     const naskah = {
       id: 'n-reject',
@@ -719,10 +864,11 @@ describe('WorkflowService', () => {
 
   it('buildStepper menggabungkan persetujuan direksi dan blanko verbal', () => {
     const stepper = svc.buildStepper('persetujuan_direksi', true, 0);
-    expect(stepper.map((s) => s.label)).toContain(
-      'Blanko Verbal / Persetujuan Direksi',
-    );
-    expect(stepper.map((s) => s.label)).not.toContain('Persetujuan Direksi');
+    const labels = stepper.map((s) => s.label);
+    expect(labels).toContain('Blanko Verbal / Persetujuan Direksi');
+    expect(labels).not.toContain('Persetujuan Direksi');
+    expect(labels).not.toContain('Persetujuan Lanjutan');
+    expect(labels).not.toContain('Evaluasi Final EVP');
   });
 
   it('buildStepper TTD fisik menampilkan approval draft setiap penandatangan', () => {
@@ -994,6 +1140,7 @@ describe('WorkflowService', () => {
       id: 's2',
       tahapan: 'tanda_tangan',
       signingIndex: 2,
+      signOption: 'qr_only',
       penandatanganChain: [
         { nama: 'A', jabatan: 'X' },
         { nama: 'B', jabatan: 'Y' },
@@ -1008,6 +1155,37 @@ describe('WorkflowService', () => {
     });
     expect(naskah.tahapan).toBe('selesai');
     expect(naskah.signingIndex).toBeNull();
+    expect(naskah.status).toBe('final');
+    expect(manager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.any(Object),
+      expect.objectContaining({ status: 'final' }),
+    );
+  });
+
+  it('transisiTandaTangan terakhir digsig menyimpan status final_tte', async () => {
+    const naskah = {
+      id: 's-digsig',
+      tahapan: 'tanda_tangan',
+      signingIndex: 1,
+      signOption: 'digsig',
+      penandatanganChain: [{ nama: 'A', jabatan: 'X' }],
+      tanggal: new Date('2026-08-18'),
+    } as any;
+    const manager = { save: jest.fn(), update: jest.fn() };
+
+    await svc.transisiTandaTangan(naskah, {
+      aktor: 'A',
+      jabatan: 'X',
+      manager: manager as any,
+    });
+
+    expect(naskah.status).toBe('final_tte');
+    expect(manager.update).toHaveBeenCalledWith(
+      NaskahEntity,
+      expect.any(Object),
+      expect.objectContaining({ status: 'final_tte' }),
+    );
   });
 
   it('buildAvailableActions tanda_tangan hanya menyediakan tanda tangan atau tolak ke legal', async () => {

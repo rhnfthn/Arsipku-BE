@@ -92,8 +92,6 @@ export class WorkflowService {
       { label: 'Persetujuan', key: 'persetujuan' },
       { label: 'Legal Drafting', key: 'legal_drafting' },
       { label: 'Evaluasi', key: 'evaluasi' },
-      { label: 'Persetujuan Lanjutan', key: 'persetujuan_lanjutan' },
-      { label: 'Evaluasi Final EVP', key: 'evaluasi_final' },
       {
         // Tahap ini bercabang: user memilih template Blanko Verbal atau
         // Lembar Persetujuan Direksi.
@@ -118,13 +116,15 @@ export class WorkflowService {
 
     // Peta key → urutan aktif (skip Legal Drafting & Blanko Verbal sesuai kondisi).
     const activeKey =
-      tahapan === 'selesai'
-        ? 'selesai'
-        : tahapan === 'persetujuan_direksi'
-          ? 'blanko_verbal'
-          : tahapan === 'tanda_tangan'
-            ? `tanda_tangan_${signingIndex ?? 1}`
-            : tahapan;
+      tahapan === 'persetujuan_lanjutan' || tahapan === 'evaluasi_final'
+        ? 'evaluasi'
+        : tahapan === 'selesai'
+          ? 'selesai'
+          : tahapan === 'persetujuan_direksi'
+            ? 'blanko_verbal'
+            : tahapan === 'tanda_tangan'
+              ? `tanda_tangan_${signingIndex ?? 1}`
+              : tahapan;
     // Recovery states (perlu_perbaikan/ditolak/dibatalkan) tidak ada di daftar step;
     // clamp ke 0 (konsep active) supaya tidak semua step render 'todo'.
     const activeIdx = Math.max(
@@ -138,13 +138,7 @@ export class WorkflowService {
     const skipLegalFlow = !butuhLegal || signOption === 'ttd_basah';
     const isSkip = (key: string) =>
       skipLegalFlow &&
-      [
-        'legal_drafting',
-        'evaluasi',
-        'persetujuan_lanjutan',
-        'evaluasi_final',
-        'blanko_verbal',
-      ].includes(key);
+      ['legal_drafting', 'evaluasi', 'blanko_verbal'].includes(key);
 
     const mapped = all
       .map((s, i) => {
@@ -326,22 +320,23 @@ export class WorkflowService {
     // pada tahap yang sama sudah verified.
     const isDireksiTahap =
       row.tahap === 'persetujuan_direksi' ||
+      row.tahap === 'persetujuan_direksi_pemrakarsa' ||
       row.tahap === 'persetujuan_direksi_ditetapkan' ||
       row.tahap === 'blanko_verbal' ||
+      row.tahap === 'blanko_verbal_pemrakarsa' ||
       row.tahap === 'blanko_verbal_ditetapkan';
     if (isDireksiTahap) {
       const t = naskah.tahapan as Tahapan;
       const N = this.effectiveSignerCount(naskah);
       const signingIndex = naskah.signingIndex ?? 1;
-      const logicalTahap =
-        row.tahap === 'persetujuan_direksi_ditetapkan'
-          ? 'persetujuan_direksi'
-          : row.tahap === 'blanko_verbal_ditetapkan'
-            ? 'blanko_verbal'
-            : row.tahap;
+      const logicalTahap = row.tahap.startsWith('persetujuan_direksi')
+        ? 'persetujuan_direksi'
+        : 'blanko_verbal';
       const logicalTahapRows = rows.filter(
         (r) =>
-          r.tahap === logicalTahap || r.tahap === `${logicalTahap}_ditetapkan`,
+          r.tahap === logicalTahap ||
+          r.tahap === `${logicalTahap}_pemrakarsa` ||
+          r.tahap === `${logicalTahap}_ditetapkan`,
       );
       row.status = aksi === 'setuju' ? 'verified' : 'rejected';
       row.catatan = ctx.catatan ?? row.catatan;
@@ -375,29 +370,49 @@ export class WorkflowService {
         return next;
       }
 
-      // Kedua pilihan template pada step Blanko Verbal berjalan berurutan per
-      // kelompok: seluruh Diketahui Oleh selesai lebih dulu, baru kelompok
-      // Ditetapkan/Disahkan diaktifkan.
+      // Tiga kelompok berjalan berurutan: Direktur Pemrakarsa lebih dulu,
+      // lalu seluruh Diketahui Oleh secara paralel, terakhir Ditetapkan/Disahkan.
       if (
         (logicalTahap === 'blanko_verbal' ||
           logicalTahap === 'persetujuan_direksi') &&
-        row.tahap === logicalTahap
+        row.tahap === `${logicalTahap}_pemrakarsa`
       ) {
-        const diketahuiRows = logicalTahapRows.filter(
-          (r) => r.tahap === logicalTahap,
+        const pemrakarsaRows = logicalTahapRows.filter(
+          (r) => r.tahap === `${logicalTahap}_pemrakarsa`,
         );
-        const allDiketahuiVerified = diketahuiRows.every(
-          (r) => r.status === 'verified',
-        );
-        if (allDiketahuiVerified) {
+        if (pemrakarsaRows.every((r) => r.status === 'verified')) {
           for (const r of logicalTahapRows) {
-            if (
-              r.tahap === `${logicalTahap}_ditetapkan` &&
-              r.status === 'pending'
-            ) {
-              r.status = 'waiting';
+            if (r.tahap === logicalTahap && r.status === 'pending') {
+              // Orang yang sama tidak perlu menyetujui dua kali ketika menjadi
+              // Direktur Pemrakarsa sekaligus tercantum di Diketahui Oleh.
+              const sameDirector = this.isSameSheetApprovalActor(row, r);
+              r.status = sameDirector ? 'verified' : 'waiting';
+              if (sameDirector) {
+                r.catatan = ctx.catatan ?? r.catatan;
+                r.tanggal = row.tanggal;
+              }
               await ctx.manager.save(r);
             }
+          }
+        }
+      }
+
+      // Jalankan juga setelah approval Pemrakarsa karena seluruh Diketahui
+      // bisa langsung selesai melalui auto-approval di atas.
+      const diketahuiRows = logicalTahapRows.filter(
+        (r) => r.tahap === logicalTahap,
+      );
+      const allDiketahuiVerified =
+        diketahuiRows.length > 0 &&
+        diketahuiRows.every((r) => r.status === 'verified');
+      if (allDiketahuiVerified) {
+        for (const r of logicalTahapRows) {
+          if (
+            r.tahap === `${logicalTahap}_ditetapkan` &&
+            r.status === 'pending'
+          ) {
+            r.status = 'waiting';
+            await ctx.manager.save(r);
           }
         }
       }
@@ -531,6 +546,35 @@ export class WorkflowService {
     return naskah.tahapan as Tahapan;
   }
 
+  private isSameSheetApprovalActor(
+    pemrakarsa: NaskahLainnyaApprovalEntity,
+    diketahui: NaskahLainnyaApprovalEntity,
+  ): boolean {
+    const pemrakarsaDelegate = Number(pemrakarsa.delegatePersnum ?? 0);
+    const diketahuiDelegate = Number(diketahui.delegatePersnum ?? 0);
+    if (pemrakarsaDelegate || diketahuiDelegate) {
+      return (
+        pemrakarsaDelegate > 0 &&
+        diketahuiDelegate > 0 &&
+        pemrakarsaDelegate === diketahuiDelegate
+      );
+    }
+
+    const pemrakarsaPosition = String(pemrakarsa.positionId ?? '').trim();
+    const diketahuiPosition = String(diketahui.positionId ?? '').trim();
+    if (pemrakarsaPosition && diketahuiPosition) {
+      return pemrakarsaPosition === diketahuiPosition;
+    }
+
+    const normalizeName = (value?: string | null) =>
+      String(value ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+    const pemrakarsaName = normalizeName(pemrakarsa.nama);
+    return !!pemrakarsaName && pemrakarsaName === normalizeName(diketahui.nama);
+  }
+
   // ---------- Transisi utama (dipakai NaskahLainnyaService) ----------
 
   async transisi(
@@ -597,9 +641,14 @@ export class WorkflowService {
       tahapan: next,
       signingIndex: next === 'selesai' ? null : idx + 1,
     };
-    if (next === 'selesai' && naskah.signOption === 'ttd_basah') {
-      patch.status = 'pending';
-      naskah.status = 'pending';
+    if (next === 'selesai') {
+      patch.status =
+        naskah.signOption === 'ttd_basah'
+          ? 'pending'
+          : naskah.signOption === 'digsig'
+            ? 'final_tte'
+            : 'final';
+      naskah.status = patch.status;
     }
     naskah.tahapan = next;
     naskah.signingIndex = patch.signingIndex as number | null;

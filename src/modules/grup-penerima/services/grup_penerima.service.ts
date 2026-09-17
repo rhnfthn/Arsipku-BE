@@ -40,12 +40,19 @@ export class GrupPenerimaService {
     return await this.grupPenerimaRepository.save(grupPenerima);
   }
 
-  async findAll(company?: string): Promise<GrupPenerimaEntity[]> {
+  async findAll(
+    company?: string,
+    includeInactive = false,
+  ): Promise<GrupPenerimaEntity[]> {
     const query =
       this.grupPenerimaRepository.createQueryBuilder('grup_penerima');
 
+    if (!includeInactive) {
+      query.where('grup_penerima.aktif = :aktif', { aktif: true });
+    }
+
     if (company) {
-      query.where('grup_penerima.company = :company', { company });
+      query.andWhere('grup_penerima.company = :company', { company });
     }
 
     return await query
@@ -64,9 +71,10 @@ export class GrupPenerimaService {
     company?: string,
     tgl?: string,
     jenis?: string,
+    includeInactive = false,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list (all groups, no filtering)
-    const grupList = await this.findAll(company);
+    const grupList = await this.findAll(company, includeInactive);
 
     if (grupList.length === 0) {
       return [];
@@ -415,9 +423,36 @@ export class GrupPenerimaService {
     return await this.grupPenerimaRepository.save(grupPenerima);
   }
 
+  async checkUsage(id: string): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    details?: {
+      memberCount: number;
+    };
+  }> {
+    const grup = await this.findOne(id);
+    const memberCount = await this.grupPenerimaDetailRepository.count({
+      where: { id_grup_penerima: id },
+    });
+
+    if (memberCount > 0) {
+      return {
+        canDelete: false,
+        reason: `Grup penerima '${grup.nama}' masih memiliki ${memberCount} anggota/posisi di dalamnya. Hapus seluruh anggota grup terlebih dahulu sebelum menghapus grup.`,
+        details: { memberCount },
+      };
+    }
+
+    return {
+      canDelete: true,
+      details: { memberCount: 0 },
+    };
+  }
+
   async remove(id: string): Promise<void> {
     const grupPenerima = await this.findOne(id);
-    await this.grupPenerimaRepository.remove(grupPenerima);
+    grupPenerima.aktif = false;
+    await this.grupPenerimaRepository.save(grupPenerima);
   }
 
   async toggleAktif(id: string): Promise<GrupPenerimaEntity> {

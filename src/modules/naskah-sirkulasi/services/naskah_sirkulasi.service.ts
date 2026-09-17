@@ -517,11 +517,20 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
-    // Filter by search (perihal / nomor)
+    // Filter by search (perihal / nomor / nama jabatan pengirim)
     if (query.search && query.search.trim()) {
       const keyword = `%${query.search.trim()}%`;
-      whereClause += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
-      params.push(keyword, keyword);
+      whereClause += ` AND (
+        n.perihal LIKE ? 
+        OR n.nomor LIKE ? 
+        OR EXISTS (
+          SELECT 1 FROM naskah_sirkulasi sp 
+          WHERE sp.id_naskah = s.id_naskah 
+          AND sp.sirkuler = 'pengirim' 
+          AND sp.position_text LIKE ?
+        )
+      )`;
+      params.push(keyword, keyword, keyword);
     }
 
     // Filter by status baca
@@ -536,7 +545,6 @@ export class NaskahSirkulasiService {
     // Filter by favorite
     if (query.favorite === true) {
       whereClause += ` AND s.flag_favorit = 1`;
-      summaryWhereClause += ` AND s.flag_favorit = 1`;
     }
 
     // Filter by tindak lanjut
@@ -547,22 +555,18 @@ export class NaskahSirkulasiService {
     // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
-      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
     } else if (query.tinjut === 'belum_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 0`;
-      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
     if (query.lock === true) {
       whereClause += ` AND s.is_locked = 1`;
-      summaryWhereClause += ` AND s.is_locked = 1`;
     }
 
     // Filter by note
     if (query.note === true) {
       whereClause += ` AND s.flag_note = 1`;
-      summaryWhereClause += ` AND s.flag_note = 1`;
     }
 
     // Filter by arsip (default: exclude archived items)
@@ -578,7 +582,6 @@ export class NaskahSirkulasiService {
     // Filter by priority (khusus disposisi)
     if (query.priority === true) {
       whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
-      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
     }
 
     // Date Range Filter
@@ -642,6 +645,7 @@ export class NaskahSirkulasiService {
         pengirim.position_text as pengirim_position_text,
         pengirim.organization_text as pengirim_organization_text,
         pengirim.nama_sirkuler as pengirim_nama,
+        pengirim.id_sirkuler as pengirim_persnum,
         s.position as penerima_position_id,
         s.id_sirkuler as penerima_persnum,
         s.nama_sirkuler as penerima_nama,
@@ -744,6 +748,7 @@ export class NaskahSirkulasiService {
           position_text: row.pengirim_position_text || '',
           organization_text: row.pengirim_organization_text || '',
           nama: row.pengirim_nama || '',
+          persnum: parseInt(row.pengirim_persnum || '0', 10),
         },
         penerima: {
           position_id: row.penerima_position_id || '',
@@ -777,6 +782,10 @@ export class NaskahSirkulasiService {
       SELECT 
         COUNT(*) as total_semua,
         SUM(CASE WHEN s.send_read_time IS NULL THEN 1 ELSE 0 END) as total_belum_dibaca,
+        SUM(CASE WHEN s.flag_favorit = 1 THEN 1 ELSE 0 END) as total_favorit,
+        SUM(CASE WHEN n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1) THEN 1 ELSE 0 END) as total_priority,
+        SUM(CASE WHEN s.is_locked = 1 THEN 1 ELSE 0 END) as total_lock,
+        SUM(CASE WHEN s.flag_note = 1 THEN 1 ELSE 0 END) as total_note,
         SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
@@ -806,6 +815,10 @@ export class NaskahSirkulasiService {
       summary: {
         total_semua: parseInt(summary.total_semua || '0', 10),
         total_belum_dibaca: parseInt(summary.total_belum_dibaca || '0', 10),
+        total_favorit: parseInt(summary.total_favorit || '0', 10),
+        total_priority: parseInt(summary.total_priority || '0', 10),
+        total_lock: parseInt(summary.total_lock || '0', 10),
+        total_note: parseInt(summary.total_note || '0', 10),
         total_per_jenis: {
           ND: parseInt(summary.total_nd || '0', 10),
           SDI: parseInt(summary.total_sdi || '0', 10),
@@ -1409,6 +1422,22 @@ export class NaskahSirkulasiService {
       params.push(query.jenis);
     }
 
+    // Filter by search (perihal / nomor / nama penerima / jabatan penerima)
+    if (query.search && query.search.trim()) {
+      const keyword = `%${query.search.trim()}%`;
+      whereClause += ` AND (
+        n.perihal LIKE ? 
+        OR n.nomor LIKE ? 
+        OR EXISTS (
+          SELECT 1 FROM naskah_sirkulasi sp 
+          WHERE sp.id_naskah = s.id_naskah 
+          AND sp.sirkuler = 'penerima' 
+          AND (sp.nama_sirkuler LIKE ? OR sp.position_text LIKE ?)
+        )
+      )`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
+
     // Filter by read status.
     // Untuk SDE, pertahankan perilaku existing: tetap tampil walaupun filter status_baca aktif.
     if (query.status_baca === 'terbaca') {
@@ -1466,7 +1495,6 @@ export class NaskahSirkulasiService {
     // Filter by favorite
     if (query.favorite === true) {
       whereClause += ` AND s.flag_favorit = 1`;
-      summaryWhereClause += ` AND s.flag_favorit = 1`;
     }
 
     // Filter by tindak lanjut
@@ -1477,22 +1505,18 @@ export class NaskahSirkulasiService {
     // 'belum_tinjut' = not-actioned only.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
-      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
     } else if (query.tinjut === 'belum_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 0`;
-      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
     if (query.lock === true) {
       whereClause += ` AND s.is_locked = 1`;
-      summaryWhereClause += ` AND s.is_locked = 1`;
     }
 
     // Filter by note
     if (query.note === true) {
       whereClause += ` AND s.flag_note = 1`;
-      summaryWhereClause += ` AND s.flag_note = 1`;
     }
 
     // Filter by arsip (default: exclude archived items)
@@ -1507,7 +1531,6 @@ export class NaskahSirkulasiService {
     // Filter by priority (khusus disposisi)
     if (query.priority === true) {
       whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
-      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
     }
 
     // Date Range Filter
@@ -1561,6 +1584,7 @@ export class NaskahSirkulasiService {
         s.position_text as pengirim_position_text,
         s.organization_text as pengirim_organization_text,
         s.nama_sirkuler as pengirim_nama,
+        s.id_sirkuler as pengirim_persnum,
         s.flag_favorit,
         s.flag_note,
         s.note_text,
@@ -1587,6 +1611,10 @@ export class NaskahSirkulasiService {
     const summaryQuery = `
       SELECT 
         COUNT(*) as total_semua,
+        SUM(CASE WHEN s.flag_favorit = 1 THEN 1 ELSE 0 END) as total_favorit,
+        SUM(CASE WHEN n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1) THEN 1 ELSE 0 END) as total_priority,
+        SUM(CASE WHEN s.is_locked = 1 THEN 1 ELSE 0 END) as total_lock,
+        SUM(CASE WHEN s.flag_note = 1 THEN 1 ELSE 0 END) as total_note,
         SUM(CASE WHEN n.jenis = 'ND' THEN 1 ELSE 0 END) as total_nd,
         SUM(CASE WHEN n.jenis = 'SDI' THEN 1 ELSE 0 END) as total_sdi,
         SUM(CASE WHEN n.jenis = 'SDE' THEN 1 ELSE 0 END) as total_sde,
@@ -1605,6 +1633,10 @@ export class NaskahSirkulasiService {
 
     const summary = {
       total_semua: parseInt(summaryData.total_semua || '0', 10),
+      total_favorit: parseInt(summaryData.total_favorit || '0', 10),
+      total_priority: parseInt(summaryData.total_priority || '0', 10),
+      total_lock: parseInt(summaryData.total_lock || '0', 10),
+      total_note: parseInt(summaryData.total_note || '0', 10),
       total_per_jenis: {
         ND: parseInt(summaryData.total_nd || '0', 10),
         SDI: parseInt(summaryData.total_sdi || '0', 10),
@@ -1669,6 +1701,7 @@ export class NaskahSirkulasiService {
       position_text: p.position_text || '',
       organization_text: p.organization_text || '',
       nama: p.nama || null,
+      persnum: p.persnum ? parseInt(p.persnum, 10) || 0 : 0,
       status_baca: p.send_read_time ? 'terbaca' : 'belum_terbaca',
       read_time: p.send_read_time || null,
       is_tindak_lanjut: p.tindak_lanjut === 1,
@@ -1878,6 +1911,7 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
+            id_sirkuler as persnum,
             send_read_time,
             tindak_lanjut
           FROM naskah_sirkulasi
@@ -1897,6 +1931,7 @@ export class NaskahSirkulasiService {
             position_text,
             organization_text,
             nama_sirkuler as nama,
+            id_sirkuler as persnum,
             send_read_time,
             tindak_lanjut
           FROM naskah_sirkulasi
@@ -1993,6 +2028,7 @@ export class NaskahSirkulasiService {
           position_text: row.pengirim_position_text || '',
           organization_text: row.pengirim_organization_text || '',
           nama: row.pengirim_nama || null,
+          persnum: parseInt(row.pengirim_persnum || '0', 10),
         },
         penerima,
         tembusan,
@@ -2754,6 +2790,7 @@ export class NaskahSirkulasiService {
           (SELECT position_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_position_text,
           (SELECT organization_text FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_organization_text,
           (SELECT nama_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_nama,
+          (SELECT id_sirkuler FROM naskah_sirkulasi p WHERE p.id_naskah = s.id_naskah AND p.sirkuler = 'pengirim' LIMIT 1) as pengirim_persnum,
           
           s.position as my_position_id,
           s.id_sirkuler as my_persnum,
@@ -2795,6 +2832,7 @@ export class NaskahSirkulasiService {
           s.position_text as pengirim_position_text,
           s.organization_text as pengirim_organization_text,
           s.nama_sirkuler as pengirim_nama,
+          s.id_sirkuler as pengirim_persnum,
 
           NULL as my_position_id,
           NULL as my_persnum,
@@ -2940,6 +2978,7 @@ export class NaskahSirkulasiService {
             position_text: row.pengirim_position_text || '',
             organization_text: row.pengirim_organization_text || '',
             nama: row.pengirim_nama || '',
+            persnum: parseInt(row.pengirim_persnum || '0', 10),
           },
           penerima: {
             position_id: row.my_position_id || '',
