@@ -58,5 +58,7 @@ export enum TugasActivityAction {
   REMOVE_REFERENCE = 'remove_reference',
   ADD_EVIDENCE = 'add_evidence',
   REMOVE_EVIDENCE = 'remove_evidence',
+  ADD_COMMENT = 'add_comment',
+  DELETE_COMMENT = 'delete_comment',
   DELETE_TASK = 'delete_task',
 }
