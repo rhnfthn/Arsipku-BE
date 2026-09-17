@@ -263,7 +263,7 @@ export class TugasNotificationService {
    */
   emitCommentAddedSafe(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor: TugasActor;
   }) {
@@ -281,7 +281,7 @@ export class TugasNotificationService {
    */
   emitCommentDeletedSafe(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor: TugasActor;
   }) {

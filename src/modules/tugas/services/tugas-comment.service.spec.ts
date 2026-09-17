@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { QueryTaskCommentDto } from '../dto';
@@ -6,13 +10,17 @@ import {
   TugasBoardEntity,
   TugasBoardMemberEntity,
   TugasTaskCommentEntity,
+  TugasTaskCommentHideEntity,
   TugasTaskEntity,
 } from '../entities';
 import { TugasActivityAction } from '../enums';
 import { TugasActor } from '../tugas.types';
 import { TugasAccessReader } from './tugas-access.reader';
 import { TugasActivityService } from './tugas-activity.service';
-import { TugasCommentService } from './tugas-comment.service';
+import {
+  COMMENT_DELETE_WINDOW_MS,
+  TugasCommentService,
+} from './tugas-comment.service';
 import { TugasNotificationService } from './tugas-notification.service';
 
 describe('TugasCommentService', () => {
@@ -35,7 +43,11 @@ describe('TugasCommentService', () => {
   let dataSource: { transaction: jest.Mock; getRepository: jest.Mock };
   let access: {
     assertTaskMember: jest.Mock;
-    repositories: { member: { find: jest.Mock } };
+    assertBoardMember: jest.Mock;
+    repositories: {
+      member: { find: jest.Mock };
+      task: { find: jest.Mock };
+    };
   };
   let activity: { record: jest.Mock };
   let notification: {
@@ -48,7 +60,15 @@ describe('TugasCommentService', () => {
     create: jest.Mock;
     remove: jest.Mock;
     findOneOrFail: jest.Mock;
+    findOne: jest.Mock;
   };
+  let hideRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    save: jest.Mock;
+    create: jest.Mock;
+  };
+  let taskRepository: { find: jest.Mock; findOne: jest.Mock };
 
   const board: TugasBoardEntity = {
     id: 'board-1',
@@ -82,7 +102,8 @@ describe('TugasCommentService', () => {
   const buildComment = (overrides: Partial<TugasTaskCommentEntity> = {}) =>
     ({
       id: uuidv4(),
-      taskId: 'task-1',
+      boardId: 'board-1',
+      taskId: null,
       memberId: 'member-1',
       isi: 'Halo, ini komentar',
       actorPersnum: 10,
@@ -98,16 +119,40 @@ describe('TugasCommentService', () => {
       create: jest.fn((value) => value),
       remove: jest.fn(),
       findOneOrFail: jest.fn(),
+      findOne: jest.fn(),
+    };
+
+    hideRepository = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async () => null),
+      save: jest.fn(),
+      create: jest.fn((value) => value),
+    };
+
+    taskRepository = {
+      find: jest.fn(async () => [task]),
+      findOne: jest.fn(async () => task),
     };
 
     dataSource = {
       transaction: jest.fn(
         (callback: (manager: EntityManager) => unknown) =>
           callback({
-            getRepository: () => commentRepository,
+            getRepository: (entity: unknown) =>
+              entity === TugasTaskCommentHideEntity
+                ? hideRepository
+                : entity === TugasTaskEntity
+                  ? taskRepository
+                  : commentRepository,
           } as unknown as EntityManager),
       ),
-      getRepository: jest.fn(() => commentRepository),
+      getRepository: jest.fn((entity: unknown) =>
+        entity === TugasTaskCommentHideEntity
+          ? hideRepository
+          : entity === TugasTaskEntity
+            ? taskRepository
+            : commentRepository,
+      ),
     };
 
     access = {
@@ -116,9 +161,16 @@ describe('TugasCommentService', () => {
         member,
         task,
       })),
+      assertBoardMember: jest.fn(async () => ({
+        board,
+        member,
+      })),
       repositories: {
         member: {
           find: jest.fn(async () => [member, otherMember]),
+        },
+        task: {
+          find: jest.fn(async () => [task]),
         },
       },
     };
@@ -138,15 +190,16 @@ describe('TugasCommentService', () => {
   });
 
   describe('add', () => {
-    it('menyimpan komentar milik member aktif dan emit realtime', async () => {
+    it('menyimpan komentar forum papan milik member aktif dan emit realtime', async () => {
       const saved = buildComment();
       commentRepository.save.mockResolvedValue(saved);
 
-      const result = await service.add('task-1', { isi: 'Halo' }, actor);
+      const result = await service.add('board-1', { isi: 'Halo' }, actor);
 
       expect(commentRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          taskId: 'task-1',
+          boardId: 'board-1',
+          taskId: null,
           memberId: 'member-1',
           isi: 'Halo',
           actorPersnum: 10,
@@ -157,24 +210,93 @@ describe('TugasCommentService', () => {
         expect.anything(),
         expect.objectContaining({
           boardId: 'board-1',
-          taskId: 'task-1',
           aksi: TugasActivityAction.ADD_COMMENT,
         }),
       );
       expect(notification.emitCommentAddedSafe).toHaveBeenCalledWith(
-        expect.objectContaining({ boardId: 'board-1', taskId: 'task-1' }),
+        expect.objectContaining({ boardId: 'board-1' }),
       );
       expect(result.status).toBe('success');
       expect(result.data.actor.nama).toBe('Tester');
     });
+
+    it('menerima tag task opsional dan menyimpan taskJudul di aktivitas', async () => {
+      const saved = buildComment({ taskId: 'task-1' });
+      commentRepository.save.mockResolvedValue(saved);
+      taskRepository.findOne.mockResolvedValue(task);
+
+      const result = await service.add(
+        'board-1',
+        { isi: 'Terkait task ini', taskId: 'task-1' },
+        actor,
+      );
+
+      expect(taskRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'task-1', boardId: 'board-1' },
+      });
+      expect(commentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'task-1' }),
+      );
+      expect(activity.record).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          detail: expect.objectContaining({ judul: 'Task contoh' }),
+        }),
+      );
+      expect(result.status).toBe('success');
+    });
+
+    it('menolak tag task dari papan lain', async () => {
+      taskRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.add('board-1', { isi: 'Halo', taskId: 'task-lain' }, actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(commentRepository.save).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {
-    it('menghapus komentar milik sendiri', async () => {
-      const comment = buildComment({ memberId: 'member-1' });
+    it('scope=me: menyembunyikan komentar tanpa menghapus untuk orang lain', async () => {
+      const comment = buildComment({ memberId: 'member-2' });
       commentRepository.findOneOrFail.mockResolvedValue(comment);
 
-      const result = await service.remove('task-1', comment.id, actor);
+      const result = await service.remove('board-1', comment.id, 'me', actor);
+
+      expect(hideRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commentId: comment.id,
+          memberId: 'member-1',
+        }),
+      );
+      expect(commentRepository.remove).not.toHaveBeenCalled();
+      expect(notification.emitCommentDeletedSafe).not.toHaveBeenCalled();
+      expect(result.status).toBe('success');
+    });
+
+    it('scope=me: idempoten bila komentar sudah disembunyikan', async () => {
+      const comment = buildComment({ memberId: 'member-2' });
+      commentRepository.findOneOrFail.mockResolvedValue(comment);
+      hideRepository.findOne.mockResolvedValue({ id: 'hide-1' });
+
+      await service.remove('board-1', comment.id, 'me', actor);
+
+      expect(hideRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('scope=everyone: menghapus komentar milik sendiri dalam window 5 menit', async () => {
+      const comment = buildComment({
+        memberId: 'member-1',
+        createdAt: new Date(Date.now() - 60 * 1000), // 1 menit lalu
+      });
+      commentRepository.findOneOrFail.mockResolvedValue(comment);
+
+      const result = await service.remove(
+        'board-1',
+        comment.id,
+        'everyone',
+        actor,
+      );
 
       expect(commentRepository.remove).toHaveBeenCalledWith(comment);
       expect(activity.record).toHaveBeenCalledWith(
@@ -187,12 +309,28 @@ describe('TugasCommentService', () => {
       expect(result.status).toBe('success');
     });
 
-    it('menolak hapus komentar milik anggota lain', async () => {
-      const comment = buildComment({ memberId: 'member-2' });
+    it('scope=everyone: menolak hapus setelah window 5 menit berlalu', async () => {
+      const comment = buildComment({
+        memberId: 'member-1',
+        createdAt: new Date(Date.now() - COMMENT_DELETE_WINDOW_MS - 1000),
+      });
       commentRepository.findOneOrFail.mockResolvedValue(comment);
 
       await expect(
-        service.remove('task-1', comment.id, actor),
+        service.remove('board-1', comment.id, 'everyone', actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(commentRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('scope=everyone: menolak hapus komentar milik anggota lain', async () => {
+      const comment = buildComment({
+        memberId: 'member-2',
+        createdAt: new Date(),
+      });
+      commentRepository.findOneOrFail.mockResolvedValue(comment);
+
+      await expect(
+        service.remove('board-1', comment.id, 'everyone', actor),
       ).rejects.toThrow(ForbiddenException);
       expect(commentRepository.remove).not.toHaveBeenCalled();
     });
@@ -201,7 +339,7 @@ describe('TugasCommentService', () => {
       commentRepository.findOneOrFail.mockRejectedValue(new Error('not found'));
 
       await expect(
-        service.remove('task-1', 'missing-comment', actor),
+        service.remove('board-1', 'missing-comment', 'me', actor),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -211,6 +349,7 @@ describe('TugasCommentService', () => {
       const comments = [buildComment(), buildComment()];
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         addOrderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
@@ -220,11 +359,15 @@ describe('TugasCommentService', () => {
       commentRepository.createQueryBuilder.mockReturnValue(queryBuilder);
 
       const result = await service.list(
-        'task-1',
+        'board-1',
         { page: 1, limit: 50 } as QueryTaskCommentDto,
         actor,
       );
 
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        'comment.board_id = :boardId',
+        { boardId: 'board-1' },
+      );
       expect(result.data).toHaveLength(2);
       expect(result.meta.total).toBe(2);
       expect(result.meta.totalPages).toBe(1);
