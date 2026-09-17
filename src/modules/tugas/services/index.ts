@@ -1,6 +1,7 @@
 export * from './tugas-access.reader';
 export * from './tugas-activity.service';
 export * from './tugas-board.service';
+export * from './tugas-comment.service';
 export * from './tugas-evidence.service';
 export * from './tugas-member.service';
 export * from './tugas-notification.service';
