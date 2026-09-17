@@ -25,18 +25,21 @@ import {
   AddBoardMemberDto,
   AddTaskReferenceDto,
   CreateBoardDto,
+  CreateTaskCommentDto,
   CreateTaskDto,
   MoveTaskDto,
   QueryActivityDto,
   QueryBoardDto,
   QueryMemberCandidateDto,
   QueryMyTaskDto,
+  QueryTaskCommentDto,
   QueryTaskDto,
   UpdateBoardDto,
   UpdateTaskDto,
 } from '../dto';
 import {
   TugasBoardService,
+  TugasCommentService,
   TugasEvidenceService,
   TugasMemberService,
   TugasReferenceService,
@@ -61,6 +64,7 @@ export class TugasController {
     private readonly timelineService: TugasTimelineService,
     private readonly referenceService: TugasReferenceService,
     private readonly evidenceService: TugasEvidenceService,
+    private readonly commentService: TugasCommentService,
   ) {}
 
   @Post('boards')
@@ -319,5 +323,40 @@ export class TugasController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.evidenceService.remove(taskId, evidenceId, user);
+  }
+
+  // ─── Forum diskusi task ────────────────────────────────────────────────────
+
+  /** GET /tugas/tasks/:taskId/comments — daftar komentar (terbaru duluan). */
+  @Get('tasks/:taskId/comments')
+  @RequirePermission('tugas', 'read')
+  findTaskComments(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: QueryTaskCommentDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.list(taskId, query, user);
+  }
+
+  /** POST /tugas/tasks/:taskId/comments — tambah komentar diskusi. */
+  @Post('tasks/:taskId/comments')
+  @RequirePermission('tugas', 'read')
+  addTaskComment(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CreateTaskCommentDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.add(taskId, dto, user);
+  }
+
+  /** DELETE /tugas/tasks/:taskId/comments/:commentId — hapus komentar sendiri. */
+  @Delete('tasks/:taskId/comments/:commentId')
+  @RequirePermission('tugas', 'read')
+  removeTaskComment(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.remove(taskId, commentId, user);
   }
 }
