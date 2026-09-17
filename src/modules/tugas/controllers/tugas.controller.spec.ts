@@ -62,7 +62,15 @@ describe('TugasController contract', () => {
       findOne: jest.fn(() => Promise.resolve({ status: 'success' })),
     } as unknown as TugasBoardService;
     const taskService = {} as TugasTaskService;
-    const controller = new TugasController(boardService, taskService);
+    const controller = new TugasController(
+      boardService,
+      taskService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
     const user = {
       persnum: 10,
       company: '1000',
