@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { TugasBoardMemberRole } from '../enums';
 import { TugasBoardEntity } from './tugas-board.entity';
+import { TugasTaskCommentEntity } from './tugas-task-comment.entity';
 import { TugasTaskEntity } from './tugas-task.entity';
 
 @Entity('tugas_board_member')
@@ -79,4 +80,7 @@ export class TugasBoardMemberEntity {
 
   @OneToMany(() => TugasTaskEntity, (task) => task.createdByMember)
   createdTasks: TugasTaskEntity[];
+
+  @OneToMany(() => TugasTaskCommentEntity, (comment) => comment.member)
+  comments: TugasTaskCommentEntity[];
 }

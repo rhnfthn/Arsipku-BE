@@ -256,6 +256,43 @@ export class TugasNotificationService {
     }
   }
 
+  /**
+   * Emit komentar baru ke room board — client menambahkan komentar secara
+   * realtime tanpa refetch penuh. Tidak menaikkan revision papan karena
+   * komentar tidak mengubah state task.
+   */
+  emitCommentAddedSafe(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    actor: TugasActor;
+  }) {
+    this.realtimeEmitService.emitTugasCommentAdded({
+      boardId: payload.boardId,
+      taskId: payload.taskId,
+      commentId: payload.commentId,
+      actor: { persnum: payload.actor.persnum, nama: payload.actor.nama },
+    });
+  }
+
+  /**
+   * Emit komentar dihapus ke room board agar client lain me-render ulang
+   * daftar komentar (komentar bisa dihapus penulisnya kapan saja).
+   */
+  emitCommentDeletedSafe(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    actor: TugasActor;
+  }) {
+    this.realtimeEmitService.emitTugasCommentDeleted({
+      boardId: payload.boardId,
+      taskId: payload.taskId,
+      commentId: payload.commentId,
+      actor: { persnum: payload.actor.persnum, nama: payload.actor.nama },
+    });
+  }
+
   private tomorrowInJakarta(): string {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Jakarta',

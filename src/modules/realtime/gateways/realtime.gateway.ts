@@ -492,4 +492,32 @@ export class RealtimeGateway
       .to(`position:${positionId}`)
       .emit('tugas:assigned-count', { positionId, count });
   }
+
+  /** Emit komentar task baru ke room board (forum diskusi realtime). */
+  emitTugasCommentAdded(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:comment-added', payload);
+  }
+
+  /** Emit komentar task dihapus ke room board (forum diskusi realtime). */
+  emitTugasCommentDeleted(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    occurredAt: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    if (!this.server) return;
+    this.server
+      .to(`tugas:board:${payload.boardId}`)
+      .emit('tugas:comment-deleted', payload);
+  }
 }
