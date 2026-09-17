@@ -23,6 +23,7 @@ import { DelegasiService } from '../../delegasi/services/delegasi.service';
 import { RbacService } from '../../rbac/services/rbac.service';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { VerifyTokenDto } from '../dto/verify-token.dto';
+import { OidcSessionService } from '../services/oidc-session.service';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
 import { SwitchProfileDto } from '../dto/switch-profile.dto';
@@ -54,6 +55,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly sessionService: SessionService,
+    private readonly oidcSessionService: OidcSessionService,
     private readonly configService: ConfigService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly delegasiService: DelegasiService,
@@ -175,6 +177,9 @@ export class AuthController {
         (req.headers['x-forwarded-for'] as string) || req.ip,
       );
       res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
+      if (result.frontendOrigin === 'mobile') {
+        return res.redirect('/auth/session');
+      }
       const destination = new URL(
         result.returnTo,
         `${result.frontendOrigin || this.frontendUrl()}/`,
