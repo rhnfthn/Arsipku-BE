@@ -27,6 +27,7 @@ import {
   CreateBoardDto,
   CreateTaskCommentDto,
   CreateTaskDto,
+  DeleteTaskCommentScopeDto,
   MoveTaskDto,
   QueryActivityDto,
   QueryBoardDto,
@@ -325,38 +326,51 @@ export class TugasController {
     return this.evidenceService.remove(taskId, evidenceId, user);
   }
 
-  // ─── Forum diskusi task ────────────────────────────────────────────────────
+  // ─── Forum diskusi papan ─────────────────────────────────────────────────────
 
-  /** GET /tugas/tasks/:taskId/comments — daftar komentar (terbaru duluan). */
-  @Get('tasks/:taskId/comments')
+  /**
+   * GET /tugas/boards/:boardId/comments — daftar komentar forum papan.
+   * Query opsional taskId untuk filter diskusi yang men-tag task tertentu.
+   */
+  @Get('boards/:boardId/comments')
   @RequirePermission('tugas', 'read')
-  findTaskComments(
-    @Param('taskId', ParseUUIDPipe) taskId: string,
+  findBoardComments(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
     @Query() query: QueryTaskCommentDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.commentService.list(taskId, query, user);
+    return this.commentService.list(boardId, query, user);
   }
 
-  /** POST /tugas/tasks/:taskId/comments — tambah komentar diskusi. */
-  @Post('tasks/:taskId/comments')
+  /** POST /tugas/boards/:boardId/comments — tambah komentar forum papan. */
+  @Post('boards/:boardId/comments')
   @RequirePermission('tugas', 'read')
-  addTaskComment(
-    @Param('taskId', ParseUUIDPipe) taskId: string,
+  addBoardComment(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
     @Body() dto: CreateTaskCommentDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.commentService.add(taskId, dto, user);
+    return this.commentService.add(boardId, dto, user);
   }
 
-  /** DELETE /tugas/tasks/:taskId/comments/:commentId — hapus komentar sendiri. */
-  @Delete('tasks/:taskId/comments/:commentId')
+  /**
+   * DELETE /tugas/boards/:boardId/comments/:commentId?scope=me|everyone
+   * - scope=me: sembunyikan komentar untuk membership aktif saja.
+   * - scope=everyone: hapus permanen (penulis, maks 5 menit setelah kirim).
+   */
+  @Delete('boards/:boardId/comments/:commentId')
   @RequirePermission('tugas', 'read')
-  removeTaskComment(
-    @Param('taskId', ParseUUIDPipe) taskId: string,
+  removeBoardComment(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Query() query: DeleteTaskCommentScopeDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.commentService.remove(taskId, commentId, user);
+    return this.commentService.remove(
+      boardId,
+      commentId,
+      query.scope ?? 'me',
+      user,
+    );
   }
 }

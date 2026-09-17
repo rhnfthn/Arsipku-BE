@@ -11,6 +11,7 @@ import {
 import { TugasBoardType } from '../enums';
 import { TugasActivityEntity } from './tugas-activity.entity';
 import { TugasBoardMemberEntity } from './tugas-board-member.entity';
+import { TugasTaskCommentEntity } from './tugas-task-comment.entity';
 import { TugasTaskEntity } from './tugas-task.entity';
 
 @Entity('tugas_board')
@@ -81,6 +82,9 @@ export class TugasBoardEntity {
 
   @OneToMany(() => TugasTaskEntity, (task) => task.board)
   tasks: TugasTaskEntity[];
+
+  @OneToMany(() => TugasTaskCommentEntity, (comment) => comment.board)
+  comments: TugasTaskCommentEntity[];
 
   @OneToMany(() => TugasActivityEntity, (activity) => activity.board)
   activities: TugasActivityEntity[];
