@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CreateTaskCommentDto, QueryTaskCommentDto } from '../dto';
 import {
   TugasBoardEntity,
+  TugasBoardMemberEntity,
   TugasTaskCommentEntity,
   TugasTaskCommentHideEntity,
   TugasTaskEntity,
@@ -135,6 +136,8 @@ export class TugasCommentService {
   /**
    * POST /tugas/boards/:boardId/comments — tambah komentar forum papan.
    * taskId opsional: bila diisi, komentar men-tag task tersebut.
+   * Mention "@Nama" di isi komentar memicu notifikasi TUGAS_TAGGED
+   * ke anggota papan yang cocok (kecuali actor sendiri).
    */
   async add(
     boardId: string,
@@ -182,7 +185,7 @@ export class TugasCommentService {
         },
         actor,
       });
-      return { comment, boardId, taskJudul };
+      return { comment, board: access.board, taskJudul };
     });
 
     this.tugasNotification?.emitCommentAddedSafe({
@@ -192,19 +195,86 @@ export class TugasCommentService {
       actor,
     });
 
-    const [members, tasks] = await Promise.all([
-      this.access.repositories.member.find({ where: { boardId } }),
-      this.access.repositories.task.find({
-        where: { boardId },
-        select: ['id', 'judul'],
-      }),
-    ]);
+    // Notifikasi anggota yang di-tag (@Nama). Kegagalan notifikasi diisolasi
+    // agar tidak membatalkan komentar yang sudah tersimpan.
+    const members = await this.access.repositories.member.find({
+      where: { boardId },
+    });
+    const tagged = this.extractTaggedMembers(dto.isi, members, actor);
+    if (tagged.length) {
+      await this.tugasNotification
+        ?.notifyTagged({
+          board: result.board,
+          taggedMembers: tagged,
+          actor,
+        })
+        .catch(() => undefined);
+    }
+
+    const tasks = await this.access.repositories.task.find({
+      where: { boardId },
+      select: ['id', 'judul'],
+    });
 
     return {
       status: 'success',
       message: 'Komentar berhasil ditambahkan',
       data: this.mapComment(result.comment, members, tasks),
     };
+  }
+
+  /**
+   * Ekstrak anggota papan yang di-mention "@Nama" di isi komentar.
+   * Matching case-insensitive terhadap namaSnapshot; nama terpanjang
+   * diprioritaskan agar "Budi Santoso" tidak cocok dengan "Budi" saja.
+   * Actor sendiri selalu dikecualikan.
+   */
+  private extractTaggedMembers(
+    isi: string,
+    members: TugasBoardMemberEntity[],
+    actor: TugasActor,
+  ): {
+    memberId: string;
+    positionId: string;
+    persnum: number;
+    nama: string;
+  }[] {
+    const eligibleMembers = members.filter(
+      (member) => member.positionId !== actor.position,
+    );
+    const names = [
+      ...new Set(
+        eligibleMembers
+          .map((member) => member.namaSnapshot.trim())
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => b.length - a.length);
+    if (!names.length) return [];
+
+    const escape = (value: string) =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Satu alternation memastikan nama panjang dipilih lebih dahulu. Dengan
+    // demikian "@Budi Santoso" tidak ikut men-tag anggota bernama "Budi".
+    const pattern = new RegExp(
+      `(^|\\s)@(${names.map(escape).join('|')})(?=\\s|$)`,
+      'giu',
+    );
+    const mentionedNames = new Set(
+      [...isi.matchAll(pattern)].map((match) =>
+        String(match[2] ?? '').toLocaleLowerCase('id-ID'),
+      ),
+    );
+
+    return eligibleMembers
+      .filter((member) =>
+        mentionedNames.has(member.namaSnapshot.trim().toLocaleLowerCase('id-ID')),
+      )
+      .map((member) => ({
+        memberId: member.id,
+        positionId: member.positionId,
+        persnum: member.persnum,
+        nama: member.namaSnapshot,
+      }));
   }
 
   /**

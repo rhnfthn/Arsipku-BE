@@ -276,6 +276,47 @@ export class TugasNotificationService {
   }
 
   /**
+   * Notifikasi anggota di-tag (@mention) di forum diskusi papan.
+   * Target: setiap membership yang namanya muncul sebagai "@Nama" di isi
+   * komentar (kecuali actor sendiri). Payload action OPEN_TUGAS_FORUM
+   * agar FE membuka tab forum papan terkait.
+   */
+  async notifyTagged(payload: {
+    board: TugasBoardEntity;
+    taggedMembers: {
+      memberId: string;
+      positionId: string;
+      persnum: number;
+      nama: string;
+    }[];
+    actor: TugasActor;
+  }) {
+    const recipients = payload.taggedMembers.filter(
+      (member) => member.positionId !== payload.actor.position,
+    );
+    await Promise.allSettled(
+      recipients.map((member) =>
+        this.notificationService.createNotification(
+          {
+            positionId: member.positionId,
+            userPersnum: member.persnum,
+            type: NotificationType.TUGAS_TAGGED,
+            title: 'Anda di-tag di forum diskusi',
+            body: `${payload.actor.nama} men-tag Anda di forum papan "${payload.board.nama}".`,
+            data: {
+              action: 'OPEN_TUGAS_FORUM',
+              boardId: payload.board.id,
+              taskId: null,
+            },
+          },
+          true,
+          true,
+        ),
+      ),
+    );
+  }
+
+  /**
    * Emit komentar dihapus ke room board agar client lain me-render ulang
    * daftar komentar (komentar bisa dihapus penulisnya kapan saja).
    */
