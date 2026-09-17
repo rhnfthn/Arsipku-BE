@@ -383,8 +383,38 @@ export class NaskahShareService {
       });
     }
 
-    if (query.status) {
-      qb.andWhere('share.status = :status', { status: query.status });
+    const now = new Date();
+    if (query.status === ShareStatus.AKTIF) {
+      qb.andWhere('share.status = :aktifStatus', {
+        aktifStatus: ShareStatus.AKTIF,
+      });
+      qb.andWhere('(share.expiresAt IS NULL OR share.expiresAt > :now)', {
+        now,
+      });
+      if (tab === 'shared-to-me') {
+        qb.andWhere('recipients.status != :recBerakhir', {
+          recBerakhir: RecipientStatus.BERAKHIR,
+        });
+      }
+    } else if (query.status === ShareStatus.BERAKHIR) {
+      if (tab === 'shared-to-me') {
+        qb.andWhere(
+          '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now) OR recipients.status = :recBerakhir)',
+          {
+            berakhirStatus: ShareStatus.BERAKHIR,
+            now,
+            recBerakhir: RecipientStatus.BERAKHIR,
+          },
+        );
+      } else {
+        qb.andWhere(
+          '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now))',
+          {
+            berakhirStatus: ShareStatus.BERAKHIR,
+            now,
+          },
+        );
+      }
     }
 
     // Join naskah table directly (no entity relation defined)
