@@ -385,4 +385,47 @@ export class RealtimeEmitService {
       );
     }
   }
+
+  /**
+   * Emit komentar task baru ke room board — client menambahkan komentar
+   * secara realtime tanpa refetch penuh.
+   */
+  emitTugasCommentAdded(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasCommentAdded({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasCommentAdded] failed for task ${payload.taskId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Emit komentar task dihapus ke room board.
+   */
+  emitTugasCommentDeleted(payload: {
+    boardId: string;
+    taskId: string;
+    commentId: string;
+    actor?: { persnum: number; nama: string } | null;
+  }) {
+    try {
+      this.gateway.emitTugasCommentDeleted({
+        ...payload,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTugasCommentDeleted] failed for task ${payload.taskId}: ${err?.message}`,
+      );
+    }
+  }
 }
