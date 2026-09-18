@@ -43,6 +43,7 @@ export class GrupPenerimaService {
   async findAll(
     company?: string,
     includeInactive = false,
+    jenis?: string,
   ): Promise<GrupPenerimaEntity[]> {
     const query =
       this.grupPenerimaRepository.createQueryBuilder('grup_penerima');
@@ -55,6 +56,15 @@ export class GrupPenerimaService {
       query.andWhere('grup_penerima.company = :company', { company });
     }
 
+    // Filter jenis naskah: grup tampil jika jenis_naskah NULL (semua jenis)
+    // atau memuat jenis yang diminta (JSON_CONTAINS pada kolom JSON).
+    if (jenis) {
+      query.andWhere(
+        '(grup_penerima.jenis_naskah IS NULL OR JSON_CONTAINS(grup_penerima.jenis_naskah, :jenisJson))',
+        { jenisJson: JSON.stringify(jenis) },
+      );
+    }
+
     return await query
       .leftJoinAndSelect('grup_penerima.details', 'details')
       .orderBy('grup_penerima.nama', 'ASC')
@@ -65,7 +75,8 @@ export class GrupPenerimaService {
    * Get all grup penerima with enriched position detail from org_data
    * @param company - Filter by company
    * @param tgl - Optional date for org_data lookup (default: today)
-   * @param jenis - Optional naskah type (kept for API compatibility, no longer filters by name)
+   * @param jenis - Optional naskah type: hanya grup yang dikonfigurasi untuk
+   *   jenis ini (atau tanpa konfigurasi jenis = semua) yang dikembalikan.
    */
   async findAllWithPositionDetail(
     company?: string,
@@ -73,8 +84,8 @@ export class GrupPenerimaService {
     jenis?: string,
     includeInactive = false,
   ): Promise<GrupPenerimaResponseDto[]> {
-    // Get grup penerima list (all groups, no filtering)
-    const grupList = await this.findAll(company, includeInactive);
+    // Get grup penerima list, filtered by jenis when provided
+    const grupList = await this.findAll(company, includeInactive, jenis);
 
     if (grupList.length === 0) {
       return [];
@@ -105,6 +116,7 @@ export class GrupPenerimaService {
       company: grup.company,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
+      jenis_naskah: grup.jenis_naskah ?? null,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);

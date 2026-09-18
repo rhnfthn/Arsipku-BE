@@ -151,27 +151,29 @@ export class CorrespondenceRoutingResolverService {
       'CREATE',
       effectiveDate,
     );
-    const managerRoles = config.roles.filter(
-      (role) =>
-        role.code.trim().toUpperCase() === 'MANAGER_OPERASI' &&
-        config.members.some(
-          (member) =>
-            member.role_id === role.id &&
-            Number(member.position_id) === positionId &&
-            this.effective(member, effectiveDate),
-        ),
+    // SDI access is unlocked by ANY functional role whose effective members
+    // include this position AND that sources an active SDI CREATE PENERIMA
+    // rule (e.g. MANAGER_OPERASI and DGM_PEO). Role codes must stay data-driven;
+    // hardcoding them here silently blocks new business roles (UAT-E).
+    const senderRoles = config.roles.filter((role) =>
+      config.members.some(
+        (member) =>
+          member.role_id === role.id &&
+          Number(member.position_id) === positionId &&
+          this.effective(member, effectiveDate),
+      ),
     );
-    const managerRoleIds = new Set(managerRoles.map((role) => role.id));
+    const senderRoleIds = new Set(senderRoles.map((role) => role.id));
     const primaryRules = config.rules.filter(
       (rule) =>
-        managerRoleIds.has(rule.source_role_id) &&
+        senderRoleIds.has(rule.source_role_id) &&
         rule.delivery_type === 'PENERIMA',
     );
 
     return {
       feature_enabled: true,
-      can_create_sdi: managerRoles.length > 0 && primaryRules.length > 0,
-      matched_role_codes: managerRoles.map((role) => role.code).sort(),
+      can_create_sdi: senderRoles.length > 0 && primaryRules.length > 0,
+      matched_role_codes: senderRoles.map((role) => role.code).sort(),
       matched_rule_ids: primaryRules.map((rule) => rule.id).sort(),
     };
   }
