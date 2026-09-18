@@ -81,6 +81,22 @@ export class GrupPenerimaController {
     return this.grupPenerimaService.toggleAktif(id);
   }
 
+  /**
+   * PUT /persuratan/grup-penerima/:id/jenis-naskah
+   * Set daftar jenis naskah tempat grup ditampilkan di form tulis.
+   * Body: { jenis_naskah: string[] | null } — null/kosong = semua jenis.
+   */
+  @Put(':id/jenis-naskah')
+  @RequirePermission('master-data', 'update-grup-penerima')
+  setJenisNaskah(
+    @Param('id') id: string,
+    @Body('jenis_naskah') jenisNaskah: string[] | null,
+  ) {
+    return this.grupPenerimaService.update(id, {
+      jenis_naskah: jenisNaskah?.length ? jenisNaskah : null,
+    });
+  }
+
   @Get(':id/check-usage')
   checkUsage(@Param('id') id: string) {
     return this.grupPenerimaService.checkUsage(id);
