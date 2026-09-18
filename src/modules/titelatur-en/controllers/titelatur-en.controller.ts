@@ -23,7 +23,7 @@ export class TitelaturEnController {
   constructor(private readonly service: TitelaturEnService) {}
 
   @Post()
-  @RequirePermission('master-data', 'create')
+  @RequirePermission('titelatur', 'create')
   async create(@Body() dto: CreateTitelaturEnDto) {
     try {
       const created = await this.service.create(dto);
@@ -41,6 +41,7 @@ export class TitelaturEnController {
   }
 
   @Get()
+  @RequirePermission('titelatur', 'read')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(300_000)
   async findAll(
@@ -52,6 +53,7 @@ export class TitelaturEnController {
   }
 
   @Get(':id')
+  @RequirePermission('titelatur', 'read')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(300_000)
   async findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
@@ -60,7 +62,7 @@ export class TitelaturEnController {
   }
 
   @Put(':id')
-  @RequirePermission('master-data', 'update')
+  @RequirePermission('titelatur', 'update')
   async update(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() dto: UpdateTitelaturEnDto,
@@ -81,7 +83,7 @@ export class TitelaturEnController {
   }
 
   @Delete(':id')
-  @RequirePermission('master-data', 'delete')
+  @RequirePermission('titelatur', 'delete')
   async remove(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
     await this.service.remove(id);
     return { success: true };

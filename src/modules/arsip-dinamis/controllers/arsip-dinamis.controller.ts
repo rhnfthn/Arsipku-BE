@@ -584,7 +584,9 @@ export class ArsipDinamisController {
    * GET /arsip-dinamis/riwayat-retensi
    */
   @Get('riwayat-retensi')
-  @RequirePermission('pemeliharaan.retensi', 'read')
+  // Retensi kini merupakan bagian dari Pemberkasan. Permission resource
+  // pemeliharaan.retensi sudah tidak diseed lagi sejak matrix Kelola v2.
+  @RequirePermission('pemeliharaan.pemberkasan', 'read')
   async getRiwayatRetensi(
     @Query('search') search?: string,
     @Query('page') page?: number,

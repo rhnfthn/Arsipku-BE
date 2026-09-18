@@ -9,8 +9,15 @@ import { RolePermissionEntity } from '../entities/role-permission.entity';
 import { RbacUserRoleEntity } from '../entities/rbac-user-role.entity';
 import { utamaResources } from './utama-matrix';
 import { shareResources } from './share-matrix';
-import { kelolaResources } from './kelola-matrix';
-import { tugasResources } from './tugas-matrix';
+import {
+  kelolaResources,
+  kelolaRolePermissionAssignments,
+} from './kelola-matrix';
+import { tugasResources, tugasRolePermissionAssignments } from './tugas-matrix';
+import { administrasiResources } from './administrasi-matrix';
+import { laporanResources } from './laporan-matrix';
+import { faqResources } from './faq-matrix';
+import { compatibilityResources } from './permission-catalog';
 
 // Load .env dari root arsipku-be
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
@@ -576,6 +583,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       { action: 'reject', description: 'Menolak naskah' },
     ],
   },
+  ...compatibilityResources,
 ];
 
 // ============================================================
@@ -591,23 +599,96 @@ const basePermissions = resourcesWithPermissions.flatMap((r) =>
 );
 
 // Build permissions from the current menu matrices.
-const matrixResources = [...utamaResources, ...shareResources, ...kelolaResources, ...tugasResources];
+const matrixResources = [
+  ...utamaResources,
+  ...shareResources,
+  ...kelolaResources,
+  ...tugasResources,
+  ...administrasiResources,
+  ...laporanResources,
+  ...faqResources,
+];
 const matrixPermissions = matrixResources.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
 
-// All permissions: legacy/base + current menu matrices (for all roles)
-const allPermissions = [...basePermissions, ...matrixPermissions];
+// All permissions: legacy/base + current menu matrices. Semua permission tetap
+// masuk katalog agar SUPERADMIN/RBAC matrix dapat mengelolanya.
+const allPermissions = Array.from(
+  new Set([...basePermissions, ...matrixPermissions]),
+);
 
-// User permissions: all except template CRUD (create/update/delete)
-const userPermissions = allPermissions.filter(
+// Default assignment lama untuk ADMIN/USER hanya memakai permission yang sudah
+// ada sebelum matrix fitur baru ditambahkan. Permission compatibility dan aksi
+// baru tetap tersedia untuk SUPERADMIN, tetapi tidak otomatis membuka aksi
+// create/update/delete pada ADMIN/USER.
+const compatibilityPermissionNames = new Set(
+  compatibilityResources.flatMap((r) =>
+    r.permissions.map((p) => `${r.name}.${p.action}`),
+  ),
+);
+const superadminOnlyPermissionPrefixes = ['audit.'];
+const legacyMatrixResources = [
+  ...utamaResources.map((resource) => ({
+    ...resource,
+    permissions: resource.permissions.filter(
+      (permission) =>
+        ![
+          'sde-masal.create',
+          'sde-masal.update',
+          'sde-masal.finalize',
+          'sde-masal.delete',
+        ].includes(`${resource.name}.${permission.action}`),
+    ),
+  })),
+  ...shareResources,
+];
+const legacyNonKelolaPermissions = Array.from(
+  new Set([
+    ...basePermissions.filter((permission) =>
+      !compatibilityPermissionNames.has(permission) &&
+      !superadminOnlyPermissionPrefixes.some((prefix) => permission.startsWith(prefix)),
+    ),
+    ...legacyMatrixResources.flatMap((r) =>
+      r.permissions.map((p) => `${r.name}.${p.action}`),
+    ),
+  ]),
+);
+
+// Pada sidebar ADMIN, Data Master tidak dibuka sebagai menu penuh. Fitur yang
+// tersedia hanya halaman Tertuju dan sifatnya read-only. Jangan membawa
+// permission master-data lain dari baseline lama ke role ADMIN.
+const adminMasterDataPermissions = new Set([
+  'master-data.read-tertuju',
+]);
+const adminNonKelolaPermissions = legacyNonKelolaPermissions.filter(
+  (permission) =>
+    !permission.startsWith('master-data.') || adminMasterDataPermissions.has(permission),
+);
+const legacyAdminPermissions = Array.from(
+  new Set([
+    ...adminNonKelolaPermissions,
+    ...adminMasterDataPermissions,
+    ...kelolaRolePermissionAssignments.ADMIN,
+    ...tugasRolePermissionAssignments.ADMIN,
+  ]),
+);
+
+// User mempertahankan baseline lama tanpa CRUD Template.
+const userPermissionsWithKelola = Array.from(
+  new Set([
+    ...legacyNonKelolaPermissions,
+    ...kelolaRolePermissionAssignments.USER,
+    ...tugasRolePermissionAssignments.USER,
+  ]),
+).filter(
   (p) => !['template.create', 'template.update', 'template.delete'].includes(p),
 );
 
 const rolePermissionAssignments: Record<string, string[]> = {
   SUPERADMIN: allPermissions,
-  ADMIN: allPermissions,
-  USER: userPermissions,
+  ADMIN: legacyAdminPermissions,
+  USER: userPermissionsWithKelola,
 };
 
 const roleDescriptions: Record<RoleName, string> = {
@@ -753,6 +834,22 @@ async function main() {
   )) {
     const role = roles[roleName];
     if (!role) continue;
+
+    // Jangan menimpa assignment ADMIN/USER yang sudah dikurasi melalui RBAC
+    // UI. Baseline hanya dipakai untuk database baru yang belum memiliki
+    // assignment sama sekali; SUPERADMIN selalu disinkronkan penuh.
+    if (roleName !== RoleName.SUPERADMIN) {
+      const existingAssignments = await rpRepo.count({
+        where: { roleId: role.id },
+      });
+      if (existingAssignments > 0) {
+        console.log(
+          `ℹ️ ${roleName} assignments preserved (${existingAssignments} existing)`,
+        );
+        continue;
+      }
+    }
+
     await rpRepo.delete({ roleId: role.id });
     for (const permName of permNames) {
       const pid = permIdByName.get(permName);
