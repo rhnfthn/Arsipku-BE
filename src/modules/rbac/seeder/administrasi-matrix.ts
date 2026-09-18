@@ -523,24 +523,120 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
       label: 'Konfigurasi Sistem',
       subMenus: [
         {
-          key: 'konfigurasi',
-          label: 'Konfigurasi Sistem',
+          key: 'konfigurasi-digsig',
+          label: 'Konfigurasi Digsig',
           fiturs: [
             {
-              key: 'halaman',
-              label: 'Halaman Konfigurasi',
+              key: 'read',
+              label: 'Read',
               permissions: [
                 {
-                  action: 'read',
+                  action: 'read-digsig',
                   label: 'Read',
-                  description: 'Melihat konfigurasi sistem',
+                  description: 'Melihat konfigurasi Digsig',
                   resource: 'konfigurasi',
                 },
               ],
             },
+          ],
+        },
+        {
+          key: 'pengumuman-pemeliharaan',
+          label: 'Pengumuman Pemeliharaan',
+          fiturs: [
             {
-              key: 'routing-persuratan',
-              label: 'Routing Persuratan',
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-pengumuman',
+                  label: 'Read',
+                  description: 'Melihat pengumuman pemeliharaan',
+                  resource: 'konfigurasi',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'unit-tu',
+          label: 'Unit TU',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-unit-tu',
+                  label: 'Read',
+                  description: 'Melihat konfigurasi Unit TU',
+                  resource: 'konfigurasi',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'unit-legal',
+          label: 'Unit Legal',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-unit-legal',
+                  label: 'Read',
+                  description: 'Melihat konfigurasi Unit Legal',
+                  resource: 'konfigurasi',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'naskah-lainnya',
+          label: 'Naskah Lainnya',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-naskah-lainnya',
+                  label: 'Read',
+                  description: 'Melihat konfigurasi Naskah Lainnya',
+                  resource: 'konfigurasi',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'mesin-pencarian',
+          label: 'Mesin Pencarian',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read',
+                  label: 'Read',
+                  description: 'Menggunakan mesin pencarian',
+                  resource: 'smart-search',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'routing-persuratan',
+          label: 'Routing Persuratan',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
               permissions: [
                 {
                   action: 'read',
@@ -548,65 +644,71 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
                   description: 'Melihat konfigurasi routing persuratan',
                   resource: 'correspondence-routing',
                 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      key: 'audit',
+      label: 'Audit Trail',
+      subMenus: [
+        {
+          key: 'log-aktivitas',
+          label: 'Log Aktivitas',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
                 {
-                  action: 'create-role',
-                  label: 'Create',
-                  description: 'Membuat role fungsional routing',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'update-role',
-                  label: 'Update',
-                  description: 'Mengubah status dan metadata role routing',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'delete-role',
-                  label: 'Delete',
-                  description: 'Menghapus lunak role routing',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'manage-members',
-                  label: 'Update',
-                  description: 'Mengelola anggota posisi pada role routing',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'create-rule',
-                  label: 'Create',
-                  description: 'Membuat rule routing nonaktif',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'update-rule',
-                  label: 'Update',
-                  description: 'Mengubah rule routing nonaktif',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'activate-rule',
-                  label: 'Update',
-                  description: 'Mengaktifkan atau menonaktifkan rule routing',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'delete-rule',
-                  label: 'Delete',
-                  description: 'Menghapus lunak rule routing nonaktif',
-                  resource: 'correspondence-routing',
-                },
-                {
-                  action: 'preview',
+                  action: 'read-log',
                   label: 'Read',
-                  description: 'Memvalidasi dan melakukan preview rule routing',
-                  resource: 'correspondence-routing',
+                  description: 'Melihat log aktivitas audit',
+                  resource: 'audit',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'anomali-alert',
+          label: 'Anomali / Alert',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-anomaly',
+                  label: 'Read',
+                  description: 'Melihat anomali dan alert audit',
+                  resource: 'audit',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'laporan-audit',
+          label: 'Laporan Audit',
+          fiturs: [
+            {
+              key: 'report',
+              label: 'Laporan',
+              permissions: [
+                {
+                  action: 'read-report',
+                  label: 'Read',
+                  description: 'Melihat ringkasan dan laporan audit',
+                  resource: 'audit',
                 },
                 {
-                  action: 'read-health',
-                  label: 'Read',
-                  description: 'Melihat kesehatan konfigurasi routing',
-                  resource: 'correspondence-routing',
+                  action: 'export',
+                  label: 'Export',
+                  description: 'Export laporan audit',
+                  resource: 'audit',
                 },
               ],
             },

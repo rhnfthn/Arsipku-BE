@@ -14,7 +14,7 @@ import { AuditAnomalyService } from '../services/audit-anomaly.service';
 import { AnomalyFilterDto } from '../dto/anomaly-filter.dto';
 import { UpdateAnomalyDto } from '../dto/update-anomaly.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, CurrentUser } from '../../../common/decorators';
+import { Roles, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { RoleName } from '../../../common/enums/role-name.enum';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
@@ -35,6 +35,7 @@ export class AuditAnomalyController {
    * GET /audit/anomalies — list alert anomali.
    */
   @Get('anomalies')
+  @RequirePermission('audit', 'read-anomaly')
   async listAnomalies(@Query() filter: AnomalyFilterDto) {
     const result = await this.anomalyService.findAll(filter);
     return { success: true, ...result };
@@ -46,6 +47,7 @@ export class AuditAnomalyController {
    * agar tidak tertangkap sebagai :id="summary".
    */
   @Get('anomalies/summary')
+  @RequirePermission('audit', 'read-anomaly')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(300_000)
   async getAnomalySummary() {
@@ -59,6 +61,7 @@ export class AuditAnomalyController {
    * PENTING: route ini juga harus dideklarasikan SEBELUM anomalies/:id.
    */
   @Get('anomalies/unread-count')
+  @RequirePermission('audit', 'read-anomaly')
   async getUnreadCount() {
     const count = await this.anomalyService.getUnreadCount();
     return { success: true, data: { count } };
@@ -68,6 +71,7 @@ export class AuditAnomalyController {
    * GET /audit/anomalies/:id — detail alert.
    */
   @Get('anomalies/:id')
+  @RequirePermission('audit', 'read-anomaly')
   async getAnomaly(@Param('id') id: string) {
     const anomaly = await this.anomalyService.findOne(id);
     if (!anomaly) {
@@ -80,6 +84,7 @@ export class AuditAnomalyController {
    * PATCH /audit/anomalies/:id — update status alert.
    */
   @Patch('anomalies/:id')
+  @RequirePermission('audit', 'read-anomaly')
   async updateAnomaly(
     @Param('id') id: string,
     @Body() dto: UpdateAnomalyDto,
@@ -98,6 +103,7 @@ export class AuditAnomalyController {
    * GET /audit/notifications — notifikasi anomali terbaru untuk Super Admin.
    */
   @Get('notifications')
+  @RequirePermission('audit', 'read-anomaly')
   async getNotifications(@Query('limit') limit?: string) {
     const parsedLimit = limit ? parseInt(limit, 10) : 10;
     const safeLimit =

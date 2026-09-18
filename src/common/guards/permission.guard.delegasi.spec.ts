@@ -158,9 +158,9 @@ describe('PermissionGuard — delegasi enforcement (effective persnum + VI/SE st
     ).resolves.toBe(true);
   });
 
-  it('SUPERADMIN bypass unchanged — tied to delegate own role (not delegator)', async () => {
-    // delegate is themselves SUPERADMIN acting as PT; bypass applies even though delegator has no perms
-    setPerms(2, []);
+  it('SUPERADMIN permission is checked from the effective role', async () => {
+    // Delegate is SUPERADMIN acting as PT; permission is read from the delegator context.
+    setPerms(2, [{ resource: 'naskah-dinas', actions: ['create'] }]);
     const user = {
       persnum: 1,
       activeRole: { name: 'SUPERADMIN' },
