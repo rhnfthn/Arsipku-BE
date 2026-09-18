@@ -1584,6 +1584,15 @@ export class SdeMasalService {
         'Chain verifikator tidak valid terhadap pengirim SDE Massal yang dipilih',
       );
     }
+    // Pengirim konsep selalu menjadi langkah verifikasi terakhir.
+    const senderPosition = String(folder.pengirimId ?? '').trim();
+    const senderIndex = resolvedVerifikators.findIndex(
+      (item) => String(item?.position ?? item?.positionId ?? '').trim() === senderPosition,
+    );
+    if (senderIndex >= 0 && senderIndex < resolvedVerifikators.length - 1) {
+      const [sender] = resolvedVerifikators.splice(senderIndex, 1);
+      resolvedVerifikators.push(sender);
+    }
     const verifierRows = this.normalizeVerifikators(resolvedVerifikators);
     for (const item of rows) {
       item.verifikators = verifierRows;
@@ -3395,7 +3404,7 @@ export class SdeMasalService {
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
-    const normalized = verifikators.slice(0, 3).map((item) => ({
+    const normalized = verifikators.slice(0, 4).map((item) => ({
       source: item,
       roleRank: this.getVerificationRoleRank(item?.jabatan || item?.positionText),
     }));
@@ -3406,12 +3415,11 @@ export class SdeMasalService {
       );
     }
 
-    // Urutan tidak bergantung pada urutan klik di frontend. Satu folder hanya
+    // Urutan chain berasal dari frontend/endpoint disposisi. Satu folder hanya
     // boleh memiliki satu posisi pada tiap level dan level yang digunakan
     // mengikuti chain disposisi. Chain boleh parsial: Made → Raihan hanya
     // menghasilkan Made, sedangkan Rahmat → Said → Made → Raihan menghasilkan
     // Rahmat → Said → Made.
-    normalized.sort((a, b) => (a.roleRank as number) - (b.roleRank as number));
     const ranks = normalized.map((item) => item.roleRank as number);
     if (new Set(ranks).size !== ranks.length) {
       throw new BadRequestException(
@@ -3459,7 +3467,7 @@ export class SdeMasalService {
     if (/\bAVP\b/.test(text)) return 1;
     if (/\bVP\b/.test(text)) return 2;
     if (/\bEVP\b/.test(text)) return 3;
-    if (/\bDIREKTUR\s+UTAMA\b/.test(text) || /\bDIRUT\b/.test(text)) return 4;
+    if (/\bDIREKTUR\b/.test(text) || /\bDIRUT\b/.test(text) || /\bDIRECTOR\b/.test(text)) return 4;
     return null;
   }
 
@@ -3549,7 +3557,7 @@ export class SdeMasalService {
         } finally {
           if (this.sdeMasalNotificationInFlight.get(notificationKey) === notificationPromise) {
             this.sdeMasalNotificationInFlight.delete(notificationKey);
-          }
+        }
         }
       }),
     );

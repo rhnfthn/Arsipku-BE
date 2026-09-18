@@ -208,10 +208,11 @@ export class AuthService {
       console.log(res.data);
       airnavResponse = res.data;
     } catch (err) {
+      console.error("AirNav login error:", err.message);
       throw new UnauthorizedException({
         error: 'Failed to login to AirNav',
+        message: err.message, // Send actual error message to mobile
         details: {
-          message: err.message,
           status: err.response?.status,
           data: err.response?.data,
         },
@@ -886,6 +887,10 @@ export class AuthService {
   }
 
   private sanitizeFrontendOrigin(frontendOrigin?: string): string {
+    if (frontendOrigin === 'mobile') {
+      return 'mobile';
+    }
+
     const configuredOrigins = [
       this.configService.get<string>('AUTH_FRONTEND_URL'),
       this.configService.get<string>('FRONTEND_URL'),
@@ -915,6 +920,7 @@ export class AuthService {
   }
 
   private isLocalFrontend(frontendOrigin: string): boolean {
+    if (frontendOrigin === 'mobile') return false;
     try {
       const hostname = new URL(frontendOrigin).hostname;
       return (

@@ -23,6 +23,7 @@ import { DelegasiService } from '../../delegasi/services/delegasi.service';
 import { RbacService } from '../../rbac/services/rbac.service';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { VerifyTokenDto } from '../dto/verify-token.dto';
+import { OidcSessionService } from '../services/oidc-session.service';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { LoginDto } from '../dto/login.dto';
 import { SwitchProfileDto } from '../dto/switch-profile.dto';
@@ -34,9 +35,11 @@ import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { LegalRoleService } from '../../konfigurasi/services/legal-role.service';
 
 const readCookie = (req: Request, name: string): string | undefined => {
-  const cookie = req.headers.cookie
-    ?.split(';')
-    .map((value) => value.trim())
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  const cookie = header
+    .split(';')
+    .map((part) => part.trim())
     .find((value) => value.startsWith(`${name}=`));
   if (!cookie) return undefined;
   try {
@@ -52,6 +55,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly sessionService: SessionService,
+    private readonly oidcSessionService: OidcSessionService,
     private readonly configService: ConfigService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly delegasiService: DelegasiService,
@@ -173,6 +177,9 @@ export class AuthController {
         (req.headers['x-forwarded-for'] as string) || req.ip,
       );
       res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
+      if (result.frontendOrigin === 'mobile') {
+        return res.redirect('/auth/session');
+      }
       const destination = new URL(
         result.returnTo,
         `${result.frontendOrigin || this.frontendUrl()}/`,
@@ -426,8 +433,18 @@ export class AuthController {
   }
 
   /**
-   * Refresh Token - perpanjang session
+   * Refresh Token - perpanjang session.
+   *
+   * @Public() diperlukan karena token yang dikirim mobile bisa saja sudah
+   * expired — itu memang alasan utama endpoint ini dipanggil. JwtAuthGuard
+   * global akan menolak request dengan 401 sebelum logika refresh berjalan
+   * jika tidak ditandai Public. Keamanan dijaga oleh:
+   *  - Validasi sessionId terhadap store (Redis/DB) di dalam handler.
+   *  - jwtService.verify(..., { ignoreExpiration: true }) di dalam service
+   *    yang tetap memeriksa signature dan binding persnum ↔ session.
+   *  - ThrottlerGuard membatasi 20 request/menit per IP.
    */
+  @Public()
   @UseGuards(ThrottlerGuard)
   @Throttle({ auth: { limit: 20, ttl: 60000 } })
   @Post('refresh-token')
@@ -444,6 +461,25 @@ export class AuthController {
       throw new UnauthorizedException('Authorization token required');
     }
 
+    // Cek apakah session ID adalah sesi OIDC Auth v2
+    const oidcSession = await this.oidcSessionService.get(dto.sessionId);
+    if (oidcSession) {
+      const refreshed = await this.authService.refreshOidcBrowserSession(
+        dto.sessionId,
+        appToken,
+      );
+      return {
+        message: 'Refresh token success',
+        data: {
+          accessToken: refreshed.accessToken,
+          expiredToken: refreshed.expiredToken,
+          sessionId: refreshed.sessionId,
+          user: refreshed.user,
+        },
+      };
+    }
+
+    // Fallback ke session legacy (v1)
     const result = await this.authService.refreshWithSession(
       dto.sessionId,
       appToken,
