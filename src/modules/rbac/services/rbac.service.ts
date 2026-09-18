@@ -15,6 +15,7 @@ import type {
 } from '../../auth/interfaces/jwt-payload.interface';
 import { PermissionCacheService } from '../../../common/guards/permission-cache.service';
 import { NotificationGateway } from '../../notification/gateways/notification.gateway';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { Person } from '../../master-data/person/entities/person.entity';
 import { rbacMatrixTree, type MatrixHalaman } from '../seeder/rbac-matrix-data';
 import { utamaMatrix } from '../seeder/utama-matrix';
@@ -22,6 +23,8 @@ import { utilitasMatrix } from '../seeder/utilitas-matrix';
 import { administrasiMatrix } from '../seeder/administrasi-matrix';
 import { laporanMatrix } from '../seeder/laporan-matrix';
 import { faqMatrix } from '../seeder/faq-matrix';
+import { kelolaMatrix } from '../seeder/kelola-matrix';
+import { tugasMatrix } from '../seeder/tugas-matrix';
 
 @Injectable()
 export class RbacService {
@@ -41,6 +44,7 @@ export class RbacService {
     private readonly permissionCache: PermissionCacheService,
     private readonly dataSource: DataSource,
     private readonly notificationGateway: NotificationGateway,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   /**
@@ -254,6 +258,35 @@ export class RbacService {
     permissionIds: string[],
     matrixPermissionIds?: string[],
   ): Promise<void> {
+    // Permission Naskah Lainnya sebelumnya memakai satu resource gabungan.
+    // Hapus assignment legacy saat matrix baru disimpan agar permission lama
+    // tidak membuat semua tombol tetap dianggap memiliki akses.
+    const legacyNaskahPermissionIds = new Set<string>();
+    if (matrixPermissionIds?.length) {
+      const resourceRepo = this.resourceRepo as any;
+      const permissionRepo = this.permissionRepo as any;
+      if (
+        typeof resourceRepo.findOne === 'function' &&
+        typeof permissionRepo.find === 'function'
+      ) {
+        // `matrixPermissionIds` hanya dikirim oleh halaman matrix RBAC. Pada
+        // halaman itu resource Naskah Lainnya sudah dipisah per fitur, jadi
+        // resource gabungan lama tidak lagi boleh menjadi sumber akses.
+        const legacyResource = await resourceRepo.findOne({
+          where: { name: 'utama.tulis.naskah-lainnya' },
+        });
+        if (legacyResource) {
+          const legacyPermissions = await permissionRepo.find({
+            where: { resourceId: legacyResource.id },
+            select: ['id'],
+          });
+          for (const permission of legacyPermissions) {
+            legacyNaskahPermissionIds.add(permission.id);
+          }
+        }
+      }
+    }
+
     await this.dataSource.transaction(async (manager) => {
       const rolePermRepo = manager.getRepository(RolePermissionEntity);
       const existing = await rolePermRepo.find({ where: { roleId } });
@@ -271,6 +304,7 @@ export class RbacService {
         ? new Set(matrixPermissionIds)
         : null;
       const toRemove = existing.filter((rp) => {
+        if (legacyNaskahPermissionIds.has(rp.permissionId)) return true;
         if (newIds.has(rp.permissionId)) return false; // masih dipilih
         if (scopeSet && !scopeSet.has(rp.permissionId)) return false; // di luar scope matrix — keep
         return true; // dalam scope matrix & tidak dipilih — remove
@@ -300,6 +334,7 @@ export class RbacService {
         this.notificationGateway.emitRbacPermissionChanged(role.name, {
           roleId,
         });
+        this.realtimeEmitService.emitRbacPermissionChanged(role.name, roleId);
       }
     } catch {}
   }
@@ -359,6 +394,20 @@ export class RbacService {
     assignedPermissionIds: string[];
   }> {
     return this.buildMatrixTree(faqMatrix, roleId);
+  }
+
+  async findKelolaMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(kelolaMatrix, roleId);
+  }
+
+  async findTugasMatrix(roleId?: string): Promise<{
+    tree: any;
+    assignedPermissionIds: string[];
+  }> {
+    return this.buildMatrixTree(tugasMatrix, roleId);
   }
 
   private async buildMatrixTree(
@@ -523,8 +572,15 @@ export class RbacService {
         'person.persnum = ur.persnum',
       );
 
+    // Halaman User Role hanya menampilkan assignment aktif untuk role
+    // administratif. USER adalah role default dan tidak perlu muncul di tabel.
+    qb.andWhere('ur.active = :active', { active: true });
     if (query.roleName) {
       qb.andWhere('role.name = :roleName', { roleName: query.roleName });
+    } else {
+      qb.andWhere('role.name IN (:...roleNames)', {
+        roleNames: ['ADMIN', 'SUPERADMIN'],
+      });
     }
 
     if (query.search) {

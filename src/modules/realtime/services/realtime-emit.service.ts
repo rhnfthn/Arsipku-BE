@@ -88,6 +88,19 @@ export class RealtimeEmitService {
     }
   }
 
+  /**
+   * Emit perubahan permission role agar client mengambil permission terbaru.
+   */
+  emitRbacPermissionChanged(roleName: string, roleId: string) {
+    try {
+      this.gateway.emitRbacPermissionChanged(roleName, { roleId });
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitRbacPermissionChanged] failed for ${roleName}: ${err?.message}`,
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Nomor counts
   // ──────────────────────────────────────────────
@@ -392,7 +405,7 @@ export class RealtimeEmitService {
    */
   emitTugasCommentAdded(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor?: { persnum: number; nama: string } | null;
   }) {
@@ -413,7 +426,7 @@ export class RealtimeEmitService {
    */
   emitTugasCommentDeleted(payload: {
     boardId: string;
-    taskId: string;
+    taskId: string | null;
     commentId: string;
     actor?: { persnum: number; nama: string } | null;
   }) {
