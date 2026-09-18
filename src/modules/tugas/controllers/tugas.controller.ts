@@ -75,13 +75,13 @@ export class TugasController {
   }
 
   @Get('boards')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findBoards(@Query() query: QueryBoardDto, @CurrentUser() user: JwtPayload) {
     return this.boardService.findAll(query, user);
   }
 
   @Get('my-tasks')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-my-tasks')
   findMyTasks(@Query() query: QueryMyTaskDto, @CurrentUser() user: JwtPayload) {
     return this.taskService.findMyTasks(query, user);
   }
@@ -92,7 +92,7 @@ export class TugasController {
    * (tipe bersama) untuk mengajak anggota sejak awal.
    */
   @Get('member-candidates')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findGlobalMemberCandidates(
     @Query() query: QueryMemberCandidateDto,
     @CurrentUser() user: JwtPayload,
@@ -101,7 +101,7 @@ export class TugasController {
   }
 
   @Get('boards/:boardId')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findBoard(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @CurrentUser() user: JwtPayload,
@@ -168,7 +168,7 @@ export class TugasController {
   }
 
   @Get('boards/:boardId/activity')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findBoardActivity(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @Query() query: QueryActivityDto,
@@ -188,7 +188,7 @@ export class TugasController {
   }
 
   @Get('boards/:boardId/tasks')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findTasks(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @Query() query: QueryTaskDto,
@@ -198,7 +198,7 @@ export class TugasController {
   }
 
   @Get('tasks/:taskId')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findTask(
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: JwtPayload,
@@ -254,7 +254,7 @@ export class TugasController {
   }
 
   @Get('tasks/:taskId/references')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findTaskReferences(
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: JwtPayload,
@@ -283,7 +283,7 @@ export class TugasController {
   }
 
   @Get('tasks/:taskId/evidences')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findTaskEvidences(
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: JwtPayload,
@@ -333,7 +333,7 @@ export class TugasController {
    * Query opsional taskId untuk filter diskusi yang men-tag task tertentu.
    */
   @Get('boards/:boardId/comments')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   findBoardComments(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @Query() query: QueryTaskCommentDto,
@@ -344,7 +344,7 @@ export class TugasController {
 
   /** POST /tugas/boards/:boardId/comments — tambah komentar forum papan. */
   @Post('boards/:boardId/comments')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   addBoardComment(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @Body() dto: CreateTaskCommentDto,
@@ -359,7 +359,7 @@ export class TugasController {
    * - scope=everyone: hapus permanen (penulis, maks 5 menit setelah kirim).
    */
   @Delete('boards/:boardId/comments/:commentId')
-  @RequirePermission('tugas', 'read')
+  @RequirePermission('tugas', 'read-board')
   removeBoardComment(
     @Param('boardId', ParseUUIDPipe) boardId: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
