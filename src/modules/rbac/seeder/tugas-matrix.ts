@@ -7,7 +7,8 @@ export const tugasResources: ResourceDefinition[] = [
     name: 'tugas',
     description: 'Papan tugas dan pengelolaan task',
     permissions: [
-      { action: 'read', description: 'Melihat papan dan task' },
+      { action: 'read-board', description: 'Melihat papan dan task' },
+      { action: 'read-my-tasks', description: 'Melihat tugas yang ditugaskan kepada saya' },
       { action: 'create-board', description: 'Membuat papan tugas' },
       { action: 'update-board', description: 'Mengubah papan tugas' },
       { action: 'delete-board', description: 'Menghapus papan tugas' },
@@ -24,8 +25,21 @@ export const tugasSuperAdminPermissions = tugasResources.flatMap((resource) =>
   resource.permissions.map((permission) => `${resource.name}.${permission.action}`),
 );
 
+/**
+ * Baseline akses menu Tugas untuk role non-Super Admin.
+ *
+ * Papan dan Tugas Saya sama-sama merupakan fitur baca. Aksi pengelolaan
+ * papan/task tidak dibuka otomatis; Super Admin dapat memilihnya eksplisit
+ * melalui halaman RBAC sesuai kebutuhan organisasi.
+ */
+export const tugasRolePermissionAssignments: Record<'ADMIN' | 'USER', string[]> = {
+  ADMIN: ['tugas.read-board', 'tugas.read-my-tasks'],
+  USER: ['tugas.read-board', 'tugas.read-my-tasks'],
+};
+
 const actionLabels: Record<string, string> = {
-  read: 'Read',
+  'read-board': 'Read',
+  'read-my-tasks': 'Read',
   'create-board': 'Create Board',
   'update-board': 'Update Board',
   'delete-board': 'Delete Board',
@@ -62,28 +76,27 @@ export const tugasMatrix: MatrixHalaman = {
               key: 'papan',
               label: 'Papan Tugas',
               permissions: toPermissions([
-                'read',
+                'read-board',
                 'create-board',
                 'update-board',
                 'delete-board',
                 'manage-members',
-              ]),
-            },
-          ],
-        },
-        {
-          key: 'task',
-          label: 'Task',
-          fiturs: [
-            {
-              key: 'task',
-              label: 'Task',
-              permissions: toPermissions([
                 'create-task',
                 'update-task',
                 'move-task',
                 'delete-task',
               ]),
+            },
+          ],
+        },
+        {
+          key: 'tugas-saya',
+          label: 'Tugas Saya',
+          fiturs: [
+            {
+              key: 'tugas-saya',
+              label: 'Tugas Saya',
+              permissions: toPermissions(['read-my-tasks']),
             },
           ],
         },

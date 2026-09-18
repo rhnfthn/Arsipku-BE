@@ -16,6 +16,7 @@ import {
   ShortUrlGetOneDto,
 } from '../dto';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../../common/decorators';
 
 @Controller('short-url')
 export class ShortUrlController {
@@ -27,6 +28,7 @@ export class ShortUrlController {
    * persnum otomatis dari token auth arsipku
    */
   @Post('data')
+  @RequirePermission('penyingkat-tautan', 'read')
   async getData(@CurrentUser() user: any, @Body() dto: ShortUrlDataDto) {
     try {
       const result = await this.shortUrlService.getData({
@@ -49,6 +51,7 @@ export class ShortUrlController {
    * persnum otomatis dari token auth arsipku
    */
   @Post('submit')
+  @RequirePermission('penyingkat-tautan', 'create')
   async submitUrl(@CurrentUser() user: any, @Body() dto: ShortUrlSubmitDto) {
     try {
       const result = await this.shortUrlService.submitUrl({
@@ -70,6 +73,7 @@ export class ShortUrlController {
    * Get a short url by id
    */
   @Post('getone')
+  @RequirePermission('penyingkat-tautan', 'read')
   async getUrlById(@Body() dto: ShortUrlGetOneDto) {
     try {
       const result = await this.shortUrlService.getUrlById(dto);
@@ -89,6 +93,7 @@ export class ShortUrlController {
    * persnum otomatis dari token auth arsipku
    */
   @Put()
+  @RequirePermission('penyingkat-tautan', 'update')
   async updateUrl(@CurrentUser() user: any, @Body() dto: ShortUrlUpdateDto) {
     try {
       const result = await this.shortUrlService.updateUrl({
@@ -110,6 +115,7 @@ export class ShortUrlController {
    * Delete a short url
    */
   @Delete()
+  @RequirePermission('penyingkat-tautan', 'delete')
   async deleteUrl(@Body() dto: ShortUrlDeleteDto) {
     try {
       const result = await this.shortUrlService.deleteUrl(dto);
