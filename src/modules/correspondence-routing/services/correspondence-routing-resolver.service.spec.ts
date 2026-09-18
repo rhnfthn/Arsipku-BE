@@ -94,18 +94,26 @@ describe('CorrespondenceRoutingResolverService', () => {
     expect(ruleRepo.find).not.toHaveBeenCalled();
   });
 
-  it('grants SDI capability only to an effective Manager Operasi with an active primary rule', async () => {
+  it('grants SDI capability to any source role of an active primary rule, regardless of role code', async () => {
     process.env.CORRESPONDENCE_ROUTING_ENABLED = 'true';
     const { resolver, roleRepo, memberRepo, ruleRepo, scopeRepo } =
       buildResolver();
     roleRepo.find.mockResolvedValue([
       { id: 'manager', code: 'MANAGER_OPERASI', company: 10000, is_active: 1 },
+      { id: 'dgm', code: 'DGM_PEO', company: 10000, is_active: 1 },
       { id: 'inmc', code: 'VP_INMC', company: 10000, is_active: 1 },
     ]);
     memberRepo.find.mockResolvedValue([
       {
         role_id: 'manager',
         position_id: 2,
+        is_active: 1,
+        valid_from: '2026-01-01',
+        valid_to: null,
+      },
+      {
+        role_id: 'dgm',
+        position_id: 4,
         is_active: 1,
         valid_from: '2026-01-01',
         valid_to: null,
@@ -118,6 +126,12 @@ describe('CorrespondenceRoutingResolverService', () => {
         target_role_id: 'inmc',
         delivery_type: 'PENERIMA',
       },
+      {
+        id: 'dgm-to-inmc',
+        source_role_id: 'dgm',
+        target_role_id: 'inmc',
+        delivery_type: 'PENERIMA',
+      },
     ]);
     scopeRepo.find.mockResolvedValue([]);
 
@@ -127,7 +141,15 @@ describe('CorrespondenceRoutingResolverService', () => {
       matched_role_codes: ['MANAGER_OPERASI'],
       matched_rule_ids: ['manager-to-inmc'],
     });
-    await expect(resolver.getCapabilities(10000, 4)).resolves.toMatchObject({
+    // Regression (UAT-E): Deputy GM PEO must unlock SDI access the same way
+    // as Manager Operasi instead of being blocked by a hardcoded role code.
+    await expect(resolver.getCapabilities(10000, 4)).resolves.toEqual({
+      feature_enabled: true,
+      can_create_sdi: true,
+      matched_role_codes: ['DGM_PEO'],
+      matched_rule_ids: ['dgm-to-inmc'],
+    });
+    await expect(resolver.getCapabilities(10000, 3)).resolves.toMatchObject({
       can_create_sdi: false,
     });
   });
