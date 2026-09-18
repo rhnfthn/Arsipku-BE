@@ -11,8 +11,12 @@ import { utamaResources } from './utama-matrix';
 import { utilitasResources } from './utilitas-matrix';
 import { shareResources } from './share-matrix';
 import { kelolaResources } from './kelola-matrix';
-import { tugasResources } from './tugas-matrix';
+import { tugasResources, tugasRolePermissionAssignments } from './tugas-matrix';
 import { administrasiResources } from './administrasi-matrix';
+import { laporanResources } from './laporan-matrix';
+import { faqResources } from './faq-matrix';
+import { compatibilityResources } from './permission-catalog';
+import { kelolaRolePermissionAssignments } from './kelola-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
@@ -402,12 +406,10 @@ async function main() {
     ...shareResources,
     ...kelolaResources,
     ...tugasResources,
-    ...administrasiResources.filter(
-      (resource) =>
-        resource.name === 'correspondence-routing' ||
-        resource.name === 'konfigurasi' ||
-        resource.name === 'smart-search',
-    ),
+    ...administrasiResources,
+    ...laporanResources,
+    ...faqResources,
+    ...compatibilityResources,
     ...rbacManagementResources,
   ];
 
@@ -465,11 +467,6 @@ async function main() {
 
   // 4b. Also add ALL other permissions in DB (from seed-rbac.ts: administrasi, laporan, faq, etc.)
   const allDbPerms = await permRepo.find({ select: ['id'] });
-  const correspondenceRoutingPermissionIds = new Set(
-    Array.from(permIdByName.entries())
-      .filter(([name]) => name.startsWith('correspondence-routing.'))
-      .map(([, id]) => id),
-  );
   const allDbPermIds = allDbPerms.map((p) => p.id);
 
   // Append missing permissions to SUPERADMIN
@@ -494,28 +491,30 @@ async function main() {
     );
   }
 
-  // 4c. Assign ALL permissions (Utama + Utilitas + flat) to ADMIN and USER too (default: everything enabled)
+  // 4c. ADMIN/USER hanya diberi baseline Kelola + Tugas saat role benar-benar baru.
+  // Assignment existing tidak ditimpa; permission lain harus dipilih eksplisit
+  // oleh Superadmin melalui RBAC UI.
   for (const roleName of [RoleName.ADMIN, RoleName.USER] as const) {
-    const roleExisting = await rpRepo.find({
+    const existingCount = await rpRepo.count({
       where: { roleId: roles[roleName].id },
-      select: ['permissionId'],
     });
-    const roleExistingIds = new Set(roleExisting.map((rp) => rp.permissionId));
-    // Routing configuration is a security-sensitive v1 feature. Generic seed
-    // keeps it SUPERADMIN-only; any broader grant must be explicit in RBAC UI.
-    const roleExtra = allDbPermIds
-      .filter((pid) => !correspondenceRoutingPermissionIds.has(pid))
-      .filter((pid) => !roleExistingIds.has(pid))
-      .map((pid) => ({
+    if (existingCount > 0) continue;
+
+    const names = [
+      ...kelolaRolePermissionAssignments[roleName],
+      ...tugasRolePermissionAssignments[roleName],
+    ];
+    const rows = names
+      .map((name) => permIdByName.get(name))
+      .filter((id): id is string => Boolean(id))
+      .map((permissionId) => ({
         id: uuidv4(),
         roleId: roles[roleName].id,
-        permissionId: pid,
+        permissionId,
       }));
-    if (roleExtra.length > 0) {
-      await rpRepo.save(roleExtra);
-      console.log(
-        `✅ ${roleExtra.length} extra permissions appended to ${roleName} (Utama+Utilitas matrix)`,
-      );
+    if (rows.length > 0) {
+      await rpRepo.save(rows);
+      console.log(`✅ ${rows.length} Kelola permissions assigned to ${roleName}`);
     }
   }
 

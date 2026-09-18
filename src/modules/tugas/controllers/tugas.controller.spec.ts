@@ -27,7 +27,7 @@ describe('TugasController contract', () => {
       method: 'findMyTasks',
       path: 'my-tasks',
       requestMethod: RequestMethod.GET,
-      permission: { resource: 'tugas', action: 'read' },
+      permission: { resource: 'tugas', action: 'read-my-tasks' },
     },
     {
       method: 'moveTask',
