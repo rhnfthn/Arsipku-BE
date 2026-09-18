@@ -16,7 +16,7 @@ import { AuditTrailService } from '../services/audit-trail.service';
 import { AuditFilterDto } from '../dto/audit-filter.dto';
 import { MyActivityFilterDto } from '../dto/my-activity-filter.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { Roles, CurrentUser } from '../../../common/decorators';
+import { Roles, CurrentUser, RequirePermission } from '../../../common/decorators';
 import { RoleName } from '../../../common/enums/role-name.enum';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
@@ -38,6 +38,7 @@ export class AuditTrailController {
    * GET /audit/logs — list log dengan filter dan pagination.
    */
   @Get('logs')
+  @RequirePermission('audit', 'read-log')
   async listLogs(@Query() filter: AuditFilterDto) {
     const result = await this.auditTrailService.findAll(filter);
     return { success: true, ...result };
@@ -47,6 +48,7 @@ export class AuditTrailController {
    * GET /audit/logs/:id — detail log.
    */
   @Get('logs/:id')
+  @RequirePermission('audit', 'read-log')
   async getLog(@Param('id') id: string) {
     const log = await this.auditTrailService.findOne(id);
     if (!log) {
@@ -59,6 +61,7 @@ export class AuditTrailController {
    * GET /audit/logs/:id/metadata — metadata lengkap (old_value, new_value, metadata).
    */
   @Get('logs/:id/metadata')
+  @RequirePermission('audit', 'read-log')
   async getLogMetadata(@Param('id') id: string) {
     const log = await this.auditTrailService.findOne(id);
     if (!log) {
@@ -80,6 +83,7 @@ export class AuditTrailController {
    * GET /audit/report/summary — ringkasan dashboard.
    */
   @Get('report/summary')
+  @RequirePermission('audit', 'read-report')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(300_000)
   async getSummary(
@@ -105,6 +109,7 @@ export class AuditTrailController {
    * GET /audit/report/daily-activity — aktivitas harian untuk chart (default 7 hari).
    */
   @Get('report/daily-activity')
+  @RequirePermission('audit', 'read-report')
   @UseInterceptors(CacheInterceptor)
   @CacheTTL(300_000)
   async getDailyActivity(@Query('days') days?: string) {
@@ -123,6 +128,7 @@ export class AuditTrailController {
    * endpoint ini.
    */
   @Post('report/export')
+  @RequirePermission('audit', 'export')
   async exportReport(@Query() filter: AuditFilterDto, @Res() res: Response) {
     // Ambil semua data sesuai filter (limit tinggi untuk export)
     const exportFilter: AuditFilterDto = {
