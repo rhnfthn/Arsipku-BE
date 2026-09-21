@@ -178,7 +178,7 @@ export class AuthController {
       );
       res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
       if (result.frontendOrigin === 'mobile') {
-        return res.redirect('/auth/session');
+        return res.redirect(`/auth/session?sid=${encodeURIComponent(result.sessionId)}`);
       }
       const destination = new URL(
         result.returnTo,
@@ -199,12 +199,12 @@ export class AuthController {
     }
   }
 
-  /** Ambil JWT aplikasi ArsipKu dari sesi HttpOnly Auth v2. */
+  /** Ambil JWT aplikasi ArsipKu dari sesi HttpOnly Auth v2 (atau parameter sid untuk mobile). */
   @Public()
   @SkipTransform()
   @Get('session')
-  async oidcSession(@Req() req: Request) {
-    const sessionId = readCookie(req, this.oidcCookieName);
+  async oidcSession(@Req() req: Request, @Query('sid') querySid?: string) {
+    const sessionId = readCookie(req, this.oidcCookieName) || querySid;
     if (!sessionId) throw new UnauthorizedException('Sesi Auth v2 tidak ada');
     return this.authService.getOidcBrowserSession(sessionId);
   }
