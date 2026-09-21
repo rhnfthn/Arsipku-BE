@@ -30,12 +30,12 @@ import {
  *
  * Bekerja dalam 2 mode:
  * 1. Decorator mode: jika method punya @AuditLog(), log dengan opsi spesifik.
- * 2. Auto mode: jika tidak ada decorator TAPI method adalah write operation
- *    (POST/PATCH/PUT/DELETE), log otomatis dengan action & module yang
+ * 2. Auto mode: jika tidak ada decorator, semua request bisnis
+ *    (GET/POST/PATCH/PUT/DELETE) dicatat dengan action & module yang
  *    di-infer dari HTTP method dan URL path.
  *
  * Skip endpoint: health check, static files, endpoint audit itu sendiri,
- * GET request (read-only, tidak di-log kecuali ada decorator).
+ * polling, health check, static files, dan endpoint audit itu sendiri.
  *
  * Terdaftar sebagai APP_INTERCEPTOR global di AuditModule.
  */
@@ -95,14 +95,20 @@ export class AuditInterceptor implements NestInterceptor {
     { prefix: '/naskah', module: AuditModule.NASKAH },
     { prefix: '/naskah_sirkulasi', module: AuditModule.NASKAH },
     { prefix: '/naskah-dinas', module: AuditModule.NASKAH },
+    { prefix: '/naskah-lainnya', module: AuditModule.NASKAH },
     { prefix: '/persuratan', module: AuditModule.NASKAH },
     { prefix: '/ND', module: AuditModule.NASKAH },
+    { prefix: '/NU', module: AuditModule.NASKAH },
     { prefix: '/DI', module: AuditModule.DISPOSISI },
     { prefix: '/SDI', module: AuditModule.NASKAH },
     { prefix: '/SDE', module: AuditModule.NASKAH },
     { prefix: '/KA', module: AuditModule.NASKAH },
     { prefix: '/KONSEP', module: AuditModule.NASKAH },
     { prefix: '/berkas', module: AuditModule.BERKAS },
+    { prefix: '/api/arsip', module: AuditModule.BERKAS },
+    { prefix: '/arsip-dinamis', module: AuditModule.BERKAS },
+    { prefix: '/usulan-akses-berkas', module: AuditModule.BERKAS },
+    { prefix: '/penyusutan', module: AuditModule.BERKAS },
     { prefix: '/delegasi', module: AuditModule.DELEGASI },
     { prefix: '/digsig', module: AuditModule.DIGSIG },
     { prefix: '/mail-service', module: AuditModule.MAIL },
@@ -120,7 +126,15 @@ export class AuditInterceptor implements NestInterceptor {
     { prefix: '/klasifikasi', module: AuditModule.MASTER_DATA },
     { prefix: '/grup-penerima', module: AuditModule.MASTER_DATA },
     { prefix: '/short-url', module: AuditModule.NASKAH },
+    { prefix: '/naskah-share', module: AuditModule.NASKAH },
+    { prefix: '/sde-masal', module: AuditModule.NASKAH },
+    { prefix: '/transfer-active-to-inactive', module: AuditModule.USULAN_PINDAH },
+    { prefix: '/transfer-inactive-file', module: AuditModule.USULAN_PINDAH },
+    { prefix: '/usulan-pindah', module: AuditModule.USULAN_PINDAH },
+    { prefix: '/atasan-tu', module: AuditModule.USULAN_PINDAH },
+    { prefix: '/tu/', module: AuditModule.USULAN_PINDAH },
     { prefix: '/tugas', module: AuditModule.TUGAS },
+    { prefix: '/dashboard', module: AuditModule.NASKAH },
     { prefix: '/company-switch', module: AuditModule.CONFIG },
   ];
 
@@ -173,9 +187,9 @@ export class AuditInterceptor implements NestInterceptor {
       AuditLogOptions | undefined
     >(AUDIT_LOG_KEY, [context.getHandler(), context.getClass()]);
 
-    // Jika tidak ada decorator dan bukan write operation, skip
-    const isWriteOp = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
-    if (!options && !isWriteOp) {
+    // Abaikan method HTTP teknis yang bukan aktivitas pengguna.
+    const isAuditableMethod = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
+    if (!options && !isAuditableMethod) {
       return next.handle();
     }
 
@@ -383,7 +397,8 @@ export class AuditInterceptor implements NestInterceptor {
 
     // ─── Aturan oldValue / newValue per aksi (doc/5-audit-trail-old-new-value.md) ─
     // oldValue: hanya untuk UPDATE, DELETE, APPROVE, REJECT, CONFIG_CHANGE
-    // newValue: untuk semua aksi KECUALI DELETE
+    // newValue: untuk perubahan/login; VIEW/LIST cukup menyimpan metadata agar
+    // response daftar atau dokumen tidak disalin ke audit trail.
     const actionsWithOldValue = [
       AuditAction.UPDATE,
       AuditAction.DELETE,
@@ -395,7 +410,10 @@ export class AuditInterceptor implements NestInterceptor {
       options.captureDiff ||
       actionsWithOldValue.includes(options.action as AuditAction);
     const shouldCaptureNew =
-      options.captureDiff || options.action !== AuditAction.DELETE;
+      options.captureDiff ||
+      ![AuditAction.DELETE, AuditAction.VIEW, AuditAction.LIST].includes(
+        options.action as AuditAction,
+      );
 
     // Build newValue berdasarkan aksi
     let extractedNewValue: any = null;
