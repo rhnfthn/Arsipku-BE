@@ -1,5 +1,3 @@
-// Matrix RBAC untuk Halaman FAQ & Pedoman
-// Sesuai README §5.4 — FAQ, Manajemen FAQ (CRUD), Pedoman, Manajemen Pedoman (CRUD).
 
 export interface FaqMatrixPermission {
   action: string;
@@ -32,9 +30,6 @@ export const faqMatrix: FaqMatrixHalaman = {
   key: 'faq',
   label: 'FAQ & Pedoman',
   menus: [
-    // ============================================================
-    // 1. FAQ (read-only untuk semua role)
-    // ============================================================
     {
       key: 'faq',
       label: 'FAQ',
@@ -59,9 +54,6 @@ export const faqMatrix: FaqMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 2. Manajemen FAQ (CRUD — Admin & Super Admin)
-    // ============================================================
     {
       key: 'manajemen-faq',
       label: 'Manajemen FAQ',
@@ -110,9 +102,6 @@ export const faqMatrix: FaqMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 3. Pedoman (read-only untuk semua role)
-    // ============================================================
     {
       key: 'pedoman',
       label: 'Pedoman',
@@ -137,9 +126,6 @@ export const faqMatrix: FaqMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 4. Manajemen Pedoman (CRUD — Admin & Super Admin)
-    // ============================================================
     {
       key: 'manajemen-pedoman',
       label: 'Manajemen Pedoman',

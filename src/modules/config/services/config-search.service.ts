@@ -8,11 +8,6 @@ import { UpdateSearchConfigDto } from '../dto/update-search-config.dto';
 export class ConfigSearchService {
   private readonly logger = new Logger(ConfigSearchService.name);
 
-  // In-memory cache untuk performa (mode jarang berubah)
-  private cachedMode: SearchEngineMode | null = null;
-  private cacheExpiry: number = 0;
-  private readonly CACHE_TTL = 60 * 1000; // 1 menit
-
   constructor(
     @InjectRepository(ConfigSearch)
     private readonly configSearchRepository: Repository<ConfigSearch>,
@@ -40,18 +35,9 @@ export class ConfigSearchService {
     return config;
   }
 
-  /**
-   * Ambil mode mesin pencarian aktif (dengan cache).
-   */
+  /** Ambil mode mesin pencarian aktif langsung dari konfigurasi terbaru. */
   async getMode(): Promise<SearchEngineMode> {
-    const now = Date.now();
-    if (this.cachedMode && this.cacheExpiry > now) {
-      return this.cachedMode;
-    }
-
     const config = await this.getConfig();
-    this.cachedMode = config.mode;
-    this.cacheExpiry = now + this.CACHE_TTL;
     return config.mode;
   }
 
@@ -78,13 +64,7 @@ export class ConfigSearchService {
       }
     }
 
-    const saved = await this.configSearchRepository.save(config);
-
-    // Invalidate cache
-    this.cacheExpiry = 0;
-    this.cachedMode = null;
-
-    return saved;
+    return this.configSearchRepository.save(config);
   }
 
   /**

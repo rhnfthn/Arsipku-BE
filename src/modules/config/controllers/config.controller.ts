@@ -1,5 +1,4 @@
-import { Controller, Get, Param, UseGuards, UseInterceptors } from '@nestjs/common';
-import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import {
   ConfigDigsigService,
   ConfigMessageService,
@@ -27,8 +26,6 @@ export class ConfigController {
    * Returns array kosong jika tidak ada banner aktif
    */
   @Get('message')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   @Public()
   async getCurrentMessage(): Promise<ConfigMessage[]> {
     return this.configMessageService.getCurrentMessage();
@@ -39,8 +36,6 @@ export class ConfigController {
    * Mengambil semua konfigurasi digsig (dengan auth)
    */
   @Get('digsig')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   @UseGuards(JwtAuthGuard)
   @RequirePermission('konfigurasi', 'read')
   async getAllDigsigConfig(): Promise<ConfigDigsig[]> {
@@ -52,8 +47,6 @@ export class ConfigController {
    * Ambil konfigurasi mode TTE untuk jenis tertentu (dengan auth)
    */
   @Get('digsig/:jenis')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   @UseGuards(JwtAuthGuard)
   @RequirePermission('konfigurasi', 'read')
   async getDigsigConfig(

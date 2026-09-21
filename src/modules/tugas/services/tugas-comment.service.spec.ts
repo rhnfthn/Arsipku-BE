@@ -18,6 +18,7 @@ import { TugasActor } from '../tugas.types';
 import { TugasAccessReader } from './tugas-access.reader';
 import { TugasActivityService } from './tugas-activity.service';
 import {
+  COMMENT_DELETED_TOMBSTONE,
   COMMENT_DELETE_WINDOW_MS,
   TugasCommentService,
 } from './tugas-comment.service';
@@ -345,7 +346,7 @@ describe('TugasCommentService', () => {
       expect(hideRepository.save).not.toHaveBeenCalled();
     });
 
-    it('scope=everyone: menghapus komentar milik sendiri dalam window 5 menit', async () => {
+    it('scope=everyone: mengganti isi dengan tombstone dalam window 5 menit', async () => {
       const comment = buildComment({
         memberId: 'member-1',
         createdAt: new Date(Date.now() - 60 * 1000), // 1 menit lalu
@@ -359,7 +360,13 @@ describe('TugasCommentService', () => {
         actor,
       );
 
-      expect(commentRepository.remove).toHaveBeenCalledWith(comment);
+      expect(commentRepository.remove).not.toHaveBeenCalled();
+      expect(commentRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: comment.id,
+          isi: COMMENT_DELETED_TOMBSTONE,
+        }),
+      );
       expect(activity.record).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
@@ -433,6 +440,38 @@ describe('TugasCommentService', () => {
       expect(result.meta.total).toBe(2);
       expect(result.meta.totalPages).toBe(1);
       expect(result.data[0]!.actor.nama).toBe('Tester');
+    });
+
+    it('tidak membocorkan isi dan tag task dari komentar tombstone', async () => {
+      const deletedComment = buildComment({
+        taskId: task.id,
+        isi: COMMENT_DELETED_TOMBSTONE,
+      });
+      const queryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn(async () => [[deletedComment], 1]),
+      };
+      commentRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.list(
+        'board-1',
+        { page: 1, limit: 50 } as QueryTaskCommentDto,
+        actor,
+      );
+
+      expect(result.data[0]).toEqual(
+        expect.objectContaining({
+          isi: '',
+          taskId: null,
+          taskJudul: null,
+          isDeletedForEveryone: true,
+        }),
+      );
     });
   });
 });

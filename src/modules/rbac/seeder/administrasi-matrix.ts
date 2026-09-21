@@ -1,5 +1,3 @@
-// Matrix RBAC untuk Halaman Administrasi
-// Sesuai README §5.2 — Delegasi, Titelatur, Penomoran, Naskah Masuk, Data Master, Surat Masuk Eksternal, Arsip Aktif, Tata Naskah PYB.
 
 export interface AdministrasiMatrixPermission {
   action: string;
@@ -32,9 +30,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
   key: 'administrasi',
   label: 'Administrasi',
   menus: [
-    // ============================================================
-    // 1. Delegasi
-    // ============================================================
     {
       key: 'delegasi',
       label: 'Delegasi',
@@ -83,9 +78,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 2. Titelatur Inggris
-    // ============================================================
     {
       key: 'titelatur',
       label: 'Titelatur Inggris',
@@ -128,9 +120,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 3. Penomoran (Usulan, Persetujuan, Verifikasi, Penomoran)
-    // ============================================================
     {
       key: 'penomoran',
       label: 'Penomoran',
@@ -245,9 +234,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 4. Naskah Masuk
-    // ============================================================
     {
       key: 'naskah-masuk',
       label: 'Naskah Masuk',
@@ -296,9 +282,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 5. Data Master (Tertuju, Perusahaan, Klasifikasi, Jenis)
-    // ============================================================
     {
       key: 'data-master',
       label: 'Data Master',
@@ -533,9 +516,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 6. Konfigurasi Sistem
-    // ============================================================
     {
       key: 'konfigurasi',
       label: 'Konfigurasi Sistem',
@@ -754,7 +734,6 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
   ],
 };
 
-// Flatten ke daftar resource + permission untuk seeder (jika diperlukan)
 export interface AdministrasiResourceDef {
   name: string;
   description: string;

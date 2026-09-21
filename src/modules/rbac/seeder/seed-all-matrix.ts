@@ -20,7 +20,6 @@ import { kelolaRolePermissionAssignments } from './kelola-matrix';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
-// RBAC management resources (role, user-role, resource, permission, system-config)
 const rbacManagementResources: {
   name: string;
   description: string;
@@ -69,7 +68,6 @@ const rbacManagementResources: {
       { action: 'export', description: 'Export laporan audit' },
     ],
   },
-  // Legacy resources yang masih dipakai endpoint lama
   {
     name: 'delegasi',
     description: 'Manajemen delegasi role & switch role',
@@ -376,7 +374,6 @@ async function main() {
   const rpRepo = dataSource.getRepository(RolePermissionEntity);
   const urRepo = dataSource.getRepository(RbacUserRoleEntity);
 
-  // 1. Upsert 3 roles
   const roleDescs: Record<string, string> = {
     SUPERADMIN: 'Akses penuh seluruh sistem + manajemen RBAC',
     ADMIN: 'Operasional: Admin TU, User Managerial',
@@ -399,7 +396,6 @@ async function main() {
   }
   console.log('✅ 3 roles upserted');
 
-  // 2. Gather all resources (Utama + Utilitas + RBAC management)
   const allResources = [
     ...utamaResources,
     ...utilitasResources,
@@ -413,7 +409,6 @@ async function main() {
     ...rbacManagementResources,
   ];
 
-  // 3. Upsert resources + permissions
   const permIdByName = new Map<string, string>();
   for (const rDef of allResources) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
@@ -452,7 +447,6 @@ async function main() {
     `✅ ${allResources.length} resources + ${permIdByName.size} permissions upserted`,
   );
 
-  // 4. Assign ALL permissions (Utama + Utilitas + RBAC management) to SUPERADMIN (replace)
   const allPermIds = Array.from(permIdByName.values());
   await rpRepo.delete({ roleId: roles[RoleName.SUPERADMIN].id });
   const superadminRows = allPermIds.map((pid) => ({
@@ -465,11 +459,9 @@ async function main() {
     `✅ ${allPermIds.length} permissions assigned to SUPERADMIN (full replace)`,
   );
 
-  // 4b. Also add ALL other permissions in DB (from seed-rbac.ts: administrasi, laporan, faq, etc.)
   const allDbPerms = await permRepo.find({ select: ['id'] });
   const allDbPermIds = allDbPerms.map((p) => p.id);
 
-  // Append missing permissions to SUPERADMIN
   const superadminExisting = await rpRepo.find({
     where: { roleId: roles[RoleName.SUPERADMIN].id },
     select: ['permissionId'],
@@ -518,7 +510,6 @@ async function main() {
     }
   }
 
-  // 5. Assign user persnum ke SUPERADMIN (jika belum)
   const superadminPersnum = Number(process.env.SUPERADMIN_PERSNUM || 10083493);
   const existingUR = await urRepo.findOne({
     where: {
@@ -527,7 +518,6 @@ async function main() {
     },
   });
   if (!existingUR) {
-    // Deactivate existing active roles for this user first
     await urRepo.delete({ persnum: superadminPersnum, active: true });
     await urRepo.save({
       id: uuidv4(),

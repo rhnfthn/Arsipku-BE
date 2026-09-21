@@ -1,5 +1,3 @@
-// Matrix RBAC untuk Halaman Laporan
-// Sesuai README §5.3 — Rekap Naskah, Detail Naskah, Naskah Masuk, Surat, SLA.
 
 export interface LaporanMatrixPermission {
   action: string;
@@ -32,9 +30,6 @@ export const laporanMatrix: LaporanMatrixHalaman = {
   key: 'laporan',
   label: 'Laporan',
   menus: [
-    // ============================================================
-    // 1. Rekap Naskah
-    // ============================================================
     {
       key: 'rekap-naskah',
       label: 'Rekap Naskah',
@@ -65,9 +60,6 @@ export const laporanMatrix: LaporanMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 2. Detail Naskah
-    // ============================================================
     {
       key: 'detail-naskah',
       label: 'Detail Naskah',
@@ -98,9 +90,6 @@ export const laporanMatrix: LaporanMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // 3. Naskah Masuk
-    // ============================================================
     {
       key: 'naskah-masuk',
       label: 'Naskah Masuk',
