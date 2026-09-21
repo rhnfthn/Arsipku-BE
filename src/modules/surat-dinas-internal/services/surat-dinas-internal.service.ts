@@ -1684,10 +1684,18 @@ export class SuratDinasInternalService {
         : position;
     };
 
+    // The dropdown must offer the full overlay: structural UNION configured
+    // recipients (e.g. VP INMC for Manager Operasi, EVP for DGM PEO).
+    // routing.penerimaIds only echoes back the structural selection, so it
+    // cannot be used as the recipient list when a routing plan exists (UAT-F).
+    const rekanIds = routing.plan
+      ? routing.plan.effectiveRecipients.map((p) => Number(p.position))
+      : routing.penerimaIds;
+
     return {
       sender,
       recipients: {
-        REKAN: routing.penerimaIds
+        REKAN: rekanIds
           .map(decorate)
           .filter(Boolean) as SdiOrgDataPositionDto[],
         TEMBUSAN: routing.tembusanIds
