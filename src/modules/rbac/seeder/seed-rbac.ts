@@ -842,6 +842,33 @@ async function main() {
     console.log(`✅ ${permNames.length} permissions assigned to ${roleName}`);
   }
 
+  const userRole = roles[RoleName.USER];
+  if (userRole) {
+    const existingUserPermissions = await rpRepo.find({
+      where: { roleId: userRole.id },
+      select: ['permissionId'],
+    });
+    const existingUserPermissionIds = new Set(
+      existingUserPermissions.map((assignment) => assignment.permissionId),
+    );
+    const missingUserTaskPermissions = tugasRolePermissionAssignments.USER
+      .map((name) => permIdByName.get(name))
+      .filter((id): id is string => Boolean(id))
+      .filter((id) => !existingUserPermissionIds.has(id));
+    if (missingUserTaskPermissions.length > 0) {
+      await rpRepo.save(
+        missingUserTaskPermissions.map((permissionId) => ({
+          id: uuidv4(),
+          roleId: userRole.id,
+          permissionId,
+        })),
+      );
+      console.log(
+        `✅ ${missingUserTaskPermissions.length} Tugas permissions added to USER`,
+      );
+    }
+  }
+
   const legacyResourceNames = [
     'helpdesk',
     'sekretaris',

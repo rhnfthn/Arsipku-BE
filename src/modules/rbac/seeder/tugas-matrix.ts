@@ -25,16 +25,10 @@ export const tugasSuperAdminPermissions = tugasResources.flatMap((resource) =>
   resource.permissions.map((permission) => `${resource.name}.${permission.action}`),
 );
 
-/**
- * Baseline akses menu Tugas untuk role non-Super Admin.
- *
- * Papan dan Tugas Saya sama-sama merupakan fitur baca. Aksi pengelolaan
- * papan/task tidak dibuka otomatis; Super Admin dapat memilihnya eksplisit
- * melalui halaman RBAC sesuai kebutuhan organisasi.
- */
+/** Assignment default untuk menu Tugas. */
 export const tugasRolePermissionAssignments: Record<'ADMIN' | 'USER', string[]> = {
   ADMIN: ['tugas.read-board', 'tugas.read-my-tasks'],
-  USER: ['tugas.read-board', 'tugas.read-my-tasks'],
+  USER: tugasSuperAdminPermissions,
 };
 
 const actionLabels: Record<string, string> = {
@@ -102,7 +96,13 @@ export const tugasMatrix: MatrixHalaman = {
             {
               key: 'tugas-saya',
               label: 'Tugas Saya',
-              permissions: toPermissions(['read-my-tasks']),
+              permissions: toPermissions([
+                'read-my-tasks',
+                'create-task',
+                'update-task',
+                'move-task',
+                'delete-task',
+              ]),
             },
           ],
         },
