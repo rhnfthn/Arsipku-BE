@@ -563,8 +563,15 @@ export class AuthService {
     const resolvedFrontendOrigin = this.sanitizeFrontendOrigin(frontendOrigin);
     const flowType = this.isLocalFrontend(resolvedFrontendOrigin)
       ? 'local'
-      : 'server';
-    const state = `${flowType}.${generateOidcState()}`;
+      : resolvedFrontendOrigin === 'mobile'
+        ? 'mobile'
+        : 'server';
+    // Khusus mobile WebView (yang kerap memblokir third-party cookies di iOS),
+    // sisipkan sessionId ke dalam state agar callback dapat memulihkan pending session tanpa cookie.
+    const state =
+      resolvedFrontendOrigin === 'mobile'
+        ? `${flowType}.${generateOidcState()}.${sessionId}`
+        : `${flowType}.${generateOidcState()}`;
     const session: OidcServerSession = {
       state,
       codeVerifier,
