@@ -46,6 +46,56 @@ describe('SDI configurable routing overlay', () => {
     );
   });
 
+  it('merges configured recipients into the REKAN dropdown list (UAT-F)', async () => {
+    process.env.CORRESPONDENCE_ROUTING_ENABLED = 'true';
+    const org = correspondenceOrgFixture();
+    const plan = {
+      // Structural REKAN (2, 11) UNION configured recipient (3, e.g. VP INMC).
+      effectiveRecipients: [
+        org[1],
+        org[10],
+        { ...org[2], routing_source: 'configured' },
+      ],
+      mandatoryCc: [org[3]],
+      matchedRuleIds: ['rule-sdi', 'rule-cc'],
+      metadataByPositionId: {
+        3: {
+          routingSource: 'configured',
+          routingRuleIds: ['rule-sdi'],
+          effect: 'ALLOW_SELECT',
+          mandatory: false,
+        },
+        4: {
+          routingSource: 'configured',
+          routingRuleIds: ['rule-cc'],
+          effect: 'AUTO_INCLUDE',
+          mandatory: true,
+        },
+      },
+    };
+    const service: SuratDinasInternalService = Object.assign(
+      Object.create(SuratDinasInternalService.prototype),
+      {
+        orgDataService: {
+          findOrg: jest.fn().mockResolvedValue({ position_json: org }),
+        },
+        correspondenceRoutingResolver: {
+          resolve: jest.fn().mockResolvedValue(plan),
+        },
+      },
+    );
+    const result = await service.getSdiRecipients(8, '2026-09-04');
+    expect(result.recipients.REKAN.map((p) => p.position)).toEqual([2, 11, 3]);
+    expect(result.recipients.TEMBUSAN.map((p) => p.position)).toEqual([1, 4]);
+    expect(
+      result.recipients.REKAN.find((p) => p.position === 3)?.routing_source,
+    ).toBe('configured');
+    expect(
+      result.recipients.TEMBUSAN.find((p) => p.position === 4)
+        ?.routing_mandatory,
+    ).toBe(true);
+  });
+
   it('rejects a recipient outside the effective overlay', async () => {
     process.env.CORRESPONDENCE_ROUTING_ENABLED = 'true';
     const org = correspondenceOrgFixture();

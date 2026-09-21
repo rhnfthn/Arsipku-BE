@@ -58,6 +58,43 @@ export const kelolaSuperAdminPermissions: string[] = kelolaResources.flatMap((r)
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
 
+/**
+ * Baseline role untuk Kelola.
+ *
+ * Permission ini adalah baseline UI/RBAC, bukan pengganti actor check.
+ * Endpoint tetap memvalidasi position_status, organisasi, dan tahapan usulan
+ * di service/guard masing-masing.
+ */
+export const kelolaRolePermissionAssignments: Record<'ADMIN' | 'USER', string[]> = {
+  ADMIN: [
+    'pemeliharaan.pemberkasan.read',
+    'pemeliharaan.verifikasi.read',
+    'pemeliharaan.verifikasi.approve',
+    'pemeliharaan.verifikasi.reject',
+    'usulan-akses-berkas.read',
+    'usulan-akses-berkas.read-usulan',
+    'usulan-akses-berkas.read-verifikasi',
+    'usulan-akses-berkas.verify-pengusul',
+  ],
+  USER: [
+    'pemeliharaan.pemberkasan.create',
+    'pemeliharaan.pemberkasan.read',
+    'pemeliharaan.pemberkasan.update',
+    'pemeliharaan.pemberkasan.delete',
+    'pemeliharaan.pemberkasan.add-naskah',
+    'pemeliharaan.pemberkasan.ajukan-tutup',
+    'usulan-akses-berkas.create',
+    'usulan-akses-berkas.read',
+    'usulan-akses-berkas.read-usulan',
+    'usulan-akses-berkas.read-verifikasi',
+    'usulan-akses-berkas.read-pemberian',
+    'usulan-akses-berkas.verify-pengusul',
+    'usulan-akses-berkas.verify-pemberi',
+    'usulan-akses-berkas.select-files',
+    'usulan-akses-berkas.approve-pemberi',
+  ],
+};
+
 const kelolaActionLabels: Record<string, string> = {
   create: 'Create',
   read: 'Read',
@@ -95,7 +132,6 @@ export const kelolaMatrix: MatrixHalaman = {
               key: 'permissions',
               label: 'Pemberkasan',
               permissions: kelolaResources[0].permissions
-                .filter((permission) => permission.action === 'read')
                 .map((permission) => ({
                   action: permission.action,
                   label: kelolaActionLabels[permission.action] ?? permission.action,
@@ -113,7 +149,6 @@ export const kelolaMatrix: MatrixHalaman = {
               key: 'permissions',
               label: 'Persetujuan Pemberkasan',
               permissions: kelolaResources[1].permissions
-                .filter((permission) => permission.action === 'read')
                 .map((permission) => ({
                   action: permission.action,
                   label: kelolaActionLabels[permission.action] ?? permission.action,
@@ -137,7 +172,6 @@ export const kelolaMatrix: MatrixHalaman = {
               key: 'permissions',
               label: 'Usulan Akses',
               permissions: kelolaResources[2].permissions
-                .filter((permission) => permission.action === 'read-usulan')
                 .map((permission) => ({
                   action: permission.action,
                   label: kelolaActionLabels[permission.action] ?? permission.action,
@@ -155,7 +189,6 @@ export const kelolaMatrix: MatrixHalaman = {
               key: 'permissions',
               label: 'Verifikasi Usulan',
               permissions: kelolaResources[2].permissions
-                .filter((permission) => permission.action === 'read-verifikasi')
                 .map((permission) => ({
                   action: permission.action,
                   label: kelolaActionLabels[permission.action] ?? permission.action,
@@ -173,7 +206,6 @@ export const kelolaMatrix: MatrixHalaman = {
               key: 'permissions',
               label: 'Pemberian',
               permissions: kelolaResources[2].permissions
-                .filter((permission) => permission.action === 'read-pemberian')
                 .map((permission) => ({
                   action: permission.action,
                   label: kelolaActionLabels[permission.action] ?? permission.action,
