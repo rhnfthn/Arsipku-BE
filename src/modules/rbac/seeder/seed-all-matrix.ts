@@ -483,22 +483,27 @@ async function main() {
     );
   }
 
-  // 4c. ADMIN/USER hanya diberi baseline Kelola + Tugas saat role benar-benar baru.
-  // Assignment existing tidak ditimpa; permission lain harus dipilih eksplisit
-  // oleh Superadmin melalui RBAC UI.
+  // 4c. ADMIN dan USER selalu mendapatkan seluruh permission Tugas agar
+  // assignment lama yang hanya Read ikut terbarui.
   for (const roleName of [RoleName.ADMIN, RoleName.USER] as const) {
     const existingCount = await rpRepo.count({
       where: { roleId: roles[roleName].id },
     });
-    if (existingCount > 0) continue;
 
-    const names = [
-      ...kelolaRolePermissionAssignments[roleName],
-      ...tugasRolePermissionAssignments[roleName],
-    ];
+    const names = existingCount > 0
+      ? tugasRolePermissionAssignments[roleName]
+      : [
+          ...kelolaRolePermissionAssignments[roleName],
+          ...tugasRolePermissionAssignments[roleName],
+        ];
+    const existingIds = new Set(
+      (await rpRepo.find({ where: { roleId: roles[roleName].id }, select: ['permissionId'] }))
+        .map((row) => row.permissionId),
+    );
     const rows = names
       .map((name) => permIdByName.get(name))
       .filter((id): id is string => Boolean(id))
+      .filter((permissionId) => !existingIds.has(permissionId))
       .map((permissionId) => ({
         id: uuidv4(),
         roleId: roles[roleName].id,
