@@ -1031,19 +1031,27 @@ export class NotificationService {
     // Pengirim cukup jabatan saja (bukan nama) — sesuai permintaan.
     const sender = senderPos || senderName;
 
-    // Header "Tipe • Jenis" — jenis dilewati bila sudah tersirat di label
+    // Untuk push notifikasi, 'Surat Masuk' tidak perlu dimunculkan di header:
+    // Bila ada jenis naskah (mis. 'Nota Dinas'), cukup tampilkan jenisnya.
+    // Bila tidak ada jenis naskah, kosongkan agar langsung nama/jabatan pengirim.
+    const isNaskahMasuk = dto.type === NotificationType.NASKAH_MASUK;
+    const effectiveTypeLabel = isNaskahMasuk ? '' : typeLabel;
+
+    // Header "Tipe · Jenis" — jenis dilewati bila sudah tersirat di label
     // tipe (mis. "Disposisi Masuk" + jenis DI "Disposisi") supaya tidak double.
     const jenisPart =
-      jenisLabel && !typeLabel.toLowerCase().includes(jenisLabel.toLowerCase())
+      jenisLabel &&
+      (!effectiveTypeLabel ||
+        !effectiveTypeLabel.toLowerCase().includes(jenisLabel.toLowerCase()))
         ? jenisLabel
         : '';
-    const header = [typeLabel, jenisPart].filter(Boolean).join(' • ');
+    const header = [effectiveTypeLabel, jenisPart].filter(Boolean).join(' · ');
 
-    // Title = header + jabatan pengirim (gaya email: dari siapa).
+    // Title = header · jabatan pengirim (gaya email: dari siapa).
     const title =
       sender && header
-        ? `${header} — ${sender}`
-        : header || dto.title || 'Notifikasi';
+        ? `${header} · ${sender}`
+        : header || sender || dto.title || 'Notifikasi';
 
     // Body = perihal + instruksi + nomor. Pengirim sudah di title, jadi
     // tidak diulang dengan baris "Dari:".
