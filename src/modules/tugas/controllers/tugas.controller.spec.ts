@@ -18,12 +18,6 @@ interface RouteExpectation {
 describe('TugasController contract', () => {
   const routes: RouteExpectation[] = [
     {
-      method: 'createBoard',
-      path: 'boards',
-      requestMethod: RequestMethod.POST,
-      permission: { resource: 'tugas', action: 'create-board' },
-    },
-    {
       method: 'findMyTasks',
       path: 'my-tasks',
       requestMethod: RequestMethod.GET,
@@ -56,6 +50,14 @@ describe('TugasController contract', () => {
       );
     },
   );
+
+  it('createBoard tersedia untuk semua pengguna terautentikasi tanpa permission role', () => {
+    const handler = TugasController.prototype.createBoard;
+
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('boards');
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.POST);
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBeUndefined();
+  });
 
   it('meneruskan identity JWT utuh ke service, bukan persnum saja', async () => {
     const boardService = {
