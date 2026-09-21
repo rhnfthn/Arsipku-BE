@@ -9,11 +9,6 @@ import { NotificationType } from '../../notification/entities';
 
 @Injectable()
 export class ConfigMessageService {
-  // In-memory cache untuk performa
-  private cachedMessages: ConfigMessage[] = [];
-  private cacheExpiry: number = 0;
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 menit
-
   constructor(
     @InjectRepository(ConfigMessage)
     private readonly configMessageRepository: Repository<ConfigMessage>,
@@ -90,23 +85,10 @@ export class ConfigMessageService {
    * Return semua pesan yang show_banner = true
    */
   async getCurrentMessage(): Promise<ConfigMessage[]> {
-    const now = Date.now();
-
-    // Jika cache masih valid
-    if (this.cacheExpiry > now && this.cachedMessages.length > 0) {
-      return this.cachedMessages;
-    }
-
-    // Refresh cache - ambil semua pesan dengan show_banner = true
-    const messages = await this.configMessageRepository.find({
+    return this.configMessageRepository.find({
       where: { showBanner: true },
       order: { updatedAt: 'DESC' },
     });
-
-    this.cachedMessages = messages;
-    this.cacheExpiry = Date.now() + this.CACHE_TTL;
-
-    return messages;
   }
 
   /**
@@ -121,9 +103,6 @@ export class ConfigMessageService {
     });
 
     const saved = await this.configMessageRepository.save(message);
-
-    // Invalidate cache
-    this.invalidateCache();
 
     this.notifySystemMessage(saved).catch((error) =>
       console.warn(
@@ -157,9 +136,6 @@ export class ConfigMessageService {
 
     const saved = await this.configMessageRepository.save(message);
 
-    // Invalidate cache
-    this.invalidateCache();
-
     if (saved.showBanner && (wasHidden || dto.show_banner === true)) {
       this.notifySystemMessage(saved).catch((error) =>
         console.warn(
@@ -187,9 +163,6 @@ export class ConfigMessageService {
     }
 
     const saved = await this.configMessageRepository.save(message);
-
-    // Invalidate cache
-    this.invalidateCache();
 
     if (saved.showBanner && wasHidden) {
       this.notifySystemMessage(saved).catch((error) =>
@@ -222,7 +195,6 @@ export class ConfigMessageService {
    */
   async hideAllBanners(): Promise<void> {
     await this.configMessageRepository.update({}, { showBanner: false });
-    this.invalidateCache();
   }
 
   /**
@@ -232,17 +204,7 @@ export class ConfigMessageService {
     const message = await this.findOne(id);
     await this.configMessageRepository.remove(message);
 
-    this.invalidateCache();
-
     return { message: `Pesan dengan ID ${id} berhasil dihapus` };
-  }
-
-  /**
-   * Invalidate cache
-   */
-  private invalidateCache(): void {
-    this.cachedMessages = [];
-    this.cacheExpiry = 0;
   }
 
   /**

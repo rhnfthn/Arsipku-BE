@@ -7,9 +7,7 @@ import {
   Delete,
   Param,
   Query,
-  UseInterceptors,
 } from '@nestjs/common';
-import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { GrupPenerimaService } from '../services/grup_penerima.service';
 import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
@@ -134,8 +132,6 @@ export class GrupPenerimaController {
    * Returns array of OrgDataPositionDto for all positions in the grup
    */
   @Get(':id/expand')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   expandGrup(@Param('id') id: string, @Query('tgl') tgl?: string) {
     return this.grupPenerimaService.expandGrupToPositions(id, tgl);
   }
