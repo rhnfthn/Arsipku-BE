@@ -157,7 +157,9 @@ export class AuthController {
     @Query('error') providerError?: string,
     @Query('error_description') providerErrorDescription?: string,
   ) {
-    const pendingSessionId = readCookie(req, this.oidcCookieName);
+    const pendingSessionId =
+      readCookie(req, this.oidcCookieName) ||
+      (state?.startsWith('mobile.') ? state.split('.')[2] : undefined);
     try {
       if (providerError) {
         throw new UnauthorizedException(
