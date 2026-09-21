@@ -200,6 +200,10 @@ export class PermissionGuard implements CanActivate {
       jwtFallback,
     );
 
+    const isViewerWriteAllowed =
+      !!user.position_status &&
+      !!allowedViewerStatuses?.includes(user.position_status as string);
+
     // VI/SE: strip ke read-only (copy, bukan mutate cache) — only for business
     // resources, NOT the delegasi control plane (so switch/reset still works).
     // ALSO NOT for usulan-akses-berkas & naskah-share (SE is the main actor:
@@ -208,6 +212,7 @@ export class PermissionGuard implements CanActivate {
       !isDelegasiResource &&
       !isUsulanAksesBerkasResource &&
       !isNaskahShareResource &&
+      !isViewerWriteAllowed &&
       !!user.position_status &&
       this.VIEW_ONLY_STATUSES.has(user.position_status as string);
     const effectivePermissions = isViewOnly

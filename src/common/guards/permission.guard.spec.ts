@@ -6,6 +6,7 @@ import { PermissionCacheService } from './permission-cache.service';
 import { RbacService } from '../../modules/rbac/services/rbac.service';
 import { PERMISSION_KEY } from '../decorators/require-permission.decorator';
 import { RoleName } from '../enums/role-name.enum';
+import { PositionStatus } from '../enums/position-status.enum';
 
 describe('PermissionGuard', () => {
   let guard: PermissionGuard;
@@ -138,6 +139,27 @@ describe('PermissionGuard', () => {
     expect(permissionCache.set).toHaveBeenCalledWith(123, [
       { resource: 'naskah-dinas', actions: ['read', 'create'] },
     ]);
+  });
+
+  it('allows an explicitly permitted viewer status when the RBAC permission exists', async () => {
+    reflector.getAllAndOverride.mockReturnValue([
+      PositionStatus.VI,
+      PositionStatus.SE,
+    ]);
+    permissionCache.get.mockReturnValue([
+      { resource: 'tugas', actions: ['read-board', 'create-board'] },
+    ]);
+
+    const ctx = mockContext(
+      {
+        persnum: 123,
+        role: 'user',
+        position_status: PositionStatus.SE,
+      },
+      { resource: 'tugas', action: 'create-board' },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
   it('should deny SDE Massal create when read is not assigned', async () => {
