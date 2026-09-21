@@ -842,29 +842,30 @@ async function main() {
     console.log(`✅ ${permNames.length} permissions assigned to ${roleName}`);
   }
 
-  const userRole = roles[RoleName.USER];
-  if (userRole) {
-    const existingUserPermissions = await rpRepo.find({
-      where: { roleId: userRole.id },
+  for (const roleName of [RoleName.ADMIN, RoleName.USER] as const) {
+    const role = roles[roleName];
+    if (!role) continue;
+    const existingRolePermissions = await rpRepo.find({
+      where: { roleId: role.id },
       select: ['permissionId'],
     });
-    const existingUserPermissionIds = new Set(
-      existingUserPermissions.map((assignment) => assignment.permissionId),
+    const existingPermissionIds = new Set(
+      existingRolePermissions.map((assignment) => assignment.permissionId),
     );
-    const missingUserTaskPermissions = tugasRolePermissionAssignments.USER
+    const missingTaskPermissions = tugasRolePermissionAssignments[roleName]
       .map((name) => permIdByName.get(name))
       .filter((id): id is string => Boolean(id))
-      .filter((id) => !existingUserPermissionIds.has(id));
-    if (missingUserTaskPermissions.length > 0) {
+      .filter((id) => !existingPermissionIds.has(id));
+    if (missingTaskPermissions.length > 0) {
       await rpRepo.save(
-        missingUserTaskPermissions.map((permissionId) => ({
+        missingTaskPermissions.map((permissionId) => ({
           id: uuidv4(),
-          roleId: userRole.id,
+          roleId: role.id,
           permissionId,
         })),
       );
       console.log(
-        `✅ ${missingUserTaskPermissions.length} Tugas permissions added to USER`,
+        `✅ ${missingTaskPermissions.length} Tugas permissions added to ${roleName}`,
       );
     }
   }
