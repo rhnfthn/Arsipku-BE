@@ -24,6 +24,12 @@ import { TugasNotificationService } from './tugas-notification.service';
 /** Batas waktu komentar boleh dihapus untuk semua orang (ms). */
 export const COMMENT_DELETE_WINDOW_MS = 5 * 60 * 1000;
 
+/**
+ * Marker tombstone yang tidak dapat dibuat lewat CreateTaskCommentDto karena
+ * pesan baru wajib berisi minimal satu karakter setelah trim.
+ */
+export const COMMENT_DELETED_TOMBSTONE = '';
+
 export type TugasCommentDeleteScope = 'me' | 'everyone';
 
 export interface TugasTaskCommentItem {
@@ -36,6 +42,7 @@ export interface TugasTaskCommentItem {
   isi: string;
   actorPersnum: number;
   actorPositionId: string;
+  isDeletedForEveryone: boolean;
   actor: {
     persnum: number;
     positionId: string;
@@ -281,8 +288,8 @@ export class TugasCommentService {
    * DELETE /tugas/boards/:boardId/comments/:commentId?scope=me|everyone
    *
    * - scope=me: sembunyikan komentar hanya untuk membership aktif (kapan saja).
-   * - scope=everyone: hapus permanen — hanya penulis, hanya dalam 5 menit
-   *   pertama setelah komentar dikirim (pola WhatsApp).
+   * - scope=everyone: hapus isi dan sisakan tombstone — hanya penulis,
+   *   hanya dalam 5 menit pertama setelah komentar dikirim (pola WhatsApp).
    */
   async remove(
     boardId: string,
@@ -328,7 +335,10 @@ export class TugasCommentService {
           'Batas waktu hapus komentar untuk semua orang adalah 5 menit setelah dikirim',
         );
       }
-      await manager.getRepository(TugasTaskCommentEntity).remove(comment);
+      // Pertahankan row untuk menampilkan tombstone ke semua anggota, tetapi
+      // timpa isi asli agar konten yang sudah dihapus tidak dapat dibaca lagi.
+      comment.isi = COMMENT_DELETED_TOMBSTONE;
+      await manager.getRepository(TugasTaskCommentEntity).save(comment);
       await this.activity.record(manager, {
         boardId,
         taskId: comment.taskId,
@@ -379,18 +389,20 @@ export class TugasCommentService {
     tasks: { id: string; judul: string }[],
   ): TugasTaskCommentItem {
     const member = members.find((candidate) => candidate.id === comment.memberId);
-    const task = comment.taskId
+    const isDeletedForEveryone = comment.isi === COMMENT_DELETED_TOMBSTONE;
+    const task = !isDeletedForEveryone && comment.taskId
       ? tasks.find((candidate) => candidate.id === comment.taskId)
       : undefined;
     return {
       id: comment.id,
       boardId: comment.boardId,
-      taskId: comment.taskId,
+      taskId: isDeletedForEveryone ? null : comment.taskId,
       taskJudul: task?.judul ?? null,
       memberId: comment.memberId,
-      isi: comment.isi,
+      isi: isDeletedForEveryone ? '' : comment.isi,
       actorPersnum: comment.actorPersnum,
       actorPositionId: comment.actorPositionId,
+      isDeletedForEveryone,
       actor: {
         persnum: comment.actorPersnum,
         positionId: comment.actorPositionId,

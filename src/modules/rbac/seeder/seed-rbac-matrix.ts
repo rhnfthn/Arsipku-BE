@@ -42,7 +42,6 @@ async function main() {
   const permRepo = dataSource.getRepository(PermissionEntity);
   const rpRepo = dataSource.getRepository(RolePermissionEntity);
 
-  // 1. Upsert resources + permissions from matrix data (idempotent by name)
   const permIdByName = new Map<string, string>();
   for (const rDef of rbacResourcesWithPermissions) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
@@ -81,7 +80,6 @@ async function main() {
     `✅ Matrix seed: ${rbacResourcesWithPermissions.length} resources + ${permIdByName.size} permissions upserted`,
   );
 
-  // 2. Assign matrix permissions to roles (merge/additive, does not remove existing)
   const roleNameToEntity: Record<string, RoleEntity> = {};
   for (const name of [RoleName.SUPERADMIN, RoleName.ADMIN, RoleName.USER]) {
     const role = await roleRepo.findOne({ where: { name } });

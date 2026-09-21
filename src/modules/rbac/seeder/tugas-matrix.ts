@@ -65,8 +65,8 @@ export const tugasMatrix: MatrixHalaman = {
   label: 'Tugas',
   menus: [
     {
-      key: 'papan-tugas',
-      label: 'Papan Tugas',
+      key: 'papan',
+      label: 'Papan',
       subMenus: [
         {
           key: 'papan',
@@ -74,7 +74,7 @@ export const tugasMatrix: MatrixHalaman = {
           fiturs: [
             {
               key: 'papan',
-              label: 'Papan Tugas',
+              label: 'Papan',
               permissions: toPermissions([
                 'read-board',
                 'create-board',
@@ -89,6 +89,12 @@ export const tugasMatrix: MatrixHalaman = {
             },
           ],
         },
+      ],
+    },
+    {
+      key: 'tugas-saya',
+      label: 'Tugas Saya',
+      subMenus: [
         {
           key: 'tugas-saya',
           label: 'Tugas Saya',

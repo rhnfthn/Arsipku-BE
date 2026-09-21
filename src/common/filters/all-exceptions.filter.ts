@@ -43,7 +43,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? (exceptionResponse as { error?: string }).error
         : undefined;
 
-    // Log full stack trace ke console agar error 500 terlihat di terminal BE
     const request = ctx.getRequest<{ method?: string; url?: string }>();
     const method = request?.method ?? 'UNKNOWN';
     const url = request?.url ?? 'UNKNOWN';

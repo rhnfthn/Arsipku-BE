@@ -6,11 +6,6 @@ import { UpdateDigsigConfigDto } from '../dto';
 
 @Injectable()
 export class ConfigDigsigService {
-  // In-memory cache untuk performa
-  private cache: Map<JenisNaskah, TtdMode[]> = new Map(); // computed dari 3 kolom boolean
-  private cacheExpiry: number = 0;
-  private readonly CACHE_TTL = 60 * 60 * 1000; // 1 jam
-
   constructor(
     @InjectRepository(ConfigDigsig)
     private readonly configDigsigRepository: Repository<ConfigDigsig>,
@@ -44,42 +39,18 @@ export class ConfigDigsigService {
 
   /**
    * Ambil daftar mode TTE yang aktif untuk jenis naskah tertentu
-   * Menggunakan cache untuk performa
    */
   async getModes(jenisNaskah: JenisNaskah): Promise<TtdMode[]> {
-    const now = Date.now();
-
-    // Jika cache masih valid, gunakan cache
-    if (this.cacheExpiry > now && this.cache.has(jenisNaskah)) {
-      return this.cache.get(jenisNaskah)!;
-    }
-
-    // Refresh cache
-    await this.refreshCache();
-
-    // Return dari cache, default [digsig] jika tidak ada config
-    return this.cache.get(jenisNaskah) ?? [TtdMode.DIGSIG];
-  }
-
-  /**
-   * Refresh in-memory cache
-   */
-  private async refreshCache(): Promise<void> {
-    const configs = await this.configDigsigRepository.find();
-
-    this.cache.clear();
-    configs.forEach((config) => {
-      const modes: TtdMode[] = [];
-      if (config.digsig) modes.push(TtdMode.DIGSIG);
-      if (config.ttdQr) modes.push(TtdMode.TTD_QR);
-      if (config.ttdBasah) modes.push(TtdMode.TTD_BASAH);
-      this.cache.set(
-        config.jenisNaskah,
-        modes.length > 0 ? modes : [TtdMode.DIGSIG],
-      );
+    const config = await this.configDigsigRepository.findOne({
+      where: { jenisNaskah },
     });
+    if (!config) return [TtdMode.DIGSIG];
 
-    this.cacheExpiry = Date.now() + this.CACHE_TTL;
+    const modes: TtdMode[] = [];
+    if (config.digsig) modes.push(TtdMode.DIGSIG);
+    if (config.ttdQr) modes.push(TtdMode.TTD_QR);
+    if (config.ttdBasah) modes.push(TtdMode.TTD_BASAH);
+    return modes.length > 0 ? modes : [TtdMode.DIGSIG];
   }
 
   /**
@@ -107,12 +78,7 @@ export class ConfigDigsigService {
       if (dto.description !== undefined) config.description = dto.description;
     }
 
-    const saved = await this.configDigsigRepository.save(config);
-
-    // Invalidate cache
-    this.cacheExpiry = 0;
-
-    return saved;
+    return this.configDigsigRepository.save(config);
   }
 
   /**
@@ -144,12 +110,7 @@ export class ConfigDigsigService {
       config.digsig = true;
     }
 
-    const saved = await this.configDigsigRepository.save(config);
-
-    // Invalidate cache
-    this.cacheExpiry = 0;
-
-    return saved;
+    return this.configDigsigRepository.save(config);
   }
 
   /**
