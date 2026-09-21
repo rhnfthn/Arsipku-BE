@@ -1,6 +1,3 @@
-// Matrix RBAC untuk Halaman Utilitas — Super Admin
-// Resource names use FLAT format (matching useFeatureAccess.ts frontend checks
-// and backend @RequirePermission decorators).
 
 export interface UtilitasMatrixPermission {
   action: string;
@@ -33,9 +30,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
   key: 'utilitas',
   label: 'Utilitas',
   menus: [
-    // ============================================================
-    // TTD Digital
-    // ============================================================
     {
       key: 'ttd-digital',
       label: 'TTD Digital',
@@ -168,9 +162,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // Penyingkatan Tautan
-    // ============================================================
     {
       key: 'penyingkatan-tautan',
       label: 'Penyingkatan Tautan',
@@ -213,9 +204,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // Layanan Email
-    // ============================================================
     {
       key: 'layanan-email',
       label: 'Layanan Email',
@@ -264,9 +252,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // Template
-    // ============================================================
     {
       key: 'template',
       label: 'Template',
@@ -315,9 +300,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
         },
       ],
     },
-    // ============================================================
-    // Verifikasi Naskah
-    // ============================================================
     {
       key: 'verifikasi-naskah',
       label: 'Verifikasi Naskah',
@@ -369,7 +351,6 @@ export const utilitasMatrix: UtilitasMatrixHalaman = {
   ],
 };
 
-// Flatten ke daftar resource + permission untuk seeder
 export interface UtilitasResourceDef {
   name: string;
   description: string;

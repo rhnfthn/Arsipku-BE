@@ -149,7 +149,6 @@ export class PermissionGuard implements CanActivate {
       context.getHandler(),
     );
 
-    // Endpoint tanpa @RequirePermission -> terbuka bagi yang login
     if (!permission) return true;
 
     const request = context.switchToHttp().getRequest<{
@@ -225,6 +224,20 @@ export class PermissionGuard implements CanActivate {
         p.actions.includes(permission.action),
     );
 
+    const requiresSdeRead =
+      permission.resource === 'sde-masal' &&
+      ['create', 'update', 'delete', 'finalize', 'read-detail'].includes(
+        permission.action,
+      );
+    const hasSdeRead = effectivePermissions.some(
+      (p: { resource: string; actions: string[] }) =>
+        p.resource === 'sde-masal' && p.actions.includes('read'),
+    );
+
+    if (requiresSdeRead && !hasSdeRead) {
+      throw new ForbiddenException('Access denied. Required: sde-masal.read');
+    }
+
     if (!hasPermission) {
       this.logger.warn(
         `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map((p) => p.resource + ':' + p.actions.join(',')))}`,
@@ -246,19 +259,15 @@ export class PermissionGuard implements CanActivate {
     persnum: number,
     jwtFallback?: { resource: string; actions: string[] }[],
   ): Promise<{ resource: string; actions: string[] }[] | null> {
-    // Cek cache
     const cached = this.permissionCache.get(persnum);
     if (cached) return cached;
 
-    // Cache miss → query DB
     try {
       const ctx = await this.rbacService.buildActiveRoleAndPermissions(persnum);
       const permissions = ctx.activePermissions ?? [];
 
-      // Simpan ke cache
       this.permissionCache.set(persnum, permissions);
 
-      // Cleanup entry expired (lazy)
       this.permissionCache.cleanupExpired();
 
       return permissions;
@@ -266,7 +275,6 @@ export class PermissionGuard implements CanActivate {
       this.logger.error(
         `Failed to fetch permissions for persnum ${persnum}: ${error}`,
       );
-      // Fallback: gunakan JWT activePermissions jika ada (graceful degradation)
       return jwtFallback ?? null;
     }
   }

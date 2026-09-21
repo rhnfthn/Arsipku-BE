@@ -542,7 +542,6 @@ export class NomorService {
   async createNomorRequest(
     dto: CreateNomorRequestDto,
   ): Promise<CreateNomorRequestResponseDto> {
-    // Ambil data org_data berdasarkan tanggal, fallback ke latest
     const tglFormatted = this.formatDate(dto.tanggal);
     let orgDataRecord;
     try {

@@ -1,5 +1,3 @@
-// Matrix RBAC untuk Halaman Utama — Super Admin
-// Sesuai spesifikasi user: per menu/fitur dengan checkbox per action.
 
 export interface MatrixPermission {
   action: string;
@@ -32,9 +30,6 @@ export interface MatrixHalaman {
   menus: MatrixMenu[];
 }
 
-// ============================================================
-// UTAMA matrix definition
-// ============================================================
 
 export const utamaMatrix: MatrixHalaman = {
   key: 'utama',
@@ -577,9 +572,6 @@ export const utamaMatrix: MatrixHalaman = {
   ],
 };
 
-// ============================================================
-// Flatten ke daftar resource + permission untuk seeder
-// ============================================================
 
 export interface ResourceDef {
   name: string;
@@ -616,7 +608,6 @@ export function flattenMatrix(halaman: MatrixHalaman): ResourceDef[] {
 
 export const utamaResources = flattenMatrix(utamaMatrix);
 
-// Super Admin default assignments: semua permission Utama aktif
 export const utamaSuperAdminPermissions: string[] = utamaResources.flatMap(
   (r) => r.permissions.map((p) => `${r.name}.${p.action}`),
 );

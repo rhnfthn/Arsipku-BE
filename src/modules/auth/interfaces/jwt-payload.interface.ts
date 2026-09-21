@@ -14,7 +14,6 @@ export interface JwtPayload {
   persnum: number;
   nama: string;
   role: 'user' | 'admin' | 'superadmin';
-  // RBAC v2 — stateless di JWT (switch role = re-sign JWT)
   activeRole?: ActiveRoleInfo | null;
   activePermissions?: ActivePermission[];
   roles?: ActiveRoleInfo[];

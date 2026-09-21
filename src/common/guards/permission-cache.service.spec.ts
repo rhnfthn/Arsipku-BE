@@ -26,8 +26,6 @@ describe('PermissionCacheService', () => {
       const perms = [{ resource: 'naskah-dinas', actions: ['read'] }];
       service.set(123, perms);
 
-      // Simulasi expiry: manual manipulate internal cache via multiple invalidate
-      // Karena TTL 30 detik, kita test via invalidate saja
       service.invalidate(123);
       expect(service.get(123)).toBeNull();
     });
