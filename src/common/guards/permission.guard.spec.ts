@@ -50,18 +50,12 @@ describe('PermissionGuard', () => {
     } as any;
   };
 
-  // ============================================================
-  // No @RequirePermission metadata
-  // ============================================================
   it('should allow (true) when no @RequirePermission metadata', async () => {
     const ctx = mockContext({ persnum: 1 }, undefined);
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
   });
 
-  // ============================================================
-  // No user
-  // ============================================================
   it('should throw ForbiddenException when no user in request', async () => {
     const ctx = mockContext(null, {
       resource: 'naskah-dinas',
@@ -70,9 +64,7 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
-  // ============================================================
   // SUPERADMIN tetap mengikuti permission role di database.
-  // ============================================================
   it('should check SUPERADMIN permission from DB (activeRole.name)', async () => {
     permissionCache.get.mockReturnValue([
       { resource: 'role', actions: ['create'] },
@@ -99,9 +91,6 @@ describe('PermissionGuard', () => {
     expect(permissionCache.get).toHaveBeenCalledWith(1);
   });
 
-  // ============================================================
-  // No persnum
-  // ============================================================
   it('should throw ForbiddenException when user has no persnum', async () => {
     const ctx = mockContext(
       { role: 'admin' },
@@ -110,9 +99,6 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
-  // ============================================================
-  // Cache hit
-  // ============================================================
   it('should use cached permissions when available', async () => {
     const cachedPerms = [
       { resource: 'naskah-dinas', actions: ['read', 'create'] },
@@ -130,9 +116,6 @@ describe('PermissionGuard', () => {
     expect(rbacService.buildActiveRoleAndPermissions).not.toHaveBeenCalled();
   });
 
-  // ============================================================
-  // DB query — has permission
-  // ============================================================
   it('should allow when user has required permission (DB query)', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
@@ -157,9 +140,34 @@ describe('PermissionGuard', () => {
     ]);
   });
 
-  // ============================================================
-  // DB query — no permission
-  // ============================================================
+  it('should deny SDE Massal create when read is not assigned', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'sde-masal', actions: ['create'] },
+    ]);
+
+    const ctx = mockContext(
+      { persnum: 123, role: 'user' },
+      { resource: 'sde-masal', action: 'create' },
+    );
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(
+      'sde-masal.read',
+    );
+  });
+
+  it('should allow SDE Massal create when read is assigned', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'sde-masal', actions: ['read', 'create'] },
+    ]);
+
+    const ctx = mockContext(
+      { persnum: 123, role: 'user' },
+      { resource: 'sde-masal', action: 'create' },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
   it('should throw ForbiddenException when user lacks required permission', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
@@ -178,9 +186,6 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow('naskah-dinas.delete');
   });
 
-  // ============================================================
-  // DB query — empty permissions
-  // ============================================================
   it('should throw when user has no permissions at all', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({
@@ -198,9 +203,6 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
-  // ============================================================
-  // Graceful fallback ke JWT jika DB query gagal
-  // ============================================================
   it('should fallback to JWT activePermissions when DB query fails', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockRejectedValue(
@@ -231,11 +233,7 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
-  // ============================================================
-  // B1 regression: perubahan DB langsung efektif (via cache invalidation)
-  // ============================================================
   it('B1 regression: should reflect DB change after cache invalidation', async () => {
-    // Pertama: user punya permission
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValueOnce({
       activePermissions: [
@@ -252,11 +250,9 @@ describe('PermissionGuard', () => {
     );
     expect(await guard.canActivate(ctx1)).toBe(true);
 
-    // Simulasi: superadmin hapus permission → cache di-invalidate
     permissionCache.invalidate(123);
     permissionCache.get.mockReturnValue(null); // cache miss setelah invalidate
 
-    // DB sekarang return tanpa 'create'
     rbacService.buildActiveRoleAndPermissions.mockResolvedValueOnce({
       activePermissions: [{ resource: 'naskah-dinas', actions: ['read'] }], // create dihapus
       activeRole: { id: 'r1', name: RoleName.USER },
@@ -272,9 +268,6 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx2)).rejects.toThrow(ForbiddenException);
   });
 
-  // ============================================================
-  // RBAC hardening: resource baru (master-data, laporan, konfigurasi, delegasi)
-  // ============================================================
   it('should allow ADMIN with master-data.create permission', async () => {
     permissionCache.get.mockReturnValue(null);
     rbacService.buildActiveRoleAndPermissions.mockResolvedValue({

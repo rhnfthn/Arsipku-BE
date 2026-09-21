@@ -37,9 +37,6 @@ export class RbacController {
     private readonly jwtService: JwtService,
   ) {}
 
-  // ============================================================
-  // Debug / me — ambil info RBAC dari JWT
-  // ============================================================
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -56,9 +53,6 @@ export class RbacController {
     };
   }
 
-  // ============================================================
-  // Roles
-  // ============================================================
 
   @Get('roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -123,9 +117,6 @@ export class RbacController {
     return { success: true, message: 'Role deleted' };
   }
 
-  // ============================================================
-  // Resource & Permissions
-  // ============================================================
 
   @Get('resources')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -166,9 +157,6 @@ export class RbacController {
     };
   }
 
-  // ============================================================
-  // Role <-> Permission assignment (matrix)
-  // ============================================================
 
   @Get('matrix')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -257,9 +245,6 @@ export class RbacController {
     return { success: true, message: 'Permissions assigned to role' };
   }
 
-  // ============================================================
-  // User <-> Role assignment
-  // ============================================================
 
   /**
    * Bug B6 fix: GET /rbac/users — list semua user dengan role (pagination, search, filter).
@@ -383,9 +368,6 @@ export class RbacController {
     };
   }
 
-  // ============================================================
-  // Batch: ambil role prioritas untuk list persnum (default USER)
-  // ============================================================
 
   @Post('users/roles-batch')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -400,9 +382,6 @@ export class RbacController {
     return { success: true, data };
   }
 
-  // ============================================================
-  // Switch role (re-sign JWT)
-  // ============================================================
 
   @Post('switch-role')
   @UseGuards(JwtAuthGuard)

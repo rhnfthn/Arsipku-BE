@@ -1,4 +1,3 @@
-// AUTO-GENERATED from doc/rbac Excel files — do not edit manually
 export interface MatrixPermission {
   action: string;
   label: string;

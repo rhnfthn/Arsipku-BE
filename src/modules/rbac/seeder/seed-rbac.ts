@@ -19,14 +19,8 @@ import { laporanResources } from './laporan-matrix';
 import { faqResources } from './faq-matrix';
 import { compatibilityResources } from './permission-catalog';
 
-// Load .env dari root arsipku-be
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
-// ============================================================
-// Definisi 19 resource + permission per resource (URS Poin 12)
-// 15 original + 4 baru (master-data, laporan, konfigurasi, delegasi)
-// + action arsip-aktif.delete
-// ============================================================
 
 interface PermDef {
   action: string;
@@ -586,14 +580,7 @@ const resourcesWithPermissions: ResourceDef[] = [
   ...compatibilityResources,
 ];
 
-// ============================================================
-// Assignment permission per role (sesuai matriks §7.2 rbac.md)
-// SUPERADMIN: ALL permission (dari definisi resources) — tidak ada bypass guard
-// ADMIN: operasional full
-// USER: create naskah + view arsip + request penomoran
-// ============================================================
 
-// Build permissions from resourcesWithPermissions
 const basePermissions = resourcesWithPermissions.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
@@ -632,13 +619,8 @@ const legacyMatrixResources = [
   ...utamaResources.map((resource) => ({
     ...resource,
     permissions: resource.permissions.filter(
-      (permission) =>
-        ![
-          'sde-masal.create',
-          'sde-masal.update',
-          'sde-masal.finalize',
-          'sde-masal.delete',
-        ].includes(`${resource.name}.${permission.action}`),
+      (permission) => resource.name !== 'sde-masal' ||
+        ['read', 'read-verification'].includes(permission.action),
     ),
   })),
   ...shareResources,
@@ -653,6 +635,10 @@ const legacyNonKelolaPermissions = Array.from(
       r.permissions.map((p) => `${r.name}.${p.action}`),
     ),
   ]),
+);
+const userLegacyNonKelolaPermissions = legacyNonKelolaPermissions.filter(
+  (permission) => !permission.startsWith('sde-masal.') ||
+    ['sde-masal.read', 'sde-masal.read-verification'].includes(permission),
 );
 
 // Pada sidebar ADMIN, Data Master tidak dibuka sebagai menu penuh. Fitur yang
@@ -677,7 +663,7 @@ const legacyAdminPermissions = Array.from(
 // User mempertahankan baseline lama tanpa CRUD Template.
 const userPermissionsWithKelola = Array.from(
   new Set([
-    ...legacyNonKelolaPermissions,
+    ...userLegacyNonKelolaPermissions,
     ...kelolaRolePermissionAssignments.USER,
     ...tugasRolePermissionAssignments.USER,
   ]),
@@ -698,9 +684,6 @@ const roleDescriptions: Record<RoleName, string> = {
     'User biasa: penciptaan naskah, viewing arsip, pengajuan penomoran',
 };
 
-// ============================================================
-// DataSource config dari environment
-// ============================================================
 
 function buildDataSource(): DataSource {
   const env = process.env;
@@ -732,7 +715,6 @@ async function main() {
   const permRepo = dataSource.getRepository(PermissionEntity);
   const rpRepo = dataSource.getRepository(RolePermissionEntity);
 
-  // 1. Upsert 3 role
   const roles: Record<string, RoleEntity> = {};
   for (const name of [RoleName.SUPERADMIN, RoleName.ADMIN, RoleName.USER]) {
     let role = await roleRepo.findOne({ where: { name } });
@@ -750,7 +732,6 @@ async function main() {
   }
   console.log('✅ 3 roles upserted');
 
-  // 2. Upsert resources + permissions (idempotent by name)
   const permIdByName = new Map<string, string>();
   for (const rDef of resourcesWithPermissions) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
@@ -828,7 +809,6 @@ async function main() {
     `✅ ${matrixResources.length} menu matrix resources added (total permissions: ${permIdByName.size})`,
   );
 
-  // 3. Assign permissions to roles (replace per role)
   for (const [roleName, permNames] of Object.entries(
     rolePermissionAssignments,
   )) {
@@ -862,8 +842,6 @@ async function main() {
     console.log(`✅ ${permNames.length} permissions assigned to ${roleName}`);
   }
 
-  // 4. Cleanup legacy resources & permissions yang sudah tidak dipakai
-  //    (resource 'helpdesk' & 'sekretaris' sudah diganti/dihapus dari seeder).
   const legacyResourceNames = [
     'helpdesk',
     'sekretaris',
@@ -871,7 +849,6 @@ async function main() {
     'pemusnahan',
     'surat-keluar-eksternal',
   ];
-  // Permission lama yang sudah dihapus dari seeder (fitur tidak ada)
   const legacyPermissionNames = [
     'arsip-aktif.borrow',
     'arsip-aktif.return',
@@ -905,7 +882,6 @@ async function main() {
       where: { name: legacyName },
     });
     if (!legacyResource) continue;
-    // Hapus semua role_permission yang menunjuk ke permission dari resource ini
     const legacyPerms = await permRepo.find({
       where: { resourceId: legacyResource.id },
     });

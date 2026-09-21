@@ -72,10 +72,8 @@ describe('RbacService', () => {
       cleanupExpired: jest.fn(),
     };
 
-    // Mock DataSource transaction — panggil callback dengan txManager
     txManager = {
       getRepository: jest.fn((entity: any) => {
-        // Return mock repo sesuai entity
         if (entity === RolePermissionEntity) return rolePermissionRepo;
         if (entity === RbacUserRoleEntity) return rbacUserRoleRepo;
         if (entity === RoleEntity) return roleRepo;
@@ -128,9 +126,6 @@ describe('RbacService', () => {
     expect(service).toBeDefined();
   });
 
-  // ============================================================
-  // B5: assignPermissionsToRole — transaction + diff
-  // ============================================================
   describe('assignPermissionsToRole (B5: transaction + diff)', () => {
     it('should add only new permissions (diff)', async () => {
       rolePermissionRepo.find.mockResolvedValue([
@@ -138,12 +133,9 @@ describe('RbacService', () => {
         { id: 'rp-2', roleId: 'role-1', permissionId: 'perm-2' },
       ]);
 
-      // new: perm-1 (existing), perm-3 (new)
       await service.assignPermissionsToRole('role-1', ['perm-1', 'perm-3']);
 
-      // toRemove: perm-2 (not in new)
       expect(rolePermissionRepo.delete).toHaveBeenCalledWith(['rp-2']);
-      // toAdd: perm-3
       expect(rolePermissionRepo.save).toHaveBeenCalledWith([
         expect.objectContaining({ roleId: 'role-1', permissionId: 'perm-3' }),
       ]);
@@ -192,9 +184,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // B3: deleteRole — pre-check user assigned
-  // ============================================================
   describe('deleteRole (B3: pre-check user assigned)', () => {
     it('should throw BadRequestException when role still has active users', async () => {
       rbacUserRoleRepo.count.mockResolvedValue(3);
@@ -215,9 +204,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // B4: assignRoleToUser — throw duplicate active
-  // ============================================================
   describe('assignRoleToUser (B4: throw duplicate active)', () => {
     it('should throw BadRequestException when role already active', async () => {
       rbacUserRoleRepo.findOne.mockResolvedValue({
@@ -283,9 +269,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // removeRoleFromUser (B9: last superadmin protection)
-  // ============================================================
   describe('removeRoleFromUser', () => {
     it('should delete assignment for non-SUPERADMIN role', async () => {
       roleRepo.findOne.mockResolvedValue({
@@ -359,9 +342,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // getActiveRolesForPersnums
-  // ============================================================
   describe('getActiveRolesForPersnums', () => {
     it('should return empty map for empty input', async () => {
       const result = await service.getActiveRolesForPersnums([]);
@@ -390,9 +370,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // B7: findUserProfile
-  // ============================================================
   describe('findUserProfile (B7)', () => {
     it('should return profile when person exists', async () => {
       personRepo.findOne.mockResolvedValue({ persnum: 123, name: 'John Doe' });
@@ -415,9 +392,6 @@ describe('RbacService', () => {
     });
   });
 
-  // ============================================================
-  // B6: findAllUserRoles
-  // ============================================================
   describe('findAllUserRoles (B6)', () => {
     it('should return paginated list', async () => {
       rbacUserRoleRepo.createQueryBuilder.mockReturnValue({

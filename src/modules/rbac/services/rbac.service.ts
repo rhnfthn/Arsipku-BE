@@ -86,7 +86,6 @@ export class RbacService {
     });
 
     if (userRoles.length === 0) {
-      // Default USER
       const userRole = await this.roleRepo.findOne({
         where: { name: RoleName.USER },
         relations: [
@@ -156,9 +155,6 @@ export class RbacService {
     });
   }
 
-  // ============================================================
-  // CRUD Role
-  // ============================================================
 
   async findAllRoles(): Promise<RoleEntity[]> {
     return this.roleRepo.find({
@@ -215,7 +211,6 @@ export class RbacService {
    * Jika tidak dipakai → hapus role_permission dulu, lalu hapus role (atomic via transaction).
    */
   async deleteRole(id: string): Promise<void> {
-    // 1. Cek apakah role masih dipakai user aktif
     const userCount = await this.rbacUserRoleRepo.count({
       where: { roleId: id, active: true },
     });
@@ -226,14 +221,12 @@ export class RbacService {
       );
     }
 
-    // 2. Hapus role_permission & role dalam transaction (atomic)
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(RolePermissionEntity).delete({ roleId: id });
       await manager.getRepository(RbacUserRoleEntity).delete({ roleId: id });
       await manager.getRepository(RoleEntity).delete(id);
     });
 
-    // 3. Invalidate cache (jika ada user yang sebelumnya punya role ini nonaktif)
     this.permissionCache.invalidateAll();
   }
 
@@ -293,13 +286,10 @@ export class RbacService {
       const existingIds = new Set(existing.map((rp) => rp.permissionId));
       const newIds = new Set(permissionIds);
 
-      // Diff: hanya yang berubah (dedupe permissionIds via Set)
       const toAdd = [
         ...new Set(permissionIds.filter((id) => !existingIds.has(id))),
       ];
 
-      // Hanya hapus permission yang ada dalam scope matrix (jika diberikan).
-      // Permission di luar scope matrix dipertahankan.
       const scopeSet = matrixPermissionIds
         ? new Set(matrixPermissionIds)
         : null;
@@ -325,9 +315,7 @@ export class RbacService {
       }
     });
 
-    // Invalidate semua cache — user dengan role ini harus re-query permission
     this.permissionCache.invalidateAll();
-    // Real-time: emit ke semua user dengan role ini agar FE refresh permission
     try {
       const role = await this.roleRepo.findOne({ where: { id: roleId } });
       if (role) {
@@ -339,9 +327,6 @@ export class RbacService {
     } catch {}
   }
 
-  // ============================================================
-  // Resource & Permission (read-only untuk UI matrix)
-  // ============================================================
 
   async findAllResources(): Promise<ResourceEntity[]> {
     return this.resourceRepo.find({
@@ -357,9 +342,6 @@ export class RbacService {
     });
   }
 
-  // ============================================================
-  // Matrix (Excel-style tree)
-  // ============================================================
 
   async findUtamaMatrix(roleId?: string): Promise<{
     tree: any;
@@ -460,7 +442,6 @@ export class RbacService {
       idToName.set(p.id, p.name);
     }
 
-    // Build tree with permissionIds injected
     const buildTree = (nodes: MatrixHalaman[]): MatrixHalaman[] => {
       return nodes.map((node) => ({
         ...node,
@@ -503,9 +484,6 @@ export class RbacService {
     };
   }
 
-  // ============================================================
-  // User-Role assignment
-  // ============================================================
 
   async findUserRoles(persnum: number): Promise<RbacUserRoleEntity[]> {
     return this.rbacUserRoleRepo.find({
@@ -607,7 +585,6 @@ export class RbacService {
       createdAt: ur.createdAt,
     }));
 
-    // Fill name & positionText dari person (bulk query untuk hindari N+1)
     if (data.length > 0) {
       const persnums = data.map((d) => d.persnum);
       const persons = await this.personRepo.find({
@@ -631,7 +608,6 @@ export class RbacService {
     roleId: string,
     unitKerja?: string | null,
   ): Promise<RbacUserRoleEntity> {
-    // Bug B4 fix: throw error jika user sudah punya role ini & active
     const existing = await this.rbacUserRoleRepo.findOne({
       where: { persnum, roleId, unitKerja: unitKerja ?? (null as any) },
     });
@@ -642,8 +618,6 @@ export class RbacService {
       );
     }
 
-    // Validasi: 1 user hanya boleh 1 role aktif.
-    // Hapus (deactivate) semua role aktif lain sebelum assign role baru.
     const activeRoles = await this.rbacUserRoleRepo.find({
       where: { persnum, active: true },
     });
@@ -655,7 +629,6 @@ export class RbacService {
 
     let result: RbacUserRoleEntity;
     if (existing && !existing.active) {
-      // Re-activate jika sebelumnya dinonaktifkan
       existing.active = true;
       result = await this.rbacUserRoleRepo.save(existing);
     } else {
@@ -668,9 +641,7 @@ export class RbacService {
       });
       result = await this.rbacUserRoleRepo.save(row);
     }
-    // Bug B1 fix: invalidate cache user ini agar permission baru efektif segera
     this.permissionCache.invalidate(persnum);
-    // Real-time: emit ke user yg di-assign agar FE auto-refresh profile
     try {
       const assignedRole = await this.roleRepo.findOne({
         where: { id: roleId },
@@ -684,15 +655,12 @@ export class RbacService {
   }
 
   async removeRoleFromUser(persnum: number, roleId: string): Promise<void> {
-    // Bug B9 fix: proteksi "last superadmin" — sistem harus punya minimal 1 superadmin
     const role = await this.roleRepo.findOne({ where: { id: roleId } });
     if (role?.name === RoleName.SUPERADMIN) {
-      // Cek apakah user ini benar-benar punya role SUPERADMIN aktif
       const userHasSuperadmin = await this.rbacUserRoleRepo.findOne({
         where: { persnum, roleId, active: true },
       });
       if (userHasSuperadmin) {
-        // Hitung total superadmin aktif
         const superadminCount = await this.rbacUserRoleRepo.count({
           where: { roleId, active: true },
         });
@@ -706,9 +674,7 @@ export class RbacService {
     }
 
     await this.rbacUserRoleRepo.delete({ persnum, roleId });
-    // Bug B1 fix: invalidate cache user ini
     this.permissionCache.invalidate(persnum);
-    // Real-time: emit ke user yg di-remove agar FE auto-refresh profile
     try {
       this.notificationGateway.emitRbacRoleChanged(persnum, {
         action: 'removed',
@@ -733,7 +699,6 @@ export class RbacService {
       relations: ['role'],
     });
 
-    // group per persnum → ambil role dengan prioritas tertinggi
     const perUser = new Map<number, string[]>();
     for (const row of rows) {
       const arr = perUser.get(row.persnum) ?? [];

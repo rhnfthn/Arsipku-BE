@@ -43,7 +43,6 @@ async function main() {
   const permRepo = dataSource.getRepository(PermissionEntity);
   const rpRepo = dataSource.getRepository(RolePermissionEntity);
 
-  // 1. Upsert resources + permissions (idempotent by name)
   const permIdByName = new Map<string, string>();
   for (const rDef of utamaResources) {
     let resource = await resourceRepo.findOne({ where: { name: rDef.name } });
@@ -171,7 +170,6 @@ async function main() {
     `✅ Utama + Kelola + Tugas matrix: ${utamaResources.length + kelolaResources.length + tugasResources.length} resources + ${permIdByName.size} permissions upserted`,
   );
 
-  // 2. Assign all Utama permissions to SUPERADMIN (additive)
   const superadmin = await roleRepo.findOne({
     where: { name: RoleName.SUPERADMIN },
   });
