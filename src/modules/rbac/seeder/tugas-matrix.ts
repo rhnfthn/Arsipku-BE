@@ -27,7 +27,7 @@ export const tugasSuperAdminPermissions = tugasResources.flatMap((resource) =>
 
 /** Assignment default untuk menu Tugas. */
 export const tugasRolePermissionAssignments: Record<'ADMIN' | 'USER', string[]> = {
-  ADMIN: ['tugas.read-board', 'tugas.read-my-tasks'],
+  ADMIN: tugasSuperAdminPermissions,
   USER: tugasSuperAdminPermissions,
 };
 
