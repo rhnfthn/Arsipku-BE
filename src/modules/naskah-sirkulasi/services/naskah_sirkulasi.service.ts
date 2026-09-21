@@ -831,9 +831,6 @@ export class NaskahSirkulasiService {
     };
   }
 
-  // ============================================================
-  // INBOX NAVIGATION - Previous & Next pesan kotak masuk
-  // ============================================================
 
   /**
    * Get naskah previous & next dari sebuah naskah di kotak masuk user.
@@ -905,8 +902,6 @@ export class NaskahSirkulasiService {
       s.created_at
     )`;
 
-    // 1) Validasi: pastikan user memang punya akses ke naskah ini
-    //    (sebagai penerima/tembusan, bukan draft, status final/final_tte)
     const accessCheck = `
       SELECT s.id_naskah
       FROM naskah_sirkulasi s
@@ -932,7 +927,6 @@ export class NaskahSirkulasiService {
       };
     }
 
-    // 2) Ambil created_at pengirim untuk naskah acuan
     const refQuery = `
       SELECT ${orderExpr} AS ref_created_at, s.id AS ref_sirkulasi_id
       FROM naskah_sirkulasi s
@@ -954,7 +948,6 @@ export class NaskahSirkulasiService {
     const refCreatedAt = refRows[0].ref_created_at;
     const refSirkulasiId = refRows[0].ref_sirkulasi_id;
 
-    // 3) Build base where clause (hanya pesan yang user punya akses, exclude arsip)
     const baseWhere = `
       WHERE s.position = ?
         AND s.sirkuler IN ('penerima', 'tembusan')
@@ -968,10 +961,6 @@ export class NaskahSirkulasiService {
     const jenisClause = jenis ? ` AND n.jenis = ?` : '';
     const jenisParams = jenis ? [jenis] : [];
 
-    // 4) Ambil satu naskah SEBELUM (lebih lama) dan satu SESUDAH (lebih baru).
-    //    Karena inbox default DESC (terbaru di atas), maka:
-    //      - "next"     = naskah lebih baru (created_at > ref)
-    //      - "previous" = naskah lebih lama (created_at < ref)
     const navSelect = `
       SELECT
         s.id_naskah,
@@ -994,7 +983,6 @@ export class NaskahSirkulasiService {
       LIMIT 1
     `;
 
-    // previous (lebih lama): created_at < refCreatedAt, urut DESC ambil baris pertama
     const prevQuery = navSelect
       .replace(/<op>/g, '<')
       .replace(/<id_op>/g, '<')
@@ -1007,7 +995,6 @@ export class NaskahSirkulasiService {
       refSirkulasiId,
     ]);
 
-    // next (lebih baru): created_at > refCreatedAt, urut ASC ambil baris pertama
     const nextQuery = navSelect
       .replace(/<op>/g, '>')
       .replace(/<id_op>/g, '>')
@@ -2066,9 +2053,6 @@ export class NaskahSirkulasiService {
     };
   }
 
-  // ============================================================
-  // SENT NAVIGATION - Previous & Next pesan terkirim (kotak keluar)
-  // ============================================================
 
   /**
    * Get naskah previous & next dari sebuah naskah di kotak keluar (terkirim) user.
@@ -2147,7 +2131,6 @@ export class NaskahSirkulasiService {
       END
     `;
 
-    // 1) Validasi akses: user harus pengirim naskah ini (non-draft, non-konsep, final)
     const accessCheck = `
       SELECT s.id_naskah
       FROM naskah_sirkulasi s
@@ -2192,7 +2175,6 @@ export class NaskahSirkulasiService {
     const refCreatedAt = refRows[0].ref_created_at;
     const refSirkulasiId = refRows[0].ref_sirkulasi_id;
 
-    // 3) Base where clause (hanya pesan terkirim user, exclude arsip)
     const baseWhere = `
       WHERE s.position = ?
         AND s.sirkuler = 'pengirim'
@@ -2208,7 +2190,6 @@ export class NaskahSirkulasiService {
 
     const orderExpr = activityAtExpr;
 
-    // 4) Ambil satu naskah SEBELUM (lebih lama) dan satu SESUDAH (lebih baru).
     const navSelect = `
       SELECT
         s.id_naskah,
@@ -2229,7 +2210,6 @@ export class NaskahSirkulasiService {
       LIMIT 1
     `;
 
-    // previous (lebih lama): created_at < refCreatedAt, urut DESC ambil baris pertama
     const prevQuery = navSelect
       .replace(/<op>/g, '<')
       .replace(/<id_op>/g, '<')
@@ -2242,7 +2222,6 @@ export class NaskahSirkulasiService {
       refSirkulasiId,
     ]);
 
-    // next (lebih baru): created_at > refCreatedAt, urut ASC ambil baris pertama
     const nextQuery = navSelect
       .replace(/<op>/g, '>')
       .replace(/<id_op>/g, '>')
@@ -2277,9 +2256,6 @@ export class NaskahSirkulasiService {
     };
   }
 
-  // ============================================================
-  // TERTUNDA NAVIGATION - Previous & Next surat tertunda
-  // ============================================================
 
   /**
    * Get naskah previous & next dari sebuah naskah di daftar tertunda user.
@@ -2320,7 +2296,6 @@ export class NaskahSirkulasiService {
       } | null;
     };
   }> {
-    // 1) Validasi akses: user harus pengirim naskah tertunda ini
     const accessCheck = `
       SELECT s.id_naskah
       FROM naskah_sirkulasi s
@@ -2345,7 +2320,6 @@ export class NaskahSirkulasiService {
       };
     }
 
-    // 2) Ambil created_at pengirim untuk naskah acuan
     const refRows: any[] = await this.dataSource.query(
       `SELECT s.created_at AS ref_created_at
        FROM naskah_sirkulasi s
@@ -2362,7 +2336,6 @@ export class NaskahSirkulasiService {
     }
     const refCreatedAt = refRows[0].ref_created_at;
 
-    // 3) Base where clause (hanya tertunda user, exclude arsip)
     const baseWhere = `
       WHERE s.position = ?
         AND s.sirkuler = 'pengirim'
@@ -2394,7 +2367,6 @@ export class NaskahSirkulasiService {
       LIMIT 1
     `;
 
-    // previous (lebih lama)
     const prevQuery = navSelect.replace(/<op>/g, '<').replace(/<dir>/g, 'DESC');
     const prevRows: any[] = await this.dataSource.query(prevQuery, [
       ...baseParams,
@@ -2403,7 +2375,6 @@ export class NaskahSirkulasiService {
       refCreatedAt,
     ]);
 
-    // next (lebih baru)
     const nextQuery = navSelect.replace(/<op>/g, '>').replace(/<dir>/g, 'ASC');
     const nextRows: any[] = await this.dataSource.query(nextQuery, [
       ...baseParams,
