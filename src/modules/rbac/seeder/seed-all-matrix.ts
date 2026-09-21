@@ -483,16 +483,15 @@ async function main() {
     );
   }
 
-  // 4c. ADMIN memakai baseline hanya saat role baru. USER selalu mendapatkan
-  // seluruh permission Tugas agar assignment lama yang hanya Read ikut terbarui.
+  // 4c. ADMIN dan USER selalu mendapatkan seluruh permission Tugas agar
+  // assignment lama yang hanya Read ikut terbarui.
   for (const roleName of [RoleName.ADMIN, RoleName.USER] as const) {
     const existingCount = await rpRepo.count({
       where: { roleId: roles[roleName].id },
     });
-    if (existingCount > 0 && roleName === RoleName.ADMIN) continue;
 
-    const names = existingCount > 0 && roleName === RoleName.USER
-      ? tugasRolePermissionAssignments.USER
+    const names = existingCount > 0
+      ? tugasRolePermissionAssignments[roleName]
       : [
           ...kelolaRolePermissionAssignments[roleName],
           ...tugasRolePermissionAssignments[roleName],
