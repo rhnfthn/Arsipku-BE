@@ -263,9 +263,6 @@ export class AuthService {
 
     const legacyRole = userRole?.role || 'user';
 
-    // ================================================================
-    // 3b. Build RBAC context (activeRole, activePermissions, roles)
-    // ================================================================
     const rbacCtx = await this.buildRbacContext(persnum);
     const role = rbacCtx.role || legacyRole;
 
@@ -447,9 +444,6 @@ export class AuthService {
     const legacyRole = userRole?.role || 'user';
     console.log('[AuthService] User role (legacy):', legacyRole);
 
-    // ================================================================
-    // 3b. Build RBAC context (activeRole, activePermissions, roles)
-    // ================================================================
     const rbacCtx = await this.buildRbacContext(persnum);
     const role = rbacCtx.role || legacyRole;
     console.log('[AuthService] User role (final):', role);
@@ -1161,7 +1155,6 @@ export class AuthService {
 
     const legacyRole = userRole?.role || 'user';
 
-    // Build fresh RBAC context
     const rbacCtx = await this.buildRbacContext(payload.persnum);
     const role = rbacCtx.role || legacyRole;
 

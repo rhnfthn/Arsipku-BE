@@ -22,7 +22,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
-    // Log 5xx errors to console with stack trace
     if (status >= 500) {
       const request = ctx.getRequest<{ method?: string; url?: string }>();
       const method = request?.method ?? 'UNKNOWN';
