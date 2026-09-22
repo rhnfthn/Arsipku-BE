@@ -143,6 +143,30 @@ export class AuthController {
     return res.redirect(login.url);
   }
 
+  /** Dapatkan URL Login Auth v2 (Authorization Code + PKCE) tanpa redirect. */
+  @Public()
+  @SkipTransform()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @Get('login-url')
+  async getLoginUrlV2(
+    @Query('redirect') returnTo: string | undefined,
+    @Query('origin') frontendOrigin: string | undefined,
+    @Res() res: Response,
+  ) {
+    const login = await this.authService.beginOidcLogin(
+      returnTo,
+      frontendOrigin,
+    );
+    // Masih set cookie sebagai backup, namun fokusnya adalah mengembalikan JSON.
+    res.cookie(this.oidcCookieName, login.sessionId, this.oidcCookieOptions);
+    return res.json({
+      success: true,
+      url: login.url,
+      sessionId: login.sessionId,
+    });
+  }
+
   /** Callback server-side: browser tidak pernah menerima token provider. */
   @Public()
   @SkipTransform()
