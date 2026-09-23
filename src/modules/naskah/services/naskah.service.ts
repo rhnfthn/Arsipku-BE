@@ -969,7 +969,9 @@ export class NaskahService {
             position_text: pengirimSirkulasi.positionText || '',
             organization_text: pengirimSirkulasi.organizationText || '',
             nama: pengirimSirkulasi.namaSirkuler || null,
-            persnum: pengirimSirkulasi.idSirkuler || null,
+            persnum: pengirimSirkulasi.idSirkuler
+              ? parseInt(pengirimSirkulasi.idSirkuler, 10) || 0
+              : 0,
           }
         : null;
 
@@ -979,8 +981,8 @@ export class NaskahService {
         position_text: p.positionText || '',
         organization_text: p.organizationText || '',
         nama: p.namaSirkuler || null,
-        persnum: p.idSirkuler || null,
         email: p.email || null,
+        persnum: p.idSirkuler ? parseInt(p.idSirkuler, 10) || 0 : 0,
         status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
@@ -991,8 +993,8 @@ export class NaskahService {
         position_text: t.positionText || '',
         organization_text: t.organizationText || '',
         nama: t.namaSirkuler || null,
-        persnum: t.idSirkuler || null,
         email: t.email || null,
+        persnum: t.idSirkuler ? parseInt(t.idSirkuler, 10) || 0 : 0,
         status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
       }));
