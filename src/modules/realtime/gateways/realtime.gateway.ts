@@ -12,6 +12,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
 import { Server, Socket } from 'socket.io';
+import type { ConfigThemeView } from '../../config/services/config-theme.service';
 import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { RealtimeSyncService } from '../services/realtime-sync.service';
@@ -301,6 +302,12 @@ export class RealtimeGateway
   emitBsreAlert(payload: any) {
     if (!this.server) return;
     this.server.emit('bsre:alert', payload);
+  }
+
+  /** Emit tema beranda aktif — broadcast ke semua connected clients. */
+  emitSystemTheme(payload: ConfigThemeView | null) {
+    if (!this.server) return;
+    this.server.emit('theme:changed', payload);
   }
 
   /**

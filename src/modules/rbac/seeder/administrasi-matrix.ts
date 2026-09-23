@@ -557,6 +557,24 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
           ],
         },
         {
+          key: 'tema-beranda',
+          label: 'Tema Beranda',
+          fiturs: [
+            {
+              key: 'read',
+              label: 'Read',
+              permissions: [
+                {
+                  action: 'read-tema',
+                  label: 'Read',
+                  description: 'Melihat konfigurasi tema beranda',
+                  resource: 'konfigurasi',
+                },
+              ],
+            },
+          ],
+        },
+        {
           key: 'unit-tu',
           label: 'Unit TU',
           fiturs: [

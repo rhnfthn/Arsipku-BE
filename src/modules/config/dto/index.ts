@@ -8,3 +8,8 @@ export {
   ToggleBannerDto,
 } from './message.dto';
 export { UpdateSearchConfigDto } from './update-search-config.dto';
+export {
+  CreateConfigThemeDto,
+  UpdateConfigThemeDto,
+  SetManualThemeDto,
+} from './config-theme.dto';
