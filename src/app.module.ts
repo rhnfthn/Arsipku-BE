@@ -186,9 +186,9 @@ import { TugasModule } from './modules/tugas/tugas.module';
     }),
     // ─── Audit Trail DB (MongoDB: arsipku_audit) ────────────────────────────
     // Database audit trail pindah ke MongoDB. Data utama Arsipku tetap di MySQL.
-    // Aktif/nonaktif via env: MONGODB_ENABLED=true|false (default: nonaktif).
+    // Aktif ketika URI tersedia, kecuali dinonaktifkan secara eksplisit.
     // Saat nonaktif, audit service no-op (model di-inject @Optional).
-    ...(process.env.MONGODB_ENABLED === 'true'
+    ...(process.env.MONGODB_ENABLED !== 'false' && process.env.MONGODB_URI
       ? [
           MongooseModule.forRootAsync({
             imports: [ConfigModule],

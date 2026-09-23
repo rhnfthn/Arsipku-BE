@@ -134,9 +134,12 @@ export class SdeMasalService {
       const positions = await this.getLatestOrgPositions();
       const creator = positions.find(
         (position) =>
-          String(position?.position ?? '').trim() === String(creatorPosition).trim(),
+          String(position?.position ?? '').trim() ===
+          String(creatorPosition).trim(),
       );
-      const creatorPositionText = String(creator?.position_text || '').toUpperCase();
+      const creatorPositionText = String(
+        creator?.position_text || '',
+      ).toUpperCase();
       const isManagerial =
         this.getVerificationRoleRank(creatorPositionText) !== null ||
         /\bDIREKTUR\b|\bMANAGER\b|\bCHIEF\b/.test(creatorPositionText);
@@ -178,7 +181,9 @@ export class SdeMasalService {
       // Posisi dari token adalah sumber utama. Jangan bergantung pada
       // createdBy dari frontend agar notifikasi pengembalian selalu kembali
       // ke konseptor yang membuat folder.
-      createdBy: creatorPosition ? String(creatorPosition) : dto.createdBy || null,
+      createdBy: creatorPosition
+        ? String(creatorPosition)
+        : dto.createdBy || null,
     });
     const saved = await this.folderRepo.save(entity);
 
@@ -273,7 +278,9 @@ export class SdeMasalService {
       creatorPosition &&
       String(folder.createdBy || '') !== String(creatorPosition || '')
     ) {
-      throw new ForbiddenException('Hanya konseptor folder yang dapat mengubahnya');
+      throw new ForbiddenException(
+        'Hanya konseptor folder yang dapat mengubahnya',
+      );
     }
     // Folder yang pernah ditolak pengirim dapat sudah telanjur tersimpan
     // sebagai MENUNGGU_PENGIRIM/SEBAGIAN_TERKIRIM oleh sinkronisasi versi
@@ -286,7 +293,9 @@ export class SdeMasalService {
       folder.status = 'DIKEMBALIKAN';
     }
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
-      throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
+      throw new BadRequestException(
+        'Folder tidak dapat diubah pada status saat ini',
+      );
     }
 
     if (data.judul !== undefined) folder.judul = data.judul.trim();
@@ -326,13 +335,16 @@ export class SdeMasalService {
    * Untuk setiap baris penerima yang valid, insert 1 record `sde_masal`
    * dengan folderId + recipientData (JSON). Naskah dibuat saat finalize.
    */
-  async generateMassal(body: {
-    folderId?: string;
-    konsep?: any;
-    penerimaList: any[];
-    template?: any;
-    createdBy?: string;
-  }, creatorPosition?: string | number): Promise<{
+  async generateMassal(
+    body: {
+      folderId?: string;
+      konsep?: any;
+      penerimaList: any[];
+      template?: any;
+      createdBy?: string;
+    },
+    creatorPosition?: string | number,
+  ): Promise<{
     total: number;
     success: number;
     failed: number;
@@ -343,13 +355,16 @@ export class SdeMasalService {
     );
   }
 
-  private async generateMassalLocked(body: {
-    folderId?: string;
-    konsep?: any;
-    penerimaList: any[];
-    template?: any;
-    createdBy?: string;
-  }, creatorPosition?: string | number): Promise<{
+  private async generateMassalLocked(
+    body: {
+      folderId?: string;
+      konsep?: any;
+      penerimaList: any[];
+      template?: any;
+      createdBy?: string;
+    },
+    creatorPosition?: string | number,
+  ): Promise<{
     total: number;
     success: number;
     failed: number;
@@ -374,10 +389,14 @@ export class SdeMasalService {
       creatorPosition &&
       String(folder.createdBy || '') !== String(creatorPosition || '')
     ) {
-      throw new ForbiddenException('Hanya konseptor folder yang dapat mengubahnya');
+      throw new ForbiddenException(
+        'Hanya konseptor folder yang dapat mengubahnya',
+      );
     }
     if (folder && !['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
-      throw new BadRequestException('Folder tidak dapat diubah pada status saat ini');
+      throw new BadRequestException(
+        'Folder tidak dapat diubah pada status saat ini',
+      );
     }
 
     // Request ulang untuk folder yang sama harus idempotent. `no` adalah
@@ -434,7 +453,9 @@ export class SdeMasalService {
           folderId: body.folderId || null,
           recipientData: JSON.stringify(normalizedRecipient),
           statusVerifikasi: 'MENUNGGU',
-          createdBy: creatorPosition ? String(creatorPosition) : body.createdBy || null,
+          createdBy: creatorPosition
+            ? String(creatorPosition)
+            : body.createdBy || null,
         });
         items.push(item);
       } catch (err) {
@@ -471,7 +492,12 @@ export class SdeMasalService {
     digsigBatch?: DigsigBatchContext,
     portalUser?: JwtPayload,
     deferPortalRequest = false,
-  ): Promise<{ naskahId: string; nomor: string; status: string; finalPdf?: string }> {
+  ): Promise<{
+    naskahId: string;
+    nomor: string;
+    status: string;
+    finalPdf?: string;
+  }> {
     const item = await this.repo.findOne({ where: { id: sdeMasalId } });
     if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
 
@@ -558,7 +584,10 @@ export class SdeMasalService {
           : undefined,
       lampiran_direct_refs:
         attachmentRefs.length > 0
-          ? attachmentRefs.map((ref) => ({ fileName: ref.fileName, key: ref.key }))
+          ? attachmentRefs.map((ref) => ({
+              fileName: ref.fileName,
+              key: ref.key,
+            }))
           : undefined,
     };
 
@@ -611,23 +640,24 @@ export class SdeMasalService {
 
       // Kirim email otomatis ke alamat dari kolom Excel
       // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
-      if (!deferPortalRequest) void sdeMasalEmailQueue
-        .add(() =>
-          this.sendEmailForItem(
-            data.id,
-            recipient,
-            external,
-            pengirim,
-            folder,
-            creatorPosition,
-            persnum,
-          ),
-        )
-        .catch((error) =>
-          this.logger.warn(
-            `[SDE Masal] Proses email lanjutan gagal untuk ${data.id}: ${error?.message || error}`,
-          ),
-        );
+      if (!deferPortalRequest)
+        void sdeMasalEmailQueue
+          .add(() =>
+            this.sendEmailForItem(
+              data.id,
+              recipient,
+              external,
+              pengirim,
+              folder,
+              creatorPosition,
+              persnum,
+            ),
+          )
+          .catch((error) =>
+            this.logger.warn(
+              `[SDE Masal] Proses email lanjutan gagal untuk ${data.id}: ${error?.message || error}`,
+            ),
+          );
 
       return {
         naskahId: data.id,
@@ -733,10 +763,14 @@ export class SdeMasalService {
       );
     }
     if (!['SEBAGIAN_TERKIRIM', 'MENUNGGU_PENGIRIM'].includes(folder.status)) {
-      throw new BadRequestException('Folder belum berada pada tahap pengiriman');
+      throw new BadRequestException(
+        'Folder belum berada pada tahap pengiriman',
+      );
     }
     if (item.statusVerifikasi !== 'GAGAL') {
-      throw new BadRequestException('Hanya naskah yang gagal yang dapat dikirim ulang');
+      throw new BadRequestException(
+        'Hanya naskah yang gagal yang dapat dikirim ulang',
+      );
     }
 
     const signOption = folder.signOption || 'qr_only';
@@ -821,7 +855,8 @@ export class SdeMasalService {
     const recipient = this.parseRecipientData(item);
     const attachments = this.getAttachmentRefs(item, recipient);
     const attachment = attachments[attachmentIndex];
-    if (!attachment?.key) throw new NotFoundException('Lampiran tidak ditemukan');
+    if (!attachment?.key)
+      throw new NotFoundException('Lampiran tidak ditemukan');
     const buffer = await this.storageService.getFile(attachment.key);
     return {
       buffer,
@@ -847,11 +882,16 @@ export class SdeMasalService {
     reusedCount: number;
   }> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
-    const isSigner = String(creatorPosition || '') === String(folder.pengirimId || '');
-    const isCreator = String(creatorPosition || '') === String(folder.createdBy || '');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    const isSigner =
+      String(creatorPosition || '') === String(folder.pengirimId || '');
+    const isCreator =
+      String(creatorPosition || '') === String(folder.createdBy || '');
     if (!isSigner && !isCreator) {
-      throw new ForbiddenException('Anda bukan pembuat atau penandatangan SDE Massal ini');
+      throw new ForbiddenException(
+        'Anda bukan pembuat atau penandatangan SDE Massal ini',
+      );
     }
     if (!file?.buffer || file.size > MAX_MASS_ATTACHMENT_ZIP_BYTES) {
       throw new BadRequestException('Ukuran ZIP lampiran maksimal 50MB');
@@ -867,21 +907,25 @@ export class SdeMasalService {
       throw new BadRequestException('ZIP lampiran tidak dapat dibaca');
     }
 
-    const entries = Object.entries(zip.files).filter(([entryName, entry]: [string, any]) => {
-      const normalizedPath = entryName.replace(/\\/g, '/');
-      const fileName = normalizedPath.split('/').pop() || '';
-      return (
-        !entry.dir &&
-        !normalizedPath.startsWith('__MACOSX/') &&
-        fileName !== '.DS_Store' &&
-        !fileName.startsWith('._')
-      );
-    });
+    const entries = Object.entries(zip.files).filter(
+      ([entryName, entry]: [string, any]) => {
+        const normalizedPath = entryName.replace(/\\/g, '/');
+        const fileName = normalizedPath.split('/').pop() || '';
+        return (
+          !entry.dir &&
+          !normalizedPath.startsWith('__MACOSX/') &&
+          fileName !== '.DS_Store' &&
+          !fileName.startsWith('._')
+        );
+      },
+    );
     if (entries.length === 0) {
       throw new BadRequestException('ZIP tidak berisi file PDF');
     }
     if (entries.length > MAX_MASS_ATTACHMENT_FILES) {
-      throw new BadRequestException(`Maksimal ${MAX_MASS_ATTACHMENT_FILES} PDF per ZIP`);
+      throw new BadRequestException(
+        `Maksimal ${MAX_MASS_ATTACHMENT_FILES} PDF per ZIP`,
+      );
     }
 
     const files: SdeMasalAttachmentRef[] = [];
@@ -892,11 +936,20 @@ export class SdeMasalService {
 
     for (const [entryName, entry] of entries) {
       const fileName = this.normalizeMassAttachmentName(entryName);
-      if (!fileName || fileName === '.' || fileName === '..' || entryName.includes('..')) {
-        throw new BadRequestException(`Nama file ZIP tidak valid: ${entryName}`);
+      if (
+        !fileName ||
+        fileName === '.' ||
+        fileName === '..' ||
+        entryName.includes('..')
+      ) {
+        throw new BadRequestException(
+          `Nama file ZIP tidak valid: ${entryName}`,
+        );
       }
       if (!/\.pdf$/i.test(fileName)) {
-        throw new BadRequestException(`ZIP hanya boleh berisi PDF: ${fileName}`);
+        throw new BadRequestException(
+          `ZIP hanya boleh berisi PDF: ${fileName}`,
+        );
       }
       const normalizedName = fileName.toLowerCase();
       if (names.has(normalizedName)) {
@@ -910,10 +963,14 @@ export class SdeMasalService {
       }
       totalBytes += buffer.length;
       if (totalBytes > MAX_MASS_ATTACHMENT_TOTAL_BYTES) {
-        throw new BadRequestException('Total ukuran PDF dalam ZIP terlalu besar');
+        throw new BadRequestException(
+          'Total ukuran PDF dalam ZIP terlalu besar',
+        );
       }
       if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
-        throw new BadRequestException(`Isi file bukan PDF yang valid: ${fileName}`);
+        throw new BadRequestException(
+          `Isi file bukan PDF yang valid: ${fileName}`,
+        );
       }
 
       const sha256 = createHash('sha256').update(buffer).digest('hex');
@@ -922,7 +979,11 @@ export class SdeMasalService {
       if (exists) {
         reusedCount++;
       } else {
-        await this.storageService.uploadBufferAtKey(buffer, key, 'application/pdf');
+        await this.storageService.uploadBufferAtKey(
+          buffer,
+          key,
+          'application/pdf',
+        );
         uploadedCount++;
       }
       files.push({
@@ -936,10 +997,16 @@ export class SdeMasalService {
 
     const matched: Record<string, SdeMasalAttachmentRef> = {};
     const requested = Array.from(
-      new Set((requestedFileNames || []).map((name) => this.normalizeMassAttachmentName(name)).filter(Boolean)),
+      new Set(
+        (requestedFileNames || [])
+          .map((name) => this.normalizeMassAttachmentName(name))
+          .filter(Boolean),
+      ),
     );
     for (const requestedName of requested) {
-      const found = files.find((candidate) => candidate.fileName.toLowerCase() === requestedName);
+      const found = files.find(
+        (candidate) => candidate.fileName.toLowerCase() === requestedName,
+      );
       if (found) matched[requestedName] = found;
     }
 
@@ -958,15 +1025,23 @@ export class SdeMasalService {
    */
   async commitMassAttachments(
     folderId: string,
-    payloadItems: Array<{ itemId: string; attachments: SdeMasalAttachmentRef[] }>,
+    payloadItems: Array<{
+      itemId: string;
+      attachments: SdeMasalAttachmentRef[];
+    }>,
     creatorPosition?: string | number,
   ): Promise<{ updated: number; files: number }> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
-    const isSigner = String(creatorPosition || '') === String(folder.pengirimId || '');
-    const isCreator = String(creatorPosition || '') === String(folder.createdBy || '');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    const isSigner =
+      String(creatorPosition || '') === String(folder.pengirimId || '');
+    const isCreator =
+      String(creatorPosition || '') === String(folder.createdBy || '');
     if (!isSigner && !isCreator) {
-      throw new ForbiddenException('Anda bukan pembuat atau penandatangan SDE Massal ini');
+      throw new ForbiddenException(
+        'Anda bukan pembuat atau penandatangan SDE Massal ini',
+      );
     }
     if (!Array.isArray(payloadItems) || payloadItems.length > 1000) {
       throw new BadRequestException('Mapping lampiran tidak valid');
@@ -978,7 +1053,9 @@ export class SdeMasalService {
       : [];
     const byId = new Map(dbItems.map((item) => [item.id, item]));
     if (dbItems.length !== new Set(ids).size) {
-      throw new BadRequestException('Sebagian item lampiran tidak ditemukan dalam folder');
+      throw new BadRequestException(
+        'Sebagian item lampiran tidak ditemukan dalam folder',
+      );
     }
 
     let files = 0;
@@ -988,27 +1065,39 @@ export class SdeMasalService {
         throw new BadRequestException('Mapping lampiran tidak valid');
       }
       if (payload.attachments.length > MAX_MASS_ATTACHMENT_FILES) {
-        throw new BadRequestException('Jumlah lampiran per mapping terlalu banyak');
+        throw new BadRequestException(
+          'Jumlah lampiran per mapping terlalu banyak',
+        );
       }
 
       const attachments = payload.attachments.map((attachment) => {
         const fileName = this.normalizeMassAttachmentName(attachment.fileName);
         const sha256 = String(attachment.sha256 || '').toLowerCase();
         const key = String(attachment.key || '');
-        if (!/^[a-f0-9]{64}$/.test(sha256) || key !== `sde-masal/attachments/${sha256}.pdf` || !/\.pdf$/i.test(fileName)) {
-          throw new BadRequestException(`Referensi lampiran tidak valid: ${attachment.fileName || key}`);
+        if (
+          !/^[a-f0-9]{64}$/.test(sha256) ||
+          key !== `sde-masal/attachments/${sha256}.pdf` ||
+          !/\.pdf$/i.test(fileName)
+        ) {
+          throw new BadRequestException(
+            `Referensi lampiran tidak valid: ${attachment.fileName || key}`,
+          );
         }
         return {
           fileName,
           key,
           sha256,
-          ...(Number.isFinite(attachment.size) ? { size: attachment.size } : {}),
+          ...(Number.isFinite(attachment.size)
+            ? { size: attachment.size }
+            : {}),
         };
       });
 
       for (const attachment of attachments) {
         if (!(await this.storageService.fileExists(attachment.key))) {
-          throw new BadRequestException(`File lampiran tidak ditemukan: ${attachment.fileName}`);
+          throw new BadRequestException(
+            `File lampiran tidak ditemukan: ${attachment.fileName}`,
+          );
         }
       }
       const recipient = this.parseRecipientData(item);
@@ -1068,7 +1157,9 @@ export class SdeMasalService {
       items = await this.repo.find({ where: { folderId } });
     }
     if (items.length === 0) {
-      throw new BadRequestException('Tidak ada surat yang dipilih untuk dikirim');
+      throw new BadRequestException(
+        'Tidak ada surat yang dipilih untuk dikirim',
+      );
     }
 
     const eligibleItems = items.filter(
@@ -1077,7 +1168,9 @@ export class SdeMasalService {
         (!item.naskahId || (isPortalMode && item.statusVerifikasi === 'GAGAL')),
     );
     if (eligibleItems.length === 0) {
-      throw new BadRequestException('Tidak ada surat yang sudah disetujui dan siap dikirim');
+      throw new BadRequestException(
+        'Tidak ada surat yang sudah disetujui dan siap dikirim',
+      );
     }
     if (isPortalMode && eligibleItems.length > 20) {
       throw new BadRequestException(
@@ -1184,7 +1277,9 @@ export class SdeMasalService {
     if (isPortalMode && success > 0) {
       const successful = results
         .filter(
-          (result): result is PromiseFulfilledResult<{
+          (
+            result,
+          ): result is PromiseFulfilledResult<{
             naskahId: string;
             nomor: string;
             status: string;
@@ -1199,7 +1294,8 @@ export class SdeMasalService {
       }
       const documents = successful.map((result) => ({
         sourceKey: result.finalPdf!,
-        filename: result.finalPdf!.split('/').pop() || `SDE-${result.naskahId}.pdf`,
+        filename:
+          result.finalPdf!.split('/').pop() || `SDE-${result.naskahId}.pdf`,
         pathDokumen: 'surat-dinas-eksternal/digsig/',
         idNaskah: result.naskahId,
         jenisNaskah: 'SDE_MASAL',
@@ -1294,13 +1390,19 @@ export class SdeMasalService {
     await this.repo.save(item);
     if (!item.folderId) return;
 
-    const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+    const folder = await this.folderRepo.findOne({
+      where: { id: item.folderId },
+    });
     if (!folder) return;
     const recipient = this.normalizeMassalRecipient(
       this.parseRecipientData(item),
     );
     try {
-      const external = await this.resolveRecipientExternal(folder, item, recipient);
+      const external = await this.resolveRecipientExternal(
+        folder,
+        item,
+        recipient,
+      );
       const tanggal = folder.tanggal
         ? new Date(folder.tanggal).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10);
@@ -1368,11 +1470,17 @@ export class SdeMasalService {
     if (item.folderId) await this.refreshFolderCounters(item.folderId);
   }
 
-  async sendFolderToSigner(folderId: string, creatorPosition?: string | number) {
+  async sendFolderToSigner(
+    folderId: string,
+    creatorPosition?: string | number,
+  ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
     if (String(folder.createdBy || '') !== String(creatorPosition || '')) {
-      throw new ForbiddenException('Hanya konseptor yang dapat mengirim SDE Massal');
+      throw new ForbiddenException(
+        'Hanya konseptor yang dapat mengirim SDE Massal',
+      );
     }
     if (!folder.pengirimId) {
       throw new BadRequestException('Pengirim SDE Massal belum dipilih');
@@ -1385,14 +1493,19 @@ export class SdeMasalService {
     }
     if (folder.status === 'MENUNGGU_PENGIRIM') return folder;
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
-      throw new BadRequestException('Folder tidak dapat dikirim pada status saat ini');
+      throw new BadRequestException(
+        'Folder tidak dapat dikirim pada status saat ini',
+      );
     }
     const items = this.deduplicateMassalRows(
       await this.repo.find({ where: { folderId } }),
     );
-    if (items.length === 0) throw new BadRequestException('Data penerima belum dibuat');
+    if (items.length === 0)
+      throw new BadRequestException('Data penerima belum dibuat');
     if (!items.every((item) => item.statusVerifikasi === 'TERVERIFIKASI')) {
-      throw new BadRequestException('Folder harus menyelesaikan verifikasi terlebih dahulu');
+      throw new BadRequestException(
+        'Folder harus menyelesaikan verifikasi terlebih dahulu',
+      );
     }
     folder.status = 'MENUNGGU_PENGIRIM';
     folder.rejectionReason = null;
@@ -1413,15 +1526,19 @@ export class SdeMasalService {
     reason?: string,
   ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
     if (String(folder.pengirimId || '') !== String(signerPosition || '')) {
-      throw new ForbiddenException('Hanya pengirim yang dapat menolak SDE Massal');
+      throw new ForbiddenException(
+        'Hanya pengirim yang dapat menolak SDE Massal',
+      );
     }
     if (!['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status)) {
       throw new BadRequestException('Folder tidak sedang menunggu pengirim');
     }
     const cleanReason = String(reason || '').trim();
-    if (!cleanReason) throw new BadRequestException('Alasan penolakan wajib diisi');
+    if (!cleanReason)
+      throw new BadRequestException('Alasan penolakan wajib diisi');
     const creatorPosition = await this.resolveSdeMasalCreatorPosition(folder);
     folder.status = 'DIKEMBALIKAN';
     folder.rejectionReason = cleanReason;
@@ -1477,7 +1594,11 @@ export class SdeMasalService {
             senderStatuses: ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'],
           },
         );
-      } else if (scope === 'creator' || filter?.createdByOnly === true || filter?.createdByOnly === 'true') {
+      } else if (
+        scope === 'creator' ||
+        filter?.createdByOnly === true ||
+        filter?.createdByOnly === 'true'
+      ) {
         qb.andWhere('folder.created_by = :positionId', { positionId });
       } else {
         qb.andWhere('folder.created_by = :positionId', { positionId });
@@ -1493,19 +1614,27 @@ export class SdeMasalService {
     try {
       const org = await this.orgDataService.findLatestOrg();
       const rawPositions = org?.position_json;
-      const parsedPositions = typeof rawPositions === 'string'
-        ? JSON.parse(rawPositions)
-        : rawPositions;
+      const parsedPositions =
+        typeof rawPositions === 'string'
+          ? JSON.parse(rawPositions)
+          : rawPositions;
       const positions = Array.isArray(parsedPositions) ? parsedPositions : [];
       for (const folder of data) {
         const creator = positions.find(
-          (position: any) => String(position.position) === String(folder.createdBy || ''),
+          (position: any) =>
+            String(position.position) === String(folder.createdBy || ''),
         );
-        (folder as any).createdByName = creator?.persnum_person_text || creator?.persnum_person || null;
+        (folder as any).createdByName =
+          creator?.persnum_person_text || creator?.persnum_person || null;
         (folder as any).createdByPositionText = creator?.position_text || null;
-        if (['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(folder.status)) {
+        if (
+          ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+            folder.status,
+          )
+        ) {
           const finalSender = positions.find(
-            (position: any) => String(position.position) === String(folder.pengirimId || ''),
+            (position: any) =>
+              String(position.position) === String(folder.pengirimId || ''),
           );
           (folder as any).finalSenderName = finalSender
             ? this.formatPositionName(finalSender)
@@ -1541,18 +1670,26 @@ export class SdeMasalService {
     try {
       const org = await this.orgDataService.findLatestOrg();
       const rawPositions = org?.position_json;
-      const parsedPositions = typeof rawPositions === 'string'
-        ? JSON.parse(rawPositions)
-        : rawPositions;
+      const parsedPositions =
+        typeof rawPositions === 'string'
+          ? JSON.parse(rawPositions)
+          : rawPositions;
       const positions = Array.isArray(parsedPositions) ? parsedPositions : [];
       const creator = positions.find(
-        (position: any) => String(position.position) === String(folder.createdBy || ''),
+        (position: any) =>
+          String(position.position) === String(folder.createdBy || ''),
       );
-      (folder as any).createdByName = creator?.persnum_person_text || creator?.persnum_person || null;
+      (folder as any).createdByName =
+        creator?.persnum_person_text || creator?.persnum_person || null;
       (folder as any).createdByPositionText = creator?.position_text || null;
-      if (['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(folder.status)) {
+      if (
+        ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+          folder.status,
+        )
+      ) {
         const finalSender = positions.find(
-          (position: any) => String(position.position) === String(folder.pengirimId || ''),
+          (position: any) =>
+            String(position.position) === String(folder.pengirimId || ''),
         );
         (folder as any).finalSenderName = finalSender
           ? this.formatPositionName(finalSender)
@@ -1570,7 +1707,9 @@ export class SdeMasalService {
     const isSender =
       !!positionId &&
       String(folder.pengirimId || '') === String(positionId) &&
-      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(folder.status);
+      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+        folder.status,
+      );
     const isOwner = isCreator || isSender;
     if (!isOwner) {
       // Cek apakah user adalah verifikator di salah satu item folder ini.
@@ -1608,10 +1747,12 @@ export class SdeMasalService {
       }
     }
 
-    const rows = this.deduplicateMassalRows(await this.repo.find({
-      where: { folderId },
-      order: { createdAt: 'ASC' },
-    }));
+    const rows = this.deduplicateMassalRows(
+      await this.repo.find({
+        where: { folderId },
+        order: { createdAt: 'ASC' },
+      }),
+    );
     const naskahIds = rows
       .map((row) => row.naskahId)
       .filter(Boolean) as string[];
@@ -1704,18 +1845,27 @@ export class SdeMasalService {
     }
     const folderIds = new Set(rows.map((row) => row.folderId).filter(Boolean));
     if (folderIds.size !== 1 || rows.some((row) => !row.folderId)) {
-      throw new BadRequestException('Data verifikasi harus berasal dari satu folder');
+      throw new BadRequestException(
+        'Data verifikasi harus berasal dari satu folder',
+      );
     }
-    const folder = await this.folderRepo.findOne({ where: { id: rows[0].folderId as string } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    const folder = await this.folderRepo.findOne({
+      where: { id: rows[0].folderId as string },
+    });
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
     if (
       creatorPosition &&
       String(folder.createdBy || '') !== String(creatorPosition || '')
     ) {
-      throw new ForbiddenException('Hanya konseptor folder yang dapat mengajukan verifikasi');
+      throw new ForbiddenException(
+        'Hanya konseptor folder yang dapat mengajukan verifikasi',
+      );
     }
     if (!['DRAFT', 'DIKEMBALIKAN'].includes(folder.status)) {
-      throw new BadRequestException('Folder sudah berada dalam proses verifikasi atau pengiriman');
+      throw new BadRequestException(
+        'Folder sudah berada dalam proses verifikasi atau pengiriman',
+      );
     }
 
     // Jangan mempercayai nama/jabatan dari payload frontend. Cocokkan
@@ -1730,52 +1880,85 @@ export class SdeMasalService {
     const selectedSenderRank = this.getVerificationRoleRank(
       selectedSender?.position_text,
     );
-    const resolvedVerifikators = verifikators.map((item) => {
-      const positionId = String(item?.position ?? item?.positionId ?? '').trim();
-      const persnum = String(item?.persnum ?? item?.persnumPerson ?? '').trim();
-      const master = positions.find(
-        (position) =>
-          (positionId && String(position?.position ?? '').trim() === positionId) ||
-          (persnum && String(position?.persnum_person ?? '').trim() === persnum),
-      );
-      return master
-        ? {
-            persnum: String(master.persnum_person ?? '').trim(),
-            position: String(master.position ?? '').trim(),
-            nama: master.persnum_person_text || master.nama || '-',
-            jabatan: master.position_text || '-',
-          }
-        : { ...item, jabatan: '' };
-    }).filter((item) => {
-      const verifierPosition = String(
-        item?.position ?? item?.positionId ?? '',
-      ).trim();
-      const verifierRank = this.getVerificationRoleRank(
-        item?.jabatan || item?.positionText,
-      );
+    const resolvedVerifikators = verifikators
+      .map((item) => {
+        const positionId = String(
+          item?.position ?? item?.positionId ?? '',
+        ).trim();
+        const persnum = String(
+          item?.persnum ?? item?.persnumPerson ?? '',
+        ).trim();
+        const master = positions.find(
+          (position) =>
+            (positionId &&
+              String(position?.position ?? '').trim() === positionId) ||
+            (persnum &&
+              String(position?.persnum_person ?? '').trim() === persnum),
+        );
+        return master
+          ? {
+              persnum: String(master.persnum_person ?? '').trim(),
+              position: String(master.position ?? '').trim(),
+              nama: master.persnum_person_text || master.nama || '-',
+              jabatan: master.position_text || '-',
+            }
+          : { ...item, jabatan: '' };
+      })
+      .filter((item) => {
+        const verifierPosition = String(
+          item?.position ?? item?.positionId ?? '',
+        ).trim();
+        const verifierRank = this.getVerificationRoleRank(
+          item?.jabatan || item?.positionText,
+        );
 
-      // Pengirim yang dipilih pada konsep tetap menjadi verifikator terakhir,
-      // kemudian menerima folder kembali sebagai penandatangan/final sender.
-      // Pejabat lain pada level yang sama atau lebih tinggi berada di luar
-      // batas chain disposisi dan tidak boleh ikut tersimpan.
-      if (verifierPosition === String(folder.pengirimId ?? '').trim()) {
-        return true;
-      }
-      return (
-        selectedSenderRank === null ||
-        verifierRank === null ||
-        verifierRank < selectedSenderRank
-      );
-    });
+        // Pengirim yang dipilih pada konsep tetap menjadi verifikator terakhir,
+        // kemudian menerima folder kembali sebagai penandatangan/final sender.
+        // Pejabat lain pada level yang sama atau lebih tinggi berada di luar
+        // batas chain disposisi dan tidak boleh ikut tersimpan.
+        if (verifierPosition === String(folder.pengirimId ?? '').trim()) {
+          return true;
+        }
+        return (
+          selectedSenderRank === null ||
+          verifierRank === null ||
+          verifierRank < selectedSenderRank
+        );
+      });
     if (resolvedVerifikators.length === 0) {
       throw new BadRequestException(
         'Chain verifikator tidak valid terhadap pengirim SDE Massal yang dipilih',
       );
     }
+    // Validasi chain: hanya BOD (Direksi) yang boleh menjadi verifikator
+    // aktif. Pengirim konsep tetap menjadi langkah terakhir sebagai
+    // penandatangan/final sender, tetapi verifikator non-BOD lain ditolak
+    // agar chain verifikasi benar-benar dikerjakan oleh BOD.
+    const nonBodVerifikators = resolvedVerifikators.filter((item) => {
+      const isSender =
+        String(item?.position ?? item?.positionId ?? '').trim() ===
+        String(folder.pengirimId ?? '').trim();
+      if (isSender) return false;
+      const jabatan = String(
+        item?.jabatan || item?.positionText || '',
+      ).toUpperCase();
+      return !/\bDIREKTUR\b|\bDIRUT\b|\bDIRECTOR\b/.test(jabatan);
+    });
+    if (nonBodVerifikators.length > 0) {
+      throw new BadRequestException(
+        'Verifikator SDE Massal harus berasal dari BOD (Direksi). ' +
+          `Verifikator berikut tidak memenuhi: ${nonBodVerifikators
+            .map((item) => item?.nama || item?.position)
+            .filter(Boolean)
+            .join(', ')}`,
+      );
+    }
     // Pengirim konsep selalu menjadi langkah verifikasi terakhir.
     const senderPosition = String(folder.pengirimId ?? '').trim();
     const senderIndex = resolvedVerifikators.findIndex(
-      (item) => String(item?.position ?? item?.positionId ?? '').trim() === senderPosition,
+      (item) =>
+        String(item?.position ?? item?.positionId ?? '').trim() ===
+        senderPosition,
     );
     if (senderIndex >= 0 && senderIndex < resolvedVerifikators.length - 1) {
       const [sender] = resolvedVerifikators.splice(senderIndex, 1);
@@ -1800,7 +1983,9 @@ export class SdeMasalService {
       await this.refreshFolderCounters(folderId as string);
     }
     await this.notifySdeMasalPositions(
-      verifierRows.filter((item) => item.status === 'waiting').map((item) => item.position),
+      verifierRows
+        .filter((item) => item.status === 'waiting')
+        .map((item) => item.position),
       {
         title: 'SDE Massal Menunggu Verifikasi',
         body: `Folder "${folder.judul || '-'}" menunggu verifikasi Anda.`,
@@ -1833,7 +2018,9 @@ export class SdeMasalService {
         const samePersnum = persnum && String(verifikator.persnum) === persnum;
         const samePosition =
           position && String(verifikator.position) === position;
-        return (samePersnum || samePosition) && verifikator.status === 'waiting';
+        return (
+          (samePersnum || samePosition) && verifikator.status === 'waiting'
+        );
       }),
     );
 
@@ -1938,7 +2125,8 @@ export class SdeMasalService {
         (item) =>
           item.folderId === folder.id &&
           (item.verifikators || []).some((verifikator: any) => {
-            const samePersnum = persnum && String(verifikator.persnum) === persnum;
+            const samePersnum =
+              persnum && String(verifikator.persnum) === persnum;
             const samePosition =
               position && String(verifikator.position) === position;
             return (
@@ -1949,27 +2137,37 @@ export class SdeMasalService {
       const myVerificationStatuses = items
         .flatMap((item) => item.verifikators || [])
         .filter((verifikator: any) => {
-          const samePersnum = persnum && String(verifikator.persnum) === persnum;
+          const samePersnum =
+            persnum && String(verifikator.persnum) === persnum;
           const samePosition =
             position && String(verifikator.position) === position;
           return samePersnum || samePosition;
         });
-      const hasWaiting = myVerificationStatuses.some((v: any) => v.status === 'waiting');
-      const hasRejected = myVerificationStatuses.some((v: any) => v.status === 'rejected');
-      const myVerificationStatus = folder.status === 'TERKIRIM'
-        ? 'TERKIRIM'
-        : hasWaiting
-          ? 'MENUNGGU_VERIFIKASI'
-          : hasRejected
-            ? 'DITOLAK'
-            : myVerificationStatuses.some((v: any) => v.status === 'verified')
-              ? 'TERVERIFIKASI'
-              : null;
+      const hasWaiting = myVerificationStatuses.some(
+        (v: any) => v.status === 'waiting',
+      );
+      const hasRejected = myVerificationStatuses.some(
+        (v: any) => v.status === 'rejected',
+      );
+      const myVerificationStatus =
+        folder.status === 'TERKIRIM'
+          ? 'TERKIRIM'
+          : hasWaiting
+            ? 'MENUNGGU_VERIFIKASI'
+            : hasRejected
+              ? 'DITOLAK'
+              : myVerificationStatuses.some((v: any) => v.status === 'verified')
+                ? 'TERVERIFIKASI'
+                : null;
       const isFinalSender =
         String(folder.pengirimId || '') === position &&
         ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status);
       const waitingCount = isFinalSender
-        ? items.filter((item) => ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) && !item.naskahId).length
+        ? items.filter(
+            (item) =>
+              ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) &&
+              !item.naskahId,
+          ).length
         : assignedItems.length;
       return {
         ...folder,
@@ -1977,8 +2175,12 @@ export class SdeMasalService {
         waitingCount,
         workflowRole: isFinalSender ? 'PENGIRIM_AKHIR' : 'VERIFIKATOR',
         myVerificationStatus,
-        verifiedCount: items.filter((item) => item.statusVerifikasi === 'TERVERIFIKASI').length,
-        rejectedCount: items.filter((item) => item.statusVerifikasi === 'DITOLAK').length,
+        verifiedCount: items.filter(
+          (item) => item.statusVerifikasi === 'TERVERIFIKASI',
+        ).length,
+        rejectedCount: items.filter(
+          (item) => item.statusVerifikasi === 'DITOLAK',
+        ).length,
       };
     });
   }
@@ -2014,7 +2216,8 @@ export class SdeMasalService {
     catatan?: string | null,
   ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
     if (folder.status !== 'MENUNGGU_VERIFIKASI') {
       throw new BadRequestException('Folder tidak sedang menunggu verifikasi');
     }
@@ -2036,7 +2239,8 @@ export class SdeMasalService {
     const active = (pendingRows[0].verifikators || []).find(
       (verifikator: SdeMasalVerifikator) => verifikator.status === 'waiting',
     );
-    if (!active) throw new BadRequestException('Tidak ada giliran verifikasi aktif');
+    if (!active)
+      throw new BadRequestException('Tidak ada giliran verifikasi aktif');
 
     const persnum = String(user?.persnum ?? user?.username ?? '').trim();
     const position = String(user?.position ?? user?.positionId ?? '').trim();
@@ -2049,9 +2253,15 @@ export class SdeMasalService {
       );
     }
 
+    // Hanya BOD (Direksi) yang boleh menyetujui/menolak folder.
+    // Verifikator non-BOD hanya dapat membaca chain (read-only).
+    this.assertBodVerifier(user);
+
     const now = new Date().toISOString();
     for (const item of pendingRows) {
-      const verifikators = [...(item.verifikators || [])] as SdeMasalVerifikator[];
+      const verifikators = [
+        ...(item.verifikators || []),
+      ] as SdeMasalVerifikator[];
       const current = verifikators.find((v) => v.status === 'waiting');
       if (!current) continue;
 
@@ -2082,24 +2292,32 @@ export class SdeMasalService {
 
     await this.repo.save(pendingRows);
     await this.refreshFolderCounters(folderId);
-    const updatedFolder = await this.folderRepo.findOne({ where: { id: folderId } });
+    const updatedFolder = await this.folderRepo.findOne({
+      where: { id: folderId },
+    });
     if (action === 'reject') {
       const creatorPosition = await this.resolveSdeMasalCreatorPosition(
         folder,
         pendingRows.find((item) => item.createdBy)?.createdBy,
       );
-      await this.notifySdeMasalPositions([creatorPosition || folder.createdBy], {
-        title: 'SDE Massal Dikembalikan',
-        body: `Folder "${folder.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
-        action: 'OPEN_SDE_MASAL_FOLDER',
-        folderId: folder.id,
-        status: 'DIKEMBALIKAN',
-        reason: String(catatan || '').trim(),
-      });
+      await this.notifySdeMasalPositions(
+        [creatorPosition || folder.createdBy],
+        {
+          title: 'SDE Massal Dikembalikan',
+          body: `Folder "${folder.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: folder.id,
+          status: 'DIKEMBALIKAN',
+          reason: String(catatan || '').trim(),
+        },
+      );
     } else {
       const nextPositions = pendingRows
         .flatMap((item) => item.verifikators || [])
-        .filter((verifikator: SdeMasalVerifikator) => verifikator.status === 'waiting')
+        .filter(
+          (verifikator: SdeMasalVerifikator) =>
+            verifikator.status === 'waiting',
+        )
         .map((verifikator: SdeMasalVerifikator) => verifikator.position);
       if (nextPositions.length > 0) {
         await this.notifySdeMasalPositions(nextPositions, {
@@ -2158,6 +2376,10 @@ export class SdeMasalService {
       );
     }
 
+    // Hanya BOD (Direksi) yang boleh menyetujui/menolak item.
+    // Verifikator non-BOD hanya dapat membaca chain (read-only).
+    this.assertBodVerifier(user);
+
     if (action === 'reject') {
       current.status = 'rejected';
       current.rejectedAt = new Date().toISOString();
@@ -2168,18 +2390,23 @@ export class SdeMasalService {
       const rejected = await this.repo.save(item);
       if (item.folderId) {
         await this.refreshFolderCounters(item.folderId);
-        const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+        const folder = await this.folderRepo.findOne({
+          where: { id: item.folderId },
+        });
         const creatorPosition = folder
           ? await this.resolveSdeMasalCreatorPosition(folder, item.createdBy)
           : item.createdBy;
-        await this.notifySdeMasalPositions([creatorPosition || folder?.createdBy], {
-          title: 'SDE Massal Dikembalikan',
-          body: `Folder "${folder?.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
-          action: 'OPEN_SDE_MASAL_FOLDER',
-          folderId: item.folderId,
-          status: 'DIKEMBALIKAN',
-          reason: String(catatan || '').trim(),
-        });
+        await this.notifySdeMasalPositions(
+          [creatorPosition || folder?.createdBy],
+          {
+            title: 'SDE Massal Dikembalikan',
+            body: `Folder "${folder?.judul || '-'}" dikembalikan oleh verifikator. Catatan: ${String(catatan || '').trim()}`,
+            action: 'OPEN_SDE_MASAL_FOLDER',
+            folderId: item.folderId,
+            status: 'DIKEMBALIKAN',
+            reason: String(catatan || '').trim(),
+          },
+        );
       }
       return rejected;
     }
@@ -2205,7 +2432,9 @@ export class SdeMasalService {
     const saved = await this.repo.save(item);
     if (item.folderId) {
       await this.refreshFolderCounters(item.folderId);
-      const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+      const folder = await this.folderRepo.findOne({
+        where: { id: item.folderId },
+      });
       // Approval is performed per recipient, but the notification belongs to the
       // folder transition. Only notify when this is the first row waiting for
       // the next verifier; subsequent row approvals must not create duplicate
@@ -2402,7 +2631,10 @@ export class SdeMasalService {
       ? await this.storageService.getFileUrl(naskah.final_pdf)
       : null;
     const attachmentRefs = sdeMasalItem
-      ? this.getAttachmentRefs(sdeMasalItem, this.parseRecipientData(sdeMasalItem))
+      ? this.getAttachmentRefs(
+          sdeMasalItem,
+          this.parseRecipientData(sdeMasalItem),
+        )
       : [];
     const lampiranFiles = await Promise.all(
       attachmentRefs.map(async (attachment) => ({
@@ -2497,7 +2729,8 @@ export class SdeMasalService {
     const folder = await this.folderRepo.findOne({
       where: { id: item.folderId },
     });
-    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (!folder)
+      throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
     // Dokumen BSrE wajib memakai file final hasil signing. Merender ulang PDF
     // akan menghilangkan struktur signature (/Sig + ByteRange), sehingga file
@@ -2521,14 +2754,10 @@ export class SdeMasalService {
         : new Date().toISOString().slice(0, 10);
 
     const tembusanEksternal = String(
-      recipient.tembusanEksternal ||
-        recipient.tembusan_eksternal ||
-        '',
+      recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
     );
     const tembusanInternal = String(
-      recipient.tembusanInternal ||
-        recipient.tembusan_internal ||
-        '',
+      recipient.tembusanInternal || recipient.tembusan_internal || '',
     );
     const [tembusanNames, tembusanInternalNames, tembusanEksternalNames] =
       await Promise.all([
@@ -2550,9 +2779,10 @@ export class SdeMasalService {
       names.length > 0
         ? names.map((name, index) => `${index + 1}. ${name}`).join('\n')
         : '';
-    const hasTembusanPlaceholder = /\{\{\s*tembusan(?:_internal|_eksternal)?\s*\}\}/i.test(
-      folder.kontenTemplate || '',
-    );
+    const hasTembusanPlaceholder =
+      /\{\{\s*tembusan(?:_internal|_eksternal)?\s*\}\}/i.test(
+        folder.kontenTemplate || '',
+      );
     const konten = this.renderFolderKonten(folder, item, {
       ...recipient,
       // Semua placeholder tembusan dirender ke label yang benar. Khusus
@@ -3181,14 +3411,15 @@ export class SdeMasalService {
       if (Array.isArray(input)) return input.map((item) => normalize(item));
       if (input && typeof input === 'object') {
         return Object.keys(input)
-          .filter(
-            (key) => key !== 'lampiran' && key !== RESERVED_NOMOR_KEY,
-          )
+          .filter((key) => key !== 'lampiran' && key !== RESERVED_NOMOR_KEY)
           .sort()
-          .reduce((result, key) => {
-            result[key] = normalize(input[key]);
-            return result;
-          }, {} as Record<string, any>);
+          .reduce(
+            (result, key) => {
+              result[key] = normalize(input[key]);
+              return result;
+            },
+            {} as Record<string, any>,
+          );
       }
       return input;
     };
@@ -3221,8 +3452,7 @@ export class SdeMasalService {
         (current.naskahId ? 1000 : 0) +
         (statusPriority[current.statusVerifikasi] || 0);
       const rowScore =
-        (row.naskahId ? 1000 : 0) +
-        (statusPriority[row.statusVerifikasi] || 0);
+        (row.naskahId ? 1000 : 0) + (statusPriority[row.statusVerifikasi] || 0);
       if (rowScore > currentScore || row.updatedAt > current.updatedAt) {
         selected.set(key, row);
       }
@@ -3234,7 +3464,9 @@ export class SdeMasalService {
   }
 
   private normalizeMassAttachmentName(value: unknown): string {
-    const raw = String(value ?? '').replace(/\\/g, '/').trim();
+    const raw = String(value ?? '')
+      .replace(/\\/g, '/')
+      .trim();
     return raw.split('/').pop()?.trim() || '';
   }
 
@@ -3549,7 +3781,8 @@ export class SdeMasalService {
     // yang sudah diverifikasi tetap berstatus TERVERIFIKASI. Jangan biarkan
     // sinkronisasi counter otomatis mengubah DIKEMBALIKAN menjadi
     // MENUNGGU_PENGIRIM sebelum konseptor mengajukan ulang foldernya.
-    const hasRejectionReason = String(folder.rejectionReason || '').trim().length > 0;
+    const hasRejectionReason =
+      String(folder.rejectionReason || '').trim().length > 0;
     const keepReturnedStatus =
       (previousStatus === 'DIKEMBALIKAN' || hasRejectionReason) &&
       totalItems > 0 &&
@@ -3594,7 +3827,9 @@ export class SdeMasalService {
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
     const normalized = verifikators.slice(0, 4).map((item) => ({
       source: item,
-      roleRank: this.getVerificationRoleRank(item?.jabatan || item?.positionText),
+      roleRank: this.getVerificationRoleRank(
+        item?.jabatan || item?.positionText,
+      ),
     }));
 
     if (normalized.some((item) => item.roleRank == null)) {
@@ -3651,18 +3886,57 @@ export class SdeMasalService {
    * Jabatan diproses case-insensitive dan tidak mengandalkan nama orang.
    */
   private getVerificationRoleRank(value: unknown): number | null {
-    const text = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+    const text = String(value ?? '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, ' ')
+      .trim();
     if (/\bAVP\b/.test(text)) return 1;
     if (/\bVP\b/.test(text)) return 2;
     if (/\bEVP\b/.test(text)) return 3;
-    if (/\bDIREKTUR\b/.test(text) || /\bDIRUT\b/.test(text) || /\bDIRECTOR\b/.test(text)) return 4;
+    if (
+      /\bDIREKTUR\b/.test(text) ||
+      /\bDIRUT\b/.test(text) ||
+      /\bDIRECTOR\b/.test(text)
+    )
+      return 4;
     return null;
   }
 
+  /**
+   * Validasi aksi verifikasi SDE Massal: hanya BOD (Direksi) yang boleh
+   * menyetujui/menolak. Verifikator non-BOD (mis. staff/konseptor) hanya
+   * dapat membaca chain verifikasi (read-only).
+   *
+   * Sumber kebenaran: bodTag dari JWT (BOD/BOD-0/BOD-1/BOD-2/BOD-3) atau
+   * position_text snapshot organisasi yang mengandung DIREKTUR/DIRUT.
+   */
+  private assertBodVerifier(user: any): void {
+    const bodTag = String(user?.bodTag ?? '')
+      .trim()
+      .toUpperCase();
+    const allowedBodTags = ['BOD', 'BOD-0', 'BOD-1', 'BOD-2', 'BOD-3'];
+    if (allowedBodTags.includes(bodTag)) return;
+
+    // Fallback: cek jabatan dari snapshot organisasi berdasarkan position ID.
+    const positionText = String(user?.positionText ?? '').toUpperCase();
+    if (/\bDIREKTUR\b|\bDIRUT\b|\bDIRECTOR\b/.test(positionText)) return;
+
+    throw new ForbiddenException(
+      'Hanya BOD (Direksi) yang dapat memverifikasi SDE Massal. Verifikator non-BOD hanya dapat melihat chain verifikasi.',
+    );
+  }
+
   private formatPositionName(position: any): string {
-    const name = String(position?.persnum_person_text || position?.nama || '').trim();
-    const job = String(position?.position_text || position?.jabatan || '').trim();
-    return [name, job].filter(Boolean).join(' - ') || String(position?.position || '-');
+    const name = String(
+      position?.persnum_person_text || position?.nama || '',
+    ).trim();
+    const job = String(
+      position?.position_text || position?.jabatan || '',
+    ).trim();
+    return (
+      [name, job].filter(Boolean).join(' - ') ||
+      String(position?.position || '-')
+    );
   }
 
   /**
@@ -3676,9 +3950,7 @@ export class SdeMasalService {
     payload: {
       title: string;
       body: string;
-      action:
-        | 'OPEN_SDE_MASAL_FOLDER'
-        | 'OPEN_SDE_MASAL_VERIFIKASI';
+      action: 'OPEN_SDE_MASAL_FOLDER' | 'OPEN_SDE_MASAL_VERIFIKASI';
       folderId: string;
       status: string;
       reason?: string;
@@ -3686,9 +3958,7 @@ export class SdeMasalService {
   ): Promise<void> {
     const targets = [
       ...new Set(
-        positionIds
-          .map((value) => String(value ?? '').trim())
-          .filter(Boolean),
+        positionIds.map((value) => String(value ?? '').trim()).filter(Boolean),
       ),
     ];
     if (targets.length === 0) return;
@@ -3713,9 +3983,10 @@ export class SdeMasalService {
             (item) => String(item?.position ?? '').trim() === positionId,
           );
           const rawPersnum = String(position?.persnum_person ?? '').trim();
-          const userPersnum = rawPersnum && Number.isFinite(Number(rawPersnum))
-            ? Number(rawPersnum)
-            : undefined;
+          const userPersnum =
+            rawPersnum && Number.isFinite(Number(rawPersnum))
+              ? Number(rawPersnum)
+              : undefined;
           try {
             await this.notificationService.createNotification({
               positionId,
@@ -3739,13 +4010,19 @@ export class SdeMasalService {
           }
         })();
 
-        this.sdeMasalNotificationInFlight.set(notificationKey, notificationPromise);
+        this.sdeMasalNotificationInFlight.set(
+          notificationKey,
+          notificationPromise,
+        );
         try {
           await notificationPromise;
         } finally {
-          if (this.sdeMasalNotificationInFlight.get(notificationKey) === notificationPromise) {
+          if (
+            this.sdeMasalNotificationInFlight.get(notificationKey) ===
+            notificationPromise
+          ) {
             this.sdeMasalNotificationInFlight.delete(notificationKey);
-        }
+          }
         }
       }),
     );
