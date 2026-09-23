@@ -15,6 +15,7 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RbacService } from '../services/rbac.service';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
+import { Roles } from '../../../common/decorators/roles.decorator';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { CreateRoleDto, UpdateRoleDto } from '../dto/create-role.dto';
@@ -76,6 +77,7 @@ export class RbacController {
 
   @Post('roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('role', 'create')
   @AuditLog({
     module: AuditModule.RBAC,
@@ -90,6 +92,7 @@ export class RbacController {
 
   @Patch('roles/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('role', 'update')
   @AuditLog({
     module: AuditModule.RBAC,
@@ -105,6 +108,7 @@ export class RbacController {
 
   @Delete('roles/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('role', 'delete')
   @AuditLog({
     module: AuditModule.RBAC,
@@ -224,6 +228,7 @@ export class RbacController {
 
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('role', 'assign-permission')
   @AuditLog({
     module: AuditModule.RBAC,
@@ -314,6 +319,7 @@ export class RbacController {
 
   @Post('users/:persnum/roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('user', 'assign-role')
   @AuditLog({
     module: AuditModule.RBAC,
@@ -347,6 +353,7 @@ export class RbacController {
 
   @Delete('users/:persnum/roles/:roleId')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPERADMIN)
   @RequirePermission('user', 'assign-role')
   @AuditLog({
     module: AuditModule.RBAC,
