@@ -38,7 +38,6 @@ export class RbacController {
     private readonly jwtService: JwtService,
   ) {}
 
-
   @Get('me')
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: JwtPayload) {
@@ -53,7 +52,6 @@ export class RbacController {
       },
     };
   }
-
 
   @Get('roles')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -121,7 +119,6 @@ export class RbacController {
     return { success: true, message: 'Role deleted' };
   }
 
-
   @Get('resources')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('role', 'read')
@@ -160,7 +157,6 @@ export class RbacController {
       })),
     };
   }
-
 
   @Get('matrix')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -249,7 +245,6 @@ export class RbacController {
     );
     return { success: true, message: 'Permissions assigned to role' };
   }
-
 
   /**
    * Bug B6 fix: GET /rbac/users — list semua user dengan role (pagination, search, filter).
@@ -375,7 +370,6 @@ export class RbacController {
     };
   }
 
-
   @Post('users/roles-batch')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RequirePermission('user', 'read')
@@ -388,7 +382,6 @@ export class RbacController {
     }
     return { success: true, data };
   }
-
 
   @Post('switch-role')
   @UseGuards(JwtAuthGuard)
