@@ -46,6 +46,10 @@ export class SdeSendMessageDataDto {
   tembusan?: SdeSirkulasiInfoDto[]; // Tembusan internal (dari org_data)
   lampiran?: string; // Nama file lampiran dari temporary files
   final_pdf?: string | null; // Path to final PDF in storage (null if not generated)
+  tte_redirect?: {
+    transactionId: string;
+    signingUrl: string;
+  };
 }
 
 /**

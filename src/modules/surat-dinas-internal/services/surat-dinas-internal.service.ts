@@ -73,6 +73,9 @@ import {
   EffectiveRoutingPlan,
 } from '../../correspondence-routing/services/correspondence-routing-resolver.service';
 import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -120,6 +123,8 @@ export class SuratDinasInternalService {
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly konsepService: KonsepService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
     @Optional()
     private readonly correspondenceRoutingResolver?: CorrespondenceRoutingResolverService,
   ) {}
@@ -1294,10 +1299,14 @@ export class SuratDinasInternalService {
   async sendMessage(
     dto: CreateSuratDinasInternalDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('SDI'));
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase wajib diisi untuk opsi TTD Digital (digsig)',
         );
@@ -1310,15 +1319,15 @@ export class SuratDinasInternalService {
     }
 
     // Determine status based on sign_option
-    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'pending_tte' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
-      status = 'final_tte';
+      status = isPortalMode ? 'pending_tte' : 'final_tte';
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
       status = 'pending';
     }
 
     // Call createSdi with signing options
-    return this.createSdiWithSigning(dto, status, persnum);
+    return this.createSdiWithSigning(dto, status, persnum, portalUser);
   }
 
   /**
@@ -2222,7 +2231,9 @@ export class SuratDinasInternalService {
         },
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
       await queryRunner.release();
@@ -2267,9 +2278,11 @@ export class SuratDinasInternalService {
    */
   private async createSdiWithSigning(
     dto: CreateSuratDinasInternalDto,
-    status: 'pending' | 'final' | 'final_tte',
+    status: 'pending' | 'pending_tte' | 'final' | 'final_tte',
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode = status === 'pending_tte';
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2424,7 +2437,7 @@ export class SuratDinasInternalService {
         english: dto.english || false,
       });
       await queryRunner.manager.save(naskah);
-      if (status !== 'pending')
+      if (status !== 'pending' && status !== 'pending_tte')
         await this.persistSdiRoutingApplied(
           queryRunner.manager,
           naskah.id,
@@ -2466,7 +2479,7 @@ export class SuratDinasInternalService {
 
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
-      const isPending = status === 'pending';
+      const isPending = status === 'pending' || status === 'pending_tte';
       const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
@@ -2631,7 +2644,7 @@ export class SuratDinasInternalService {
 
       // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
       if (
-        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
         dto.sign_option === SignOption.QR_ONLY
       ) {
         signedAt = new Date().toISOString();
@@ -2719,7 +2732,7 @@ export class SuratDinasInternalService {
         }
 
         // PHASE 11: Process BSrE signing (jika digsig) - QR sudah di template
-        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+        if (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) {
           // ========================================
           // Digital Signature dengan BSrE
           // QR sudah ada di template, tinggal hit BSrE dan build metadata
@@ -2883,6 +2896,32 @@ export class SuratDinasInternalService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      let portalRedirect:
+        | { transactionId: string; signingUrl: string }
+        | undefined;
+      if (isPortalMode) {
+        if (!portalUser || !finalPdfPath) {
+          throw new BadRequestException(
+            'Konteks pengguna atau PDF SDI untuk Portal TTE tidak lengkap',
+          );
+        }
+        const portal = await this.tteSigningService.createSigningTransaction({
+          sourceKey: finalPdfPath,
+          filename: finalPdfPath.split('/').pop() || `SDI-${naskahId}.pdf`,
+          pathDokumen: 'surat-dinas-internal/digsig/',
+          idNaskah: naskahId,
+          jenisNaskah: 'SDI',
+          nomorNaskah: nomorSurat,
+          location: dto.nama_tempat || 'Indonesia',
+          reason: `Penandatanganan Surat Dinas Internal ${nomorSurat}`,
+          user: portalUser,
+        });
+        portalRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+      }
+
       // Sync to Meilisearch (non-blocking, after successful commit)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
 
@@ -2909,6 +2948,7 @@ export class SuratDinasInternalService {
           // Additional fields untuk digsig
           sign_option: dto.sign_option,
           bsre_name_doc: bsreNameDoc, // Return name_doc untuk FE (krusial untuk verifikasi)
+          tte_redirect: portalRedirect,
         } as any,
       };
     } catch (error) {
@@ -2931,10 +2971,14 @@ export class SuratDinasInternalService {
     naskahId: string,
     dto: FinalizeDraftDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('SDI'));
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase wajib diisi untuk opsi TTD Digital (digsig)',
         );
@@ -3074,10 +3118,12 @@ export class SuratDinasInternalService {
     }
 
     // PHASE 4: Determine new status based on sign_option or tanda_tangan
-    let newStatus: 'pending' | 'final' | 'final_tte';
+    let newStatus: 'pending' | 'pending_tte' | 'final' | 'final_tte';
     if (dto.sign_option === SignOption.DIGSIG) {
-      newStatus = 'final_tte';
-      console.log('[SDI finalizeDraft] Status = final_tte (DIGSIG)');
+      newStatus = isPortalMode ? 'pending_tte' : 'final_tte';
+      console.log(
+        `[SDI finalizeDraft] Status = ${newStatus} (DIGSIG ${isPortalMode ? 'Portal' : 'BSrE direct'})`,
+      );
     } else if (dto.sign_option === SignOption.QR_ONLY) {
       newStatus = 'final';
       console.log('[SDI finalizeDraft] Status = final (QR_ONLY)');
@@ -3293,7 +3339,8 @@ export class SuratDinasInternalService {
         }
 
         // Re-insert pengirim (isDraft stays true for pending/TTD basah)
-        const isPending = newStatus === 'pending';
+        const isPending =
+          newStatus === 'pending' || newStatus === 'pending_tte';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
           const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
@@ -3529,7 +3576,7 @@ export class SuratDinasInternalService {
         // SIGNING LOGIC: QR Code + BSrE (if applicable)
         // ========================================
         if (
-          (dto.sign_option === SignOption.DIGSIG && persnum) ||
+          (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
           dto.sign_option === SignOption.QR_ONLY
         ) {
           console.log(
@@ -3604,7 +3651,11 @@ export class SuratDinasInternalService {
           }
 
           // If DIGSIG, hit BSrE API
-          if (dto.sign_option === SignOption.DIGSIG && persnum) {
+          if (
+            dto.sign_option === SignOption.DIGSIG &&
+            persnum &&
+            !isPortalMode
+          ) {
             console.log(
               `[SDI finalizeDraft] Hitting BSrE API for persnum: ${persnum}`,
             );
@@ -3766,6 +3817,32 @@ export class SuratDinasInternalService {
       await queryRunner.release();
     }
 
+    let portalRedirect:
+      | { transactionId: string; signingUrl: string }
+      | undefined;
+    if (isPortalMode) {
+      if (!portalUser || !finalPdfPath) {
+        throw new BadRequestException(
+          'Konteks pengguna atau PDF SDI untuk Portal TTE tidak lengkap',
+        );
+      }
+      const portal = await this.tteSigningService.createSigningTransaction({
+        sourceKey: finalPdfPath,
+        filename: finalPdfPath.split('/').pop() || `SDI-${naskahId}.pdf`,
+        pathDokumen: 'surat-dinas-internal/digsig/',
+        idNaskah: naskahId,
+        jenisNaskah: 'SDI',
+        nomorNaskah: nomorSurat,
+        location: dto.nama_tempat || naskah.tempat || 'Indonesia',
+        reason: `Penandatanganan Surat Dinas Internal ${nomorSurat}`,
+        user: portalUser,
+      });
+      portalRedirect = {
+        transactionId: portal.transactionId,
+        signingUrl: portal.signingUrl,
+      };
+    }
+
     // PHASE 10: Get updated data for response
     const updatedNaskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -3815,6 +3892,7 @@ export class SuratDinasInternalService {
         // Digital signature info
         sign_option: dto.sign_option,
         bsre_name_doc: bsreNameDoc,
+        tte_redirect: portalRedirect,
       } as any,
     };
   }

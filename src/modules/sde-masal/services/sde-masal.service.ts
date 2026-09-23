@@ -31,6 +31,9 @@ import {
   SifatSurat,
 } from '../../surat-dinas-eksternal/dto/create-surat-dinas-eksternal.dto';
 import type { DigsigBatchContext } from '../../digsig/services/digsig.service';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -115,6 +118,8 @@ export class SdeMasalService {
     private readonly sdeService: SuratDinasEksternalService,
     private readonly storageService: StorageService,
     private readonly notificationService: NotificationService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
   ) {}
 
   // ============================================================
@@ -464,7 +469,9 @@ export class SdeMasalService {
     syncFolder = true,
     bsreUserData?: { nik: string; no_wa: string },
     digsigBatch?: DigsigBatchContext,
-  ): Promise<{ naskahId: string; nomor: string; status: string }> {
+    portalUser?: JwtPayload,
+    deferPortalRequest = false,
+  ): Promise<{ naskahId: string; nomor: string; status: string; finalPdf?: string }> {
     const item = await this.repo.findOne({ where: { id: sdeMasalId } });
     if (!item) throw new NotFoundException('Item SDE Massal tidak ditemukan');
 
@@ -476,6 +483,7 @@ export class SdeMasalService {
         naskahId: item.naskahId,
         nomor: existing?.nomor || '',
         status: existing?.status || item.statusVerifikasi,
+        finalPdf: existing?.final_pdf || undefined,
       };
     }
 
@@ -571,13 +579,15 @@ export class SdeMasalService {
         reservedNomor || undefined,
         bsreUserData,
         digsigBatch,
+        portalUser,
+        deferPortalRequest,
       );
       const data = response?.data;
       if (!data?.id)
         throw new Error('Layanan SDE tidak mengembalikan ID naskah');
 
       item.naskahId = data.id;
-      item.statusVerifikasi = 'TERKIRIM';
+      item.statusVerifikasi = deferPortalRequest ? 'MENUNGGU_TTE' : 'TERKIRIM';
       item.errorMessage = null;
       await this.repo.save(item);
       await this.addExternalTembusan(data.id, item, recipient, data.status);
@@ -601,7 +611,7 @@ export class SdeMasalService {
 
       // Kirim email otomatis ke alamat dari kolom Excel
       // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
-      void sdeMasalEmailQueue
+      if (!deferPortalRequest) void sdeMasalEmailQueue
         .add(() =>
           this.sendEmailForItem(
             data.id,
@@ -623,6 +633,7 @@ export class SdeMasalService {
         naskahId: data.id,
         nomor: data.nomor || '',
         status: data.status || 'final',
+        finalPdf: data.final_pdf,
       };
     } catch (error) {
       if (digsigBatch) {
@@ -1019,7 +1030,14 @@ export class SdeMasalService {
     creatorPosition?: string | number,
     persnum?: number,
     itemIds?: string[],
-  ): Promise<{ total: number; success: number; failed: number; skipped: number }> {
+    portalUser?: JwtPayload,
+  ): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    tte_redirect?: { transactionId: string; signingUrl: string };
+  }> {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
@@ -1029,7 +1047,10 @@ export class SdeMasalService {
     if (!['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM'].includes(folder.status)) {
       throw new BadRequestException('Folder belum siap dikirim oleh pengirim');
     }
-    if (signOption === 'digsig' && !passphrase) {
+    const isPortalMode =
+      signOption === 'digsig' &&
+      (await this.tteSigningGateway.isPortalMode('SDE'));
+    if (signOption === 'digsig' && !isPortalMode && !passphrase) {
       throw new BadRequestException(
         'Passphrase wajib untuk tanda tangan digital',
       );
@@ -1050,11 +1071,23 @@ export class SdeMasalService {
       throw new BadRequestException('Tidak ada surat yang dipilih untuk dikirim');
     }
 
-    const eligibleItems = items.filter((item) =>
-      ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) && !item.naskahId,
+    const eligibleItems = items.filter(
+      (item) =>
+        ['TERVERIFIKASI', 'GAGAL'].includes(item.statusVerifikasi) &&
+        (!item.naskahId || (isPortalMode && item.statusVerifikasi === 'GAGAL')),
     );
     if (eligibleItems.length === 0) {
       throw new BadRequestException('Tidak ada surat yang sudah disetujui dan siap dikirim');
+    }
+    if (isPortalMode && eligibleItems.length > 20) {
+      throw new BadRequestException(
+        'Portal TTE mendukung maksimal 20 dokumen per batch. Pilih maksimal 20 surat.',
+      );
+    }
+    if (isPortalMode && !portalUser?.persnum) {
+      throw new BadRequestException(
+        'Identitas pengguna tidak tersedia untuk Portal TTE',
+      );
     }
 
     // Nomor surat harus dialokasikan lebih dulu dalam transaksi singkat. Jika
@@ -1090,7 +1123,7 @@ export class SdeMasalService {
     // Seluruh naskah dalam satu batch ditandatangani oleh user yang sama.
     // Ambil NIK/no. WA sekali agar batch besar tidak memanggil HR API berulang.
     const bsreUserData =
-      signOption === 'digsig' && persnum
+      signOption === 'digsig' && !isPortalMode && persnum
         ? await this.sdeService.getBsreUserDataForMassal(persnum)
         : undefined;
 
@@ -1124,6 +1157,8 @@ export class SdeMasalService {
             false,
             bsreUserData,
             undefined,
+            portalUser,
+            isPortalMode,
           ),
         ),
       );
@@ -1145,8 +1180,78 @@ export class SdeMasalService {
       failed++;
     });
 
+    let tteRedirect: { transactionId: string; signingUrl: string } | undefined;
+    if (isPortalMode && success > 0) {
+      const successful = results
+        .filter(
+          (result): result is PromiseFulfilledResult<{
+            naskahId: string;
+            nomor: string;
+            status: string;
+            finalPdf?: string;
+          }> => result.status === 'fulfilled',
+        )
+        .map((result) => result.value);
+      if (successful.some((result) => !result.finalPdf)) {
+        throw new BadRequestException(
+          'Sebagian PDF SDE Massal belum tersedia untuk Portal TTE',
+        );
+      }
+      const documents = successful.map((result) => ({
+        sourceKey: result.finalPdf!,
+        filename: result.finalPdf!.split('/').pop() || `SDE-${result.naskahId}.pdf`,
+        pathDokumen: 'surat-dinas-eksternal/digsig/',
+        idNaskah: result.naskahId,
+        jenisNaskah: 'SDE_MASAL',
+        nomorNaskah: result.nomor,
+        location: portalUser?.areaText || 'Indonesia',
+        reason: `Penandatanganan SDE Massal ${folder.judul || folder.id}`,
+        tampilan: 'INVISIBLE' as const,
+      }));
+      try {
+        const portal =
+          documents.length === 1
+            ? await this.tteSigningService.createSigningTransaction({
+                ...documents[0],
+                user: portalUser!,
+              })
+            : await this.tteSigningService.createSigningBatch({
+                documents,
+                user: portalUser!,
+              });
+        tteRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+        for (let index = 0; index < results.length; index++) {
+          if (results[index].status === 'fulfilled') {
+            eligibleItems[index].statusVerifikasi = 'MENUNGGU_TTE';
+            eligibleItems[index].errorMessage = null;
+          }
+        }
+        await this.repo.save(eligibleItems);
+      } catch (error) {
+        for (let index = 0; index < results.length; index++) {
+          if (results[index].status === 'fulfilled') {
+            eligibleItems[index].statusVerifikasi = 'GAGAL';
+            eligibleItems[index].errorMessage = String(
+              error instanceof Error ? error.message : error,
+            ).slice(0, 500);
+          }
+        }
+        await this.repo.save(eligibleItems);
+        throw error;
+      }
+    }
+
     await this.refreshFolderCounters(folderId);
-    if (success > 0) {
+    if (tteRedirect) {
+      await this.folderRepo.update(folder.id, {
+        status: 'MENUNGGU_TTE',
+        rejectionReason: null,
+      });
+    }
+    if (success > 0 && !isPortalMode) {
       // Update hanya kolom alasan. Menyimpan objek `folder` yang dibaca sebelum
       // finalisasi akan menimpa status TERKIRIM hasil refreshFolderCounters.
       await this.folderRepo.update(
@@ -1177,7 +1282,90 @@ export class SdeMasalService {
       success,
       failed,
       skipped: items.length - eligibleItems.length,
+      tte_redirect: tteRedirect,
     };
+  }
+
+  async completePortalItem(naskahId: string): Promise<void> {
+    const item = await this.repo.findOne({ where: { naskahId } });
+    if (!item || item.statusVerifikasi === 'TERKIRIM') return;
+    item.statusVerifikasi = 'TERKIRIM';
+    item.errorMessage = null;
+    await this.repo.save(item);
+    if (!item.folderId) return;
+
+    const folder = await this.folderRepo.findOne({ where: { id: item.folderId } });
+    if (!folder) return;
+    const recipient = this.normalizeMassalRecipient(
+      this.parseRecipientData(item),
+    );
+    try {
+      const external = await this.resolveRecipientExternal(folder, item, recipient);
+      const tanggal = folder.tanggal
+        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+      const orgData = await this.orgDataService.findOrg(tanggal);
+      const pengirim = orgData?.position_json?.find(
+        (position: any) =>
+          Number(position.position) === Number(folder.pengirimId),
+      );
+      if (pengirim) {
+        void sdeMasalEmailQueue
+          .add(() =>
+            this.sendEmailForItem(
+              naskahId,
+              recipient,
+              external,
+              pengirim,
+              folder,
+              folder.pengirimId || undefined,
+              undefined,
+            ),
+          )
+          .catch((error) =>
+            this.logger.warn(
+              `[SDE Massal] Email setelah Portal TTE gagal untuk ${naskahId}: ${error?.message || error}`,
+            ),
+          );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[SDE Massal] Persiapan email callback gagal untuk ${naskahId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    await this.refreshFolderCounters(item.folderId);
+    const completedFolder = await this.folderRepo.findOne({
+      where: { id: item.folderId },
+    });
+    if (completedFolder?.status !== 'TERKIRIM') return;
+
+    if (completedFolder.parentNaskahId && completedFolder.createdBy) {
+      await this.sirkulasiRepository.update(
+        {
+          idNaskah: completedFolder.parentNaskahId,
+          position: String(completedFolder.createdBy),
+          sirkuler: In(['penerima', 'tembusan']),
+        },
+        { tindakLanjut: 1 },
+      );
+    }
+    await this.notifySdeMasalPositions([completedFolder.createdBy], {
+      title: 'SDE Massal Selesai Dikirim',
+      body: `Folder "${completedFolder.judul || '-'}" berhasil ditandatangani melalui Portal TTE dan dikirim.`,
+      action: 'OPEN_SDE_MASAL_FOLDER',
+      folderId: completedFolder.id,
+      status: 'TERKIRIM',
+    });
+  }
+
+  async failPortalItem(naskahId: string, message: string): Promise<void> {
+    const item = await this.repo.findOne({ where: { naskahId } });
+    if (!item || item.statusVerifikasi === 'TERKIRIM') return;
+    item.statusVerifikasi = 'GAGAL';
+    item.errorMessage = message.slice(0, 500);
+    await this.repo.save(item);
+    if (item.folderId) await this.refreshFolderCounters(item.folderId);
   }
 
   async sendFolderToSigner(folderId: string, creatorPosition?: string | number) {
@@ -3326,7 +3514,7 @@ export class SdeMasalService {
         alamat: external.alamat || null,
         telepon: external.telepon || null,
         email: external.email || null,
-        isDraft: status === 'pending',
+        isDraft: status === 'pending' || status === 'pending_tte',
         urutan: urutan++,
       });
       await this.sirkulasiRepository.save(row);

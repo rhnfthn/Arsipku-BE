@@ -63,6 +63,9 @@ import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_s
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { MailServiceService } from '../../mail-service/services/mail-service.service';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const DEFAULT_KOP_NAMA = 'AirNav Indonesia';
@@ -108,6 +111,8 @@ export class SuratDinasEksternalService {
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly mailServiceService: MailServiceService,
     private readonly konsepService: KonsepService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
   ) {}
 
   // ============================================================
@@ -822,8 +827,7 @@ export class SuratDinasEksternalService {
         }
 
         const pengirim = positions.find(
-          (position) =>
-            Number(position.position) === Number(request.pengirim),
+          (position) => Number(position.position) === Number(request.pengirim),
         );
         if (!pengirim || pengirim.chief !== 1) {
           throw new ForbiddenException(
@@ -1821,12 +1825,15 @@ export class SuratDinasEksternalService {
    */
   private async createSdeWithSigning(
     dto: CreateSuratDinasEksternalDto,
-    status: 'pending' | 'final' | 'final_tte',
+    status: 'pending' | 'pending_tte' | 'final' | 'final_tte',
     persnum?: number,
     reservedNomor?: string,
     bsreUserData?: { nik: string; no_wa: string },
     digsigBatch?: DigsigBatchContext,
+    portalUser?: JwtPayload,
+    deferPortalRequest = false,
   ): Promise<SdeSendMessageResponseDto> {
+    const isPortalMode = status === 'pending_tte';
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
 
@@ -2006,7 +2013,7 @@ export class SuratDinasEksternalService {
 
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
-      const isPending = status === 'pending';
+      const isPending = status === 'pending' || status === 'pending_tte';
       const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
@@ -2179,7 +2186,7 @@ export class SuratDinasEksternalService {
 
       // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
       if (
-        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
         dto.sign_option === SignOption.QR_ONLY
       ) {
         signedAt = new Date().toISOString();
@@ -2285,7 +2292,8 @@ export class SuratDinasEksternalService {
         if (
           dto.sign_option === SignOption.DIGSIG &&
           persnum &&
-          dto.passphrase
+          dto.passphrase &&
+          !isPortalMode
         ) {
           console.log(
             `[SDE] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
@@ -2297,9 +2305,7 @@ export class SuratDinasEksternalService {
           );
           const userData =
             bsreUserData ||
-            (await this.digsigService.getUserDataForBsre(
-              persnum.toString(),
-            ));
+            (await this.digsigService.getUserDataForBsre(persnum.toString()));
           console.log(`[SDE] Step 11a - Got userData:`, {
             nik: userData.nik,
             no_wa: userData.no_wa,
@@ -2438,6 +2444,32 @@ export class SuratDinasEksternalService {
         await queryRunner.commitTransaction();
         console.log(`[SDE] Transaction committed successfully`);
 
+        let portalRedirect:
+          | { transactionId: string; signingUrl: string }
+          | undefined;
+        if (isPortalMode && !deferPortalRequest) {
+          if (!portalUser || !finalPdfPath) {
+            throw new BadRequestException(
+              'Konteks pengguna atau PDF SDE untuk Portal TTE tidak lengkap',
+            );
+          }
+          const portal = await this.tteSigningService.createSigningTransaction({
+            sourceKey: finalPdfPath,
+            filename: finalPdfPath.split('/').pop() || `SDE-${naskahId}.pdf`,
+            pathDokumen: 'surat-dinas-eksternal/digsig/',
+            idNaskah: naskahId,
+            jenisNaskah: 'SDE',
+            nomorNaskah: nomorSurat,
+            location: dto.nama_tempat || 'Indonesia',
+            reason: `Penandatanganan Surat Dinas Eksternal ${nomorSurat}`,
+            user: portalUser,
+          });
+          portalRedirect = {
+            transactionId: portal.transactionId,
+            signingUrl: portal.signingUrl,
+          };
+        }
+
         // Sync to Meilisearch (non-blocking, after successful commit)
         this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
 
@@ -2462,6 +2494,7 @@ export class SuratDinasEksternalService {
             final_pdf: finalPdfPath || null,
             sign_option: dto.sign_option,
             bsre_name_doc: bsreNameDoc,
+            tte_redirect: portalRedirect,
           } as any,
         };
       } catch (pdfError) {
@@ -2469,7 +2502,9 @@ export class SuratDinasEksternalService {
         throw pdfError;
       }
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       console.error(`[SDE] Transaction rolled back due to error:`, error);
       throw error;
     } finally {
@@ -2671,10 +2706,15 @@ export class SuratDinasEksternalService {
     reservedNomor?: string,
     bsreUserData?: { nik: string; no_wa: string },
     digsigBatch?: DigsigBatchContext,
+    portalUser?: JwtPayload,
+    deferPortalRequest = false,
   ): Promise<SdeSendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('SDE'));
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase wajib diisi untuk opsi TTD Digital (digsig)',
         );
@@ -2687,9 +2727,9 @@ export class SuratDinasEksternalService {
     }
 
     // Determine status based on sign_option
-    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'pending_tte' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
-      status = 'final_tte';
+      status = isPortalMode ? 'pending_tte' : 'final_tte';
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
       status = 'pending';
     }
@@ -2702,6 +2742,8 @@ export class SuratDinasEksternalService {
       reservedNomor,
       bsreUserData,
       digsigBatch,
+      portalUser,
+      deferPortalRequest,
     );
   }
 
@@ -3107,7 +3149,11 @@ export class SuratDinasEksternalService {
     naskahId: string,
     dto: FinalizeSdeDraftDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SdeSendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('SDE'));
     // Validate sign_option + passphrase combination
     if (dto.sign_option === SignOption.DIGSIG) {
       if (!persnum) {
@@ -3115,7 +3161,7 @@ export class SuratDinasEksternalService {
           'Persnum diperlukan untuk Digital Signature (BSrE). Pastikan Anda sudah login.',
         );
       }
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase diperlukan untuk Digital Signature (BSrE).',
         );
@@ -3242,10 +3288,12 @@ export class SuratDinasEksternalService {
     }
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'pending' | 'final' | 'final_tte' | 'draf';
+    let newStatus: 'pending' | 'pending_tte' | 'final' | 'final_tte' | 'draf';
     if (dto.sign_option === SignOption.DIGSIG) {
-      newStatus = 'final_tte'; // Digital signature dengan BSrE
-      console.log('[SDE finalizeDraft] Status = final_tte (DIGSIG)');
+      newStatus = isPortalMode ? 'pending_tte' : 'final_tte';
+      console.log(
+        `[SDE finalizeDraft] Status = ${newStatus} (DIGSIG ${isPortalMode ? 'Portal' : 'BSrE direct'})`,
+      );
     } else if (dto.sign_option === SignOption.QR_ONLY) {
       newStatus = 'final'; // QR code tanpa BSrE
       console.log('[SDE finalizeDraft] Status = final (QR_ONLY)');
@@ -3321,7 +3369,8 @@ export class SuratDinasEksternalService {
         });
 
         // Re-insert pengirim (isDraft stays true for pending/TTD basah)
-        const isPending = newStatus === 'pending';
+        const isPending =
+          newStatus === 'pending' || newStatus === 'pending_tte';
         const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
           naskahId,
           'pengirim',
@@ -3332,7 +3381,8 @@ export class SuratDinasEksternalService {
       } else {
         // Update isDraft based on status
         // TTD Basah (pending) keeps isDraft=true (belum terkirim ke penerima)
-        const isPending = newStatus === 'pending';
+        const isPending =
+          newStatus === 'pending' || newStatus === 'pending_tte';
         if (!isPending) {
           await queryRunner.manager.update(
             NaskahSirkulasi,
@@ -3587,7 +3637,7 @@ export class SuratDinasEksternalService {
 
         // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
         if (
-          (dto.sign_option === SignOption.DIGSIG && persnum) ||
+          (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
           dto.sign_option === SignOption.QR_ONLY
         ) {
           signedAt = new Date().toISOString();
@@ -3677,7 +3727,7 @@ export class SuratDinasEksternalService {
         // ========================================
         // PHASE 11: Process BSrE signing (jika digsig)
         // ========================================
-        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+        if (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) {
           console.log(
             `[SDE finalizeDraft] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
           );
@@ -3878,6 +3928,32 @@ export class SuratDinasEksternalService {
       await queryRunner.release();
     }
 
+    let portalRedirect:
+      | { transactionId: string; signingUrl: string }
+      | undefined;
+    if (isPortalMode) {
+      if (!portalUser || !finalPdfPathResult) {
+        throw new BadRequestException(
+          'Konteks pengguna atau PDF SDE untuk Portal TTE tidak lengkap',
+        );
+      }
+      const portal = await this.tteSigningService.createSigningTransaction({
+        sourceKey: finalPdfPathResult,
+        filename: finalPdfPathResult.split('/').pop() || `SDE-${naskahId}.pdf`,
+        pathDokumen: 'surat-dinas-eksternal/digsig/',
+        idNaskah: naskahId,
+        jenisNaskah: 'SDE',
+        nomorNaskah: nomorSurat,
+        location: dto.nama_tempat || naskah.tempat || 'Indonesia',
+        reason: `Penandatanganan Surat Dinas Eksternal ${nomorSurat}`,
+        user: portalUser,
+      });
+      portalRedirect = {
+        transactionId: portal.transactionId,
+        signingUrl: portal.signingUrl,
+      };
+    }
+
     // PHASE 11: Get updated data for response
     const updatedNaskah = await this.naskahRepository.findOne({
       where: { id: naskahId },
@@ -4000,6 +4076,7 @@ export class SuratDinasEksternalService {
         // Additional fields untuk digsig (match send-message response)
         sign_option: dto.sign_option,
         bsre_name_doc: bsreNameDocResult,
+        tte_redirect: portalRedirect,
       } as any,
     };
   }
