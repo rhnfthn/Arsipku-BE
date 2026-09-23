@@ -14,12 +14,27 @@ export enum JenisNaskah {
   SDE = 'SDE',
   DI = 'DI',
   KA = 'KA',
+  /** Naskah Lainnya (workflow: LPD, BV, dll) — juga meng-cover Naskah Umum
+   * (template UND, PER, KEP, dll) untuk konfigurasi TTE */
+  NL = 'NL',
 }
 
 export enum TtdMode {
   DIGSIG = 'digsig',
   TTD_QR = 'ttd_qr',
   TTD_BASAH = 'ttd_basah',
+}
+
+/**
+ * Jalur eksekusi TTE untuk mode digsig:
+ * - bsre_direct: BSrE API v2 langsung (existing) — passphrase diinput user
+ *   di aplikasi Arsipku (modal), dikirim server-to-server ke BSrE.
+ * - portal: Portal TTE (client integration) — user di-redirect ke halaman
+ *   portal dan memasukkan passphrase di sana (dokumentasi integrasi §1).
+ */
+export enum TteMode {
+  BSRE_DIRECT = 'bsre_direct',
+  PORTAL = 'portal',
 }
 
 @Entity('config_digsig')
@@ -83,6 +98,16 @@ export class ConfigDigsig {
     comment: 'Deskripsi pengaturan',
   })
   description: string;
+
+  @Column({
+    name: 'tte_mode',
+    type: 'varchar',
+    length: 20,
+    default: TteMode.BSRE_DIRECT,
+    comment:
+      'Jalur TTE digsig: bsre_direct (BSrE v2 API langsung) | portal (redirect Portal TTE)',
+  })
+  tteMode: TteMode;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt: Date;

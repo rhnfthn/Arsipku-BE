@@ -477,7 +477,7 @@ export class KonsepController {
         files,
       );
       dto.from_position_id = Number(user.position);
-      return await this.konsepService.finalizeKonsep(id, dto);
+      return await this.konsepService.finalizeKonsep(id, dto, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

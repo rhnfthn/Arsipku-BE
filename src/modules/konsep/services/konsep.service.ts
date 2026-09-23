@@ -43,6 +43,8 @@ import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { compareNaskahFlow } from '../../naskah/utils/naskah-flow-order.util';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 
 import {
   CreateKonsepDto,
@@ -115,6 +117,8 @@ export class KonsepService {
     private grupPenerimaService: GrupPenerimaService,
     private notificationService: NotificationService,
     private naskahSirkulasiService: NaskahSirkulasiService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
     private dataSource: DataSource,
   ) {}
 
@@ -2166,6 +2170,7 @@ export class KonsepService {
   async finalizeKonsep(
     id: string,
     dto: FinalizeKonsepDto,
+    user?: any,
   ): Promise<FinalizeKonsepResponseDto> {
     const barisData = await this.getPositionData();
 
@@ -2243,6 +2248,10 @@ export class KonsepService {
         tanggal: naskahAsli.tanggal,
       };
 
+      const isPortalTte =
+        dto.sign_option === 'digsig' &&
+        (await this.tteSigningGateway.isPortalMode(naskahAsli.jenis));
+
       // 4. Get pengirim naskah asli (untuk generate nomor)
       const pengirimSirkulasi = await queryRunner.manager.findOne(
         NaskahSirkulasi,
@@ -2279,10 +2288,9 @@ export class KonsepService {
       );
 
       // 5a. Determine status based on sign_option
-      let newStatus: 'final' | 'final_tte' = 'final';
+      let newStatus: 'final' | 'final_tte' | 'pending_tte' = 'final';
       if (dto.sign_option === 'digsig') {
-        newStatus = 'final_tte'; // Digital signature dengan BSrE
-        console.log('[Konsep finalize] Status = final_tte (DIGSIG)');
+        newStatus = isPortalTte ? 'pending_tte' : 'final_tte';
       } else if (dto.sign_option === 'qr_only') {
         newStatus = 'final'; // QR code tanpa BSrE
         console.log('[Konsep finalize] Status = final (QR_ONLY)');
@@ -2313,7 +2321,9 @@ export class KonsepService {
       newNaskahKonsep.jenis = 'K';
       newNaskahKonsep.nomor = nomorKonsep;
       newNaskahKonsep.perihal = dto.catatan || '';
-      newNaskahKonsep.status = newStatus;
+      // Record K hanya jejak finalisasi konsep; status pending TTE melekat pada
+      // naskah asli yang benar-benar dikirim ke Portal dan diselesaikan callback.
+      newNaskahKonsep.status = isPortalTte ? 'final' : newStatus;
       newNaskahKonsep.tanggal = tanggal;
       newNaskahKonsep.id_naskah_asli = naskahAsliId;
       newNaskahKonsep.id_naskah_parent = id; // Link ke konsep parent
@@ -2350,7 +2360,7 @@ export class KonsepService {
       await queryRunner.manager.update(
         NaskahSirkulasi,
         { idNaskah: naskahAsliId },
-        { isKonsep: 0 },
+        { isKonsep: 0, isDraft: isPortalTte ? true : false },
       );
 
       // 10. Handle new penerima if provided (expand individual + grup)
@@ -2588,9 +2598,52 @@ export class KonsepService {
 
       await queryRunner.commitTransaction();
 
-      this.notifyFinalNaskahRecipients(naskahAsliId, pengirimPosData).catch(
-        () => {},
-      );
+      let tteRedirect:
+        | { transactionId: string; signingUrl: string }
+        | undefined;
+      if (isPortalTte) {
+        if (!user?.persnum) {
+          throw new BadRequestException(
+            'Identitas pengguna tidak tersedia untuk Portal TTE',
+          );
+        }
+        if (!naskahAsli.final_pdf) {
+          throw new BadRequestException(
+            'PDF final belum tersedia untuk dikirim ke Portal TTE',
+          );
+        }
+        const portal = await this.tteSigningService.createSigningTransaction({
+          sourceKey: naskahAsli.final_pdf,
+          filename: `${naskahAsli.jenis}-${nomorSurat || naskahAsliId}.pdf`.replace(
+            /[^a-zA-Z0-9._-]/g,
+            '-',
+          ),
+          pathDokumen:
+            naskahAsli.jenis === 'ND'
+              ? 'nota-dinas/digsig/'
+              : naskahAsli.jenis === 'SDI'
+                ? 'surat-dinas-internal/digsig/'
+                : 'surat-dinas-eksternal/digsig/',
+          idNaskah: naskahAsliId,
+          jenisNaskah: naskahAsli.jenis,
+          nomorNaskah: nomorSurat,
+          location: pengirimPosData.sub_area_text || 'KANTOR PUSAT',
+          reason: `${nomorSurat} - ${naskahAsli.perihal || ''}`.slice(
+            0,
+            2000,
+          ),
+          tampilan: 'INVISIBLE',
+          user,
+        });
+        tteRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+      } else {
+        this.notifyFinalNaskahRecipients(naskahAsliId, pengirimPosData).catch(
+          () => {},
+        );
+      }
 
       return {
         success: true,
@@ -2603,10 +2656,13 @@ export class KonsepService {
           sign_option: dto.sign_option || null,
           penerima: penerimaList,
           tembusan: tembusanList.length > 0 ? tembusanList : undefined,
+          tte_redirect: tteRedirect,
         },
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
       await queryRunner.release();

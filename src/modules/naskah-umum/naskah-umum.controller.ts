@@ -42,7 +42,7 @@ export class NaskahUmumController {
   async send(@Body() dto: SendDto, @Req() req: any) {
     const userId = String(req.user?.persnum ?? req.user?.id ?? 'u1');
     const persnum = req.user?.persnum as number | undefined;
-    const res = await this.svc.finalizeSend(dto, userId, persnum);
+    const res = await this.svc.finalizeSend(dto, userId, persnum, req.user);
     return { success: true, data: res };
   }
 }

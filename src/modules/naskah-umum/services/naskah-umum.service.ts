@@ -15,6 +15,8 @@ import { OnlyOfficeService } from '../../onlyoffice/services/onlyoffice.service'
 import { NomorSuratService } from '../../../shared/services/nomor-surat.service';
 import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 
 @Injectable()
 export class NaskahUmumService {
@@ -29,6 +31,8 @@ export class NaskahUmumService {
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
     private readonly grupPenerimaService: GrupPenerimaService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
   ) {
     // Kill switch: OnlyOffice feature = ONLYOFFICE_ENABLED=false (default).
     // Don't throw at bootstrap. APP_PUBLIC_URL checked lazily in methods
@@ -103,7 +107,18 @@ export class NaskahUmumService {
     dto: SendDto,
     userId: string,
     _persnum?: number,
-  ): Promise<{ id: string; nomor: string; status: string; final_pdf: string }> {
+    user?: any,
+  ): Promise<{
+    id: string;
+    nomor: string;
+    status: string;
+    final_pdf: string;
+    /** Alur portal: URL untuk redirect user ke Portal TTE */
+    tte_redirect?: {
+      transactionId: string;
+      signingUrl: string;
+    };
+  }> {
     const temp = await this.tempRepo.findOne({ where: { id: dto.tempId } });
     if (!temp) {
       throw new BadRequestException(
@@ -176,7 +191,16 @@ export class NaskahUmumService {
     const finalPdfUrl = await this.storage.getFileUrl(finalPdfUpload.key, 3600);
 
     // 6. Create naskah + sirkulasi atomically
-    const newStatus = dto.sign_option === 'digsig' ? 'final_tte' : 'final';
+    const portalMode =
+      dto.sign_option === 'digsig'
+        ? await this.tteSigningGateway.isPortalMode(temp.jenis)
+        : false;
+    const newStatus =
+      dto.sign_option === 'digsig'
+        ? portalMode
+          ? 'pending_tte'
+          : 'final_tte'
+        : 'final';
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -290,6 +314,45 @@ export class NaskahUmumService {
       throw error;
     } finally {
       await queryRunner.release();
+    }
+
+    // ── Alur Portal TTE (konfigurasi admin: tte_mode=portal) ──────────────
+    // Naskah sudah dibuat dengan status final_tte (PDF belum TTE). Buat
+    // signing request di portal; FE redirect user ke signing_url untuk
+    // memasukkan passphrase di halaman Portal TTE. Setelah callback sukses,
+    // completion handler mengganti final_pdf dengan versi TTE.
+    if (dto.sign_option === 'digsig') {
+      if (portalMode) {
+        if (!user?.persnum || !user?.nama) {
+          throw new BadRequestException(
+            'Sesi user tidak valid untuk TTE Portal. Silakan login ulang.',
+          );
+        }
+        const tteResult = await this.tteSigningService.createSigningTransaction(
+          {
+            sourceKey: finalPdfUpload.key,
+            filename: `${dto.tempId}.pdf`,
+            pathDokumen: 'naskah-umum-final/tte',
+            idNaskah: naskahId,
+            jenisNaskah: temp.jenis,
+            nomorNaskah: nomor,
+            location: fields.dari ?? 'KANTOR PUSAT',
+            reason: `${nomor} - ${fields.perihal ?? ''}`.slice(0, 2000),
+            tampilan: 'INVISIBLE',
+            user,
+          },
+        );
+        return {
+          id: naskahId,
+          nomor,
+          status: newStatus,
+          final_pdf: finalPdfUrl,
+          tte_redirect: {
+            transactionId: tteResult.transactionId,
+            signingUrl: tteResult.signingUrl,
+          },
+        };
+      }
     }
 
     return { id: naskahId, nomor, status: newStatus, final_pdf: finalPdfUrl };

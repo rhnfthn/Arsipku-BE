@@ -72,12 +72,13 @@ import { delegatedPengirimFields } from '../../../common/helpers/delegasi-render
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
 import { CorrespondenceRoutingResolverService } from '../../correspondence-routing/services/correspondence-routing-resolver.service';
-import type {
-  EffectiveRoutingPlan,
-} from '../../correspondence-routing/services/correspondence-routing-resolver.service';
+import type { EffectiveRoutingPlan } from '../../correspondence-routing/services/correspondence-routing-resolver.service';
 import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
 import { NaskahRoutingApplied } from '../../correspondence-routing/entities/naskah-routing-applied.entity';
 import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -170,6 +171,8 @@ export class DisposisiService {
     private readonly qrCodeService: QRCodeService,
     private readonly digsigService: DigsigService,
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
     @InjectRepository(DelegasiEntity)
     private readonly delegasiRepository: Repository<DelegasiEntity>,
     @Optional()
@@ -1432,8 +1435,13 @@ export class DisposisiService {
   async sendMessage(
     dto: CreateDisposisiDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendDisposisiResponseDto> {
     assertDateNotInFuture(dto.tanggal_disposisi, 'Tanggal disposisi');
+
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('DI'));
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1441,7 +1449,8 @@ export class DisposisiService {
 
     let routingPlan: EffectiveRoutingPlan | null = null;
     try {
-      const isPending = dto.sign_option === SignOption.TTD_BASAH;
+      const isPending =
+        dto.sign_option === SignOption.TTD_BASAH || isPortalMode;
 
       // Get cached position data
       const barisData = await this.getPositionData();
@@ -1513,22 +1522,24 @@ export class DisposisiService {
             'Persnum diperlukan untuk tanda tangan digital (digsig)',
           );
         }
-        if (!dto.passphrase || !dto.passphrase.trim()) {
+        if (!isPortalMode && (!dto.passphrase || !dto.passphrase.trim())) {
           throw new BadRequestException(
             'Passphrase diperlukan untuk tanda tangan digital (digsig)',
           );
         }
 
-        await this.validateDigsigPassphrase({
-          persnum,
-          passphrase: dto.passphrase,
-          naskahId,
-          nomorDokumen: generatedNomor,
-          tanggalDokumen: dto.tanggal_disposisi,
-          klasifikasi: dto.sifat || 'Biasa',
-          perihal: dto.perihal || '',
-          userName: pengirimData.persnum_person_text || undefined,
-        });
+        if (!isPortalMode) {
+          await this.validateDigsigPassphrase({
+            persnum,
+            passphrase: dto.passphrase!,
+            naskahId,
+            nomorDokumen: generatedNomor,
+            tanggalDokumen: dto.tanggal_disposisi,
+            klasifikasi: dto.sifat || 'Biasa',
+            perihal: dto.perihal || '',
+            userName: pengirimData.persnum_person_text || undefined,
+          });
+        }
       }
 
       // Insert ke tabel NASKAH
@@ -1542,7 +1553,7 @@ export class DisposisiService {
         tanggal: tanggalDisposisi,
         perihal: dto.perihal || dto.ref_perihal || undefined, // Perihal masuk ke tabel naskah
         konten: dto.disposisi || undefined, // Simpan disposisi ke kolom konten juga
-        status: isPending ? 'pending' : 'final',
+        status: isPortalMode ? 'pending_tte' : isPending ? 'pending' : 'final',
         lampiran: dto.lampiran?.length
           ? `${dto.lampiran.length} file`
           : undefined,
@@ -1838,7 +1849,7 @@ export class DisposisiService {
         let qrCodeHtml = '';
         if (
           dto.sign_option === SignOption.QR_ONLY ||
-          dto.sign_option === SignOption.DIGSIG
+          (dto.sign_option === SignOption.DIGSIG && !isPortalMode)
         ) {
           const signedAt = tanggalDisposisi.toISOString();
           const qrData = {
@@ -1936,6 +1947,32 @@ export class DisposisiService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      let portalRedirect:
+        | { transactionId: string; signingUrl: string }
+        | undefined;
+      if (isPortalMode) {
+        if (!portalUser || !finalPdfPath) {
+          throw new BadRequestException(
+            'Konteks pengguna atau PDF Disposisi untuk Portal TTE tidak lengkap',
+          );
+        }
+        const portal = await this.tteSigningService.createSigningTransaction({
+          sourceKey: finalPdfPath,
+          filename: finalPdfPath.split('/').pop() || `DI-${naskahId}.pdf`,
+          pathDokumen: 'disposisi/digsig/',
+          idNaskah: naskahId,
+          jenisNaskah: 'DI',
+          nomorNaskah: generatedNomor,
+          location: 'Indonesia',
+          reason: `Penandatanganan Disposisi Internal ${generatedNomor}`,
+          user: portalUser,
+        });
+        portalRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+      }
+
       // Mark unread notification for the sender on the original/referenced naskah as read
       const refNaskahId = dto.id_referensi_naskah;
       if (refNaskahId && dto.pengirim_position_id) {
@@ -1963,7 +2000,11 @@ export class DisposisiService {
           jenis: 'DI',
           nomor: generatedNomor, // Nomor dari integrasi
           tanggal: dto.tanggal_disposisi,
-          status: isPending ? 'pending' : 'final',
+          status: isPortalMode
+            ? 'pending_tte'
+            : isPending
+              ? 'pending'
+              : 'final',
           sifat: dto.sifat,
           perihal: dto.perihal || dto.ref_perihal || '',
           pengirim: this.toSirkulasiInfo(pengirimData),
@@ -1975,11 +2016,14 @@ export class DisposisiService {
           id_naskah_sebelumnya: dto.id_naskah_sebelumnya || null,
           is_priority: dto.is_priority || false, // Include priority flag in response
           final_pdf: finalPdfPath, // Include generated PDF path in response
+          tte_redirect: portalRedirect,
         },
       };
     } catch (error) {
       // Rollback on error
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
       await queryRunner.release();
@@ -3997,11 +4041,7 @@ export class DisposisiService {
       throw new NotFoundException(`Naskah bukan Disposisi (DI)`);
     }
 
-    await this.assertUserHasAccessToNaskah(
-      naskahId,
-      userPosition,
-      userPersnum,
-    );
+    await this.assertUserHasAccessToNaskah(naskahId, userPosition, userPersnum);
 
     // ============================================================
     // BUILD ANCESTOR CHAIN (scoped: root -> naskah yang dilihat)

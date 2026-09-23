@@ -217,7 +217,7 @@ export class KajianController {
       dto.actor_nama = user?.nama ?? '';
       console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
 
-      return await this.kajianService.sendMessage(dto, persnum);
+      return await this.kajianService.sendMessage(dto, persnum, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -323,7 +323,7 @@ export class KajianController {
       dto.actor_nama = user?.nama ?? '';
       console.log('[KA Controller] Parsed DTO sign_option:', dto.sign_option);
 
-      return await this.kajianService.finalizeDraft(id, dto, persnum);
+      return await this.kajianService.finalizeDraft(id, dto, persnum, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
