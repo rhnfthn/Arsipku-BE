@@ -144,7 +144,10 @@ export class TteSigningService {
     // NIK asli per-user — mode portal TIDAK memakai NIK shared.
     // JWT masih membawa DEFAULT_BSRE_NIK (era bsre_direct), jadi NIK asli
     // selalu di-fetch fresh dari HR API (sumber sama dengan /digsig/ktp).
-    const signerNik = await this.signerIdentityService.getNik(user.persnum);
+    const signerNik = await this.signerIdentityService.getNik(
+      user.persnum,
+      user.sessionId,
+    );
 
     const redirectUrl = process.env.TTE_REDIRECT_URL;
     if (!redirectUrl) {
@@ -300,7 +303,10 @@ export class TteSigningService {
     }
 
     const user = params.user;
-    const signerNik = await this.signerIdentityService.getNik(user.persnum);
+    const signerNik = await this.signerIdentityService.getNik(
+      user.persnum,
+      user.sessionId,
+    );
     const redirectUrl = process.env.TTE_REDIRECT_URL;
     if (!redirectUrl) {
       throw new BadRequestException(

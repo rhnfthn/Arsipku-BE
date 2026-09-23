@@ -12,6 +12,8 @@ export interface ActiveRoleInfo {
 
 export interface JwtPayload {
   persnum: number;
+  /** Session browser aktif, diinjeksi dari header setelah JWT terverifikasi. */
+  sessionId?: string;
   nama: string;
   role: 'user' | 'admin' | 'superadmin';
   activeRole?: ActiveRoleInfo | null;
