@@ -304,6 +304,7 @@ export class DisposisiController {
       return await this.disposisiService.sendMessage(
         body as CreateDisposisiDto,
         user?.persnum ? Number(user.persnum) : undefined,
+        user,
       );
     } catch (error) {
       // Re-throw NestJS exceptions as-is

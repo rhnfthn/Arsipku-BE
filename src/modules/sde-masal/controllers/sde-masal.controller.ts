@@ -149,11 +149,14 @@ export class SdeMasalController {
       user?.position ?? user?.positionId,
       user?.persnum ? Number(user.persnum) : undefined,
       body.itemIds,
+      user,
     );
     return {
       success: true,
       data,
-      message: `${data.success} naskah berhasil difinalisasi, ${data.failed} gagal.`,
+      message: data.tte_redirect
+        ? `${data.success} naskah siap ditandatangani melalui Portal TTE.`
+        : `${data.success} naskah berhasil difinalisasi, ${data.failed} gagal.`,
     };
   }
 

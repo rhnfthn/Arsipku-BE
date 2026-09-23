@@ -44,12 +44,12 @@ export class NaskahEntity {
   tempat: string;
 
   @Column('enum', {
-    enum: ['draf', 'pending', 'final', 'final_tte'],
+    enum: ['draf', 'pending', 'pending_tte', 'final', 'final_tte'],
     default: 'draf',
     comment:
-      'Status dokumen: draf=sedang dibuat, pending=menunggu TTD basah, final=final TTD basah, final_tte=final dengan TTD elektronik',
+      'Status dokumen: draf=sedang dibuat, pending=menunggu TTD basah, pending_tte=menunggu Portal TTE, final=final TTD basah, final_tte=final dengan TTD elektronik',
   })
-  status: 'draf' | 'pending' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'pending_tte' | 'final' | 'final_tte';
 
   @Column('varchar', { length: 500, nullable: true })
   final_pdf: string;

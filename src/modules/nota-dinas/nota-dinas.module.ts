@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotaDinasController } from './controllers/nota-dinas.controller';
 import { NotaDinasService } from './services/nota-dinas.service';
+import { NotaDinasTteCompletionHandler } from './services/nota-dinas-tte-completion.handler';
 // NdEntity removed - data now stored in naskah and naskah_sirkulasi
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
@@ -15,6 +16,7 @@ import { NomorSuratService } from '../../shared/services/nomor-surat.service';
 import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { SearchModule } from '../search/search.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
@@ -37,6 +39,7 @@ import { KonsepModule } from '../konsep/konsep.module';
     StorageModule,
     GeneratePdfModule,
     DigsigModule,
+    TtePortalModule,
     SubAreaAlamatModule,
     SearchModule,
     GrupPenerimaModule,
@@ -44,7 +47,15 @@ import { KonsepModule } from '../konsep/konsep.module';
     NaskahSirkulasiModule,
   ],
   controllers: [NotaDinasController],
-  providers: [NotaDinasService, NomorSuratService],
+  providers: [
+    NotaDinasService,
+    NomorSuratService,
+    NotaDinasTteCompletionHandler,
+    {
+      provide: 'NotaDinasTteCompletionHandler',
+      useExisting: NotaDinasTteCompletionHandler,
+    },
+  ],
   exports: [NotaDinasService],
 })
 export class NotaDinasModule {}

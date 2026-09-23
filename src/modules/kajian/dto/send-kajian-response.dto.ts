@@ -35,6 +35,10 @@ export class SendMessageDataDto {
     filePath: string;
     fileUrl: string | null;
   }[];
+  tte_redirect?: {
+    transactionId: string;
+    signingUrl: string;
+  };
 }
 
 export class SendMessageResponseDto {

@@ -122,7 +122,7 @@ export class FinalizeKonsepResponseDto {
     id_konsep: string;
     id_naskah: string;
     nomor_surat: string;
-    status: 'final' | 'final_tte';
+    status: 'final' | 'final_tte' | 'pending_tte';
     sign_option?: 'digsig' | 'qr_only' | 'ttd_basah' | null;
     penerima: Array<{
       position_id: number;
@@ -134,6 +134,10 @@ export class FinalizeKonsepResponseDto {
       position_text: string;
       nama: string | null;
     }>;
+    tte_redirect?: {
+      transactionId: string;
+      signingUrl: string;
+    };
   };
 }
 

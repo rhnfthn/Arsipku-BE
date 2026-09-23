@@ -46,6 +46,8 @@ import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { DigsigService } from 'src/modules/digsig/services';
+import { TteSigningGateway } from 'src/modules/tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from 'src/modules/tte-portal/services/tte-signing.service';
 import {
   QRCodeService,
   QRCodeData,
@@ -97,6 +99,8 @@ export class NotaDinasService {
     private readonly generatePdfNodinService: GeneratePdfNodinService,
     private readonly subAreaAlamatService: SubAreaAlamatService,
     private readonly digsigService: DigsigService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
@@ -1428,7 +1432,7 @@ export class NotaDinasService {
    */
   private async createNotaDinas(
     dto: CreateNotaDinasDto,
-    status: 'draf' | 'pending' | 'final' | 'final_tte',
+    status: 'draf' | 'pending' | 'pending_tte' | 'final' | 'final_tte',
   ): Promise<SendMessageResponseDto> {
     // Use provided date or today
     const tanggal = dto.tgl ?? new Date().toISOString().split('T')[0];
@@ -1591,7 +1595,8 @@ export class NotaDinasService {
       await queryRunner.manager.save(naskah);
 
       // Determine if this is a draft (pending = TTD basah, belum terkirim ke penerima)
-      const isDraft = status === 'draf' || status === 'pending';
+      const isDraft =
+        status === 'draf' || status === 'pending' || status === 'pending_tte';
 
       // PHASE 8: Insert sirkulasi - pengirim
       const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
@@ -1886,7 +1891,9 @@ export class NotaDinasService {
         },
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
       await queryRunner.release();
@@ -1915,9 +1922,16 @@ export class NotaDinasService {
   async sendMessage(
     dto: CreateNotaDinasDto,
     persnum?: number,
+    user?: any,
   ): Promise<SendMessageResponseDto> {
-    // Validate sign_option + passphrase combination
+    // Mode portal: passphrase diinput user di halaman Portal TTE (bukan di sini)
+    let isPortalMode = false;
     if (dto.sign_option === SignOption.DIGSIG) {
+      isPortalMode = await this.tteSigningGateway.isPortalMode('ND');
+    }
+
+    // Validate sign_option + passphrase combination (hanya alur bsre_direct)
+    if (dto.sign_option === SignOption.DIGSIG && !isPortalMode) {
       if (!dto.passphrase) {
         throw new BadRequestException(
           'Passphrase wajib diisi untuk opsi TTD Digital (digsig)',
@@ -1931,15 +1945,15 @@ export class NotaDinasService {
     }
 
     // Determine status based on sign_option
-    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'pending_tte' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
-      status = 'final_tte';
+      status = isPortalMode ? 'pending_tte' : 'final_tte';
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
       status = 'pending';
     }
 
     // Call createNdWithSigning with signing options
-    return this.createNdWithSigning(dto, status, persnum);
+    return this.createNdWithSigning(dto, status, persnum, user);
   }
 
   /**
@@ -1961,8 +1975,9 @@ export class NotaDinasService {
    */
   private async createNdWithSigning(
     dto: CreateNotaDinasDto,
-    status: 'pending' | 'final' | 'final_tte',
+    status: 'pending' | 'pending_tte' | 'final' | 'final_tte',
     persnum?: number,
+    user?: any,
   ): Promise<SendMessageResponseDto> {
     assertDateNotInFuture(dto.tgl, 'Tanggal naskah');
 
@@ -2108,7 +2123,7 @@ export class NotaDinasService {
 
       // PHASE 7: Insert sirkulasi
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
-      const isPending = status === 'pending';
+      const isPending = status === 'pending' || status === 'pending_tte';
       const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
         naskahId,
         'pengirim',
@@ -2309,6 +2324,9 @@ export class NotaDinasService {
       let pdfBuffer: Buffer;
       let signatureMetadata: string | null = null;
       let bsreNameDoc: string | null = null;
+      // Alur Portal TTE: diisi bila tte_mode=portal — FE redirect user
+      let portalRedirect: { transactionId: string; signingUrl: string } | null =
+        null;
 
       // Prepare signing data BEFORE generating PDF (untuk embed QR di template)
       const signerName =
@@ -2394,8 +2412,64 @@ export class NotaDinasService {
           }
         }
 
-        // PHASE 11: Process BSrE signing (jika digsig) - QR sudah di template
+        // ── Alur Portal TTE (konfigurasi admin: tte_mode=portal) ──────────
+        // Naskah sudah dibuat dengan status final_tte (PDF belum TTE). Buat
+        // signing request di portal; FE redirect user ke signing_url untuk
+        // memasukkan passphrase di halaman Portal TTE. Setelah callback
+        // sukses, completion handler mengganti final_pdf dengan versi TTE.
         if (dto.sign_option === SignOption.DIGSIG && persnum) {
+          const isPortal = await this.tteSigningGateway.isPortalMode('ND');
+          if (isPortal) {
+            console.log(
+              `[ND] Mode Portal TTE aktif — buat signing request untuk naskah ${naskahId}`,
+            );
+            // Upload PDF (dengan QR) ke temp sebagai sumber signing portal
+            const tempTimestamp = Date.now();
+            const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
+            const tempUpload = await this.storageService.uploadBuffer(
+              pdfBuffer,
+              tempFileName,
+              'application/pdf',
+              'nota-dinas/temp',
+            );
+            const tteResult =
+              await this.tteSigningService.createSigningTransaction({
+                sourceKey: tempUpload.key,
+                filename: tempFileName,
+                pathDokumen: 'nota-dinas/digsig',
+                idNaskah: naskahId,
+                jenisNaskah: 'ND',
+                nomorNaskah: nomorSurat,
+                location: pengirim.sub_area_text || 'KANTOR PUSAT',
+                reason: `${nomorSurat} - ${dto.perihal || ''}`.slice(0, 2000),
+                tampilan: 'INVISIBLE',
+                user: {
+                  persnum,
+                  nama: signerName,
+                  nik: user?.nik,
+                } as any,
+              });
+            // Cleanup temp file (sudah ter-upload ke portal storage)
+            try {
+              await this.storageService.deleteFile(tempUpload.key);
+            } catch {
+              /* best effort */
+            }
+            portalRedirect = {
+              transactionId: tteResult.transactionId,
+              signingUrl: tteResult.signingUrl,
+            };
+            // Skip BSrE sync signing — PDF final di-upload apa adanya;
+            // completion handler akan menggantinya dengan versi TTE.
+          }
+        }
+
+        // PHASE 11: Process BSrE signing (jika digsig) - QR sudah di template
+        if (
+          dto.sign_option === SignOption.DIGSIG &&
+          persnum &&
+          !portalRedirect
+        ) {
           // ========================================
           // Digital Signature dengan BSrE
           // QR sudah ada di template, tinggal hit BSrE dan build metadata
@@ -2585,6 +2659,8 @@ export class NotaDinasService {
           // Additional fields untuk digsig (match SDI response)
           sign_option: dto.sign_option,
           bsre_name_doc: bsreNameDoc, // Return name_doc untuk FE (krusial untuk verifikasi)
+          // Alur Portal TTE: FE redirect user ke signing_url portal
+          tte_redirect: portalRedirect,
         } as any,
       };
     } catch (error) {
@@ -2614,9 +2690,16 @@ export class NotaDinasService {
     naskahId: string,
     dto: FinalizeDraftDto,
     persnum?: number,
+    user?: any,
   ): Promise<SendMessageResponseDto> {
-    // Validate sign_option + passphrase combination
+    // Mode portal: passphrase diinput user di halaman Portal TTE (bukan di sini)
+    let isPortalMode = false;
     if (dto.sign_option === SignOption.DIGSIG) {
+      isPortalMode = await this.tteSigningGateway.isPortalMode('ND');
+    }
+
+    // Validate sign_option + passphrase combination (hanya alur bsre_direct)
+    if (dto.sign_option === SignOption.DIGSIG && !isPortalMode) {
       if (!persnum) {
         throw new BadRequestException(
           'Persnum diperlukan untuk Digital Signature (BSrE). Pastikan Anda sudah login.',
@@ -2773,10 +2856,12 @@ export class NotaDinasService {
     let nomorSurat = '';
 
     // PHASE 5: Determine new status based on sign_option
-    let newStatus: 'final' | 'final_tte';
+    let newStatus: 'pending_tte' | 'final' | 'final_tte';
     if (dto.sign_option === SignOption.DIGSIG) {
-      newStatus = 'final_tte'; // Digital signature dengan BSrE
-      console.log('[ND finalizeDraft] Status = final_tte (DIGSIG)');
+      newStatus = isPortalMode ? 'pending_tte' : 'final_tte';
+      console.log(
+        `[ND finalizeDraft] Status = ${newStatus} (DIGSIG ${isPortalMode ? 'Portal' : 'BSrE direct'})`,
+      );
     } else if (dto.sign_option === SignOption.QR_ONLY) {
       newStatus = 'final'; // QR code tanpa BSrE
       console.log('[ND finalizeDraft] Status = final (QR_ONLY)');
@@ -2794,6 +2879,11 @@ export class NotaDinasService {
     // Variables for signing result (need to be accessible in response)
     let finalPdfPathResult: string | undefined = undefined;
     let bsreNameDocResult: string | null = null;
+    // Alur Portal TTE — diisi di scope dalam, dipakai di response
+    let portalRedirectResult: {
+      transactionId: string;
+      signingUrl: string;
+    } | null = null;
 
     // Start transaction
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2959,8 +3049,8 @@ export class NotaDinasService {
           );
         }
 
-        // send-draft selalu membuka sirkulasi karena status akhirnya final/final_tte.
-        const isPending = false;
+        // Portal TTE belum boleh terlihat penerima sampai completion sukses.
+        const isPending = newStatus === 'pending_tte';
         if (fullPengirimPosition && fullPengirimPosition.position_text) {
           const pengirimSirkulasi = await this.createSirkulasiFromOrgData(
             naskahId,
@@ -3013,7 +3103,7 @@ export class NotaDinasService {
         await queryRunner.manager.update(
           NaskahSirkulasi,
           { idNaskah: naskahId },
-          { isDraft: false },
+          { isDraft: newStatus === 'pending_tte' },
         );
       }
 
@@ -3052,6 +3142,9 @@ export class NotaDinasService {
       let pdfBuffer: Buffer;
       let signatureMetadata: string | null = null;
       let bsreNameDoc: string | null = null;
+      // Alur Portal TTE: diisi bila tte_mode=portal — FE redirect user
+      let portalRedirect: { transactionId: string; signingUrl: string } | null =
+        null;
 
       try {
         // Get pengirim sirkulasi for fallback data (NdEntity tidak lagi digunakan)
@@ -3267,9 +3360,66 @@ export class NotaDinasService {
         }
 
         // ========================================
+        // ── Alur Portal TTE (konfigurasi admin: tte_mode=portal) ──────────
+        // Naskah difinalize dengan status final_tte (PDF belum TTE). Buat
+        // signing request di portal; FE redirect user ke signing_url.
+        // Completion handler mengganti final_pdf dengan versi TTE setelah
+        // callback sukses.
+        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+          const isPortal = await this.tteSigningGateway.isPortalMode('ND');
+          if (isPortal) {
+            console.log(
+              `[ND finalizeDraft] Mode Portal TTE aktif — buat signing request untuk naskah ${naskahId}`,
+            );
+            const tempTimestamp = Date.now();
+            const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
+            const tempUpload = await this.storageService.uploadBuffer(
+              pdfBuffer,
+              tempFileName,
+              'application/pdf',
+              'nota-dinas/temp',
+            );
+            const tteResult =
+              await this.tteSigningService.createSigningTransaction({
+                sourceKey: tempUpload.key,
+                filename: tempFileName,
+                pathDokumen: 'nota-dinas/digsig',
+                idNaskah: naskahId,
+                jenisNaskah: 'ND',
+                nomorNaskah: nomorSurat,
+                location:
+                  pengirimSirkulasiForPdf?.subAreaText || 'KANTOR PUSAT',
+                reason:
+                  `${nomorSurat} - ${dto.perihal || naskah.perihal || ''}`.slice(
+                    0,
+                    2000,
+                  ),
+                tampilan: 'INVISIBLE',
+                user: {
+                  persnum,
+                  nama: signerName,
+                  nik: user?.nik,
+                } as any,
+              });
+            try {
+              await this.storageService.deleteFile(tempUpload.key);
+            } catch {
+              /* best effort */
+            }
+            portalRedirect = {
+              transactionId: tteResult.transactionId,
+              signingUrl: tteResult.signingUrl,
+            };
+          }
+        }
+
         // PHASE 11: Process BSrE signing (jika digsig)
         // ========================================
-        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+        if (
+          dto.sign_option === SignOption.DIGSIG &&
+          persnum &&
+          !portalRedirect
+        ) {
           console.log(
             `[ND finalizeDraft] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
           );
@@ -3409,6 +3559,7 @@ export class NotaDinasService {
         // Store to outer scope for response
         finalPdfPathResult = finalPdfPath;
         bsreNameDocResult = bsreNameDoc;
+        portalRedirectResult = portalRedirect;
 
         // Update naskah with final_pdf path
         await queryRunner.manager.update(
@@ -3584,6 +3735,8 @@ export class NotaDinasService {
         // Additional fields untuk digsig (match send-message response)
         sign_option: dto.sign_option,
         bsre_name_doc: bsreNameDocResult,
+        // Alur Portal TTE: FE redirect user ke signing_url portal
+        tte_redirect: portalRedirectResult,
       } as any,
     };
   }

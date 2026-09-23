@@ -64,6 +64,9 @@ import {
   generateSignatureId,
   QRCodeData,
 } from '../../../common/helpers/signature.helper';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const MANAGERIAL_THRESHOLD = 70000000;
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -128,6 +131,8 @@ export class KajianService {
     private readonly qrCodeService: QRCodeService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly notificationService: NotificationService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
   ) {}
 
   // ============================================================
@@ -835,7 +840,11 @@ export class KajianService {
   async sendMessage(
     dto: CreateKajianDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('KA'));
     // ============================================================
     // VALIDATE SIGNING OPTIONS
     // ============================================================
@@ -850,7 +859,7 @@ export class KajianService {
           'Persnum diperlukan untuk tanda tangan digital (digsig)',
         );
       }
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase diperlukan untuk tanda tangan digital (digsig)',
         );
@@ -858,9 +867,9 @@ export class KajianService {
     }
 
     // Determine status: final_tte (digsig), final (qr_only), pending (ttd_basah), or final (default)
-    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'pending_tte' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
-      status = 'final_tte';
+      status = isPortalMode ? 'pending_tte' : 'final_tte';
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
       status = 'pending';
     }
@@ -868,7 +877,7 @@ export class KajianService {
     console.log(`[KA] Determined status: ${status}`);
 
     // Delegate to createKaWithSigning for full flow with signing
-    return this.createKaWithSigning(dto, status, persnum);
+    return this.createKaWithSigning(dto, status, persnum, portalUser);
   }
 
   /**
@@ -1210,9 +1219,11 @@ export class KajianService {
    */
   private async createKaWithSigning(
     dto: CreateKajianDto,
-    status: 'pending' | 'final' | 'final_tte',
+    status: 'pending' | 'pending_tte' | 'final' | 'final_tte',
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode = status === 'pending_tte';
     console.log(
       `[KA] createKaWithSigning starting - status: ${status}, sign_option: ${dto.sign_option}`,
     );
@@ -1297,7 +1308,7 @@ export class KajianService {
 
       // PHASE 6: Insert sirkulasi - pengirim
       // TTD Basah (pending) → isDraft=true, no notifications (belum terkirim ke penerima)
-      const isPending = status === 'pending';
+      const isPending = status === 'pending' || status === 'pending_tte';
       const _pf = this.pengirimSirkulasiFields(dto, pengirim);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
@@ -1478,7 +1489,7 @@ export class KajianService {
 
       // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
       if (
-        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
         dto.sign_option === SignOption.QR_ONLY
       ) {
         signedAt = new Date().toISOString();
@@ -1577,7 +1588,7 @@ export class KajianService {
         }
 
         // PHASE 9: Process BSrE signing (jika digsig) - QR sudah di template
-        if (dto.sign_option === SignOption.DIGSIG && persnum) {
+        if (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) {
           console.log(
             `[KA] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
           );
@@ -1717,6 +1728,32 @@ export class KajianService {
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      let portalRedirect:
+        | { transactionId: string; signingUrl: string }
+        | undefined;
+      if (isPortalMode) {
+        if (!portalUser || !finalPdfPath) {
+          throw new BadRequestException(
+            'Konteks pengguna atau PDF Kajian untuk Portal TTE tidak lengkap',
+          );
+        }
+        const portal = await this.tteSigningService.createSigningTransaction({
+          sourceKey: finalPdfPath,
+          filename: finalPdfPath.split('/').pop() || `KA-${naskahId}.pdf`,
+          pathDokumen: 'kajian/digsig/',
+          idNaskah: naskahId,
+          jenisNaskah: 'KA',
+          nomorNaskah: generatedNomor.nomor,
+          location: dto.nama_tempat || 'Indonesia',
+          reason: `Penandatanganan Kajian ${generatedNomor.nomor}`,
+          user: portalUser,
+        });
+        portalRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+      }
+
       // Send queued notifications AFTER commit (so DB is visible to WebSocket queries)
       for (const send of pendingNotifications) {
         send().catch(() => {});
@@ -1747,10 +1784,13 @@ export class KajianService {
           // Additional fields untuk digsig
           sign_option: dto.sign_option,
           bsre_name_doc: bsreNameDoc,
+          tte_redirect: portalRedirect,
         } as any,
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
       await queryRunner.release();
@@ -3357,7 +3397,11 @@ export class KajianService {
     naskahId: string,
     dto: FinalizeDraftDto,
     persnum?: number,
+    portalUser?: JwtPayload,
   ): Promise<SendMessageResponseDto> {
+    const isPortalMode =
+      dto.sign_option === SignOption.DIGSIG &&
+      (await this.tteSigningGateway.isPortalMode('KA'));
     console.log(
       `[KA] finalizeDraft called for naskah ${naskahId}, sign_option: ${dto.sign_option}, persnum: ${persnum}`,
     );
@@ -3391,7 +3435,7 @@ export class KajianService {
           'Persnum diperlukan untuk tanda tangan digital (digsig)',
         );
       }
-      if (!dto.passphrase) {
+      if (!isPortalMode && !dto.passphrase) {
         throw new BadRequestException(
           'Passphrase diperlukan untuk tanda tangan digital (digsig)',
         );
@@ -3425,9 +3469,9 @@ export class KajianService {
     );
 
     // Determine status based on sign_option
-    let status: 'pending' | 'final' | 'final_tte' = 'final';
+    let status: 'pending' | 'pending_tte' | 'final' | 'final_tte' = 'final';
     if (dto.sign_option === SignOption.DIGSIG) {
-      status = 'final_tte';
+      status = isPortalMode ? 'pending_tte' : 'final_tte';
     } else if (dto.sign_option === SignOption.QR_ONLY) {
       status = 'final';
     } else if (dto.sign_option === SignOption.TTD_BASAH) {
@@ -3488,7 +3532,7 @@ export class KajianService {
       );
 
       // Update all sirkulasi - keep isDraft=true for pending/TTD basah
-      const isPending = status === 'pending';
+      const isPending = status === 'pending' || status === 'pending_tte';
       if (!isPending) {
         await queryRunner.manager.update(
           NaskahSirkulasi,
@@ -3588,7 +3632,7 @@ export class KajianService {
 
       // Pre-generate QR code untuk digsig atau qr_only
       if (
-        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
         dto.sign_option === SignOption.QR_ONLY
       ) {
         signedAt = new Date().toISOString();
@@ -3660,7 +3704,7 @@ export class KajianService {
       }
 
       // Process BSrE signing (jika digsig)
-      if (dto.sign_option === SignOption.DIGSIG && persnum) {
+      if (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) {
         console.log(
           `[KA finalizeDraft] Processing DIGSIG for naskah ${naskahId}, persnum: ${persnum}`,
         );
@@ -3781,6 +3825,32 @@ export class KajianService {
 
       await queryRunner.commitTransaction();
 
+      let portalRedirect:
+        | { transactionId: string; signingUrl: string }
+        | undefined;
+      if (isPortalMode) {
+        if (!portalUser || !finalPdfPath) {
+          throw new BadRequestException(
+            'Konteks pengguna atau PDF Kajian untuk Portal TTE tidak lengkap',
+          );
+        }
+        const portal = await this.tteSigningService.createSigningTransaction({
+          sourceKey: finalPdfPath,
+          filename: finalPdfPath.split('/').pop() || `KA-${naskahId}.pdf`,
+          pathDokumen: 'kajian/digsig/',
+          idNaskah: naskahId,
+          jenisNaskah: 'KA',
+          nomorNaskah: naskah.nomor || undefined,
+          location: 'Indonesia',
+          reason: `Penandatanganan Kajian ${naskah.nomor || naskahId}`,
+          user: portalUser,
+        });
+        portalRedirect = {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        };
+      }
+
       // Get updated data for response
       const detail = await this.getKajianDetail(
         naskahId,
@@ -3838,6 +3908,7 @@ export class KajianService {
           // Additional fields untuk digsig
           sign_option: dto.sign_option,
           bsre_name_doc: bsreNameDoc,
+          tte_redirect: portalRedirect,
         } as any,
       };
     } catch (error) {
