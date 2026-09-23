@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   Req,
   UseInterceptors,
+  Header,
 } from '@nestjs/common';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import type { Request } from 'express';
@@ -101,8 +102,7 @@ export class DigsigLogController {
    * Frontend harus poll endpoint ini untuk menampilkan banner alert
    */
   @Get('bsre-alert')
-  @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('naskah-dinas', 'read-detail')
   async getBsreAlertStatus() {
