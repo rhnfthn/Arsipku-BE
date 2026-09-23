@@ -3,6 +3,7 @@ import {
   ConfigDigsigService,
   ConfigMessageService,
   ConfigNaskahLainnyaService,
+  ConfigThemeService,
 } from '../services';
 import { ConfigDigsig, ConfigMessage, ConfigNaskahLainnya, JenisNaskah } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
@@ -18,7 +19,15 @@ export class ConfigController {
     private readonly configDigsigService: ConfigDigsigService,
     private readonly configMessageService: ConfigMessageService,
     private readonly configNaskahLainnyaService: ConfigNaskahLainnyaService,
+    private readonly configThemeService: ConfigThemeService,
   ) {}
+
+  /** GET /config/theme - konfigurasi tampilan publik dengan fallback di frontend. */
+  @Get('theme')
+  @Public()
+  async getTheme() {
+    return this.configThemeService.getPublicConfig();
+  }
 
   /**
    * GET /config/message

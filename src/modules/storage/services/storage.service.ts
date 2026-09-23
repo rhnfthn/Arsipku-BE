@@ -482,6 +482,37 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * List seluruh file dengan pagination MinIO.
+   * Berbeda dari listFiles, method ini tidak berhenti pada satu halaman.
+   */
+  async listAllFiles(prefix: string = ''): Promise<string[]> {
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+      const response = await this.s3Client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucketName,
+          Prefix: prefix,
+          MaxKeys: 1000,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      keys.push(
+        ...(response.Contents?.map((item) => item.Key).filter(
+          (key): key is string => key !== undefined,
+        ) || []),
+      );
+      continuationToken = response.IsTruncated
+        ? response.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return keys;
+  }
+
+  /**
    * Check apakah file exists
    * @param key - Key file di MinIO
    * @returns boolean

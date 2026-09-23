@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Session } from '../auth/entities/session.entity';
+import { Person } from '../master-data/person/entities/person.entity';
 import { AuditTrail, AuditTrailSchema } from './schemas/audit-trail.schema';
 import {
   AuditAnomaly,
@@ -29,6 +32,7 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
   // forFeature mengikuti konfigurasi koneksi di AppModule.
   // Saat nonaktif, model di-inject @Optional() sehingga service jadi no-op.
   imports: [
+    TypeOrmModule.forFeature([Session, Person]),
     ...(process.env.MONGODB_ENABLED !== 'false' && process.env.MONGODB_URI
       ? [
           MongooseModule.forFeature([
