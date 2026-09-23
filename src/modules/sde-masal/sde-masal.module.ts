@@ -11,6 +11,8 @@ import { SuratDinasEksternalModule } from '../surat-dinas-eksternal/surat-dinas-
 import { StorageModule } from '../storage/storage.module';
 import { NotificationModule } from '../notification/notification.module';
 import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
+import { SdeMasalTteCompletionHandler } from './services/sde-masal-tte-completion.handler';
 
 @Module({
   imports: [
@@ -25,9 +27,17 @@ import { SdeMasalFolderEntity } from './entities/sde-masal-folder.entity';
     SuratDinasEksternalModule,
     StorageModule,
     NotificationModule,
+    TtePortalModule,
   ],
   controllers: [SdeMasalController],
-  providers: [SdeMasalService],
+  providers: [
+    SdeMasalService,
+    SdeMasalTteCompletionHandler,
+    {
+      provide: 'SdeMasalTteCompletionHandler',
+      useExisting: SdeMasalTteCompletionHandler,
+    },
+  ],
   exports: [SdeMasalService],
 })
 export class SdeMasalModule {}

@@ -23,6 +23,7 @@ import { DigsigModule } from '../digsig/digsig.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
     SubAreaAlamatModule,
     GrupPenerimaModule,
     NaskahSirkulasiModule,
+    TtePortalModule,
   ],
   controllers: [KonsepController],
   providers: [KonsepService],

@@ -353,7 +353,14 @@ export class SuratDinasEksternalController {
         dto.passphrase ? '***' : 'undefined',
       );
 
-      return await this.sdeService.sendMessage(dto, persnum);
+      return await this.sdeService.sendMessage(
+        dto,
+        persnum,
+        undefined,
+        undefined,
+        undefined,
+        user,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -675,7 +682,7 @@ export class SuratDinasEksternalController {
       // Parse form-data to DTO
       const dto = await this.sdeService.parseFormDataToFinalizeDraftDto(body);
 
-      return await this.sdeService.finalizeDraft(id, dto, persnum);
+      return await this.sdeService.finalizeDraft(id, dto, persnum, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

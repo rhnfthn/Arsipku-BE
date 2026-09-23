@@ -27,6 +27,8 @@ import { NotificationService } from '../../notification/services';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { GotenbergService } from '../../gotenberg/gotenberg.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 
 const repo = () => ({
   find: jest.fn(),
@@ -191,6 +193,14 @@ describe('NaskahLainnyaService', () => {
           useValue: {
             hitDigsigEndpoint: jest.fn(),
           },
+        },
+        {
+          provide: TteSigningGateway,
+          useValue: { isPortalMode: jest.fn().mockResolvedValue(false) },
+        },
+        {
+          provide: TteSigningService,
+          useValue: { createSigningTransaction: jest.fn() },
         },
       ],
     }).compile();

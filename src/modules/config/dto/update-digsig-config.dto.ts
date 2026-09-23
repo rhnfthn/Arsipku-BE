@@ -5,11 +5,11 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { JenisNaskah } from '../entities';
+import { JenisNaskah, TteMode } from '../entities';
 
 export class UpdateDigsigConfigDto {
   @IsEnum(JenisNaskah, {
-    message: 'Jenis naskah harus berupa ND, SDI, SDE, DI, atau KA',
+    message: 'Jenis naskah harus berupa ND, SDI, SDE, DI, KA, atau NL',
   })
   jenis_naskah: JenisNaskah;
 
@@ -24,6 +24,12 @@ export class UpdateDigsigConfigDto {
   @IsOptional()
   @IsBoolean()
   ttd_basah?: boolean;
+
+  @IsOptional()
+  @IsEnum(TteMode, {
+    message: 'tte_mode harus bsre_direct atau portal',
+  })
+  tte_mode?: TteMode;
 
   @IsOptional()
   @IsString()
