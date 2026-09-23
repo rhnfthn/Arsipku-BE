@@ -45,6 +45,16 @@ export class AuditTrailController {
   }
 
   /**
+   * GET /audit/active-users — akun dengan sesi login yang masih berlaku.
+   */
+  @Get('active-users')
+  @RequirePermission('audit', 'read-log')
+  async listActiveUsers() {
+    const data = await this.auditTrailService.findActiveUsers();
+    return { success: true, data };
+  }
+
+  /**
    * GET /audit/logs/:id — detail log.
    */
   @Get('logs/:id')

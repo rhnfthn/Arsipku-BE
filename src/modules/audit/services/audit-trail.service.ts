@@ -1,11 +1,15 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { AuditTrail, AuditTrailDocument } from '../schemas/audit-trail.schema';
 import { CreateAuditTrailDto } from '../dto/create-audit-trail.dto';
 import { AuditFilterDto } from '../dto/audit-filter.dto';
 import { AuditStatus } from '../enums/audit-status.enum';
 import { captureAuditError } from '../../../config/sentry.config';
+import { Session } from '../../auth/entities/session.entity';
+import { Person } from '../../master-data/person/entities/person.entity';
 
 /**
  * Service untuk mengelola audit trail log.
@@ -18,13 +22,141 @@ import { captureAuditError } from '../../../config/sentry.config';
 export class AuditTrailService {
   private readonly logger = new Logger(AuditTrailService.name);
 
+  /** Endpoint polling UI yang tidak boleh dianggap aktivitas pengguna. */
+  private readonly backgroundRequestPatterns = [
+    /^\/sde-masal\/folders$/,
+    /^\/sde-masal\/verification-folders$/,
+    /^\/notifications(?:\/|$)/,
+    /^\/organization-tu\/check-user(?:\/|$)/,
+    /^\/admin\/config\/search(?:\/|$)/,
+    /^\/config\/theme$/,
+  ];
+
   constructor(
     // @Optional: MongoDB bisa nonaktif (MONGODB_URI kosong) — model undefined,
     // semua method jadi no-op. Aktifkan kembali via forRootAsync + forFeature.
     @Optional()
     @InjectModel(AuditTrail.name)
     private readonly model?: Model<AuditTrailDocument>,
+    @Optional()
+    @InjectRepository(Session)
+    private readonly sessionRepo?: Repository<Session>,
+    @Optional()
+    @InjectRepository(Person)
+    private readonly personRepo?: Repository<Person>,
   ) {}
+
+  /**
+   * Daftar akun yang masih memiliki sesi login yang belum kedaluwarsa.
+   *
+   * Satu akun dapat membuka beberapa browser/perangkat, tetapi dikembalikan
+   * satu kali dengan jumlah sesi aktifnya. Token tidak pernah dikirim ke client.
+   */
+  async findActiveUsers() {
+    if (!this.sessionRepo) return [];
+
+    const sessions = await this.sessionRepo.find({
+      select: [
+        'id',
+        'userPersnum',
+        'idPosition',
+        'airnavExpiredAt',
+        'userAgent',
+        'ipAddress',
+        'createdAt',
+        'updatedAt',
+      ],
+      where: { airnavExpiredAt: MoreThan(new Date()) },
+      order: { updatedAt: 'DESC' },
+    });
+
+    const persnums = [...new Set(sessions.map((session) => session.userPersnum))];
+    const people = this.personRepo && persnums.length
+      ? await this.personRepo.find({
+          select: ['persnum', 'name', 'uname'],
+          where: { persnum: In(persnums) },
+        })
+      : [];
+    const peopleByPersnum = new Map(people.map((person) => [person.persnum, person]));
+
+    const accounts = new Map<number, {
+      persnum: number;
+      name: string | null;
+      username: string | null;
+      sessionCount: number;
+      lastActivityAt: Date;
+      expiresAt: Date;
+      latestActivity: Record<string, any> | null;
+      sessions: Array<{
+        ipAddress: string | null;
+        userAgent: string | null;
+        createdAt: Date;
+        lastActivityAt: Date;
+        expiresAt: Date;
+      }>;
+    }>();
+
+    for (const session of sessions) {
+      const lastActivityAt = session.updatedAt ?? session.createdAt;
+      const person = peopleByPersnum.get(session.userPersnum);
+      const current = accounts.get(session.userPersnum);
+      const sessionInfo = {
+        ipAddress: session.ipAddress ?? null,
+        userAgent: session.userAgent ?? null,
+        createdAt: session.createdAt,
+        lastActivityAt,
+        expiresAt: session.airnavExpiredAt,
+      };
+
+      if (current) {
+        current.sessionCount += 1;
+        current.lastActivityAt = current.lastActivityAt > lastActivityAt
+          ? current.lastActivityAt
+          : lastActivityAt;
+        current.expiresAt = current.expiresAt > session.airnavExpiredAt
+          ? current.expiresAt
+          : session.airnavExpiredAt;
+        current.sessions.push(sessionInfo);
+      } else {
+        accounts.set(session.userPersnum, {
+          persnum: session.userPersnum,
+          name: person?.name ?? null,
+          username: person?.uname ?? null,
+          sessionCount: 1,
+          lastActivityAt,
+          expiresAt: session.airnavExpiredAt,
+          latestActivity: null,
+          sessions: [sessionInfo],
+        });
+      }
+    }
+
+    const activeAccounts = [...accounts.values()];
+    if (this.model) {
+      await Promise.all(
+        activeAccounts.map(async (account) => {
+          const activityQuery = {
+            persnum: account.persnum,
+            $nor: this.backgroundRequestPatterns.map((pattern) => ({
+              requestUrl: { $regex: pattern },
+            })),
+          };
+          const activity = await this.model
+            ?.findOne(activityQuery)
+            .select(
+              '-oldValue -newValue -metadata -requestUrl -errorMessage -userAgent',
+            )
+            .sort({ createdAt: -1 })
+            .exec();
+          account.latestActivity = activity?.toJSON?.() ?? null;
+        }),
+      );
+    }
+
+    return activeAccounts.sort(
+      (a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime(),
+    );
+  }
 
   /**
    * Insert log audit secara synchronous (menunggu selesai).
@@ -132,6 +264,11 @@ export class AuditTrailService {
         { entityId: { $regex: filter.search, $options: 'i' } },
       ];
     }
+
+    // Jangan tampilkan log lama yang berasal dari polling/background UI.
+    query.$nor = this.backgroundRequestPatterns.map((pattern) => ({
+      requestUrl: { $regex: pattern },
+    }));
 
     const sortBy = filter.sortBy ?? 'createdAt';
     const sortOrder = filter.sortOrder ?? 'DESC';
