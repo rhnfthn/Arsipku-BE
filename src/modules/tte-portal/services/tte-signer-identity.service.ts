@@ -28,14 +28,18 @@ export class TteSignerIdentityService {
     private readonly sessionRepository: Repository<Session>,
   ) {}
 
-  async getNik(persnum: number): Promise<string> {
+  async getNik(persnum: number, sessionId?: string): Promise<string> {
     const session = await this.sessionRepository.findOne({
-      where: { userPersnum: persnum },
+      where: sessionId
+        ? { id: sessionId, userPersnum: persnum }
+        : { userPersnum: persnum },
       order: { createdAt: 'DESC' },
     });
     if (!session) {
       throw new BadRequestException(
-        'Session tidak ditemukan. Silakan login ulang untuk melanjutkan TTE Portal.',
+        sessionId
+          ? 'Session browser tidak valid. Silakan login ulang untuk melanjutkan TTE Portal.'
+          : 'Session tidak ditemukan. Silakan login ulang untuk melanjutkan TTE Portal.',
       );
     }
     if (new Date() > new Date(session.airnavExpiredAt)) {
@@ -72,11 +76,19 @@ export class TteSignerIdentityService {
       return normalized;
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
+      const status = axios.isAxiosError(error) ? error.response?.status : null;
+      const code = axios.isAxiosError(error) ? error.code : null;
       this.logger.warn(
-        `Gagal mengambil NIK Portal TTE untuk persnum ${persnum}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Gagal mengambil NIK Portal TTE untuk persnum ${persnum}` +
+          ` (session=${session.id.slice(0, 8)}..., status=${status ?? '-'}, code=${code ?? '-'}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
       );
+      if (status === 401 || status === 403) {
+        throw new BadRequestException(
+          'Session AirNav tidak dapat digunakan untuk verifikasi NIK. Silakan login ulang.',
+        );
+      }
       throw new BadRequestException(
         'NIK penandatangan tidak dapat diverifikasi. Silakan coba lagi atau login ulang.',
       );

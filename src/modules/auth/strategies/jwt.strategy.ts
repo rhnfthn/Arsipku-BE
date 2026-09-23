@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
+import type { Request } from 'express';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -12,10 +13,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get('JWT_SECRET') || 'default-secret-key',
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: JwtPayload): Promise<JwtPayload> {
+  async validate(req: Request, payload: JwtPayload): Promise<JwtPayload> {
     console.log('[JwtStrategy] Validating payload:', {
       persnum: payload.persnum,
       role: payload.role,
@@ -26,8 +28,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
+    const sessionHeader = req.headers['x-session-id'];
+    const sessionId = Array.isArray(sessionHeader)
+      ? sessionHeader[0]
+      : sessionHeader;
+
     return {
       ...payload,
+      ...(sessionId ? { sessionId } : {}),
       nik: DEFAULT_BSRE_NIK,
     };
   }
