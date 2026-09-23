@@ -589,7 +589,7 @@ export class AuthController {
     if (!sessionId) {
       throw new BadRequestException('sessionId is required');
     }
-    await this.sessionService.deleteSessionById(sessionId);
+    await this.authService.logoutOidcBrowserSession(sessionId);
     return {
       message: 'Logout successfully',
     };
