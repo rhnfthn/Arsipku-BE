@@ -10,3 +10,5 @@ export {
   SearchEngineMode,
 } from './config-search.entity';
 export { ConfigNaskahLainnya } from './config-naskah-lainnya.entity';
+export { ConfigTheme } from './config-theme.entity';
+export { ConfigThemeTemplate } from './config-theme-template.entity';
