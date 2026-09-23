@@ -4,9 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { NaskahUmumController } from './naskah-umum.controller';
 import { NaskahUmumService } from './services/naskah-umum.service';
 import { DocxFillerService } from './services/docx-filler.service';
+import { NaskahUmumTteCompletionHandler } from './services/naskah-umum-tte-completion.handler';
 import { StorageModule } from '../storage/storage.module';
 import { OnlyOfficeModule } from '../onlyoffice/onlyoffice.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
 import { NaskahUmumTempEntity } from '../onlyoffice/entities';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NomorSuratService } from '../../shared/services/nomor-surat.service';
@@ -20,10 +22,20 @@ import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
     StorageModule,
     OnlyOfficeModule,
     DigsigModule,
+    TtePortalModule,
     GrupPenerimaModule,
   ],
   controllers: [NaskahUmumController],
-  providers: [NaskahUmumService, DocxFillerService, NomorSuratService],
+  providers: [
+    NaskahUmumService,
+    DocxFillerService,
+    NomorSuratService,
+    NaskahUmumTteCompletionHandler,
+    {
+      provide: 'NaskahUmumTteCompletionHandler',
+      useExisting: NaskahUmumTteCompletionHandler,
+    },
+  ],
   exports: [NaskahUmumService],
 })
 export class NaskahUmumModule {}

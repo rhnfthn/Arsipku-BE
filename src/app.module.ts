@@ -60,6 +60,7 @@ import { RekapNaskahModule } from './modules/rekap-naskah/rekap-naskah.module';
 import { JenisModule } from './modules/jenis/jenis.module';
 import { DataSource } from 'typeorm';
 import { DigsigModule } from './modules/digsig/digsig.module';
+import { TtePortalModule } from './modules/tte-portal/tte-portal.module';
 import { DelegasiModule } from './modules/delegasi/delegasi.module';
 import { SearchModule } from './modules/search/search.module';
 import { FcmModule } from './modules/fcm/fcm.module';
@@ -244,6 +245,7 @@ import { TugasModule } from './modules/tugas/tugas.module';
     RekapNaskahModule,
     JenisModule,
     DigsigModule,
+    TtePortalModule,
     DelegasiModule,
     SearchModule,
     FcmModule,

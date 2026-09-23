@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigDigsig, JenisNaskah, TtdMode } from '../entities';
+import { ConfigDigsig, JenisNaskah, TtdMode, TteMode } from '../entities';
 import { UpdateDigsigConfigDto } from '../dto';
 
 @Injectable()
@@ -68,6 +68,7 @@ export class ConfigDigsigService {
         digsig: dto.digsig ?? true,
         ttdQr: dto.ttd_qr ?? false,
         ttdBasah: dto.ttd_basah ?? false,
+        tteMode: dto.tte_mode ?? TteMode.BSRE_DIRECT,
         description: dto.description,
       });
     } else {
@@ -75,6 +76,7 @@ export class ConfigDigsigService {
       if (dto.digsig !== undefined) config.digsig = dto.digsig;
       if (dto.ttd_qr !== undefined) config.ttdQr = dto.ttd_qr;
       if (dto.ttd_basah !== undefined) config.ttdBasah = dto.ttd_basah;
+      if (dto.tte_mode !== undefined) config.tteMode = dto.tte_mode;
       if (dto.description !== undefined) config.description = dto.description;
     }
 
@@ -123,6 +125,7 @@ export class ConfigDigsigService {
       JenisNaskah.SDE,
       JenisNaskah.DI,
       JenisNaskah.KA,
+      JenisNaskah.NL,
     ];
 
     const descriptions: Record<JenisNaskah, string> = {
@@ -131,6 +134,8 @@ export class ConfigDigsigService {
       [JenisNaskah.SDE]: 'Surat Dinas Eksternal - default mode TTE elektronik',
       [JenisNaskah.DI]: 'Disposisi Internal - default mode TTE elektronik',
       [JenisNaskah.KA]: 'Kajian - default mode TTE elektronik',
+      [JenisNaskah.NL]:
+        'Naskah Lainnya & Naskah Umum (LPD, Blanko Verbal, Undangan, Peraturan, dll) - default mode TTE elektronik',
     };
 
     for (const jenis of jenisNaskahList) {
@@ -139,13 +144,18 @@ export class ConfigDigsigService {
       });
 
       if (!existing) {
-        await this.configDigsigRepository.save({
+        // Pakai repository.create() agar @BeforeInsert generateId() jalan —
+        // save() dengan plain object tidak memicu listener (bug: "Field
+        // 'id' doesn't have a default value").
+        const config = this.configDigsigRepository.create({
           jenisNaskah: jenis,
           digsig: true,
           ttdQr: false,
           ttdBasah: false,
+          tteMode: TteMode.BSRE_DIRECT,
           description: descriptions[jenis],
         });
+        await this.configDigsigRepository.save(config);
       }
     }
   }
