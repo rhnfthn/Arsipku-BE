@@ -5,12 +5,15 @@ import {
   ConfigMessage,
   ConfigNaskahLainnya,
   ConfigSearch,
+  ConfigTheme,
+  ConfigThemeTemplate,
 } from './entities';
 import {
   ConfigDigsigService,
   ConfigMessageService,
   ConfigNaskahLainnyaService,
   ConfigSearchService,
+  ConfigThemeService,
 } from './services';
 import {
   AdminConfigDigsigController,
@@ -18,6 +21,7 @@ import {
   AdminConfigNaskahLainnyaController,
   AdminConfigSearchController,
   ConfigController,
+  AdminConfigThemeController,
 } from './controllers';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
@@ -28,6 +32,8 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       ConfigMessage,
       ConfigNaskahLainnya,
       ConfigSearch,
+      ConfigTheme,
+      ConfigThemeTemplate,
     ]),
     OrgDataModule,
   ],
@@ -37,18 +43,21 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     AdminConfigNaskahLainnyaController,
     AdminConfigSearchController,
     ConfigController,
+    AdminConfigThemeController,
   ],
   providers: [
     ConfigDigsigService,
     ConfigMessageService,
     ConfigNaskahLainnyaService,
     ConfigSearchService,
+    ConfigThemeService,
   ],
   exports: [
     ConfigDigsigService,
     ConfigMessageService,
     ConfigNaskahLainnyaService,
     ConfigSearchService,
+    ConfigThemeService,
   ],
 })
 export class ConfigAdminModule implements OnModuleInit {

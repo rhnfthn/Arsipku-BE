@@ -85,6 +85,13 @@ export class AuditInterceptor implements NestInterceptor {
     /\/user-data$/,
     /\/ktp$/,
     /\/summary$/,
+    // Background polling/sinkronisasi UI — bukan aktivitas yang dilakukan user.
+    /\/sde-masal\/folders$/,
+    /\/sde-masal\/verification-folders$/,
+    /\/notifications(?:\/|$)/,
+    /\/organization-tu\/check-user(?:\/|$)/,
+    /\/admin\/config\/search(?:\/|$)/,
+    /\/config\/theme$/,
   ];
 
   // Mapping prefix URL -> AuditModule (untuk auto-infer module)
