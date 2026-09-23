@@ -1,9 +1,10 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, UseGuards } from '@nestjs/common';
 import {
   ConfigDigsigService,
   ConfigMessageService,
   ConfigNaskahLainnyaService,
 } from '../services';
+import { ConfigThemeService } from '../services/config-theme.service';
 import { ConfigDigsig, ConfigMessage, ConfigNaskahLainnya, JenisNaskah } from '../entities';
 import { JwtAuthGuard } from '../../../common/guards';
 import { Public, RequirePermission } from '../../../common/decorators';
@@ -18,7 +19,15 @@ export class ConfigController {
     private readonly configDigsigService: ConfigDigsigService,
     private readonly configMessageService: ConfigMessageService,
     private readonly configNaskahLainnyaService: ConfigNaskahLainnyaService,
+    private readonly configThemeService: ConfigThemeService,
   ) {}
+
+  @Get('theme/current')
+  @Public()
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  async getCurrentTheme() {
+    return this.configThemeService.getCurrent();
+  }
 
   /**
    * GET /config/message
