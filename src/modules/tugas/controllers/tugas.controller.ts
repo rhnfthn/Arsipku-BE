@@ -16,8 +16,10 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PermissionGuard } from '../../../common/guards/permission.guard';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
@@ -69,6 +71,7 @@ export class TugasController {
   ) {}
 
   @Post('boards')
+  @AllowViewerWrite(PositionStatus.VI, PositionStatus.SE)
   @RequirePermission('tugas', 'create-board')
   createBoard(@Body() dto: CreateBoardDto, @CurrentUser() user: JwtPayload) {
     return this.boardService.create(dto, user);

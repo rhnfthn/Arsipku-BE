@@ -21,7 +21,6 @@ import { compatibilityResources } from './permission-catalog';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
-
 interface PermDef {
   action: string;
   description: string;
@@ -234,10 +233,19 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'create', description: 'Membuat usulan akses berkas' },
       { action: 'read', description: 'Melihat daftar usulan akses berkas' },
-      { action: 'verify-pengusul', description: 'Verifikasi pengusul (AVP/VP/EVP)' },
-      { action: 'verify-pemberi', description: 'Verifikasi Sekretaris Pemberi' },
+      {
+        action: 'verify-pengusul',
+        description: 'Verifikasi pengusul (AVP/VP/EVP)',
+      },
+      {
+        action: 'verify-pemberi',
+        description: 'Verifikasi Sekretaris Pemberi',
+      },
       { action: 'select-files', description: 'Memilih berkas untuk usulan' },
-      { action: 'approve-pemberi', description: 'Persetujuan pemberi (AVP/VP/EVP)' },
+      {
+        action: 'approve-pemberi',
+        description: 'Persetujuan pemberi (AVP/VP/EVP)',
+      },
     ],
   },
   {
@@ -337,8 +345,14 @@ const resourcesWithPermissions: ResourceDef[] = [
     permissions: [
       { action: 'read', description: 'Melihat audit trail (legacy)' },
       { action: 'read-log', description: 'Melihat log aktivitas audit' },
-      { action: 'read-anomaly', description: 'Melihat anomali dan alert audit' },
-      { action: 'read-report', description: 'Melihat ringkasan dan laporan audit' },
+      {
+        action: 'read-anomaly',
+        description: 'Melihat anomali dan alert audit',
+      },
+      {
+        action: 'read-report',
+        description: 'Melihat ringkasan dan laporan audit',
+      },
       { action: 'export', description: 'Export laporan audit' },
     ],
   },
@@ -580,7 +594,6 @@ const resourcesWithPermissions: ResourceDef[] = [
   ...compatibilityResources,
 ];
 
-
 const basePermissions = resourcesWithPermissions.flatMap((r) =>
   r.permissions.map((p) => `${r.name}.${p.action}`),
 );
@@ -615,41 +628,35 @@ const compatibilityPermissionNames = new Set(
   ),
 );
 const superadminOnlyPermissionPrefixes = ['audit.'];
-const legacyMatrixResources = [
-  ...utamaResources.map((resource) => ({
-    ...resource,
-    permissions: resource.permissions.filter(
-      (permission) => resource.name !== 'sde-masal' ||
-        ['read', 'read-verification'].includes(permission.action),
-    ),
-  })),
-  ...shareResources,
-];
+const legacyMatrixResources = [...utamaResources, ...shareResources];
 const legacyNonKelolaPermissions = Array.from(
   new Set([
-    ...basePermissions.filter((permission) =>
-      !compatibilityPermissionNames.has(permission) &&
-      !superadminOnlyPermissionPrefixes.some((prefix) => permission.startsWith(prefix)),
+    ...basePermissions.filter(
+      (permission) =>
+        !compatibilityPermissionNames.has(permission) &&
+        !superadminOnlyPermissionPrefixes.some((prefix) =>
+          permission.startsWith(prefix),
+        ),
     ),
     ...legacyMatrixResources.flatMap((r) =>
       r.permissions.map((p) => `${r.name}.${p.action}`),
     ),
   ]),
 );
-const userLegacyNonKelolaPermissions = legacyNonKelolaPermissions.filter(
-  (permission) => !permission.startsWith('sde-masal.') ||
-    ['sde-masal.read', 'sde-masal.read-verification'].includes(permission),
-);
+// Semua permission SDE Massal kini menjadi baseline USER (read, read-detail,
+// create, update, finalize, delete, read-verification, verify, reject) agar
+// verifikator/konseptor USER dapat membuka detail folder dan menyetujui/
+// menolak verifikasi. Superadmin tetap dapat membatasi via RBAC matrix.
+const userLegacyNonKelolaPermissions = legacyNonKelolaPermissions;
 
 // Pada sidebar ADMIN, Data Master tidak dibuka sebagai menu penuh. Fitur yang
 // tersedia hanya halaman Tertuju dan sifatnya read-only. Jangan membawa
 // permission master-data lain dari baseline lama ke role ADMIN.
-const adminMasterDataPermissions = new Set([
-  'master-data.read-tertuju',
-]);
+const adminMasterDataPermissions = new Set(['master-data.read-tertuju']);
 const adminNonKelolaPermissions = legacyNonKelolaPermissions.filter(
   (permission) =>
-    !permission.startsWith('master-data.') || adminMasterDataPermissions.has(permission),
+    !permission.startsWith('master-data.') ||
+    adminMasterDataPermissions.has(permission),
 );
 const legacyAdminPermissions = Array.from(
   new Set([
@@ -683,7 +690,6 @@ const roleDescriptions: Record<RoleName, string> = {
   [RoleName.USER]:
     'User biasa: penciptaan naskah, viewing arsip, pengajuan penomoran',
 };
-
 
 function buildDataSource(): DataSource {
   const env = process.env;
