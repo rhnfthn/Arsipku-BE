@@ -399,7 +399,7 @@ export class NotaDinasController {
         );
       }
 
-      return await this.notaDinasService.sendMessage(dto, Number(persnum));
+      return await this.notaDinasService.sendMessage(dto, Number(persnum), user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -548,7 +548,7 @@ export class NotaDinasController {
       dto.actor_position_status = user?.position_status ?? null;
       dto.actor_nama = user?.nama ?? '';
 
-      return await this.notaDinasService.finalizeDraft(id, dto, persnum);
+      return await this.notaDinasService.finalizeDraft(id, dto, persnum, user);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

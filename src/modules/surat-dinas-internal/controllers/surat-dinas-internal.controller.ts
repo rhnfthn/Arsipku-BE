@@ -278,6 +278,7 @@ export class SuratDinasInternalController {
       return await this.suratDinasInternalService.sendMessage(
         dto,
         Number(persnum),
+        user,
       );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
@@ -554,6 +555,7 @@ export class SuratDinasInternalController {
         id,
         dto,
         persnum ? Number(persnum) : undefined,
+        user,
       );
     } catch (error) {
       if (error instanceof HttpException) {

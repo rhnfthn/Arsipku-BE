@@ -1,4 +1,9 @@
-export { ConfigDigsig, JenisNaskah, TtdMode } from './config-digsig.entity';
+export {
+  ConfigDigsig,
+  JenisNaskah,
+  TtdMode,
+  TteMode,
+} from './config-digsig.entity';
 export { ConfigMessage, MessageType } from './config-message.entity';
 export {
   ConfigSearch,
