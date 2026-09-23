@@ -18,6 +18,7 @@ import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SubAreaAlamatModule } from '../sub-area-alamat/sub-area-alamat.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
 import { SearchModule } from '../search/search.module';
 import { MailServiceModule } from '../mail-service/mail-service.module';
 import { KonsepModule } from '../konsep/konsep.module';
@@ -41,6 +42,7 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
     GeneratePdfModule,
     SubAreaAlamatModule,
     DigsigModule,
+    TtePortalModule,
     SearchModule,
     MailServiceModule,
     KonsepModule,

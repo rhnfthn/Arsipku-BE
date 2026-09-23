@@ -34,6 +34,7 @@ import { StorageModule } from '../storage/storage.module';
 import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
 import { SearchModule } from '../search/search.module';
 import { DigsigModule } from '../digsig/digsig.module';
+import { TtePortalModule } from '../tte-portal/tte-portal.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
 import { CorrespondenceRoutingRole } from '../correspondence-routing/entities/correspondence-routing-role.entity';
 import { CorrespondenceRoutingRoleMember } from '../correspondence-routing/entities/correspondence-routing-role-member.entity';
@@ -74,6 +75,7 @@ import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
     GeneratePdfModule,
     SearchModule,
     DigsigModule,
+    TtePortalModule,
     NaskahSirkulasiModule,
   ],
   controllers: [DisposisiController],
