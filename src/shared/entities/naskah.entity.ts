@@ -1,4 +1,10 @@
-import { Entity, PrimaryColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryColumn,
+  Column,
+  CreateDateColumn,
+  Index,
+} from 'typeorm';
 
 @Entity('naskah')
 @Index('idx_naskah_tanggal', ['tanggal'])
@@ -7,11 +13,64 @@ export class NaskahEntity {
   id: string;
 
   @Column('enum', {
-    enum: ['ND', 'SDI', 'SDE', 'DI', 'KA', 'K', 'UND', 'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC', 'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP'],
+    enum: [
+      'ND',
+      'SDI',
+      'SDE',
+      'DI',
+      'KA',
+      'K',
+      'UND',
+      'PER',
+      'KEP',
+      'INS',
+      'SPR',
+      'EDR',
+      'SOP',
+      'MOU',
+      'PKS',
+      'PROC',
+      'PJJ',
+      'LOA',
+      'SKU',
+      'BAC',
+      'KET',
+      'SPE',
+      'RPT',
+      'PEN',
+      'PGM',
+      'LAP',
+    ],
     comment:
       'Jenis dokumen: ND=Nota Dinas, SDI=Surat Dinas Internal, SDE=Surat Dinas Eksternal, DI=Disposisi Internal, KA=Korespondensi Aktif, K=Korespondensi Lama, UND=Surat Undangan, PER/KEP/INS/SPR/EDR/SOP/MOU/PKS/PROC/PJJ/LOA/SKU/BAC/KET/SPE/RPT/PEN/PGM/LAP=Naskah Lainnya',
   })
-  jenis: 'ND' | 'SDI' | 'SDE' | 'DI' | 'KA' | 'K' | 'UND' | 'PER' | 'KEP' | 'INS' | 'SPR' | 'EDR' | 'SOP' | 'MOU' | 'PKS' | 'PROC' | 'PJJ' | 'LOA' | 'SKU' | 'BAC' | 'KET' | 'SPE' | 'RPT' | 'PEN' | 'PGM' | 'LAP';
+  jenis:
+    | 'ND'
+    | 'SDI'
+    | 'SDE'
+    | 'DI'
+    | 'KA'
+    | 'K'
+    | 'UND'
+    | 'PER'
+    | 'KEP'
+    | 'INS'
+    | 'SPR'
+    | 'EDR'
+    | 'SOP'
+    | 'MOU'
+    | 'PKS'
+    | 'PROC'
+    | 'PJJ'
+    | 'LOA'
+    | 'SKU'
+    | 'BAC'
+    | 'KET'
+    | 'SPE'
+    | 'RPT'
+    | 'PEN'
+    | 'PGM'
+    | 'LAP';
 
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;
@@ -44,12 +103,12 @@ export class NaskahEntity {
   tempat: string;
 
   @Column('enum', {
-    enum: ['draf', 'pending', 'final', 'final_tte'],
+    enum: ['draf', 'pending', 'pending_tte', 'final', 'final_tte'],
     default: 'draf',
     comment:
-      'Status dokumen: draf=sedang dibuat, pending=menunggu TTD basah, final=final TTD basah, final_tte=final dengan TTD elektronik',
+      'Status dokumen: draf=sedang dibuat, pending=menunggu TTD basah, pending_tte=menunggu Portal TTE, final=final TTD basah, final_tte=final dengan TTD elektronik',
   })
-  status: 'draf' | 'pending' | 'final' | 'final_tte';
+  status: 'draf' | 'pending' | 'pending_tte' | 'final' | 'final_tte';
 
   @Column('varchar', { length: 255, nullable: true })
   final_pdf: string;
@@ -118,10 +177,18 @@ export class NaskahEntity {
   atasNamaPositionId: string | null;
 
   // Naskah Lainnya — data penandatangan (jabatan, positionId, persnum).
-  @Column('varchar', { name: 'penandatangan_jabatan', length: 150, nullable: true })
+  @Column('varchar', {
+    name: 'penandatangan_jabatan',
+    length: 150,
+    nullable: true,
+  })
   penandatanganJabatan: string | null;
 
-  @Column('varchar', { name: 'penandatangan_position_id', length: 50, nullable: true })
+  @Column('varchar', {
+    name: 'penandatangan_position_id',
+    length: 50,
+    nullable: true,
+  })
   penandatanganPositionId: string | null;
 
   @Column('int', { name: 'penandatangan_persnum', nullable: true })
@@ -136,11 +203,14 @@ export class NaskahEntity {
     comment:
       'JSON array penandatangan: [{positionId?, persnum?, nama, jabatan}] urut = urutan TTD. Null = pakai atasNama + penandatanganJabatan (legacy).',
     transformer: {
-      to: (value: any) => (value && value.length ? JSON.stringify(value) : null),
+      to: (value: any) =>
+        value && value.length ? JSON.stringify(value) : null,
       from: (value: string | null) => (value ? JSON.parse(value) : null),
     },
   })
-  penandatanganChain: { positionId?: string; persnum?: number; nama: string; jabatan: string }[] | null;
+  penandatanganChain:
+    | { positionId?: string; persnum?: number; nama: string; jabatan: string }[]
+    | null;
 
   // Naskah Lainnya — index penandatangan aktif saat fase tanda_tangan (1-based).
   // Null di luar fase signing. signing_index === N menandakan signer terakhir.
@@ -160,7 +230,12 @@ export class NaskahEntity {
   butuhLegal: boolean;
 
   // Naskah Lainnya — catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.
-  @Column('text', { name: 'catatan_legal', nullable: true, comment: 'Catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.' })
+  @Column('text', {
+    name: 'catatan_legal',
+    nullable: true,
+    comment:
+      'Catatan hasil pemeriksaan legal (HTML TinyMCE). Diisi saat kirim-approval-legal.',
+  })
   catatanLegal: string | null;
 
   // Naskah Lainnya — rantai approval berjenjang pilihan pemrakarsa (JSON array).
@@ -172,11 +247,14 @@ export class NaskahEntity {
     comment:
       'JSON snapshot rantai approval berjenjang: [{positionId?, nama, jabatan}] urut = urutan setujui. Null = default workflow.',
     transformer: {
-      to: (value: any) => (value && value.length ? JSON.stringify(value) : null),
+      to: (value: any) =>
+        value && value.length ? JSON.stringify(value) : null,
       from: (value: string | null) => (value ? JSON.parse(value) : null),
     },
   })
-  approvalChain: { positionId?: string; nama: string; jabatan: string }[] | null;
+  approvalChain:
+    | { positionId?: string; nama: string; jabatan: string }[]
+    | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

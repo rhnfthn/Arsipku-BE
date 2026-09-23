@@ -30,6 +30,10 @@ export class SendMessageDataDto {
   bsre_name_doc?: string | null; // name_doc dari BSrE untuk verifikasi (krusial!)
   signature_id?: string; // ID tanda tangan internal
   verification_url?: string; // URL untuk verifikasi TTD
+  tte_redirect?: {
+    transactionId: string;
+    signingUrl: string;
+  };
 }
 
 export class SendMessageResponseDto {

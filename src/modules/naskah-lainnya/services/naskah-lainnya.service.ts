@@ -19,6 +19,8 @@ import { WorkflowService, Tahapan, JenisAksi } from './workflow.service';
 import { DocxReaderService, DocxParameter } from './docx-reader.service';
 import { DocxQrInlineService, SignedSigner } from './docx-qr-inline.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
+import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
+import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 import { GeneratePdfLpdService } from '../../generate_pdf/services/generate_pdf_lpd.service';
 import { GeneratePdfBlankoVerbalService } from '../../generate_pdf/services/generate_pdf_blanko_verbal.service';
 import { SheetPdfData } from '../../generate_pdf/services/sheet-pdf.shared';
@@ -94,6 +96,8 @@ export class NaskahLainnyaService {
     private readonly realtimeEmitService: RealtimeEmitService,
     private readonly gotenberg: GotenbergService,
     private readonly digsigService: DigsigService,
+    private readonly tteSigningGateway: TteSigningGateway,
+    private readonly tteSigningService: TteSigningService,
   ) {}
 
   /**
@@ -3112,7 +3116,7 @@ export class NaskahLainnyaService {
     user: CurrentUser,
     signMethod: 'qr_only' | 'digsig' = 'qr_only',
     catatan?: string,
-  ) {
+  ): Promise<any> {
     const n = await this.findNaskah(id);
     if (n.tahapan !== 'tanda_tangan') {
       throw new BadRequestException(
@@ -3246,6 +3250,62 @@ export class NaskahLainnyaService {
       folder,
     );
 
+    // ── TTE Portal (konfigurasi admin: tte_mode=portal) — signer TERAKHIR ──
+    // Alur redirect: buat signing request di Portal TTE → FE redirect user ke
+    // signing_url → passphrase diinput di portal → callback → completion
+    // handler menyelesaikan naskah (ganti PDF final + transisi workflow).
+    // Workflow BELUM transisi di sini — ditunda sampai callback sukses.
+    if (isLast && signMethod === 'digsig') {
+      const isPortal = await this.tteSigningGateway.isPortalMode(n.jenis);
+      if (isPortal) {
+        // Simpan artifact signed + preview dulu (sudah ter-upload di atas),
+        // lalu buat transaksi portal dan kembalikan signing_url ke FE.
+        await this.naskahRepo.update(
+          { id: n.id, tanggal: n.tanggal as any },
+          { signedLampiran: result.key },
+        );
+        n.signedLampiran = result.key;
+        await this.upsertDittdRow(
+          n.id,
+          result.key,
+          user,
+          isLast,
+          signedDocxName,
+          {
+            minioKey: previewResult.key,
+            nama: signedPdfName,
+            mimetype: 'application/pdf',
+            ukuran: signedPdf.length,
+          },
+        );
+        const tteResult = await this.tteSigningService.createSigningTransaction(
+          {
+            sourceKey: previewResult.key,
+            filename: signedPdfName,
+            pathDokumen: `naskah-lainnya/${n.jenis}/${n.id}/digsig`,
+            idNaskah: n.id,
+            jenisNaskah: n.jenis,
+            nomorNaskah: nomor || n.nomor || '-',
+            location: user.areaText || 'KANTOR PUSAT',
+            reason: `${nomor || n.nomor || '-'} - ${n.perihal || ''}`.slice(
+              0,
+              2000,
+            ),
+            tampilan: 'INVISIBLE',
+            user: user as any,
+          },
+        );
+        return {
+          tte_redirect: {
+            transactionId: tteResult.transactionId,
+            signingUrl: tteResult.signingUrl,
+          },
+          message:
+            'Silakan selesaikan penandatanganan di Portal TTE. Naskah akan otomatis selesai setelah tanda tangan elektronik berhasil.',
+        };
+      }
+    }
+
     // ── TTE BSrE (digsig) untuk penandatangan TERAKHIR ──
     // Visualisasi internal tetap dirender seperti biasa; PDF final kemudian
     // ditambah invisible signature BSrE via API v2. Passphrase wajib.
@@ -3360,6 +3420,69 @@ export class NaskahLainnyaService {
     });
     await this.publishWorkflowUpdate(n, true);
     return this.getDetail(id, user);
+  }
+
+  /**
+   * Selesaikan naskah setelah TTE Portal sukses (dipanggil completion handler).
+   *
+   * Alur portal menunda transisi workflow sampai callback portal diproses.
+   * Method ini mengganti PDF final dengan versi TTE, update row dokumen,
+   * lalu transisi workflow tanda tangan (signer terakhir → selesai).
+   */
+  async completePortalTte(
+    idNaskah: string,
+    signedFilePath: string,
+    signer: { persnum: number; nama: string; positionText?: string },
+  ): Promise<void> {
+    const n = await this.findNaskah(idNaskah);
+    const isStandardSigningStage = n.tahapan === 'tanda_tangan';
+
+    const folder = `naskah-lainnya/${n.jenis}/${n.id}/signed`;
+    // Ambil PDF TTE dari path digsig (hasil download portal) → jadikan
+    // signed.pdf final di folder signed/ (pola sama dengan alur bsre_direct).
+    const ttePdfBuffer = await this.storage.getFile(signedFilePath);
+    const tteUpload = await this.storage.uploadBuffer(
+      ttePdfBuffer,
+      'signed.pdf',
+      'application/pdf',
+      folder,
+    );
+
+    // Row dokumen: ganti preview dengan versi TTE (status dittd = final)
+    const prevDittdRow = await this.dokumenRepo.findOne({
+      where: {
+        naskahId: n.id,
+        tipe: 'naskah',
+        status: In(['dittd', 'proses_ttd']) as any,
+      },
+    });
+    if (prevDittdRow) {
+      await this.dokumenRepo.update(prevDittdRow.id, {
+        previewMinioKey: tteUpload.key,
+        status: 'dittd',
+        tahapan: 'selesai',
+      });
+    }
+
+    if (isStandardSigningStage) {
+      // Transisi workflow tanda tangan (signer terakhir → selesai)
+      await this.dataSource.transaction(async (manager) => {
+        await this.workflow.transisiTandaTangan(n, {
+          aktor: signer.nama,
+          jabatan: signer.positionText ?? '',
+          catatan: 'TTE selesai via Portal TTE',
+          manager,
+        });
+      });
+    } else {
+      // Blanko Verbal/LPD menyelesaikan approval direksi sebelum redirect.
+      // Callback tetap wajib mengganti artefak PDF dan menutup status pending.
+      await this.naskahRepo.update(
+        { id: n.id, tanggal: n.tanggal as any },
+        { status: 'final_tte' },
+      );
+    }
+    await this.publishWorkflowUpdate(n, true);
   }
 
   async tolakTandaTangan(
@@ -4546,6 +4669,9 @@ export class NaskahLainnyaService {
         'Anda tidak memiliki baris paraf waiting untuk naskah ini.',
       );
 
+    let portalSigning:
+      | { tte_redirect: { transactionId: string; signingUrl: string } }
+      | undefined;
     // Kelompok Ditetapkan/Disahkan sekaligus menandatangani lembar dan naskah
     // final, sama seperti Blanko Verbal.
     if (row.tahap === 'persetujuan_direksi_ditetapkan') {
@@ -4555,7 +4681,7 @@ export class NaskahLainnyaService {
       const isFinalSigner = ditetapkanRows.every(
         (item) => item.status === 'verified' || item.id === row.id,
       );
-      await this.signCombinedFinalNaskah(
+      portalSigning = await this.signCombinedFinalNaskah(
         n,
         ditetapkanRows,
         row.id,
@@ -4647,7 +4773,8 @@ export class NaskahLainnyaService {
         .markByNaskahAsRead(userPosId, id)
         .catch(() => {});
     }
-    return this.getDetail(id, user);
+    const detail = await this.getDetail(id, user);
+    return portalSigning ? { ...detail, ...portalSigning } : detail;
   }
 
   async tolakLembarPersetujuanDireksi(
@@ -4850,6 +4977,9 @@ export class NaskahLainnyaService {
         'Anda tidak memiliki baris paraf waiting untuk naskah ini.',
       );
 
+    let portalSigning:
+      | { tte_redirect: { transactionId: string; signingUrl: string } }
+      | undefined;
     // Pihak Ditetapkan/Disahkan menandatangani blanko dan naskah final dalam
     // satu keputusan. Signature dibuat sebelum commit approval agar request
     // tetap dapat diulang bila transaksi approval gagal.
@@ -4860,7 +4990,7 @@ export class NaskahLainnyaService {
       const isFinalSigner = ditetapkanRows.every(
         (item) => item.status === 'verified' || item.id === row.id,
       );
-      await this.signCombinedFinalNaskah(
+      portalSigning = await this.signCombinedFinalNaskah(
         n,
         ditetapkanRows,
         row.id,
@@ -4930,7 +5060,8 @@ export class NaskahLainnyaService {
         .markByNaskahAsRead(userPosId, id)
         .catch(() => {});
     }
-    return this.getDetail(id, user);
+    const detail = await this.getDetail(id, user);
+    return portalSigning ? { ...detail, ...portalSigning } : detail;
   }
 
   private resolveSheetHistoryActor(
@@ -5645,11 +5776,23 @@ export class NaskahLainnyaService {
     final: boolean,
     signMethod: 'qr_only' | 'digsig' = 'qr_only',
     passphrase?: string,
-  ): Promise<void> {
+  ): Promise<
+    | { tte_redirect: { transactionId: string; signingUrl: string } }
+    | undefined
+  > {
     if (!naskah.lampiran) {
       throw new BadRequestException('Lampiran naskah asli tidak ditemukan.');
     }
-    if (final && signMethod === 'digsig' && !passphrase?.trim()) {
+    const isPortalMode =
+      final &&
+      signMethod === 'digsig' &&
+      (await this.tteSigningGateway.isPortalMode(naskah.jenis));
+    if (
+      final &&
+      signMethod === 'digsig' &&
+      !isPortalMode &&
+      !passphrase?.trim()
+    ) {
       throw new BadRequestException(
         'Passphrase BSrE wajib diisi untuk Tanda Tangan Elektronik (digsig).',
       );
@@ -5710,6 +5853,47 @@ export class NaskahLainnyaService {
       'application/pdf',
       folder,
     );
+    if (isPortalMode) {
+      await this.naskahRepo.update(
+        { id: naskah.id, tanggal: naskah.tanggal as any },
+        { signedLampiran: upload.key, status: 'pending_tte' },
+      );
+      naskah.signedLampiran = upload.key;
+      await this.upsertDittdRow(
+        naskah.id,
+        upload.key,
+        user,
+        final,
+        signedDocxName,
+        {
+          minioKey: previewUpload.key,
+          nama: signedPdfName,
+          mimetype: 'application/pdf',
+          ukuran: signedPdf.length,
+        },
+      );
+      const portal = await this.tteSigningService.createSigningTransaction({
+        sourceKey: previewUpload.key,
+        filename: signedPdfName,
+        pathDokumen: `naskah-lainnya/${naskah.jenis}/${naskah.id}/digsig`,
+        idNaskah: naskah.id,
+        jenisNaskah: naskah.jenis,
+        nomorNaskah: nomor || naskah.nomor || '-',
+        location: user.areaText || 'KANTOR PUSAT',
+        reason: `${nomor || naskah.nomor || '-'} - ${naskah.perihal || ''}`.slice(
+          0,
+          2000,
+        ),
+        tampilan: 'INVISIBLE',
+        user: user as any,
+      });
+      return {
+        tte_redirect: {
+          transactionId: portal.transactionId,
+          signingUrl: portal.signingUrl,
+        },
+      };
+    }
     let finalPdfKey = previewUpload.key;
     let finalPdfSize = signedPdf.length;
     let tteSourceKey: string | null = null;
