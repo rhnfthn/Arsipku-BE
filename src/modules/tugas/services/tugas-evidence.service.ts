@@ -9,11 +9,7 @@ import path from 'path';
 import { DataSource, EntityManager } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { StorageService } from '../../storage/services/storage.service';
-import {
-  TugasBoardEntity,
-  TugasTaskEntity,
-  TugasTaskEvidenceEntity,
-} from '../entities';
+import { TugasBoardEntity, TugasTaskEvidenceEntity } from '../entities';
 import { TugasActivityAction } from '../enums';
 import { TugasActor } from '../tugas.types';
 import { TugasAccessReader } from './tugas-access.reader';
@@ -44,7 +40,7 @@ export class TugasEvidenceService {
   }
 
   async add(taskId: string, file: Express.Multer.File, actor: TugasActor) {
-    this.assertValidImage(file);
+    this.assertValidEvidence(file);
     const initialAccess = await this.access.assertTaskMember(
       taskId,
       actor.company,
@@ -177,7 +173,7 @@ export class TugasEvidenceService {
     };
   }
 
-  private assertValidImage(
+  private assertValidEvidence(
     file: Express.Multer.File | undefined,
   ): asserts file is Express.Multer.File {
     if (!file) throw new BadRequestException('File evidence wajib dipilih');
@@ -189,7 +185,8 @@ export class TugasEvidenceService {
     const validPair =
       (file.mimetype === 'image/jpeg' &&
         ['.jpg', '.jpeg'].includes(extension)) ||
-      (file.mimetype === 'image/png' && extension === '.png');
+      (file.mimetype === 'image/png' && extension === '.png') ||
+      (file.mimetype === 'application/pdf' && extension === '.pdf');
     const isJpeg =
       file.buffer?.length >= 3 &&
       file.buffer[0] === 0xff &&
@@ -199,13 +196,21 @@ export class TugasEvidenceService {
     const isPng =
       file.buffer?.length >= pngSignature.length &&
       pngSignature.every((byte, index) => file.buffer[index] === byte);
+    const pdfHeader = Buffer.from('%PDF-');
+    const pdfEof = Buffer.from('%%EOF');
+    const isPdf =
+      file.buffer?.subarray(0, 1024).indexOf(pdfHeader) >= 0 &&
+      file.buffer
+        ?.subarray(Math.max(0, file.buffer.length - 2048))
+        .indexOf(pdfEof) >= 0;
     const validSignature =
       (file.mimetype === 'image/jpeg' && isJpeg) ||
-      (file.mimetype === 'image/png' && isPng);
+      (file.mimetype === 'image/png' && isPng) ||
+      (file.mimetype === 'application/pdf' && isPdf);
 
     if (!validPair || !validSignature) {
       throw new BadRequestException(
-        'Evidence hanya mendukung file JPG atau PNG yang valid',
+        'Evidence hanya mendukung file JPG, PNG, atau PDF yang valid',
       );
     }
   }
