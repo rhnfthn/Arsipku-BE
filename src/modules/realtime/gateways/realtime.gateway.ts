@@ -304,7 +304,7 @@ export class RealtimeGateway
     this.server.emit('bsre:alert', payload);
   }
 
-  /** Emit tema beranda aktif — broadcast ke semua connected clients. */
+  /** Emit Tema aktif — broadcast ke semua connected clients. */
   emitSystemTheme(payload: ConfigThemeView | null) {
     if (!this.server) return;
     this.server.emit('theme:changed', payload);

@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../../common/guards';
 import { RequirePermission } from '../../../common/decorators';
 import {
   CreateConfigThemeDto,
+  SetDefaultThemeDto,
   SetManualThemeDto,
   UpdateConfigThemeDto,
 } from '../dto/config-theme.dto';
@@ -32,6 +33,24 @@ export class AdminConfigThemeController {
   @RequirePermission('konfigurasi', 'read-tema')
   findAll() {
     return this.configThemeService.findAll();
+  }
+
+  @Get('default')
+  @RequirePermission('konfigurasi', 'read-tema')
+  getDefaultStatus() {
+    return this.configThemeService.getDefaultStatus();
+  }
+
+  @Get('assets')
+  @RequirePermission('konfigurasi', 'read-tema')
+  listAssets() {
+    return this.configThemeService.listAssets();
+  }
+
+  @Patch('default')
+  @RequirePermission('konfigurasi', 'update')
+  setDefault(@Body() dto: SetDefaultThemeDto) {
+    return this.configThemeService.setDefault(dto.active);
   }
 
   @Post()

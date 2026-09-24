@@ -12,4 +12,5 @@ export {
   CreateConfigThemeDto,
   UpdateConfigThemeDto,
   SetManualThemeDto,
+  SetDefaultThemeDto,
 } from './config-theme.dto';

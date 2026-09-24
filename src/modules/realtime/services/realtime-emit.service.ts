@@ -89,7 +89,7 @@ export class RealtimeEmitService {
     }
   }
 
-  /** Emit tema beranda aktif — broadcast ke semua client. */
+  /** Emit Tema aktif — broadcast ke semua client. */
   emitSystemTheme(payload: ConfigThemeView | null) {
     try {
       this.gateway.emitSystemTheme(payload);

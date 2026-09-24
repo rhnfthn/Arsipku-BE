@@ -6,6 +6,7 @@ import {
   ConfigNaskahLainnya,
   ConfigSearch,
   ConfigTheme,
+  ConfigThemeSetting,
 } from './entities';
 import {
   ConfigDigsigService,
@@ -32,6 +33,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
       ConfigNaskahLainnya,
       ConfigSearch,
       ConfigTheme,
+      ConfigThemeSetting,
     ]),
     OrgDataModule,
   ],
