@@ -2617,10 +2617,13 @@ export class SuratDinasEksternalService {
       nama_lengkap: body.nama_lengkap,
 
       // Garis Kewenangan (a.n.)
-      atas_nama: body.atas_nama || undefined,
+      atas_nama:
+        body.atas_nama !== undefined ? body.atas_nama || null : undefined,
       atas_nama_position_id: body.atas_nama_position_id
         ? Number(body.atas_nama_position_id)
-        : undefined,
+        : body.atas_nama_position_id === ''
+          ? null
+          : undefined,
 
       // Lampiran
       lampiran: body.lampiran,
@@ -2858,6 +2861,12 @@ export class SuratDinasEksternalService {
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
       if (dto.tanda_tangan !== undefined)
         naskahUpdateData.tandaTangan = dto.tanda_tangan;
+      if (dto.atas_nama !== undefined)
+        naskahUpdateData.atasNama = dto.atas_nama || null;
+      if (dto.atas_nama_position_id !== undefined)
+        naskahUpdateData.atasNamaPositionId = dto.atas_nama_position_id
+          ? String(dto.atas_nama_position_id)
+          : null;
       if (dto.tgl !== undefined)
         naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
@@ -2910,8 +2919,15 @@ export class SuratDinasEksternalService {
         if (existingTembusanSirkulasi && existingTembusanSirkulasi.length > 0) {
           tembusanPositionsToInsert = existingTembusanSirkulasi
             .map((t) => parseInt(t.position || '0', 10))
-            .filter((p) => p > 0);
+          .filter((p) => p > 0);
         }
+      }
+
+      if (
+        dto.atas_nama_position_id &&
+        !tembusanPositionsToInsert.includes(Number(dto.atas_nama_position_id))
+      ) {
+        tembusanPositionsToInsert.push(Number(dto.atas_nama_position_id));
       }
 
       // Delete existing tembusan sirkulasi
