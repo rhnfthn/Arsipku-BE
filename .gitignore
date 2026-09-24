@@ -67,8 +67,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /src/modules/tugas/migrations/
 !/src/migrations/
 /src/migrations/*
-!/src/migrations/1790700000000-CreateConfigTheme.ts
-!/src/migrations/1790701000000-DropLegacyThemeTables.ts
 /scripts/*
 !/scripts/preflight-correspondence-routing.ts
 

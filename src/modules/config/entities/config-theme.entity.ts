@@ -33,6 +33,16 @@ export class ConfigTheme {
   @Column('varchar', { name: 'image_key', length: 255 })
   imageKey: string;
 
+  @Column('tinyint', {
+    name: 'image_managed',
+    default: 1,
+    transformer: {
+      to: (value: boolean) => (value ? 1 : 0),
+      from: (value: number) => Boolean(value),
+    },
+  })
+  imageManaged: boolean;
+
   @Column('varchar', { length: 500, nullable: true })
   description: string | null;
 
@@ -76,6 +86,48 @@ export class ConfigTheme {
 
   @Column('int', { default: 0 })
   priority: number;
+
+  @Column('varchar', {
+    name: 'text_position',
+    length: 20,
+    default: 'center-left',
+  })
+  textPosition:
+    | 'top-left'
+    | 'top-center'
+    | 'top-right'
+    | 'center-left'
+    | 'center'
+    | 'center-right'
+    | 'bottom-left'
+    | 'bottom-center'
+    | 'bottom-right'
+    | 'hidden';
+
+  @Column('varchar', { name: 'text_tone', length: 10, default: 'light' })
+  textTone: 'light' | 'dark';
+
+  @Column('int', { name: 'overlay_strength', default: 45 })
+  overlayStrength: number;
+
+  @Column('int', { name: 'background_width', default: 100 })
+  backgroundWidth: number;
+
+  @Column('int', { name: 'background_height', default: 100 })
+  backgroundHeight: number;
+
+  @Column('int', { name: 'banner_width', default: 100 })
+  bannerWidth: number;
+
+  @Column('int', { name: 'banner_height', default: 256 })
+  bannerHeight: number;
+
+  @Column('varchar', {
+    name: 'navigation_accent_color',
+    length: 7,
+    default: '#D3E3FD',
+  })
+  navigationAccentColor: string;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt: Date;

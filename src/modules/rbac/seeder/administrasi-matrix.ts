@@ -558,7 +558,7 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
         },
         {
           key: 'tema-beranda',
-          label: 'Tema Beranda',
+          label: 'Tema',
           fiturs: [
             {
               key: 'read',
@@ -567,7 +567,7 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
                 {
                   action: 'read-tema',
                   label: 'Read',
-                  description: 'Melihat konfigurasi tema beranda',
+                  description: 'Melihat konfigurasi Tema',
                   resource: 'konfigurasi',
                 },
               ],

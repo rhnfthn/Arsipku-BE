@@ -10,6 +10,7 @@ import { DataSource, Not, Repository } from 'typeorm';
 import { StorageService } from '../../storage/services/storage.service';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { ConfigTheme } from '../entities/config-theme.entity';
+import { ConfigThemeSetting } from '../entities/config-theme-setting.entity';
 import {
   CreateConfigThemeDto,
   UpdateConfigThemeDto,
@@ -20,6 +21,12 @@ export type ConfigThemeView = Omit<ConfigTheme, 'generateId'> & {
   source: 'manual' | 'scheduled';
 };
 
+export type ConfigThemeAsset = {
+  key: string;
+  name: string;
+  imageUrl: string;
+};
+
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 @Injectable()
@@ -27,6 +34,8 @@ export class ConfigThemeService {
   constructor(
     @InjectRepository(ConfigTheme)
     private readonly themeRepository: Repository<ConfigTheme>,
+    @InjectRepository(ConfigThemeSetting)
+    private readonly settingRepository: Repository<ConfigThemeSetting>,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly realtimeEmitService: RealtimeEmitService,
@@ -63,6 +72,20 @@ export class ConfigThemeService {
     ) {
       throw new BadRequestException('Isi file bukan gambar PNG yang valid.');
     }
+  }
+
+  private validateThemeAssetKey(key?: string): string | null {
+    if (!key) return null;
+    const normalized = key.trim();
+    if (
+      !normalized.startsWith('tema/') ||
+      normalized.includes('..') ||
+      !normalized.toLowerCase().endsWith('.png') ||
+      normalized.split('/').length !== 2
+    ) {
+      throw new BadRequestException('Gambar tema yang dipilih tidak valid.');
+    }
+    return normalized;
   }
 
   private normalizeDates(dto: CreateConfigThemeDto | UpdateConfigThemeDto) {
@@ -118,6 +141,21 @@ export class ConfigThemeService {
     };
   }
 
+  private async getSetting(): Promise<ConfigThemeSetting> {
+    const existing = await this.settingRepository.findOne({
+      where: { id: 'global' },
+    });
+    if (existing) return existing;
+    return this.settingRepository.save(
+      this.settingRepository.create({ id: 'global', forceDefault: false }),
+    );
+  }
+
+  async getDefaultStatus(): Promise<{ active: boolean }> {
+    const setting = await this.getSetting();
+    return { active: setting.forceDefault };
+  }
+
   async findAll(): Promise<ConfigThemeView[]> {
     const themes = await this.themeRepository.find({
       order: {
@@ -134,6 +172,20 @@ export class ConfigThemeService {
     );
   }
 
+  async listAssets(): Promise<ConfigThemeAsset[]> {
+    const keys = await this.storageService.listFiles('tema/', 1000);
+    const assets = keys
+      .filter((key) => key.toLowerCase().endsWith('.png'))
+      .sort((a, b) => a.localeCompare(b, 'id'));
+    return Promise.all(
+      assets.map(async (key) => ({
+        key,
+        name: key.slice('tema/'.length).replace(/\.png$/i, ''),
+        imageUrl: await this.storageService.getPreviewUrl(key, 3600),
+      })),
+    );
+  }
+
   async findOne(id: string): Promise<ConfigTheme> {
     const theme = await this.themeRepository.findOne({ where: { id } });
     if (!theme) throw new NotFoundException('Tema tidak ditemukan.');
@@ -141,6 +193,9 @@ export class ConfigThemeService {
   }
 
   async getCurrent(now = new Date()): Promise<ConfigThemeView | null> {
+    const setting = await this.getSetting();
+    if (setting.forceDefault) return null;
+
     const manual = await this.themeRepository.findOne({
       where: { manualOverride: true, isEnabled: true },
       order: { updatedAt: 'DESC' },
@@ -165,7 +220,21 @@ export class ConfigThemeService {
     dto: CreateConfigThemeDto,
     file?: Express.Multer.File,
   ): Promise<ConfigThemeView> {
-    this.validateImage(file);
+    const selectedImageKey = this.validateThemeAssetKey(dto.image_key);
+    if (!file && !selectedImageKey) {
+      throw new BadRequestException(
+        'Unggah gambar PNG atau pilih gambar tema yang sudah tersedia.',
+      );
+    }
+    if (
+      selectedImageKey &&
+      !file &&
+      !(await this.storageService.fileExists(selectedImageKey))
+    ) {
+      throw new NotFoundException(
+        'Gambar tema yang dipilih tidak ditemukan di MinIO.',
+      );
+    }
     const name = dto.name.trim();
     const slug = this.slugify(name);
     const existing = await this.themeRepository.findOne({
@@ -173,15 +242,19 @@ export class ConfigThemeService {
     });
     if (existing) throw new ConflictException('Nama tema sudah digunakan.');
     const { startDate, endDate } = this.normalizeDates(dto);
-    const imageKey = `tema/${slug}.png`;
+    const imageKey = selectedImageKey || `tema/${slug}.png`;
 
-    await this.storageService.uploadFileWithCustomKey(file, imageKey);
+    if (file) {
+      this.validateImage(file);
+      await this.storageService.uploadFileWithCustomKey(file, imageKey);
+    }
     try {
       const saved = await this.themeRepository.save(
         this.themeRepository.create({
           name,
           slug,
           imageKey,
+          imageManaged: !selectedImageKey,
           description: dto.description?.trim() || null,
           startDate,
           endDate,
@@ -189,12 +262,22 @@ export class ConfigThemeService {
           isEnabled: dto.is_enabled ?? true,
           manualOverride: null,
           priority: dto.priority ?? 0,
+          textPosition: dto.text_position ?? 'center-left',
+          textTone: dto.text_tone ?? 'light',
+          overlayStrength: dto.overlay_strength ?? 45,
+          backgroundWidth: dto.background_width ?? 100,
+          backgroundHeight: dto.background_height ?? 100,
+          bannerWidth: dto.banner_width ?? 100,
+          bannerHeight: dto.banner_height ?? 256,
+          navigationAccentColor: dto.navigation_accent_color ?? '#D3E3FD',
         }),
       );
       await this.emitCurrentTheme();
       return this.toView(saved, 'scheduled');
     } catch (error) {
-      await this.storageService.deleteFile(imageKey).catch(() => undefined);
+      if (file) {
+        await this.storageService.deleteFile(imageKey).catch(() => undefined);
+      }
       throw error;
     }
   }
@@ -211,10 +294,20 @@ export class ConfigThemeService {
     });
     if (duplicate) throw new ConflictException('Nama tema sudah digunakan.');
     const { startDate, endDate } = this.normalizeDates(dto);
+    const selectedImageKey = this.validateThemeAssetKey(dto.image_key);
 
     if (file) {
       this.validateImage(file);
       await this.storageService.uploadFileWithCustomKey(file, theme.imageKey);
+      theme.imageManaged = true;
+    } else if (selectedImageKey) {
+      if (!(await this.storageService.fileExists(selectedImageKey))) {
+        throw new NotFoundException(
+          'Gambar tema yang dipilih tidak ditemukan di MinIO.',
+        );
+      }
+      theme.imageKey = selectedImageKey;
+      theme.imageManaged = false;
     }
 
     theme.name = name;
@@ -224,6 +317,14 @@ export class ConfigThemeService {
     theme.repeatYearly = dto.repeat_yearly ?? false;
     theme.isEnabled = dto.is_enabled ?? true;
     theme.priority = dto.priority ?? 0;
+    theme.textPosition = dto.text_position ?? 'center-left';
+    theme.textTone = dto.text_tone ?? 'light';
+    theme.overlayStrength = dto.overlay_strength ?? 45;
+    theme.backgroundWidth = dto.background_width ?? 100;
+    theme.backgroundHeight = dto.background_height ?? 100;
+    theme.bannerWidth = dto.banner_width ?? 100;
+    theme.bannerHeight = dto.banner_height ?? 256;
+    theme.navigationAccentColor = dto.navigation_accent_color ?? '#D3E3FD';
     if (!theme.isEnabled) theme.manualOverride = null;
     const saved = await this.themeRepository.save(theme);
     await this.emitCurrentTheme();
@@ -238,6 +339,8 @@ export class ConfigThemeService {
       );
     }
 
+    if (active) await this.getSetting();
+
     await this.dataSource.transaction(async (manager) => {
       await manager
         .createQueryBuilder()
@@ -246,6 +349,11 @@ export class ConfigThemeService {
         .where('manual_override = :active', { active: 1 })
         .execute();
       if (active) {
+        await manager.update(
+          ConfigThemeSetting,
+          { id: 'global' },
+          { forceDefault: false },
+        );
         await manager.update(ConfigTheme, { id }, { manualOverride: true });
       }
     });
@@ -255,10 +363,35 @@ export class ConfigThemeService {
     return this.toView(saved, active ? 'manual' : 'scheduled');
   }
 
+  async setDefault(active: boolean): Promise<{ active: boolean }> {
+    await this.getSetting();
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(
+        ConfigThemeSetting,
+        { id: 'global' },
+        { forceDefault: active },
+      );
+      if (active) {
+        await manager
+          .createQueryBuilder()
+          .update(ConfigTheme)
+          .set({ manualOverride: null })
+          .where('manual_override = :manual', { manual: 1 })
+          .execute();
+      }
+    });
+    await this.emitCurrentTheme();
+    return { active };
+  }
+
   async delete(id: string): Promise<void> {
     const theme = await this.findOne(id);
     await this.themeRepository.remove(theme);
-    await this.storageService.deleteFile(theme.imageKey).catch(() => undefined);
+    if (theme.imageManaged) {
+      await this.storageService
+        .deleteFile(theme.imageKey)
+        .catch(() => undefined);
+    }
     await this.emitCurrentTheme();
   }
 
