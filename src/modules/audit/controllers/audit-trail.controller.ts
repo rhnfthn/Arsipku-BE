@@ -103,6 +103,8 @@ export class AuditTrailController {
     @Query('module') module?: string,
     @Query('userRole') userRole?: string,
     @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     const summary = await this.auditTrailService.getSummary(
       startDate,
@@ -111,6 +113,8 @@ export class AuditTrailController {
       module,
       userRole,
       search,
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
     );
     return { success: true, data: summary };
   }

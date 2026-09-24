@@ -441,6 +441,11 @@ export class AuditAnomalyService {
     const skip = (page - 1) * limit;
 
     const query: any = {};
+    if (filter.startDate || filter.endDate) {
+      query.createdAt = {};
+      if (filter.startDate) query.createdAt.$gte = new Date(`${filter.startDate}T00:00:00`);
+      if (filter.endDate) query.createdAt.$lte = new Date(`${filter.endDate}T23:59:59.999`);
+    }
     if (filter.status) query.status = filter.status;
     if (filter.severity) query.severity = filter.severity;
     if (filter.userId) query.userId = filter.userId;
