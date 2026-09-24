@@ -54,6 +54,52 @@ export class TugasReferenceResolver {
     throw this.notAccessible();
   }
 
+  /**
+   * Resolve input manual berdasarkan nomor naskah secara exact. Hasil akhirnya
+   * tetap melewati resolve() agar pemeriksaan jenis dan akses identik dengan
+   * alur berbasis UUID. Semua kegagalan tetap disamarkan sebagai 404.
+   */
+  async resolveByNumber(
+    referenceType: TugasReferenceType,
+    referenceNumber: string,
+    actor: TugasActor,
+  ): Promise<ResolvedTugasReference> {
+    const nomor = referenceNumber.trim();
+    if (!nomor) throw this.notAccessible();
+
+    if (referenceType === TugasReferenceType.DISPOSISI) {
+      const disposisi = await this.diRepository.findOne({
+        where: { nomor },
+        select: ['idNaskah'],
+        order: { tanggal: 'DESC' },
+      });
+      if (!disposisi?.idNaskah) throw this.notAccessible();
+      return this.resolve(referenceType, disposisi.idNaskah, actor);
+    }
+
+    const candidates = await this.naskahRepository.find({
+      where: { nomor },
+      select: ['id', 'jenis'],
+      order: { tanggal: 'DESC' },
+      take: 20,
+    });
+    const matchingCandidates = candidates.filter((candidate) =>
+      referenceType === TugasReferenceType.NASKAH_LAINNYA
+        ? this.naskahLainnyaJenis.has(String(candidate.jenis))
+        : candidate.jenis !== 'DI' &&
+          !this.naskahLainnyaJenis.has(String(candidate.jenis)),
+    );
+
+    for (const candidate of matchingCandidates) {
+      try {
+        return await this.resolve(referenceType, candidate.id, actor);
+      } catch (error) {
+        if (!(error instanceof NotFoundException)) throw error;
+      }
+    }
+    throw this.notAccessible();
+  }
+
   async canOpen(
     referenceType: TugasReferenceType,
     referenceId: string,

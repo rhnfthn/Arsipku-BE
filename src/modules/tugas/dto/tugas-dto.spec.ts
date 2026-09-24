@@ -78,4 +78,14 @@ describe('Tugas DTO', () => {
       ),
     ).rejects.toThrow();
   });
+
+  it('menerima nomor naskah sebagai input referensi manual', async () => {
+    const dto = plainToInstance(AddTaskReferenceDto, {
+      referenceType: 'naskah_masuk',
+      referenceNumber: '  ND-123/2026  ',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+    expect(dto.referenceNumber).toBe('ND-123/2026');
+  });
 });
