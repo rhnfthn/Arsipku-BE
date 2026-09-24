@@ -181,7 +181,11 @@ export class SuratDinasEksternalController {
       const positionId = query.pengirim
         ? parseInt(query.pengirim, 10)
         : parseInt(user.position, 10);
-      return await this.sdeService.getSenderKonsep(positionId, query.tgl);
+      return await this.sdeService.getSenderKonsep(
+        positionId,
+        query.tgl,
+        query.parentNaskahId,
+      );
     } catch (error) {
       // Re-throw NestJS exceptions as-is
       if (error instanceof HttpException) {
