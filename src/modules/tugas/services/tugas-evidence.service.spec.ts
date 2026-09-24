@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { StorageService } from '../../storage/services/storage.service';
@@ -40,6 +41,18 @@ const pngFile = (): Express.Multer.File =>
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4,
     ]),
   }) as Express.Multer.File;
+
+const pdfFile = (): Express.Multer.File => {
+  const buffer = Buffer.from(
+    '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF',
+  );
+  return {
+    originalname: 'evidence.pdf',
+    mimetype: 'application/pdf',
+    size: buffer.length,
+    buffer,
+  } as Express.Multer.File;
+};
 
 function createHarness() {
   const evidenceRepository = {
@@ -126,5 +139,36 @@ describe('TugasEvidenceService', () => {
       url: 'https://preview/evidence.png',
       revision: 3,
     });
+  });
+
+  it('menerima PDF valid berdasarkan ekstensi, MIME, header, dan EOF marker', async () => {
+    const harness = createHarness();
+
+    const response = await harness.service.add(task.id, pdfFile(), actor);
+
+    expect(harness.storage.uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalname: 'evidence.pdf',
+        mimetype: 'application/pdf',
+      }),
+      'tugas/board-1/task-1/evidence',
+    );
+    expect(response.data).toMatchObject({
+      originalName: 'evidence.pdf',
+      mimeType: 'application/pdf',
+    });
+  });
+
+  it('menolak file berkedok PDF ketika signature tidak valid', async () => {
+    const harness = createHarness();
+    const fake = {
+      ...pdfFile(),
+      buffer: Buffer.from('bukan pdf'),
+    } as Express.Multer.File;
+
+    await expect(
+      harness.service.add(task.id, fake, actor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(harness.storage.uploadFile).not.toHaveBeenCalled();
   });
 });
