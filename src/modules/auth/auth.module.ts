@@ -18,6 +18,7 @@ import { OrganizationTuModule } from '../organization-tu/organization-tu.module'
 import { KonfigurasiModule } from '../konfigurasi/konfigurasi.module';
 import { AirnavAuthV2Client } from './clients/airnav-auth-v2.client';
 import { OidcSessionService } from './services/oidc-session.service';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { OidcSessionService } from './services/oidc-session.service';
     forwardRef(() => RbacModule),
     OrganizationTuModule,
     KonfigurasiModule,
+    AuditModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

@@ -30,9 +30,10 @@ import {
  *
  * Bekerja dalam 2 mode:
  * 1. Decorator mode: jika method punya @AuditLog(), log dengan opsi spesifik.
- * 2. Auto mode: jika tidak ada decorator, semua request bisnis
- *    (GET/POST/PATCH/PUT/DELETE) dicatat dengan action & module yang
- *    di-infer dari HTTP method dan URL path.
+ * 2. Auto mode: jika tidak ada decorator, hanya operasi yang mengubah data
+ *    (POST/PATCH/PUT/DELETE) dicatat dengan action & module yang di-infer
+ *    dari HTTP method dan URL path. GET hanya dicatat jika endpoint secara
+ *    eksplisit memakai @AuditLog({ action: VIEW }).
  *
  * Skip endpoint: health check, static files, endpoint audit itu sendiri,
  * polling, health check, static files, dan endpoint audit itu sendiri.
@@ -194,9 +195,12 @@ export class AuditInterceptor implements NestInterceptor {
       AuditLogOptions | undefined
     >(AUDIT_LOG_KEY, [context.getHandler(), context.getClass()]);
 
-    // Abaikan method HTTP teknis yang bukan aktivitas pengguna.
-    const isAuditableMethod = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
-    if (!options && !isAuditableMethod) {
+    // Jangan menganggap setiap GET sebagai aktivitas VIEW. Request GET dari
+    // layout, sidebar, badge, polling, dan pemuatan data halaman bukan berarti
+    // user membuka halaman tersebut. GET tetap bisa diaudit bila endpoint
+    // secara eksplisit memakai @AuditLog({ action: VIEW }).
+    const isAutoAuditableMethod = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
+    if (!options && !isAutoAuditableMethod) {
       return next.handle();
     }
 
