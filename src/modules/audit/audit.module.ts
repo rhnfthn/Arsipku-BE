@@ -25,8 +25,9 @@ import { AuditInterceptor } from './interceptors/audit.interceptor';
  * (mis. AuthModule, RbacModule) untuk logging manual tanpa mengubah kode lama.
  *
  * AuditInterceptor didaftarkan sebagai APP_INTERCEPTOR global agar semua
- * write operation (POST/PATCH/PUT/DELETE) otomatis tercatat tanpa perlu
- * memasang @AuditLog() di setiap controller method.
+ * write operation (POST/PATCH/PUT/DELETE) dari seluruh akun/perangkat
+ * otomatis tercatat tanpa perlu memasang @AuditLog() di setiap controller
+ * method. Read operation (GET) hanya dicatat bila eksplisit diberi decorator.
  */
 @Module({
   // forFeature mengikuti konfigurasi koneksi di AppModule.
