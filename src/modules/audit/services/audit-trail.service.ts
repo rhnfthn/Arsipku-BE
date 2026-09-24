@@ -470,6 +470,8 @@ export class AuditTrailService {
     module?: string,
     userRole?: string,
     search?: string,
+    page = 1,
+    limit = 20,
   ) {
     if (!this.model) {
       return {
@@ -599,11 +601,15 @@ export class AuditTrailService {
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    // 10 log teratas
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(200, Math.max(1, Number(limit) || 20));
+
+    // Log sesuai halaman laporan
     const recentLogs = await this.model
       .find(baseQuery)
       .sort({ createdAt: -1 })
-      .limit(10)
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit)
       .select('id createdAt userName userRole action module description status')
       .exec();
 
