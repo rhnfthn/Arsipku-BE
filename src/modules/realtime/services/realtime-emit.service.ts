@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { ConfigThemeView } from '../../config/services/config-theme.service';
 import { RealtimeGateway } from '../gateways/realtime.gateway';
 
 /**
@@ -85,6 +86,16 @@ export class RealtimeEmitService {
       this.gateway.emitBsreAlert(payload);
     } catch (err: any) {
       this.logger.warn(`⚠️ [emitBsreAlert] failed: ${err?.message}`);
+    }
+  }
+
+  /** Emit Tema aktif — broadcast ke semua client. */
+  emitSystemTheme(payload: ConfigThemeView | null) {
+    try {
+      this.gateway.emitSystemTheme(payload);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`⚠️ [emitSystemTheme] failed: ${message}`);
     }
   }
 
