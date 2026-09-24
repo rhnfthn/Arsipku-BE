@@ -67,6 +67,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /src/modules/tugas/migrations/
 !/src/migrations/
 /src/migrations/*
+!/src/migrations/1790800000000-PersistDraftKonsepMetadata.ts
 /scripts/*
 !/scripts/preflight-correspondence-routing.ts
 
