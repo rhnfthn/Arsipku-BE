@@ -403,13 +403,15 @@ export class SdeMasalService {
     // identitas baris Excel; lampiran sengaja tidak dijadikan pembeda karena
     // formatnya berubah dari nama file menjadi object setelah upload/commit.
     const existingKeys = new Set<string>();
+    const existingItemsByKey = new Map<string, SdeMasalEntity>();
     if (body.folderId) {
       const existingItems = await this.repo.find({
         where: { folderId: body.folderId },
-        select: ['recipientData'],
       });
       existingItems.forEach((item) => {
-        existingKeys.add(this.getMassalRecipientKey(item.recipientData));
+        const key = this.getMassalRecipientKey(item.recipientData);
+        existingKeys.add(key);
+        existingItemsByKey.set(key, item);
       });
     }
 
@@ -435,6 +437,7 @@ export class SdeMasalService {
     }
 
     const items: SdeMasalEntity[] = [];
+    const requestedKeys: string[] = [];
     let failed = 0;
 
     for (const p of penerimaList) {
@@ -445,9 +448,11 @@ export class SdeMasalService {
         }
         const recipientKey = this.getMassalRecipientKey(p);
         if (existingKeys.has(recipientKey)) {
+          requestedKeys.push(recipientKey);
           continue;
         }
         existingKeys.add(recipientKey);
+        requestedKeys.push(recipientKey);
         const normalizedRecipient = this.normalizeMassalRecipient(p);
         const item = this.repo.create({
           folderId: body.folderId || null,
@@ -468,12 +473,20 @@ export class SdeMasalService {
     if (items.length > 0) {
       saved = await this.repo.save(items);
     }
+    const generatedItemsByKey = new Map(
+      saved.map((item) => [this.getMassalRecipientKey(item.recipientData), item]),
+    );
+    const resultItems = requestedKeys
+      .map((key) => existingItemsByKey.get(key) || generatedItemsByKey.get(key))
+      .filter((item): item is SdeMasalEntity => Boolean(item));
 
     return {
       total: penerimaList.length,
-      success: saved.length,
+      success: resultItems.length,
       failed,
-      items: saved,
+      // Kembalikan juga item yang sudah ada saat request diulang secara
+      // idempotent agar frontend selalu mendapatkan ID database untuk submit.
+      items: resultItems,
     };
   }
 
@@ -1930,29 +1943,9 @@ export class SdeMasalService {
         'Chain verifikator tidak valid terhadap pengirim SDE Massal yang dipilih',
       );
     }
-    // Validasi chain: hanya BOD (Direksi) yang boleh menjadi verifikator
-    // aktif. Pengirim konsep tetap menjadi langkah terakhir sebagai
-    // penandatangan/final sender, tetapi verifikator non-BOD lain ditolak
-    // agar chain verifikasi benar-benar dikerjakan oleh BOD.
-    const nonBodVerifikators = resolvedVerifikators.filter((item) => {
-      const isSender =
-        String(item?.position ?? item?.positionId ?? '').trim() ===
-        String(folder.pengirimId ?? '').trim();
-      if (isSender) return false;
-      const jabatan = String(
-        item?.jabatan || item?.positionText || '',
-      ).toUpperCase();
-      return !/\bDIREKTUR\b|\bDIRUT\b|\bDIRECTOR\b/.test(jabatan);
-    });
-    if (nonBodVerifikators.length > 0) {
-      throw new BadRequestException(
-        'Verifikator SDE Massal harus berasal dari BOD (Direksi). ' +
-          `Verifikator berikut tidak memenuhi: ${nonBodVerifikators
-            .map((item) => item?.nama || item?.position)
-            .filter(Boolean)
-            .join(', ')}`,
-      );
-    }
+    // Verifikator berasal dari chain disposisi. Jangan membatasi hanya pada
+    // BOD karena chain yang valid dapat berisi AVP, VP, EVP, maupun Direksi.
+    // Pengirim konsep tetap dipindahkan ke langkah terakhir di bawah.
     // Pengirim konsep selalu menjadi langkah verifikasi terakhir.
     const senderPosition = String(folder.pengirimId ?? '').trim();
     const senderIndex = resolvedVerifikators.findIndex(
@@ -3825,7 +3818,7 @@ export class SdeMasalService {
   }
 
   private normalizeVerifikators(verifikators: any[]): SdeMasalVerifikator[] {
-    const normalized = verifikators.slice(0, 4).map((item) => ({
+    const normalized = verifikators.map((item) => ({
       source: item,
       roleRank: this.getVerificationRoleRank(
         item?.jabatan || item?.positionText,
@@ -3834,7 +3827,7 @@ export class SdeMasalService {
 
     if (normalized.some((item) => item.roleRank == null)) {
       throw new BadRequestException(
-        'Verifikator SDE Massal harus berasal dari jenjang AVP, VP, atau EVP',
+        'Verifikator SDE Massal harus berasal dari jenjang AVP, VP, EVP, atau Direksi',
       );
     }
 
@@ -3882,7 +3875,8 @@ export class SdeMasalService {
   }
 
   /**
-   * Rank workflow SDE Massal: AVP (1), VP (2), EVP (3), Direktur Utama (4).
+   * Rank workflow SDE Massal: AVP (1), VP (2), EVP (3), Direktur (4),
+   * Direktur Utama (5).
    * Jabatan diproses case-insensitive dan tidak mengandalkan nama orang.
    */
   private getVerificationRoleRank(value: unknown): number | null {
@@ -3894,11 +3888,12 @@ export class SdeMasalService {
     if (/\bVP\b/.test(text)) return 2;
     if (/\bEVP\b/.test(text)) return 3;
     if (
-      /\bDIREKTUR\b/.test(text) ||
+      /\bDIREKTUR\s+UTAMA\b/.test(text) ||
       /\bDIRUT\b/.test(text) ||
-      /\bDIRECTOR\b/.test(text)
+      /\bPRESIDENT\s+DIRECTOR\b/.test(text)
     )
-      return 4;
+      return 5;
+    if (/\bDIREKTUR\b|\bDIRECTOR\b/.test(text)) return 4;
     return null;
   }
 
