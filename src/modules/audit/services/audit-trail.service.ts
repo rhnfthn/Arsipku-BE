@@ -10,6 +10,7 @@ import { AuditStatus } from '../enums/audit-status.enum';
 import { captureAuditError } from '../../../config/sentry.config';
 import { Session } from '../../auth/entities/session.entity';
 import { Person } from '../../master-data/person/entities/person.entity';
+import { UserRoleEntity } from '../../superadmin/entities/user-role.entity';
 
 /**
  * Service untuk mengelola audit trail log.
@@ -44,6 +45,9 @@ export class AuditTrailService {
     @Optional()
     @InjectRepository(Person)
     private readonly personRepo?: Repository<Person>,
+    @Optional()
+    @InjectRepository(UserRoleEntity)
+    private readonly userRoleRepo?: Repository<UserRoleEntity>,
   ) {}
 
   /**
@@ -78,11 +82,16 @@ export class AuditTrailService {
         })
       : [];
     const peopleByPersnum = new Map(people.map((person) => [person.persnum, person]));
+    const roles = this.userRoleRepo && persnums.length
+      ? await this.userRoleRepo.find({ where: { persnum: In(persnums) } })
+      : [];
+    const rolesByPersnum = new Map(roles.map((role) => [role.persnum, role.role]));
 
     const accounts = new Map<number, {
       persnum: number;
       name: string | null;
       username: string | null;
+      userRole: string;
       sessionCount: number;
       lastActivityAt: Date;
       expiresAt: Date;
@@ -122,6 +131,7 @@ export class AuditTrailService {
           persnum: session.userPersnum,
           name: person?.name ?? null,
           username: person?.uname ?? null,
+          userRole: String(rolesByPersnum.get(session.userPersnum) ?? 'user').toUpperCase(),
           sessionCount: 1,
           lastActivityAt,
           expiresAt: session.airnavExpiredAt,
