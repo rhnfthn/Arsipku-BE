@@ -491,6 +491,8 @@ export class CorrespondenceRoutingResolverService {
       !matchesScopes(target, 'TARGET', scopes)
     )
       return false;
+    // Mandatory SDI copies for GM/DGM use this scope so the recipient is the
+    // official in the sender's area, never every member of the functional role.
     if (rule.scope_type === 'SAME_AREA')
       return sender.area != null && sender.area === target.area;
     if (rule.scope_type === 'SAME_SUB_AREA')

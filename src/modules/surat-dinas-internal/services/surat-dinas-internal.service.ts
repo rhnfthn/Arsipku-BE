@@ -76,6 +76,7 @@ import type { RoutingPosition } from '../../correspondence-routing/services/rout
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { formatDeputyPositionLabel } from '../helpers/deputy-position-label.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -238,7 +239,7 @@ export class SuratDinasInternalService {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
         if (pos) {
-          names.push(pos.position_text);
+          names.push(formatDeputyPositionLabel(pos));
         }
       }
     }
@@ -514,7 +515,7 @@ export class SuratDinasInternalService {
 
       if (position) {
         // Return position_text only (without organization_text)
-        const fullName = `${position.position_text}`;
+        const fullName = formatDeputyPositionLabel(position);
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -1179,7 +1180,7 @@ export class SuratDinasInternalService {
   private toSirkulasiInfo(pos: SdiOrgDataPositionDto): SirkulasiInfoDto {
     return {
       position: pos.position,
-      position_text: pos.position_text,
+      position_text: formatDeputyPositionLabel(pos),
       persnum: pos.persnum_person ?? pos.persnum ?? null,
       nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
@@ -1215,7 +1216,7 @@ export class SuratDinasInternalService {
     // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
     const _pf = delegatedPengirimFields(
       actorUser ?? { position_status: null, nama: '' },
-      pos.position_text ?? '',
+      formatDeputyPositionLabel(pos),
       (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
     );
     const sirkulasi = this.naskahSirkulasiRepository.create({
@@ -1268,7 +1269,7 @@ export class SuratDinasInternalService {
     }
     return {
       position: parseInt(sirkulasi.position || '0', 10),
-      position_text: sirkulasi.positionText || '',
+      position_text: formatDeputyPositionLabel(sirkulasi),
       persnum: parseInt(sirkulasi.idSirkuler || '0', 10),
       nama: sirkulasi.namaSirkuler || null,
       organization_id: parseInt(sirkulasi.organization || '0', 10),
@@ -1419,7 +1420,7 @@ export class SuratDinasInternalService {
 
         penerimaInfoList.push({
           position: parseInt(penerima.position || '0', 10),
-          position_text: penerima.positionText || '',
+          position_text: formatDeputyPositionLabel(penerima),
           persnum: parseInt(penerima.idSirkuler || '0', 10),
           nama: penerima.namaSirkuler || '',
           organization_id: parseInt(penerima.organization || '0', 10),
@@ -1460,7 +1461,7 @@ export class SuratDinasInternalService {
       data: results,
       total: results.length,
       position: pengirim.position,
-      position_text: pengirim.position_text,
+      position_text: formatDeputyPositionLabel(pengirim),
       persnum: pengirim.persnum,
       nama: pengirim.nama || '',
     };
@@ -1683,14 +1684,18 @@ export class SuratDinasInternalService {
       const position = byPosition.get(id);
       if (!position) return undefined;
       const metadata = routing.plan?.metadataByPositionId[id];
+      const displayPosition = {
+        ...position,
+        position_text: formatDeputyPositionLabel(position),
+      };
       return metadata
-        ? Object.assign({}, position, {
+        ? Object.assign(displayPosition, {
             routing_source: metadata.routingSource,
             routing_rule_ids: metadata.routingRuleIds,
             routing_effect: metadata.effect,
             routing_mandatory: metadata.mandatory,
           })
-        : position;
+        : displayPosition;
     };
 
     // The dropdown must offer the full overlay: structural UNION configured
@@ -1702,7 +1707,10 @@ export class SuratDinasInternalService {
       : routing.penerimaIds;
 
     return {
-      sender,
+      sender: {
+        ...sender,
+        position_text: formatDeputyPositionLabel(sender),
+      },
       recipients: {
         REKAN: rekanIds
           .map(decorate)
@@ -2146,7 +2154,10 @@ export class SuratDinasInternalService {
               month: 'long',
               day: 'numeric',
             }),
-            positionText: dto.nama_jabatan || pengirim.position_text,
+            positionText: formatDeputyPositionLabel({
+              ...pengirim,
+              position_text: dto.nama_jabatan || pengirim.position_text,
+            }),
             namaLengkap:
               dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
             tembusan: tembusanTextList,
@@ -2632,7 +2643,10 @@ export class SuratDinasInternalService {
         pengirim.nama ||
         'Penandatangan';
       const signerJabatan =
-        dto.nama_jabatan || pengirim.position_text || 'Jabatan';
+        formatDeputyPositionLabel({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }) || 'Jabatan';
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
@@ -2701,7 +2715,10 @@ export class SuratDinasInternalService {
             month: 'long',
             day: 'numeric',
           }),
-          positionText: dto.nama_jabatan || pengirim.position_text,
+          positionText: formatDeputyPositionLabel({
+            ...pengirim,
+            position_text: dto.nama_jabatan || pengirim.position_text,
+          }),
           namaLengkap:
             dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
           tembusan: tembusanTextList,
@@ -3107,7 +3124,7 @@ export class SuratDinasInternalService {
         // Fallback jika tidak ditemukan di org_data - include nama from namaSirkuler
         pengirimPosition = {
           position: Number(existingPengirim.position),
-          position_text: existingPengirim.positionText || '',
+          position_text: formatDeputyPositionLabel(existingPengirim),
           persnum_person_text: existingPengirim.namaSirkuler || '',
           nama: existingPengirim.namaSirkuler || '',
           sub_area: Number(existingPengirim.subArea),
@@ -3451,7 +3468,7 @@ export class SuratDinasInternalService {
           );
         } else {
           kepadaYthList = penerimaListForPdf.map(
-            (p) => `${p.positionText} - ${p.organizationText}`,
+            (p) => `${formatDeputyPositionLabel(p)} - ${p.organizationText}`,
           );
         }
 
@@ -3474,7 +3491,7 @@ export class SuratDinasInternalService {
           );
         } else {
           tembusanTextList = tembusanListForPdf.map(
-            (t) => `${t.positionText} - ${t.organizationText}`,
+            (t) => `${formatDeputyPositionLabel(t)} - ${t.organizationText}`,
           );
         }
 
@@ -3484,11 +3501,18 @@ export class SuratDinasInternalService {
 
         // Use || to handle empty strings from frontend
         // Fallback chain: dto -> pengirimPosition (org_data) -> pengirimSirkulasi (saved data)
-        const resolvedPositionText =
-          dto.nama_jabatan ||
-          pengirimPosition?.position_text ||
-          pengirimSirkulasiForPdf?.positionText ||
-          '';
+        const resolvedPositionText = formatDeputyPositionLabel({
+          ...(pengirimPosition ?? {}),
+          areaText:
+            pengirimPosition?.area_text ||
+            pengirimSirkulasiForPdf?.areaText ||
+            '',
+          position_text:
+            dto.nama_jabatan ||
+            pengirimPosition?.position_text ||
+            pengirimSirkulasiForPdf?.positionText ||
+            '',
+        });
         const resolvedNamaLengkap =
           dto.nama_lengkap ||
           pengirimPosition?.persnum_person_text ||
@@ -4348,7 +4372,9 @@ export class SuratDinasInternalService {
       // Build pengirim info
       const pengirimInfo: PengirimInfoDto = {
         position: parseInt(pengirimSirkulasi?.position || '0', 10),
-        position_text: pengirimSirkulasi?.positionText || '',
+        position_text: pengirimSirkulasi
+          ? formatDeputyPositionLabel(pengirimSirkulasi)
+          : '',
         persnum: parseInt(pengirimSirkulasi?.idSirkuler || '0', 10),
         nama: pengirimSirkulasi?.namaSirkuler || '',
         organization_id: parseInt(pengirimSirkulasi?.organization || '0', 10),
@@ -4363,7 +4389,7 @@ export class SuratDinasInternalService {
       const penerimaInfoList: PenerimaInfoDto[] = penerimaList.map(
         (penerima) => ({
           position: parseInt(penerima.position || '0', 10),
-          position_text: penerima.positionText || '',
+          position_text: formatDeputyPositionLabel(penerima),
           persnum: parseInt(penerima.idSirkuler || '0', 10),
           nama: penerima.namaSirkuler || '',
           organization_id: parseInt(penerima.organization || '0', 10),
@@ -4380,7 +4406,7 @@ export class SuratDinasInternalService {
       // Build tembusan info
       const tembusanInfoList: TembusanInfoDto[] = tembusanList.map((t) => ({
         position: parseInt(t.position || '0', 10),
-        position_text: t.positionText || '',
+        position_text: formatDeputyPositionLabel(t),
         persnum: parseInt(t.idSirkuler || '0', 10),
         nama: t.namaSirkuler || '',
         organization_id: parseInt(t.organization || '0', 10),
@@ -4428,7 +4454,9 @@ export class SuratDinasInternalService {
 
         // Kaki - from pengirimSirkulasi and naskah
         nama_tempat: naskah.tempat || null,
-        nama_jabatan: pengirimSirkulasi?.positionText || null,
+        nama_jabatan: pengirimSirkulasi
+          ? formatDeputyPositionLabel(pengirimSirkulasi)
+          : null,
         tanda_tangan: naskah.tanda_tangan || null, // from naskah.tandaTangan
         nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
 
@@ -4452,7 +4480,7 @@ export class SuratDinasInternalService {
       data: results,
       total: results.length,
       position: positionData.position,
-      position_text: positionData.position_text || '',
+      position_text: formatDeputyPositionLabel(positionData),
       persnum: positionData.persnum,
       nama: positionData.nama || '',
     };
@@ -4564,7 +4592,7 @@ export class SuratDinasInternalService {
       id: penerima.id,
       persnum: parseInt(penerima.idSirkuler || '0', 10),
       nama: penerima.namaSirkuler || '',
-      positionText: penerima.positionText || '',
+      positionText: formatDeputyPositionLabel(penerima),
       organizationText: penerima.organizationText || '',
       subAreaText: penerima.subAreaText || '',
       areaText: penerima.areaText || '',
@@ -4579,7 +4607,7 @@ export class SuratDinasInternalService {
       id: tembusan.id,
       persnum: parseInt(tembusan.idSirkuler || '0', 10),
       nama: tembusan.namaSirkuler || '',
-      positionText: tembusan.positionText || '',
+      positionText: formatDeputyPositionLabel(tembusan),
       organizationText: tembusan.organizationText || '',
       subAreaText: tembusan.subAreaText || '',
       areaText: tembusan.areaText || '',
@@ -4662,7 +4690,9 @@ export class SuratDinasInternalService {
 
         // Footer - from pengirimSirkulasi and naskah
         nama_tempat: naskah.tempat || null,
-        nama_jabatan: pengirimSirkulasi?.positionText || null,
+        nama_jabatan: pengirimSirkulasi
+          ? formatDeputyPositionLabel(pengirimSirkulasi)
+          : null,
         tanda_tangan: naskah.tandaTangan || null,
         nama_lengkap: pengirimSirkulasi?.namaSirkuler || null,
 
@@ -4673,7 +4703,9 @@ export class SuratDinasInternalService {
             ? parseInt(pengirimSirkulasi.idSirkuler || '0', 10)
             : 0,
           nama: pengirimSirkulasi?.namaSirkuler || '',
-          positionText: pengirimSirkulasi?.positionText || '',
+          positionText: pengirimSirkulasi
+            ? formatDeputyPositionLabel(pengirimSirkulasi)
+            : '',
           organizationText: pengirimSirkulasi?.organizationText || '',
           subAreaText: pengirimSirkulasi?.subAreaText || '',
           areaText: pengirimSirkulasi?.areaText || '',
@@ -4997,7 +5029,7 @@ export class SuratDinasInternalService {
         organization: String(pengirim.organization_id),
         organizationText: pengirim.organization_text,
         position: String(pengirim.position),
-        positionText: pengirim.position_text,
+        positionText: formatDeputyPositionLabel(pengirim),
         positionStatus: 'ybs',
         idSirkuler: pengirim.persnum_person
           ? String(pengirim.persnum_person)
@@ -5025,7 +5057,7 @@ export class SuratDinasInternalService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
+          positionText: formatDeputyPositionLabel(penerima),
           positionStatus: 'ybs',
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
@@ -5066,7 +5098,7 @@ export class SuratDinasInternalService {
           position_id: String(penerima.position),
           abbreviation: '',
           position_status: 'ybs',
-          positionText: penerima.position_text,
+          positionText: formatDeputyPositionLabel(penerima),
           organizationText: penerima.organization_text,
           subAreaText: penerima.sub_area_text || '',
           areaText: penerima.area_text || '',
@@ -5091,7 +5123,7 @@ export class SuratDinasInternalService {
           organization: String(tembusan.organization_id),
           organizationText: tembusan.organization_text,
           position: String(tembusan.position),
-          positionText: tembusan.position_text,
+          positionText: formatDeputyPositionLabel(tembusan),
           positionStatus: 'ybs',
           idSirkuler: tembusan.persnum_person
             ? String(tembusan.persnum_person)
@@ -5132,7 +5164,7 @@ export class SuratDinasInternalService {
           position_id: String(tembusan.position),
           abbreviation: '',
           position_status: 'ybs',
-          positionText: tembusan.position_text,
+          positionText: formatDeputyPositionLabel(tembusan),
           organizationText: tembusan.organization_text,
           subAreaText: tembusan.sub_area_text || '',
           areaText: tembusan.area_text || '',
@@ -5200,9 +5232,12 @@ export class SuratDinasInternalService {
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
       // Define variables for PDF generation
       const kepadaYthList = penerimaList.map(
-        (p) => `${p.position_text} - ${p.organization_text}`,
+        (p) => `${formatDeputyPositionLabel(p)} - ${p.organization_text}`,
       );
-      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
+      const namaJabatan = formatDeputyPositionLabel({
+        ...pengirim,
+        position_text: dto.nama_jabatan || pengirim.position_text,
+      });
       const namaLengkap =
         dto.nama_lengkap || pengirim.persnum_person_text || '';
       const namaTempat =
@@ -5230,7 +5265,8 @@ export class SuratDinasInternalService {
           tembusan:
             tembusanList.length > 0
               ? tembusanList.map(
-                  (t) => `${t.position_text} ${t.organization_text}`,
+                  (t) =>
+                    `${formatDeputyPositionLabel(t)} ${t.organization_text}`,
                 )
               : [],
           perihal: perihal,
@@ -5317,7 +5353,7 @@ export class SuratDinasInternalService {
             position_id: String(pengirim.position),
             abbreviation: '',
             position_status: 'ybs',
-            positionText: pengirim.position_text,
+            positionText: formatDeputyPositionLabel(pengirim),
             organizationText: pengirim.organization_text,
             subAreaText: pengirim.sub_area_text || '',
             areaText: pengirim.area_text || '',
