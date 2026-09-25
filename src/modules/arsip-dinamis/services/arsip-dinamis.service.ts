@@ -324,7 +324,10 @@ export class ArsipDinamisService {
       status: 'b.status',
       updatedAt: 'b.updated_at',
     };
-    qb.orderBy(SORT_MAP[sortBy ?? ''] ?? 'b.updated_at', sortDir === 'asc' ? 'ASC' : 'DESC');
+    qb.orderBy(
+      SORT_MAP[sortBy ?? ''] ?? 'b.updated_at',
+      sortDir === 'asc' ? 'ASC' : 'DESC',
+    );
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -548,7 +551,10 @@ export class ArsipDinamisService {
     berkas.status = StatusBerkas.AKTIF;
     berkas.updatedBy = userId;
     await this.berkasRepository.save(berkas);
-    return { message: 'Berkas berhasil diaktifkan', statusBerkas: berkas.status };
+    return {
+      message: 'Berkas berhasil diaktifkan',
+      statusBerkas: berkas.status,
+    };
   }
 
   async softDeleteBerkas(
@@ -880,10 +886,7 @@ export class ArsipDinamisService {
    * Akses dijaga guard PemeliharaanAccess di controller; di sini cukup pastikan
    * naskah memang tercatat di berkas ini (anti enumerasi id naskah sembarang).
    */
-  async getNaskahDetailInBerkas(
-    berkasId: string,
-    naskahId: string,
-  ) {
+  async getNaskahDetailInBerkas(berkasId: string, naskahId: string) {
     const relasi = await this.berkasNaskahRepository.findOne({
       where: { berkasId, naskahId },
       select: ['naskahId', 'status'],
@@ -945,7 +948,9 @@ export class ArsipDinamisService {
       if (!Number.isFinite(divisiId)) return undefined;
 
       const positions = rows
-        .filter((x: any) => Number(x.divisi_id ?? x.organization_id) === divisiId)
+        .filter(
+          (x: any) => Number(x.divisi_id ?? x.organization_id) === divisiId,
+        )
         .map((x: any) => Number(x.position))
         .filter((p: number) => Number.isFinite(p));
       return positions.length > 0 ? [...new Set(positions)] : undefined;
@@ -995,7 +1000,9 @@ export class ArsipDinamisService {
         ) {
           return node;
         }
-        const found = findNode(Array.isArray(node?.children) ? node.children : []);
+        const found = findNode(
+          Array.isArray(node?.children) ? node.children : [],
+        );
         if (found) return found;
       }
       return null;
@@ -1023,7 +1030,9 @@ export class ArsipDinamisService {
         if (typeof child?.name === 'string' && child.name.trim()) {
           orgNames.push(child.name);
         }
-        for (const p of Array.isArray(child?.positions) ? child.positions : []) {
+        for (const p of Array.isArray(child?.positions)
+          ? child.positions
+          : []) {
           const pid = Number(p?.position);
           if (Number.isFinite(pid)) positions.push(pid);
         }
@@ -1319,9 +1328,8 @@ export class ArsipDinamisService {
         'Posisi pengaju tidak ditemukan, tidak dapat memvalidasi verifikator',
       );
     }
-    const atasanRes = await this.orgDataService.getAtasanManagerial(
-      pengajuPositionId,
-    );
+    const atasanRes =
+      await this.orgDataService.getAtasanManagerial(pengajuPositionId);
     const validPersnums = new Set(
       (atasanRes?.data ?? []).map((v: any) => String(v.persnum_person)),
     );
@@ -1451,7 +1459,10 @@ export class ArsipDinamisService {
           false,
         );
       } catch (e) {
-        console.warn('[arsip-dinamis] failed to notify next verifikator:', (e as Error).message);
+        console.warn(
+          '[arsip-dinamis] failed to notify next verifikator:',
+          (e as Error).message,
+        );
       }
 
       return {
@@ -1496,7 +1507,10 @@ export class ArsipDinamisService {
         );
       }
     } catch (e) {
-      console.warn('[arsip-dinamis] failed to notify owner:', (e as Error).message);
+      console.warn(
+        '[arsip-dinamis] failed to notify owner:',
+        (e as Error).message,
+      );
     }
 
     // Catat riwayat retensi
@@ -1582,7 +1596,10 @@ export class ArsipDinamisService {
         );
       }
     } catch (err: any) {
-      console.warn('[arsip-dinamis] realtime reject / notif gagal:', err?.message);
+      console.warn(
+        '[arsip-dinamis] realtime reject / notif gagal:',
+        err?.message,
+      );
     }
 
     return { message: 'Penutupan berkas ditolak' };
@@ -1882,7 +1899,14 @@ export class ArsipDinamisService {
       sortDir?: string; // asc | desc (default desc)
     } = {},
   ) {
-    const { search, status = 'menunggu', page = 1, limit = 20, sortBy, sortDir } = options;
+    const {
+      search,
+      status = 'menunggu',
+      page = 1,
+      limit = 20,
+      sortBy,
+      sortDir,
+    } = options;
     const safePage = Math.max(1, Number(page) || 1);
     const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
     const params: any[] = [verifikatorPersnum];
@@ -1896,7 +1920,9 @@ export class ArsipDinamisService {
     };
     const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
     const orderExpr =
-      sortBy && SORT_MAP[sortBy] ? SORT_MAP[sortBy] : 'COALESCE(bv.action_at, bv.created_at)';
+      sortBy && SORT_MAP[sortBy]
+        ? SORT_MAP[sortBy]
+        : 'COALESCE(bv.action_at, bv.created_at)';
     const orderBy = `ORDER BY ${orderExpr} ${dir}`;
 
     // menunggu = pending & giliran Anda (NOT EXISTS earlier pending).
