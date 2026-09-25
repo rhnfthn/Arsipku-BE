@@ -46,6 +46,14 @@ export class TugasReferenceService {
    * menyuntikkan route sendiri. Duplicate (task, type, id) ditolak.
    */
   async add(taskId: string, dto: AddTaskReferenceDto, actor: TugasActor) {
+    const hasReferenceId = Boolean(dto.referenceId);
+    const hasReferenceNumber = Boolean(dto.referenceNumber);
+    if (hasReferenceId === hasReferenceNumber) {
+      throw new BadRequestException(
+        'Isi salah satu ID atau nomor naskah referensi',
+      );
+    }
+
     const result = await this.dataSource.transaction(async (manager) => {
       const access = await this.access.assertTaskMember(
         taskId,
@@ -61,18 +69,20 @@ export class TugasReferenceService {
 
       // Resolve SEBELUM mutasi agar error tidak meninggalkan board revision
       // yang naik tanpa perubahan nyata.
-      const resolved = await this.resolver.resolve(
-        dto.referenceType,
-        dto.referenceId,
-        actor,
-      );
+      const resolved = dto.referenceId
+        ? await this.resolver.resolve(dto.referenceType, dto.referenceId, actor)
+        : await this.resolver.resolveByNumber(
+            dto.referenceType,
+            dto.referenceNumber!,
+            actor,
+          );
 
       const repository = manager.getRepository(TugasTaskReferenceEntity);
       const duplicate = await repository.findOne({
         where: {
           taskId,
-          referenceType: dto.referenceType,
-          referenceId: dto.referenceId,
+          referenceType: resolved.referenceType,
+          referenceId: resolved.referenceId,
         },
       });
       if (duplicate) {

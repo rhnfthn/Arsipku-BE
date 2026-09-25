@@ -14,6 +14,11 @@ export class GetSdeRecipientQueryDto {
   @IsOptional()
   @IsNumberString({}, { message: 'pengirim must be a valid number' })
   pengirim?: string;
+
+  /** ID disposisi awal yang menjadi sumber chain pengirim SDE Massal. */
+  @IsOptional()
+  @IsString()
+  parentNaskahId?: string;
 }
 
 /**
@@ -28,6 +33,7 @@ export class SdeOrgDataPositionDto {
   persnum: number;
   // Optional fields when org_data provides person details for the position
   divisi_id?: number | null;
+  direktorat_id?: number | null;
   persnum_person?: number | null;
   persnum_person_text?: string | null;
   nama: string;

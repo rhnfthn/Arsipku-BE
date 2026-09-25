@@ -10,13 +10,21 @@ import { TugasReferenceType } from '../enums';
 import { Trim } from './tugas-validation';
 
 export class AddTaskReferenceDto {
-  // Client hanya mengirim tipe + ID; route/labelSnapshot dibentuk server
-  // via TugasReferenceResolver dan TIDAK dipercaya dari luar.
+  // Client mengirim tipe + salah satu ID/nomor. Route, label, dan ID kanonis
+  // tetap dibentuk server via TugasReferenceResolver dan tidak dipercaya dari luar.
   @IsEnum(TugasReferenceType)
   referenceType: TugasReferenceType;
 
+  @IsOptional()
   @IsUUID()
-  referenceId: string;
+  referenceId?: string;
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  referenceNumber?: string;
 }
 
 export class CreateTaskWithReferenceDto {

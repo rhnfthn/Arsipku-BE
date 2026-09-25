@@ -468,6 +468,7 @@ const resourcesWithPermissions: ResourceDef[] = [
       'Konfigurasi sistem (announcement banner, digsig config, bsre alert)',
     permissions: [
       { action: 'read', description: 'Melihat konfigurasi' },
+      { action: 'read-tema', description: 'Melihat konfigurasi Tema' },
       { action: 'update', description: 'Update konfigurasi' },
     ],
   },

@@ -37,6 +37,10 @@ import {
   generateOidcState,
   safeStateEquals,
 } from '../utils/pkce.util';
+import { AuditTrailService } from '../../audit/services/audit-trail.service';
+import { AuditAction } from '../../audit/enums/audit-action.enum';
+import { AuditModule } from '../../audit/enums/audit-module.enum';
+import { AuditStatus } from '../../audit/enums/audit-status.enum';
 
 @Injectable()
 export class AuthService {
@@ -55,7 +59,48 @@ export class AuthService {
     private readonly organizationTuService: OrganizationTuService,
     private readonly airnavAuthV2Client: AirnavAuthV2Client,
     private readonly oidcSessionService: OidcSessionService,
+    private readonly auditTrailService: AuditTrailService,
   ) {}
+
+  /** Catat login yang selesai melalui callback GET (tidak ditangkap auto-audit). */
+  private recordLoginAudit(
+    payload: JwtPayload,
+    sessionId: string,
+    userAgent: string | undefined,
+    ip: string | undefined,
+    requestMethod: string,
+    requestUrl: string,
+  ): void {
+    const userName = payload.nama || String(payload.persnum);
+    this.auditTrailService.createAsync({
+      action: AuditAction.LOGIN,
+      module: AuditModule.AUTH,
+      persnum: payload.persnum,
+      userName: payload.nama || null,
+      userRole: payload.activeRole?.name ?? payload.role ?? null,
+      idPosition: payload.position || null,
+      unitKerja: payload.organization || null,
+      description: `Login oleh ${userName} pada modul AUTH`,
+      newValue: {
+        timestamp: new Date().toISOString(),
+        ipAddress: ip ?? null,
+        device: userAgent ?? null,
+      },
+      ipAddress: ip ?? null,
+      userAgent: userAgent ?? null,
+      requestMethod,
+      requestUrl,
+      status: AuditStatus.SUCCESS,
+      metadata: {
+        action: AuditAction.LOGIN,
+        module: AuditModule.AUTH,
+        method: requestMethod,
+        path: requestUrl,
+        sessionId,
+        source: 'auth-session-created',
+      },
+    });
+  }
 
   // ============================================
   // Helper Methods untuk fetch data dari HR API
@@ -361,6 +406,7 @@ export class AuthService {
     ssoToken: string,
     userAgent?: string,
     ip?: string,
+    recordLoginAudit = false,
   ): Promise<{
     message: string;
     accessToken: string;
@@ -537,6 +583,17 @@ export class AuthService {
     console.log('[AuthService] Session created:', session.id);
     console.log('[AuthService] ===== SSO Login Success =====');
 
+    if (recordLoginAudit) {
+      this.recordLoginAudit(
+        payload,
+        session.id,
+        userAgent,
+        ip,
+        'GET',
+        '/auth/autharsipku',
+      );
+    }
+
     return {
       message: 'Login success',
       accessToken: jwt,
@@ -667,6 +724,15 @@ export class AuthService {
       throw error;
     }
 
+    this.recordLoginAudit(
+      payload,
+      appSession.id,
+      userAgent,
+      ip,
+      'GET',
+      '/auth/callback',
+    );
+
     return {
       sessionId: appSession.id,
       returnTo: pending.returnTo,
@@ -739,12 +805,23 @@ export class AuthService {
     return request;
   }
 
-  async logoutOidcBrowserSession(sessionId?: string): Promise<void> {
+  async logoutOidcBrowserSession(
+    sessionId?: string,
+    context: { requestMethod?: string; requestUrl?: string } = {},
+  ): Promise<void> {
     if (!sessionId) return;
     const oidcSession = await this.oidcSessionService.get(sessionId);
     const appSession = await this.sessionService.findSession(sessionId);
     const providerToken =
       oidcSession?.accessToken ?? appSession?.airnavAccessToken;
+
+    if (appSession) {
+      this.recordLogoutAudit(
+        appSession,
+        context.requestMethod ?? 'GET',
+        context.requestUrl ?? '/auth/logout',
+      );
+    }
 
     try {
       if (providerToken) await this.airnavAuthV2Client.logout(providerToken);
@@ -756,6 +833,42 @@ export class AuthService {
       await this.oidcSessionService.delete(sessionId);
       await this.sessionService.deleteSessionById(sessionId);
     }
+  }
+
+  /** Catat logout sebelum sesi dihapus dari database. */
+  private recordLogoutAudit(
+    session: {
+      id: string;
+      userPersnum: number;
+      userAgent?: string | null;
+      ipAddress?: string | null;
+    },
+    requestMethod: string,
+    requestUrl: string,
+  ): void {
+    this.auditTrailService.createAsync({
+      action: AuditAction.LOGOUT,
+      module: AuditModule.AUTH,
+      persnum: session.userPersnum,
+      description: `Logout oleh ${session.userPersnum} pada modul AUTH`,
+      newValue: {
+        timestamp: new Date().toISOString(),
+        ipAddress: session.ipAddress ?? null,
+      },
+      ipAddress: session.ipAddress ?? null,
+      userAgent: session.userAgent ?? null,
+      requestMethod,
+      requestUrl,
+      status: AuditStatus.SUCCESS,
+      metadata: {
+        action: AuditAction.LOGOUT,
+        module: AuditModule.AUTH,
+        method: requestMethod,
+        path: requestUrl,
+        sessionId: session.id,
+        source: 'auth-session-deleted',
+      },
+    });
   }
 
   private async performOidcBrowserRefresh(

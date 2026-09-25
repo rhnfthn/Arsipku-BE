@@ -300,12 +300,16 @@ export class TugasController {
     FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
       fileFilter: (_request, file, callback) => {
-        if (['image/jpeg', 'image/png'].includes(file.mimetype)) {
+        if (
+          ['image/jpeg', 'image/png', 'application/pdf'].includes(file.mimetype)
+        ) {
           callback(null, true);
           return;
         }
         callback(
-          new BadRequestException('Evidence hanya mendukung file JPG atau PNG'),
+          new BadRequestException(
+            'Evidence hanya mendukung file JPG, PNG, atau PDF',
+          ),
           false,
         );
       },

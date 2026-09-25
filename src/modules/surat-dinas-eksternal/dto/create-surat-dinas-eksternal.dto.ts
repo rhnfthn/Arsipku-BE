@@ -140,11 +140,11 @@ export class CreateSuratDinasEksternalDto {
   // atas_nama_position_id: position id pemberi kuasa untuk auto-tembusan (null untuk Dirut → "Direksi").
   @IsOptional()
   @IsString()
-  atas_nama?: string;
+  atas_nama?: string | null;
 
   @IsOptional()
   @IsNumber()
-  atas_nama_position_id?: number;
+  atas_nama_position_id?: number | null;
 
   // ============================================
   // TEMBUSAN (Optional for SDE)
@@ -259,6 +259,14 @@ export class UpdateSdeDraftDto {
   @IsOptional()
   @IsString()
   nama_lengkap?: string;
+
+  @IsOptional()
+  @IsString()
+  atas_nama?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  atas_nama_position_id?: number | null;
 
   @IsOptional()
   @IsArray()

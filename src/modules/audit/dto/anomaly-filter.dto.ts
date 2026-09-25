@@ -39,6 +39,14 @@ export class AnomalyFilterDto {
 
   @IsOptional()
   @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsString()
   anomalyType?: string;
 
   @IsOptional()

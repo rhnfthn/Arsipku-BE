@@ -87,6 +87,8 @@ export class SuratDinasEksternalService {
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
     @InjectRepository(NaskahLampiranEntity)
     private readonly naskahLampiranRepository: Repository<NaskahLampiranEntity>,
+    @InjectRepository(NaskahReferensiEntity)
+    private readonly naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     // REMOVED: sdiSdeRepository - sdi_sde table no longer used
     // @InjectRepository(SdiSdeEntity)
     // private readonly sdiSdeRepository: Repository<SdiSdeEntity>,
@@ -1072,6 +1074,7 @@ export class SuratDinasEksternalService {
   async getSenderKonsep(
     positionId: number,
     tgl?: string,
+    parentNaskahId?: string,
   ): Promise<SdeOrgDataPositionDto[]> {
     const tanggal = tgl ?? new Date().toISOString().split('T')[0];
 
@@ -1084,6 +1087,17 @@ export class SuratDinasEksternalService {
     }
 
     const data: SdeOrgDataPositionDto[] = orgData.position_json;
+
+    // Jika SDE Massal dibuat dari disposisi, pengirim hanya boleh diambil
+    // dari rantai disposisi tersebut. Jangan mencampur dengan seluruh pejabat
+    // managerial karena bisa memasukkan pejabat dari divisi lain.
+    if (parentNaskahId) {
+      return this.getSendersFromDispositionChain(
+        parentNaskahId,
+        positionId,
+        data,
+      );
+    }
 
     const result: SdeOrgDataPositionDto[] = [];
     const added = new Set<number>();
@@ -1141,6 +1155,187 @@ export class SuratDinasEksternalService {
     };
     result.sort((a, b) => rankOf(a) - rankOf(b));
     return result;
+  }
+
+  /**
+   * Ambil kandidat pengirim dari chain disposisi awal.
+   * Chain dibaca dari disposisi aktif menuju root, sehingga kandidat pertama
+   * adalah pejabat yang paling dekat di atas user, lalu dilanjutkan pejabat
+   * yang lebih tinggi. Semua kandidat wajib berada pada divisi/company yang
+   * sama dengan posisi user.
+   */
+  private async getSendersFromDispositionChain(
+    parentNaskahId: string,
+    positionId: number,
+    positions: SdeOrgDataPositionDto[],
+  ): Promise<SdeOrgDataPositionDto[]> {
+    const parent = await this.naskahRepository.findOne({
+      where: { id: parentNaskahId },
+    });
+    if (!parent || parent.jenis !== 'DI') return [];
+
+    const chain: Array<{
+      sender: NaskahSirkulasi;
+      recipients: NaskahSirkulasi[];
+    }> = [];
+    const visited = new Set<string>();
+    let currentId: string | null = parentNaskahId;
+
+    // Mulai dari naskah yang sedang diterima user, lalu berjalan ke disposisi
+    // awal melalui naskah_referensi.ref_nomor.
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const sender = await this.naskahSirkulasiRepository.findOne({
+        where: { idNaskah: currentId, sirkuler: 'pengirim' },
+      });
+      const recipients = await this.naskahSirkulasiRepository.find({
+        where: {
+          idNaskah: currentId,
+          sirkuler: In(['penerima', 'tembusan']),
+        },
+        order: { urutan: 'ASC', createdAt: 'ASC' },
+      });
+
+      if (sender) chain.push({ sender, recipients });
+
+      const reference = await this.naskahReferensiRepository.findOne({
+        where: { id_naskah: currentId },
+      });
+      if (!reference?.ref_nomor) break;
+
+      const previous = await this.naskahRepository.findOne({
+        where: { nomor: reference.ref_nomor, jenis: 'DI' },
+      });
+      currentId = previous?.id ?? null;
+    }
+
+    // Pastikan caller memang penerima di chain ini. Ini juga mencegah endpoint
+    // dipakai untuk membaca kandidat pengirim dari disposisi milik akun lain.
+    const currentPosition = String(positionId);
+    const isInChain = chain.some(({ recipients }) =>
+      recipients.some((recipient) => String(recipient.position) === currentPosition),
+    );
+    if (!isInChain) return [];
+
+    const current = positions.find(
+      (position) => String(position.position) === currentPosition,
+    );
+    const currentDivision = this.getPositionScope(current);
+    const added = new Set<string>();
+    const result: SdeOrgDataPositionDto[] = [];
+
+    const addCandidate = (candidate?: SdeOrgDataPositionDto) => {
+      if (!candidate || Number(candidate.chief) !== 1) return;
+      const candidatePosition = String(candidate.position ?? '').trim();
+      if (!candidatePosition || candidatePosition === currentPosition) return;
+      if (added.has(candidatePosition)) return;
+      added.add(candidatePosition);
+      result.push(candidate);
+    };
+
+    // chain tersimpan current -> root, sesuai kebutuhan: atasan langsung
+    // tampil lebih dulu daripada pejabat yang levelnya lebih tinggi.
+    for (const { sender } of chain) {
+      const senderPosition = String(sender.position ?? '').trim();
+      if (!senderPosition || senderPosition === currentPosition) continue;
+      if (added.has(senderPosition)) continue;
+
+      const master = positions.find(
+        (position) => String(position.position) === senderPosition,
+      );
+      if (!master || Number(master.chief) !== 1) continue;
+      const senderScope = this.getPositionScope(master);
+      const isHigherDirector = this.isDirectorLevel(master.position_text);
+      const sameCompany =
+        currentDivision &&
+        senderScope &&
+        currentDivision.company === senderScope.company;
+      // Atasan managerial biasa wajib satu divisi. Direktur di atas Made
+      // (mis. Direktur Teknik dan Direktur Utama) tetap ikut jika muncul pada
+      // chain awal, karena jenjangnya memang berada di atas batas divisi.
+      if (
+        !this.isSamePositionScope(currentDivision, senderScope) &&
+        !(isHigherDirector && sameCompany)
+      ) {
+        continue;
+      }
+
+      addCandidate(master);
+    }
+
+    // Chain disposisi bisa berhenti di EVP Made, sementara Direktur Teknik
+    // dan Direktur Utama tidak selalu tercatat sebagai pengirim disposisi.
+    // Ambil Direktur dari direktorat pejabat tertinggi pada chain, kemudian
+    // ambil Direktur Utama dari company yang sama.
+    const chainAnchor = [...chain]
+      .reverse()
+      .map(({ sender }) =>
+        positions.find(
+          (position) =>
+            String(position.position) === String(sender.position ?? '').trim(),
+        ),
+      )
+      .find((position) => position?.direktorat_id);
+    const anchor = chainAnchor || current;
+    const directorateId = Number(anchor?.direktorat_id ?? 0);
+    const companyId = String(anchor?.company ?? current?.company ?? '').trim();
+
+    if (directorateId > 0 && companyId) {
+      positions
+        .filter(
+          (position) =>
+            String(position.company ?? '').trim() === companyId &&
+            Number(position.direktorat_id ?? 0) === directorateId &&
+            this.isDirectorLevel(position.position_text) &&
+            !this.isDirekturUtama(position.position_text),
+        )
+        .sort((a, b) => String(a.position_text).localeCompare(String(b.position_text)))
+        .forEach((position) => addCandidate(position));
+    }
+
+    positions
+      .filter(
+        (position) =>
+          String(position.company ?? '').trim() === companyId &&
+          this.isDirekturUtama(position.position_text),
+      )
+      .forEach((position) => addCandidate(position));
+
+    // Dropdown pengirim menampilkan hierarki dari jabatan tertinggi ke
+    // atasan terdekat agar Direktur Utama selalu berada paling atas.
+    return result.reverse();
+  }
+
+  private getPositionScope(position?: SdeOrgDataPositionDto): {
+    company: string;
+    division: string;
+  } | null {
+    if (!position) return null;
+    const company = String(position.company ?? '').trim();
+    const divisionValue = position.divisi_id || position.organization_id;
+    const division = String(divisionValue ?? '').trim();
+    if (!company || !division || division === '0') return null;
+    return { company, division };
+  }
+
+  private isSamePositionScope(
+    current: { company: string; division: string } | null,
+    candidate: { company: string; division: string } | null,
+  ): boolean {
+    // Bila snapshot organisasi tidak lengkap, chain tetap menjadi sumber
+    // kebenaran. Jika metadata tersedia, company dan divisi harus sama.
+    if (!current || !candidate) return !current;
+    return current.company === candidate.company && current.division === candidate.division;
+  }
+
+  private isDirectorLevel(value: unknown): boolean {
+    return /\bDIREKTUR\b|\bDIRUT\b|\bDIRECTOR\b/i.test(String(value ?? ''));
+  }
+
+  private isDirekturUtama(value: unknown): boolean {
+    return /DIREKTUR\s+UTAMA|PRESIDENT\s+DIRECTOR|\bDIRUT\b/i.test(
+      String(value ?? ''),
+    );
   }
 
   /**
@@ -2617,10 +2812,13 @@ export class SuratDinasEksternalService {
       nama_lengkap: body.nama_lengkap,
 
       // Garis Kewenangan (a.n.)
-      atas_nama: body.atas_nama || undefined,
+      atas_nama:
+        body.atas_nama !== undefined ? body.atas_nama || null : undefined,
       atas_nama_position_id: body.atas_nama_position_id
         ? Number(body.atas_nama_position_id)
-        : undefined,
+        : body.atas_nama_position_id === ''
+          ? null
+          : undefined,
 
       // Lampiran
       lampiran: body.lampiran,
@@ -2858,6 +3056,12 @@ export class SuratDinasEksternalService {
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
       if (dto.tanda_tangan !== undefined)
         naskahUpdateData.tandaTangan = dto.tanda_tangan;
+      if (dto.atas_nama !== undefined)
+        naskahUpdateData.atasNama = dto.atas_nama || null;
+      if (dto.atas_nama_position_id !== undefined)
+        naskahUpdateData.atasNamaPositionId = dto.atas_nama_position_id
+          ? String(dto.atas_nama_position_id)
+          : null;
       if (dto.tgl !== undefined)
         naskahUpdateData.tanggal = this.parseDateString(dto.tgl);
 
@@ -2910,8 +3114,15 @@ export class SuratDinasEksternalService {
         if (existingTembusanSirkulasi && existingTembusanSirkulasi.length > 0) {
           tembusanPositionsToInsert = existingTembusanSirkulasi
             .map((t) => parseInt(t.position || '0', 10))
-            .filter((p) => p > 0);
+          .filter((p) => p > 0);
         }
+      }
+
+      if (
+        dto.atas_nama_position_id &&
+        !tembusanPositionsToInsert.includes(Number(dto.atas_nama_position_id))
+      ) {
+        tembusanPositionsToInsert.push(Number(dto.atas_nama_position_id));
       }
 
       // Delete existing tembusan sirkulasi
