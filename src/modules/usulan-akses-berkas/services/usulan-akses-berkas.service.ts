@@ -110,8 +110,13 @@ export class UsulanAksesBerkasService {
     verifikator: { persnum: number; levelJabatan: LevelJabatan; catatan?: string }[],
   ): { persnum: number; level_jabatan: LevelJabatan; urutan: number; catatan?: string }[] {
     return verifikator
-      .map((v) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] ?? 99 }))
-      .sort((a, b) => a._levelOrder - b._levelOrder)
+      .map((v, index) => ({ ...v, _levelOrder: LEVEL_ORDER[v.levelJabatan] ?? 99, _originalIndex: index }))
+      .sort((a, b) => {
+        if (a._levelOrder !== b._levelOrder) {
+          return a._levelOrder - b._levelOrder;
+        }
+        return a._originalIndex - b._originalIndex;
+      })
       .slice(0, 3) // max 3 jenjang
       .map((v, index) => {
         const { _levelOrder, levelJabatan, ...rest } = v;
@@ -424,7 +429,8 @@ export class UsulanAksesBerkasService {
     }
 
     // Validasi: divisi pemberi tidak boleh sama dengan divisi pengusul
-    if (divisiPemberiId === userOrgId) {
+    // Pengecualian untuk INAKTIF: TU (pengelola arsip inaktif) tetap bisa meminjam dari arsip inaktif yang mereka kelola sendiri (sesuai prosedur formal).
+    if (divisiPemberiId === userOrgId && dto.jenis_berkas !== JenisBerkas.INAKTIF) {
       throw new BadRequestException(
         'Divisi pemberi tidak boleh sama dengan divisi pengusul',
       );
