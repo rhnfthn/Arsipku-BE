@@ -76,6 +76,16 @@ const VERIFICATION_BASE_URL =
   process.env.VERIFICATION_URL ||
   'https://arsipku.airnavindonesia.co.id/verify';
 
+const formatLampiranCount = (
+  count: number,
+  fallback?: string,
+  english = false,
+): string | undefined => {
+  if (count <= 0) return fallback;
+  if (english) return `${count} ${count === 1 ? 'Attachment' : 'Attachments'}`;
+  return `${count} Lampiran`;
+};
+
 @Injectable()
 export class SuratDinasEksternalService {
   constructor(
@@ -1856,10 +1866,11 @@ export class SuratDinasEksternalService {
             'Tangerang';
 
           // Determine lampiran text from temp files
-          let lampiranTextForPdf = dto.lampiran || '-';
-          if (lampiranFileNames.length > 0) {
-            lampiranTextForPdf = lampiranFileNames.join(', ');
-          }
+          const lampiranTextForPdf = formatLampiranCount(
+            lampiranFileNames.length,
+            dto.lampiran || '-',
+            dto.english,
+          );
 
           // Generate PDF with nomor already included (using same approach as preview-pdf)
           let pdfBuffer = await this.generatePdfSudinService.generatePdf({
@@ -1968,10 +1979,11 @@ export class SuratDinasEksternalService {
       }
 
       // Build lampiran text from file names
-      const lampiranText =
-        lampiranFileNames.length > 0
-          ? lampiranFileNames.join(', ')
-          : dto.lampiran || undefined;
+      const lampiranText = formatLampiranCount(
+        lampiranFileNames.length,
+        dto.lampiran || undefined,
+        dto.english,
+      );
 
       // Return response - use toSirkulasiInfo directly from org_data (same as SDI)
       return {
@@ -2433,10 +2445,11 @@ export class SuratDinasEksternalService {
           penerima: kepadaYthList,
           tembusan: tembusanTextList,
           perihal: dto.perihal,
-          lampiran:
-            lampiranFileNames.length > 0
-              ? lampiranFileNames.join(', ')
-              : dto.lampiran || undefined,
+          lampiran: formatLampiranCount(
+            lampiranFileNames.length,
+            dto.lampiran || undefined,
+            dto.english,
+          ),
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
@@ -2670,7 +2683,7 @@ export class SuratDinasEksternalService {
 
         // Format lampiran text
         const lampiranText =
-          lampiranFileNames.length > 0 ? lampiranFileNames.join(', ') : '';
+          formatLampiranCount(lampiranFileNames.length, '', dto.english) || '';
 
         // Return response
         return {
@@ -3262,10 +3275,11 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText =
-      lampiranList.length > 0
-        ? lampiranList.map((l) => l.file_name).join(', ')
-        : undefined;
+    const lampiranText = formatLampiranCount(
+      lampiranList.length,
+      undefined,
+      naskah.english,
+    );
 
     // Get tembusan directly from naskah_sirkulasi table
     const tembusanList = await this.naskahSirkulasiRepository.find({
@@ -3781,10 +3795,11 @@ export class SuratDinasEksternalService {
             where: { id_naskah: naskahId },
           },
         );
-        const lampiranTextForPdf =
-          lampiranFilesForPdf.length > 0
-            ? lampiranFilesForPdf.map((l) => l.file_name).join(', ')
-            : updatedNaskahForPdf?.lampiran || '-';
+        const lampiranTextForPdf = formatLampiranCount(
+          lampiranFilesForPdf.length,
+          updatedNaskahForPdf?.lampiran || '-',
+          updatedNaskahForPdf?.english,
+        );
 
         // Get tanggal for PDF
         const tanggalHariIni =
@@ -4208,10 +4223,11 @@ export class SuratDinasEksternalService {
     const lampiranList = await this.naskahLampiranRepository.find({
       where: { id_naskah: naskahId },
     });
-    const lampiranText =
-      lampiranList.length > 0
-        ? lampiranList.map((l) => l.file_name).join(', ')
-        : undefined;
+    const lampiranText = formatLampiranCount(
+      lampiranList.length,
+      undefined,
+      naskah.english,
+    );
 
     // Get tembusan directly from naskah_sirkulasi table
     const finalizeTembusanList = await this.naskahSirkulasiRepository.find({
