@@ -18,6 +18,8 @@ import {
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { TuGuard } from '../guards/tu-guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('TU Verifikasi')
@@ -62,6 +64,7 @@ export class TuVerifikasiController {
 
   @Patch(':id/verifikasi-berkas')
   @UseGuards(JwtAuthGuard, TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   @ApiOperation({ summary: 'Verifikasi berkas fisik oleh TU' })
   async verifikasiBerkas(
     @Param('id') id: string,
@@ -73,6 +76,7 @@ export class TuVerifikasiController {
 
   @Patch(':id/ajukan-atasan-tu')
   @UseGuards(JwtAuthGuard, TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   @ApiOperation({ summary: 'Ajukan ke Atasan Managerial TU' })
   async ajukanAtasanTu(
     @Param('id') id: string,
@@ -84,6 +88,7 @@ export class TuVerifikasiController {
 
   @Patch(':id/kembalikan')
   @UseGuards(JwtAuthGuard, TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   @ApiOperation({ summary: 'Kembalikan berkas ke Atasan/Sekretaris' })
   async kembalikan(
     @Param('id') id: string,

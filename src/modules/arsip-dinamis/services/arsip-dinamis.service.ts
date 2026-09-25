@@ -249,12 +249,10 @@ export class ArsipDinamisService {
       .where('b.deleted_at IS NULL');
 
     // Scope: user biasa hanya melihat berkas miliknya/unitnya. Berkas Tertutup
-    // yang retensi aktifnya SUDAH habis disembunyikan (pindah ke TU/pemindahan
-    // arsip); yang baru ditutup (retensi aktif masih berjalan) tetap tampil.
-    // Retensi inaktif tampil selama masa retensi inaktif masih berjalan; yang
-    // sudah habis disembunyikan (menunggu pemusnahan oleh TU).
+    // dan Retensi Inaktif tetap tampil untuk pembuatnya walau retensinya sudah
+    // habis (status "Tertutup" + lanjut alur pemindahan inaktif). Berkas baru
+    // disembunyikan setelah benar-benar diarsipkan/dimusnahkan (deleted_at).
     // TU (unit_dokumen) melihat semua berkas tertutup + retensi inaktif + berkas miliknya.
-    const today = new Date().toISOString().split('T')[0];
     if (isTu) {
       qb.andWhere(
         '(b.status = :closed OR b.status = :inaktif OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
@@ -270,18 +268,30 @@ export class ArsipDinamisService {
         userId,
         userPersnum: String(userId),
       });
+
+      // Satu berkas bisa muncul di arsip_ids sebagai bagian dari usulan
+      // multi-arsip. Semua status usulan dipertahankan agar berkas tetap
+      // terlihat di Pemberkasan sampai sumbernya benar-benar dihapus.
+      const sudahMasukPemindahan = `EXISTS (
+        SELECT 1
+        FROM transfer_active_to_inactive t
+        WHERE t.arsip_id = b.id
+           OR JSON_CONTAINS(t.arsip_ids, JSON_OBJECT('id', b.id), '$')
+      )`;
+      // Berkas Tertutup/Inaktif yang retensinya habis TETAP tampil untuk
+      // pembuatnya (created_by/pic) — statusnya sudah "Tertutup", lanjut alur
+      // pemindahan inaktif. Berkas hanya hilang setelah benar-benar
+      // diarsipkan/dimusnahkan (deleted_at terisi).
       qb.andWhere(
-        '(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR b.tanggal_retensi_aktif_berakhir > :today)',
+        `(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR ${sudahMasukPemindahan})`,
         {
           closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
-          today,
         },
       );
       qb.andWhere(
-        '(b.status != :inaktif OR b.tanggal_retensi_inaktif_berakhir IS NULL OR b.tanggal_retensi_inaktif_berakhir > :today)',
+        `(b.status != :inaktif OR b.tanggal_retensi_inaktif_berakhir IS NULL OR ${sudahMasukPemindahan})`,
         {
           inaktif: StatusBerkas.RETAIL_INAKTIF,
-          today,
         },
       );
     }
@@ -834,7 +844,6 @@ export class ArsipDinamisService {
 
   async getDaftarNaskah(
     berkasId: string,
-    isTu: boolean,
     options: { search?: string; page?: number; limit?: number } = {},
   ) {
     const { search, page = 1, limit = 20 } = options;
@@ -843,10 +852,9 @@ export class ArsipDinamisService {
       .createQueryBuilder('bn')
       .where('bn.berkas_id = :berkasId', { berkasId });
 
-    // Naskah inaktif (berkas ditutup, retensi aktif habis) hanya tampil untuk TU
-    if (!isTu) {
-      qb.andWhere('bn.status = :s', { s: 'aktif' });
-    }
+    // Status inaktif hanya menandai retensi aktif berakhir. Selama relasi
+    // masih ada di DB utama, naskah tetap dapat dilihat. Relasi dihapus saat
+    // berkas benar-benar diarsipkan atau dimusnahkan.
 
     if (search) {
       qb.andWhere('(bn.perihal LIKE :search OR bn.nomor_surat LIKE :search)', {
@@ -875,7 +883,6 @@ export class ArsipDinamisService {
   async getNaskahDetailInBerkas(
     berkasId: string,
     naskahId: string,
-    isTu: boolean,
   ) {
     const relasi = await this.berkasNaskahRepository.findOne({
       where: { berkasId, naskahId },
@@ -884,10 +891,7 @@ export class ArsipDinamisService {
     if (!relasi) {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
-    // Naskah inaktif (berkas ditutup) tidak bisa dibuka user biasa — hanya TU
-    if (!isTu && relasi.status === 'inaktif') {
-      throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
-    }
+    // Naskah tetap dapat dibuka selama relasinya masih ada di DB utama.
     return this.naskahService.getDetailWithChainForBerkas(naskahId);
   }
 
