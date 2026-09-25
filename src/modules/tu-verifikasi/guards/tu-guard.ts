@@ -9,7 +9,8 @@ import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
 
 /**
  * Guard untuk endpoint TU (Unit Dokumen).
- * Mengizinkan akses hanya jika user memiliki role 'tu' di tuRoles (dari organization_tu)
+ * Mengizinkan akses jika user memiliki role 'tu' atau 'sekretaris' di tuRoles
+ * (dari organization_tu)
  * atau role SUPERADMIN/ADMIN.
  * Skip guard jika route marked dengan @Public().
  */
@@ -42,10 +43,15 @@ export class TuGuard implements CanActivate {
 
     // Cek tuRoles dari JWT (dari organization_tu)
     const tuRoles: string[] = Array.isArray(user.tuRoles) ? user.tuRoles : [];
-    if (tuRoles.includes('tu')) {
+    // Sekretaris TU juga menjalankan penerimaan administratif: verifikasi
+    // berkas fisik dan pengajuan ke Atasan Managerial TU. Role ini berbeda
+    // dari sekretaris pengusul pada halaman Pemindahan Arsip.
+    if (tuRoles.includes('tu') || tuRoles.includes('sekretaris')) {
       return true;
     }
 
-    throw new ForbiddenException('Akses hanya untuk Unit Tata Naskah (TU)');
+    throw new ForbiddenException(
+      'Akses hanya untuk Unit Tata Naskah (TU) atau Sekretaris TU',
+    );
   }
 }

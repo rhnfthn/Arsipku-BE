@@ -6,6 +6,7 @@ import { PenyusutanService } from './services/penyusutan.service';
 import { PenyusutanController } from './controllers/penyusutan.controller';
 import { AuditModule } from '../audit/audit.module';
 import { ArsipModule } from '../arsip/arsip.module';
+import { TuGuard } from '../tu-verifikasi/guards/tu-guard';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { ArsipModule } from '../arsip/arsip.module';
     ArsipModule,
   ],
   controllers: [PenyusutanController],
-  providers: [PenyusutanService],
+  providers: [PenyusutanService, TuGuard],
   exports: [PenyusutanService],
 })
 export class PenyusutanModule {}

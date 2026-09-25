@@ -179,7 +179,10 @@ export class TuVerifikasiService {
           if (
             d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU
           ) {
-            return myLevel.urutan === 1;
+            const finalLevel = levels.reduce((latest: any, level: any) =>
+              level.urutan > latest.urutan ? level : latest,
+            );
+            return myLevel.urutan === finalLevel.urutan;
           }
           return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
         });
@@ -736,11 +739,14 @@ export class TuVerifikasiService {
           (l: any) => Number(l.persnum) === userPersnum,
         );
         if (!myLevel) return false; // User bukan atasan TU di usulan ini
-        // Untuk DISETUJUI_PERSETUJUAN_TU (persetujuan terakhir), level direset ke 1
+        // Untuk DISETUJUI_PERSETUJUAN_TU (persetujuan terakhir), giliran berada pada verifikator terakhir.
         if (
           d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU
         ) {
-          return myLevel.urutan === 1;
+          const finalLevel = levels.reduce((latest: any, level: any) =>
+            level.urutan > latest.urutan ? level : latest,
+          );
+          return myLevel.urutan === finalLevel.urutan;
         }
         return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
       });
@@ -828,8 +834,13 @@ export class TuVerifikasiService {
         }
         return saved;
       } else {
-        // Level terakhir approve → reset ke level 1 untuk persetujuan terakhir
-        transfer.currentTuApprovalLevel = 1;
+        // Level terakhir approve → verifikator terakhir melakukan persetujuan terakhir juga.
+        const finalLevel = levels.reduce((latest, level) =>
+          level.urutan > latest.urutan ? level : latest,
+        );
+        transfer.currentTuApprovalLevel = finalLevel.urutan;
+        transfer.atasanTuPersnum = finalLevel.persnum;
+        transfer.atasanTuName = finalLevel.name;
         transfer.status =
           TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU;
         transfer.tuApprovalLevels = [...levels];
@@ -837,13 +848,12 @@ export class TuVerifikasiService {
           dto.catatanVerifikasi ?? transfer.physicalVerificationNote;
         const saved = await this.transferRepo.save(transfer);
 
-        // Notifikasi ke atasan TU level 1 untuk persetujuan terakhir
-        const firstLevel = levels.find((l) => l.urutan === 1);
-        if (firstLevel) {
+        // Notifikasi ke verifikator TU terakhir untuk persetujuan terakhir
+        if (finalLevel) {
           try {
             await this.notificationService.createNotification({
               positionId: '0',
-              userPersnum: firstLevel.persnum,
+              userPersnum: finalLevel.persnum,
               type: NotificationType.SYSTEM,
               title: 'Persetujuan Terakhir Diperlukan',
               body: `Usulan ${saved.nomorUsulan} telah disetujui semua level. Berikan persetujuan terakhir.`,
@@ -966,7 +976,7 @@ export class TuVerifikasiService {
     return saved;
   }
 
-  /** Setujui persetujuan terakhir oleh Atasan TU level 1 → ARSIP_INAKTIF_DITERIMA. */
+  /** Setujui persetujuan terakhir oleh verifikator TU terakhir → ARSIP_INAKTIF_DITERIMA. */
   async setujuiTerakhir(
     id: string,
     user: JwtPayload,
@@ -985,13 +995,15 @@ export class TuVerifikasiService {
       );
     }
 
-    // Multi-level: hanya atasan TU level 1 yang bisa persetujuan terakhir
+    // Multi-level: hanya verifikator TU terakhir yang bisa persetujuan terakhir
     const levels = transfer.tuApprovalLevels;
     if (levels && levels.length > 0) {
-      const firstLevel = levels.find((l) => l.urutan === 1);
-      if (!firstLevel || firstLevel.persnum !== Number(user.persnum)) {
+      const finalLevel = levels.reduce((latest, level) =>
+        level.urutan > latest.urutan ? level : latest,
+      );
+      if (!finalLevel || finalLevel.persnum !== Number(user.persnum)) {
         throw new BadRequestException(
-          'Hanya atasan TU pertama yang dapat melakukan persetujuan terakhir',
+          'Hanya verifikator TU terakhir yang dapat melakukan persetujuan terakhir',
         );
       }
     }

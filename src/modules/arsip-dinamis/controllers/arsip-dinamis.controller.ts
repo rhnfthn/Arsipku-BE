@@ -42,8 +42,7 @@ export class ArsipDinamisController {
     private readonly klasifikasiRepository: Repository<KlasifikasiEntity>,
   ) {}
 
-  /** User dengan role unit_dokumen (TU) — satu-satunya yang melihat/mengelola
-   *  berkas tertutup (retensi aktif habis) & naskah inaktif. */
+  /** User dengan role unit_dokumen (TU) untuk alur pengelolaan arsip. */
   private isTu(user: any): boolean {
     return Array.isArray(user?.tuRoles) && user.tuRoles.includes('tu');
   }
@@ -299,12 +298,11 @@ export class ArsipDinamisController {
   @PemeliharaanAccess('pemberkasan', 'persetujuan')
   async getDaftarNaskah(
     @Param('id') id: string,
-    @CurrentUser() user: any,
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getDaftarNaskah(id, this.isTu(user), {
+    return this.arsipDinamisService.getDaftarNaskah(id, {
       search,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
@@ -321,12 +319,10 @@ export class ArsipDinamisController {
   async getNaskahDetailInBerkas(
     @Param('id') id: string,
     @Param('naskahId') naskahId: string,
-    @CurrentUser() user: any,
   ) {
     return this.arsipDinamisService.getNaskahDetailInBerkas(
       id,
       naskahId,
-      this.isTu(user),
     );
   }
 
