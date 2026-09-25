@@ -420,10 +420,18 @@ export class DraftService {
     }
 
     const sortDirection = sort === 'terlama' ? 'ASC' : 'DESC';
-    // Samakan logic sort dengan inbox: gunakan timestamp pengirim naskah_sirkulasi.
-    const draftDisplayCreatedAtExpr = `COALESCE((SELECT p.created_at FROM naskah_sirkulasi p WHERE p.id_naskah = naskah.id AND p.sirkuler = 'pengirim' AND p.position = :sortPosition LIMIT 1), naskah.tanggal)`;
+    // Waktu draft berasal dari aktivitas pengirim naskah, bukan dari
+    // naskah.tanggal yang hanya menyimpan tanggal dokumen. Pada draft konsep,
+    // posisi pengirim dapat berbeda dari posisi konseptor/pemilik draft.
+    const draftDisplayCreatedAtExpr = `COALESCE((
+      SELECT COALESCE(p.updated_at, p.created_at)
+      FROM naskah_sirkulasi p
+      WHERE p.id_naskah = naskah.id
+        AND p.sirkuler = 'pengirim'
+      ORDER BY COALESCE(p.updated_at, p.created_at) DESC, p.id DESC
+      LIMIT 1
+    ), naskah.tanggal)`;
     queryBuilder
-      .setParameter('sortPosition', String(positionId))
       .orderBy(draftDisplayCreatedAtExpr, sortDirection)
       .addOrderBy('naskah.id', sortDirection);
 
@@ -488,12 +496,12 @@ export class DraftService {
     // BULK FETCH (eliminasi N+1)
     // ============================================================
     if (naskahIds.length > 0) {
-      // 1. Bulk pengirim sirkulasi (per naskah, position user)
+      // 1. Bulk semua pengirim sirkulasi. Draft konsep dapat dimiliki oleh
+      // konseptor sementara posisi pengirimnya adalah pejabat penandatangan.
       const pengirimSirkulasiList = await this.naskahSirkulasiRepository.find({
         where: {
           idNaskah: In(naskahIds),
           sirkuler: 'pengirim',
-          position: String(positionId),
         },
       });
       const pengirimSirkMap = new Map<
@@ -501,7 +509,24 @@ export class DraftService {
         (typeof pengirimSirkulasiList)[number]
       >();
       for (const p of pengirimSirkulasiList) {
-        if (p.idNaskah) pengirimSirkMap.set(p.idNaskah, p);
+        if (!p.idNaskah) continue;
+
+        const current = pengirimSirkMap.get(p.idNaskah);
+        const activityAt = p.updatedAt || p.createdAt;
+        const currentActivityAt = current?.updatedAt || current?.createdAt;
+
+        // Gunakan aktivitas pengirim terbaru agar waktu mencerminkan saat
+        // draft terakhir disimpan. Jika sama, prioritaskan row milik user.
+        if (
+          !current ||
+          new Date(activityAt).getTime() >
+            new Date(currentActivityAt as Date).getTime() ||
+          (new Date(activityAt).getTime() ===
+            new Date(currentActivityAt as Date).getTime() &&
+            String(p.position) === String(positionId))
+        ) {
+          pengirimSirkMap.set(p.idNaskah, p);
+        }
       }
 
       // 2. Bulk semua penerima sirkulasi
@@ -602,7 +627,8 @@ export class DraftService {
           }));
         }
 
-        // Tanggal — fallback chain
+        // Timestamp draft — naskah.tanggal hanya fallback untuk data legacy
+        // yang sama sekali tidak memiliki row pengirim.
         const tanggal = pengirimSirkulasi?.updatedAt
           ? new Date(pengirimSirkulasi.updatedAt)
           : pengirimSirkulasi?.createdAt
@@ -898,7 +924,13 @@ export class DraftService {
       );
     }
 
-    if (String(pengirimSirkulasi.position) !== String(positionId)) {
+    const hasPengirimAccess =
+      String(pengirimSirkulasi.position) === String(positionId);
+    const hasCreatorAccess =
+      !!naskah.createdByPosition &&
+      String(naskah.createdByPosition) === String(positionId);
+
+    if (!hasPengirimAccess && !hasCreatorAccess) {
       throw new ForbiddenException(
         `Anda tidak memiliki akses untuk menghapus draft ini`,
       );

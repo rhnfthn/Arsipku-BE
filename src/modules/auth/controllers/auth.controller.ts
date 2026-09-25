@@ -344,6 +344,7 @@ export class AuthController {
         token,
         userAgent,
         ip,
+        true,
       );
 
       // Redirect ke frontend dengan JWT token
@@ -589,7 +590,10 @@ export class AuthController {
     if (!sessionId) {
       throw new BadRequestException('sessionId is required');
     }
-    await this.authService.logoutOidcBrowserSession(sessionId);
+    await this.authService.logoutOidcBrowserSession(sessionId, {
+      requestMethod: 'GET',
+      requestUrl: '/auth/logout-v2',
+    });
     return {
       message: 'Logout successfully',
     };

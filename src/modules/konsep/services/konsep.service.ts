@@ -505,6 +505,13 @@ export class KonsepService {
           )
         : new Map<number, string>();
 
+      if (
+        dto.atas_nama_position_id &&
+        !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))
+      ) {
+        expandedTembusanIds.push(Number(dto.atas_nama_position_id));
+      }
+
       if (expandedTembusanIds.length > 0) {
         for (const posId of expandedTembusanIds) {
           const pos = this.findByPosition(barisData, posId);
@@ -5066,15 +5073,19 @@ export class KonsepService {
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
         status: 'draf', // Status draft
         createdByPosition: String(dto.from_position_id),
+        draftKonsepToPositionId: dto.to_position_id
+          ? String(dto.to_position_id)
+          : null,
+        catatanKonsep: dto.catatan || null,
+        english: dto.english === true || dto.english === 'true',
+        atasNama: dto.atas_nama || null,
+        atasNamaPositionId: dto.atas_nama_position_id
+          ? String(dto.atas_nama_position_id)
+          : null,
         tandaTangan: dto.tanda_tangan || null,
         lampiran:
           jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined,
       });
-
-      // Simpan catatan konsep jika ada (gunakan field yang tersedia atau di lampiran metadata)
-      if (dto.catatan) {
-        (naskahDraft as any).catatan_konsep = dto.catatan;
-      }
 
       await queryRunner.manager.save(naskahDraft);
       await this.setDraftOwnerPosition(
@@ -5118,6 +5129,28 @@ export class KonsepService {
           sirkulasi.idGrupPenerima = penerimaGrupMap.get(Number(posId)) || null;
           await queryRunner.manager.save(sirkulasi);
         }
+      } else if (
+        dto.jenis === 'SDE' &&
+        dto.penerima_eksternal?.length > 0
+      ) {
+        const eksternalList = await this.eksternalRepository.find({
+          where: { id: In(dto.penerima_eksternal) },
+        });
+        const eksternalMap = new Map(
+          eksternalList.map((item) => [item.id, item]),
+        );
+        for (let i = 0; i < dto.penerima_eksternal.length; i++) {
+          const eksternal = eksternalMap.get(dto.penerima_eksternal[i]);
+          if (!eksternal) continue;
+          const sirkulasi = await this.createSirkulasiFromEksternal(
+            naskahDraftId,
+            eksternal,
+            false,
+            i,
+          );
+          sirkulasi.tanggal = naskahDraft.tanggal;
+          await queryRunner.manager.save(sirkulasi);
+        }
       } else if (dto.kepada_yth) {
         // Penerima text untuk SDE
         const sirkulasiPenerima = new NaskahSirkulasi();
@@ -5145,6 +5178,13 @@ export class KonsepService {
             dto.tembusan_grup,
           )
         : new Map<number, string>();
+
+      if (
+        dto.atas_nama_position_id &&
+        !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))
+      ) {
+        expandedTembusanIds.push(Number(dto.atas_nama_position_id));
+      }
 
       if (expandedTembusanIds.length > 0) {
         for (const posId of expandedTembusanIds) {
@@ -5525,13 +5565,38 @@ export class KonsepService {
       where: { idNaskah: idDraft, sirkuler: 'penerima' },
     });
 
-    const penerima = penerimaList
-      .filter((p) => p.position)
-      .map((p) => ({
-        position_id: Number(p.position),
-        position_text: p.positionText || '',
-        nama: p.namaSirkuler || null,
-      }));
+    const penerimaEksternalIds = penerimaList
+      .filter((p) => !p.position && p.idSirkuler)
+      .map((p) => p.idSirkuler as string);
+    const penerimaEksternalList = penerimaEksternalIds.length
+      ? await this.eksternalRepository.find({
+          where: { id: In(penerimaEksternalIds) },
+        })
+      : [];
+    const penerimaEksternalMap = new Map(
+      penerimaEksternalList.map((item) => [item.id, item]),
+    );
+    const penerima = penerimaList.map((p) => {
+      if (p.position) {
+        return {
+          position_id: Number(p.position),
+          position_text: p.positionText || '',
+          nama: p.namaSirkuler || null,
+        };
+      }
+
+      const eksternal = p.idSirkuler
+        ? penerimaEksternalMap.get(p.idSirkuler)
+        : undefined;
+      return {
+        id: p.idSirkuler || '',
+        nama: eksternal?.nama || p.namaSirkuler || p.companyText || '',
+        alamat: eksternal?.alamat || p.alamat || null,
+        telepon: eksternal?.telepon || p.telepon || null,
+        email: eksternal?.email || p.email || null,
+        kontak: eksternal?.kontak || null,
+      };
+    });
 
     // Get tembusan
     const tembusanList = await this.naskahSirkulasiRepository.find({
@@ -5555,6 +5620,8 @@ export class KonsepService {
       id: l.id,
       nama_file: l.file_name || '',
       url: l.file_pdf || '',
+      file_name: l.file_name || '',
+      file_path: l.file_pdf || '',
     }));
 
     // Get referensi disposisi
@@ -5646,6 +5713,17 @@ export class KonsepService {
         toNama = konsepReceiver.namaSirkuler || null;
       }
     }
+    if (!toPositionId && naskah.draftKonsepToPositionId) {
+      toPositionId = Number(naskah.draftKonsepToPositionId);
+      const positionData = this.findByPosition(
+        await this.getPositionData(),
+        toPositionId,
+      );
+      if (positionData) {
+        toPositionText = positionData.position_text || undefined;
+        toNama = positionData.persnum_person_text || null;
+      }
+    }
 
     const penerimaGrupIds = [
       ...new Set(
@@ -5677,6 +5755,9 @@ export class KonsepService {
         to_nama: toNama,
         perihal: naskah.perihal || null,
         konten: naskah.konten || null,
+        english: Boolean(naskah.english),
+        atas_nama: naskah.atasNama || null,
+        atas_nama_position_id: naskah.atasNamaPositionId || null,
         sifat: naskah.sifat || 'biasa',
         klasifikasi: naskah.klasifikasi || null,
         klasifikasi_text: naskah.klasifikasi_text || null,
@@ -5700,8 +5781,9 @@ export class KonsepService {
             tembusanGrupIds,
           ),
         lampiran: lampiran.length > 0 ? lampiran : undefined,
+        lampiran_files: lampiran.length > 0 ? lampiran : undefined,
         disposisi_referensi: disposisiReferensi,
-        catatan: (naskah as any).catatan_konsep || null,
+        catatan: naskah.catatanKonsep || null,
         status: 'draf',
         created_at: pengirimSirkulasi.createdAt || naskah.tanggal,
         updated_at:
@@ -5947,8 +6029,22 @@ export class KonsepService {
       if (dto.sifat) naskah.sifat = dto.sifat;
       if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
       if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
+      if (dto.english !== undefined) {
+        naskah.english = dto.english === true || dto.english === 'true';
+      }
+      if (dto.atas_nama !== undefined) naskah.atasNama = dto.atas_nama || null;
+      if (dto.atas_nama_position_id !== undefined) {
+        naskah.atasNamaPositionId = dto.atas_nama_position_id
+          ? String(dto.atas_nama_position_id)
+          : null;
+      }
       naskah.createdByPosition = String(dto.from_position_id);
-      if (dto.catatan) (naskah as any).catatan_konsep = dto.catatan;
+      if (dto.to_position_id !== undefined) {
+        naskah.draftKonsepToPositionId = dto.to_position_id
+          ? String(dto.to_position_id)
+          : null;
+      }
+      if (dto.catatan !== undefined) naskah.catatanKonsep = dto.catatan || null;
 
       await updatePartitionedNaskah(
         queryRunner.manager,
@@ -5963,7 +6059,12 @@ export class KonsepService {
           sifat: naskah.sifat,
           tanggal: naskah.tanggal,
           tandaTangan: naskah.tandaTangan,
+          english: naskah.english,
+          atasNama: naskah.atasNama,
+          atasNamaPositionId: naskah.atasNamaPositionId,
           createdByPosition: naskah.createdByPosition,
+          draftKonsepToPositionId: naskah.draftKonsepToPositionId,
+          catatanKonsep: naskah.catatanKonsep,
         },
       );
       await this.setDraftOwnerPosition(
@@ -6004,6 +6105,7 @@ export class KonsepService {
       if (
         dto.penerima_position_ids !== undefined ||
         dto.penerima_grup !== undefined ||
+        dto.penerima_eksternal !== undefined ||
         dto.kepada_yth !== undefined
       ) {
         // Delete existing penerima
@@ -6039,6 +6141,27 @@ export class KonsepService {
               penerimaGrupMap.get(Number(posId)) || null;
             await queryRunner.manager.save(sirkulasi);
           }
+        } else if (
+          dto.jenis === 'SDE' &&
+          dto.penerima_eksternal?.length > 0
+        ) {
+          const eksternalList = await this.eksternalRepository.find({
+            where: { id: In(dto.penerima_eksternal) },
+          });
+          const eksternalMap = new Map(
+            eksternalList.map((item) => [item.id, item]),
+          );
+          for (let i = 0; i < dto.penerima_eksternal.length; i++) {
+            const eksternal = eksternalMap.get(dto.penerima_eksternal[i]);
+            if (!eksternal) continue;
+            const sirkulasi = await this.createSirkulasiFromEksternal(
+              idDraft,
+              eksternal,
+              false,
+              i,
+            );
+            await queryRunner.manager.save(sirkulasi);
+          }
         } else if (dto.kepada_yth) {
           const sirkulasiPenerima = new NaskahSirkulasi();
           sirkulasiPenerima.id = uuidv4();
@@ -6058,6 +6181,7 @@ export class KonsepService {
       if (
         dto.tembusan_position_ids !== undefined ||
         dto.tembusan_grup !== undefined ||
+        dto.atas_nama_position_id !== undefined ||
         dto.tembusan !== undefined
       ) {
         // Delete existing tembusan
@@ -6078,6 +6202,13 @@ export class KonsepService {
               dto.tembusan_grup,
             )
           : new Map<number, string>();
+
+        if (
+          dto.atas_nama_position_id &&
+          !expandedTembusanIds.includes(Number(dto.atas_nama_position_id))
+        ) {
+          expandedTembusanIds.push(Number(dto.atas_nama_position_id));
+        }
 
         if (expandedTembusanIds.length > 0) {
           for (const posId of expandedTembusanIds) {
@@ -6302,6 +6433,14 @@ export class KonsepService {
       nama_tempat: body.nama_tempat,
       nama_jabatan: body.nama_jabatan,
       nama_lengkap: body.nama_lengkap,
+      english: body.english === 'true' || body.english === true,
+      atas_nama:
+        body.atas_nama !== undefined ? body.atas_nama || null : undefined,
+      atas_nama_position_id: body.atas_nama_position_id
+        ? parseInt(body.atas_nama_position_id, 10)
+        : body.atas_nama_position_id === ''
+          ? null
+          : undefined,
       catatan: body.catatan,
       kepada_yth: body.kepada_yth,
       alamat: body.alamat,
@@ -6351,6 +6490,18 @@ export class KonsepService {
       dto.penerima_position_ids = Array.isArray(body['penerima_position_ids[]'])
         ? body['penerima_position_ids[]'].map((id: string) => parseInt(id, 10))
         : [parseInt(body['penerima_position_ids[]'], 10)];
+    }
+
+    // SDE menggunakan ID master penerima eksternal, bukan position ID internal.
+    const rawPenerimaEksternal =
+      body.penerima_ids ?? body.penerima_eksternal;
+    if (rawPenerimaEksternal) {
+      dto.penerima_eksternal = Array.isArray(rawPenerimaEksternal)
+        ? rawPenerimaEksternal.map(String)
+        : typeof rawPenerimaEksternal === 'string' &&
+            rawPenerimaEksternal.startsWith('[')
+          ? JSON.parse(rawPenerimaEksternal).map(String)
+          : [String(rawPenerimaEksternal)];
     }
 
     // Parse tembusan_position_ids
