@@ -73,12 +73,15 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
       orderBy: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockImplementation(() => {
         if (
-          andWheres.some((s) => s.includes('tanggal_retensi_aktif_berakhir <= :today'))
+          andWheres.some((s) =>
+            s.includes('tanggal_retensi_aktif_berakhir <= :today'),
+          )
         ) {
           const today = new Date().toISOString().split('T')[0];
           return getMany.filter(
             (b: any) =>
-              b.tanggalRetensiAktifBerakhir && b.tanggalRetensiAktifBerakhir <= today,
+              b.tanggalRetensiAktifBerakhir &&
+              b.tanggalRetensiAktifBerakhir <= today,
           );
         }
         return getMany;
@@ -252,10 +255,10 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     };
     repo.createQueryBuilder.mockReturnValue(qb);
 
-    await service.findAll(
-      { page: 1, limit: 10 } as any,
-      { persnum: 303, activeRole: { name: 'SUPERADMIN' } },
-    );
+    await service.findAll({ page: 1, limit: 10 } as any, {
+      persnum: 303,
+      activeRole: { name: 'SUPERADMIN' },
+    });
 
     expect(qb.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('EXISTS'),
@@ -314,7 +317,9 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
       repo.findOne.mockResolvedValue(item);
       repo.save.mockImplementation(async (value: any) => value);
       levelRepo.findOne.mockImplementation(({ where }: any) =>
-        Promise.resolve(levels.find((candidate) => candidate.urutan === where.urutan) ?? null),
+        Promise.resolve(
+          levels.find((candidate) => candidate.urutan === where.urutan) ?? null,
+        ),
       );
       setupQueryBuilder();
 

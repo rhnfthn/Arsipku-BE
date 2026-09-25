@@ -743,8 +743,7 @@ export class TransferActiveToInactiveService {
           await this.organizationTuService.getActiveRolesForPersnum(
             Number(user.persnum),
           );
-        isTu =
-          activeRoles.includes('tu') || activeRoles.includes('sekretaris');
+        isTu = activeRoles.includes('tu') || activeRoles.includes('sekretaris');
       } catch {
         // ignore
       }
