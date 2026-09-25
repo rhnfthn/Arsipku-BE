@@ -114,6 +114,21 @@ export class NaskahEntity {
   })
   createdByPosition: string | null;
 
+  @Column('varchar', {
+    name: 'draft_konsep_to_position_id',
+    length: 50,
+    nullable: true,
+    comment: 'Target pemeriksa yang dipilih saat konsep masih berstatus draft',
+  })
+  draftKonsepToPositionId: string | null;
+
+  @Column('text', {
+    name: 'catatan_konsep',
+    nullable: true,
+    comment: 'Pesan konsep yang disimpan selama masih berstatus draft',
+  })
+  catatanKonsep: string | null;
+
   // Garis Kewenangan (a.n.) — label pemberi kuasa di template signature.
   // Dipakai SDE. Null untuk naskah yang tidak pakai a.n.
   @Column('varchar', { name: 'atas_nama', length: 150, nullable: true })
