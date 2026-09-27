@@ -14,8 +14,7 @@ import { DataSource } from 'typeorm';
 
 /** Allowlist database development. Default sesuai runbook. */
 const ALLOWED_DB_NAMES = (
-  process.env.RESET_ALLOWED_DB_NAMES ||
-  'newarsipku_db,newarsipku_arsip'
+  process.env.RESET_ALLOWED_DB_NAMES || 'newarsipku_db,newarsipku_arsip'
 )
   .split(',')
   .map((s) => s.trim())
@@ -151,7 +150,10 @@ export class DbResetService {
       'newarsipku_arsip';
     const targets = tablesForLevel(level);
 
-    const databases: { name: string; tables: { table: string; rows: number }[] }[] = [];
+    const databases: {
+      name: string;
+      tables: { table: string; rows: number }[];
+    }[] = [];
     let totalRows = 0;
 
     for (const [dbName, tables] of [
@@ -203,7 +205,9 @@ export class DbResetService {
       await queryRunner.startTransaction();
 
       for (const table of targets) {
-        const dbName = LEVEL2_ARCHIVE_TABLES.includes(table) ? archiveDb : mainDb;
+        const dbName = LEVEL2_ARCHIVE_TABLES.includes(table)
+          ? archiveDb
+          : mainDb;
         const qname = `\`${dbName}\`.\`${table}\``;
         try {
           const result = await queryRunner.query(`DELETE FROM ${qname}`);
@@ -220,12 +224,16 @@ export class DbResetService {
 
       // Verifikasi pasca-hapus dalam transaction yang sama
       for (const table of targets) {
-        const dbName = LEVEL2_ARCHIVE_TABLES.includes(table) ? archiveDb : mainDb;
+        const dbName = LEVEL2_ARCHIVE_TABLES.includes(table)
+          ? archiveDb
+          : mainDb;
         const qname = `\`${dbName}\`.\`${table}\``;
         try {
           const rows = await this.countRows(dbName, table);
           if (rows > 0) {
-            throw new Error(`Verifikasi gagal: ${qname} masih berisi ${rows} baris`);
+            throw new Error(
+              `Verifikasi gagal: ${qname} masih berisi ${rows} baris`,
+            );
           }
         } catch (error) {
           if (this.isMissingTableError(error)) continue;
@@ -241,7 +249,9 @@ export class DbResetService {
       return { level, deleted, totalDeleted };
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`DB reset ${level} gagal, rollback: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(
+        `DB reset ${level} gagal, rollback: ${error instanceof Error ? error.message : error}`,
+      );
       throw error;
     } finally {
       await queryRunner.release();
