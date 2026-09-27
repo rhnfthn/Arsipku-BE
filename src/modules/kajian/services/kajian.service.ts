@@ -11,6 +11,7 @@ import {
   LessThanOrEqual,
   MoreThanOrEqual,
   In,
+  Not,
   DataSource,
 } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
@@ -2252,9 +2253,9 @@ export class KajianService {
       const pengirimData = this.findByPosition(barisData, pengirimPosId);
 
       // Update naskah fields
-      if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
-      if (dto.sifat) naskah.sifat = dto.sifat;
-      if (dto.perihal) naskah.perihal = dto.perihal;
+      if (dto.tgl !== undefined) naskah.tanggal = new Date(dto.tgl);
+      if (dto.sifat !== undefined) naskah.sifat = dto.sifat;
+      if (dto.perihal !== undefined) naskah.perihal = dto.perihal;
       if (dto.konten !== undefined) naskah.konten = dto.konten;
       if (dto.klasifikasi !== undefined) naskah.klasifikasi = dto.klasifikasi;
       if (dto.klasifikasi_text !== undefined)
@@ -2277,7 +2278,7 @@ export class KajianService {
       );
 
       // Update penerima if provided
-      if (dto.penerima && dto.penerima.length > 0) {
+      if (dto.penerima !== undefined) {
         // Note: Recipient validation removed - handled by FE via get-recipient endpoint
 
         // Delete old penerima
@@ -2355,9 +2356,11 @@ export class KajianService {
       }
 
       // Update lampiran from temp files if provided
-      if (dto.lampiran_temp_ids) {
+      if (dto.lampiran_temp_ids !== undefined) {
+        const retainedIds = dto.lampiran_temp_ids.filter(Boolean);
         await queryRunner.manager.delete(NaskahLampiranEntity, {
           id_naskah: naskahId,
+          ...(retainedIds.length > 0 ? { id: Not(In(retainedIds)) } : {}),
         });
       }
 
@@ -2950,27 +2953,29 @@ export class KajianService {
 
     const dto: UpdateDraftDto = {};
 
-    if (body.pengirim) dto.pengirim = Number(body.pengirim);
-    if (body.penerima) dto.penerima = parseArray(body.penerima);
-    if (body.tembusan) dto.tembusan = parseArray(body.tembusan);
-    if (body.kop_logo) dto.kop_logo = body.kop_logo;
-    if (body.kop_nama) dto.kop_nama = body.kop_nama;
-    if (body.alamat_perusahaan) dto.alamat_perusahaan = body.alamat_perusahaan;
-    if (body.klasifikasi) dto.klasifikasi = body.klasifikasi;
-    if (body.klasifikasi_text) dto.klasifikasi_text = body.klasifikasi_text;
-    if (body.sifat) dto.sifat = body.sifat;
-    if (body.perihal) dto.perihal = body.perihal;
-    if (body.konten) dto.konten = body.konten;
+    if (body.pengirim !== undefined) dto.pengirim = Number(body.pengirim);
+    if (body.penerima !== undefined) dto.penerima = parseArray(body.penerima);
+    if (body.tembusan !== undefined) dto.tembusan = parseArray(body.tembusan);
+    if (body.kop_logo !== undefined) dto.kop_logo = body.kop_logo;
+    if (body.kop_nama !== undefined) dto.kop_nama = body.kop_nama;
+    if (body.alamat_perusahaan !== undefined)
+      dto.alamat_perusahaan = body.alamat_perusahaan;
+    if (body.klasifikasi !== undefined) dto.klasifikasi = body.klasifikasi;
+    if (body.klasifikasi_text !== undefined)
+      dto.klasifikasi_text = body.klasifikasi_text;
+    if (body.sifat !== undefined) dto.sifat = body.sifat;
+    if (body.perihal !== undefined) dto.perihal = body.perihal;
+    if (body.konten !== undefined) dto.konten = body.konten;
     if (body.english !== undefined)
       dto.english = body.english === 'true' || body.english === true;
-    if (body.nama_tempat) dto.nama_tempat = body.nama_tempat;
-    if (body.nama_jabatan) dto.nama_jabatan = body.nama_jabatan;
-    if (body.tanda_tangan) dto.tanda_tangan = body.tanda_tangan;
-    if (body.nama_lengkap) dto.nama_lengkap = body.nama_lengkap;
-    if (body.lampiran) dto.lampiran = body.lampiran;
-    if (body.lampiran_temp_ids)
+    if (body.nama_tempat !== undefined) dto.nama_tempat = body.nama_tempat;
+    if (body.nama_jabatan !== undefined) dto.nama_jabatan = body.nama_jabatan;
+    if (body.tanda_tangan !== undefined) dto.tanda_tangan = body.tanda_tangan;
+    if (body.nama_lengkap !== undefined) dto.nama_lengkap = body.nama_lengkap;
+    if (body.lampiran !== undefined) dto.lampiran = body.lampiran;
+    if (body.lampiran_temp_ids !== undefined)
       dto.lampiran_temp_ids = parseStringArray(body.lampiran_temp_ids);
-    if (body.tgl) dto.tgl = body.tgl;
+    if (body.tgl !== undefined) dto.tgl = body.tgl;
 
     return dto;
   }

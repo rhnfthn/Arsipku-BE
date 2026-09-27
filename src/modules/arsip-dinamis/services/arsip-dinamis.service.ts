@@ -269,31 +269,10 @@ export class ArsipDinamisService {
         userPersnum: String(userId),
       });
 
-      // Satu berkas bisa muncul di arsip_ids sebagai bagian dari usulan
-      // multi-arsip. Semua status usulan dipertahankan agar berkas tetap
-      // terlihat di Pemberkasan sampai sumbernya benar-benar dihapus.
-      const sudahMasukPemindahan = `EXISTS (
-        SELECT 1
-        FROM transfer_active_to_inactive t
-        WHERE t.arsip_id = b.id
-           OR JSON_CONTAINS(t.arsip_ids, JSON_OBJECT('id', b.id), '$')
-      )`;
-      // Berkas Tertutup/Inaktif yang retensinya habis TETAP tampil untuk
-      // pembuatnya (created_by/pic) — statusnya sudah "Tertutup", lanjut alur
-      // pemindahan inaktif. Berkas hanya hilang setelah benar-benar
-      // diarsipkan/dimusnahkan (deleted_at terisi).
-      qb.andWhere(
-        `(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR ${sudahMasukPemindahan})`,
-        {
-          closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
-        },
-      );
-      qb.andWhere(
-        `(b.status != :inaktif OR b.tanggal_retensi_inaktif_berakhir IS NULL OR ${sudahMasukPemindahan})`,
-        {
-          inaktif: StatusBerkas.RETAIL_INAKTIF,
-        },
-      );
+      // Semua status berkas milik user tetap ditampilkan, termasuk berkas
+      // yang sudah disetujui/ditutup dan berkas retensi inaktif. Penyembunyian
+      // hanya berdasarkan deleted_at agar sekretaris tetap dapat melihat
+      // berkas yang sudah selesai diverifikasi.
     }
 
     if (status) {
