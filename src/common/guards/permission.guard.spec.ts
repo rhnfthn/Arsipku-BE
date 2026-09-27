@@ -42,10 +42,16 @@ describe('PermissionGuard', () => {
   /**
    * Helper: bikin mock ExecutionContext
    */
-  const mockContext = (user: any, permission: any) => {
+  const mockContext = (
+    user: any,
+    permission: any,
+    requestOverrides: Record<string, unknown> = {},
+  ) => {
     reflector.get.mockReturnValue(permission);
     return {
-      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+      switchToHttp: () => ({
+        getRequest: () => ({ user, ...requestOverrides }),
+      }),
       getHandler: () => ({}),
       getClass: () => ({}),
     } as any;
@@ -157,6 +163,27 @@ describe('PermissionGuard', () => {
         position_status: PositionStatus.SE,
       },
       { resource: 'tugas', action: 'create-board' },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('allows delegated SE to write TU notification actions', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'tu-verifikasi', actions: ['read', 'update'] },
+    ]);
+
+    const ctx = mockContext(
+      {
+        persnum: 123,
+        role: 'user',
+        position_status: PositionStatus.SE,
+      },
+      undefined,
+      {
+        method: 'PATCH',
+        url: '/tu/notifikasi-usulan/transfer-id/ajukan-atasan-tu',
+      },
     );
 
     await expect(guard.canActivate(ctx)).resolves.toBe(true);

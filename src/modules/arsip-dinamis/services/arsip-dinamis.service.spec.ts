@@ -350,14 +350,10 @@ describe('ArsipDinamisService - getNaskahDetailInBerkas', () => {
     expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
   });
 
-  it('tolak (NotFound) naskah inaktif untuk user biasa, izinkan untuk TU', async () => {
+  it('tetap mengizinkan naskah inaktif selama relasi masih ada di DB utama', async () => {
     berkasNaskahRepo.findOne.mockResolvedValue({ naskahId: 'n1', status: 'inaktif' });
     naskahService.getDetailWithChainForBerkas.mockResolvedValue({ success: true, data: [] });
-    await expect(service.getNaskahDetailInBerkas('b1', 'n1', false)).rejects.toThrow(
-      /tidak ditemukan di berkas/,
-    );
-    expect(naskahService.getDetailWithChainForBerkas).not.toHaveBeenCalled();
-    const res = await service.getNaskahDetailInBerkas('b1', 'n1', true);
+    const res = await service.getNaskahDetailInBerkas('b1', 'n1');
     expect(naskahService.getDetailWithChainForBerkas).toHaveBeenCalledWith('n1');
     expect(res.data).toEqual([]);
   });
@@ -719,7 +715,7 @@ describe('ArsipDinamisService - resolveScopePositions', () => {
   });
 });
 
-describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', () => {
+describe('ArsipDinamisService - findAllBerkas (visibilitas berkas)', () => {
   let service: ArsipDinamisService;
   let berkasRepo: any;
 
@@ -760,7 +756,7 @@ describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', ()
     getManyAndCount: jest.fn().mockResolvedValue([rows, rows.length]),
   });
 
-  it('user biasa (non-TU): berkas Tertutup retensi masih berjalan tetap tampil — pengecualian hanya yang retensinya habis', async () => {
+  it('user biasa (non-TU): berkas Tertutup tetap tampil untuk pemiliknya', async () => {
     const chain = listChain([{ id: 'b1', status: 'closed_retensi_aktif' }]);
     berkasRepo.createQueryBuilder
       .mockReturnValueOnce(expiredChain())
@@ -769,31 +765,22 @@ describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', ()
     const res = await service.findAllBerkas(99, false, {});
 
     expect(res.data).toHaveLength(1);
-    // Tidak lagi menyembunyikan SEMUA berkas tertutup dari user biasa
-    expect(chain.andWhere).not.toHaveBeenCalledWith(
-      'b.status != :closed',
-      expect.any(Object),
-    );
-    // Pengecualian berbasis tanggal retensi aktif (hanya yang sudah habis)
     expect(chain.andWhere).toHaveBeenCalledWith(
-      expect.stringContaining('b.tanggal_retensi_aktif_berakhir'),
-      expect.any(Object),
+      '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+      { userId: 99, userPersnum: '99' },
     );
   });
 
-  it('user biasa (non-TU): berkas Tertutup retensi aktif sudah habis → disembunyikan', async () => {
-    const chain = listChain([]);
+  it('user biasa (non-TU): berkas Tertutup retensi aktif sudah habis tetap tampil', async () => {
+    const chain = listChain([{ id: 'b1', status: 'closed_retensi_aktif' }]);
     berkasRepo.createQueryBuilder
       .mockReturnValueOnce(expiredChain())
       .mockReturnValueOnce(chain);
 
     const res = await service.findAllBerkas(99, false, {});
 
-    expect(res.data).toHaveLength(0);
-    expect(chain.andWhere).toHaveBeenCalledWith(
-      expect.stringContaining('b.tanggal_retensi_aktif_berakhir'),
-      expect.any(Object),
-    );
+    expect(res.data).toHaveLength(1);
+    expect(chain.andWhere).toHaveBeenCalledTimes(1);
   });
 
   it('TU: berkas Tertutup tetap tampil (semua)', async () => {
@@ -811,7 +798,7 @@ describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', ()
     );
   });
 
-  it('user biasa (non-TU): berkas Retensi Inaktif retensi inaktif masih berjalan → tetap tampil', async () => {
+  it('user biasa (non-TU): berkas Retensi Inaktif tetap tampil untuk pemiliknya', async () => {
     const chain = listChain([{ id: 'b1', status: 'retensi_inaktif' }]);
     berkasRepo.createQueryBuilder
       .mockReturnValueOnce(expiredChain())
@@ -820,26 +807,19 @@ describe('ArsipDinamisService - findAllBerkas (visibilitas berkas Tertutup)', ()
     const res = await service.findAllBerkas(99, false, {});
 
     expect(res.data).toHaveLength(1);
-    // Pengecualian berbasis tanggal retensi inaktif (hanya yang sudah habis)
-    expect(chain.andWhere).toHaveBeenCalledWith(
-      expect.stringContaining('b.tanggal_retensi_inaktif_berakhir'),
-      expect.any(Object),
-    );
+    expect(chain.andWhere).toHaveBeenCalledTimes(1);
   });
 
-  it('user biasa (non-TU): berkas Retensi Inaktif retensi inaktif sudah habis → disembunyikan', async () => {
-    const chain = listChain([]);
+  it('user biasa (non-TU): berkas Retensi Inaktif retensi inaktif sudah habis tetap tampil', async () => {
+    const chain = listChain([{ id: 'b1', status: 'retensi_inaktif' }]);
     berkasRepo.createQueryBuilder
       .mockReturnValueOnce(expiredChain())
       .mockReturnValueOnce(chain);
 
     const res = await service.findAllBerkas(99, false, {});
 
-    expect(res.data).toHaveLength(0);
-    expect(chain.andWhere).toHaveBeenCalledWith(
-      expect.stringContaining('b.tanggal_retensi_inaktif_berakhir'),
-      expect.any(Object),
-    );
+    expect(res.data).toHaveLength(1);
+    expect(chain.andWhere).toHaveBeenCalledTimes(1);
   });
 
   it('TU: berkas Retensi Inaktif tetap tampil (semua, termasuk yang retensi inaktifnya habis)', async () => {

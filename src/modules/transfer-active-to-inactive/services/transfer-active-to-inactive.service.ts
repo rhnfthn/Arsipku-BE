@@ -397,7 +397,10 @@ export class TransferActiveToInactiveService {
       );
     }
     const berkasList = await berkasQb
-      .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('(b.status = :closed OR b.status = :inaktif)', {
+        closed: 'closed_retensi_aktif',
+        inaktif: 'retensi_inaktif',
+      })
       .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
       .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC')
@@ -440,8 +443,8 @@ export class TransferActiveToInactiveService {
   }
 
   /**
-   * Auto-integrasi: berkas yang statusnya closed_retensi_aktif dan belum
-   * punya usulan pemindahan apa pun → langsung dibuatkan usulan DRAFT
+   * Auto-integrasi: berkas yang statusnya closed_retensi_aktif / retensi_inaktif
+   * dan belum punya usulan pemindahan apa pun → langsung dibuatkan usulan DRAFT
    * otomatis (atasan masih kosong, diisi user lewat tombol "Kirim").
    * Dipanggil on-demand sebelum tabel gabungan dibaca; idempotent.
    */
@@ -450,8 +453,9 @@ export class TransferActiveToInactiveService {
     const berkasList = await this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL')
-      .andWhere('b.status = :status', {
-        status: StatusBerkas.CLOSED_RETENSI_AKTIF,
+      .andWhere('(b.status = :closed OR b.status = :inaktif)', {
+        closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
+        inaktif: StatusBerkas.RETAIL_INAKTIF,
       })
       .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
       .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
@@ -590,7 +594,7 @@ export class TransferActiveToInactiveService {
       }
     }
 
-    // 2. Ambil berkas Tertutup yang BELUM masuk usulan apapun
+    // 2. Ambil berkas Tertutup/Retensi Inaktif yang BELUM masuk usulan apapun
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
@@ -605,7 +609,10 @@ export class TransferActiveToInactiveService {
       );
     }
     berkasQb
-      .andWhere('b.status = :status', { status: 'closed_retensi_aktif' })
+      .andWhere('(b.status = :closed OR b.status = :inaktif)', {
+        closed: 'closed_retensi_aktif',
+        inaktif: 'retensi_inaktif',
+      })
       .andWhere('b.tanggal_retensi_aktif_berakhir IS NOT NULL')
       .andWhere('b.tanggal_retensi_aktif_berakhir <= :today', { today })
       .orderBy('b.tanggal_retensi_aktif_berakhir', 'ASC');
@@ -653,6 +660,7 @@ export class TransferActiveToInactiveService {
         status: 'DRAFT',
         tanggal: b.createdAt,
         lokasiFisik: b.lokasi,
+        berkasStatus: b.status,
       });
     }
 
@@ -721,11 +729,12 @@ export class TransferActiveToInactiveService {
     const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
 
     // Role-based filter
-    // TU (Unit Dokumen) dengan tuRoles bisa melihat semua usulan SELESAI
-    // (untuk pengajuan penyusutan). Cek dari JWT tuRoles DAN dari organization_tu
-    // (fallback jika JWT belum di-refresh).
+    // TU (Unit Dokumen) dan Sekretaris TU dapat melihat semua usulan SELESAI
+    // (untuk pengajuan penyusutan). Sekretaris Divisi biasa tetap hanya melihat
+    // usulannya sendiri. Cek dari JWT tuRoles dan organization_tu sebagai
+    // fallback jika JWT belum di-refresh.
     const tuRoles: string[] = Array.isArray(user.tuRoles) ? user.tuRoles : [];
-    let isTu = tuRoles.includes('tu');
+    let isTu = tuRoles.includes('tu') || tuRoles.includes('sekretaris');
 
     // Fallback: cek organization_tu jika tuRoles tidak ada di JWT
     if (!isTu && user.persnum) {
@@ -734,7 +743,7 @@ export class TransferActiveToInactiveService {
           await this.organizationTuService.getActiveRolesForPersnum(
             Number(user.persnum),
           );
-        isTu = activeRoles.includes('tu');
+        isTu = activeRoles.includes('tu') || activeRoles.includes('sekretaris');
       } catch {
         // ignore
       }
@@ -743,59 +752,38 @@ export class TransferActiveToInactiveService {
     if (isTu && filter.status === 'SELESAI') {
       // TU melihat semua usulan SELESAI — tidak ada filter sekretaris/atasan
     } else if (roleName === 'USER') {
-      // Cek apakah user ini pernah dipilih sebagai atasan managerial
-      const isAtasan = await this.isAtasanManagerial(user);
-      if (isAtasan) {
-        // User adalah atasan managerial: tampilkan usulan yang SUDAH giliran dia
-        // (currentApprovalLevel = urutan dia di transfer_approval_levels)
-        // + usulan miliknya sebagai sekretaris
-        const myLevels = await this.levelRepo
-          .createQueryBuilder('l')
-          .select(['l.transfer_id AS transferId', 'l.urutan AS urutan'])
-          .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
-          .getRawMany();
-        // Filter usulan di mana currentApprovalLevel = urutan dia
-        const readyIds = myLevels
-          .filter((r) => r.urutan !== null)
-          .map((r) => r.transferId);
-        if (readyIds.length > 0) {
-          // Usulan yang sudah giliran dia (currentApprovalLevel = urutan dia)
-          qb.andWhere(
-            '(t.id IN (:...readyIds) AND t.current_approval_level IN (:...myUrutans)) OR t.sekretaris_persnum = :p',
-            {
-              readyIds,
-              myUrutans: myLevels.map((r) => r.urutan),
-              p: Number(user.persnum),
-            },
-          );
-        } else {
-          // Tidak punya usulan sebagai atasan → hanya lihat miliknya sebagai sekretaris
-          qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
-        }
-      } else {
-        // User adalah Sekretaris biasa: hanya lihat usulan miliknya
-        qb.andWhere('t.sekretaris_persnum = :p', { p: Number(user.persnum) });
-      }
+      // Atasan hanya boleh melihat usulan yang sedang berada pada urutan
+      // verifikasinya. Gunakan EXISTS langsung agar tidak bergantung pada
+      // bentuk alias hasil getRawMany() (yang berbeda antar driver DB).
+      qb.andWhere(
+        `(
+          EXISTS (
+            SELECT 1
+            FROM transfer_approval_levels active_level
+            WHERE active_level.transfer_id = t.id
+              AND active_level.atasan_persnum = :currentPersnum
+              AND active_level.urutan = t.current_approval_level
+          )
+          OR t.sekretaris_persnum = :secretaryPersnum
+        )`,
+        {
+          currentPersnum: Number(user.persnum),
+          secretaryPersnum: Number(user.persnum),
+        },
+      );
     } else if (roleName === 'ADMIN' || roleName === 'SUPERADMIN') {
       // Atasan Managerial: tampilkan usulan yang SUDAH giliran dia
       // (currentApprovalLevel = urutan dia di transfer_approval_levels)
-      const myLevels = await this.levelRepo
-        .createQueryBuilder('l')
-        .select(['l.transfer_id AS transferId', 'l.urutan AS urutan'])
-        .where('l.atasan_persnum = :p', { p: Number(user.persnum) })
-        .getRawMany();
-      const readyIds = myLevels
-        .filter((r) => r.urutan !== null)
-        .map((r) => r.transferId);
-      if (readyIds.length > 0) {
-        qb.andWhere(
-          't.id IN (:...readyIds) AND t.current_approval_level IN (:...myUrutans)',
-          { readyIds, myUrutans: myLevels.map((r) => r.urutan) },
-        );
-      } else {
-        // Tidak punya usulan sebagai atasan → kosong
-        qb.andWhere('1 = 0');
-      }
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM transfer_approval_levels active_level
+          WHERE active_level.transfer_id = t.id
+            AND active_level.atasan_persnum = :currentPersnum
+            AND active_level.urutan = t.current_approval_level
+        )`,
+        { currentPersnum: Number(user.persnum) },
+      );
     }
 
     if (filter.status) qb.andWhere('t.status = :s', { s: filter.status });
@@ -1060,12 +1048,14 @@ export class TransferActiveToInactiveService {
     } else {
       // Atasan terakhir (single ATAU multi-atasan berjenjang).
       // Setelah semua atasan approve → langsung DISETUJUI_VERIFIKASI_TERAKHIR
-      // supaya tombol "Pindah Usulan" (kirim ke TU) muncul untuk atasan level 1,
-      // sama seperti alur single-atasan. Tidak ada langkah verifikasi terakhir
-      // tambahan yang membingungkan.
+      // supaya verifikator terakhir dapat meneruskan usulan ke TU. Tidak ada
+      // langkah verifikasi terakhir tambahan yang membingungkan.
       item.status =
         TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
-      item.currentApprovalLevel = 1;
+      // Jangan reset ke level 1. Level terakhir adalah pemilik aksi lanjutan
+      // (Kirim ke TU), sehingga daftar verifikasi dan hak aksinya tetap
+      // menunjuk ke verifikator terakhir.
+      item.currentApprovalLevel = currentLevel.urutan;
       item.approvedBy = Number(user.persnum);
       item.approvedAt = new Date();
       item.verifyNote = dto.verifyNote ?? null;
@@ -1080,22 +1070,6 @@ export class TransferActiveToInactiveService {
         saved.status,
         `Persetujuan level ${currentLevel.urutan} oleh ${currentLevel.atasanName} — siap kirim ke TU`,
       );
-      // Update kolom legacy atasan ke atasan level 1 (untuk tombol Pindah Usulan)
-      const firstLevel = await this.getLevel(item.id, 1);
-      if (firstLevel) {
-        item.atasanPersnum = firstLevel.atasanPersnum;
-        item.atasanName = firstLevel.atasanName;
-        item.atasanPositionId = firstLevel.atasanPositionId;
-        await this.repo.save(item);
-        await this.notify(
-          saved,
-          firstLevel.atasanPositionId != null
-            ? String(firstLevel.atasanPositionId)
-            : null,
-          firstLevel.atasanPersnum,
-          'Verifikasi Terakhir Usulan Pemindahan Arsip Aktif ke Inaktif',
-        );
-      }
       await this.notify(
         saved,
         null,
@@ -1205,13 +1179,8 @@ export class TransferActiveToInactiveService {
         'Atasan tidak boleh memverifikasi usulan yang dibuat sendiri sebagai Sekretaris',
       );
     }
-    // Hanya atasan level 1 (urutan=1) yang bisa verifikasi final
-    const firstLevel = await this.getLevel(id, 1);
-    if (!firstLevel || firstLevel.atasanPersnum !== Number(user.persnum)) {
-      throw new BadRequestException(
-        'Hanya atasan pertama yang dapat melakukan verifikasi terakhir',
-      );
-    }
+    // Pada alur berjenjang, verifikasi final dilakukan oleh atasan terakhir.
+    await this.assertFinalVerifier(item, user);
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.DISETUJUI_VERIFIKASI_TERAKHIR;
     item.finalVerifyNote = dto.finalVerifyNote ?? null;
@@ -1247,6 +1216,9 @@ export class TransferActiveToInactiveService {
         `Status ${item.status} tidak bisa dikirim ke Unit Tata Naskah`,
       );
     }
+    // Aksi lanjutan hanya boleh dilakukan oleh verifikator terakhir yang
+    // menyetujui usulan, bukan verifikator pertama.
+    await this.assertFinalVerifier(item, user);
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.DIKIRIM;
     item.tanggalDikirim = new Date();
@@ -1279,6 +1251,7 @@ export class TransferActiveToInactiveService {
         `Status ${item.status} tidak bisa dikirim usul pindah`,
       );
     }
+    await this.assertFinalVerifier(item, user);
     const old = item.status;
     // Kirim ke TU → status DIKIRIM (Menunggu Verifikasi di TU)
     item.status = TransferActiveToInactiveStatus.DIKIRIM;
@@ -1373,6 +1346,13 @@ export class TransferActiveToInactiveService {
       throw new BadRequestException(
         `Status ${item.status} tidak bisa disetujui penerimaan`,
       );
+    }
+    if (
+      item.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU ||
+      item.status ===
+        TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU
+    ) {
+      this.assertFinalTuVerifier(item, user);
     }
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.SELESAI;
@@ -1576,6 +1556,7 @@ export class TransferActiveToInactiveService {
         `Status ${item.status} tidak bisa final approve TU`,
       );
     }
+    this.assertFinalTuVerifier(item, user);
     const old = item.status;
     item.status =
       TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU;
@@ -1607,6 +1588,7 @@ export class TransferActiveToInactiveService {
         `Status ${item.status} tidak bisa ditolak final TU`,
       );
     }
+    this.assertFinalTuVerifier(item, user);
     const old = item.status;
     item.status =
       TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TERAKHIR_TU;
@@ -1844,6 +1826,50 @@ export class TransferActiveToInactiveService {
 
   // ─── HELPERS ───────────────────────────────────────────────────────────
 
+  /** Pastikan aksi tahap lanjutan dilakukan oleh verifikator terakhir. */
+  private async assertFinalVerifier(
+    item: TransferActiveToInactiveEntity,
+    user: any,
+  ): Promise<void> {
+    const levels = await this.getApprovalLevels(item.id);
+    const finalLevel = levels.length > 0 ? levels[levels.length - 1] : null;
+    const finalVerifierPersnum =
+      finalLevel?.atasanPersnum ?? item.atasanPersnum;
+    if (finalVerifierPersnum !== Number(user.persnum)) {
+      throw new BadRequestException(
+        'Hanya verifikator terakhir yang dapat meneruskan alur usulan',
+      );
+    }
+  }
+
+  /** Pastikan persetujuan terakhir dilakukan oleh verifikator TU terakhir. */
+  private assertFinalTuVerifier(
+    item: TransferActiveToInactiveEntity,
+    user: any,
+  ): void {
+    const levels = item.tuApprovalLevels;
+    if (Array.isArray(levels) && levels.length > 0) {
+      const finalLevel = levels.reduce((latest, level) =>
+        level.urutan > latest.urutan ? level : latest,
+      );
+      if (Number(finalLevel.persnum) !== Number(user.persnum)) {
+        throw new BadRequestException(
+          'Hanya verifikator TU terakhir yang dapat melakukan persetujuan terakhir',
+        );
+      }
+      return;
+    }
+
+    if (
+      item.atasanTuPersnum != null &&
+      Number(item.atasanTuPersnum) !== Number(user.persnum)
+    ) {
+      throw new BadRequestException(
+        'Hanya verifikator TU terakhir yang dapat melakukan persetujuan terakhir',
+      );
+    }
+  }
+
   private async getItem(id: string): Promise<TransferActiveToInactiveEntity> {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException('Usulan tidak ditemukan');
@@ -1942,15 +1968,17 @@ export class TransferActiveToInactiveService {
   async getBeritaAcaraData(transferId: string) {
     const item = await this.getItem(transferId);
     const levels = await this.getApprovalLevels(transferId);
-    const firstAtasan = levels[0] ?? null;
+    // Berita acara dibuat setelah seluruh atasan menyetujui usulan. Pihak
+    // pertama harus verifikator terakhir, bukan atasan pada level pertama.
+    const finalAtasan = levels[levels.length - 1] ?? null;
     return {
       nomorUsulan: item.nomorUsulan,
       tanggalUsulan: item.tanggalUsulan,
       keterangan: item.keterangan,
       atasan: {
-        nama: firstAtasan?.atasanName ?? item.atasanName,
-        jabatan: firstAtasan?.atasanPositionText ?? null,
-        persnum: firstAtasan?.atasanPersnum ?? item.atasanPersnum,
+        nama: finalAtasan?.atasanName ?? item.atasanName,
+        jabatan: finalAtasan?.atasanPositionText ?? null,
+        persnum: finalAtasan?.atasanPersnum ?? item.atasanPersnum,
         divisi: item.divisiName,
       },
       pengirim: {

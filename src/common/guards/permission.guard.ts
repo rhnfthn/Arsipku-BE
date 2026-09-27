@@ -79,6 +79,15 @@ export class PermissionGuard implements CanActivate {
     '/usulan-akses-berkas',
     '/naskah-share',
     '/transfer-active-to-inactive',
+    // Sekretaris TU menerima usulan dan meneruskannya ke Atasan Managerial TU.
+    // Endpoint TU memakai TuGuard untuk memvalidasi tuRoles; PermissionGuard
+    // tidak boleh memblokir request ini lebih dahulu sebagai read-only SE.
+    '/tu/notifikasi-usulan',
+    '/tu/penataan-arsip',
+    // Sekretaris TU menyimpan dokumentasi penataan ke folder khusus ini.
+    // Endpoint penyusutan yang mengubah status memakai @AllowViewerWrite
+    // + TuGuard di controller, sehingga tidak dibuka secara global di sini.
+    '/upload/file/penyusutan',
   ];
 
   private isAllowListedForViewer(path: string): boolean {

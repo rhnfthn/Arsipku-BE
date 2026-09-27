@@ -19,7 +19,10 @@ import {
 } from '../dto/penyusutan.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { CurrentUser, Roles, Public } from '../../../common/decorators';
+import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
 import { RoleName } from '../../../common/enums';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
+import { TuGuard } from '../../tu-verifikasi/guards/tu-guard';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 /**
@@ -109,6 +112,10 @@ export class PenyusutanController {
   /** Ajukan penyusutan (dari halaman Ajukan Penyusutan). */
   @Post('ajukan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  // Sekretaris TU dapat mengajukan penyusutan saat bekerja melalui profil SE.
+  // Pengecualian ini sengaja hanya dipasang pada endpoint pengajuan; aksi
+  // verifikasi, penataan, pemusnahan, dan backup tetap read-only untuk SE.
+  @AllowViewerWrite(PositionStatus.SE)
   async ajukan(
     @Body() dto: AjukanPenyusutanDto,
     @CurrentUser() user: JwtPayload,
@@ -147,6 +154,8 @@ export class PenyusutanController {
   /** Simpan penataan arsip permanen. */
   @Patch(':id/penataan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @UseGuards(TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   async simpanPenataan(
     @Param('id') id: string,
     @Body() dto: SimpanPenataanDto,
@@ -161,6 +170,8 @@ export class PenyusutanController {
   /** Pemusnahan arsip. */
   @Patch(':id/pemusnahan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @UseGuards(TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   async pemusnahan(
     @Param('id') id: string,
     @Body() dto: PemusnahanDto,
@@ -175,6 +186,8 @@ export class PenyusutanController {
   /** Backup data arsip musnah ke DB arsip + hapus master berkas dari DB inti. */
   @Post(':id/backup-data')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @UseGuards(TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   async backupData(
     @Param('id') id: string,
     @Body() dto: BackupDataDto,
@@ -190,6 +203,8 @@ export class PenyusutanController {
   /** Update foto dokumentasi (untuk edit setelah penataan selesai). */
   @Patch(':id/foto-dokumentasi')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @UseGuards(TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   async updateFotoDokumentasi(
     @Param('id') id: string,
     @Body() dto: { fotoDokumentasi: string },
@@ -208,6 +223,8 @@ export class PenyusutanController {
   /** Update berita acara (untuk edit setelah penataan/pemusnahan selesai). */
   @Patch(':id/berita-acara')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @UseGuards(TuGuard)
+  @AllowViewerWrite(PositionStatus.SE)
   async updateBeritaAcara(
     @Param('id') id: string,
     @Body() dto: { beritaAcara: string },
