@@ -17,6 +17,7 @@ import { PdfQrEmbedService } from '../../digsig/services/pdf-qr-embed.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import { formatSifatLabel } from '../../../common/helpers/sifat.helper';
 
 @Injectable()
 export class NaskahUmumService {
@@ -78,6 +79,9 @@ export class NaskahUmumService {
     // 2. Fill placeholders; keep nomor empty until finalize
     const fillData: Record<string, string | string[]> = { ...fields };
     fillData.nomor = fillData.nomor ?? '';
+    if (typeof fillData.sifat === 'string') {
+      fillData.sifat = formatSifatLabel(fillData.sifat);
+    }
     const filled = this.filler.fill(templateBuffer, fillData);
 
     // 3. Upload filled temp to S3; use the returned key (StorageService builds it)
@@ -149,7 +153,11 @@ export class NaskahUmumService {
     });
     const nomor = nomorResult.nomor;
 
-    const finalDocx = this.filler.fill(savedDocx, { ...fields, nomor });
+    const finalDocx = this.filler.fill(savedDocx, {
+      ...fields,
+      sifat: formatSifatLabel(fields.sifat),
+      nomor,
+    });
 
     // 2. Upload final docx
     const finalDocxUpload = await this.storage.uploadBuffer(

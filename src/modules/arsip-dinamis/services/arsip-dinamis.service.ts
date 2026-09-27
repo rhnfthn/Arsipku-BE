@@ -249,12 +249,10 @@ export class ArsipDinamisService {
       .where('b.deleted_at IS NULL');
 
     // Scope: user biasa hanya melihat berkas miliknya/unitnya. Berkas Tertutup
-    // yang retensi aktifnya SUDAH habis disembunyikan (pindah ke TU/pemindahan
-    // arsip); yang baru ditutup (retensi aktif masih berjalan) tetap tampil.
-    // Retensi inaktif tampil selama masa retensi inaktif masih berjalan; yang
-    // sudah habis disembunyikan (menunggu pemusnahan oleh TU).
+    // dan Retensi Inaktif tetap tampil untuk pembuatnya walau retensinya sudah
+    // habis (status "Tertutup" + lanjut alur pemindahan inaktif). Berkas baru
+    // disembunyikan setelah benar-benar diarsipkan/dimusnahkan (deleted_at).
     // TU (unit_dokumen) melihat semua berkas tertutup + retensi inaktif + berkas miliknya.
-    const today = new Date().toISOString().split('T')[0];
     if (isTu) {
       qb.andWhere(
         '(b.status = :closed OR b.status = :inaktif OR b.created_by = :userId OR b.pic_persnum = :userPersnum)',
@@ -270,20 +268,11 @@ export class ArsipDinamisService {
         userId,
         userPersnum: String(userId),
       });
-      qb.andWhere(
-        '(b.status != :closed OR b.tanggal_retensi_aktif_berakhir IS NULL OR b.tanggal_retensi_aktif_berakhir > :today)',
-        {
-          closed: StatusBerkas.CLOSED_RETENSI_AKTIF,
-          today,
-        },
-      );
-      qb.andWhere(
-        '(b.status != :inaktif OR b.tanggal_retensi_inaktif_berakhir IS NULL OR b.tanggal_retensi_inaktif_berakhir > :today)',
-        {
-          inaktif: StatusBerkas.RETAIL_INAKTIF,
-          today,
-        },
-      );
+
+      // Semua status berkas milik user tetap ditampilkan, termasuk berkas
+      // yang sudah disetujui/ditutup dan berkas retensi inaktif. Penyembunyian
+      // hanya berdasarkan deleted_at agar sekretaris tetap dapat melihat
+      // berkas yang sudah selesai diverifikasi.
     }
 
     if (status) {
@@ -314,7 +303,10 @@ export class ArsipDinamisService {
       status: 'b.status',
       updatedAt: 'b.updated_at',
     };
-    qb.orderBy(SORT_MAP[sortBy ?? ''] ?? 'b.updated_at', sortDir === 'asc' ? 'ASC' : 'DESC');
+    qb.orderBy(
+      SORT_MAP[sortBy ?? ''] ?? 'b.updated_at',
+      sortDir === 'asc' ? 'ASC' : 'DESC',
+    );
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -538,7 +530,10 @@ export class ArsipDinamisService {
     berkas.status = StatusBerkas.AKTIF;
     berkas.updatedBy = userId;
     await this.berkasRepository.save(berkas);
-    return { message: 'Berkas berhasil diaktifkan', statusBerkas: berkas.status };
+    return {
+      message: 'Berkas berhasil diaktifkan',
+      statusBerkas: berkas.status,
+    };
   }
 
   async softDeleteBerkas(
@@ -834,7 +829,6 @@ export class ArsipDinamisService {
 
   async getDaftarNaskah(
     berkasId: string,
-    isTu: boolean,
     options: { search?: string; page?: number; limit?: number } = {},
   ) {
     const { search, page = 1, limit = 20 } = options;
@@ -843,10 +837,9 @@ export class ArsipDinamisService {
       .createQueryBuilder('bn')
       .where('bn.berkas_id = :berkasId', { berkasId });
 
-    // Naskah inaktif (berkas ditutup, retensi aktif habis) hanya tampil untuk TU
-    if (!isTu) {
-      qb.andWhere('bn.status = :s', { s: 'aktif' });
-    }
+    // Status inaktif hanya menandai retensi aktif berakhir. Selama relasi
+    // masih ada di DB utama, naskah tetap dapat dilihat. Relasi dihapus saat
+    // berkas benar-benar diarsipkan atau dimusnahkan.
 
     if (search) {
       qb.andWhere('(bn.perihal LIKE :search OR bn.nomor_surat LIKE :search)', {
@@ -872,11 +865,7 @@ export class ArsipDinamisService {
    * Akses dijaga guard PemeliharaanAccess di controller; di sini cukup pastikan
    * naskah memang tercatat di berkas ini (anti enumerasi id naskah sembarang).
    */
-  async getNaskahDetailInBerkas(
-    berkasId: string,
-    naskahId: string,
-    isTu: boolean,
-  ) {
+  async getNaskahDetailInBerkas(berkasId: string, naskahId: string) {
     const relasi = await this.berkasNaskahRepository.findOne({
       where: { berkasId, naskahId },
       select: ['naskahId', 'status'],
@@ -884,10 +873,7 @@ export class ArsipDinamisService {
     if (!relasi) {
       throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
     }
-    // Naskah inaktif (berkas ditutup) tidak bisa dibuka user biasa — hanya TU
-    if (!isTu && relasi.status === 'inaktif') {
-      throw new NotFoundException('Naskah tidak ditemukan di berkas ini');
-    }
+    // Naskah tetap dapat dibuka selama relasinya masih ada di DB utama.
     return this.naskahService.getDetailWithChainForBerkas(naskahId);
   }
 
@@ -941,7 +927,9 @@ export class ArsipDinamisService {
       if (!Number.isFinite(divisiId)) return undefined;
 
       const positions = rows
-        .filter((x: any) => Number(x.divisi_id ?? x.organization_id) === divisiId)
+        .filter(
+          (x: any) => Number(x.divisi_id ?? x.organization_id) === divisiId,
+        )
         .map((x: any) => Number(x.position))
         .filter((p: number) => Number.isFinite(p));
       return positions.length > 0 ? [...new Set(positions)] : undefined;
@@ -991,7 +979,9 @@ export class ArsipDinamisService {
         ) {
           return node;
         }
-        const found = findNode(Array.isArray(node?.children) ? node.children : []);
+        const found = findNode(
+          Array.isArray(node?.children) ? node.children : [],
+        );
         if (found) return found;
       }
       return null;
@@ -1019,7 +1009,9 @@ export class ArsipDinamisService {
         if (typeof child?.name === 'string' && child.name.trim()) {
           orgNames.push(child.name);
         }
-        for (const p of Array.isArray(child?.positions) ? child.positions : []) {
+        for (const p of Array.isArray(child?.positions)
+          ? child.positions
+          : []) {
           const pid = Number(p?.position);
           if (Number.isFinite(pid)) positions.push(pid);
         }
@@ -1315,9 +1307,8 @@ export class ArsipDinamisService {
         'Posisi pengaju tidak ditemukan, tidak dapat memvalidasi verifikator',
       );
     }
-    const atasanRes = await this.orgDataService.getAtasanManagerial(
-      pengajuPositionId,
-    );
+    const atasanRes =
+      await this.orgDataService.getAtasanManagerial(pengajuPositionId);
     const validPersnums = new Set(
       (atasanRes?.data ?? []).map((v: any) => String(v.persnum_person)),
     );
@@ -1447,7 +1438,10 @@ export class ArsipDinamisService {
           false,
         );
       } catch (e) {
-        console.warn('[arsip-dinamis] failed to notify next verifikator:', (e as Error).message);
+        console.warn(
+          '[arsip-dinamis] failed to notify next verifikator:',
+          (e as Error).message,
+        );
       }
 
       return {
@@ -1492,7 +1486,10 @@ export class ArsipDinamisService {
         );
       }
     } catch (e) {
-      console.warn('[arsip-dinamis] failed to notify owner:', (e as Error).message);
+      console.warn(
+        '[arsip-dinamis] failed to notify owner:',
+        (e as Error).message,
+      );
     }
 
     // Catat riwayat retensi
@@ -1578,7 +1575,10 @@ export class ArsipDinamisService {
         );
       }
     } catch (err: any) {
-      console.warn('[arsip-dinamis] realtime reject / notif gagal:', err?.message);
+      console.warn(
+        '[arsip-dinamis] realtime reject / notif gagal:',
+        err?.message,
+      );
     }
 
     return { message: 'Penutupan berkas ditolak' };
@@ -1878,7 +1878,14 @@ export class ArsipDinamisService {
       sortDir?: string; // asc | desc (default desc)
     } = {},
   ) {
-    const { search, status = 'menunggu', page = 1, limit = 20, sortBy, sortDir } = options;
+    const {
+      search,
+      status = 'menunggu',
+      page = 1,
+      limit = 20,
+      sortBy,
+      sortDir,
+    } = options;
     const safePage = Math.max(1, Number(page) || 1);
     const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
     const params: any[] = [verifikatorPersnum];
@@ -1892,7 +1899,9 @@ export class ArsipDinamisService {
     };
     const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
     const orderExpr =
-      sortBy && SORT_MAP[sortBy] ? SORT_MAP[sortBy] : 'COALESCE(bv.action_at, bv.created_at)';
+      sortBy && SORT_MAP[sortBy]
+        ? SORT_MAP[sortBy]
+        : 'COALESCE(bv.action_at, bv.created_at)';
     const orderBy = `ORDER BY ${orderExpr} ${dir}`;
 
     // menunggu = pending & giliran Anda (NOT EXISTS earlier pending).

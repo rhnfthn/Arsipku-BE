@@ -13,13 +13,28 @@ import { OrganizationTuService } from '../../organization-tu/organization-tu.ser
 describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
   let service: TransferActiveToInactiveService;
   let repo: any;
+  let levelRepo: any;
   let berkasRepo: any;
   let arsipDinamisService: any;
+  let auditTrailService: any;
+  let notificationService: any;
 
   beforeEach(async () => {
-    repo = { createQueryBuilder: jest.fn(), manager: { query: jest.fn() } };
+    repo = {
+      createQueryBuilder: jest.fn(),
+      manager: { query: jest.fn() },
+      findOne: jest.fn(),
+      save: jest.fn(),
+    };
+    levelRepo = {
+      findOne: jest.fn(),
+      find: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
     berkasRepo = { createQueryBuilder: jest.fn() };
     arsipDinamisService = { tutupBerkasRetensiHabis: jest.fn() };
+    auditTrailService = { createAsync: jest.fn() };
+    notificationService = { createNotification: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         TransferActiveToInactiveService,
@@ -29,11 +44,11 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
         },
         {
           provide: getRepositoryToken(TransferApprovalLevelEntity),
-          useValue: {},
+          useValue: levelRepo,
         },
         { provide: getRepositoryToken(Berkas), useValue: berkasRepo },
-        { provide: AuditTrailService, useValue: {} },
-        { provide: NotificationService, useValue: {} },
+        { provide: AuditTrailService, useValue: auditTrailService },
+        { provide: NotificationService, useValue: notificationService },
         { provide: ArsipDinamisService, useValue: arsipDinamisService },
         { provide: OrgDataService, useValue: {} },
         { provide: OrganizationTuService, useValue: {} },
@@ -58,12 +73,15 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
       orderBy: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockImplementation(() => {
         if (
-          andWheres.some((s) => s.includes('tanggal_retensi_aktif_berakhir <= :today'))
+          andWheres.some((s) =>
+            s.includes('tanggal_retensi_aktif_berakhir <= :today'),
+          )
         ) {
           const today = new Date().toISOString().split('T')[0];
           return getMany.filter(
             (b: any) =>
-              b.tanggalRetensiAktifBerakhir && b.tanggalRetensiAktifBerakhir <= today,
+              b.tanggalRetensiAktifBerakhir &&
+              b.tanggalRetensiAktifBerakhir <= today,
           );
         }
         return getMany;
@@ -108,16 +126,20 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     );
   });
 
-  it('query berkas mensyaratkan status closed_retensi_aktif DAN retensi aktif sudah habis', async () => {
+  it('query berkas mensyaratkan status closed_retensi_aktif/retensi_inaktif DAN retensi aktif sudah habis', async () => {
     const berkasChain = chain([]);
     berkasRepo.createQueryBuilder.mockReturnValue(berkasChain);
     repo.createQueryBuilder.mockReturnValue(chain([]));
 
     await service.syncDraftUsulanOtomatis();
 
-    expect(berkasChain.andWhere).toHaveBeenCalledWith('b.status = :status', {
-      status: expect.any(String),
-    });
+    expect(berkasChain.andWhere).toHaveBeenCalledWith(
+      '(b.status = :closed OR b.status = :inaktif)',
+      {
+        closed: expect.any(String),
+        inaktif: expect.any(String),
+      },
+    );
     expect(berkasChain.andWhere).toHaveBeenCalledWith(
       'b.tanggal_retensi_aktif_berakhir IS NOT NULL',
     );
@@ -221,5 +243,144 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
 
     expect(count).toBe(0);
     expect(repo.manager.query).not.toHaveBeenCalled();
+  });
+
+  it('memfilter daftar verifikasi berdasarkan level aktif, termasuk untuk SUPERADMIN', async () => {
+    const qb: any = {
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    repo.createQueryBuilder.mockReturnValue(qb);
+
+    await service.findAll({ page: 1, limit: 10 } as any, {
+      persnum: 303,
+      activeRole: { name: 'SUPERADMIN' },
+    });
+
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('EXISTS'),
+      { currentPersnum: 303 },
+    );
+    expect(qb.andWhere.mock.calls[0][0]).toContain(
+      'active_level.urutan = t.current_approval_level',
+    );
+    expect(levelRepo.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  describe('alur verifikator berjenjang', () => {
+    const level = (urutan: number, persnum: number) => ({
+      id: `level-${urutan}`,
+      tanggal: new Date('2026-01-01'),
+      transferId: 'transfer-1',
+      atasanPersnum: persnum,
+      atasanName: `Atasan ${urutan}`,
+      atasanPositionId: null,
+      atasanPositionText: null,
+      urutan,
+      status: 'MENUNGGU',
+      verifiedAt: null,
+      catatan: null,
+    });
+
+    const setupQueryBuilder = () => {
+      const qb: any = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      levelRepo.createQueryBuilder.mockReturnValue(qb);
+      return qb;
+    };
+
+    it('mempertahankan level terakhir sebagai pemilik aksi lanjutan', async () => {
+      const item: any = {
+        id: 'transfer-1',
+        status: 'DISETUJUI_ATASAN',
+        currentApprovalLevel: 3,
+        totalApprovalLevels: 3,
+        sekretarisPersnum: 100,
+        atasanPersnum: 303,
+        atasanName: 'Atasan 3',
+        atasanPositionId: null,
+        verifyNote: null,
+        approvedBy: null,
+        approvedAt: null,
+        finalVerifyNote: null,
+        finalVerifiedBy: null,
+        finalVerifiedAt: null,
+      };
+      const levels = [level(1, 101), level(2, 202), level(3, 303)];
+      repo.findOne.mockResolvedValue(item);
+      repo.save.mockImplementation(async (value: any) => value);
+      levelRepo.findOne.mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          levels.find((candidate) => candidate.urutan === where.urutan) ?? null,
+        ),
+      );
+      setupQueryBuilder();
+
+      const result = await service.approve(
+        'transfer-1',
+        { verifyNote: 'Disetujui' },
+        { persnum: 303 },
+      );
+
+      expect(result.status).toBe('DISETUJUI_VERIFIKASI_TERAKHIR');
+      expect(result.currentApprovalLevel).toBe(3);
+      expect(repo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('hanya mengizinkan verifikator terakhir mengirim usulan ke TU', async () => {
+      const item: any = {
+        id: 'transfer-1',
+        status: 'DISETUJUI_VERIFIKASI_TERAKHIR',
+        tanggalDikirim: null,
+        sekretarisPersnum: 100,
+        arsipPerihal: 'Arsip A',
+        nomorUsulan: 'UPAI/001/2026',
+      };
+      const levels = [level(1, 101), level(2, 202), level(3, 303)];
+      repo.findOne.mockResolvedValue(item);
+      repo.save.mockImplementation(async (value: any) => value);
+      levelRepo.find.mockResolvedValue(levels);
+
+      await expect(
+        service.dispatch('transfer-1', { persnum: 101 }),
+      ).rejects.toThrow('Hanya verifikator terakhir');
+
+      await expect(
+        service.dispatch('transfer-1', { persnum: 303 }),
+      ).resolves.toMatchObject({ status: 'DIKIRIM' });
+    });
+
+    it('menggunakan verifikator terakhir sebagai pihak pertama berita acara', async () => {
+      const item: any = {
+        id: 'transfer-1',
+        nomorUsulan: 'UPAI/001/2026',
+        tanggalUsulan: new Date('2026-01-01'),
+        keterangan: null,
+        divisiName: 'Divisi A',
+        atasanName: 'Atasan 1',
+        atasanPersnum: 101,
+        arsipId: 'arsip-1',
+        arsipPerihal: 'Arsip A',
+        arsipKode: 'KODE-1',
+        arsipIds: null,
+      };
+      const levels = [level(1, 101), level(2, 202), level(3, 303)];
+      repo.findOne.mockResolvedValue(item);
+      levelRepo.find.mockResolvedValue(levels);
+
+      const result = await service.getBeritaAcaraData('transfer-1');
+
+      expect(result.atasan).toMatchObject({
+        nama: 'Atasan 3',
+        persnum: 303,
+      });
+    });
   });
 });

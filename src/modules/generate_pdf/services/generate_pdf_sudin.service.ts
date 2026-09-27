@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pdfQueue } from '../pdf.queue';
 import { resolveDocumentNumber } from '../utils/document-number.util';
+import { formatSifatLabel } from '../../../common/helpers/sifat.helper';
 
 interface SdiPdfOptions {
   html: string;
@@ -224,19 +225,6 @@ export class GeneratePdfSudinService {
       }
     };
 
-    // Map sifat Indonesia ke English
-    const sifatToEnglish = (sifat: string): string => {
-      const mapping: { [key: string]: string } = {
-        biasa: 'Regular',
-        terbatas: 'Limited',
-        rahasia: 'Confidential',
-        sangat_rahasia: 'Top Secret',
-        'sangat rahasia': 'Top Secret',
-        terbuka: 'Open',
-      };
-      return mapping[sifat?.toLowerCase()] || sifat || 'Regular';
-    };
-
     const html = decodedContent;
     const namaTempat = body.nama_tempat || 'Tangerang';
 
@@ -274,7 +262,7 @@ export class GeneratePdfSudinService {
     const namaLengkap = toTitleCase(body.namaLengkap || '');
     const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
-    const sifat = sifatToEnglish(body.sifat || 'Biasa');
+    const sifat = formatSifatLabel(body.sifat, 'en');
     const lampiranText = body.lampiran === '-' ? '-' : body.lampiran || '-';
     const nomor = resolveDocumentNumber(body);
 
@@ -751,7 +739,7 @@ export class GeneratePdfSudinService {
     const namaLengkap = toTitleCase(body.namaLengkap || '');
     const atasNama = (body.atasNama || '').trim();
     const perihal = body.perihal || '';
-    const sifat = body.sifat || 'Biasa';
+    const sifat = formatSifatLabel(body.sifat);
     const lampiranText = body.lampiran || '-';
     const nomor = resolveDocumentNumber(body);
 

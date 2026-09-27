@@ -29,6 +29,8 @@ import { AtasanTuGuard } from '../guards/atasan-tu-guard';
 import { TuGuard } from '../guards/tu-guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
+import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import type { Response } from 'express';
 
@@ -87,6 +89,7 @@ export class AtasanTuController {
 @ApiTags('TU Penataan Arsip')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, TuGuard)
+@AllowViewerWrite(PositionStatus.SE)
 @Controller('tu/penataan-arsip')
 export class TuPenataanController {
   constructor(private readonly service: TuVerifikasiService) {}
