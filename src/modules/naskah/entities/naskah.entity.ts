@@ -16,7 +16,7 @@ export class NaskahEntity {
   @Column('varchar', { length: 50, nullable: true })
   klasifikasi: string;
 
-  @Column('varchar', { length: 100, nullable: true })
+  @Column('varchar', { length: 500, nullable: true })
   klasifikasi_text: string;
 
   @Column('enum', {
