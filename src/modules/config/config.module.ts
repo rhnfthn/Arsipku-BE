@@ -14,6 +14,7 @@ import {
   ConfigNaskahLainnyaService,
   ConfigSearchService,
   ConfigThemeService,
+  DbResetService,
 } from './services';
 import {
   AdminConfigDigsigController,
@@ -22,6 +23,7 @@ import {
   AdminConfigSearchController,
   ConfigController,
   AdminConfigThemeController,
+  AdminDbResetController,
 } from './controllers';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 
@@ -44,6 +46,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     AdminConfigSearchController,
     ConfigController,
     AdminConfigThemeController,
+    AdminDbResetController,
   ],
   providers: [
     ConfigDigsigService,
@@ -51,6 +54,7 @@ import { OrgDataModule } from '../master-data/org_data/org_data.module';
     ConfigNaskahLainnyaService,
     ConfigSearchService,
     ConfigThemeService,
+    DbResetService,
   ],
   exports: [
     ConfigDigsigService,

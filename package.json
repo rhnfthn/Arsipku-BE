@@ -25,7 +25,11 @@
     "typeorm:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:create src/migrations/$npm_config_name",
     "typeorm:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:run",
     "typeorm:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:revert",
-    "typeorm:show": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:show"
+    "typeorm:show": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts migration:show",
+    "db:preflight": "ts-node -r tsconfig-paths/register scripts/db-reset/preflight.ts",
+    "db:reset": "ts-node -r tsconfig-paths/register scripts/db-reset/reset.ts",
+    "db:minio-manifest": "ts-node -r tsconfig-paths/register scripts/db-reset/minio-manifest.ts",
+    "db:mongo-audit": "ts-node -r tsconfig-paths/register scripts/db-reset/mongo-audit.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.943.0",
