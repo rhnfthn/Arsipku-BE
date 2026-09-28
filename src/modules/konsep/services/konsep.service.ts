@@ -1004,6 +1004,11 @@ export class KonsepService {
     };
     const jenisFolder = jenisFolderMap[jenis];
 
+    const targetNaskah = manager
+      ? await manager.findOne(NaskahEntity, { where: { id: naskahId } })
+      : await this.naskahRepository.findOne({ where: { id: naskahId } });
+    const targetTanggal = targetNaskah?.tanggal || new Date();
+
     for (const tempId of lampiranTempIds) {
       const lampiran = manager
         ? await manager.findOne(NaskahLampiranEntity, { where: { id: tempId } })
@@ -1011,7 +1016,9 @@ export class KonsepService {
             where: { id: tempId },
           });
 
-      if (lampiran && lampiran.is_temporary === 1) {
+      if (!lampiran) continue;
+
+      if (lampiran.is_temporary === 1) {
         // Move file from temporary to final location
         const oldKey = lampiran.file_pdf; // e.g., temporary/uuid/filename.pdf
         const fileName = oldKey.split('/').pop() || 'file.pdf';
@@ -1057,6 +1064,51 @@ export class KonsepService {
           } else {
             await this.naskahLampiranRepository.save(lampiran);
           }
+        }
+      }
+
+      // Lampiran dari konsep/naskah sebelumnya harus disalin ke naskah baru.
+      // Jangan memindahkan record lama karena lampiran tersebut masih dipakai
+      // oleh konsep asal dan harus tetap terlihat di riwayatnya.
+      if (
+        lampiran.is_temporary !== 1 &&
+        String(lampiran.id_naskah || '') !== String(naskahId)
+      ) {
+        const oldKey = lampiran.file_pdf;
+        const fileName = oldKey?.split('/').pop() || lampiran.file_name || 'file.pdf';
+        const newKey = `${jenisFolder}/lampiran/${naskahId}/${uuidv4()}-${fileName}`;
+        let copiedKey = newKey;
+
+        try {
+          await this.storageService['s3Client'].send(
+            new (await import('@aws-sdk/client-s3')).CopyObjectCommand({
+              Bucket: this.storageService['bucketName'],
+              CopySource: `${this.storageService['bucketName']}/${oldKey}`,
+              Key: newKey,
+              ContentDisposition: 'inline',
+            }),
+          );
+        } catch (error) {
+          // Jika copy storage gagal, tetap referensikan key lama agar lampiran
+          // tidak hilang dari draft. Record sumber tidak pernah dihapus.
+          console.error(`Failed to copy lampiran ${tempId}:`, error);
+          copiedKey = oldKey;
+        }
+
+        const copiedLampiran = this.naskahLampiranRepository.create({
+          id: uuidv4(),
+          tanggal: targetTanggal,
+          id_naskah: naskahId,
+          file_name: lampiran.file_name,
+          file_pdf: copiedKey,
+          jenis,
+          is_temporary: 0,
+        });
+
+        if (manager) {
+          await manager.save(NaskahLampiranEntity, copiedLampiran);
+        } else {
+          await this.naskahLampiranRepository.save(copiedLampiran);
         }
       }
     }
