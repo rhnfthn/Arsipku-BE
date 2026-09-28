@@ -1004,6 +1004,11 @@ export class KonsepService {
     };
     const jenisFolder = jenisFolderMap[jenis];
 
+    const targetNaskah = manager
+      ? await manager.findOne(NaskahEntity, { where: { id: naskahId } })
+      : await this.naskahRepository.findOne({ where: { id: naskahId } });
+    const targetTanggal = targetNaskah?.tanggal || new Date();
+
     for (const tempId of lampiranTempIds) {
       const lampiran = manager
         ? await manager.findOne(NaskahLampiranEntity, { where: { id: tempId } })
@@ -1011,7 +1016,9 @@ export class KonsepService {
             where: { id: tempId },
           });
 
-      if (lampiran && lampiran.is_temporary === 1) {
+      if (!lampiran) continue;
+
+      if (lampiran.is_temporary === 1) {
         // Move file from temporary to final location
         const oldKey = lampiran.file_pdf; // e.g., temporary/uuid/filename.pdf
         const fileName = oldKey.split('/').pop() || 'file.pdf';
@@ -1057,6 +1064,51 @@ export class KonsepService {
           } else {
             await this.naskahLampiranRepository.save(lampiran);
           }
+        }
+      }
+
+      // Lampiran dari konsep/naskah sebelumnya harus disalin ke naskah baru.
+      // Jangan memindahkan record lama karena lampiran tersebut masih dipakai
+      // oleh konsep asal dan harus tetap terlihat di riwayatnya.
+      if (
+        lampiran.is_temporary !== 1 &&
+        String(lampiran.id_naskah || '') !== String(naskahId)
+      ) {
+        const oldKey = lampiran.file_pdf;
+        const fileName = oldKey?.split('/').pop() || lampiran.file_name || 'file.pdf';
+        const newKey = `${jenisFolder}/lampiran/${naskahId}/${uuidv4()}-${fileName}`;
+        let copiedKey = newKey;
+
+        try {
+          await this.storageService['s3Client'].send(
+            new (await import('@aws-sdk/client-s3')).CopyObjectCommand({
+              Bucket: this.storageService['bucketName'],
+              CopySource: `${this.storageService['bucketName']}/${oldKey}`,
+              Key: newKey,
+              ContentDisposition: 'inline',
+            }),
+          );
+        } catch (error) {
+          // Jika copy storage gagal, tetap referensikan key lama agar lampiran
+          // tidak hilang dari draft. Record sumber tidak pernah dihapus.
+          console.error(`Failed to copy lampiran ${tempId}:`, error);
+          copiedKey = oldKey;
+        }
+
+        const copiedLampiran = this.naskahLampiranRepository.create({
+          id: uuidv4(),
+          tanggal: targetTanggal,
+          id_naskah: naskahId,
+          file_name: lampiran.file_name,
+          file_pdf: copiedKey,
+          jenis,
+          is_temporary: 0,
+        });
+
+        if (manager) {
+          await manager.save(NaskahLampiranEntity, copiedLampiran);
+        } else {
+          await this.naskahLampiranRepository.save(copiedLampiran);
         }
       }
     }
@@ -5889,7 +5941,31 @@ export class KonsepService {
         if (dto.sifat) naskah.sifat = dto.sifat;
         if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
         if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
-        naskah.status = 'final';
+        // Yang dikirim ke pemeriksa adalah node workflow K di bawah ini.
+        // Naskah asli harus tetap berstatus draf sampai pengirim terakhir
+        // memfinalisasinya melalui endpoint ND/SDI/SDE/send-draft.
+        naskah.status = 'draf';
+
+        // Lampiran yang sudah tersimpan pada draft tetap berada pada naskah
+        // asli ketika draft dikirim. Lampiran baru masih berstatus temporary,
+        // jadi pindahkan dulu sebelum workflow konsep dibuat.
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const currentJenis = (dto.jenis || naskah.jenis) as 'ND' | 'SDI' | 'SDE';
+          await this.handleLampiranTempIds(
+            idDraft,
+            dto.lampiran_temp_ids,
+            currentJenis,
+            queryRunner.manager,
+          );
+
+          const lampiranCount = await queryRunner.manager.count(
+            NaskahLampiranEntity,
+            { where: { id_naskah: idDraft } },
+          );
+          if (lampiranCount > 0) {
+            naskah.lampiran = `${lampiranCount} file`;
+          }
+        }
 
         // ==========================================
         // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
@@ -5925,6 +6001,7 @@ export class KonsepService {
             sifat: naskah.sifat,
             tanggal: naskah.tanggal,
             tandaTangan: naskah.tandaTangan,
+            lampiran: naskah.lampiran,
             status: naskah.status,
             id_naskah_konsep: naskah.id_naskah_konsep,
           },
@@ -6010,7 +6087,7 @@ export class KonsepService {
           data: {
             id_draft: idDraft,
             id_konsep: naskahKonsepId,
-            status: 'final',
+            status: 'draf',
             updated_at: new Date(),
           },
         };

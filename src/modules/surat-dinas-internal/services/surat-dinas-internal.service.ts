@@ -3019,10 +3019,22 @@ export class SuratDinasInternalService {
     }
 
     if (naskah.status !== 'draf') {
-      // Naskah konsep yang sudah difinalize via /KONSEP/finalize sudah final & terkirim.
-      // send-draft return success idempotent (hanya untuk naskah asli konsep).
       const idKonsep = (naskah as any).id_naskah_konsep as string | null;
+      const konsepSirkulasi = await this.naskahSirkulasiRepository.findOne({
+        where: { idNaskah: naskahId, isKonsep: 1 },
+      });
       if (
+        (naskah.status === 'final' || naskah.status === 'final_tte') &&
+        konsepSirkulasi
+      ) {
+        if (!idKonsep) {
+          const konsepNaskah = await this.naskahRepository.findOne({
+            where: { id_naskah_asli: naskahId, jenis: 'K' },
+          });
+          if (konsepNaskah) naskah.id_naskah_konsep = konsepNaskah.id;
+        }
+        naskah.status = 'draf';
+      } else if (
         (naskah.status === 'final' || naskah.status === 'final_tte') &&
         idKonsep
       ) {
@@ -3207,6 +3219,8 @@ export class SuratDinasInternalService {
       if (dto.lampiran !== undefined) naskahUpdateData.lampiran = dto.lampiran;
       if (dto.final_pdf !== undefined)
         naskahUpdateData.final_pdf = dto.final_pdf;
+      if (naskah.id_naskah_konsep)
+        naskahUpdateData.id_naskah_konsep = naskah.id_naskah_konsep;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
 
       await queryRunner.manager.update(
