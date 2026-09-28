@@ -2731,16 +2731,31 @@ export class NotaDinasService {
     }
 
     if (naskah.status !== 'draf') {
-      // Naskah konsep yang sudah difinalize via /KONSEP/finalize (path finalisasi page)
-      // sudah berstatus final & terkirim (is_konsep=0 + notif penerima).
-      // send-draft (path tulis ND edit) jangan tolak — return success idempotent
-      // agar FE tidak error saat double-path. Hanya untuk naskah asli konsep
-      // (punya id_naskah_konsep).
+      // Naskah konsep yang masih memiliki sirkulasi is_konsep=1 harus tetap
+      // bisa difinalisasi oleh pengirim terakhir. Ini juga memulihkan data
+      // lama yang sempat tersimpan final oleh endpoint draft/update sebelum
+      // status naskah asli diperbaiki menjadi draf.
       const idKonsep = (naskah as any).id_naskah_konsep as string | null;
+      const konsepSirkulasi = await this.naskahSirkulasiRepository.findOne({
+        where: { idNaskah: naskahId, isKonsep: 1 },
+      });
       if (
+        (naskah.status === 'final' || naskah.status === 'final_tte') &&
+        konsepSirkulasi
+      ) {
+        if (!idKonsep) {
+          const konsepNaskah = await this.naskahRepository.findOne({
+            where: { id_naskah_asli: naskahId, jenis: 'K' },
+          });
+          if (konsepNaskah) naskah.id_naskah_konsep = konsepNaskah.id;
+        }
+        naskah.status = 'draf';
+      } else if (
         (naskah.status === 'final' || naskah.status === 'final_tte') &&
         idKonsep
       ) {
+        // Sudah difinalisasi melalui workflow konsep. Perlakukan sebagai
+        // retry yang idempotent, bukan finalisasi kedua.
         const tgl =
           naskah.tanggal instanceof Date
             ? naskah.tanggal.toISOString().split('T')[0]
@@ -2934,6 +2949,8 @@ export class NotaDinasService {
       if (dto.final_pdf !== undefined)
         naskahUpdateData.final_pdf = dto.final_pdf;
       if (dto.english !== undefined) naskahUpdateData.english = dto.english;
+      if (naskah.id_naskah_konsep)
+        naskahUpdateData.id_naskah_konsep = naskah.id_naskah_konsep;
 
       await queryRunner.manager.update(
         NaskahEntity,
