@@ -5,7 +5,8 @@
  * Keamanan berlapis:
  * 1. Hanya SUPERADMIN (RolesGuard) + permission konfigurasi.
  * 2. Allowlist database development (RESET_ALLOWED_DB_NAMES).
- * 3. Hanya aktif saat NODE_ENV=development.
+ * 3. Hanya aktif saat NODE_ENV=development, atau NODE_ENV=qa dengan
+ *    RESET_DATABASE_ENABLED=true.
  * 4. DELETE berurutan dalam satu transaction + verifikasi + commit/rollback.
  */
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
@@ -271,10 +272,22 @@ export class DbResetService {
   }
 
   private assertDevEnvironment(): void {
-    const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (nodeEnv && nodeEnv !== 'development') {
+    // QA server memakai NODE_ENV=qa walaupun DB yang dipakai adalah database
+    // development. Tetap fail-closed: QA harus mengaktifkan fitur ini secara
+    // eksplisit, sedangkan production tidak pernah boleh menggunakannya.
+    const nodeEnv = (
+      this.configService.get<string>('NODE_ENV') || 'development'
+    )
+      .trim()
+      .toLowerCase();
+    const resetEnabled =
+      this.configService.get<string>('RESET_DATABASE_ENABLED') === 'true';
+    const environmentAllowed =
+      nodeEnv === 'development' || (nodeEnv === 'qa' && resetEnabled);
+
+    if (!environmentAllowed) {
       throw new ForbiddenException(
-        'Reset database hanya tersedia di environment development.',
+        `Reset database ditolak untuk NODE_ENV="${nodeEnv}". Gunakan NODE_ENV=development atau aktifkan RESET_DATABASE_ENABLED=true khusus pada server QA development.`,
       );
     }
     const dbName = this.configService.get<string>('DB_NAME') || '';

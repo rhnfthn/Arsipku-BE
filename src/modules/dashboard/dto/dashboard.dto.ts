@@ -16,7 +16,7 @@ export class DashboardSummaryDto {
   disposisi_masuk: number; // Disposisi yang diterima
   disposisi_belum_dibaca: number; // Disposisi yang belum dibaca
   disposisi_high_priority: number; // Disposisi dengan flag priority
-  disposisi_belum_tinjut: number; // Disposisi yang sudah dibaca tapi belum ditindaklanjuti
+  disposisi_belum_tinjut: number; // Semua disposisi yang belum ditindaklanjuti
 
   // Digital Signature
   digsig_menunggu_ttd: number; // Dokumen yang menunggu TTD dari user (status waiting)

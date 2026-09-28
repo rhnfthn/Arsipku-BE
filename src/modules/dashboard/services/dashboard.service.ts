@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, Not, In } from 'typeorm';
+import { Repository, IsNull, Not, In, DataSource } from 'typeorm';
 import { NaskahSirkulasi } from 'src/modules/naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahEntity } from 'src/modules/naskah/entities/naskah.entity';
 import {
@@ -41,18 +41,8 @@ const JENIS_SURAT_LABELS: Record<string, string> = {
   K: 'Konsep',
 };
 
-interface DashboardCacheEntry {
-  data: DashboardResponseDto;
-  expires: number;
-}
-
-const DASHBOARD_CACHE_TTL_MS = 60_000; // 60 detik
-const DASHBOARD_MAX_CACHE = 5_000;
-
 @Injectable()
 export class DashboardService {
-  private readonly dashboardCache = new Map<string, DashboardCacheEntry>();
-
   constructor(
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepo: Repository<NaskahSirkulasi>,
@@ -64,16 +54,8 @@ export class DashboardService {
     private readonly digsigSignerRepo: Repository<DigsigDocumentSignerEntity>,
     @InjectRepository(KonsepEntity)
     private readonly konsepRepo: Repository<KonsepEntity>,
+    private readonly dataSource: DataSource,
   ) {}
-
-  /** Invalidate cache dashboard untuk user tertentu (atau semua) */
-  invalidateDashboardCache(positionId?: number, persnum?: number) {
-    if (positionId !== undefined) {
-      this.dashboardCache.delete(`dashboard:${positionId}:${persnum ?? ''}`);
-    } else {
-      this.dashboardCache.clear();
-    }
-  }
 
   /**
    * Format waktu relatif untuk tampilan
@@ -122,21 +104,76 @@ export class DashboardService {
     const positionIdStr = positionId.toString();
 
     // ==========================================
-    // CACHE CHECK (TTL 60s per user)
-    // ==========================================
-    const cacheKey = `dashboard:${positionId}:${persnum ?? ''}`;
-    const nowTs = Date.now();
-    const cached = this.dashboardCache.get(cacheKey);
-    if (cached && cached.expires > nowTs) {
-      return cached.data;
-    }
-
-    // ==========================================
     // 1-6. SUMMARY DATA — semua count dijalankan PARALEL
     // ==========================================
 
     const sirkulerValues = ['penerima', 'tembusan'];
     const statuses = ['final', 'final_tte'];
+
+    // Mirror latestKonsepForInboxClause dari getInbox() — dedup konsep workflow
+    // (jenis K dengan id_naskah_asli) agar count dashboard = count inbox list.
+    const latestKonsepClause = `
+      AND (
+        n.jenis <> 'K'
+        OR ns.id = (
+          SELECT s2.id
+          FROM naskah_sirkulasi s2
+          INNER JOIN naskah n2 ON s2.id_naskah = n2.id
+          WHERE s2.position = ns.position
+            AND s2.sirkuler IN ('penerima', 'tembusan')
+            AND s2.is_draft = 0
+            AND (s2.is_konsep = 0 OR n2.jenis = 'K')
+            AND n2.jenis = 'K'
+            AND n2.status IN ('final', 'final_tte')
+            AND COALESCE(n2.id_naskah_asli, n2.id) = COALESCE(n.id_naskah_asli, n.id)
+          ORDER BY s2.created_at DESC, s2.id DESC
+          LIMIT 1
+        )
+      )
+    `;
+
+    // Count incoming circulation rows by unique naskah. Data lama dapat memiliki
+    // baris sirkulasi identik sehingga getCount()/COUNT(*) bisa menggandakan
+    // angka dashboard.
+    const distinctIncomingCount = async (
+      extraWhere = '',
+      params: any[] = [],
+    ): Promise<number> => {
+      const rows: any[] = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+         FROM naskah_sirkulasi ns
+         INNER JOIN naskah n ON ns.id_naskah = n.id
+         WHERE ns.position = ?
+           AND ns.sirkuler IN ('penerima', 'tembusan')
+           AND ns.is_draft = 0
+           ${extraWhere}`,
+        [positionIdStr, ...params],
+      );
+      return parseInt(rows[0]?.count || '0', 10);
+    };
+
+    // Count yang harus mirror inbox: status final, bukan arsip, dan hanya konsep
+    // workflow terbaru untuk satu id_naskah_asli.
+    const rawInboxCount = async (
+      extraWhere: string,
+      params: any[] = [],
+    ): Promise<number> => {
+      const rows: any[] = await this.dataSource.query(
+        `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+         FROM naskah_sirkulasi ns
+         INNER JOIN naskah n ON ns.id_naskah = n.id
+         WHERE ns.position = ?
+           AND ns.sirkuler IN ('penerima', 'tembusan')
+           AND ns.is_draft = 0
+           AND (ns.is_konsep = 0 OR n.jenis = 'K')
+           AND n.status IN ('final', 'final_tte')
+           AND ns.flag_arsip = 0
+           ${latestKonsepClause}
+           ${extraWhere}`,
+        [positionIdStr, ...params],
+      );
+      return parseInt(rows[0]?.count || '0', 10);
+    };
 
     const [
       totalPesanMasuk,
@@ -155,95 +192,78 @@ export class DashboardService {
       suratSudahDitinjut,
     ] = await Promise.all([
       // Total Pesan Masuk
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', {
-          isKonsep: false,
-        })
-        .andWhere('n.status IN (:...statuses)', { statuses })
-        .getCount(),
+      distinctIncomingCount(
+        `AND (ns.is_konsep = 0 OR ns.is_konsep IS NULL)
+         AND n.status IN ('final', 'final_tte')`,
+      ),
 
       // Pesan Baru (belum dibaca)
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('ns.send_read_time IS NULL')
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('(ns.is_konsep = :isKonsep OR ns.is_konsep IS NULL)', {
-          isKonsep: false,
-        })
-        .andWhere('n.status IN (:...statuses)', { statuses })
-        .getCount(),
+      distinctIncomingCount(
+        `AND ns.send_read_time IS NULL
+         AND (ns.is_konsep = 0 OR ns.is_konsep IS NULL)
+         AND n.status IN ('final', 'final_tte')`,
+      ),
 
       // Surat Terkirim
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('n.status IN (:...statuses)', { statuses })
-        .getCount(),
+      this.dataSource
+        .query(
+          `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+           FROM naskah_sirkulasi ns
+           INNER JOIN naskah n ON ns.id_naskah = n.id
+           WHERE ns.position = ?
+             AND ns.sirkuler = 'pengirim'
+             AND ns.is_draft = 0
+             AND n.status IN ('final', 'final_tte')`,
+          [positionIdStr],
+        )
+        .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),
 
       // Draft Tersimpan
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler = :sirkuler', { sirkuler: 'pengirim' })
-        .andWhere('n.status = :status', { status: 'draf' })
-        .getCount(),
+      this.dataSource
+        .query(
+          `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+           FROM naskah_sirkulasi ns
+           INNER JOIN naskah n ON ns.id_naskah = n.id
+           WHERE ns.position = ?
+             AND ns.sirkuler = 'pengirim'
+             AND n.status = 'draf'`,
+          [positionIdStr],
+        )
+        .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),
 
       // Disposisi Masuk
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .getCount(),
+      distinctIncomingCount(`AND n.jenis = 'DI'`),
 
       // Disposisi Belum Dibaca
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('ns.send_read_time IS NULL')
-        .getCount(),
+      distinctIncomingCount(
+        `AND n.jenis = 'DI' AND ns.send_read_time IS NULL`,
+      ),
 
       // Disposisi High Priority
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .innerJoin('di', 'd', 'n.id = d.id_naskah')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('d.is_priority = :isPriority', { isPriority: 1 })
-        .getCount(),
+      this.dataSource
+        .query(
+          `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+           FROM naskah_sirkulasi ns
+           INNER JOIN naskah n ON ns.id_naskah = n.id
+           INNER JOIN di d ON n.id = d.id_naskah
+           WHERE ns.position = ?
+             AND ns.sirkuler IN ('penerima', 'tembusan')
+             AND n.jenis = 'DI'
+             AND ns.is_draft = 0
+             AND d.is_priority = 1`,
+          [positionIdStr],
+        )
+        .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),
 
       // Disposisi Belum Ditindaklanjuti
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('n.jenis = :jenis', { jenis: 'DI' })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        .andWhere('ns.send_read_time IS NOT NULL')
-        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
-        .getCount(),
+      // TASK 1: tanpa syarat send_read_time (semua DI belum tinjut, termasuk yang
+      // belum dibaca) + flag_arsip=0 — konsisten dengan inbox tab DI filter Belum Tinjut.
+      // TASK 2: COUNT(DISTINCT id_naskah) untuk dedup baris sirkulasi duplikat.
+      distinctIncomingCount(
+        `AND n.jenis = 'DI'
+         AND ns.tindak_lanjut = 0
+         AND ns.flag_arsip = 0`,
+      ),
 
       // Konsep Masuk
       this.konsepRepo.count({ where: { toPosition: positionIdStr } }),
@@ -253,51 +273,33 @@ export class DashboardService {
         where: { toPosition: positionIdStr, sendReadTime: IsNull() },
       }),
 
-      // Surat Favorit
-      this.naskahSirkulasiRepo.count({
-        where: { position: positionIdStr, flagFavorit: 1, isDraft: false },
-      }),
+      // Surat Favorit — dedup per naskah.
+      this.dataSource
+        .query(
+          `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+           FROM naskah_sirkulasi ns
+           WHERE ns.position = ? AND ns.flag_favorit = 1 AND ns.is_draft = 0`,
+          [positionIdStr],
+        )
+        .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),
 
-      // Surat Arsip
-      this.naskahSirkulasiRepo.count({
-        where: { position: positionIdStr, flagArsip: 1, isDraft: false },
-      }),
+      // Surat Arsip — dedup per naskah.
+      this.dataSource
+        .query(
+          `SELECT COUNT(DISTINCT ns.id_naskah) AS count
+           FROM naskah_sirkulasi ns
+           WHERE ns.position = ? AND ns.flag_arsip = 1 AND ns.is_draft = 0`,
+          [positionIdStr],
+        )
+        .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),
 
       // Perlu Tindak Lanjut
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 0 })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
-        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', {
-          isKonsep: false,
-          konsepJenis: 'K',
-        })
-        .andWhere('n.status IN (:...statuses)', { statuses })
-        // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
-        .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
-        .getCount(),
+      // TASK 2+3: raw SQL mirror inbox (dedup + latestKonsepForInboxClause).
+      rawInboxCount(`AND ns.tindak_lanjut = 0`),
 
       // Surat Sudah Ditindaklanjuti
-      this.naskahSirkulasiRepo
-        .createQueryBuilder('ns')
-        .innerJoin('naskah', 'n', 'ns.id_naskah = n.id')
-        .where('ns.position = :positionId', { positionId: positionIdStr })
-        .andWhere('ns.sirkuler IN (:...sirkulerValues)', { sirkulerValues })
-        .andWhere('ns.tindak_lanjut = :tindakLanjut', { tindakLanjut: 1 })
-        .andWhere('ns.is_draft = :isDraft', { isDraft: false })
-        // ponytail: mirror inbox `(is_konsep=0 OR jenis='K')` so dashboard matches inbox list (exclude legacy NULL is_konsep)
-        .andWhere('(ns.is_konsep = :isKonsep OR n.jenis = :konsepJenis)', {
-          isKonsep: false,
-          konsepJenis: 'K',
-        })
-        .andWhere('n.status IN (:...statuses)', { statuses })
-        // ponytail: exclude archived so count matches inbox default (inbox hides flag_arsip=1)
-        .andWhere('ns.flag_arsip = :flagArsip', { flagArsip: false })
-        .getCount(),
+      // TASK 2+3: raw SQL mirror inbox (dedup + latestKonsepForInboxClause).
+      rawInboxCount(`AND ns.tindak_lanjut = 1`),
     ]);
 
     // Digsig counts (butuh persnum, jalankan paralel juga)
@@ -598,17 +600,6 @@ export class DashboardService {
         statistik_jenis_surat: statistikJenisSurat,
       },
     };
-
-    // ==========================================
-    // SIMPAN KE CACHE (TTL 60s)
-    // ==========================================
-    if (this.dashboardCache.size >= DASHBOARD_MAX_CACHE) {
-      this.dashboardCache.clear();
-    }
-    this.dashboardCache.set(cacheKey, {
-      data: response,
-      expires: Date.now() + DASHBOARD_CACHE_TTL_MS,
-    });
 
     return response;
   }

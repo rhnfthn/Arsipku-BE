@@ -553,10 +553,14 @@ export class NaskahSirkulasiService {
     // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
     // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
     // 'belum_tinjut' = not-actioned only.
+    // Filter tinjut juga diterapkan ke summaryWhereClause agar badge count tab
+    // (Semua/Disposisi/dll) konsisten dengan list yang sedang difilter.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
     } else if (query.tinjut === 'belum_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
@@ -1490,10 +1494,14 @@ export class NaskahSirkulasiService {
     // lanjut BUTTONS are disabled via FE allowedActions when is_tindak_lanjut to
     // prevent double-send). tinjut filter narrows: 'sudah_tinjut' = actioned only,
     // 'belum_tinjut' = not-actioned only.
+    // Filter tinjut juga diterapkan ke summaryWhereClause agar badge count tab
+    // konsisten dengan list yang sedang difilter.
     if (query.tinjut === 'sudah_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 1`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 1`;
     } else if (query.tinjut === 'belum_tinjut') {
       whereClause += ` AND s.tindak_lanjut = 0`;
+      summaryWhereClause += ` AND s.tindak_lanjut = 0`;
     }
 
     // Filter by lock
