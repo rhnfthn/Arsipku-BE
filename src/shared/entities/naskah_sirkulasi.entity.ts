@@ -108,6 +108,9 @@ export class NaskahSirkulasi {
   @Column('boolean', { name: 'is_draft', nullable: true, default: false })
   isDraft: boolean | null;
 
+  @Column('tinyint', { name: 'is_konsep', nullable: true, default: 0 })
+  isKonsep: number | null;
+
   @Column('int', { name: 'urutan', nullable: true, default: 0 })
   urutan: number | null;
 
