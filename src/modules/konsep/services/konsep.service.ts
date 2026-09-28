@@ -5891,6 +5891,27 @@ export class KonsepService {
         if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
         naskah.status = 'final';
 
+        // Lampiran yang sudah tersimpan pada draft tetap berada pada naskah
+        // asli ketika draft dikirim. Lampiran baru masih berstatus temporary,
+        // jadi pindahkan dulu sebelum workflow konsep dibuat.
+        if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
+          const currentJenis = (dto.jenis || naskah.jenis) as 'ND' | 'SDI' | 'SDE';
+          await this.handleLampiranTempIds(
+            idDraft,
+            dto.lampiran_temp_ids,
+            currentJenis,
+            queryRunner.manager,
+          );
+
+          const lampiranCount = await queryRunner.manager.count(
+            NaskahLampiranEntity,
+            { where: { id_naskah: idDraft } },
+          );
+          if (lampiranCount > 0) {
+            naskah.lampiran = `${lampiranCount} file`;
+          }
+        }
+
         // ==========================================
         // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
         // ==========================================
@@ -5925,6 +5946,7 @@ export class KonsepService {
             sifat: naskah.sifat,
             tanggal: naskah.tanggal,
             tandaTangan: naskah.tandaTangan,
+            lampiran: naskah.lampiran,
             status: naskah.status,
             id_naskah_konsep: naskah.id_naskah_konsep,
           },
