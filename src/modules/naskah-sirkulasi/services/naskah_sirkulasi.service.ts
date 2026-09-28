@@ -835,7 +835,6 @@ export class NaskahSirkulasiService {
     };
   }
 
-
   /**
    * Get naskah previous & next dari sebuah naskah di kotak masuk user.
    * Hanya naskah yang user punya akses (sebagai penerima/tembusan) yang
@@ -2061,7 +2060,6 @@ export class NaskahSirkulasiService {
     };
   }
 
-
   /**
    * Get naskah previous & next dari sebuah naskah di kotak keluar (terkirim) user.
    * Hanya naskah yang user kirim (sirkuler = 'pengirim', is_draft=0, is_konsep=0,
@@ -2263,7 +2261,6 @@ export class NaskahSirkulasiService {
       },
     };
   }
-
 
   /**
    * Get naskah previous & next dari sebuah naskah di daftar tertunda user.
