@@ -113,6 +113,28 @@ export class NaskahEntity {
   @Column('varchar', { length: 255, nullable: true })
   final_pdf: string;
 
+  @Column('char', {
+    length: 36,
+    nullable: true,
+    comment:
+      'ID naskah konsep (jenis K) jika ini adalah naskah ND/SDI/SDE dari konsep',
+  })
+  id_naskah_konsep: string | null;
+
+  @Column('char', {
+    length: 36,
+    nullable: true,
+    comment: 'ID naskah ND/SDI/SDE jika ini adalah konsep workflow',
+  })
+  id_naskah_asli: string | null;
+
+  @Column('char', {
+    length: 36,
+    nullable: true,
+    comment: 'ID naskah K parent untuk forward/reject chain',
+  })
+  id_naskah_parent: string | null;
+
   @Column('boolean', { default: false })
   english: boolean;
 

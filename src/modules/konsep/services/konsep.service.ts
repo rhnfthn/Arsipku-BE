@@ -5941,7 +5941,10 @@ export class KonsepService {
         if (dto.sifat) naskah.sifat = dto.sifat;
         if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
         if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
-        naskah.status = 'final';
+        // Yang dikirim ke pemeriksa adalah node workflow K di bawah ini.
+        // Naskah asli harus tetap berstatus draf sampai pengirim terakhir
+        // memfinalisasinya melalui endpoint ND/SDI/SDE/send-draft.
+        naskah.status = 'draf';
 
         // Lampiran yang sudah tersimpan pada draft tetap berada pada naskah
         // asli ketika draft dikirim. Lampiran baru masih berstatus temporary,
@@ -6084,7 +6087,7 @@ export class KonsepService {
           data: {
             id_draft: idDraft,
             id_konsep: naskahKonsepId,
-            status: 'final',
+            status: 'draf',
             updated_at: new Date(),
           },
         };
