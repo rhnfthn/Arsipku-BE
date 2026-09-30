@@ -1198,11 +1198,6 @@ export class AuthService {
     console.log('[AuthService] Session found for user:', session.userPersnum);
     console.log('[AuthService] Session expires at:', session.airnavExpiredAt);
 
-    if (session.airnavExpiredAt < new Date()) {
-      console.error('[AuthService] SSO session expired');
-      throw new UnauthorizedException('SSO session expired');
-    }
-
     // ================================================================
     // 2. Refresh AirNav token
     // ================================================================

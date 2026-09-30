@@ -2441,6 +2441,9 @@ export class DisposisiService {
         position_text: pengirimInfo?.positionText || '',
         organization_text: pengirimInfo?.organizationText || '',
         nama: pengirimInfo?.namaSirkuler || null,
+        persnum: pengirimInfo?.idSirkuler
+          ? parseInt(pengirimInfo.idSirkuler, 10) || 0
+          : 0,
       };
 
       // Build penerima list
@@ -2449,6 +2452,7 @@ export class DisposisiService {
         position_text: p.positionText || '',
         organization_text: p.organizationText || '',
         nama: p.namaSirkuler || null,
+        persnum: p.idSirkuler ? parseInt(p.idSirkuler, 10) || 0 : 0,
       }));
 
       result.push({
@@ -4176,7 +4180,9 @@ export class DisposisiService {
             position_text: pengirimSirkulasi.positionText || '',
             organization_text: pengirimSirkulasi.organizationText || '',
             nama: pengirimSirkulasi.namaSirkuler || null,
-            persnum: pengirimSirkulasi.idSirkuler || null,
+            persnum: pengirimSirkulasi.idSirkuler
+              ? parseInt(pengirimSirkulasi.idSirkuler, 10) || 0
+              : 0,
           }
         : null;
 
@@ -4186,7 +4192,7 @@ export class DisposisiService {
         position_text: p.positionText || '',
         organization_text: p.organizationText || '',
         nama: p.namaSirkuler || null,
-        persnum: p.idSirkuler || null,
+        persnum: p.idSirkuler ? parseInt(p.idSirkuler, 10) || 0 : 0,
         status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
         read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
       }));
