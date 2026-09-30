@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, IsNull } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import {
   UsulanAksesBerkasEntity,
   VerificationStepEntity,
@@ -92,12 +92,21 @@ export class UsulanAksesBerkasService {
 
   private async generateNomorUsulan(): Promise<string> {
     const year = new Date().getFullYear();
-    const count = await this.usulanRepo
+    // Pakai MAX dari sequence (bukan COUNT) agar tidak menghasilkan nomor
+    // duplikat saat ada gap (mis. usulan dihapus). COUNT bisa "mundur" dan
+    // bentrok dengan nomor yang sudah ada.
+    const row = await this.usulanRepo
       .createQueryBuilder('u')
+      .select('MAX(u.nomor_usulan)', 'max')
       .where('u.nomor_usulan LIKE :pattern', { pattern: `UAB-${year}-%` })
-      .getCount();
-    const seq = String(count + 1).padStart(4, '0');
-    return `UAB-${year}-${seq}`;
+      .getRawOne();
+    const maxNomor: string | null = row?.max ?? null;
+    let seq = 1;
+    if (maxNomor) {
+      const match = maxNomor.match(/(\d+)$/);
+      if (match) seq = Number(match[1]) + 1;
+    }
+    return `UAB-${year}-${String(seq).padStart(4, '0')}`;
   }
 
   // ── Helper: Auto-sort verifikator bottom-to-top ────────────────
@@ -1054,8 +1063,6 @@ export class UsulanAksesBerkasService {
     }
 
     // Hapus berkas lama jika ada (revisi case)
-    await this.usulanBerkasRepo.delete({ usulan_id: id });
-
     // Simpan berkas baru — berlakuHingga pakai sentinel sampai akses diterbitkan.
     // Kolom DB NOT NULL, jadi kita tidak bisa null-kan (user tidak punya ALTER privilege).
     // Sentinel akan di-overwrite dengan tanggal sebenarnya saat terbitkanAkses().
@@ -1073,7 +1080,6 @@ export class UsulanAksesBerkasService {
         berlaku_hingga: BERLAKU_HINGGA_SENTINEL as any,
       });
     });
-    await this.usulanBerkasRepo.save(usulanBerkasItems);
 
     // Auto-sort verifikator pemberi (pertahankan catatan per verifikator)
     const sortedVerifikatorPemberi = this.sortVerifikator(
@@ -1098,7 +1104,24 @@ export class UsulanAksesBerkasService {
     usulan.verifikator_pemberi = sortedVerifikatorPemberi;
     usulan.status = StatusUsulan.MENUNGGU_PERSETUJUAN_PEMBERI;
 
-    const saved = await this.usulanRepo.save(usulan);
+    // Jalankan delete berkas lama + simpan berkas baru + update usulan dalam
+    // satu transaksi agar tidak ada data setengah jadi jika gagal di tengah.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    let saved: UsulanAksesBerkasEntity;
+    try {
+      await queryRunner.manager.delete(UsulanBerkasEntity, { usulan_id: id });
+      await queryRunner.manager.save(usulanBerkasItems);
+      saved = await queryRunner.manager.save(usulan);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+
     this.logger.log(`Pilih berkas: ${dto.berkas_ids.length} berkas by persnum=${user.persnum}`);
 
     // Notifikasi ke Verifikator Pemberi Jenjang 1
@@ -1138,38 +1161,6 @@ export class UsulanAksesBerkasService {
     jenisBerkas?: string,
     divisiPemberiId?: number,
   ): Promise<any[]> {
-    const where: any = {
-      status: StatusBerkas.CLOSED_RETENSI_AKTIF,
-      deletedAt: IsNull(),
-    };
-
-    // Filter by unit untuk jenis AKTIF — hanya berkas milik divisi pemberi.
-    // unit_pencipta_id sering NULL di data lama, jadi fallback ke created_by:
-    // cari semua persnum di divisi pemberi, lalu filter berkas by created_by.
-    if (jenisBerkas === JenisBerkas.AKTIF && divisiPemberiId) {
-      // Cari semua persnum di divisi pemberi dari position_json
-      const orgData = await this.orgDataService.findLatestOrg();
-      let divisiPersnums: number[] = [];
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          divisiPersnums = positionJson
-            .filter((p: any) => Number(p.organization_id) === divisiPemberiId && p.persnum_person)
-            .map((p: any) => Number(p.persnum_person));
-        }
-      }
-
-      // Filter: unitPenciptaId = divisiPemberiId OR created_by IN divisiPersnums
-      const orConditions: any[] = [{ unitPenciptaId: divisiPemberiId }];
-      if (divisiPersnums.length > 0) {
-        orConditions.push({ createdBy: In(divisiPersnums) });
-      }
-      where.__or = orConditions;
-    }
-
     this.logger.log(
       `[getEligibleBerkasForPemberi] jenisBerkas=${jenisBerkas}, divisiPemberiId=${divisiPemberiId}`,
     );
@@ -1466,10 +1457,24 @@ export class UsulanAksesBerkasService {
 
       // Update berlakuHingga di usulan_berkas
       ub.berlaku_hingga = tanggalSelesai;
-      await this.usulanBerkasRepo.save(ub);
     }
 
-    await this.aksesRepo.save(entitlements);
+    // Jalankan seluruh penerbitan dalam satu transaksi agar tidak ada
+    // entitlement yang terbit setengah-setengah jika gagal di tengah.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.manager.save(entitlements);
+      await queryRunner.manager.save(usulanBerkas);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+
     this.logger.log(
       `Akses diterbitkan: ${usulan.nomor_usulan}, ${entitlements.length} entitlements`,
     );
@@ -1591,8 +1596,9 @@ export class UsulanAksesBerkasService {
           const usulanFromMap = usulanMap.get(e.usulan_id);
           if (usulanFromMap?.nomor_usulan) existing.nomor_usulan_terbaru = usulanFromMap.nomor_usulan;
         }
-        // Ambil tanggalSelesai terlama (yang masih aktif)
-        if (new Date(e.tanggal_selesai) < new Date(existing.tanggal_selesai)) {
+        // Ambil tanggalSelesai terjauh (masa berlaku terpanjang yang masih aktif)
+        // agar konsisten dengan is_expired (false jika ada satu yang aktif).
+        if (new Date(e.tanggal_selesai) > new Date(existing.tanggal_selesai)) {
           existing.tanggal_selesai = e.tanggal_selesai;
         }
         // Update isExpired — kalau ada satu yang aktif, berkas ini aktif
@@ -1858,6 +1864,8 @@ export class UsulanAksesBerkasService {
 
     return {
       ...berkas,
+      judul_berkas: berkas.judulBerkas,
+      klasifikasi_teks: berkas.klasifikasiTeks,
       permissions: entitlement?.permissions || ['LIHAT'],
       tanggal_mulai: entitlement?.tanggal_mulai || usulan?.tanggal_mulai || null,
       tanggal_selesai: entitlement?.tanggal_selesai || usulan?.tanggal_selesai || null,
@@ -1957,10 +1965,7 @@ export class UsulanAksesBerkasService {
   ): Promise<{ allowed: boolean; usulanId: string | null }> {
     const now = new Date();
 
-    // Hanya pemegang entitlement yang boleh mengakses berkas/naskah.
-    // Verifikator pemberi, SE pemberi, pengusul, dan verifikator pengusul
-    // TIDAK otomatis dapat akses — mereka hanya mengelola usulan, bukan peminjam.
-    // Akses juga terbatas durasi: jika tanggalSelesai sudah lewat, akses habis.
+    // 1. Cek entitlement langsung (peminjam/pengusul yang sudah diterbitkan)
     const entitlement = await this.aksesRepo.findOne({
       where: { user_persnum: userPersnum, berkas_id: berkasId, is_revoked: false },
     });
@@ -1969,6 +1974,26 @@ export class UsulanAksesBerkasService {
         return { allowed: false, usulanId: entitlement.usulan_id };
       }
       return { allowed: true, usulanId: entitlement.usulan_id };
+    }
+
+    // 2. Jika tidak ada entitlement, cek apakah user adalah pengelola (SE Pemberi / Verifikator Pemberi)
+    // yang sedang mereview usulan terkait berkas ini.
+    const usulanBerkasList = await this.usulanBerkasRepo.find({ where: { berkas_id: berkasId } });
+    for (const ub of usulanBerkasList) {
+      const usulan = await this.usulanRepo.findOne({ where: { id: ub.usulan_id } });
+      if (usulan) {
+        // Jika user adalah dari divisi pemberi (SE Pemberi)
+        if (Number(usulan.divisi_pemberi_id) === userOrgId) {
+          return { allowed: true, usulanId: usulan.id };
+        }
+        // Jika user adalah verifikator pemberi
+        const isVerifikator = (usulan.verifikator_pemberi || []).some(
+          (v: any) => Number(v.persnum) === userPersnum,
+        );
+        if (isVerifikator) {
+          return { allowed: true, usulanId: usulan.id };
+        }
+      }
     }
 
     return { allowed: false, usulanId: null };
@@ -1984,23 +2009,28 @@ export class UsulanAksesBerkasService {
     const userOrgId = Number(user.organization);
 
     // 1. Menunggu verifikasi: usulan yang user jadi verifikator & status menunggu
-    //    Exclude usulan yang sudah dibuka user (ada di viewedBy[persnum])
-    const verifyStatuses: string[] = [
-      StatusUsulan.MENUNGGU_VERIFIKASI_PENGUSUL,
-      StatusUsulan.MENUNGGU_VERIFIKASI_AKHIR_PENGUSUL,
-      StatusUsulan.MENUNGGU_VERIFIKASI_EVP_PENGUSUL,
-      StatusUsulan.MENUNGGU_PERSETUJUAN_PEMBERI,
-      StatusUsulan.MENUNGGU_PERSETUJUAN_AKHIR_PEMBERI,
-      StatusUsulan.MENUNGGU_PERSETUJUAN_EVP_PEMBERI,
-    ];
+    //    Hanya dihitung JIKA SEKARANG ADALAH GILIRANNYA (berdasarkan status dan urutan).
+    const conditions: string[] = [];
+
+    // Pengusul
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_VERIFIKASI_PENGUSUL}' AND JSON_CONTAINS(u.verifikator_pengusul, JSON_OBJECT('persnum', :userPersnum, 'urutan', 1)))`);
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_VERIFIKASI_AKHIR_PENGUSUL}' AND JSON_CONTAINS(u.verifikator_pengusul, JSON_OBJECT('persnum', :userPersnum, 'urutan', 2)))`);
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_VERIFIKASI_EVP_PENGUSUL}' AND JSON_CONTAINS(u.verifikator_pengusul, JSON_OBJECT('persnum', :userPersnum, 'urutan', 3)))`);
+
+    // Pemberi
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_PERSETUJUAN_PEMBERI}' AND JSON_CONTAINS(u.verifikator_pemberi, JSON_OBJECT('persnum', :userPersnum, 'urutan', 1)))`);
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_PERSETUJUAN_AKHIR_PEMBERI}' AND JSON_CONTAINS(u.verifikator_pemberi, JSON_OBJECT('persnum', :userPersnum, 'urutan', 2)))`);
+    conditions.push(`(u.status = '${StatusUsulan.MENUNGGU_PERSETUJUAN_EVP_PEMBERI}' AND JSON_CONTAINS(u.verifikator_pemberi, JSON_OBJECT('persnum', :userPersnum, 'urutan', 3)))`);
+
+    // Sekretaris Pemberi
+    if (user.roles?.includes('sekretaris') || user.is_sekretaris) {
+      conditions.push(`(u.status = '${StatusUsulan.TERKIRIM_KE_PEMBERI}' AND u.divisi_pemberi_id = :userOrgId)`);
+    }
+
     const verifyQb = this.usulanRepo.createQueryBuilder('u');
-    verifyQb.where(
-      '(JSON_CONTAINS(u.verifikator_pengusul, JSON_OBJECT(\'persnum\', :userPersnum)) OR JSON_CONTAINS(u.verifikator_pemberi, JSON_OBJECT(\'persnum\', :userPersnum)))',
-      { userPersnum },
-    );
-    verifyQb.andWhere('u.status IN (:...statuses)', { statuses: verifyStatuses });
+    verifyQb.where(`(${conditions.join(' OR ')})`, { userPersnum, userOrgId });
+    
     // Exclude yang sudah viewed: viewedBy[persnum] tidak ada / null
-    // Catatan: key numerik di JSON path harus diapit kutip ('$."10010123"')
     verifyQb.andWhere(
       `(u.viewed_by IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewed_by, '$."${userPersnum}"')) IS NULL)`,
     );
@@ -2008,22 +2038,32 @@ export class UsulanAksesBerkasService {
 
     // 2. Pilih berkas: usulan yang masuk ke divisi user sebagai pemberi & status
     //    PEMILIHAN_BERKAS / REVISI_PEMBERI. Exclude yang sudah dibuka user.
-    const pilihBerkasStatuses: string[] = [
-      StatusUsulan.PEMILIHAN_BERKAS,
-      StatusUsulan.REVISI_PEMBERI,
-    ];
-    const pilihBerkasQb = this.usulanRepo.createQueryBuilder('u');
-    pilihBerkasQb.where('u.divisi_pemberi_id = :userOrgId', { userOrgId });
-    pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
-    pilihBerkasQb.andWhere(
-      `(u.viewed_by IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewed_by, '$."${userPersnum}"')) IS NULL)`,
-    );
-    const pilihBerkas = await pilihBerkasQb.getCount();
+    let pilihBerkas = 0;
+    if (user.roles?.includes('sekretaris') || user.is_sekretaris) {
+      const pilihBerkasStatuses: string[] = [
+        StatusUsulan.PEMILIHAN_BERKAS,
+        StatusUsulan.REVISI_PEMBERI,
+      ];
+      const pilihBerkasQb = this.usulanRepo.createQueryBuilder('u');
+      pilihBerkasQb.where('u.divisi_pemberi_id = :userOrgId', { userOrgId });
+      pilihBerkasQb.andWhere('u.status IN (:...statuses)', { statuses: pilihBerkasStatuses });
+      pilihBerkasQb.andWhere(
+        `(u.viewed_by IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(u.viewed_by, '$."${userPersnum}"')) IS NULL)`,
+      );
+      pilihBerkas = await pilihBerkasQb.getCount();
+    }
 
-    // 3. Akses diterbitkan baru: entitlement user yang isRead=false & belum revoked
-    const aksesDiterbitkanBaru = await this.aksesRepo.count({
-      where: { user_persnum: userPersnum, is_revoked: false, is_read: false },
-    });
+    // 3. Akses diterbitkan baru: entitlement user yang isRead=false & belum revoked.
+    //    Konsisten dengan getMyEntitlements: hanya dari divisi pemberi LAIN
+    //    (bukan divisi user sendiri), agar badge cocok dengan halaman Pemberian.
+    const aksesDiterbitkanBaru = await this.aksesRepo
+      .createQueryBuilder('a')
+      .innerJoin(UsulanAksesBerkasEntity, 'u', 'u.id = a.usulan_id')
+      .where('a.user_persnum = :userPersnum', { userPersnum })
+      .andWhere('a.is_revoked = false')
+      .andWhere('a.is_read = false')
+      .andWhere('u.divisi_pemberi_id != :userOrgId', { userOrgId })
+      .getCount();
 
     return { menunggu_verifikasi: menungguVerifikasi, pilih_berkas: pilihBerkas, akses_diterbitkan_baru: aksesDiterbitkanBaru };
   }
