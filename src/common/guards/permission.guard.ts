@@ -50,7 +50,7 @@ export class PermissionGuard implements CanActivate {
     return perms
       .map((p) => ({
         resource: p.resource,
-        actions: p.actions.filter((a) => a === 'read' || a === 'read-detail'),
+        actions: p.actions.filter((a) => a === 'read' || a.startsWith('read-')),
       }))
       .filter((p) => p.actions.length > 0);
   }
