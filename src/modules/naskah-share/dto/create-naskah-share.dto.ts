@@ -8,6 +8,7 @@ import {
   IsIn,
   IsInt,
   Min,
+  IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -57,4 +58,13 @@ export class CreateNaskahShareDto {
   @IsInt()
   @Min(1)
   durationDays?: number;
+
+  /**
+   * Tanggal berakhir custom (hanya untuk accessType RENTANG_WAKTU dengan
+   * durasi custom). Jika diisi, expiresAt dihitung dari tanggal ini,
+   * bukan dari durationDays.
+   */
+  @IsOptional()
+  @IsDateString()
+  customTanggalSelesai?: string;
 }
