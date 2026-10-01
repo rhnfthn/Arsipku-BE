@@ -8,7 +8,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
-import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
+import {
+  delegatedPengirimFields,
+  delegatedRecipientFields,
+} from '../../../common/helpers/delegasi-rendering.helper';
+import { isAllowedCorrespondenceRecipient } from '../../../common/utils/correspondence-recipient.util';
+import {
+  createCorrespondenceAttachmentFileName,
+  createCorrespondenceFinalFileName,
+} from '../../../common/utils/correspondence-file-name.util';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../../shared/entities/naskah_referensi.entity';
@@ -77,6 +85,7 @@ import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { formatDeputyPositionLabel } from '../helpers/deputy-position-label.helper';
+import { formatSdiPdfRecipientLabel } from '../helpers/sdi-pdf-recipient-label.helper';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 const TODAY = new Date().toISOString().split('T')[0];
@@ -172,6 +181,7 @@ export class SuratDinasInternalService {
     grupPenerimaIds: string[] | undefined,
     tgl?: string,
     excludePositionId?: number,
+    tujuan?: 'PENERIMA' | 'TEMBUSAN',
   ): Promise<number[]> {
     const allPositionIds = new Set<number>();
 
@@ -185,11 +195,17 @@ export class SuratDinasInternalService {
       for (const grupId of grupPenerimaIds) {
         try {
           const grupPositions =
-            await this.grupPenerimaService.expandGrupToPositions(grupId, tgl);
+            await this.grupPenerimaService.expandGrupToPositions(
+              grupId,
+              tgl,
+              excludePositionId,
+              tujuan,
+            );
           grupPositions.forEach((pos) =>
             allPositionIds.add(Number(pos.position)),
           );
         } catch (error) {
+          if (error instanceof BadRequestException) throw error;
           console.warn(
             `[SDI:expandGrupPenerima] Failed to expand grup ${grupId}:`,
             error.message,
@@ -239,7 +255,7 @@ export class SuratDinasInternalService {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
         if (pos) {
-          names.push(formatDeputyPositionLabel(pos));
+          names.push(formatSdiPdfRecipientLabel(pos));
         }
       }
     }
@@ -514,8 +530,8 @@ export class SuratDinasInternalService {
       const position = barisData.find((p: any) => p.position === numericId);
 
       if (position) {
-        // Return position_text only (without organization_text)
-        const fullName = formatDeputyPositionLabel(position);
+        // Label PDF penerima, termasuk nama dan lokasi untuk GM.
+        const fullName = formatSdiPdfRecipientLabel(position);
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -548,13 +564,16 @@ export class SuratDinasInternalService {
     lampiran: string = '-',
     headerInfo?: { kantor: string; gedung: string; alamat: string },
     qrCodeHtml?: string,
+    signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
 
       // Generate preview QR code jika qrCodeHtml tidak disediakan
+      const isBsre =
+        String(signOption || '').toLowerCase() === SignOption.DIGSIG;
       let previewQrHtml = qrCodeHtml;
-      if (!previewQrHtml) {
+      if (!previewQrHtml && !isBsre) {
         previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
       }
 
@@ -576,6 +595,7 @@ export class SuratDinasInternalService {
         headerAlamat: headerInfo?.alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
       });
 
       return pdfBuffer;
@@ -602,6 +622,7 @@ export class SuratDinasInternalService {
     nomor: string = '',
     lampiran: string = '-',
     headerInfo?: { kantor: string; gedung: string; alamat: string },
+    signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -631,6 +652,8 @@ export class SuratDinasInternalService {
         nomor,
         lampiranText,
         headerInfo,
+        undefined,
+        signOption,
       );
 
       // If lampiran files exist, merge with main PDF
@@ -741,6 +764,16 @@ export class SuratDinasInternalService {
    * @param naskahId - ID naskah yang akan dikaitkan
    * @param finalFolder - Folder tujuan (e.g., 'surat-dinas-internal/lampiran')
    */
+  private async createFinalPdfFileName(
+    jenis: string,
+    naskahId: string,
+  ): Promise<string> {
+    const attachmentCount = await this.naskahLampiranRepository.count({
+      where: { id_naskah: naskahId },
+    });
+    return createCorrespondenceFinalFileName(jenis, attachmentCount);
+  }
+
   private async moveTemporaryLampiranToFinal(
     lampiranIds: string[],
     naskahId: string,
@@ -789,13 +822,11 @@ export class SuratDinasInternalService {
 
     // Move each file and update database
     for (const lampiran of tempLampiran) {
-      const fileName = lampiran.file_name;
       const oldKey = lampiran.file_pdf;
 
       // Generate new key untuk final location
-      const timestamp = Date.now();
-      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+      const fileName = createCorrespondenceAttachmentFileName('SDI');
+      const newKey = `${finalFolder}/${fileName}`;
 
       try {
         // Move file di storage
@@ -804,6 +835,7 @@ export class SuratDinasInternalService {
         // Update database
         lampiran.id_naskah = naskahId;
         lampiran.file_pdf = newKey;
+        lampiran.file_name = fileName;
         lampiran.jenis = 'SDI';
         lampiran.is_temporary = 0;
         lampiran.temp_folder_id = null;
@@ -1180,7 +1212,7 @@ export class SuratDinasInternalService {
   private toSirkulasiInfo(pos: SdiOrgDataPositionDto): SirkulasiInfoDto {
     return {
       position: pos.position,
-      position_text: formatDeputyPositionLabel(pos),
+      position_text: formatSdiPdfRecipientLabel(pos),
       persnum: pos.persnum_person ?? pos.persnum ?? null,
       nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
@@ -1215,7 +1247,10 @@ export class SuratDinasInternalService {
     }
     // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
     const _pf = delegatedPengirimFields(
-      actorUser ?? { position_status: null, nama: '' },
+      actorUser ?? {
+        position_status: pos.position_status ?? pos.positionStatus ?? null,
+        nama: pos.persnum_person_text ?? pos.nama ?? '',
+      },
       formatDeputyPositionLabel(pos),
       (pos as any).persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
     );
@@ -1714,10 +1749,14 @@ export class SuratDinasInternalService {
       recipients: {
         REKAN: rekanIds
           .map(decorate)
-          .filter(Boolean) as SdiOrgDataPositionDto[],
+          .filter(
+            (item) => item && isAllowedCorrespondenceRecipient(item),
+          ) as SdiOrgDataPositionDto[],
         TEMBUSAN: routing.tembusanIds
           .map(decorate)
-          .filter(Boolean) as SdiOrgDataPositionDto[],
+          .filter(
+            (item) => item && isAllowedCorrespondenceRecipient(item),
+          ) as SdiOrgDataPositionDto[],
       },
     };
   }
@@ -1770,6 +1809,7 @@ export class SuratDinasInternalService {
       dto.penerima_grup,
       tanggal,
       Number(dto.pengirim),
+      'PENERIMA',
     );
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException(
@@ -1810,6 +1850,7 @@ export class SuratDinasInternalService {
       dto.tembusan_grup,
       tanggal,
       Number(dto.pengirim),
+      'TEMBUSAN',
     );
 
     // Build position → grup mapping for tembusan
@@ -2185,8 +2226,10 @@ export class SuratDinasInternalService {
           }
 
           // Upload PDF to storage with organized folder structure
-          const timestamp = Date.now();
-          const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+          const pdfFileName = await this.createFinalPdfFileName(
+            'SDI',
+            naskahId,
+          );
           const uploadResult = await this.storageService.uploadBuffer(
             pdfBuffer,
             pdfFileName,
@@ -2328,6 +2371,7 @@ export class SuratDinasInternalService {
       dto.penerima_grup,
       tanggal,
       Number(dto.pengirim),
+      'PENERIMA',
     );
     if (expandedPenerimaIds.length === 0) {
       throw new BadRequestException(
@@ -2364,6 +2408,7 @@ export class SuratDinasInternalService {
       dto.tembusan_grup,
       tanggal,
       Number(dto.pengirim),
+      'TEMBUSAN',
     );
 
     // Build position → grup mapping for tembusan
@@ -2731,6 +2776,7 @@ export class SuratDinasInternalService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
         });
         console.log(`[SDI] PDF generated successfully`);
 
@@ -2870,8 +2916,7 @@ export class SuratDinasInternalService {
         // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
-        const finalTimestamp = Date.now();
-        const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${finalTimestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName('SDI', naskahId);
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,
@@ -3279,6 +3324,7 @@ export class SuratDinasInternalService {
             dto.penerima_grup,
             tanggal,
             Number(pengirimPosition?.position ?? dto.pengirim),
+            'PENERIMA',
           );
           if (dto.penerima_grup?.length) {
             penerimaGrupMap =
@@ -3329,6 +3375,7 @@ export class SuratDinasInternalService {
             dto.tembusan_grup,
             tanggal,
             Number(pengirimPosition?.position ?? dto.pengirim),
+            'TEMBUSAN',
           );
           if (dto.tembusan_grup?.length) {
             tembusanGrupMap =
@@ -3481,8 +3528,13 @@ export class SuratDinasInternalService {
             barisData,
           );
         } else {
-          kepadaYthList = penerimaListForPdf.map(
-            (p) => `${formatDeputyPositionLabel(p)} - ${p.organizationText}`,
+          kepadaYthList = penerimaListForPdf.map((p) =>
+            formatSdiPdfRecipientLabel({
+              position_text: p.positionText,
+              namaSirkuler: p.namaSirkuler,
+              subAreaText: p.subAreaText,
+              areaText: p.areaText,
+            }),
           );
         }
 
@@ -3504,8 +3556,13 @@ export class SuratDinasInternalService {
             barisData,
           );
         } else {
-          tembusanTextList = tembusanListForPdf.map(
-            (t) => `${formatDeputyPositionLabel(t)} - ${t.organizationText}`,
+          tembusanTextList = tembusanListForPdf.map((t) =>
+            formatSdiPdfRecipientLabel({
+              position_text: t.positionText,
+              namaSirkuler: t.namaSirkuler,
+              subAreaText: t.subAreaText,
+              areaText: t.areaText,
+            }),
           );
         }
 
@@ -3673,6 +3730,7 @@ export class SuratDinasInternalService {
             headerGedung: headerInfo?.gedung,
             headerAlamat: headerInfo?.alamat,
             qrCodeHtml: qrCodeHtml,
+            bsreFooter: dto.sign_option === SignOption.DIGSIG,
           });
 
           // Re-merge with lampiran if any
@@ -3789,8 +3847,7 @@ export class SuratDinasInternalService {
         }
 
         // Upload PDF to storage
-        const timestamp = Date.now();
-        const pdfFileName = `SDI-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName('SDI', naskahId);
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,
@@ -4072,6 +4129,7 @@ export class SuratDinasInternalService {
             dto.penerima_grup,
             tanggal,
             Number(dto.pengirim ?? pengirimPosition?.position),
+            'PENERIMA',
           );
           for (const posId of expandedPenerimaIds) {
             const penerima = barisData.find(
@@ -4116,6 +4174,7 @@ export class SuratDinasInternalService {
             dto.tembusan_grup,
             tanggal,
             Number(dto.pengirim ?? pengirimPosition?.position),
+            'TEMBUSAN',
           );
           for (const posId of expandedTembusanIds) {
             const tembusan = barisData.find(
@@ -4780,7 +4839,7 @@ export class SuratDinasInternalService {
 
     // helper push aman
     const pushUnique = (item?: SdiOrgDataPositionDto) => {
-      if (!item) return;
+      if (!item || !isAllowedCorrespondenceRecipient(item)) return;
       const key = Number(item.position);
       if (added.has(key)) return;
       added.add(key);
@@ -5071,8 +5130,9 @@ export class SuratDinasInternalService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: formatDeputyPositionLabel(penerima),
-          positionStatus: 'ybs',
+          positionText: formatSdiPdfRecipientLabel(penerima),
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -5111,8 +5171,8 @@ export class SuratDinasInternalService {
           nama: penerima.persnum_person_text || '',
           position_id: String(penerima.position),
           abbreviation: '',
-          position_status: 'ybs',
-          positionText: formatDeputyPositionLabel(penerima),
+          position_status: delegatedRecipientFields(penerima).positionStatus,
+          positionText: formatSdiPdfRecipientLabel(penerima),
           organizationText: penerima.organization_text,
           subAreaText: penerima.sub_area_text || '',
           areaText: penerima.area_text || '',
@@ -5137,8 +5197,9 @@ export class SuratDinasInternalService {
           organization: String(tembusan.organization_id),
           organizationText: tembusan.organization_text,
           position: String(tembusan.position),
-          positionText: formatDeputyPositionLabel(tembusan),
-          positionStatus: 'ybs',
+          positionText: formatSdiPdfRecipientLabel(tembusan),
+          positionStatus: delegatedRecipientFields(tembusan)
+            .positionStatus as any,
           idSirkuler: tembusan.persnum_person
             ? String(tembusan.persnum_person)
             : '',
@@ -5177,8 +5238,8 @@ export class SuratDinasInternalService {
           nama: tembusan.persnum_person_text || '',
           position_id: String(tembusan.position),
           abbreviation: '',
-          position_status: 'ybs',
-          positionText: formatDeputyPositionLabel(tembusan),
+          position_status: delegatedRecipientFields(tembusan).positionStatus,
+          positionText: formatSdiPdfRecipientLabel(tembusan),
           organizationText: tembusan.organization_text,
           subAreaText: tembusan.sub_area_text || '',
           areaText: tembusan.area_text || '',
@@ -5245,8 +5306,8 @@ export class SuratDinasInternalService {
 
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
       // Define variables for PDF generation
-      const kepadaYthList = penerimaList.map(
-        (p) => `${formatDeputyPositionLabel(p)} - ${p.organization_text}`,
+      const kepadaYthList = penerimaList.map((p) =>
+        formatSdiPdfRecipientLabel(p),
       );
       const namaJabatan = formatDeputyPositionLabel({
         ...pengirim,
@@ -5278,10 +5339,7 @@ export class SuratDinasInternalService {
           penerima: kepadaYthList,
           tembusan:
             tembusanList.length > 0
-              ? tembusanList.map(
-                  (t) =>
-                    `${formatDeputyPositionLabel(t)} ${t.organization_text}`,
-                )
+              ? tembusanList.map((t) => formatSdiPdfRecipientLabel(t))
               : [],
           perihal: perihal,
           sifat: dto.sifat,
@@ -5312,8 +5370,10 @@ export class SuratDinasInternalService {
         }
 
         // Upload PDF to storage
-        const timestamp = Date.now();
-        const pdfFileName = `${dto.jenis}-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName(
+          dto.jenis,
+          naskahId,
+        );
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,

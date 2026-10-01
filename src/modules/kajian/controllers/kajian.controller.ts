@@ -56,8 +56,8 @@ export class KajianController {
    * Get eligible recipients for Kajian based on position ID
    *
    * Kajian Rules:
-   * - Sender: Semua (Managerial, Fungsional, Staff)
-   * - Recipients: ATASAN saja (langsung & tidak langsung) dalam Sub Area yang sama
+   * - Sender: Fungsional/Staff saja (chief=0)
+   * - Recipients: Managerial di atas pengirim sampai Direktur Utama
    * - BAWAHAN: [] (tidak boleh ke bawahan)
    * - REKAN: [] (tidak boleh ke sesama level)
    *
@@ -829,6 +829,8 @@ export class KajianController {
         body.tgl || dto.tgl,
         body.nama_tempat || dto.nama_tempat,
         headerInfo || undefined,
+        undefined,
+        body.sign_option,
       );
 
       res.set({

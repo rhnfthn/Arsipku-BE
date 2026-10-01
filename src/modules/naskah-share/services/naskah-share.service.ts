@@ -388,20 +388,26 @@ export class NaskahShareService {
     const now = new Date();
 
     // ── Pagination dua tahap ──────────────────────────────────────────
-    // Karena `recipients` di-join, skip/take pada baris join bisa memotong
-    // share yang punya banyak penerima. Maka: (1) ambil ID share unik yang
-    // sudah di-paginate, (2) ambil share + recipients untuk ID tersebut.
+    // Ambil ID share terlebih dahulu, baru detail + recipients. Untuk tab
+    // shared-to-me gunakan EXISTS, bukan JOIN + DISTINCT. MySQL dengan
+    // ONLY_FULL_GROUP_BY menolak ORDER BY created_at jika kolom itu tidak
+    // ada di SELECT DISTINCT, yang sebelumnya menyebabkan endpoint 500.
     const idQb = this.shareRepo
       .createQueryBuilder('share')
-      .select('share.id', 'id')
-      .leftJoin('share.recipients', 'recipients');
+      .select('share.id', 'id');
 
     if (tab === 'shared-by-me') {
       idQb.where('share.pemberiId = :positionId', { positionId: user.position });
     } else {
-      idQb.where('recipients.recipientId = :positionId', {
-        positionId: user.position,
-      });
+      idQb.where(
+        `EXISTS (
+          SELECT 1
+          FROM naskah_share_recipient share_recipient_filter
+          WHERE share_recipient_filter.share_id = share.id
+            AND share_recipient_filter.recipient_id = :positionId
+        )`,
+        { positionId: user.position },
+      );
     }
 
     if (query.status === ShareStatus.AKTIF) {
@@ -412,14 +418,29 @@ export class NaskahShareService {
         now,
       });
       if (tab === 'shared-to-me') {
-        idQb.andWhere('recipients.status != :recBerakhir', {
-          recBerakhir: RecipientStatus.BERAKHIR,
-        });
+        idQb.andWhere(
+          `EXISTS (
+            SELECT 1
+            FROM naskah_share_recipient share_recipient_active
+            WHERE share_recipient_active.share_id = share.id
+              AND share_recipient_active.recipient_id = :positionId
+              AND share_recipient_active.status != :recBerakhir
+          )`,
+          { recBerakhir: RecipientStatus.BERAKHIR },
+        );
       }
     } else if (query.status === ShareStatus.BERAKHIR) {
       if (tab === 'shared-to-me') {
         idQb.andWhere(
-          '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now) OR recipients.status = :recBerakhir)',
+          `(share.status = :berakhirStatus
+            OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now)
+            OR EXISTS (
+              SELECT 1
+              FROM naskah_share_recipient share_recipient_expired
+              WHERE share_recipient_expired.share_id = share.id
+                AND share_recipient_expired.recipient_id = :positionId
+                AND share_recipient_expired.status = :recBerakhir
+            ))`,
           {
             berakhirStatus: ShareStatus.BERAKHIR,
             now,

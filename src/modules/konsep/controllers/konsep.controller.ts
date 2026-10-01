@@ -641,6 +641,7 @@ export class KonsepController {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(
           penerimaArray,
           body.tgl,
+          jenis,
         );
       }
 
@@ -663,6 +664,7 @@ export class KonsepController {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(
           tembusanArray,
           body.tgl,
+          jenis,
         );
       }
 
@@ -784,6 +786,7 @@ export class KonsepController {
         penerimaArray = await this.konsepService.convertPositionIdsToNames(
           penerimaArray,
           body.tgl,
+          jenis,
         );
       }
 
@@ -806,6 +809,7 @@ export class KonsepController {
         tembusanArray = await this.konsepService.convertPositionIdsToNames(
           tembusanArray,
           body.tgl,
+          jenis,
         );
       }
 

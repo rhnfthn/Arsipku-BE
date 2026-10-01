@@ -34,6 +34,7 @@ interface NodinPdfOptions {
   headerAlamat?: string;
   // QR Code HTML (optional - passed from digsig signing or preview)
   qrCodeHtml?: string;
+  bsreFooter?: boolean;
 }
 
 @Injectable()
@@ -277,6 +278,12 @@ export class GeneratePdfNodinService {
 
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
+    const bsreFooter = body.bsreFooter
+      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
+          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
+          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
+        </div>`
+      : '';
 
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
@@ -341,7 +348,8 @@ export class GeneratePdfNodinService {
       header3 +
       bodyContent +
       ttdWrapped +
-      tembusanKonten;
+      tembusanKonten +
+      bsreFooter;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = '';

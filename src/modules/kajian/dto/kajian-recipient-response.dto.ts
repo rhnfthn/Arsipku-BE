@@ -30,6 +30,10 @@ export class OrgDataPositionDto {
 
   persnum_person: number | null;
   persnum_person_text: string | null;
+  position_status?: string | null;
+  positionStatus?: string | null;
+  delegation_id?: string | null;
+  is_delegated?: boolean;
 
   organization_id: number;
   organization_text: string;
@@ -55,7 +59,8 @@ export class OrgDataPositionDto {
 
 /**
  * Response DTO dengan grouping ATASAN, REKAN, BAWAHAN
- * Untuk Kajian: hanya ATASAN yang berisi, REKAN & BAWAHAN selalu kosong
+ * Untuk Kajian: hanya managerial di atas pengirim sampai Direktur Utama yang berisi;
+ * REKAN & BAWAHAN selalu kosong.
  */
 export class KajianRecipientGroupDto {
   ATASAN: OrgDataPositionDto[];

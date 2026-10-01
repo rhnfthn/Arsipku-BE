@@ -26,7 +26,22 @@ interface GeneratePdfDispoBody {
   catatan?: string;
   // QR Code HTML (optional - passed from digsig signing or preview)
   qrCodeHtml?: string;
+  bsreFooter?: boolean;
 }
+
+export const buildDisposisiRecipientHtml = (
+  recipients: string[] = [],
+): string => {
+  const sortedRecipients = [...recipients].sort((a, b) =>
+    a.localeCompare(b, 'id'),
+  );
+  if (sortedRecipients.length === 0) return '';
+  if (sortedRecipients.length === 1) return sortedRecipients[0];
+
+  return `<ol style="margin: 0; padding-left: 22px;">${sortedRecipients
+    .map((recipient) => `<li>${recipient}</li>`)
+    .join('')}</ol>`;
+};
 
 @Injectable()
 export class GeneratePdfDispoService {
@@ -224,29 +239,9 @@ export class GeneratePdfDispoService {
     // QR Code section (optional - passed from digsig signing or preview)
     const qrCodeHtml = body.qrCodeHtml || '';
 
-    // Format penerima - sort ascending dan hanya tampilkan position text (tanpa organisasi)
-    // Jika format "Position - Organization", ambil hanya Position
-    const sortedPenerima = [...penerima].sort((a, b) =>
-      a.localeCompare(b, 'id'),
-    );
-    let penerimaHtml = '';
-    if (Array.isArray(sortedPenerima) && sortedPenerima.length > 0) {
-      // Extract only position text if format is "Position - Organization"
-      const cleanPenerima = sortedPenerima.map((p) => {
-        if (p.includes(' - ')) {
-          return p.split(' - ')[0].trim();
-        }
-        return p;
-      });
-
-      if (cleanPenerima.length === 1) {
-        penerimaHtml = cleanPenerima[0];
-      } else {
-        penerimaHtml = cleanPenerima
-          .map((p) => `<div style="margin-left: 20px;">${p}</div>`)
-          .join('');
-      }
-    }
+    // Format penerima mengikuti label yang sudah di-resolve oleh DisposisiService.
+    // Lebih dari satu penerima diberi nomor; satu penerima tampil tanpa nomor.
+    const penerimaHtml = buildDisposisiRecipientHtml(penerima);
 
     // Format disposisi dengan checkboxes
     // Daftar lengkap semua pilihan disposisi (layout 3 kolom vertikal sesuai gambar)
@@ -326,20 +321,19 @@ export class GeneratePdfDispoService {
       <div style="border: 2px solid #000; font-family: 'Times New Roman', Times, serif; font-size: 12px;">
         <!-- Header Section -->
         <div style="display: flex; border-bottom: 2px solid #000;">
-          <div style="width: 66.6%; padding: 12px; display: flex; align-items: center; gap: 16px; border-right: 2px solid #000;">
+          <div style="width: 66.6%; padding: 12px; display: flex; align-items: center; gap: 16px;">
             ${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 48px; width: auto; max-width: 60px;" />` : '<div style="width:60px;height:48px;background:#e0e0e0;border:1px solid #999;"></div>'}
             <span style="font-weight: bold; font-size: 16px; letter-spacing: 1px;">AirNav Indonesia</span>
           </div>
           <div style="width: 33.3%; padding: 12px; display: flex; flex-direction: column; justify-content: center; text-align: center; font-weight: bold; font-size: 11px;">
-            <div>LEMBAR DISPOSISI</div>
-            <div style="text-transform: uppercase; margin-top: 4px;">${pengirim}</div>
+            <div>DISPOSISI</div>
           </div>
         </div>
 
         <!-- Info Section -->
         <div style="display: flex; border-bottom: 2px solid #000;">
           <!-- Agenda (Kiri) - Tanggal terkirim disposisi dari kita -->
-          <div style="width: 15%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
+          <div style="width: 20%; border-right: 2px solid #000; padding: 12px; display: flex; flex-direction: column;">
             <div style="font-weight: bold; text-decoration: underline; margin-bottom: 12px;">AGENDA</div>
             <div style="font-size: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 8px;">
               <div>No: ${body.nomorAgenda || '........'}</div>
@@ -348,7 +342,7 @@ export class GeneratePdfDispoService {
           </div>
 
           <!-- Detail Info (Tengah) - Data dari referensi surat yang didisposisi -->
-          <div style="width: 55%; border-right: 2px solid #000; padding: 12px;">
+          <div style="width: 50%; border-right: 2px solid #000; padding: 12px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
               <tr style="border-bottom: none;">
                 <td style="width: 70px; padding: 4px 0;">Surat dari</td>
@@ -401,11 +395,12 @@ export class GeneratePdfDispoService {
           <div style="padding: 12px; font-size: 10px; flex: 1;">
             ${catatan || htmlCatatan || ''}
           </div>
-          ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-start; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
+          ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-end; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
+          ${body.bsreFooter ? `<div style="padding:12px;font-size:9pt;line-height:1.25;text-align:left;">Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara</div>` : ''}
         </div>
 
         <!-- Footer -->
-        <div style="border-top: 2px solid #000; padding: 8px 12px; font-size: 9px; font-weight: bold; text-align: center; background-color: #f9f9f9;">
+        <div style="border-top: 2px solid #000; padding: 8px 12px; font-size: 9px; font-weight: bold; text-align: left; background-color: #f9f9f9;">
           Lembar disposisi ini menjadi bagian yang tidak terpisahkan dari nomor dan tanggal surat pada agenda ini.
         </div>
       </div>
