@@ -388,6 +388,7 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+    this.orgDataService.invalidateDelegationOverlayCache();
 
     // Integrasi organization_tu: jika position_status === SE (Sekretaris),
     // insert ke tabel organization_tu dengan role sekretaris_delegasi.
@@ -713,6 +714,7 @@ export class DelegasiService {
     });
 
     const saved = await this.delegasiRepository.save(delegasi);
+    this.orgDataService.invalidateDelegationOverlayCache();
 
     // Integrasi organization_tu: sync record organization_tu jika position_status === SE.
     if (saved.position_status === PositionStatus.SE && saved.as_persnum) {
@@ -771,6 +773,7 @@ export class DelegasiService {
     }
 
     await this.delegasiRepository.remove(delegasi);
+    this.orgDataService.invalidateDelegationOverlayCache();
     this.notifyDelegasi(
       delegasi,
       'owner',

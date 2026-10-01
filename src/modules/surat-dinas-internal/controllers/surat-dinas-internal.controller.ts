@@ -793,6 +793,7 @@ export class SuratDinasInternalController {
           body.nomor || '',
           body.lampiran || '-',
           headerInfo || undefined,
+          body.sign_option,
         );
 
       res.set({
@@ -1026,6 +1027,8 @@ export class SuratDinasInternalController {
         body.nomor || '',
         body.lampiran || '-',
         headerInfo || undefined,
+        undefined,
+        body.sign_option,
       );
 
       res.set({

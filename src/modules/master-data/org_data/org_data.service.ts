@@ -7,7 +7,9 @@ import { CreateOrgDatumDto } from './dto/create-org_datum.dto';
 import { UpdateOrgDatumDto } from './dto/update-org_datum.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { OrgDatum } from './entities/org_datum.entity';
-import { Repository } from 'typeorm';
+import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
 
 interface CacheEntry<T> {
   data: T;
@@ -15,6 +17,7 @@ interface CacheEntry<T> {
 }
 
 const ORG_CACHE_TTL_MS = 5 * 60_000; // 5 menit
+const DELEGATION_CACHE_TTL_MS = 15_000;
 const PERSNUM_CACHE_MAX = 5_000;
 
 export type OrgPositionSnapshot = Pick<
@@ -41,10 +44,16 @@ export class OrgDataService {
 
   // Cache findByPersnum(persnum) — per user
   private persnumCache = new Map<number, CacheEntry<any | null>>();
+  private delegationByDateCache = new Map<
+    string,
+    CacheEntry<DelegasiEntity[]>
+  >();
 
   constructor(
     @InjectRepository(OrgDatum)
     private readonly cRepo: Repository<OrgDatum>,
+    @InjectRepository(DelegasiEntity)
+    private readonly delegasiRepo: Repository<DelegasiEntity>,
   ) {}
 
   /** Bust seluruh cache (panggil saat data org_data berubah / regenerate) */
@@ -54,12 +63,96 @@ export class OrgDataService {
     this.orgByDateCache.clear();
     this.positionByDateCache.clear();
     this.persnumCache.clear();
+    this.delegationByDateCache.clear();
+  }
+
+  /** Bust overlay saat konfigurasi delegasi dibuat, diubah, atau dihapus. */
+  invalidateDelegationOverlayCache() {
+    this.delegationByDateCache.clear();
+  }
+
+  private async getActivePositionDelegations(
+    effectiveDate: string,
+  ): Promise<DelegasiEntity[]> {
+    const cached = this.delegationByDateCache.get(effectiveDate);
+    if (cached && cached.expires > Date.now()) return cached.data;
+
+    const data = await this.delegasiRepo.find({
+      where: {
+        position_status: In([
+          PositionStatus.PT,
+          PositionStatus.PH,
+          PositionStatus.PS,
+        ]),
+        start_date: LessThanOrEqual(new Date(effectiveDate)),
+        end_date: MoreThanOrEqual(new Date(effectiveDate)),
+      },
+      order: { update_at: 'DESC', create_at: 'DESC' },
+    });
+    this.delegationByDateCache.set(effectiveDate, {
+      data,
+      expires: Date.now() + DELEGATION_CACHE_TTL_MS,
+    });
+    return data;
+  }
+
+  /**
+   * Isi pejabat efektif pada position_json dari delegasi PT/PH/PS aktif.
+   * Position tetap jabatan yang didelegasikan; person dan nama menjadi aktor
+   * delegasi agar dropdown, sirkulasi, preview, dan PDF memakai identitas sama.
+   */
+  private async withActiveDelegations<T extends { position_json?: any }>(
+    orgData: T | null,
+    effectiveDate?: string,
+  ): Promise<T | null> {
+    if (!orgData || !Array.isArray(orgData.position_json)) return orgData;
+    const date =
+      effectiveDate ||
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    const delegations = await this.getActivePositionDelegations(date);
+    if (!delegations.length) return orgData;
+
+    const byPosition = new Map<string, DelegasiEntity>();
+    for (const delegation of delegations) {
+      const positionId = String(delegation.as_position || '').trim();
+      if (positionId && !byPosition.has(positionId)) {
+        byPosition.set(positionId, delegation);
+      }
+    }
+    if (!byPosition.size) return orgData;
+
+    const positionJson = orgData.position_json.map((position: any) => {
+      const delegation = byPosition.get(String(position?.position ?? ''));
+      if (!delegation) return position;
+      const persnum = Number(delegation.as_persnum);
+      return {
+        ...position,
+        persnum_person: Number.isFinite(persnum) ? persnum : delegation.as_persnum,
+        persnum_person_text: delegation.as_name || position.persnum_person_text,
+        persnum: Number.isFinite(persnum) ? persnum : delegation.as_persnum,
+        nama: delegation.as_name || position.nama,
+        position_status: delegation.position_status,
+        positionStatus: delegation.position_status,
+        delegation_id: delegation.id,
+        is_delegated: true,
+      };
+    });
+
+    return { ...orgData, position_json: positionJson };
   }
 
   async findAll(): Promise<OrgDatum[]> {
-    return this.cRepo.find({
+    const rows = await this.cRepo.find({
       order: { createAt: 'DESC' },
     });
+    if (!rows.length) return rows;
+    const latest = await this.withActiveDelegations(rows[0]);
+    return latest ? [latest as OrgDatum, ...rows.slice(1)] : rows;
   }
 
   findBodByCompany(
@@ -193,7 +286,7 @@ export class OrgDataService {
           `Data untuk tanggal ${tgl} tidak ditemukan`,
         );
       }
-      return cached.data;
+      return (await this.withActiveDelegations(cached.data, tgl))!;
     }
 
     const result = await this.cRepo.findOne({ where: { tgl } });
@@ -206,7 +299,7 @@ export class OrgDataService {
       throw new NotFoundException(`Data untuk tanggal ${tgl} tidak ditemukan`);
     }
 
-    return result;
+    return (await this.withActiveDelegations(result, tgl))!;
   }
 
   /**
@@ -216,7 +309,8 @@ export class OrgDataService {
   async findLatestOrg(): Promise<OrgDatum | null> {
     const now = Date.now();
     if (this.latestOrgCache && this.latestOrgCache.expires > now) {
-      return this.latestOrgCache.data;
+      const cached = this.latestOrgCache.data;
+      return this.withActiveDelegations(cached);
     }
 
     const result = await this.cRepo
@@ -230,7 +324,7 @@ export class OrgDataService {
       expires: now + ORG_CACHE_TTL_MS,
     };
 
-    return result || null;
+    return this.withActiveDelegations(result || null);
   }
 
   /** Lightweight organization snapshot for position-based routing/lookups. */
@@ -238,7 +332,8 @@ export class OrgDataService {
     if (!tgl) throw new BadRequestException('Tanggal (tgl) is required');
     const now = Date.now();
     const cached = this.positionByDateCache.get(tgl);
-    if (cached && cached.expires > now) return cached.data;
+    if (cached && cached.expires > now)
+      return this.withActiveDelegations(cached.data, tgl);
 
     const result = await this.cRepo
       .createQueryBuilder('organization_build')
@@ -253,14 +348,16 @@ export class OrgDataService {
       data: result || null,
       expires: now + ORG_CACHE_TTL_MS,
     });
-    return result || null;
+    return this.withActiveDelegations(result || null, tgl);
   }
 
   /** Latest lightweight snapshot without loading organization_json. */
   async findLatestPositionSnapshot(): Promise<OrgPositionSnapshot | null> {
     const now = Date.now();
-    if (this.latestPositionCache && this.latestPositionCache.expires > now)
-      return this.latestPositionCache.data;
+    if (this.latestPositionCache && this.latestPositionCache.expires > now) {
+      const cached = this.latestPositionCache.data;
+      return this.withActiveDelegations(cached);
+    }
 
     const result = await this.cRepo
       .createQueryBuilder('organization_build')
@@ -276,7 +373,7 @@ export class OrgDataService {
       data: result || null,
       expires: now + ORG_CACHE_TTL_MS,
     };
-    return result || null;
+    return this.withActiveDelegations(result || null);
   }
 
   /**

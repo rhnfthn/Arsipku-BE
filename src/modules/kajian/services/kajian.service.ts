@@ -4,7 +4,15 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
+import {
+  delegatedPengirimFields,
+  delegatedRecipientFields,
+} from '../../../common/helpers/delegasi-rendering.helper';
+import { isAllowedCorrespondenceRecipient } from '../../../common/utils/correspondence-recipient.util';
+import {
+  createCorrespondenceAttachmentFileName,
+  createCorrespondenceFinalFileName,
+} from '../../../common/utils/correspondence-file-name.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
@@ -83,6 +91,8 @@ interface PositionData {
   departType: string | null;
   persnum_person: number | null;
   persnum_person_text: string | null;
+  position_status?: string | null;
+  positionStatus?: string | null;
   organization_id: number;
   organization_text: string;
   organization_abbreviation: string | null;
@@ -276,9 +286,10 @@ export class KajianService {
    * Convert PositionData to SirkulasiInfoDto
    */
   private toSirkulasiInfo(pos: PositionData): SirkulasiInfoDto {
+    const recipient = delegatedRecipientFields(pos);
     return {
       position: pos.position,
-      position_text: pos.position_text,
+      position_text: recipient.positionText,
       persnum: pos.persnum_person,
       nama: pos.persnum_person_text,
       organization_id: pos.organization_id,
@@ -298,6 +309,16 @@ export class KajianService {
    * @param naskahId - ID naskah yang akan dikaitkan
    * @param finalFolder - Folder tujuan (e.g., 'kajian/lampiran')
    */
+  private async createFinalPdfFileName(
+    jenis: string,
+    naskahId: string,
+  ): Promise<string> {
+    const attachmentCount = await this.naskahLampiranRepository.count({
+      where: { id_naskah: naskahId },
+    });
+    return createCorrespondenceFinalFileName(jenis, attachmentCount);
+  }
+
   private async moveTemporaryLampiranToFinal(
     lampiranIds: string[],
     naskahId: string,
@@ -336,19 +357,18 @@ export class KajianService {
 
       // If temporary, move file to final location
       if (lampiran.is_temporary === 1) {
-        const fileName = lampiran.file_name;
         const oldKey = lampiran.file_pdf;
 
         // Generate new key untuk final location
-        const timestamp = Date.now();
-        const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+        const fileName = createCorrespondenceAttachmentFileName('KA');
+        const newKey = `${finalFolder}/${fileName}`;
 
         // Move file di storage
         await this.storageService.moveFile(oldKey, newKey);
 
         // Update file path
         lampiran.file_pdf = newKey;
+        lampiran.file_name = fileName;
         lampiran.temp_folder_id = null;
       }
 
@@ -726,7 +746,9 @@ export class KajianService {
     const recipientData = this.filterByPositionKA(barisData, positionId);
 
     // Filter: exclude self
-    const recipients = recipientData.filter((r) => r.position !== positionId);
+    const recipients = recipientData.filter(
+      (r) => r.position !== positionId && isAllowedCorrespondenceRecipient(r),
+    );
 
     // Convert to OrgDataPositionDto format (with bod_tag)
     const atasanList: OrgDataPositionDto[] = recipients.map((r) => ({
@@ -819,7 +841,11 @@ export class KajianService {
       ? { position_status: dto.actor_position_status, nama: dto.actor_nama }
       : undefined;
     return delegatedPengirimFields(
-      actorUser ?? { position_status: null, nama: '' },
+      actorUser ?? {
+        position_status:
+          pengirimData?.position_status ?? pengirimData?.positionStatus ?? null,
+        nama: pengirimData?.persnum_person_text ?? pengirimData?.nama ?? '',
+      },
       pengirimData?.position_text ?? '',
       pengirimData?.persnum_person_text ?? '',
     );
@@ -1004,8 +1030,9 @@ export class KajianService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(penerima).positionText,
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -1037,8 +1064,9 @@ export class KajianService {
               organization: String(tembusanData.organization_id),
               organizationText: tembusanData.organization_text,
               position: String(tembusanData.position),
-              positionText: tembusanData.position_text,
-              positionStatus: 'ybs',
+              positionText: delegatedRecipientFields(tembusanData).positionText,
+              positionStatus: delegatedRecipientFields(tembusanData)
+                .positionStatus as any,
               idSirkuler: tembusanData.persnum_person
                 ? String(tembusanData.persnum_person)
                 : '',
@@ -1150,8 +1178,7 @@ export class KajianService {
       }
 
       // Upload final PDF to storage
-      const timestamp = Date.now();
-      const pdfFileName = `KA-${generatedNomor.nomor.replace(/\//g, '-')}-${timestamp}.pdf`;
+      const pdfFileName = await this.createFinalPdfFileName('KA', naskahId);
       const uploadResult = await this.storageService.uploadBuffer(
         pdfBuffer,
         pdfFileName,
@@ -1352,8 +1379,9 @@ export class KajianService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(penerima).positionText,
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -1409,8 +1437,9 @@ export class KajianService {
           organization: String(tembusan.organization_id),
           organizationText: tembusan.organization_text,
           position: String(tembusan.position),
-          positionText: tembusan.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(tembusan).positionText,
+          positionStatus: delegatedRecipientFields(tembusan)
+            .positionStatus as any,
           idSirkuler: tembusan.persnum_person
             ? String(tembusan.persnum_person)
             : '',
@@ -1545,10 +1574,14 @@ export class KajianService {
         )}`;
 
         // Build tertuju (penerima) list
-        const tertujuList = penerimaList.map((p) => p.position_text);
+        const tertujuList = penerimaList.map(
+          (p) => delegatedRecipientFields(p).positionText,
+        );
 
         // Build tembusan text list
-        const tembusanTextList = tembusanList.map((t) => t.position_text);
+        const tembusanTextList = tembusanList.map(
+          (t) => delegatedRecipientFields(t).positionText,
+        );
 
         // Generate PDF dengan QR code di template (jika ada)
         console.log(
@@ -1570,6 +1603,7 @@ export class KajianService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
           html: '',
         });
         console.log(`[KA] PDF generated successfully`);
@@ -1702,8 +1736,7 @@ export class KajianService {
         // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 10: Upload final PDF
-        const finalTimestamp = Date.now();
-        const pdfFileName = `KA-${generatedNomor.nomor.replace(/\//g, '-')}-${finalTimestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName('KA', naskahId);
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,
@@ -1912,8 +1945,9 @@ export class KajianService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(penerima).positionText,
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -1945,8 +1979,9 @@ export class KajianService {
               organization: String(tembusanData.organization_id),
               organizationText: tembusanData.organization_text,
               position: String(tembusanData.position),
-              positionText: tembusanData.position_text,
-              positionStatus: 'ybs',
+              positionText: delegatedRecipientFields(tembusanData).positionText,
+              positionStatus: delegatedRecipientFields(tembusanData)
+                .positionStatus as any,
               idSirkuler: tembusanData.persnum_person
                 ? String(tembusanData.persnum_person)
                 : '',
@@ -2305,8 +2340,9 @@ export class KajianService {
             organization: String(penerimaData.organization_id),
             organizationText: penerimaData.organization_text,
             position: String(penerimaData.position),
-            positionText: penerimaData.position_text,
-            positionStatus: 'ybs',
+            positionText: delegatedRecipientFields(penerimaData).positionText,
+            positionStatus: delegatedRecipientFields(penerimaData)
+              .positionStatus as any,
             idSirkuler: penerimaData.persnum_person
               ? String(penerimaData.persnum_person)
               : '',
@@ -2342,8 +2378,9 @@ export class KajianService {
             organization: String(tembusanData.organization_id),
             organizationText: tembusanData.organization_text,
             position: String(tembusanData.position),
-            positionText: tembusanData.position_text,
-            positionStatus: 'ybs',
+            positionText: delegatedRecipientFields(tembusanData).positionText,
+            positionStatus: delegatedRecipientFields(tembusanData)
+              .positionStatus as any,
             idSirkuler: tembusanData.persnum_person
               ? String(tembusanData.persnum_person)
               : '',
@@ -2593,8 +2630,9 @@ export class KajianService {
             organization: String(penerimaData.organization_id),
             organizationText: penerimaData.organization_text,
             position: String(penerimaData.position),
-            positionText: penerimaData.position_text,
-            positionStatus: 'ybs',
+            positionText: delegatedRecipientFields(penerimaData).positionText,
+            positionStatus: delegatedRecipientFields(penerimaData)
+              .positionStatus as any,
             idSirkuler: penerimaData.persnum_person
               ? String(penerimaData.persnum_person)
               : '',
@@ -2787,7 +2825,9 @@ export class KajianService {
       for (const posId of positionIds) {
         const posData = this.findByPosition(barisData, Number(posId));
         if (posData) {
-          names.push(posData.position_text || String(posId));
+          names.push(
+            delegatedRecipientFields(posData).positionText || String(posId),
+          );
         } else {
           names.push(String(posId));
         }
@@ -3682,6 +3722,7 @@ export class KajianService {
         headerGedung: headerInfo?.gedung,
         headerAlamat: headerInfo?.alamat,
         qrCodeHtml: qrCodeHtml,
+        bsreFooter: dto.sign_option === SignOption.DIGSIG,
       });
       console.log(`[KA finalizeDraft] PDF generated successfully`);
 
@@ -3807,11 +3848,7 @@ export class KajianService {
       }
 
       // Upload final PDF to storage
-      const timestamp = Date.now();
-      const nomorForFilename = naskah.nomor
-        ? naskah.nomor.replace(/\//g, '-')
-        : naskahId;
-      const pdfFileName = `KA-${nomorForFilename}-${timestamp}.pdf`;
+      const pdfFileName = await this.createFinalPdfFileName('KA', naskahId);
       const uploadResult = await this.storageService.uploadBuffer(
         pdfBuffer,
         pdfFileName,
@@ -3945,6 +3982,7 @@ export class KajianService {
       kota: string;
     },
     qrCodeHtml?: string,
+    signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
       let htmlToSend = htmlContent;
@@ -3967,8 +4005,10 @@ export class KajianService {
       const namaTempat = headerInfo?.kota || nama_tempat || 'Tangerang';
 
       // Generate preview QR code jika qrCodeHtml tidak disediakan
+      const isBsre =
+        String(signOption || '').toLowerCase() === SignOption.DIGSIG;
       let previewQrHtml = qrCodeHtml;
-      if (!previewQrHtml) {
+      if (!previewQrHtml && !isBsre) {
         previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
       }
 
@@ -3989,6 +4029,7 @@ export class KajianService {
         headerAlamat: headerInfo?.alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
       };
 
       const pdfBuffer = await this.generatePdfKajianService.generatePdf(pdfDto);
