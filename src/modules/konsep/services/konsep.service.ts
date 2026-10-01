@@ -19,6 +19,7 @@ import { NaskahEntity } from '../../naskah/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
 import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lampiran.entity';
 import { NaskahReferensiEntity } from '../../naskah-referensi/entities/naskah_referensi.entity';
+import { delegatedRecipientFields } from '../../../common/helpers/delegasi-rendering.helper';
 // REFACTOR: NdEntity dan SdiSdeEntity tidak lagi digunakan - data diambil dari naskah_sirkulasi
 // import { NdEntity } from '../../nota-dinas/entities/nd.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
@@ -31,6 +32,10 @@ import { JenisEntity } from '../../nomor/entities/jenis.entity';
 import { EksternalEntity } from '../../eksternal/entities/eksternal.entity';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
+import {
+  createCorrespondenceAttachmentFileName,
+  createCorrespondenceFinalFileName,
+} from '../../../common/utils/correspondence-file-name.util';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
@@ -43,8 +48,10 @@ import { PDFDocument } from 'pdf-lib';
 import { v4 as uuidv4 } from 'uuid';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 import { compareNaskahFlow } from '../../naskah/utils/naskah-flow-order.util';
+import { isAllowedCorrespondenceRecipient } from '../../../common/utils/correspondence-recipient.util';
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import { formatSdiPdfRecipientLabel } from '../../surat-dinas-internal/helpers/sdi-pdf-recipient-label.helper';
 
 import {
   CreateKonsepDto,
@@ -76,6 +83,7 @@ interface PositionData {
   sub_area_text: string | null;
   direct_manager: number | null;
   chief: number;
+  position_status?: string | null;
 }
 
 @Injectable()
@@ -121,6 +129,14 @@ export class KonsepService {
     private readonly tteSigningService: TteSigningService,
     private dataSource: DataSource,
   ) {}
+
+  private formatKonsepPerihal(jenis: unknown, perihal: unknown): string {
+    const jenisText = String(jenis || 'NASKAH')
+      .trim()
+      .toUpperCase();
+    const perihalText = String(perihal || '').trim() || '-';
+    return `konsep-${jenisText}-${perihalText}`;
+  }
 
   private async notifyKonsepMasuk(params: {
     idKonsep: string;
@@ -276,13 +292,12 @@ export class KonsepService {
       const naskahAsliId = uuidv4();
       const jumlahLampiranAwal =
         dto.lampiran_temp_ids?.length || dto.lampiran?.length || 0;
-      // Perihal = catatan langsung (tanpa format)
-      const perihalKonsep = dto.catatan || '';
+      const perihalKonsep = this.formatKonsepPerihal(dto.jenis, dto.perihal);
 
       const naskahKonsep = this.naskahRepository.create({
         id: naskahKonsepId,
         jenis: 'K',
-        nomor: 'KONSEP-001', // Sequential nomor, first create always 001
+        nomor: null,
         tanggal: tanggalHariIni,
         perihal: perihalKonsep,
         sifat: 'biasa',
@@ -440,6 +455,7 @@ export class KonsepService {
         dto.penerima_grup,
         tanggalStr,
         pengirimPosId,
+        'PENERIMA',
       );
       const penerimaGrupMap = dto.penerima_grup?.length
         ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -498,6 +514,7 @@ export class KonsepService {
         dto.tembusan_grup,
         tanggalStr,
         pengirimPosId,
+        'TEMBUSAN',
       );
       const tembusanGrupMap = dto.tembusan_grup?.length
         ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -722,11 +739,12 @@ export class KonsepService {
     sirkulasi.organization = String(posData.organization_id);
     sirkulasi.organizationText = posData.organization_text;
     sirkulasi.position = String(posData.position);
-    sirkulasi.positionText = posData.position_text;
-    sirkulasi.positionStatus = 'ybs';
+    const recipient = delegatedRecipientFields(posData);
+    sirkulasi.positionText = recipient.positionText;
+    sirkulasi.positionStatus = recipient.positionStatus as any;
     sirkulasi.idSirkuler = String(posData.persnum_person || posData.position);
-    sirkulasi.namaSirkuler =
-      posData.persnum_person_text || posData.position_text;
+    const effectiveName = posData.persnum_person_text || posData.position_text;
+    sirkulasi.namaSirkuler = effectiveName;
     sirkulasi.isKonsep = isKonsep ? 1 : 0;
     sirkulasi.isDraft = false;
     sirkulasi.idGrupPenerima = grupPenerimaId || null;
@@ -813,6 +831,32 @@ export class KonsepService {
     return data.find((p) => p.position === positionId) || null;
   }
 
+  private async resolveForwardTargetPosition(
+    positionId: number,
+    positionData: PositionData[],
+  ): Promise<PositionData | null> {
+    const currentPosition = this.findByPosition(positionData, positionId);
+    if (currentPosition?.direct_manager) {
+      const directManager = this.findByPosition(
+        positionData,
+        currentPosition.direct_manager,
+      );
+      if (directManager) return directManager;
+    }
+
+    // Beberapa posisi managerial pada organization_build tidak memiliki
+    // direct_manager. Endpoint atasan-managerial sudah menangani hierarki
+    // AVP -> VP -> EVP -> Direktur dalam divisi/direktorat yang sama.
+    const hierarchy = await this.orgDataService.getAtasanManagerial(positionId);
+    const nearestManager = hierarchy.data?.[0];
+    if (!nearestManager?.position) return null;
+
+    return (
+      this.findByPosition(positionData, Number(nearestManager.position)) ||
+      (nearestManager as PositionData)
+    );
+  }
+
   private async setDraftOwnerPosition(
     queryRunner: any,
     naskahId: string,
@@ -876,6 +920,7 @@ export class KonsepService {
     grupPenerimaIds: string[] | undefined,
     tgl?: string,
     excludePositionId?: number,
+    tujuan?: 'PENERIMA' | 'TEMBUSAN',
   ): Promise<number[]> {
     const allPositionIds = new Set<number>();
 
@@ -887,11 +932,17 @@ export class KonsepService {
       for (const grupId of grupPenerimaIds) {
         try {
           const grupPositions =
-            await this.grupPenerimaService.expandGrupToPositions(grupId, tgl);
+            await this.grupPenerimaService.expandGrupToPositions(
+              grupId,
+              tgl,
+              excludePositionId,
+              tujuan,
+            );
           grupPositions.forEach((pos) =>
             allPositionIds.add(Number(pos.position)),
           );
         } catch (error) {
+          if (error instanceof BadRequestException) throw error;
           console.warn(
             `[Konsep:expandGrupPenerima] Failed to expand grup ${grupId}:`,
             error.message,
@@ -914,6 +965,7 @@ export class KonsepService {
    */
   private async buildPdfRecipientNamesFromSirkulasi(
     sirkulasiList: NaskahSirkulasi[],
+    jenis?: 'ND' | 'SDI' | 'SDE',
   ): Promise<string[]> {
     const grupIds: string[] = [];
     const individualNames: string[] = [];
@@ -924,7 +976,14 @@ export class KonsepService {
           grupIds.push(item.idGrupPenerima);
         }
       } else {
-        const name = (item.positionText || item.namaSirkuler || '').trim();
+        const name =
+          jenis === 'SDI'
+            ? formatSdiPdfRecipientLabel({
+                position_text: item.positionText,
+                subAreaText: item.subAreaText,
+                areaText: item.areaText,
+              })
+            : (item.positionText || item.namaSirkuler || '').trim();
         if (name && !individualNames.includes(name)) {
           individualNames.push(name);
         }
@@ -1021,7 +1080,7 @@ export class KonsepService {
       if (lampiran.is_temporary === 1) {
         // Move file from temporary to final location
         const oldKey = lampiran.file_pdf; // e.g., temporary/uuid/filename.pdf
-        const fileName = oldKey.split('/').pop() || 'file.pdf';
+        const fileName = createCorrespondenceAttachmentFileName(jenis);
         const newKey = `${jenisFolder}/lampiran/${naskahId}/${fileName}`;
 
         try {
@@ -1048,6 +1107,7 @@ export class KonsepService {
           lampiran.is_temporary = 0;
           lampiran.jenis = jenis;
           lampiran.file_pdf = newKey;
+          lampiran.file_name = fileName;
           if (manager) {
             await manager.save(NaskahLampiranEntity, lampiran);
           } else {
@@ -1075,8 +1135,8 @@ export class KonsepService {
         String(lampiran.id_naskah || '') !== String(naskahId)
       ) {
         const oldKey = lampiran.file_pdf;
-        const fileName = oldKey?.split('/').pop() || lampiran.file_name || 'file.pdf';
-        const newKey = `${jenisFolder}/lampiran/${naskahId}/${uuidv4()}-${fileName}`;
+        const fileName = createCorrespondenceAttachmentFileName(jenis);
+        const newKey = `${jenisFolder}/lampiran/${naskahId}/${fileName}`;
         let copiedKey = newKey;
 
         try {
@@ -1099,7 +1159,7 @@ export class KonsepService {
           id: uuidv4(),
           tanggal: targetTanggal,
           id_naskah: naskahId,
-          file_name: lampiran.file_name,
+          file_name: fileName,
           file_pdf: copiedKey,
           jenis,
           is_temporary: 0,
@@ -1779,7 +1839,12 @@ export class KonsepService {
       // For konsep, return only managerial positions (chief=1)
       // User dapat memilih atasan sebagai penerima konsepnya
       const recipients = barisData
-        .filter((x) => x.position !== positionId && x.chief === 1) // Only chief (managerial)
+        .filter(
+          (x) =>
+            x.position !== positionId &&
+            x.chief === 1 &&
+            isAllowedCorrespondenceRecipient(x),
+        ) // Only chief (managerial), maksimal sampai Direksi/Dirut
         .sort((a, b) => {
           // Sort: prioritize same sub_area, then by position_text
           if (a.sub_area === b.sub_area) {
@@ -1838,20 +1903,52 @@ export class KonsepService {
   ): Promise<ForwardKonsepResponseDto> {
     const barisData = await this.getPositionData();
 
+    const fromPositionId = Number(dto.from_position_id);
+    if (!Number.isInteger(fromPositionId) || fromPositionId <= 0) {
+      throw new BadRequestException('Posisi pengirim konsep tidak valid');
+    }
+
+    // Form-data yang tidak mengirim target akan menjadi Number('') === 0.
+    // Untuk forward biasa, gunakan direct_manager dari posisi aktif sebagai
+    // fallback. Ini penting saat aktor PT/PH/PS memakai konteks delegasi yang
+    // tidak membawa object atasan_langsung lengkap ke frontend. Turunkan tetap
+    // wajib mengirim target eksplisit karena targetnya adalah bawahan pilihan.
+    const requestedToPositionId = Number(dto.to_position_id);
+    let toPositionId =
+      Number.isInteger(requestedToPositionId) && requestedToPositionId > 0
+        ? requestedToPositionId
+        : null;
+    if (!toPositionId && !dto.is_turunkan) {
+      const resolvedTarget = await this.resolveForwardTargetPosition(
+        fromPositionId,
+        barisData,
+      );
+      toPositionId = resolvedTarget?.position || null;
+    }
+
+    if (!toPositionId || !Number.isInteger(toPositionId) || toPositionId <= 0) {
+      throw new BadRequestException(
+        'Posisi tujuan konsep wajib dipilih dan harus valid',
+      );
+    }
+
     // Find position data
-    const fromPos = this.findByPosition(barisData, dto.from_position_id);
-    const toPos = this.findByPosition(barisData, dto.to_position_id);
+    const fromPos = this.findByPosition(barisData, fromPositionId);
+    const toPos = this.findByPosition(barisData, toPositionId);
 
     if (!fromPos) {
       throw new NotFoundException(
-        `Position ${dto.from_position_id} tidak ditemukan`,
+        `Position ${fromPositionId} tidak ditemukan`,
       );
     }
     if (!toPos) {
       throw new NotFoundException(
-        `Position ${dto.to_position_id} tidak ditemukan`,
+        `Position ${toPositionId} tidak ditemukan`,
       );
     }
+
+    dto.from_position_id = fromPositionId;
+    dto.to_position_id = toPositionId;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1909,18 +2006,19 @@ export class KonsepService {
       // 3. CREATE NEW NASKAH K (jenis='K')
       // ==========================================
       const newNaskahKonsepId = uuidv4();
-      const perihalKonsep = dto.catatan || '';
-
-      // Generate sequential nomor
-      const nomorKonsep = await this.generateKonsepNomorSequential(
-        naskahAsliId,
-        queryRunner,
+      const naskahAsliForSubject = await queryRunner.manager.findOne(
+        NaskahEntity,
+        { where: { id: naskahAsliId } },
+      );
+      const perihalKonsep = this.formatKonsepPerihal(
+        naskahAsliForSubject?.jenis,
+        dto.perihal || naskahAsliForSubject?.perihal,
       );
 
       const newNaskahKonsep = this.naskahRepository.create({
         id: newNaskahKonsepId,
         jenis: 'K',
-        nomor: nomorKonsep,
+        nomor: null,
         tanggal: new Date(),
         perihal: perihalKonsep,
         sifat: 'biasa',
@@ -2019,6 +2117,7 @@ export class KonsepService {
             dto.penerima_grup,
             undefined,
             dto.from_position_id,
+            'PENERIMA',
           );
           const penerimaGrupMap = dto.penerima_grup?.length
             ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -2053,6 +2152,7 @@ export class KonsepService {
             dto.tembusan_grup,
             undefined,
             dto.from_position_id,
+            'TEMBUSAN',
           );
           const tembusanGrupMap = dto.tembusan_grup?.length
             ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -2310,6 +2410,15 @@ export class KonsepService {
       const isPortalTte =
         dto.sign_option === 'digsig' &&
         (await this.tteSigningGateway.isPortalMode(naskahAsli.jenis));
+      if (
+        dto.sign_option === 'digsig' &&
+        !isPortalTte &&
+        !String(dto.passphrase || '').trim()
+      ) {
+        throw new BadRequestException(
+          'Passphrase diperlukan untuk tanda tangan digital (digsig)',
+        );
+      }
 
       // 4. Get pengirim naskah asli (untuk generate nomor)
       const pengirimSirkulasi = await queryRunner.manager.findOne(
@@ -2368,18 +2477,15 @@ export class KonsepService {
       }
 
       // 6. CREATE NEW NASKAH K untuk finalize
-      // Generate nomor sequential untuk K baru (KONSEP-XXX)
-      const nomorKonsep = await this.generateKonsepNomorSequential(
-        naskahAsliId,
-        queryRunner,
-      );
-
       const newNaskahKonsepId = uuidv4();
       const newNaskahKonsep = new NaskahEntity();
       newNaskahKonsep.id = newNaskahKonsepId;
       newNaskahKonsep.jenis = 'K';
-      newNaskahKonsep.nomor = nomorKonsep;
-      newNaskahKonsep.perihal = dto.catatan || '';
+      newNaskahKonsep.nomor = null;
+      newNaskahKonsep.perihal = this.formatKonsepPerihal(
+        naskahAsli.jenis,
+        naskahAsli.perihal,
+      );
       // Record K hanya jejak finalisasi konsep; status pending TTE melekat pada
       // naskah asli yang benar-benar dikirim ke Portal dan diselesaikan callback.
       newNaskahKonsep.status = isPortalTte ? 'final' : newStatus;
@@ -2435,6 +2541,7 @@ export class KonsepService {
           dto.penerima_grup,
           dto.tanggal,
           dto.from_position_id,
+          'PENERIMA',
         );
         const penerimaGrupMap = dto.penerima_grup?.length
           ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -2463,7 +2570,7 @@ export class KonsepService {
             await queryRunner.manager.save(sirkulasi);
             penerimaList.push({
               position_id: pos.position,
-              position_text: pos.position_text,
+              position_text: sirkulasi.positionText || pos.position_text,
               nama: pos.persnum_person_text,
             });
           }
@@ -2513,6 +2620,7 @@ export class KonsepService {
           dto.tembusan_grup,
           dto.tanggal,
           dto.from_position_id,
+          'TEMBUSAN',
         );
         const tembusanGrupMap = dto.tembusan_grup?.length
           ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -2541,7 +2649,7 @@ export class KonsepService {
             await queryRunner.manager.save(sirkulasi);
             tembusanList.push({
               position_id: pos.position,
-              position_text: pos.position_text,
+              position_text: sirkulasi.positionText || pos.position_text,
               nama: pos.persnum_person_text,
             });
           }
@@ -2673,10 +2781,11 @@ export class KonsepService {
         }
         const portal = await this.tteSigningService.createSigningTransaction({
           sourceKey: naskahAsli.final_pdf,
-          filename: `${naskahAsli.jenis}-${nomorSurat || naskahAsliId}.pdf`.replace(
-            /[^a-zA-Z0-9._-]/g,
-            '-',
-          ),
+          filename:
+            `${naskahAsli.jenis}-${nomorSurat || naskahAsliId}.pdf`.replace(
+              /[^a-zA-Z0-9._-]/g,
+              '-',
+            ),
           pathDokumen:
             naskahAsli.jenis === 'ND'
               ? 'nota-dinas/digsig/'
@@ -2687,10 +2796,7 @@ export class KonsepService {
           jenisNaskah: naskahAsli.jenis,
           nomorNaskah: nomorSurat,
           location: pengirimPosData.sub_area_text || 'KANTOR PUSAT',
-          reason: `${nomorSurat} - ${naskahAsli.perihal || ''}`.slice(
-            0,
-            2000,
-          ),
+          reason: `${nomorSurat} - ${naskahAsli.perihal || ''}`.slice(0, 2000),
           tampilan: 'INVISIBLE',
           user,
         });
@@ -2847,12 +2953,19 @@ export class KonsepService {
       // bercampur dengan perjalanan sebelumnya.
       // ==========================================
       const rejectNaskahKonsepId = uuidv4();
-      const perihalKonsep = dto.catatan || '';
+      const naskahAsliForSubject = await queryRunner.manager.findOne(
+        NaskahEntity,
+        { where: { id: naskahAsliId } },
+      );
+      const perihalKonsep = this.formatKonsepPerihal(
+        naskahAsliForSubject?.jenis,
+        naskahAsliForSubject?.perihal,
+      );
 
       const newNaskahKonsep = this.naskahRepository.create({
         id: rejectNaskahKonsepId,
         jenis: 'K',
-        nomor: naskahKonsepParent.nomor,
+        nomor: null,
         tanggal: new Date(),
         perihal: perihalKonsep,
         sifat: 'biasa',
@@ -3339,6 +3452,43 @@ export class KonsepService {
         userPosition,
       );
 
+      // Target forward harus mengikuti posisi aktif penerima konsep, bukan
+      // pengirim/penandatangan naskah asli. Pada konteks delegasi, profile
+      // user kadang tidak membawa `atasan_langsung`, padahal backend tetap
+      // dapat menentukan target dari snapshot org_data yang sama dengan alur
+      // POST /KONSEP/forward.
+      let forwardTo: {
+        position_id: string;
+        position_text: string;
+        nama: string | null;
+        persnum: string | null;
+      } | null = null;
+      try {
+        const positionData = await this.getPositionData();
+        const currentPositionId = Number(userPosition);
+        const currentPosition = this.findByPosition(
+          positionData,
+          currentPositionId,
+        );
+        const managerPosition = currentPosition
+          ? await this.resolveForwardTargetPosition(
+              currentPositionId,
+              positionData,
+            )
+          : null;
+        if (managerPosition) {
+          forwardTo = {
+            position_id: String(managerPosition.position),
+            position_text: managerPosition.position_text || '',
+            nama: managerPosition.persnum_person_text || null,
+            persnum: managerPosition.persnum_person || null,
+          };
+        }
+      } catch {
+        // Detail konsep tetap dapat dibaca walaupun snapshot org_data sedang
+        // tidak tersedia; endpoint forward akan melakukan validasi ulang.
+      }
+
       // 2. Get all naskah K with same id_naskah_asli (multi-forward chain)
       let konsepIds: string[] = [naskahKonsep.id];
       if (naskahKonsep.id_naskah_asli) {
@@ -3399,13 +3549,7 @@ export class KonsepService {
       // kirim (downstream orang lain: user3→user4, dst) di-cut, tak muncul di
       // kotak-masuk/terkirim user. riwayat finalize (toPositionId null) tetap masuk
       // jika user adalah from (finalizer).
-      const userPosStr = String(userPosition);
-      riwayatList = riwayatList.filter(
-        (r) =>
-          (String(r.fromPositionId ?? '') === userPosStr ||
-            String(r.toPositionId ?? '') === userPosStr) &&
-          Number(r.urutan) <= viewedUrutan,
-      );
+      riwayatList = riwayatList.filter((r) => Number(r.urutan) <= viewedUrutan);
 
       // 4. Find the first K naskah (parent = null) for disposisi referensi
       let firstNaskahKId = naskahKonsep.id;
@@ -3465,11 +3609,6 @@ export class KonsepService {
         // tidak terlibat di-skip, konsisten dengan filter K node (from/to ==
         // user). Sebelumnya seluruh rantai disposisi (trigger DI sampai root)
         // tampil ke viewer konsep → bocor DI orang lain.
-        const isViewerInDI =
-          String(pengirimDI?.position ?? '') === userPosStr ||
-          penerimaDI.some((p) => String(p.position ?? '') === userPosStr) ||
-          tembusanDI.some((t) => String(t.position ?? '') === userPosStr);
-        if (!isViewerInDI) continue;
         const penerimaGrupInfoDI =
           await this.grupPenerimaService.getGrupInfoForResponse([
             ...new Set(
@@ -3498,7 +3637,11 @@ export class KonsepService {
         });
 
         const finalPdfUrl = disposisiNaskah.final_pdf
-          ? await this.storageService.getFileUrl(disposisiNaskah.final_pdf)
+          ? await this.storageService.getPreviewUrl(
+              disposisiNaskah.final_pdf,
+              86400,
+              createCorrespondenceFinalFileName('DI', lampiranDI.length),
+            )
           : null;
 
         const lampiranFiles = await Promise.all(
@@ -3672,7 +3815,14 @@ export class KonsepService {
         // Default: use current riwayat snapshot if available.
         let finalPdfSnapshot = riwayat.pdfSnapshot;
         let finalPdfSnapshotUrl = riwayat.pdfSnapshot
-          ? await this.storageService.getFileUrl(riwayat.pdfSnapshot)
+          ? await this.storageService.getPreviewUrl(
+              riwayat.pdfSnapshot,
+              86400,
+              createCorrespondenceFinalFileName(
+                naskahAsli?.jenis || naskahRef.jenis,
+                lampiranAsliList.length,
+              ),
+            )
           : null;
 
         // For reject with no snapshot, fallback to latest previous konsep snapshot.
@@ -3771,11 +3921,12 @@ export class KonsepService {
           jenis_naskah_konsep: naskahAsli?.jenis || null,
           nomor: naskahRef.nomor,
           tanggal: riwayat.createdAt,
-          // Perihal workflow harus berasal dari snapshot saat aksi dibuat.
-          // Jangan memakai naskahAsli lebih dulu karena record tersebut terus
-          // diperbarui dan akan membuat seluruh riwayat menampilkan perihal terbaru.
-          perihal:
-            riwayat.perihalSnapshot ?? naskahAsli?.perihal ?? naskahRef.perihal,
+          // Label konsep konsisten tanpa nomor versi KONSEP-xxx. Isi perihal
+          // tetap memakai snapshot aksi agar riwayat lama tidak ikut berubah.
+          perihal: this.formatKonsepPerihal(
+            naskahAsli?.jenis,
+            riwayat.perihalSnapshot ?? naskahAsli?.perihal,
+          ),
           konten: naskahAsli?.konten ?? null,
           sifat: naskahAsli?.sifat ?? naskahRef.sifat,
           klasifikasi: naskahAsli?.klasifikasi ?? naskahRef.klasifikasi,
@@ -3838,7 +3989,14 @@ export class KonsepService {
       // Tambahkan node naskah asli (KN - Konsep Naskah) ke flow
       if (naskahAsli) {
         const finalPdfAsliUrl = naskahAsli.final_pdf
-          ? await this.storageService.getFileUrl(naskahAsli.final_pdf)
+          ? await this.storageService.getPreviewUrl(
+              naskahAsli.final_pdf,
+              86400,
+              createCorrespondenceFinalFileName(
+                naskahAsli.jenis,
+                lampiranAsliList.length,
+              ),
+            )
           : null;
 
         flow.push({
@@ -3909,7 +4067,8 @@ export class KonsepService {
           },
 
           level: konsepLevel,
-          created_at: naskahAsli.tanggal || null,
+          created_at:
+            pengirimAsli?.updatedAt || pengirimAsli?.createdAt || null,
           updated_at: null,
         });
       }
@@ -3924,17 +4083,14 @@ export class KonsepService {
         success: true,
         message: 'Detail konsep berhasil diambil',
         data: flow,
+        forward_to: forwardTo,
         // ponytail: anti-bocor — filter riwayat ke langkah yang melibatkan user
         // (from/to == user), sama seperti filter flow di atas. Sebelumnya kirim
         // allRiwayat mentah → semua langkah workflow (termasuk downstream orang
         // lain) bocor ke viewer. Fitur turunkan (kotak-masuk/[id].vue) cari
         // entri toPositionId == user → tetap lolos filter ini.
         riwayat: allRiwayat
-          .filter(
-            (r) =>
-              String(r.fromPositionId ?? '') === userPosStr ||
-              String(r.toPositionId ?? '') === userPosStr,
-          )
+          .filter((r) => Number(r.urutan) <= viewedUrutan)
           .map((r) => ({
             id: r.id,
             id_naskah_konsep: r.idNaskahKonsep,
@@ -4317,6 +4473,7 @@ export class KonsepService {
         penerimaArray = await this.convertPositionIdsToNames(
           positionIds,
           body.tgl || body.tanggal,
+          jenis,
         );
       }
     }
@@ -4330,12 +4487,60 @@ export class KonsepService {
         tembusanArray = await this.convertPositionIdsToNames(
           tembusanPositionIds,
           body.tgl || body.tanggal,
+          jenis,
         );
       }
     }
 
-    // Generate preview QR code untuk preview PDF
-    const previewQrHtml = await this.qrCodeService.generatePreviewQRCodeHtml();
+    const isBsre = String(body.sign_option || '').toLowerCase() === 'digsig';
+    const previewQrHtml = isBsre
+      ? undefined
+      : await this.qrCodeService.generatePreviewQRCodeHtml();
+
+    // Preview harus mengikuti lokasi penandatangan/pengirim yang dipilih,
+    // bukan alamat profil user yang sedang membuka form. Ambil area dan
+    // sub-area langsung dari org data berdasarkan pengirim_position_id,
+    // lalu resolve kota serta kop dari master sub_area_alamat seperti alur
+    // pembuatan PDF final.
+    let senderHeaderInfo: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota: string;
+    } | null = null;
+    const senderPositionId = Number(
+      body.pengirim_position_id || body.to_position_id,
+    );
+    if (Number.isFinite(senderPositionId) && senderPositionId > 0) {
+      try {
+        const positionData = await this.getPositionData();
+        const senderPosition = this.findByPosition(
+          positionData,
+          senderPositionId,
+        );
+        if (senderPosition?.area && senderPosition?.sub_area != null) {
+          const rawDate = body.tgl || body.tanggal;
+          const documentDate = rawDate ? new Date(rawDate) : new Date();
+          senderHeaderInfo = await this.getHeaderInfoByArea(
+            String(COMPANY_ID),
+            String(senderPosition.area),
+            String(senderPosition.sub_area),
+            Number.isNaN(documentDate.getTime()) ? new Date() : documentDate,
+          );
+        }
+      } catch (error) {
+        console.warn(
+          '[Konsep preview] Gagal resolve alamat pengirim terpilih:',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    const senderCity =
+      senderHeaderInfo?.kota || body.nama_tempat || 'Tangerang';
+    const senderOffice = senderHeaderInfo?.kantor || body.header_kantor;
+    const senderBuilding = senderHeaderInfo?.gedung || body.header_gedung;
+    const senderAddress = senderHeaderInfo?.alamat || body.header_alamat;
 
     if (jenis === 'ND') {
       return {
@@ -4351,13 +4556,14 @@ export class KonsepService {
         namaLengkap: body.nama_lengkap || '',
         tembusan: tembusanArray,
         tgl: body.tgl || body.tanggal,
-        nama_tempat: body.nama_tempat || 'Tangerang',
+        nama_tempat: senderCity,
         nomor: body.nomor || '',
-        headerKantor: body.header_kantor,
-        headerGedung: body.header_gedung,
-        headerAlamat: body.header_alamat,
+        headerKantor: senderOffice,
+        headerGedung: senderBuilding,
+        headerAlamat: senderAddress,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
       };
     } else if (jenis === 'SDI') {
       // SDI - Surat Dinas Internal (Bahasa Indonesia)
@@ -4375,15 +4581,16 @@ export class KonsepService {
         namaLengkap: body.nama_lengkap || '',
         nama_jabatan: body.nama_jabatan || '',
         tembusan: tembusanArray,
-        nama_tempat: body.nama_tempat || 'Tangerang',
+        nama_tempat: senderCity,
         sifat: body.sifat || 'Biasa',
         lampiran: body.lampiran_text || body.lampiran || '-',
         nomor: body.nomor || '',
-        headerKantor: body.header_kantor,
-        headerGedung: body.header_gedung,
-        headerAlamat: body.header_alamat,
+        headerKantor: senderOffice,
+        headerGedung: senderBuilding,
+        headerAlamat: senderAddress,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
         english: false, // SDI menggunakan format Bahasa Indonesia
       };
     } else {
@@ -4402,15 +4609,16 @@ export class KonsepService {
         namaLengkap: body.nama_lengkap || '',
         nama_jabatan: body.nama_jabatan || '',
         tembusan: tembusanArray,
-        nama_tempat: body.nama_tempat || 'Tangerang',
+        nama_tempat: senderCity,
         sifat: body.sifat || 'Biasa',
         lampiran: body.lampiran_text || body.lampiran || '-',
         nomor: body.nomor || '',
-        headerKantor: body.header_kantor,
-        headerGedung: body.header_gedung,
-        headerAlamat: body.header_alamat,
+        headerKantor: senderOffice,
+        headerGedung: senderBuilding,
+        headerAlamat: senderAddress,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
         english:
           body.english === true ||
           body.english === '1' ||
@@ -4506,6 +4714,7 @@ export class KonsepService {
   async convertPositionIdsToNames(
     positionIds: (string | number)[],
     tanggal?: string,
+    jenis?: 'ND' | 'SDI' | 'SDE',
   ): Promise<string[]> {
     if (!positionIds || positionIds.length === 0) {
       return [];
@@ -4519,7 +4728,11 @@ export class KonsepService {
         const numId = typeof posId === 'string' ? parseInt(posId) : posId;
         const found = this.findByPosition(barisData, numId);
         if (found) {
-          names.push(found.position_text);
+          names.push(
+            jenis === 'SDI'
+              ? formatSdiPdfRecipientLabel(found)
+              : found.position_text,
+          );
         } else {
           names.push(String(posId));
         }
@@ -4730,10 +4943,14 @@ export class KonsepService {
       }
 
       // Build penerima/tembusan arrays in grup-aware display mode
-      const penerimaArray =
-        await this.buildPdfRecipientNamesFromSirkulasi(sirkulasiPenerima);
-      const tembusanArray =
-        await this.buildPdfRecipientNamesFromSirkulasi(sirkulasiTembusan);
+      const penerimaArray = await this.buildPdfRecipientNamesFromSirkulasi(
+        sirkulasiPenerima,
+        jenis,
+      );
+      const tembusanArray = await this.buildPdfRecipientNamesFromSirkulasi(
+        sirkulasiTembusan,
+        jenis,
+      );
 
       const namaJabatan = sirkulasiPengirim?.positionText || '';
       const namaLengkap = sirkulasiPengirim?.namaSirkuler || '';
@@ -4752,9 +4969,13 @@ export class KonsepService {
       // Use kota from headerInfo if available
       const namaTempat = headerInfo?.kota || naskahAsli.tempat || 'Tangerang';
 
-      // 4. Generate preview QR code (placeholder untuk konsep snapshot)
-      const previewQrHtml =
-        await this.qrCodeService.generatePreviewQRCodeHtml();
+      // PDF sumber Portal/BSrE belum boleh berisi QR verifikasi sebelum proses
+      // tanda tangan berhasil. QR placeholder hanya untuk mode non-BSrE.
+      const isBsre =
+        String(naskahAsli.signOption || '').toLowerCase() === 'digsig';
+      const previewQrHtml = isBsre
+        ? undefined
+        : await this.qrCodeService.generatePreviewQRCodeHtml();
 
       // 5. Build PDF body based on jenis
       let pdfBody: any;
@@ -4784,6 +5005,7 @@ export class KonsepService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML untuk tanda tangan
           qrCodeHtml: previewQrHtml,
+          bsreFooter: isBsre,
         };
         pdfBuffer = await this.generatePdfNodinService.generatePdf(pdfBody);
       } else if (jenis === 'SDI') {
@@ -4812,6 +5034,7 @@ export class KonsepService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML untuk tanda tangan
           qrCodeHtml: previewQrHtml,
+          bsreFooter: isBsre,
         };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       } else {
@@ -4845,6 +5068,7 @@ export class KonsepService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML untuk tanda tangan
           qrCodeHtml: previewQrHtml,
+          bsreFooter: isBsre,
         };
         pdfBuffer = await this.generatePdfSudinService.generatePdf(pdfBody);
       }
@@ -5161,6 +5385,7 @@ export class KonsepService {
         dto.penerima_grup,
         dto.tgl,
         Number(dto.from_position_id),
+        'PENERIMA',
       );
       const penerimaGrupMap = dto.penerima_grup?.length
         ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -5181,10 +5406,7 @@ export class KonsepService {
           sirkulasi.idGrupPenerima = penerimaGrupMap.get(Number(posId)) || null;
           await queryRunner.manager.save(sirkulasi);
         }
-      } else if (
-        dto.jenis === 'SDE' &&
-        dto.penerima_eksternal?.length > 0
-      ) {
+      } else if (dto.jenis === 'SDE' && dto.penerima_eksternal?.length > 0) {
         const eksternalList = await this.eksternalRepository.find({
           where: { id: In(dto.penerima_eksternal) },
         });
@@ -5224,6 +5446,7 @@ export class KonsepService {
         dto.tembusan_grup,
         dto.tgl,
         Number(dto.from_position_id),
+        'TEMBUSAN',
       );
       const tembusanGrupMap = dto.tembusan_grup?.length
         ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -5950,7 +6173,10 @@ export class KonsepService {
         // asli ketika draft dikirim. Lampiran baru masih berstatus temporary,
         // jadi pindahkan dulu sebelum workflow konsep dibuat.
         if (dto.lampiran_temp_ids && dto.lampiran_temp_ids.length > 0) {
-          const currentJenis = (dto.jenis || naskah.jenis) as 'ND' | 'SDI' | 'SDE';
+          const currentJenis = (dto.jenis || naskah.jenis) as
+            | 'ND'
+            | 'SDI'
+            | 'SDE';
           await this.handleLampiranTempIds(
             idDraft,
             dto.lampiran_temp_ids,
@@ -5971,12 +6197,15 @@ export class KonsepService {
         // 1. CREATE NASKAH KONSEP WORKFLOW (jenis='K')
         // ==========================================
         const naskahKonsepId = uuidv4();
-        const perihalKonsep = dto.catatan || 'Mohon review dan approval';
+        const perihalKonsep = this.formatKonsepPerihal(
+          dto.jenis || naskah.jenis,
+          dto.perihal || naskah.perihal,
+        );
 
         const naskahKonsep = this.naskahRepository.create({
           id: naskahKonsepId,
           jenis: 'K',
-          nomor: 'KONSEP-001',
+          nomor: null,
           tanggal: new Date(),
           perihal: perihalKonsep,
           sifat: 'biasa',
@@ -6197,6 +6426,7 @@ export class KonsepService {
           dto.penerima_grup,
           dto.tgl,
           Number(dto.from_position_id),
+          'PENERIMA',
         );
         const penerimaGrupMap = dto.penerima_grup?.length
           ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -6218,10 +6448,7 @@ export class KonsepService {
               penerimaGrupMap.get(Number(posId)) || null;
             await queryRunner.manager.save(sirkulasi);
           }
-        } else if (
-          dto.jenis === 'SDE' &&
-          dto.penerima_eksternal?.length > 0
-        ) {
+        } else if (dto.jenis === 'SDE' && dto.penerima_eksternal?.length > 0) {
           const eksternalList = await this.eksternalRepository.find({
             where: { id: In(dto.penerima_eksternal) },
           });
@@ -6273,6 +6500,7 @@ export class KonsepService {
           dto.tembusan_grup,
           dto.tgl,
           Number(dto.from_position_id),
+          'TEMBUSAN',
         );
         const tembusanGrupMap = dto.tembusan_grup?.length
           ? await this.grupPenerimaService.buildPositionToGrupMap(
@@ -6570,8 +6798,7 @@ export class KonsepService {
     }
 
     // SDE menggunakan ID master penerima eksternal, bukan position ID internal.
-    const rawPenerimaEksternal =
-      body.penerima_ids ?? body.penerima_eksternal;
+    const rawPenerimaEksternal = body.penerima_ids ?? body.penerima_eksternal;
     if (rawPenerimaEksternal) {
       dto.penerima_eksternal = Array.isArray(rawPenerimaEksternal)
         ? rawPenerimaEksternal.map(String)

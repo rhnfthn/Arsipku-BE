@@ -36,6 +36,10 @@ export class SdeOrgDataPositionDto {
   direktorat_id?: number | null;
   persnum_person?: number | null;
   persnum_person_text?: string | null;
+  position_status?: string | null;
+  positionStatus?: string | null;
+  delegation_id?: string | null;
+  is_delegated?: boolean;
   nama: string;
   organization_id: number;
   organization_text: string;
