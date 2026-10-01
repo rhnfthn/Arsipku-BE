@@ -80,6 +80,7 @@ interface PositionData {
   position_text: string;
   position_abbreviation: string | null;
   chief: number; // 1 = managerial, 0 = staff
+  bod_tag?: string | null;
   departType: string | null;
   persnum_person: number | null;
   persnum_person_text: string | null;
@@ -163,13 +164,13 @@ export class KajianService {
   }
 
   /**
-   * Filter recipients for Kajian:
-   * Rules: Hanya ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama
+   * Filter recipients for Kajian.
    *
-   * Logic:
-   * 1. Get sender's sub_area
-   * 2. Find parent organizations (atasan hierarchy)
-   * 3. Return all positions in parent organizations within same sub_area
+   * Kajian hanya dibuat oleh fungsional/staf (chief=0) dan penerimanya
+   * adalah pejabat managerial (chief=1) yang berada di atas pengirim:
+   * seluruh jenjang BOD-3/BOD-2/BOD-1 di dalam divisi pengirim, lalu
+   * Direktur pada direktorat yang sama dan Direktur Utama. Dewan Pengawas
+   * tidak termasuk.
    */
   private filterByPositionKA(
     barisData: PositionData[],
@@ -178,77 +179,132 @@ export class KajianService {
     const current = this.findByPosition(barisData, positionParam);
     if (!current) return [];
 
-    const currentSubArea = current.sub_area;
     const currentOrgId = current.organization_id;
     const currentCompany = current.company;
+    const currentDirectorate = Number(current.direktorat_id ?? 0);
 
-    // Find all parent organizations (atasan hierarchy)
-    const parentOrgIds = new Set<number>();
-    const visited = new Set<number>();
+    // Di org_data, organization_parent menunjuk ke atas. Posisi atasan
+    // pengirim berada pada department/unit di bawah node divisinya:
+    // Division -> Department -> Unit. Pilih cabang department yang masih
+    // terkait dengan nama divisi (Technology -> Enterprise Technology),
+    // sehingga cabang VP/AVP lain dalam divisi yang sama tidak ikut.
+    const currentDivisionId = Number(current.divisi_id ?? 0);
+    const divisionRootId = currentDivisionId || currentOrgId;
+    const divisionOrgIds = new Set<number>();
+    const visitedOrgIds = new Set<number>();
 
-    const findParents = (orgId: number) => {
-      if (visited.has(orgId)) return;
-      visited.add(orgId);
+    const stopWords = new Set([
+      'AND',
+      'THE',
+      'OF',
+      'DIVISION',
+      'DEPARTMENT',
+      'UNIT',
+      'PLANNING',
+      'MANAGEMENT',
+    ]);
+    const wordsOf = (text: string | null | undefined) =>
+      String(text || '')
+        .toUpperCase()
+        .split(/[^A-Z0-9]+/)
+        .filter((word) => word.length >= 5 && !stopWords.has(word));
+    const divisionWords = new Set(
+      wordsOf(current.divisi_name || current.organization_text),
+    );
 
-      // Find parent from organization_parent
-      const orgsInParent = barisData.filter(
-        (x) =>
-          x.organization_id === orgId &&
-          x.organization_parent !== null &&
-          x.company === currentCompany,
-      );
+    const directChildren = barisData.filter(
+      (x) =>
+        x.company === currentCompany &&
+        Number(x.organization_parent) === divisionRootId,
+    );
+    const matchingBranchRoots = directChildren.filter((x) =>
+      wordsOf(x.organization_text).some((word) => divisionWords.has(word)),
+    );
+    const branchRoots = matchingBranchRoots.length > 0 ? matchingBranchRoots : [];
 
-      for (const org of orgsInParent) {
-        if (org.organization_parent && org.organization_parent !== orgId) {
-          // Check if parent is in same sub_area
-          const parentOrg = barisData.find(
-            (x) =>
-              x.organization_id === org.organization_parent &&
-              x.sub_area === currentSubArea,
-          );
+    const collectDivisionTree = (orgId: number) => {
+      if (visitedOrgIds.has(orgId)) return;
+      visitedOrgIds.add(orgId);
+      divisionOrgIds.add(orgId);
 
-          if (parentOrg) {
-            parentOrgIds.add(org.organization_parent);
-            findParents(org.organization_parent);
-          }
+      for (const org of barisData) {
+        if (
+          org.company === currentCompany &&
+          Number(org.organization_parent) === orgId
+        ) {
+          collectDivisionTree(Number(org.organization_id));
         }
       }
     };
 
-    findParents(currentOrgId);
+    // Posisi di node divisi sendiri (contoh: EVP Made) tetap ikut, tetapi
+    // jangan menelusuri semua child dari root karena tiap child dapat
+    // merupakan cabang atasan yang berbeda.
+    visitedOrgIds.add(divisionRootId);
+    divisionOrgIds.add(divisionRootId);
+    for (const branch of branchRoots) {
+      collectDivisionTree(Number(branch.organization_id));
+    }
 
-    // Get all positions in parent organizations (same sub_area, same company)
-    // + Direktorat Utama selalu masuk ATASAN
+    // Get managerial positions in the sender's division subtree. Directors
+    // and the President Director are valid recipients; the Board of
+    // Supervisors is excluded.
     const recipients = barisData.filter((x) => {
-      // Must be same company
       if (x.company !== currentCompany) return false;
-
-      // Must be same sub_area
-      if (x.sub_area !== currentSubArea) return false;
-
-      // Exclude sender's own position
       if (x.position === positionParam) return false;
+      if (x.chief !== 1) return false;
 
-      // Direktorat Utama selalu masuk ATASAN
-      if (x.organization_text === 'Direktorat Utama') return true;
+      const positionText = String(x.position_text || '').toUpperCase();
+      if (/DEWAN\s+PENGAWAS/.test(positionText)) return false;
+      const bodTag = String(x.bod_tag || '').trim().toUpperCase();
 
-      // Must be in parent organization (ATASAN)
-      if (!parentOrgIds.has(x.organization_id)) return false;
+      const isDirekturUtama = /DIREKTUR\s+UTAMA|PRESIDENT\s+DIRECTOR/.test(
+        positionText,
+      );
+      if (isDirekturUtama) return true;
 
-      return true;
+      const positionDirectorate = Number(x.direktorat_id ?? 0);
+      const isDirector = /\bDIREKTUR\b/.test(positionText);
+      const sameDirectorate =
+        currentDirectorate > 0 && positionDirectorate === currentDirectorate;
+      const isBodAboveStaff =
+        ['BOD-3', 'BOD-2', 'BOD-1'].includes(bodTag) ||
+        /\b(AVP|VP|EVP)\b/.test(positionText);
+      const sameDivisionChain =
+        divisionOrgIds.has(Number(x.organization_id)) &&
+        Number(x.divisi_id ?? 0) === currentDivisionId &&
+        isBodAboveStaff;
+
+      return (
+        (isDirector && sameDirectorate) ||
+        sameDivisionChain
+      );
     });
 
     return recipients;
   }
 
   /**
-   * Validate recipients: Hanya ATASAN (dari parent organization) yang valid
+   * Validate the Kajian sender and recipients against the current org data.
    */
-  private validateRecipients(
+  private validateKajianRouting(
     barisData: PositionData[],
     pengirimPositionId: number,
     penerimaPositionIds: number[],
   ): void {
+    const sender = this.findByPosition(barisData, pengirimPositionId);
+    if (!sender) {
+      throw new NotFoundException(
+        `Pengirim dengan position_id ${pengirimPositionId} tidak ditemukan`,
+      );
+    }
+
+    if (sender.chief !== 0) {
+      throw new ForbiddenException(
+        'Kajian hanya dapat dibuat oleh fungsional/staf (chief=0).',
+      );
+    }
+
     const validRecipients = this.filterByPositionKA(
       barisData,
       pengirimPositionId,
@@ -267,7 +323,7 @@ export class KajianService {
     if (invalidRecipients.length > 0) {
       throw new ForbiddenException(
         `Penerima dengan position_id [${invalidRecipients.join(', ')}] tidak valid. ` +
-          `Kajian hanya bisa dikirim ke ATASAN (langsung/tidak langsung) dalam Sub Area yang sama.`,
+          `Kajian hanya bisa dikirim ke managerial di atas pengirim sampai Direktur Utama.`,
       );
     }
   }
@@ -689,19 +745,9 @@ export class KajianService {
     return result;
   }
 
-  // KA rules: Hanya bisa mengirim ke ATASAN (langsung/tidak langsung)
-  // - Staff/Fungsional → Managerial ATASAN (OK)
-  // - Staff/Fungsional → Staff/Fungsional ATASAN (OK)
-  // - Managerial → Managerial ATASAN (OK)
-  // - TIDAK BISA ke REKAN (sesama level/setingkat)
-  // - TIDAK BISA ke BAWAHAN
-  // Filter by SubArea dan hanya ke ATASAN hierarchy
-
   /**
    * Main method: Get Kajian recipients using org_data
-   * Kajian (KA): Korespondensi dari fungsional/staf ke ATASAN saja
-   * dalam Sub Area yang sama (atasan langsung/tidak langsung)
-   * TIDAK BISA ke sesama rekan atau setingkat
+   * Kajian (KA): fungsional/staf ke managerial di atasnya sampai Direktur Utama.
    *
    * @param positionId - Position ID pengirim (dari org_data)
    */
@@ -720,7 +766,7 @@ export class KajianService {
       );
     }
 
-    // KA: Everyone can send (Managerial, Fungsional, Staff) - no restriction
+    this.validateKajianRouting(barisData, positionId, []);
 
     // Get recipients using filter logic
     const recipientData = this.filterByPositionKA(barisData, positionId);
@@ -735,7 +781,7 @@ export class KajianService {
       position_abbreviation: r.position_abbreviation,
       chief: r.chief,
       departType: r.departType,
-      bod_tag: null, // Not available in PositionData
+      bod_tag: r.bod_tag ?? null,
       persnum_person: r.persnum_person,
       persnum_person_text: r.persnum_person_text,
       organization_id: r.organization_id,
@@ -777,7 +823,7 @@ export class KajianService {
       position_abbreviation: senderData.position_abbreviation,
       chief: senderData.chief,
       departType: senderData.departType,
-      bod_tag: null,
+      bod_tag: senderData.bod_tag ?? null,
       persnum_person: senderData.persnum_person,
       persnum_person_text: senderData.persnum_person_text,
       organization_id: senderData.organization_id,
@@ -927,7 +973,11 @@ export class KajianService {
         penerimaDataList.push(penerimaDataItem);
       }
 
-      // Note: Recipient validation removed - handled by FE via get-recipient endpoint
+      this.validateKajianRouting(
+        barisData,
+        dto.pengirim,
+        dto.penerima,
+      );
 
       // Determine tanggal
       tanggalStr = dto.tgl || new Date().toISOString().split('T')[0];
@@ -1255,6 +1305,8 @@ export class KajianService {
       }
       penerimaList.push(penerima);
     }
+
+    this.validateKajianRouting(barisData, dto.pengirim, dto.penerima);
 
     // PHASE 3: Validate tembusan
     const tembusanList: PositionData[] = [];
@@ -1845,7 +1897,11 @@ export class KajianService {
         penerimaDataList.push(penerimaDataItem);
       }
 
-      // Note: Recipient validation removed - handled by FE via get-recipient endpoint
+      this.validateKajianRouting(
+        barisData,
+        dto.pengirim,
+        dto.penerima,
+      );
 
       // Determine tanggal
       tanggalStr = dto.tgl || new Date().toISOString().split('T')[0];
@@ -2251,6 +2307,22 @@ export class KajianService {
       const pengirimPosId =
         dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
       const pengirimData = this.findByPosition(barisData, pengirimPosId);
+      if (!pengirimData) {
+        throw new NotFoundException(
+          `Pengirim dengan position_id ${pengirimPosId} tidak ditemukan`,
+        );
+      }
+
+      const storedRecipientIds = (
+        await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: naskahId, sirkuler: 'penerima' },
+        })
+      ).map((item) => Number(item.position));
+      this.validateKajianRouting(
+        barisData,
+        pengirimPosId,
+        dto.penerima ?? storedRecipientIds,
+      );
 
       // Update naskah fields
       if (dto.tgl !== undefined) naskah.tanggal = new Date(dto.tgl);
@@ -2279,7 +2351,11 @@ export class KajianService {
 
       // Update penerima if provided
       if (dto.penerima !== undefined) {
-        // Note: Recipient validation removed - handled by FE via get-recipient endpoint
+        this.validateKajianRouting(
+          barisData,
+          pengirimPosId,
+          dto.penerima,
+        );
 
         // Delete old penerima
         await queryRunner.manager.delete(NaskahSirkulasi, {
@@ -2517,6 +2593,22 @@ export class KajianService {
       const pengirimPosId =
         dto.pengirim || parseInt(pengirimSirkulasi.position || '0');
       const pengirimData = this.findByPosition(barisData, pengirimPosId);
+      if (!pengirimData) {
+        throw new NotFoundException(
+          `Pengirim dengan position_id ${pengirimPosId} tidak ditemukan`,
+        );
+      }
+
+      const storedRecipientIds = (
+        await this.naskahSirkulasiRepository.find({
+          where: { idNaskah: naskahId, sirkuler: 'penerima' },
+        })
+      ).map((item) => Number(item.position));
+      this.validateKajianRouting(
+        barisData,
+        pengirimPosId,
+        dto.penerima ?? storedRecipientIds,
+      );
 
       // Update fields if provided
       if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
@@ -2569,7 +2661,11 @@ export class KajianService {
 
       // Update penerima if provided
       if (dto.penerima && dto.penerima.length > 0) {
-        // Note: Recipient validation removed - handled by FE via get-recipient endpoint
+        this.validateKajianRouting(
+          barisData,
+          pengirimPosId,
+          dto.penerima,
+        );
 
         await queryRunner.manager.delete(NaskahSirkulasi, {
           idNaskah: naskahId,
@@ -3471,6 +3567,14 @@ export class KajianService {
     const pengirimData = this.findByPosition(
       barisData,
       Number(pengirimSirkulasi?.position || dto.pengirim),
+    );
+    if (!pengirimData) {
+      throw new NotFoundException('Data pengirim tidak ditemukan dalam org_data');
+    }
+    this.validateKajianRouting(
+      barisData,
+      pengirimData.position,
+      penerimaSirkulasiList.map((item) => Number(item.position)),
     );
 
     // Determine status based on sign_option
