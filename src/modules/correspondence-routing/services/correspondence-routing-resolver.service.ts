@@ -20,6 +20,8 @@ import { CorrespondenceRoutingRuleScope as Scope } from '../entities/corresponde
 import { RoutingPreviewDto } from '../dto/routing-preview.dto';
 import { RoutingConfigCacheService } from './routing-config-cache.service';
 import { matchesScopes, RoutingPosition } from './routing-config-validation';
+import { CorrespondenceAccessService } from './correspondence-access.service';
+import type { CorrespondenceDocumentType } from '../entities/correspondence-access-policy.entity';
 
 export type RoutingDocumentType = 'DI' | 'SDI';
 export type RoutingActionType = 'CREATE' | 'FORWARD';
@@ -75,6 +77,14 @@ export interface RoutingCapabilities {
   can_create_sdi: boolean;
   matched_role_codes: string[];
   matched_rule_ids: string[];
+  access: Record<CorrespondenceDocumentType, boolean>;
+  configured_document_types: CorrespondenceDocumentType[];
+  profile: {
+    bod_tag: string;
+    chief: number;
+    area: string;
+    area_text: string;
+  };
 }
 
 interface RoutingInput {
@@ -108,6 +118,7 @@ export class CorrespondenceRoutingResolverService {
     private readonly scopeRepo: Repository<Scope>,
     private readonly org: OrgDataService,
     private readonly cache: RoutingConfigCacheService,
+    private readonly accessService: CorrespondenceAccessService,
   ) {}
 
   async preview(dto: RoutingPreviewDto): Promise<EffectiveRoutingPlan> {
@@ -129,20 +140,28 @@ export class CorrespondenceRoutingResolverService {
     companyInput: string | number,
     positionInput: string | number,
   ): Promise<RoutingCapabilities> {
-    const disabled: RoutingCapabilities = {
-      feature_enabled: false,
-      can_create_sdi: false,
-      matched_role_codes: [],
-      matched_rule_ids: [],
-    };
-    if (process.env.CORRESPONDENCE_ROUTING_ENABLED !== 'true') return disabled;
-
     const company = Number(companyInput);
     const positionId = Number(positionInput);
     if (!Number.isInteger(company) || company <= 0)
       throw new BadRequestException('Company user tidak valid');
     if (!Number.isInteger(positionId) || positionId <= 0)
       throw new BadRequestException('Position user tidak valid');
+
+    const accessCapabilities = await this.accessService.capabilities(
+      company,
+      positionId,
+    );
+    const routingEnabled =
+      process.env.CORRESPONDENCE_ROUTING_ENABLED === 'true';
+    if (!routingEnabled) {
+      return {
+        feature_enabled: false,
+        can_create_sdi: accessCapabilities.access.SDI,
+        matched_role_codes: [],
+        matched_rule_ids: [],
+        ...accessCapabilities,
+      };
+    }
 
     const effectiveDate = new Date().toISOString().slice(0, 10);
     const config = await this.loadConfig(
@@ -170,11 +189,18 @@ export class CorrespondenceRoutingResolverService {
         rule.delivery_type === 'PENERIMA',
     );
 
+    const routingAllowsSdi = senderRoles.length > 0 && primaryRules.length > 0;
+    if (!accessCapabilities.configured_document_types.includes('SDI')) {
+      accessCapabilities.access.SDI =
+        accessCapabilities.access.SDI || routingAllowsSdi;
+    }
+
     return {
       feature_enabled: true,
-      can_create_sdi: senderRoles.length > 0 && primaryRules.length > 0,
+      can_create_sdi: accessCapabilities.access.SDI,
       matched_role_codes: senderRoles.map((role) => role.code).sort(),
       matched_rule_ids: primaryRules.map((rule) => rule.id).sort(),
+      ...accessCapabilities,
     };
   }
 

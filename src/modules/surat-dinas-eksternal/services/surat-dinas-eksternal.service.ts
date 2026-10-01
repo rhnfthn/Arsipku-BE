@@ -7,6 +7,16 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  delegatedPengirimFields,
+  delegatedRecipientFields,
+  formatDelegatedPositionText,
+} from '../../../common/helpers/delegasi-rendering.helper';
+import { isAllowedCorrespondenceRecipient } from '../../../common/utils/correspondence-recipient.util';
+import {
+  createCorrespondenceAttachmentFileName,
+  createCorrespondenceFinalFileName,
+} from '../../../common/utils/correspondence-file-name.util';
 import { Repository, DataSource, In } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
 import * as path from 'path';
@@ -244,7 +254,10 @@ export class SuratDinasEksternalService {
 
       if (position) {
         // Return position_text only (without organization_text) - sama seperti SDI
-        const fullName = `${position.position_text}`;
+        const fullName = formatDelegatedPositionText(
+          position.position_text,
+          position.position_status ?? position.positionStatus,
+        );
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -373,6 +386,7 @@ export class SuratDinasEksternalService {
     english: boolean = false,
     atasNama: string = '',
     lampiranDirectRefs: Array<{ fileName: string; key: string }> = [],
+    signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -406,8 +420,11 @@ export class SuratDinasEksternalService {
       }
 
       // Generate preview QR code untuk preview PDF
-      const previewQrHtml =
-        await this.qrCodeService.generatePreviewQRCodeHtml();
+      const isBsre =
+        String(signOption || '').toLowerCase() === SignOption.DIGSIG;
+      const previewQrHtml = isBsre
+        ? undefined
+        : await this.qrCodeService.generatePreviewQRCodeHtml();
 
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
       let pdfBuffer = await this.generatePdfSudinService.generatePdf({
@@ -429,6 +446,7 @@ export class SuratDinasEksternalService {
         headerAlamat: headerInfo?.alamat,
         // QR Code HTML untuk preview
         qrCodeHtml: previewQrHtml,
+        bsreFooter: isBsre,
         // English format flag
         english: english,
       });
@@ -541,6 +559,16 @@ export class SuratDinasEksternalService {
    * @param naskahId - ID naskah yang akan dikaitkan
    * @param finalFolder - Folder tujuan (e.g., 'surat-dinas-eksternal/lampiran')
    */
+  private async createFinalPdfFileName(
+    jenis: string,
+    naskahId: string,
+  ): Promise<string> {
+    const attachmentCount = await this.naskahLampiranRepository.count({
+      where: { id_naskah: naskahId },
+    });
+    return createCorrespondenceFinalFileName(jenis, attachmentCount);
+  }
+
   private async moveTemporaryLampiranToFinal(
     lampiranIds: string[],
     naskahId: string,
@@ -597,13 +625,11 @@ export class SuratDinasEksternalService {
 
     // Move each file and update database
     for (const lampiran of tempLampiran) {
-      const fileName = lampiran.file_name;
       const oldKey = lampiran.file_pdf;
 
       // Generate new key untuk final location
-      const timestamp = Date.now();
-      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const newKey = `${finalFolder}/${timestamp}-${sanitizedFileName}`;
+      const fileName = createCorrespondenceAttachmentFileName('SDE');
+      const newKey = `${finalFolder}/${fileName}`;
 
       try {
         // Move file di storage
@@ -612,6 +638,7 @@ export class SuratDinasEksternalService {
         // Update database
         lampiran.id_naskah = naskahId;
         lampiran.file_pdf = newKey;
+        lampiran.file_name = fileName;
         lampiran.jenis = 'SDE';
         lampiran.is_temporary = 0;
         lampiran.temp_folder_id = null;
@@ -879,7 +906,10 @@ export class SuratDinasEksternalService {
   private toSirkulasiInfo(pos: SdeOrgDataPositionDto): SdeSirkulasiInfoDto {
     return {
       position: pos.position,
-      position_text: pos.position_text,
+      position_text: formatDelegatedPositionText(
+        pos.position_text,
+        pos.position_status ?? pos.positionStatus,
+      ),
       persnum: pos.persnum_person ?? pos.persnum ?? null,
       nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
@@ -900,6 +930,7 @@ export class SuratDinasEksternalService {
     pos: SdeOrgDataPositionDto,
     isDraft: boolean = false,
     urutan: number = 0,
+    actorUser?: { position_status?: string | null; nama?: string } | null,
   ): Promise<NaskahSirkulasi> {
     let tanggal: Date = new Date();
     if (idNaskah) {
@@ -909,6 +940,14 @@ export class SuratDinasEksternalService {
       });
       tanggal = parentNaskah?.tanggal ?? new Date();
     }
+    const pengirimFields = delegatedPengirimFields(
+      actorUser ?? {
+        position_status: pos.position_status ?? pos.positionStatus ?? null,
+        nama: pos.persnum_person_text ?? pos.nama ?? '',
+      },
+      pos.position_text ?? '',
+      pos.persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+    );
     const sirkulasi = this.naskahSirkulasiRepository.create({
       id: uuidv4(),
       idNaskah,
@@ -923,16 +962,15 @@ export class SuratDinasEksternalService {
       organization: String(pos.organization_id),
       organizationText: pos.organization_text,
       position: String(pos.position),
-      positionText: pos.position_text,
-      positionStatus: 'ybs',
+      positionText: pengirimFields.positionText,
+      positionStatus: pengirimFields.positionStatus.toLowerCase() as any,
       // Ensure idSirkuler and namaSirkuler are always populated.
       // Prefer persnum/nama, fallback to position/position_text if persnum/nama are missing.
       // Prefer persnum_person/persnum_person_text (if present), then persnum/nama, then fallback to position/position_text
       idSirkuler: String(
         pos.persnum_person ?? pos.persnum ?? pos.position ?? '',
       ),
-      namaSirkuler:
-        pos.persnum_person_text ?? pos.nama ?? pos.position_text ?? '',
+      namaSirkuler: pengirimFields.namaSirkuler,
       isDraft: isDraft,
       urutan: urutan,
     });
@@ -1102,18 +1140,19 @@ export class SuratDinasEksternalService {
     // dari rantai disposisi tersebut. Jangan mencampur dengan seluruh pejabat
     // managerial karena bisa memasukkan pejabat dari divisi lain.
     if (parentNaskahId) {
-      return this.getSendersFromDispositionChain(
+      const senders = await this.getSendersFromDispositionChain(
         parentNaskahId,
         positionId,
         data,
       );
+      return senders.filter(isAllowedCorrespondenceRecipient);
     }
 
     const result: SdeOrgDataPositionDto[] = [];
     const added = new Set<number>();
 
     const pushUnique = (item?: SdeOrgDataPositionDto) => {
-      if (!item) return;
+      if (!item || !isAllowedCorrespondenceRecipient(item)) return;
       const key = Number(item.position);
       if (added.has(key)) return;
       added.add(key);
@@ -1223,7 +1262,9 @@ export class SuratDinasEksternalService {
     // dipakai untuk membaca kandidat pengirim dari disposisi milik akun lain.
     const currentPosition = String(positionId);
     const isInChain = chain.some(({ recipients }) =>
-      recipients.some((recipient) => String(recipient.position) === currentPosition),
+      recipients.some(
+        (recipient) => String(recipient.position) === currentPosition,
+      ),
     );
     if (!isInChain) return [];
 
@@ -1299,7 +1340,9 @@ export class SuratDinasEksternalService {
             this.isDirectorLevel(position.position_text) &&
             !this.isDirekturUtama(position.position_text),
         )
-        .sort((a, b) => String(a.position_text).localeCompare(String(b.position_text)))
+        .sort((a, b) =>
+          String(a.position_text).localeCompare(String(b.position_text)),
+        )
         .forEach((position) => addCandidate(position));
     }
 
@@ -1335,7 +1378,10 @@ export class SuratDinasEksternalService {
     // Bila snapshot organisasi tidak lengkap, chain tetap menjadi sumber
     // kebenaran. Jika metadata tersedia, company dan divisi harus sama.
     if (!current || !candidate) return !current;
-    return current.company === candidate.company && current.division === candidate.division;
+    return (
+      current.company === candidate.company &&
+      current.division === candidate.division
+    );
   }
 
   private isDirectorLevel(value: unknown): boolean {
@@ -1402,7 +1448,8 @@ export class SuratDinasEksternalService {
         x.chief === 1 &&
         x.bod_tag === 'BOD' &&
         x.company === sender.company &&
-        Number(x.position) !== Number(positionId),
+        Number(x.position) !== Number(positionId) &&
+        isAllowedCorrespondenceRecipient(x),
     );
 
     return {
@@ -1914,8 +1961,10 @@ export class SuratDinasEksternalService {
           }
 
           // Upload PDF to storage with organized folder structure
-          const timestamp = Date.now();
-          const pdfFileName = `SDE-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+          const pdfFileName = await this.createFinalPdfFileName(
+            'SDE',
+            naskahId,
+          );
 
           const uploadResult = await this.storageService.uploadBuffer(
             pdfBuffer,
@@ -2350,7 +2399,12 @@ export class SuratDinasEksternalService {
       // Data sudah tersimpan di naskah dan naskah_sirkulasi
       const kepadaYthList = penerimaList.map((p) => p.nama);
       const kepadaYth = kepadaYthList.join('; ');
-      const tembusanTextList = tembusanList.map((t) => t.position_text);
+      const tembusanTextList = tembusanList.map((t) =>
+        formatDelegatedPositionText(
+          t.position_text,
+          t.position_status ?? t.positionStatus,
+        ),
+      );
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
@@ -2465,6 +2519,7 @@ export class SuratDinasEksternalService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
           // English format flag
           english: dto.english === true,
         });
@@ -2617,8 +2672,7 @@ export class SuratDinasEksternalService {
         }
 
         // PHASE 12: Upload final PDF using storageService (same as ND)
-        const finalTimestamp = Date.now();
-        const pdfFileName = `SDE-${nomorSurat.replace(/\//g, '-')}-${finalTimestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName('SDE', naskahId);
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,
@@ -3127,7 +3181,7 @@ export class SuratDinasEksternalService {
         if (existingTembusanSirkulasi && existingTembusanSirkulasi.length > 0) {
           tembusanPositionsToInsert = existingTembusanSirkulasi
             .map((t) => parseInt(t.position || '0', 10))
-          .filter((p) => p > 0);
+            .filter((p) => p > 0);
         }
       }
 
@@ -3940,6 +3994,7 @@ export class SuratDinasEksternalService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
           // English format flag
           english: dto.english === true,
         });
@@ -4096,8 +4151,7 @@ export class SuratDinasEksternalService {
         // OPTION 3: TTD_BASAH - tidak ada QR, space untuk tanda tangan manual
 
         // PHASE 12: Upload final PDF
-        const timestamp = Date.now();
-        const pdfFileName = `SDE-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName('SDE', naskahId);
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,
@@ -5110,8 +5164,12 @@ export class SuratDinasEksternalService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
-          positionStatus: 'ybs',
+          positionText: formatDelegatedPositionText(
+            penerima.position_text,
+            penerima.position_status ?? penerima.positionStatus,
+          ),
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -5123,7 +5181,7 @@ export class SuratDinasEksternalService {
 
         penerimaResponses.push({
           position: penerima.position,
-          position_text: penerima.position_text,
+          position_text: delegatedRecipientFields(penerima).positionText,
           persnum: penerima.persnum_person,
           nama: penerima.persnum_person_text,
           organization_id: penerima.organization_id,
@@ -5152,8 +5210,12 @@ export class SuratDinasEksternalService {
           organization: String(tembusan.organization_id),
           organizationText: tembusan.organization_text,
           position: String(tembusan.position),
-          positionText: tembusan.position_text,
-          positionStatus: 'ybs',
+          positionText: formatDelegatedPositionText(
+            tembusan.position_text,
+            tembusan.position_status ?? tembusan.positionStatus,
+          ),
+          positionStatus: delegatedRecipientFields(tembusan)
+            .positionStatus as any,
           idSirkuler: tembusan.persnum_person
             ? String(tembusan.persnum_person)
             : '',
@@ -5165,7 +5227,7 @@ export class SuratDinasEksternalService {
 
         tembusanResponses.push({
           position: tembusan.position,
-          position_text: tembusan.position_text,
+          position_text: delegatedRecipientFields(tembusan).positionText,
           persnum: tembusan.persnum_person,
           nama: tembusan.persnum_person_text,
           organization_id: tembusan.organization_id,
@@ -5275,8 +5337,10 @@ export class SuratDinasEksternalService {
         }
 
         // Upload PDF to storage
-        const timestamp = Date.now();
-        const pdfFileName = `${dto.jenis}-${nomorSurat.replace(/\//g, '-')}-${timestamp}.pdf`;
+        const pdfFileName = await this.createFinalPdfFileName(
+          dto.jenis,
+          naskahId,
+        );
         const uploadResult = await this.storageService.uploadBuffer(
           pdfBuffer,
           pdfFileName,

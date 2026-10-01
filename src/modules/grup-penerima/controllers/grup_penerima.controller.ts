@@ -9,7 +9,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { GrupPenerimaService } from '../services/grup_penerima.service';
-import { CreateGrupPenerimaDto } from '../dto/grup_penerima/create_grup_penerima.dto';
+import {
+  CreateGrupPenerimaDto,
+  UpdateGrupPenerimaUsageDto,
+} from '../dto/grup_penerima/create_grup_penerima.dto';
 import { UpdateGrupPenerimaDto } from '../dto/grup_penerima/update_grup_penerima.dto';
 import { CreateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/create_grup_penerima_detail.dto';
 import { UpdateGrupPenerimaDetailDto } from '../../grup-penerima-detail/dto/grup_penerima_detail/update_grup_penerima_detail.dto';
@@ -46,12 +49,14 @@ export class GrupPenerimaController {
     @Query('tgl') tgl?: string,
     @Query('jenis') jenis?: string,
     @Query('includeInactive') includeInactive?: string,
+    @Query('area') area?: string,
   ) {
     return this.grupPenerimaService.findAllWithPositionDetail(
       company,
       tgl,
       jenis,
       includeInactive === 'true',
+      area,
     );
   }
 
@@ -92,6 +97,18 @@ export class GrupPenerimaController {
   ) {
     return this.grupPenerimaService.update(id, {
       jenis_naskah: jenisNaskah?.length ? jenisNaskah : null,
+    });
+  }
+
+  @Put(':id/penggunaan')
+  @RequirePermission('master-data', 'update-grup-penerima')
+  setPenggunaan(
+    @Param('id') id: string,
+    @Body() dto: UpdateGrupPenerimaUsageDto,
+  ) {
+    return this.grupPenerimaService.update(id, {
+      tujuan: dto.tujuan?.length ? dto.tujuan : null,
+      lintas_area: dto.lintas_area,
     });
   }
 

@@ -53,6 +53,9 @@ export class GrupPenerimaResponseDto {
   company: string;
   nama: string;
   deskripsi: string | null;
+  jenis_naskah: string[] | null;
+  tujuan: Array<'PENERIMA' | 'TEMBUSAN'> | null;
+  lintas_area: boolean;
   aktif: boolean;
   details: GrupPenerimaDetailResponseDto[];
 }
