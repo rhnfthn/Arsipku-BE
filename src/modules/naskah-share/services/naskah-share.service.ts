@@ -449,8 +449,11 @@ export class NaskahShareService {
       idQb.andWhere('naskah.jenis = :jenis', { jenis: query.jenis });
     }
 
+    // GROUP BY share.id (bukan DISTINCT) — MySQL menolak DISTINCT + ORDER BY
+    // kolom yang tidak ada di SELECT list (share.createdAt), sedangkan GROUP BY
+    // primary key mengizinkan ORDER BY kolom yang functionally dependent.
     idQb
-      .distinct(true)
+      .groupBy('share.id')
       .orderBy('share.createdAt', query.sort === 'ASC' ? 'ASC' : 'DESC')
       .skip(skip)
       .take(limit);
