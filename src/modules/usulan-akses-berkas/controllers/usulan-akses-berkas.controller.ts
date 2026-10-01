@@ -126,10 +126,17 @@ export class UsulanAksesBerkasController {
   /**
    * GET /usulan-akses-berkas/berkas/:berkasId
    * Detail berkas untuk SE pengusul yang punya entitlement.
+   * Optional query `?usulan_id=...` untuk resolve entitlement & usulan yang benar
+   * (berguna saat user punya beberapa entitlement aktif untuk berkas yang sama
+   * dari usulan berbeda).
    */
   @Get('berkas/:berkasId')
-  async getBerkasDetail(@Param('berkasId') berkasId: string, @CurrentUser() user: any) {
-    const result = await this.service.getBerkasDetailForEntitlement(berkasId, user);
+  async getBerkasDetail(
+    @Param('berkasId') berkasId: string,
+    @CurrentUser() user: any,
+    @Query('usulan_id') usulanId?: string,
+  ) {
+    const result = await this.service.getBerkasDetailForEntitlement(berkasId, user, usulanId);
     return { success: true, data: result };
   }
 
@@ -137,13 +144,15 @@ export class UsulanAksesBerkasController {
    * GET /usulan-akses-berkas/berkas/:berkasId/naskah
    * List naskah di dalam berkas tertentu (untuk Pemberian).
    * Cek entitlement user sebelum return.
+   * Optional query `?usulan_id=...` untuk resolve entitlement yang benar.
    */
   @Get('berkas/:berkasId/naskah')
   async getNaskahByBerkas(
     @Param('berkasId') berkasId: string,
     @CurrentUser() user: any,
+    @Query('usulan_id') usulanId?: string,
   ) {
-    const result = await this.service.getNaskahByBerkas(berkasId, user);
+    const result = await this.service.getNaskahByBerkas(berkasId, user, usulanId);
     return { success: true, data: result, total: result.length };
   }
 
@@ -152,12 +161,13 @@ export class UsulanAksesBerkasController {
    * List berkas yang eligible untuk dipilih SE Pemberi pada modal
    * "Pilih Berkas & Verifikator".
    *
-   * - Untuk jenisBerkas AKTIF: hanya berkas milik divisi pemberi
-   *   (unit_pencipta_id = divisiPemberiId) dengan status "closed_retensi_aktif".
-   * - Untuk jenisBerkas INAKTIF: semua berkas status "closed_retensi_aktif"
-   *   di divisi TU (Corporate Secretary).
+   * Mirror scope halaman Kelola → Pemeliharaan → Pemberkasan (Berkas Saya):
+   * - Hanya berkas yang dibuat/di-PIC oleh SE pemberi yang login.
+   * - JenisBerkas AKTIF: berstatus "closed_retensi_aktif" (Tertutup).
+   * - JenisBerkas INAKTIF: berstatus "retensi_inaktif" (arsip inaktif
+   *   milik SE TU yang login).
    *
-   * Filter unit dilakukan di BE — FE hanya menampilkan list ini.
+   * Filter dilakukan di BE — FE hanya menampilkan list ini.
    */
   @Get('eligible-berkas')
   async getEligibleBerkas(

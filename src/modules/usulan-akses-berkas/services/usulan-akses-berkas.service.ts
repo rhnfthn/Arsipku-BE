@@ -1053,13 +1053,29 @@ export class UsulanAksesBerkasService {
         `Berkas tidak ditemukan: ${missing.join(', ')}`,
       );
     }
+    // Validasi status per jenis + kepemilikan (mirror halaman Pemberkasan):
+    // - AKTIF → wajib closed_retensi_aktif (Tertutup)
+    // - INAKTIF → wajib retensi_inaktif
+    // - Keduanya wajib dibuat/di-PIC oleh SE yang login.
+    const mePersnum = Number(user.persnum);
+    const expectedStatus =
+      usulan.jenis_berkas === JenisBerkas.INAKTIF
+        ? StatusBerkas.RETAIL_INAKTIF
+        : StatusBerkas.CLOSED_RETENSI_AKTIF;
     for (const b of berkasList) {
-      if (b.status !== StatusBerkas.CLOSED_RETENSI_AKTIF) {
+      if (b.status !== expectedStatus) {
         throw new BadRequestException(
-          `Berkas "${b.judulBerkas}" tidak dapat dipilih karena statusnya "${b.status}". Hanya berkas berstatus "closed_retensi_aktif" yang boleh dipinjamkan.`,
+          `Berkas "${b.judulBerkas}" tidak dapat dipilih karena statusnya "${b.status}".`,
         );
       }
-      // Validasi kepemilikan per unit bisa ditambahkan setelah ada kolom divisi_id di berkas
+      const isOwned =
+        Number(b.createdBy) === mePersnum ||
+        (b.picPersnum != null && String(b.picPersnum) === String(mePersnum));
+      if (!isOwned) {
+        throw new BadRequestException(
+          `Berkas "${b.judulBerkas}" bukan berkas Anda dan tidak boleh dipinjamkan.`,
+        );
+      }
     }
 
     // Hapus berkas lama jika ada (revisi case)
@@ -1150,11 +1166,11 @@ export class UsulanAksesBerkasService {
    * Daftar berkas yang eligible untuk dipilih SE Pemberi pada modal
    * "Pilih Berkas & Verifikator".
    *
-   * Aturan:
-   * - Semua berkas berstatus closed_retensi_aktif (tertutup).
-   * - Jika jenisBerkas = AKTIF: filter unitPenciptaId = divisiPemberiId
-   *   (hanya berkas milik divisi pemberi).
-   * - Jika jenisBerkas = INAKTIF: tidak ada filter unit (semua berkas tertutup).
+   * Aturan (mirror scope halaman Kelola → Pemeliharaan → Pemberkasan):
+   * - Hanya berkas yang DIBUAT atau di-PIC oleh SE pemberi yang login.
+   * - Jenis AKTIF: berkas berstatus closed_retensi_aktif (Tertutup).
+   * - Jenis INAKTIF: arsip berstatus retensi_inaktif (arsip inaktif milik
+   *   SE TU yang login).
    */
   async getEligibleBerkasForPemberi(
     user: any,
@@ -1167,36 +1183,25 @@ export class UsulanAksesBerkasService {
 
     // Build query — TypeORM find doesn't support __or, use QueryBuilder
     const qb = this.berkasRepo.createQueryBuilder('b');
-    qb.where('b.status = :status', { status: StatusBerkas.CLOSED_RETENSI_AKTIF });
     qb.andWhere('b.deleted_at IS NULL');
 
-    if (jenisBerkas === JenisBerkas.AKTIF && divisiPemberiId) {
-      const orgData = await this.orgDataService.findLatestOrg();
-      let divisiPersnums: number[] = [];
-      if (orgData?.position_json) {
-        const positionJson =
-          typeof orgData.position_json === 'string'
-            ? JSON.parse(orgData.position_json)
-            : orgData.position_json;
-        if (Array.isArray(positionJson)) {
-          divisiPersnums = positionJson
-            .filter((p: any) => Number(p.organization_id) === divisiPemberiId && p.persnum_person)
-            .map((p: any) => Number(p.persnum_person));
-        }
-      }
-      this.logger.log(
-        `[getEligibleBerkasForPemberi] divisiPersnums=${JSON.stringify(divisiPersnums)}`,
-      );
+    // Status per jenis:
+    // - AKTIF → closed_retensi_aktif (Tertutup)
+    // - INAKTIF → retensi_inaktif (arsip sudah di pengelolaan TU)
+    const statusFilter =
+      jenisBerkas === JenisBerkas.INAKTIF
+        ? StatusBerkas.RETAIL_INAKTIF
+        : StatusBerkas.CLOSED_RETENSI_AKTIF;
+    qb.where('b.status = :status', { status: statusFilter });
 
-      if (divisiPersnums.length > 0) {
-        qb.andWhere(
-          '(b.unit_pencipta_id = :divisiPemberiId OR b.created_by IN (:...persnums))',
-          { divisiPemberiId, persnums: divisiPersnums },
-        );
-      } else {
-        qb.andWhere('b.unit_pencipta_id = :divisiPemberiId', { divisiPemberiId });
-      }
-    }
+    // Scope kepemilikan — untuk KEDUA jenis: mirror halaman Pemberkasan
+    // (Berkas Saya) = berkas yang dibuat user atau di-PIC oleh user.
+    const me = Number(user?.persnum);
+    if (!Number.isFinite(me) || me <= 0) return [];
+    qb.andWhere('(b.created_by = :me OR b.pic_persnum = :meStr)', {
+      me,
+      meStr: String(me),
+    });
 
     qb.orderBy('b.judul_berkas', 'ASC');
     const rows = await qb.getMany();
@@ -1516,8 +1521,9 @@ export class UsulanAksesBerkasService {
   /**
    * List entitlement untuk user yang login.
    * Hanya yang belum revoked dan belum kadaluarsa.
-   * Enrich dengan judulBerkas dari tabel berkas + nomorUsulan dari tabel usulan.
-   * Di-group by berkasId (distinct berkas), dengan info usulan terbaru.
+   * Di-group by usulanId (1 usulan = 1 baris) — pemilihan berkas dilakukan
+   * di halaman detail. Setiap baris membawa berkas_ids[] (semua berkas
+   * yang diberikan dalam usulan tsb) + info usulan.
    */
   async getMyEntitlements(user: any): Promise<any[]> {
     const userPersnum = Number(user.persnum);
@@ -1556,62 +1562,73 @@ export class UsulanAksesBerkasService {
 
     if (filteredEntitlements.length === 0) return [];
 
-    // Group by berkasId — gabungkan entitlements untuk berkas yang sama
-    const berkasGroups = new Map<string, any>();
+    // Group by usulanId — 1 usulan = 1 baris. Semua berkas dalam usulan
+    // yang sama digabung; pemilihan berkas ada di halaman detail.
+    const usulanGroups = new Map<string, any>();
     for (const e of filteredEntitlements) {
-      const existing = berkasGroups.get(e.berkas_id);
+      const existing = usulanGroups.get(e.usulan_id);
       const isExpired = e.tanggal_selesai && new Date(e.tanggal_selesai) < now;
       if (!existing) {
         const berkas = berkasMap.get(e.berkas_id);
         const usulan = usulanMap.get(e.usulan_id);
-        berkasGroups.set(e.berkas_id, {
-          berkas_id: e.berkas_id,
-          judul_berkas: berkas?.judulBerkas || '(Berkas tidak ditemukan)',
-          klasifikasi: berkas?.klasifikasi || null,
-          klasifikasi_teks: berkas?.klasifikasiTeks || null,
-          lokasi: berkas?.lokasi || null,
+        usulanGroups.set(e.usulan_id, {
+          usulan_id: e.usulan_id,
+          // Semua berkas yang diberikan dalam usulan ini
+          berkas_ids: [e.berkas_id],
+          berkas_list: [
+            {
+              berkas_id: e.berkas_id,
+              judul_berkas: berkas?.judulBerkas || '(Berkas tidak ditemukan)',
+              klasifikasi: berkas?.klasifikasi || null,
+              klasifikasi_teks: berkas?.klasifikasiTeks || null,
+              lokasi: berkas?.lokasi || null,
+            },
+          ],
           // Info dari usulan (judul usulan & jenis berkas)
           judul_usulan: usulan?.judul_usulan || null,
           jenis_berkas: usulan?.jenis_berkas || null,
-          // Gabungkan permissions dari semua entitlement untuk berkas ini
+          // Gabungkan permissions dari semua entitlement dalam usulan ini
           permissions: [...new Set([...(e.permissions || [])])],
-          // Ambil tanggalMulai terbaru dan tanggalSelesai terlama
+          // Ambil tanggalMulai terbaru dan tanggalSelesai terjauh
           tanggal_mulai: e.tanggal_mulai,
           tanggal_selesai: e.tanggal_selesai,
           is_expired: isExpired,
-          // Info usulan terbaru
-          usulan_ids: [e.usulan_id],
           nomor_usulan_terbaru: usulan?.nomor_usulan || null,
           is_penerima_tambahan: e.is_penerima_tambahan,
           is_read: e.is_read,
           entitlement_count: 1,
         });
       } else {
+        // Tambah berkas (hindari duplikat berkas_id dalam usulan yang sama)
+        if (!existing.berkas_ids.includes(e.berkas_id)) {
+          existing.berkas_ids.push(e.berkas_id);
+          const berkas = berkasMap.get(e.berkas_id);
+          existing.berkas_list.push({
+            berkas_id: e.berkas_id,
+            judul_berkas: berkas?.judulBerkas || '(Berkas tidak ditemukan)',
+            klasifikasi: berkas?.klasifikasi || null,
+            klasifikasi_teks: berkas?.klasifikasiTeks || null,
+            lokasi: berkas?.lokasi || null,
+          });
+        }
         // Merge permissions
         existing.permissions = [...new Set([...existing.permissions, ...(e.permissions || [])])];
         // Ambil tanggalMulai terbaru
         if (new Date(e.tanggal_mulai) > new Date(existing.tanggal_mulai)) {
           existing.tanggal_mulai = e.tanggal_mulai;
-          // Update nomorUsulanTerbaru ke usulan dengan tanggalMulai terbaru
-          const usulanFromMap = usulanMap.get(e.usulan_id);
-          if (usulanFromMap?.nomor_usulan) existing.nomor_usulan_terbaru = usulanFromMap.nomor_usulan;
         }
         // Ambil tanggalSelesai terjauh (masa berlaku terpanjang yang masih aktif)
         // agar konsisten dengan is_expired (false jika ada satu yang aktif).
         if (new Date(e.tanggal_selesai) > new Date(existing.tanggal_selesai)) {
           existing.tanggal_selesai = e.tanggal_selesai;
         }
-        // Update isExpired — kalau ada satu yang aktif, berkas ini aktif
+        // Update isExpired — kalau ada satu yang aktif, usulan ini aktif
         if (!isExpired) {
           existing.is_expired = false;
         }
         // isRead: true hanya jika SEMUA entitlement di group sudah dibaca
         if (!e.is_read) {
           existing.is_read = false;
-        }
-        // Tambah usulan
-        if (!existing.usulan_ids.includes(e.usulan_id)) {
-          existing.usulan_ids.push(e.usulan_id);
         }
         existing.entitlement_count++;
       }
@@ -1634,9 +1651,8 @@ export class UsulanAksesBerkasService {
       }
     }
 
-    for (const group of berkasGroups.values()) {
-      const firstUsulanId = group.usulan_ids[0];
-      const usulan = usulanMap.get(firstUsulanId);
+    for (const group of usulanGroups.values()) {
+      const usulan = usulanMap.get(group.usulan_id);
       const divisiPemberiId = usulan?.divisi_pemberi_id;
       if (divisiPemberiId) {
         (group as any).divisi_pemberi_id = divisiPemberiId;
@@ -1644,7 +1660,7 @@ export class UsulanAksesBerkasService {
       }
     }
 
-    return Array.from(berkasGroups.values());
+    return Array.from(usulanGroups.values());
   }
 
   /**
@@ -1792,7 +1808,11 @@ export class UsulanAksesBerkasService {
    * Detail berkas untuk SE pengusul yang punya entitlement.
    * Cek: user punya entitlement untuk berkas ini.
    */
-  async getBerkasDetailForEntitlement(berkasId: string, user: any): Promise<any> {
+  async getBerkasDetailForEntitlement(
+    berkasId: string,
+    user: any,
+    usulanIdHint?: string,
+  ): Promise<any> {
     const userPersnum = Number(user.persnum);
     const userOrgId = Number(user.organization);
 
@@ -1802,19 +1822,35 @@ export class UsulanAksesBerkasService {
       throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
     }
 
-    // Ambil entitlement untuk permissions (jika ada)
-    const entitlement = await this.aksesRepo.findOne({
-      where: { user_persnum: userPersnum, berkas_id: berkasId, is_revoked: false },
-    });
-
     // Ambil detail berkas
     const berkas = await this.berkasRepo.findOne({ where: { id: berkasId } });
     if (!berkas) {
       throw new NotFoundException('Berkas tidak ditemukan');
     }
 
+    // Resolve usulan target: kalau caller lewatkan usulanIdHint, pakai itu.
+    // Ini mencegah mismatch saat user punya beberapa entitlement aktif untuk
+    // berkas yang sama dari usulan berbeda.
+    const resolvedUsulanId = usulanIdHint || accessResult.usulanId;
+
+    // Ambil entitlement untuk permissions — prioritaskan yang cocok dengan usulan target
+    let entitlement = resolvedUsulanId
+      ? await this.aksesRepo.findOne({
+          where: {
+            user_persnum: userPersnum,
+            berkas_id: berkasId,
+            usulan_id: resolvedUsulanId,
+            is_revoked: false,
+          },
+        })
+      : null;
+    if (!entitlement) {
+      entitlement = await this.aksesRepo.findOne({
+        where: { user_persnum: userPersnum, berkas_id: berkasId, is_revoked: false },
+      });
+    }
+
     // Ambil info usulan (untuk nomorUsulan, divisiPemberi, dll)
-    const resolvedUsulanId = entitlement?.usulan_id || accessResult.usulanId;
     const usulan = resolvedUsulanId
       ? await this.usulanRepo.findOne({ where: { id: resolvedUsulanId } })
       : null;
@@ -1889,7 +1925,7 @@ export class UsulanAksesBerkasService {
    * List naskah di dalam berkas tertentu.
    * Cek entitlement user untuk berkas ini sebelum return.
    */
-  async getNaskahByBerkas(berkasId: string, user: any): Promise<any[]> {
+  async getNaskahByBerkas(berkasId: string, user: any, usulanIdHint?: string): Promise<any[]> {
     const userPersnum = Number(user.persnum);
     const userOrgId = Number(user.organization);
 
@@ -1899,10 +1935,22 @@ export class UsulanAksesBerkasService {
       throw new ForbiddenException('Anda tidak memiliki akses ke berkas ini');
     }
 
-    // Ambil entitlement untuk permissions (jika ada)
-    const entitlement = await this.aksesRepo.findOne({
-      where: { user_persnum: userPersnum, berkas_id: berkasId, is_revoked: false },
-    });
+    // Ambil entitlement untuk permissions — prioritaskan yang cocok dengan usulan target
+    let entitlement = usulanIdHint
+      ? await this.aksesRepo.findOne({
+          where: {
+            user_persnum: userPersnum,
+            berkas_id: berkasId,
+            usulan_id: usulanIdHint,
+            is_revoked: false,
+          },
+        })
+      : null;
+    if (!entitlement) {
+      entitlement = await this.aksesRepo.findOne({
+        where: { user_persnum: userPersnum, berkas_id: berkasId, is_revoked: false },
+      });
+    }
 
     // Ambil naskah dari berkas_naskah via raw query (lebih reliable)
     const berkasNaskahRows = await this.dataSource.query(
