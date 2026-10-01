@@ -14,6 +14,7 @@ import { TteSignerIdentityService } from './services/tte-signer-identity.service
 import { PortalNaskahTteCompletionHandler } from './services/portal-naskah-tte-completion.handler';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
+import { NaskahLampiranEntity } from '../../shared/entities/naskah_lampiran.entity';
 import { SearchModule } from '../search/search.module';
 
 /**
@@ -30,6 +31,7 @@ import { SearchModule } from '../search/search.module';
       Session,
       NaskahEntity,
       NaskahSirkulasi,
+      NaskahLampiranEntity,
     ]),
     StorageModule,
     DigsigModule,

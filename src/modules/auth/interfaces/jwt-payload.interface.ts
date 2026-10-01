@@ -21,7 +21,9 @@ export interface JwtPayload {
   roles?: ActiveRoleInfo[];
   // Role tambahan dari tabel organization_tu (Unit TU): 'tu' | 'sekretaris'
   tuRoles?: string[];
-  // Delegation actor fields (populated during switchRole / PT/PH/PS/VI/SE)
+  // Status jabatan aktif: YBS untuk jabatan definitif, selain itu aktor delegasi.
+  // Nullable dipertahankan sementara agar token legacy masih dapat dibaca lalu
+  // dinormalisasi oleh JwtStrategy.
   position_status?: PositionStatus | null;
   delegator_persnum?: number | null;
 

@@ -34,6 +34,7 @@ interface SdiPdfOptions {
   headerAlamat?: string;
   // QR Code HTML (optional - passed from digsig signing)
   qrCodeHtml?: string;
+  bsreFooter?: boolean;
   // English format flag (untuk SDE)
   english?: boolean;
 }
@@ -295,6 +296,9 @@ export class GeneratePdfSudinService {
     // Helper function untuk mengambil hanya position_text (sebelum " - ")
     const extractPositionText = (text: string): string => {
       if (!text) return '';
+      // GM sudah diformat lengkap oleh service SDI: nama, jabatan, dan lokasi.
+      // Jangan buang area/sub-area ketika template English mengambil penerima.
+      if (/\b(?:general\s+manager|GM)\b/i.test(text)) return text.trim();
       const dashIndex = text.indexOf(' - ');
       return dashIndex !== -1
         ? text.substring(0, dashIndex).trim()
@@ -425,6 +429,12 @@ export class GeneratePdfSudinService {
 
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
+    const bsreFooter = body.bsreFooter
+      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
+          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
+          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
+        </div>`
+      : '';
 
     // TTD section (English) - tanggal, jabatan, QR, lalu nama penandatangan.
     const ttd = `
@@ -461,7 +471,13 @@ export class GeneratePdfSudinService {
     `;
 
     const konten =
-      globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+      globalStyle +
+      header +
+      headerInfo +
+      bodyKonten +
+      ttd +
+      tembusanKonten +
+      bsreFooter;
 
     // Generate address page if needed (English)
     let addressPageContent = '';
@@ -898,6 +914,12 @@ export class GeneratePdfSudinService {
 
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
+    const bsreFooter = body.bsreFooter
+      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
+          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
+          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
+        </div>`
+      : '';
 
     // TTD section - tanggal, jabatan, QR, lalu nama penandatangan.
     const ttd = `
@@ -933,7 +955,13 @@ export class GeneratePdfSudinService {
     `;
 
     const konten =
-      globalStyle + header + headerInfo + bodyKonten + ttd + tembusanKonten;
+      globalStyle +
+      header +
+      headerInfo +
+      bodyKonten +
+      ttd +
+      tembusanKonten +
+      bsreFooter;
 
     // Generate address page if needed (penerima or tembusan > 5)
     let addressPageContent = '';
