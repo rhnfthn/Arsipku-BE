@@ -249,11 +249,17 @@ export class NaskahUmumService {
         for (const grupId of dto.penerima_grup) {
           try {
             const grupPositions =
-              await this.grupPenerimaService.expandGrupToPositions(grupId);
+              await this.grupPenerimaService.expandGrupToPositions(
+                grupId,
+                undefined,
+                Number(user?.position ?? user?.position_id),
+                'PENERIMA',
+              );
             grupPositions.forEach((pos) =>
               penerimaPositionIds.add(Number(pos.position)),
             );
           } catch (error) {
+            if (error instanceof BadRequestException) throw error;
             console.warn(
               `[NU:finalizeSend] Failed to expand penerima grup ${grupId}:`,
               error.message,
@@ -270,11 +276,17 @@ export class NaskahUmumService {
         for (const grupId of dto.tembusan_grup) {
           try {
             const grupPositions =
-              await this.grupPenerimaService.expandGrupToPositions(grupId);
+              await this.grupPenerimaService.expandGrupToPositions(
+                grupId,
+                undefined,
+                Number(user?.position ?? user?.position_id),
+                'TEMBUSAN',
+              );
             grupPositions.forEach((pos) =>
               tembusanPositionIds.add(Number(pos.position)),
             );
           } catch (error) {
+            if (error instanceof BadRequestException) throw error;
             console.warn(
               `[NU:finalizeSend] Failed to expand tembusan grup ${grupId}:`,
               error.message,

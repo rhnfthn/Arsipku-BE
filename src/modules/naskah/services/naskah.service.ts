@@ -29,6 +29,7 @@ import {
   DisposisiDetailDto,
 } from '../dto/naskah/naskah-detail.dto';
 import { compareNaskahFlow } from '../utils/naskah-flow-order.util';
+import { createCorrespondenceFinalFileName } from '../../../common/utils/correspondence-file-name.util';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -937,7 +938,14 @@ export class NaskahService {
 
       // Get final PDF URL
       const finalPdfUrl = naskahData.final_pdf
-        ? await this.storageService.getFileUrl(naskahData.final_pdf)
+        ? await this.storageService.getPreviewUrl(
+            naskahData.final_pdf,
+            86400,
+            createCorrespondenceFinalFileName(
+              naskahData.jenis,
+              lampiranFiles.length,
+            ),
+          )
         : null;
 
       // Extract unique grup penerima IDs
@@ -1065,7 +1073,10 @@ export class NaskahService {
         level,
 
         // Timestamps - format WIB string agar FE tampil langsung tanpa konversi
-        created_at: formatWibDateTime(pengirimSirkulasi?.createdAt) || null,
+        created_at:
+          formatWibDateTime(
+            pengirimSirkulasi?.updatedAt || pengirimSirkulasi?.createdAt,
+          ) || null,
         updated_at: formatWibDateTime(pengirimSirkulasi?.updatedAt) || null,
       };
     };

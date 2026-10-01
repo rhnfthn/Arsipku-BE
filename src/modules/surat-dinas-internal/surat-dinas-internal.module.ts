@@ -22,13 +22,8 @@ import { SearchModule } from '../search/search.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
 import { KonsepModule } from '../konsep/konsep.module';
-import { CorrespondenceRoutingRole } from '../correspondence-routing/entities/correspondence-routing-role.entity';
-import { CorrespondenceRoutingRoleMember } from '../correspondence-routing/entities/correspondence-routing-role-member.entity';
-import { CorrespondenceRoutingRule } from '../correspondence-routing/entities/correspondence-routing-rule.entity';
-import { CorrespondenceRoutingRuleScope } from '../correspondence-routing/entities/correspondence-routing-rule-scope.entity';
 import { NaskahRoutingApplied } from '../correspondence-routing/entities/naskah-routing-applied.entity';
-import { CorrespondenceRoutingResolverService } from '../correspondence-routing/services/correspondence-routing-resolver.service';
-import { RoutingConfigCacheService } from '../correspondence-routing/services/routing-config-cache.service';
+import { CorrespondenceRoutingModule } from '../correspondence-routing/correspondence-routing.module';
 
 @Module({
   imports: [
@@ -42,10 +37,6 @@ import { RoutingConfigCacheService } from '../correspondence-routing/services/ro
       NomorRequestDetailEntity,
       JenisEntity,
       Session,
-      CorrespondenceRoutingRole,
-      CorrespondenceRoutingRoleMember,
-      CorrespondenceRoutingRule,
-      CorrespondenceRoutingRuleScope,
       NaskahRoutingApplied,
     ]),
     OrgDataModule,
@@ -58,14 +49,10 @@ import { RoutingConfigCacheService } from '../correspondence-routing/services/ro
     GrupPenerimaModule,
     KonsepModule,
     NaskahSirkulasiModule,
+    CorrespondenceRoutingModule,
   ],
   controllers: [SuratDinasInternalController],
-  providers: [
-    SuratDinasInternalService,
-    NomorSuratService,
-    CorrespondenceRoutingResolverService,
-    RoutingConfigCacheService,
-  ],
+  providers: [SuratDinasInternalService, NomorSuratService],
   exports: [SuratDinasInternalService],
 })
 export class SuratDinasInternalModule {}
