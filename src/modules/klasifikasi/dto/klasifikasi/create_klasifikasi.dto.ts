@@ -31,6 +31,10 @@ export class CreateKlasifikasiDto {
 
   @IsOptional()
   @IsNumber()
+  is_select?: number;
+
+  @IsOptional()
+  @IsNumber()
   retensi_aktif_tahun?: number;
 
   @IsOptional()
