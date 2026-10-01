@@ -103,7 +103,7 @@ export class SentMessageQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  limit?: number = 10;
+  limit?: number = 20;
 }
 
 /**

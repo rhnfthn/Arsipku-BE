@@ -164,12 +164,17 @@ export class NaskahShareService {
     }
 
     // 5. Prevent duplicate recipients (per naskah)
+    // Hanya share yang masih AKTIF dan belum kedaluwarsa yang dianggap
+    // "masih berlaku". Share yang sudah lewat expiresAt (auto-expire lazy)
+    // tidak boleh memblokir pembagian ulang.
+    const now = new Date();
     const existingShares = await this.shareRepo.find({
       where: { naskahId: In(naskahIds), status: ShareStatus.AKTIF },
       relations: ['recipients'],
     });
     const existingByNaskah = new Map<string, string[]>();
     for (const s of existingShares) {
+      if (s.expiresAt && new Date(s.expiresAt) <= now) continue;
       const positions = s.recipients.map((r) => r.recipientId);
       existingByNaskah.set(s.naskahId, [
         ...(existingByNaskah.get(s.naskahId) ?? []),
@@ -204,9 +209,16 @@ export class NaskahShareService {
     const accessType =
       (dto.accessType as ShareAccessType) || ShareAccessType.RENTANG_WAKTU;
     let expiresAt: Date | null = null;
-    if (accessType === ShareAccessType.RENTANG_WAKTU && dto.durationDays) {
-      expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + dto.durationDays);
+    if (accessType === ShareAccessType.RENTANG_WAKTU) {
+      if (dto.customTanggalSelesai) {
+        // Custom: pakai tanggal berakhir yang dipilih user (akhir hari).
+        const custom = new Date(dto.customTanggalSelesai);
+        custom.setHours(23, 59, 59, 999);
+        expiresAt = custom;
+      } else if (dto.durationDays) {
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + dto.durationDays);
+      }
     }
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -305,6 +317,8 @@ export class NaskahShareService {
                   data: {
                     naskahId: naskahIds[0],
                     shareId: createdShares[0]?.id,
+                    naskahIds,
+                    shareIds: createdShares.map((s) => s.id),
                     pemberiName: user.nama,
                     perihal:
                       naskahs
@@ -371,34 +385,40 @@ export class NaskahShareService {
     // to avoid 5 UPDATE queries per request. Auto-expire handled lazily
     // in getShareDetail() and openNaskah().
 
-    const qb = this.shareRepo
+    const now = new Date();
+
+    // ── Pagination dua tahap ──────────────────────────────────────────
+    // Karena `recipients` di-join, skip/take pada baris join bisa memotong
+    // share yang punya banyak penerima. Maka: (1) ambil ID share unik yang
+    // sudah di-paginate, (2) ambil share + recipients untuk ID tersebut.
+    const idQb = this.shareRepo
       .createQueryBuilder('share')
-      .leftJoinAndSelect('share.recipients', 'recipients');
+      .select('share.id', 'id')
+      .leftJoin('share.recipients', 'recipients');
 
     if (tab === 'shared-by-me') {
-      qb.where('share.pemberiId = :positionId', { positionId: user.position });
+      idQb.where('share.pemberiId = :positionId', { positionId: user.position });
     } else {
-      qb.where('recipients.recipientId = :positionId', {
+      idQb.where('recipients.recipientId = :positionId', {
         positionId: user.position,
       });
     }
 
-    const now = new Date();
     if (query.status === ShareStatus.AKTIF) {
-      qb.andWhere('share.status = :aktifStatus', {
+      idQb.andWhere('share.status = :aktifStatus', {
         aktifStatus: ShareStatus.AKTIF,
       });
-      qb.andWhere('(share.expiresAt IS NULL OR share.expiresAt > :now)', {
+      idQb.andWhere('(share.expiresAt IS NULL OR share.expiresAt > :now)', {
         now,
       });
       if (tab === 'shared-to-me') {
-        qb.andWhere('recipients.status != :recBerakhir', {
+        idQb.andWhere('recipients.status != :recBerakhir', {
           recBerakhir: RecipientStatus.BERAKHIR,
         });
       }
     } else if (query.status === ShareStatus.BERAKHIR) {
       if (tab === 'shared-to-me') {
-        qb.andWhere(
+        idQb.andWhere(
           '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now) OR recipients.status = :recBerakhir)',
           {
             berakhirStatus: ShareStatus.BERAKHIR,
@@ -407,7 +427,7 @@ export class NaskahShareService {
           },
         );
       } else {
-        qb.andWhere(
+        idQb.andWhere(
           '(share.status = :berakhirStatus OR (share.expiresAt IS NOT NULL AND share.expiresAt <= :now))',
           {
             berakhirStatus: ShareStatus.BERAKHIR,
@@ -417,29 +437,37 @@ export class NaskahShareService {
       }
     }
 
-    // Join naskah table directly (no entity relation defined)
-    qb.leftJoin(NaskahEntity, 'naskah', 'naskah.id = share.naskahId');
+    idQb.leftJoin(NaskahEntity, 'naskah', 'naskah.id = share.naskahId');
 
     if (query.search) {
-      qb.andWhere(
+      idQb.andWhere(
         '(naskah.perihal LIKE :search OR naskah.nomor LIKE :search)',
-        {
-          search: `%${query.search}%`,
-        },
+        { search: `%${query.search}%` },
       );
     }
-
     if (query.jenis) {
-      qb.andWhere('naskah.jenis = :jenis', { jenis: query.jenis });
+      idQb.andWhere('naskah.jenis = :jenis', { jenis: query.jenis });
     }
 
-    qb.orderBy('share.createdAt', query.sort === 'ASC' ? 'ASC' : 'DESC');
-    qb.skip(skip).take(limit);
+    idQb
+      .distinct(true)
+      .orderBy('share.createdAt', query.sort === 'ASC' ? 'ASC' : 'DESC')
+      .skip(skip)
+      .take(limit);
 
-    const sql = qb.getQuery();
-    this.logger.debug(`[getShares] SQL: ${sql}`);
+    const idRows = await idQb.getRawMany();
+    const pageShareIds = idRows.map((r) => r.id);
+    const total = await idQb.getCount();
 
-    const [shares, total] = await qb.getManyAndCount();
+    let shares: NaskahShareEntity[] = [];
+    if (pageShareIds.length > 0) {
+      shares = await this.shareRepo.find({
+        where: { id: In(pageShareIds) },
+        relations: ['recipients'],
+        order: { createdAt: query.sort === 'ASC' ? 'ASC' : 'DESC' },
+      });
+    }
+
     this.logger.log(
       `[getShares] Found ${shares.length} shares, total=${total}`,
     );
@@ -848,6 +876,19 @@ export class NaskahShareService {
     // (naskah final tanpa file attachment masih bisa dibuka via konten HTML)
     const konten = naskah?.konten || null;
 
+    // SEKALI_LIHAT: cek "sudah dibuka sekali" SEBELUM cek ketersediaan dokumen,
+    // agar pesan error tepat (bukan "dokumen tidak tersedia").
+    if (
+      recipientRecord &&
+      share.accessType === ShareAccessType.SEKALI_LIHAT &&
+      (recipientRecord.status === RecipientStatus.DIBACA ||
+        recipientRecord.status === RecipientStatus.BERAKHIR)
+    ) {
+      throw new BadRequestException(
+        'Share ini hanya dapat dibuka sekali. Akses sudah berakhir.',
+      );
+    }
+
     // Mark recipient as DIBACA BEFORE the document-availability check, so a
     // failed open (dokumen tidak tersedia) still clears the unread badge &
     // outline. SEKALI_LIHAT is handled separately below (after doc confirmed)
@@ -868,25 +909,10 @@ export class NaskahShareService {
 
     // Update recipient status only if user is a recipient
     if (recipientRecord) {
-      // View-once: check if already opened or ended
-      if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
-        if (
-          recipientRecord.status === RecipientStatus.DIBACA ||
-          recipientRecord.status === RecipientStatus.BERAKHIR
-        ) {
-          throw new BadRequestException(
-            'Share ini hanya dapat dibuka sekali. Akses sudah berakhir.',
-          );
-        }
-      }
-
-      recipientRecord.status = RecipientStatus.DIBACA;
-      recipientRecord.openedAt = new Date();
-      await this.recipientRepo.save(recipientRecord);
-
-      // View-once: auto-revoke access after first open
+      // SEKALI_LIHAT: langsung tandai BERAKHIR (tanpa save DIBACA perantara).
       if (share.accessType === ShareAccessType.SEKALI_LIHAT) {
         recipientRecord.status = RecipientStatus.BERAKHIR;
+        recipientRecord.openedAt = new Date();
         await this.recipientRepo.save(recipientRecord);
 
         // If all recipients BERAKHIR → close the entire share
@@ -906,6 +932,10 @@ export class NaskahShareService {
         this.logger.log(
           `[openNaskah] View-once: recipient ${user.nama} auto-revoked for share ${id}`,
         );
+      } else {
+        recipientRecord.status = RecipientStatus.DIBACA;
+        recipientRecord.openedAt = new Date();
+        await this.recipientRepo.save(recipientRecord);
       }
 
       // Log audit trail
@@ -1064,6 +1094,9 @@ export class NaskahShareService {
       .andWhere('r.status = :status', { status: RecipientStatus.TERKIRIM })
       .andWhere('share.status = :shareStatus', {
         shareStatus: ShareStatus.AKTIF,
+      })
+      .andWhere('(share.expiresAt IS NULL OR share.expiresAt > :now)', {
+        now: new Date(),
       })
       .getCount();
     return count;

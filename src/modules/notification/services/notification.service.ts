@@ -1152,6 +1152,11 @@ export class NotificationService {
       [NotificationType.NASKAH_SHARE_DITERIMA]: 'Naskah Dibagikan',
       [NotificationType.NASKAH_SHARE_DIBUKA]: 'Naskah Dibuka',
       [NotificationType.NASKAH_SHARE_DICABUT]: 'Akses Naskah Dicabut',
+      [NotificationType.TUGAS_MEMBER_ADDED]: 'Ditambahkan ke Papan Tugas',
+      [NotificationType.TUGAS_ASSIGNED]: 'Tugas Diberikan',
+      [NotificationType.TUGAS_DONE]: 'Tugas Selesai',
+      [NotificationType.TUGAS_DUE]: 'Tenggat Tugas Besok',
+      [NotificationType.TUGAS_TAGGED]: 'Mention',
     };
     return labels[type] || type;
   }
