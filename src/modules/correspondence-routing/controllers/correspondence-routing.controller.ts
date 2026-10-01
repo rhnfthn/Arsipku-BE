@@ -1,4 +1,5 @@
 import {
+  ArgumentMetadata,
   BadRequestException,
   Body,
   Controller,
@@ -33,10 +34,20 @@ import {
 } from '../dto/routing-admin.dto';
 import { RoutingPreviewDto } from '../dto/routing-preview.dto';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import {
+  CorrespondenceAccessListDto,
+  UpdateCorrespondenceAccessDto,
+} from '../dto/correspondence-access.dto';
+import { CorrespondenceAccessService } from '../services/correspondence-access.service';
 
 // PartialType/IsOptional otherwise allow explicit null on required fields.
 class RoutingNullPipe implements PipeTransform {
-  transform(value: unknown) {
+  transform(value: unknown, metadata: ArgumentMetadata) {
+    // @CurrentUser memakai parameter type `custom`. Validasi DTO ini tidak
+    // boleh memeriksa payload JWT karena sejumlah claim opsional memang dapat
+    // bernilai null (misalnya delegator_persnum pada akun definitif/YBS).
+    if (metadata.type === 'custom') return value;
+
     const visit = (input: unknown) => {
       if (Array.isArray(input)) {
         input.forEach(visit);
@@ -68,11 +79,31 @@ export class CorrespondenceRoutingController {
   constructor(
     private readonly admin: CorrespondenceRoutingAdminService,
     private readonly resolver: CorrespondenceRoutingResolverService,
+    private readonly access: CorrespondenceAccessService,
   ) {}
 
   @Get('me/capabilities')
   getMyCapabilities(@CurrentUser() user: JwtPayload) {
     return this.resolver.getCapabilities(user.company, user.position);
+  }
+
+  @Get('access-policies')
+  @RequirePermission('correspondence-routing', 'read')
+  listAccessPolicies(
+    @Query() query: CorrespondenceAccessListDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.access.list(query.company ?? Number(user.company));
+  }
+
+  @Patch('access-policies')
+  @RequirePermission('correspondence-routing', 'update-rule')
+  updateAccessPolicy(
+    @Query() query: CorrespondenceAccessListDto,
+    @Body() dto: UpdateCorrespondenceAccessDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.access.upsert(query.company ?? Number(user.company), dto);
   }
 
   @Get('roles')

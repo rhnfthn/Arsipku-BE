@@ -6,10 +6,43 @@ const DELEGATED_ACTORS = new Set<string>([
   PositionStatus.PS,
 ]);
 
+export function formatDelegatedPositionText(
+  basePositionText: unknown,
+  positionStatus: unknown,
+): string {
+  const status = String(positionStatus ?? '')
+    .trim()
+    .toUpperCase();
+  const positionText = String(basePositionText ?? '').trim();
+  if (!DELEGATED_ACTORS.has(status) || !positionText) return positionText;
+  return new RegExp(`^${status}\\.\\s*`, 'i').test(positionText)
+    ? positionText
+    : `${status}. ${positionText}`;
+}
+
+export function delegatedRecipientFields(source: {
+  position_text?: unknown;
+  positionText?: unknown;
+  position_status?: unknown;
+  positionStatus?: unknown;
+}) {
+  const status = String(source.position_status ?? source.positionStatus ?? '')
+    .trim()
+    .toUpperCase();
+  const isDelegated = DELEGATED_ACTORS.has(status);
+  return {
+    positionText: formatDelegatedPositionText(
+      source.position_text ?? source.positionText,
+      status,
+    ),
+    positionStatus: isDelegated ? status.toLowerCase() : 'ybs',
+  };
+}
+
 export interface PengirimRenderFields {
   positionStatus: string; // 'PT' (etc) saat delegated, 'ybs' otherwise
   positionText: string; // 'PT. EVP of PMO' saat delegated, else basePositionText
-  namaSirkuler: string; // user.nama (delegate) saat delegated, else fallbackName
+  namaSirkuler: string; // nama orang yang mengisi delegasi
 }
 
 /**
@@ -21,12 +54,20 @@ export function delegatedPengirimFields(
   basePositionText: string,
   fallbackName: string,
 ): PengirimRenderFields {
-  const ps = user?.position_status;
-  const isDelegated = !!ps && DELEGATED_ACTORS.has(ps);
+  const ps = String(user?.position_status ?? '')
+    .trim()
+    .toUpperCase();
+  const isDelegated = DELEGATED_ACTORS.has(ps);
+  const delegatedPositionText = formatDelegatedPositionText(
+    basePositionText,
+    ps,
+  );
   return {
     positionStatus: isDelegated ? ps : 'ybs',
-    positionText: isDelegated ? `${ps}. ${basePositionText}` : basePositionText,
-    namaSirkuler: isDelegated ? (user?.nama ?? '') : fallbackName,
+    positionText: delegatedPositionText,
+    namaSirkuler: isDelegated
+      ? String(user?.nama ?? fallbackName).trim()
+      : fallbackName,
   };
 }
 

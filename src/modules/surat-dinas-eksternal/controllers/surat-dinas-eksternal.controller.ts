@@ -45,6 +45,7 @@ import {
 } from '../../../common/decorators';
 import { UserLevel } from '../../../common/enums';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
+import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 @Controller('SDE')
 export class SuratDinasEksternalController {
@@ -872,8 +873,13 @@ export class SuratDinasEksternalController {
       }
 
       // Use user's position and name from JWT token (same as Nota Dinas)
-      const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
+      const pengirimFields = delegatedPengirimFields(
+        user,
+        user?.positionText || '',
+        user?.nama || '',
+      );
+      const namaJabatan = pengirimFields.positionText;
+      const namaLengkap = pengirimFields.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
       const headerInfo = await this.sdeService.getHeaderInfoByUser(
@@ -905,6 +911,8 @@ export class SuratDinasEksternalController {
         headerInfo || undefined,
         body.english === true || body.english === 'true',
         body.atas_nama || '',
+        [],
+        body.sign_option,
       );
 
       res.set({
@@ -1053,8 +1061,13 @@ export class SuratDinasEksternalController {
       }
 
       // Use user's position and name from JWT token (same as Nota Dinas)
-      const namaJabatan = user?.positionText || '';
-      const namaLengkap = user?.nama || '';
+      const pengirimFields = delegatedPengirimFields(
+        user,
+        user?.positionText || '',
+        user?.nama || '',
+      );
+      const namaJabatan = pengirimFields.positionText;
+      const namaLengkap = pengirimFields.namaSirkuler;
 
       // Get dynamic header info dari sub_area_alamat berdasarkan user context
       const headerInfo = await this.sdeService.getHeaderInfoByUser(
@@ -1086,6 +1099,8 @@ export class SuratDinasEksternalController {
         headerInfo || undefined,
         body.english === true || body.english === 'true',
         body.atas_nama || '',
+        [],
+        body.sign_option,
       );
 
       res.set({

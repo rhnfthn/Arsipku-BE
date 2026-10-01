@@ -30,6 +30,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities';
+import { isAllowedCorrespondenceRecipient } from '../../../common/utils/correspondence-recipient.util';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
 
@@ -556,6 +557,8 @@ export class NaskahDinasService {
       if (pos.chief !== 1) {
         return false;
       }
+
+      if (!isAllowedCorrespondenceRecipient(pos)) return false;
 
       if (!scopedAreaCode) {
         return true;

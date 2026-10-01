@@ -1187,7 +1187,10 @@ export class DisposisiController {
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         tertujuArray =
-          await this.disposisiService.convertPositionIdsToNames(tertujuArray);
+          await this.disposisiService.convertPositionIdsToDispositionRecipients(
+            tertujuArray,
+            dto.tanggal_disposisi,
+          );
       }
 
       // Check if pengirim is position_id and convert to name
@@ -1257,6 +1260,7 @@ export class DisposisiController {
           refPengirim: refPengirimName,
           tanggalDisposisi: formattedDate,
           catatan: dto.catatan || '',
+          signOption: dto.sign_option,
         },
       );
 
@@ -1425,7 +1429,10 @@ export class DisposisiController {
 
       if (tertujuArray.length > 0 && isPositionId(tertujuArray[0])) {
         tertujuArray =
-          await this.disposisiService.convertPositionIdsToNames(tertujuArray);
+          await this.disposisiService.convertPositionIdsToDispositionRecipients(
+            tertujuArray,
+            dto.tanggal_disposisi,
+          );
       }
 
       // Check if pengirim is position_id and convert to name

@@ -55,6 +55,10 @@ export class NaskahShareController {
       return await this.shareService.getShares(user, query);
     } catch (error) {
       if (error instanceof HttpException) throw error;
+      this.logger.error(
+        `[NaskahShareController] getShares error: ${error?.message ?? error}`,
+        error?.stack,
+      );
       throw new HttpException(
         {
           success: false,

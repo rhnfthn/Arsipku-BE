@@ -15,6 +15,10 @@ import { Transform } from 'class-transformer';
  * - Lampiran Berkas
  */
 export class GeneratePdfDisposisiDto {
+  @IsString()
+  @IsOptional()
+  sign_option?: string;
+
   /**
    * HTML content untuk bagian Catatan dari rich text editor
    * Bisa dalam bentuk plain text HTML atau base64 encoded

@@ -36,13 +36,8 @@ import { SearchModule } from '../search/search.module';
 import { DigsigModule } from '../digsig/digsig.module';
 import { TtePortalModule } from '../tte-portal/tte-portal.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
-import { CorrespondenceRoutingRole } from '../correspondence-routing/entities/correspondence-routing-role.entity';
-import { CorrespondenceRoutingRoleMember } from '../correspondence-routing/entities/correspondence-routing-role-member.entity';
-import { CorrespondenceRoutingRule } from '../correspondence-routing/entities/correspondence-routing-rule.entity';
-import { CorrespondenceRoutingRuleScope } from '../correspondence-routing/entities/correspondence-routing-rule-scope.entity';
 import { NaskahRoutingApplied } from '../correspondence-routing/entities/naskah-routing-applied.entity';
-import { CorrespondenceRoutingResolverService } from '../correspondence-routing/services/correspondence-routing-resolver.service';
-import { RoutingConfigCacheService } from '../correspondence-routing/services/routing-config-cache.service';
+import { CorrespondenceRoutingModule } from '../correspondence-routing/correspondence-routing.module';
 import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
 
 @Module({
@@ -63,10 +58,6 @@ import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
       RelationOa,
       OmPosition,
       OmAreaSub,
-      CorrespondenceRoutingRole,
-      CorrespondenceRoutingRoleMember,
-      CorrespondenceRoutingRule,
-      CorrespondenceRoutingRuleScope,
       NaskahRoutingApplied,
       DelegasiEntity,
     ]),
@@ -77,14 +68,10 @@ import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
     DigsigModule,
     TtePortalModule,
     NaskahSirkulasiModule,
+    CorrespondenceRoutingModule,
   ],
   controllers: [DisposisiController],
-  providers: [
-    DisposisiService,
-    NomorSuratService,
-    CorrespondenceRoutingResolverService,
-    RoutingConfigCacheService,
-  ],
+  providers: [DisposisiService, NomorSuratService],
   exports: [DisposisiService],
 })
 export class DisposisiModule {}

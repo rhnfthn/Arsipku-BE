@@ -15,6 +15,7 @@ import { NaskahLampiranEntity } from '../../naskah-lampiran/entities/naskah_lamp
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
 import { StorageService } from '../../storage/services/storage.service';
 import { v4 as uuidv4 } from 'uuid';
+import { delegatedRecipientFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 import {
   CreateKonsepDto,
@@ -34,6 +35,8 @@ const DEFAULT_ALAMAT_PERUSAHAAN =
 interface PositionData {
   position: number;
   position_text: string;
+  position_status?: string | null;
+  positionStatus?: string | null;
   persnum_person: string | null;
   persnum_person_text: string | null;
   organization_id: number;
@@ -332,8 +335,9 @@ export class KonsepService {
     sirkulasi.organization = String(posData.organization_id);
     sirkulasi.organizationText = posData.organization_text;
     sirkulasi.position = String(posData.position);
-    sirkulasi.positionText = posData.position_text;
-    sirkulasi.positionStatus = 'ybs';
+    const recipient = delegatedRecipientFields(posData);
+    sirkulasi.positionText = recipient.positionText;
+    sirkulasi.positionStatus = recipient.positionStatus as any;
     sirkulasi.idSirkuler = String(posData.persnum_person || posData.position);
     sirkulasi.namaSirkuler =
       posData.persnum_person_text || posData.position_text;
