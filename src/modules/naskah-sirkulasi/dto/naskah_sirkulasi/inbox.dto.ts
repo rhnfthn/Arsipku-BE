@@ -104,7 +104,7 @@ export class InboxQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  limit?: number = 10;
+  limit?: number = 20;
 }
 
 /**
@@ -130,7 +130,7 @@ export class InboxItemDto {
     position_text: string;
     organization_text: string;
     nama: string;
-    persnum?: number;
+    persnum: number;
   };
 
   // Info Penerima (data user yang menerima - current user)

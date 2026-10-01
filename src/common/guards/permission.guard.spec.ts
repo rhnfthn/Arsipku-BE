@@ -168,6 +168,23 @@ describe('PermissionGuard', () => {
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
+  it('allows delegated SE to read SDE Massal verification', async () => {
+    permissionCache.get.mockReturnValue([
+      { resource: 'sde-masal', actions: ['read-verification', 'verify'] },
+    ]);
+
+    const ctx = mockContext(
+      {
+        persnum: 123,
+        role: 'user',
+        position_status: PositionStatus.SE,
+      },
+      { resource: 'sde-masal', action: 'read-verification' },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
   it('allows delegated SE to write TU notification actions', async () => {
     permissionCache.get.mockReturnValue([
       { resource: 'tu-verifikasi', actions: ['read', 'update'] },
