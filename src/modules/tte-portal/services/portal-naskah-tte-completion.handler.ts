@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
+import { NaskahLampiranEntity } from '../../../shared/entities/naskah_lampiran.entity';
+import { createCorrespondenceFinalFileName } from '../../../common/utils/correspondence-file-name.util';
 import { NotificationService } from '../../notification/services';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { StorageService } from '../../storage/services/storage.service';
@@ -25,6 +27,8 @@ export class PortalNaskahTteCompletionHandler implements TteCompletionHandler {
     private readonly naskahRepository: Repository<NaskahEntity>,
     @InjectRepository(NaskahSirkulasi)
     private readonly sirkulasiRepository: Repository<NaskahSirkulasi>,
+    @InjectRepository(NaskahLampiranEntity)
+    private readonly lampiranRepository: Repository<NaskahLampiranEntity>,
     private readonly storageService: StorageService,
     private readonly notificationService: NotificationService,
     private readonly meilisearchSyncService: MeilisearchSyncService,
@@ -63,7 +67,10 @@ export class PortalNaskahTteCompletionHandler implements TteCompletionHandler {
     }
 
     const signedBuffer = await this.storageService.getFile(signedFilePath);
-    const filename = `${jenis}-tte-${naskah.id}-${Date.now()}.pdf`;
+    const attachmentCount = await this.lampiranRepository.count({
+      where: { id_naskah: naskah.id },
+    });
+    const filename = createCorrespondenceFinalFileName(jenis, attachmentCount);
     const upload = await this.storageService.uploadBuffer(
       signedBuffer,
       filename,

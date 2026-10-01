@@ -32,6 +32,7 @@ interface KajianPdfOptions {
   headerAlamat?: string;
   // QR Code HTML (optional - passed from digsig signing)
   qrCodeHtml?: string;
+  bsreFooter?: boolean;
 }
 
 @Injectable()
@@ -253,6 +254,12 @@ export class GeneratePdfKajianService {
 
     // Tanda tangan dengan QR code dinamis
     const qrCodeHtml = body.qrCodeHtml || '';
+    const bsreFooter = body.bsreFooter
+      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
+          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
+          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
+        </div>`
+      : '';
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
             <td style="width:50%;">
@@ -316,7 +323,8 @@ export class GeneratePdfKajianService {
       header3 +
       bodyContent +
       ttdWrapped +
-      tembusanKonten;
+      tembusanKonten +
+      bsreFooter;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = '';

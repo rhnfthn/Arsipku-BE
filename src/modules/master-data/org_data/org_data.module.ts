@@ -10,10 +10,11 @@ import { OrgDataService } from './org_data.service';
 import { OrgDataScheduler } from './org_data.scheduler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrgDatum } from './entities/org_datum.entity';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([OrgDatum]),
+    TypeOrmModule.forFeature([OrgDatum, DelegasiEntity]),
     RelationOoModule,
     RelationOaModule,
     RelationOsModule,

@@ -21,7 +21,10 @@ import {
   AirNavRefreshResponse,
 } from '../interfaces/jwt-payload.interface';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
-import { isDelegatedActor } from '../../../common/helpers/delegasi-rendering.helper';
+import {
+  delegatedPengirimFields,
+  isDelegatedActor,
+} from '../../../common/helpers/delegasi-rendering.helper';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 import { AirnavAuthV2Client } from '../clients/airnav-auth-v2.client';
@@ -357,6 +360,8 @@ export class AuthService {
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
       atasan_langsung: orgData.atasan_langsung || null,
+      position_status: PositionStatus.YBS,
+      delegator_persnum: null,
 
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -540,6 +545,8 @@ export class AuthService {
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
       atasan_langsung: orgData.atasan_langsung || null,
+      position_status: PositionStatus.YBS,
+      delegator_persnum: null,
 
       // Personal data dari HR API
       nik: personalData.nik || undefined,
@@ -1120,6 +1127,8 @@ export class AuthService {
       bodTag: orgData.bodTag || '',
       abbreviation: orgData.abbreviation || '',
       atasan_langsung: orgData.atasan_langsung || null,
+      position_status: PositionStatus.YBS,
+      delegator_persnum: null,
       nik: personalData.nik || undefined,
       noWa: personalData.noWa || undefined,
     };
@@ -1314,6 +1323,11 @@ export class AuthService {
     const newPayload: JwtPayload = isDelegated
       ? {
           ...delegatedCtx, // position_status, delegator_persnum, delegated org scope, persnum, nama, bodTag, abbreviation, atasan_langsung
+          positionText: delegatedPengirimFields(
+            payload,
+            payload.positionText || '',
+            payload.nama || '',
+          ).positionText,
           role: role,
           activeRole: rbacCtx.activeRole ?? undefined,
           activePermissions: effectiveActivePermissions,
@@ -1345,6 +1359,8 @@ export class AuthService {
           bodTag: orgData.bodTag || '',
           abbreviation: orgData.abbreviation || '',
           atasan_langsung: orgData.atasan_langsung || null,
+          position_status: PositionStatus.YBS,
+          delegator_persnum: null,
           nik: personalData.nik || undefined,
           noWa: personalData.noWa || undefined,
         };
@@ -1466,13 +1482,14 @@ export class AuthService {
         delegasi.persnum,
         basePayload,
       );
+      const delegatedPositionText = `${delegasi.position_status}. ${delegasi.as_position_text}`;
 
       // Switch to delegated role
       newPayload = {
         ...basePayload,
         // Update position data dengan data delegasi
         position: delegasi.as_position,
-        positionText: delegasi.as_position_text,
+        positionText: delegatedPositionText,
         organization: delegasi.as_organization,
         organizationText: delegasi.as_organization_text,
         area: delegasi.as_area,
@@ -1501,8 +1518,16 @@ export class AuthService {
         throw new UnauthorizedException('User data not found in org_data');
       }
 
+      // Hak akses token saat kembali ke akun utama harus dibangun ulang dari
+      // pemilik akun, bukan mewarisi permission delegator dari token aktif.
+      const ownRbac = await this.buildRbacContext(basePayload.persnum);
+
       newPayload = {
         ...basePayload,
+        role: ownRbac.role || basePayload.role,
+        activeRole: ownRbac.activeRole ?? undefined,
+        activePermissions: ownRbac.activePermissions,
+        roles: ownRbac.roles,
         // Reset ke data asli dari org_data
         company: orgData.company?.toString() || '',
         companyText: orgData.companyText || '',
@@ -1517,8 +1542,9 @@ export class AuthService {
         bodTag: orgData.bodTag || '',
         abbreviation: orgData.abbreviation || '',
         atasan_langsung: orgData.atasan_langsung || null,
-        // Clear delegation context on reset.
-        position_status: null,
+        // Jabatan definitif menggunakan status YBS; hanya konteks delegator
+        // yang dikosongkan ketika kembali ke akun utama.
+        position_status: PositionStatus.YBS,
         delegator_persnum: null,
       };
     }

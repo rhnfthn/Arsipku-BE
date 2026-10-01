@@ -634,7 +634,15 @@ export class NaskahSirkulasiService {
         n.jenis,
         n.nomor,
         n.tanggal,
-        n.perihal,
+        CASE
+          WHEN n.jenis = 'K' THEN CONCAT(
+            'konsep-',
+            COALESCE(NULLIF(naskah_asal.jenis, ''), 'NASKAH'),
+            '-',
+            COALESCE(NULLIF(naskah_asal.perihal, ''), NULLIF(n.perihal, ''), '-')
+          )
+          ELSE n.perihal
+        END as perihal,
         n.sifat,
         n.status,
         n.lampiran,
@@ -661,6 +669,7 @@ export class NaskahSirkulasiService {
         di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN naskah naskah_asal ON naskah_asal.id = n.id_naskah_asli
       LEFT JOIN naskah_sirkulasi pengirim ON pengirim.id_naskah = s.id_naskah AND pengirim.sirkuler = 'pengirim'
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
@@ -1570,7 +1579,15 @@ export class NaskahSirkulasiService {
         n.jenis,
         n.nomor,
         n.tanggal,
-        n.perihal,
+        CASE
+          WHEN n.jenis = 'K' THEN CONCAT(
+            'konsep-',
+            COALESCE(NULLIF(naskah_asal.jenis, ''), 'NASKAH'),
+            '-',
+            COALESCE(NULLIF(naskah_asal.perihal, ''), NULLIF(n.perihal, ''), '-')
+          )
+          ELSE n.perihal
+        END as perihal,
         n.sifat,
         n.status,
         n.lampiran,
@@ -1590,6 +1607,7 @@ export class NaskahSirkulasiService {
         di.is_priority
       FROM naskah_sirkulasi s
       INNER JOIN naskah n ON s.id_naskah = n.id
+      LEFT JOIN naskah naskah_asal ON naskah_asal.id = n.id_naskah_asli
       LEFT JOIN di ON n.id = di.id_naskah
       ${whereClause}
       ORDER BY created_at ${sortDirection}, s.id ${sortDirection}
@@ -2491,6 +2509,9 @@ export class NaskahSirkulasiService {
     if (flagType === 'note') {
       updateData.noteText = newValue === 1 ? noteText || null : null;
     }
+    if (flagType === 'arsip' && newValue === 1) {
+      updateData.tindakLanjut = 1;
+    }
 
     // NaskahSirkulasi punya composite PK (id, tanggal) — update harus pakai
     // full key, bukan string id saja (kalau tidak, TypeORM throw "multiple
@@ -2578,6 +2599,7 @@ export class NaskahSirkulasiService {
             { id: pengirimSirkulasi.id, tanggal: pengirimSirkulasi.tanggal },
             {
               flagArsip: 1,
+              tindakLanjut: 1,
             },
           );
           totalProcessed++;

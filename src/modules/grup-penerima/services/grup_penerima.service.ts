@@ -83,6 +83,7 @@ export class GrupPenerimaService {
     tgl?: string,
     jenis?: string,
     includeInactive = false,
+    senderArea?: string,
   ): Promise<GrupPenerimaResponseDto[]> {
     // Get grup penerima list, filtered by jenis when provided
     const grupList = await this.findAll(company, includeInactive, jenis);
@@ -111,25 +112,41 @@ export class GrupPenerimaService {
     }
 
     // Enrich grup penerima with position detail
-    return grupList.map((grup) => ({
+    const groups = grupList.map((grup) => ({
       id: grup.id,
       company: grup.company,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
       jenis_naskah: grup.jenis_naskah ?? null,
+      tujuan: grup.tujuan ?? null,
+      lintas_area: grup.lintas_area !== false,
       aktif: grup.aktif,
-      details: (grup.details || []).map((detail) => {
+      details: (grup.details || []).flatMap((detail) => {
         const positionId = Number(detail.position);
         const positionDetail = positionJsonMap.get(positionId) || null;
 
-        return {
-          id: detail.id,
-          id_grup_penerima: detail.id_grup_penerima,
-          position: detail.position,
-          position_detail: positionDetail,
-        };
+        if (
+          grup.lintas_area === false &&
+          senderArea &&
+          String(positionDetail?.area ?? '') !== String(senderArea)
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            id: detail.id,
+            id_grup_penerima: detail.id_grup_penerima,
+            position: detail.position,
+            position_detail: positionDetail,
+          },
+        ];
       }),
     }));
+
+    return groups.filter(
+      (group) => group.lintas_area || !senderArea || group.details.length > 0,
+    );
   }
 
   /**
@@ -166,6 +183,9 @@ export class GrupPenerimaService {
       company: grup.company,
       nama: grup.nama,
       deskripsi: grup.deskripsi,
+      jenis_naskah: grup.jenis_naskah ?? null,
+      tujuan: grup.tujuan ?? null,
+      lintas_area: grup.lintas_area !== false,
       aktif: grup.aktif,
       details: (grup.details || []).map((detail) => {
         const positionId = Number(detail.position);
@@ -233,7 +253,20 @@ export class GrupPenerimaService {
   async expandGrupToPositions(
     grupId: string,
     tgl?: string,
+    senderPositionId?: number,
+    tujuan?: 'PENERIMA' | 'TEMBUSAN',
   ): Promise<OrgDataPositionDto[]> {
+    const grup = await this.findOne(grupId);
+    if (
+      tujuan &&
+      Array.isArray(grup.tujuan) &&
+      grup.tujuan.length > 0 &&
+      !grup.tujuan.includes(tujuan)
+    ) {
+      throw new BadRequestException(
+        `Grup '${grup.nama}' tidak dikonfigurasi untuk ${tujuan === 'PENERIMA' ? 'tertuju' : 'tembusan'}`,
+      );
+    }
     const members = await this.getMembers(grupId);
 
     if (members.length === 0) {
@@ -255,13 +288,21 @@ export class GrupPenerimaService {
     positionJson.forEach((pos) => {
       positionJsonMap.set(Number(pos.position), pos);
     });
+    const senderArea = senderPositionId
+      ? positionJsonMap.get(Number(senderPositionId))?.area
+      : null;
 
     // Get position detail for each member
     const positions: OrgDataPositionDto[] = [];
     for (const member of members) {
       const positionId = Number(member.position);
       const positionDetail = positionJsonMap.get(positionId);
-      if (positionDetail) {
+      if (
+        positionDetail &&
+        (grup.lintas_area !== false ||
+          !senderArea ||
+          String(positionDetail.area ?? '') === String(senderArea))
+      ) {
         positions.push(positionDetail);
       }
     }

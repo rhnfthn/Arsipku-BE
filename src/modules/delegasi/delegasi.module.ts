@@ -8,8 +8,7 @@ import { PositionService } from '../master-data/position/position.service';
 import { RelationOs } from '../master-data/relation_os/entities/relation_os.entity';
 import { RelationOsc } from '../master-data/relation_osc/entities/relation_osc.entity';
 import { OmOrganization } from '../master-data/organization/entities/om-organization.entity';
-import { OrgDatum } from '../master-data/org_data/entities/org_datum.entity';
-import { OrgDataService } from '../master-data/org_data/org_data.service';
+import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { AuthModule } from '../auth/auth.module';
 import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
 
@@ -21,13 +20,13 @@ import { OrganizationTuModule } from '../organization-tu/organization-tu.module'
       RelationOs,
       RelationOsc,
       OmOrganization,
-      OrgDatum,
     ]),
+    OrgDataModule,
     forwardRef(() => AuthModule),
     OrganizationTuModule,
   ],
   controllers: [DelegasiController],
-  providers: [DelegasiService, PositionService, OrgDataService],
+  providers: [DelegasiService, PositionService],
   exports: [DelegasiService, TypeOrmModule],
 })
 export class DelegasiModule {}

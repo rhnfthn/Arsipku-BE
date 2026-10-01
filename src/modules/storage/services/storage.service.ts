@@ -319,9 +319,14 @@ export class StorageService implements OnModuleInit {
    * Menggunakan ResponseContentDisposition: inline agar browser menampilkan file
    * @param key - Key file di MinIO
    * @param expiresIn - Waktu expired dalam detik (default 24 jam)
+   * @param filename - Nama file yang digunakan oleh tombol unduh bawaan browser
    * @returns Signed URL untuk preview
    */
-  async getPreviewUrl(key: string, expiresIn: number = 86400): Promise<string> {
+  async getPreviewUrl(
+    key: string,
+    expiresIn: number = 86400,
+    filename?: string,
+  ): Promise<string> {
     // Determine content type based on file extension
     const extension = key.split('.').pop()?.toLowerCase();
     let contentType = 'application/octet-stream';
@@ -336,10 +341,17 @@ export class StorageService implements OnModuleInit {
       contentType = 'image/gif';
     }
 
+    const safeFilename = filename
+      ? filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+      : undefined;
+    const contentDisposition = safeFilename
+      ? `inline; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`
+      : 'inline';
+
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
       Key: key,
-      ResponseContentDisposition: 'inline', // Tampilkan di browser, bukan download
+      ResponseContentDisposition: contentDisposition,
       ResponseContentType: contentType,
     });
 
