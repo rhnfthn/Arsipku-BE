@@ -33,6 +33,7 @@ export class CorrespondenceAccessService {
 
   async list(company: number) {
     this.assertCompany(company);
+    const featureEnabled = process.env.CORRESPONDENCE_ACCESS_ENABLED === 'true';
     const policies = await this.repo.find({
       where: { company },
       order: { document_type: 'ASC' },
@@ -49,6 +50,7 @@ export class CorrespondenceAccessService {
       );
     }
     return {
+      feature_enabled: featureEnabled,
       policies,
       document_types: [...CORRESPONDENCE_DOCUMENT_TYPES],
       bod_tags: [
@@ -119,7 +121,10 @@ export class CorrespondenceAccessService {
         'Position user tidak ditemukan pada org data',
       );
     }
-    const policies = await this.repo.find({ where: { company } });
+    const featureEnabled = process.env.CORRESPONDENCE_ACCESS_ENABLED === 'true';
+    const policies = featureEnabled
+      ? await this.repo.find({ where: { company } })
+      : [];
     const policyByDocument = new Map(
       policies.map((policy) => [policy.document_type, policy]),
     );
@@ -135,6 +140,7 @@ export class CorrespondenceAccessService {
       }),
     ) as Record<CorrespondenceDocumentType, boolean>;
     return {
+      access_feature_enabled: featureEnabled,
       access,
       configured_document_types: policies.map((policy) => policy.document_type),
       profile: {

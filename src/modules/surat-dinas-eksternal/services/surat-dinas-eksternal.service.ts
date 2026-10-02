@@ -1156,7 +1156,13 @@ export class SuratDinasEksternalService {
       const key = Number(item.position);
       if (added.has(key)) return;
       added.add(key);
-      result.push(item);
+      const delegatedDisplay = delegatedRecipientFields(item);
+      result.push({
+        ...item,
+        position_text: delegatedDisplay.positionText,
+        position_status: delegatedDisplay.positionStatus,
+        positionStatus: delegatedDisplay.positionStatus,
+      });
     };
 
     let current = data.find((x) => Number(x.position) === Number(positionId));

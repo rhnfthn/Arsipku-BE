@@ -4,7 +4,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import {
+  Repository,
+  DataSource,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+} from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahEntity } from '../entities/naskah.entity';
 import { NaskahSirkulasi } from '../../naskah-sirkulasi/entities/naskah_sirkulasi.entity';
@@ -30,6 +36,9 @@ import {
 } from '../dto/naskah/naskah-detail.dto';
 import { compareNaskahFlow } from '../utils/naskah-flow-order.util';
 import { createCorrespondenceFinalFileName } from '../../../common/utils/correspondence-file-name.util';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
+import { PositionStatus } from '../../../common/enums/position-status.enum';
+import { delegatedRecipientFields } from '../../../common/helpers/delegasi-rendering.helper';
 
 // Label untuk jenis naskah
 const JENIS_LABELS: Record<string, string> = {
@@ -73,6 +82,8 @@ export class NaskahService {
     private naskahReferensiRepository: Repository<NaskahReferensiEntity>,
     @InjectRepository(DiEntity)
     private diRepository: Repository<DiEntity>,
+    @InjectRepository(DelegasiEntity)
+    private delegasiRepository: Repository<DelegasiEntity>,
     // REMOVED: NdEntity and SdiSdeEntity repositories
     // @InjectRepository(NdEntity)
     // private ndRepository: Repository<NdEntity>,
@@ -84,6 +95,63 @@ export class NaskahService {
     private notificationService: NotificationService,
     private dataSource: DataSource,
   ) {}
+
+  private async getDelegasiPenerimaByPosition(
+    tanggal: Date | null,
+    sirkulasiList: NaskahSirkulasi[],
+  ): Promise<Map<string, DelegasiEntity>> {
+    const positionIds = [
+      ...new Set(
+        sirkulasiList
+          .map((item) => String(item.position || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (!positionIds.length) return new Map();
+
+    const effectiveDate = tanggal ? new Date(tanggal) : new Date();
+    const delegasiList = await this.delegasiRepository.find({
+      where: {
+        as_position: In(positionIds),
+        position_status: In([
+          PositionStatus.PT,
+          PositionStatus.PH,
+          PositionStatus.PS,
+        ]),
+        start_date: LessThanOrEqual(effectiveDate),
+        end_date: MoreThanOrEqual(effectiveDate),
+      },
+      order: { update_at: 'DESC', create_at: 'DESC' },
+    });
+
+    const result = new Map<string, DelegasiEntity>();
+    for (const delegasi of delegasiList) {
+      const positionId = String(delegasi.as_position || '').trim();
+      if (positionId && !result.has(positionId)) {
+        result.set(positionId, delegasi);
+      }
+    }
+    return result;
+  }
+
+  private renderPenerimaDelegasi(
+    sirkulasi: NaskahSirkulasi,
+    delegasiByPosition: Map<string, DelegasiEntity>,
+  ) {
+    const storedStatus = String(sirkulasi.positionStatus || '').toUpperCase();
+    const storedDelegated = ['PT', 'PH', 'PS'].includes(storedStatus);
+    const activeDelegasi = delegasiByPosition.get(
+      String(sirkulasi.position || '').trim(),
+    );
+    const effectiveStatus = storedDelegated
+      ? storedStatus
+      : activeDelegasi?.position_status || sirkulasi.positionStatus;
+
+    return delegatedRecipientFields({
+      position_text: sirkulasi.positionText,
+      position_status: effectiveStatus,
+    });
+  }
 
   async create(createNaskahDto: CreateNaskahDto): Promise<NaskahEntity> {
     const naskah = new NaskahEntity();
@@ -390,6 +458,11 @@ export class NaskahService {
     const pengirim = sirkulasiList.find((s) => s.sirkuler === 'pengirim');
     const penerima = sirkulasiList.filter((s) => s.sirkuler === 'penerima');
     const tembusan = sirkulasiList.filter((s) => s.sirkuler === 'tembusan');
+    const delegasiPenerimaByPosition =
+      await this.getDelegasiPenerimaByPosition(naskah.tanggal, [
+        ...penerima,
+        ...tembusan,
+      ]);
 
     // Extract unique grup penerima IDs from sirkulasi records
     const penerimaGrupIds = [
@@ -470,8 +543,12 @@ export class NaskahService {
 
         // Sirkulasi
         pengirim: pengirim ? this.mapSirkulasi(pengirim) : null,
-        penerima: penerima.map((p) => this.mapSirkulasi(p)),
-        tembusan: tembusan.map((t) => this.mapSirkulasi(t)),
+        penerima: penerima.map((p) =>
+          this.mapSirkulasi(p, delegasiPenerimaByPosition),
+        ),
+        tembusan: tembusan.map((t) =>
+          this.mapSirkulasi(t, delegasiPenerimaByPosition),
+        ),
         penerima_grup: penerimaGrupInfo,
         tembusan_grup: tembusanGrupInfo,
 
@@ -508,7 +585,14 @@ export class NaskahService {
   /**
    * Map NaskahSirkulasi entity to SirkulasiDetailDto
    */
-  private mapSirkulasi(s: NaskahSirkulasi): SirkulasiDetailDto {
+  private mapSirkulasi(
+    s: NaskahSirkulasi,
+    delegasiByPosition = new Map<string, DelegasiEntity>(),
+  ): SirkulasiDetailDto {
+    const delegatedDisplay = this.renderPenerimaDelegasi(
+      s,
+      delegasiByPosition,
+    );
     return {
       id: s.id,
       sirkuler: s.sirkuler,
@@ -521,8 +605,8 @@ export class NaskahService {
       organization: s.organization,
       organization_text: s.organizationText,
       position: s.position,
-      position_text: s.positionText,
-      position_status: s.positionStatus,
+      position_text: delegatedDisplay.positionText,
+      position_status: delegatedDisplay.positionStatus,
       id_sirkuler: s.idSirkuler,
       nama_sirkuler: s.namaSirkuler,
       email: s.email || null,
@@ -843,6 +927,11 @@ export class NaskahService {
         },
         order: { createdAt: 'ASC' },
       });
+      const delegasiPenerimaByPosition =
+        await this.getDelegasiPenerimaByPosition(naskahData.tanggal, [
+          ...penerimaList,
+          ...tembusanList,
+        ]);
 
       // ponytail: leak Y — naskah tanpa penerima & tembusan (belum dikirim ke
       // siapa pun) tidak should jadi node riwayat. Pengecualian: naskah yang
@@ -984,28 +1073,42 @@ export class NaskahService {
         : null;
 
       // Build penerima list with read status
-      const penerimaInfo = penerimaList.map((p) => ({
-        position_id: p.position || '',
-        position_text: p.positionText || '',
-        organization_text: p.organizationText || '',
-        nama: p.namaSirkuler || null,
-        email: p.email || null,
-        persnum: p.idSirkuler ? parseInt(p.idSirkuler, 10) || 0 : 0,
-        status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
-        read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
-      }));
+      const penerimaInfo = penerimaList.map((p) => {
+        const delegatedDisplay = this.renderPenerimaDelegasi(
+          p,
+          delegasiPenerimaByPosition,
+        );
+        return {
+          position_id: p.position || '',
+          position_text: delegatedDisplay.positionText,
+          position_status: delegatedDisplay.positionStatus,
+          organization_text: p.organizationText || '',
+          nama: p.namaSirkuler || null,
+          email: p.email || null,
+          persnum: p.idSirkuler ? parseInt(p.idSirkuler, 10) || 0 : 0,
+          status_baca: p.sendReadTime ? 'terbaca' : 'belum_dibaca',
+          read_time: p.sendReadTime ? p.sendReadTime.toISOString() : null,
+        };
+      });
 
       // Build tembusan list with read status
-      const tembusanInfo = tembusanList.map((t) => ({
-        position_id: t.position || '',
-        position_text: t.positionText || '',
-        organization_text: t.organizationText || '',
-        nama: t.namaSirkuler || null,
-        email: t.email || null,
-        persnum: t.idSirkuler ? parseInt(t.idSirkuler, 10) || 0 : 0,
-        status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
-        read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
-      }));
+      const tembusanInfo = tembusanList.map((t) => {
+        const delegatedDisplay = this.renderPenerimaDelegasi(
+          t,
+          delegasiPenerimaByPosition,
+        );
+        return {
+          position_id: t.position || '',
+          position_text: delegatedDisplay.positionText,
+          position_status: delegatedDisplay.positionStatus,
+          organization_text: t.organizationText || '',
+          nama: t.namaSirkuler || null,
+          email: t.email || null,
+          persnum: t.idSirkuler ? parseInt(t.idSirkuler, 10) || 0 : 0,
+          status_baca: t.sendReadTime ? 'terbaca' : 'belum_dibaca',
+          read_time: t.sendReadTime ? t.sendReadTime.toISOString() : null,
+        };
+      });
 
       // Build lampiran info with URLs
       const lampiranInfo = await Promise.all(
