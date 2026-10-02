@@ -74,6 +74,7 @@ export interface EffectiveRoutingPlan {
 
 export interface RoutingCapabilities {
   feature_enabled: boolean;
+  access_feature_enabled: boolean;
   can_create_sdi: boolean;
   matched_role_codes: string[];
   matched_rule_ids: string[];

@@ -4,7 +4,10 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { delegatedPengirimFields } from '../../../common/helpers/delegasi-rendering.helper';
+import {
+  delegatedPengirimFields,
+  delegatedRecipientFields,
+} from '../../../common/helpers/delegasi-rendering.helper';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { PDFDocument } from 'pdf-lib';
@@ -1396,7 +1399,10 @@ export class NotaDinasService {
     }
     // Spec B-2b: prefix actor + nama delegate saat delegated; YBS unchanged.
     const _pf = delegatedPengirimFields(
-      actorUser ?? { position_status: null, nama: '' },
+      actorUser ?? {
+        position_status: pos.position_status ?? pos.positionStatus ?? null,
+        nama: pos.persnum_person_text ?? '',
+      },
       pos.position_text ?? '',
       pos.persnum_person_text ?? pos.position_text ?? '',
     );
@@ -5590,7 +5596,13 @@ export class NotaDinasService {
       const key = Number(item.position);
       if (added.has(key)) return;
       added.add(key);
-      result.push(item);
+      const delegatedDisplay = delegatedRecipientFields(item);
+      result.push({
+        ...item,
+        position_text: delegatedDisplay.positionText,
+        position_status: delegatedDisplay.positionStatus,
+        positionStatus: delegatedDisplay.positionStatus,
+      });
     };
 
     // cari posisi awal

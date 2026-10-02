@@ -13,6 +13,7 @@ import { DiEntity } from '../disposisi/entities/di.entity';
 import { StorageModule } from '../storage/storage.module';
 import { SearchModule } from '../search/search.module';
 import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
+import { DelegasiEntity } from '../delegasi/entities/delegasi.entity';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { GrupPenerimaModule } from '../grup-penerima/grup-penerima.module';
       NaskahLampiranEntity,
       NaskahReferensiEntity,
       DiEntity,
+      DelegasiEntity,
       // REMOVED: NdEntity and SdiSdeEntity
     ]),
     StorageModule,
