@@ -3531,6 +3531,7 @@ export class SuratDinasInternalService {
           kepadaYthList = penerimaListForPdf.map((p) =>
             formatSdiPdfRecipientLabel({
               position_text: p.positionText,
+              position_status: p.positionStatus,
               namaSirkuler: p.namaSirkuler,
               subAreaText: p.subAreaText,
               areaText: p.areaText,
@@ -3559,6 +3560,7 @@ export class SuratDinasInternalService {
           tembusanTextList = tembusanListForPdf.map((t) =>
             formatSdiPdfRecipientLabel({
               position_text: t.positionText,
+              position_status: t.positionStatus,
               namaSirkuler: t.namaSirkuler,
               subAreaText: t.subAreaText,
               areaText: t.areaText,
