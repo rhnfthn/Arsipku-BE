@@ -26,6 +26,7 @@ import { SdiSdeEntity } from '../surat-dinas-internal/entities/sdi_sde.entity';
 import { NaskahEntity } from '../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../shared/entities/naskah_sirkulasi.entity';
 import { Session } from '../auth/entities/session.entity';
+import { TransferActiveToInactiveEntity } from '../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
 import { DigsigLogEntity } from './entities/digsig-log.entity';
 import { DigsigDocumentEntity } from './entities/digsig-document.entity';
 import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.entity';
@@ -43,6 +44,7 @@ import { BsreAlertEntity } from './entities/bsre-alert.entity';
       NaskahEntity,
       NaskahSirkulasi,
       Session,
+      TransferActiveToInactiveEntity,
       DigsigLogEntity,
       DigsigDocumentEntity,
       DigsigDocumentSignerEntity,

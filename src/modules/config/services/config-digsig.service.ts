@@ -126,6 +126,7 @@ export class ConfigDigsigService {
       JenisNaskah.DI,
       JenisNaskah.KA,
       JenisNaskah.NL,
+      JenisNaskah.BAC,
     ];
 
     const descriptions: Record<JenisNaskah, string> = {
@@ -136,6 +137,8 @@ export class ConfigDigsigService {
       [JenisNaskah.KA]: 'Kajian - default mode TTE elektronik',
       [JenisNaskah.NL]:
         'Naskah Lainnya & Naskah Umum (LPD, Blanko Verbal, Undangan, Peraturan, dll) - default mode TTE elektronik',
+      [JenisNaskah.BAC]:
+        'Berita Acara Pemindahan Arsip - TTE pejabat pihak pertama (EVP)',
     };
 
     for (const jenis of jenisNaskahList) {
