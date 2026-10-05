@@ -528,7 +528,10 @@ export class DigsigService {
         timeout: 30000,
       });
 
-      console.log('[DigsigService] BSrE Response keys:', Object.keys(response.data || {}));
+      console.log(
+        '[DigsigService] BSrE Response keys:',
+        Object.keys(response.data || {}),
+      );
 
       // 3a. API v2 mengembalikan signed PDF langsung sebagai base64 di body
       //     (tidak lagi disimpan di server BSrE). Upload ke MinIO pada
@@ -2091,8 +2094,7 @@ export class DigsigService {
           valid: true,
           bsre_response: bsreData,
           message:
-            bsreData?.description ||
-            'Dokumen valid dan terdaftar di BSrE',
+            bsreData?.description || 'Dokumen valid dan terdaftar di BSrE',
         };
       }
 

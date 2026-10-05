@@ -1772,21 +1772,38 @@ export class TransferActiveToInactiveService {
       const date = new Date(d);
       if (isNaN(date.getTime())) return String(d);
       const bulan = [
-        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
       ];
       return `${date.getDate()} ${bulan[date.getMonth()]} ${date.getFullYear()}`;
     };
     const hari = (d: any): string => {
       if (!d) return '-';
-      const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      const days = [
+        'Minggu',
+        'Senin',
+        'Selasa',
+        'Rabu',
+        'Kamis',
+        'Jumat',
+        'Sabtu',
+      ];
       return days[new Date(d).getDay()];
     };
 
     const pihakPertama = {
       nama: item.bacPihakPertamaName ?? baData?.atasan?.nama ?? '-',
-      jabatan:
-        item.bacPihakPertamaJabatan ?? baData?.atasan?.jabatan ?? '-',
+      jabatan: item.bacPihakPertamaJabatan ?? baData?.atasan?.jabatan ?? '-',
     };
     const tembusanList: any[] = item.bacTembusan ?? [];
 
@@ -1794,10 +1811,7 @@ export class TransferActiveToInactiveService {
     const daftarIsiRows: any[] = daftarIsi?.daftarIsi ?? [];
 
     const arsipItems = arsipList
-      .map(
-        (a, i) =>
-          `<li>${a.kode ?? '-'} — ${a.perihal ?? '-'}</li>`,
-      )
+      .map((a, i) => `<li>${a.kode ?? '-'} — ${a.perihal ?? '-'}</li>`)
       .join('');
 
     const daftarIsiTable = daftarIsiRows
@@ -1813,7 +1827,10 @@ export class TransferActiveToInactiveService {
     const tembusanHtml =
       tembusanList.length > 0
         ? `<p style="margin:24px 0 4px;"><b>Tembusan:</b></p><ol style="margin:0;padding-left:24px;">${tembusanList
-            .map((t) => `<li>${t.name ?? '-'}${t.jabatan ? ` — ${t.jabatan}` : ''}</li>`)
+            .map(
+              (t) =>
+                `<li>${t.name ?? '-'}${t.jabatan ? ` — ${t.jabatan}` : ''}</li>`,
+            )
             .join('')}</ol>`
         : '';
 
