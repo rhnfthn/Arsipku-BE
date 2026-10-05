@@ -14,6 +14,8 @@ interface GeneratePdfDispoBody {
   disposisi?: string[];
   sifat?: string;
   pengirim?: string;
+  /** Jabatan (position_text) pembuat disposisi — subjudul header kanan "Lembar Disposisi". */
+  jabatanPembuat?: string;
   tembusan?: string[];
   perihal?: string;
   nomorAgenda?: string; // Nomor agenda (diisi dengan nomor surat yang baru di-generate)
@@ -107,6 +109,9 @@ export class GeneratePdfDispoService {
     const htmlCatatan = decodedContent || '';
     const penerima = body.penerima || [];
     const pengirim = body.pengirim || '';
+    // Jabatan pembuat disposisi untuk subjudul header — position_text LENGKAP
+    // (tanpa dipotong ' - ') agar identik dengan preview FE (user.positionText).
+    const jabatanPembuat = body.jabatanPembuat || pengirim;
 
     const normalizeSifat = (value?: string): string => {
       if (!value) return 'biasa';
@@ -325,8 +330,9 @@ export class GeneratePdfDispoService {
             ${logoBase64 ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height: 48px; width: auto; max-width: 60px;" />` : '<div style="width:60px;height:48px;background:#e0e0e0;border:1px solid #999;"></div>'}
             <span style="font-weight: bold; font-size: 16px; letter-spacing: 1px;">AirNav Indonesia</span>
           </div>
-          <div style="width: 33.3%; padding: 12px; display: flex; flex-direction: column; justify-content: center; text-align: center; font-weight: bold; font-size: 11px;">
-            <div>DISPOSISI</div>
+          <div style="width: 33.3%; padding: 12px; display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-end; text-align: right; font-weight: bold; font-size: 12px;">
+            <div>Lembar Disposisi</div>
+            ${jabatanPembuat ? `<div style="font-size: 10px; margin-top: 2px; text-transform: uppercase;">${jabatanPembuat}</div>` : ''}
           </div>
         </div>
 

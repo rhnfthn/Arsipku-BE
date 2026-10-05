@@ -1935,7 +1935,10 @@ export class SuratDinasEksternalService {
               month: 'long',
               day: 'numeric',
             }),
-            positionText: dto.nama_jabatan || pengirim.position_text,
+            positionText: delegatedRecipientFields({
+              ...pengirim,
+              position_text: dto.nama_jabatan || pengirim.position_text,
+            }).positionText,
             namaLengkap:
               dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
             // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
@@ -2441,7 +2444,10 @@ export class SuratDinasEksternalService {
       const signerName =
         dto.nama_lengkap || pengirim.persnum_person_text || 'Penandatangan';
       const signerJabatan =
-        dto.nama_jabatan || pengirim.position_text || 'Jabatan';
+        delegatedRecipientFields({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }).positionText || 'Jabatan';
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
@@ -2486,10 +2492,13 @@ export class SuratDinasEksternalService {
         );
 
         // Use fallback for empty string, not just undefined/null
-        const finalPositionText =
-          dto.nama_jabatan && dto.nama_jabatan.trim()
-            ? dto.nama_jabatan
-            : pengirim.position_text;
+        const finalPositionText = delegatedRecipientFields({
+          ...pengirim,
+          position_text:
+            dto.nama_jabatan && dto.nama_jabatan.trim()
+              ? dto.nama_jabatan
+              : pengirim.position_text,
+        }).positionText;
         const finalNamaLengkap =
           dto.nama_lengkap && dto.nama_lengkap.trim()
             ? dto.nama_lengkap
@@ -3859,7 +3868,12 @@ export class SuratDinasEksternalService {
           },
         );
         const tembusanForPdfFinal = tembusanListForPdf.map((t) =>
-          `${t.positionText} ${t.organizationText}`.trim(),
+          `${
+            delegatedRecipientFields({
+              position_text: t.positionText,
+              position_status: t.positionStatus,
+            }).positionText
+          } ${t.organizationText}`.trim(),
         );
 
         // Get lampiran files for merging
@@ -3880,11 +3894,17 @@ export class SuratDinasEksternalService {
           naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
 
         // Resolve position text and nama (from pengirimSirkulasiForPdf, no more sdeData)
-        const resolvedPositionText =
-          dto.nama_jabatan ||
-          finalPengirimPosition?.position_text ||
-          pengirimSirkulasiForPdf?.positionText ||
-          '';
+        const resolvedPositionText = delegatedRecipientFields({
+          position_text:
+            dto.nama_jabatan ||
+            finalPengirimPosition?.position_text ||
+            pengirimSirkulasiForPdf?.positionText ||
+            '',
+          position_status:
+            finalPengirimPosition?.position_status ??
+            finalPengirimPosition?.positionStatus ??
+            pengirimSirkulasiForPdf?.positionStatus,
+        }).positionText;
         const resolvedNamaLengkap =
           dto.nama_lengkap ||
           finalPengirimPosition?.persnum_person_text ||
@@ -5119,7 +5139,11 @@ export class SuratDinasEksternalService {
         DEFAULT_ALAMAT_PERUSAHAAN;
       const namaTempat =
         dto.nama_tempat || headerInfo?.gedung || pengirim.sub_area_text || '';
-      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
+      const namaJabatan =
+        delegatedRecipientFields({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }).positionText || '';
       const namaLengkap =
         dto.nama_lengkap || pengirim.persnum_person_text || '';
 
@@ -5142,8 +5166,9 @@ export class SuratDinasEksternalService {
         organization: String(pengirim.organization_id),
         organizationText: pengirim.organization_text,
         position: String(pengirim.position),
-        positionText: pengirim.position_text,
-        positionStatus: 'ybs',
+        positionText: namaJabatan,
+        positionStatus: delegatedRecipientFields(pengirim)
+          .positionStatus as any,
         idSirkuler: pengirim.persnum_person
           ? String(pengirim.persnum_person)
           : '',

@@ -980,10 +980,14 @@ export class KonsepService {
           jenis === 'SDI'
             ? formatSdiPdfRecipientLabel({
                 position_text: item.positionText,
+                position_status: item.positionStatus,
                 subAreaText: item.subAreaText,
                 areaText: item.areaText,
               })
-            : (item.positionText || item.namaSirkuler || '').trim();
+            : delegatedRecipientFields({
+                position_text: item.positionText || item.namaSirkuler,
+                position_status: item.positionStatus,
+              }).positionText.trim();
         if (name && !individualNames.includes(name)) {
           individualNames.push(name);
         }
@@ -4890,7 +4894,7 @@ export class KonsepService {
           names.push(
             jenis === 'SDI'
               ? formatSdiPdfRecipientLabel(found)
-              : found.position_text,
+              : delegatedRecipientFields(found).positionText,
           );
         } else {
           names.push(String(posId));
@@ -5111,7 +5115,10 @@ export class KonsepService {
         jenis,
       );
 
-      const namaJabatan = sirkulasiPengirim?.positionText || '';
+      const namaJabatan = delegatedRecipientFields({
+        position_text: sirkulasiPengirim?.positionText || '',
+        position_status: sirkulasiPengirim?.positionStatus,
+      }).positionText;
       const namaLengkap = sirkulasiPengirim?.namaSirkuler || '';
 
       // 3. Get header info dari sub_area_alamat berdasarkan pengirim
