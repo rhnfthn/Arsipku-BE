@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { DashboardService } from '../services/dashboard.service';
 import { RealtimeSummaryService } from '../services/realtime-summary.service';
+import { KelolaCountService } from '../services/kelola-count.service';
 import { DashboardResponseDto } from '../dto/dashboard.dto';
 import { JwtAuthGuard } from '../../../common/guards';
 import { CurrentUser, RequirePermission } from '../../../common/decorators';
@@ -18,6 +19,7 @@ export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
     private readonly realtimeSummaryService: RealtimeSummaryService,
+    private readonly kelolaCountService: KelolaCountService,
   ) {}
 
   /**
@@ -51,5 +53,21 @@ export class DashboardController {
   @RequirePermission('dashboard', 'read')
   async getRealtimeSummary(@CurrentUser() user: JwtPayload) {
     return this.realtimeSummaryService.getSummary(user.position);
+  }
+
+  /**
+   * GET /dashboard/kelola-counts
+   *
+   * Badge notifikasi menu Kelola di sidebar: jumlah item yang menunggu
+   * aksi user login untuk tiap submenu (Penerimaan Usulan, Penataan Arsip
+   * Inaktif, Verifikasi Persetujuan TU, Verifikasi Usulan, Pengajuan
+   * Penyusutan, Verifikasi Penyusutan, Penataan & Pemusnahan).
+   */
+  @Get('kelola-counts')
+  async getKelolaCounts(@CurrentUser() user: JwtPayload) {
+    return {
+      success: true,
+      data: await this.kelolaCountService.getCounts(user),
+    };
   }
 }

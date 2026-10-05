@@ -75,16 +75,31 @@ export class ArsipDinamisService {
 
   // ── Helper: Generate Kode Berkas ────────────────────────────────
 
-  // ponytail: gap-lock range ARK-YYYY-% via FOR UPDATE on the unique index
+  // ponytail: gap-lock range TITELATUR-YYYY-% via FOR UPDATE on the unique index
   // to serialize concurrent createBerkas; switch to a counter table if
   // create throughput ever matters.
-  private async generateKodeBerkas(manager: EntityManager): Promise<string> {
+  // Format kode berkas: TITELATUR-TAHUN-NOMOR (mis. UC-2026-0001).
+  // TITELATUR = abbreviation posisi user pembuat berkas (dari org_data).
+  // Bila posisi user (staf) tidak punya abbreviation, ambil abbreviation
+  // dari EVP divisi user (chief=1, position_text mengandung EVP, divisi sama).
+  private async generateKodeBerkas(
+    manager: EntityManager,
+    user: {
+      position?: string | number;
+      organization?: string | number | null;
+      divisiId?: string | number | null;
+    },
+  ): Promise<string> {
     const year = new Date().getFullYear();
+    const titelatur = await this.resolveTitelatur(user);
+
     const rows = await manager
       .getRepository(Berkas)
       .createQueryBuilder('b')
       .select('b.kode_berkas', 'kode_berkas')
-      .where('b.kode_berkas LIKE :pattern', { pattern: `ARK-${year}-%` })
+      .where('b.kode_berkas LIKE :pattern', {
+        pattern: `${titelatur}-${year}-%`,
+      })
       .setLock('pessimistic_write')
       .getRawMany();
 
@@ -93,14 +108,69 @@ export class ArsipDinamisService {
     let maxSeq = 0;
     for (const row of rows) {
       const kode = String(row?.kode_berkas || '');
-      const match = kode.match(/^ARK-\d+-(\d+)$/);
+      const match = kode.match(new RegExp(`^${titelatur}-\\d+-(\\d+)$`));
       if (match) {
         const n = Number(match[1]);
         if (n > maxSeq) maxSeq = n;
       }
     }
     const seq = String(maxSeq + 1).padStart(4, '0');
-    return `ARK-${year}-${seq}`;
+    return `${titelatur}-${year}-${seq}`;
+  }
+
+  /**
+   * Resolve kode titelatur untuk user pembuat berkas:
+   * 1. abbreviation posisi user sendiri (dari org_data position_json).
+   * 2. Bila kosong ('-'/null) → abbreviation EVP atasan user: EVP di unit
+   *    kerja yang sama (organization_id ATAU divisi_id sama dengan
+   *    organization JWT user), chief=1, position_text mengandung 'EVP'.
+   * 3. Bila tetap kosong → fallback 'ARS'.
+   */
+  private async resolveTitelatur(user: {
+    position?: string | number;
+    organization?: string | number | null;
+    divisiId?: string | number | null;
+  }): Promise<string> {
+    try {
+      const org = await this.orgDataService.findLatestOrg();
+      const positions: any[] = org?.position_json ?? [];
+      if (!Array.isArray(positions) || positions.length === 0) return 'ARS';
+
+      const userPosition = Number(user?.position);
+      // JWT tidak membawa divisiId — pakai organization (unit kerja user)
+      // sebagai kunci pencocokan EVP. divisiId tetap didukung bila ada.
+      const userUnit = Number(user?.divisiId ?? user?.organization);
+
+      const clean = (v: any) => {
+        const s = String(v ?? '').trim();
+        return s && s !== '-' ? s.toUpperCase() : '';
+      };
+
+      // 1. Abbreviation posisi user sendiri
+      if (userPosition) {
+        const pos = positions.find((p) => Number(p?.position) === userPosition);
+        const abbr = clean(pos?.position_abbreviation);
+        if (abbr) return abbr;
+      }
+
+      // 2. Staf tanpa abbreviation → abbreviation EVP di unit kerja yang sama.
+      //    Staf divisi punya organization_id == divisi_id, jadi cek keduanya.
+      if (userUnit) {
+        const evp = positions.find(
+          (p) =>
+            (Number(p?.organization_id) === userUnit ||
+              Number(p?.divisi_id) === userUnit) &&
+            Number(p?.chief) === 1 &&
+            /\bEVP\b/i.test(String(p?.position_text || '')),
+        );
+        const abbr = clean(evp?.position_abbreviation);
+        if (abbr) return abbr;
+      }
+
+      return 'ARS';
+    } catch {
+      return 'ARS';
+    }
   }
 
   // ── Helper: Hitung Tanggal Retensi ──────────────────────────────
@@ -141,8 +211,9 @@ export class ArsipDinamisService {
 
   async createBerkas(
     dto: CreateArsipDinamisBerkasDto,
-    userId: number,
+    user: any,
   ): Promise<Berkas> {
+    const userId = Number(user?.persnum ?? user);
     let klasifikasiTeks = dto.klasifikasi_text;
     let retensiAktif = dto.retensi_aktif_tahun;
     let retensiInaktif = dto.retensi_inaktif_tahun;
@@ -184,7 +255,11 @@ export class ArsipDinamisService {
     // Generate kode + insert dalam transaksi yang sama agar FOR UPDATE
     // pada generateKodeBerkas serialisasi terhadap createBerkas bersamaan.
     return this.dataSource.transaction(async (manager) => {
-      const kodeBerkas = await this.generateKodeBerkas(manager);
+      const kodeBerkas = await this.generateKodeBerkas(manager, {
+        position: (user as any)?.position,
+        organization: (user as any)?.organization,
+        divisiId: (user as any)?.divisiId ?? (user as any)?.divisi_id,
+      });
       const berkas = manager.create(Berkas, {
         klasifikasi: dto.klasifikasi,
         klasifikasiTeks,
@@ -627,6 +702,19 @@ export class ArsipDinamisService {
       return { message: 'Tidak ada naskah yang dipilih', count: 0 };
     }
 
+    // Naskah konsep (jenis 'K') tidak boleh diberkaskan — hanya naskah final
+    // yang sudah dikirim/diterima. Tolak lebih awal agar tidak lolos lewat
+    // request manual (di luar daftar kandidat FE).
+    const konsepRows: any[] = await this.dataSource.query(
+      `SELECT id FROM naskah WHERE id IN (?) AND jenis = 'K'`,
+      [requestedIds],
+    );
+    if (konsepRows.length > 0) {
+      throw new BadRequestException(
+        'Naskah konsep tidak dapat ditambahkan ke berkas',
+      );
+    }
+
     // Naskah yang sudah berada di berkas TERTUTUP (closed_retensi_aktif /
     // retensi_inaktif) tidak boleh dipindahkan ke berkas lain — arsipnya sudah
     // final. Naskah di berkas AKTIF boleh dipindah (pindah folder).
@@ -877,6 +965,27 @@ export class ArsipDinamisService {
     return this.naskahService.getDetailWithChainForBerkas(naskahId);
   }
 
+  /**
+   * Presigned URL PDF final sebuah naskah (untuk preview di modal Tambah Naskah,
+   * sebelum naskah masuk berkas). Naskah harus final/final_tte dan punya
+   * final_pdf. Akses dijaga guard PemeliharaanAccess di controller.
+   */
+  async getNaskahPdfUrl(naskahId: string): Promise<{ url: string | null }> {
+    const rows: any[] = await this.dataSource.query(
+      `SELECT final_pdf, status FROM naskah WHERE id = ? LIMIT 1`,
+      [naskahId],
+    );
+    const naskah = rows?.[0];
+    if (!naskah) {
+      throw new NotFoundException('Naskah tidak ditemukan');
+    }
+    if (!naskah.final_pdf) {
+      return { url: null };
+    }
+    const url = await this.storageService.getPreviewUrl(naskah.final_pdf);
+    return { url };
+  }
+
   // ── Naskah Siap Arsip (Tab Filtering) ───────────────────────────
 
   /**
@@ -1059,10 +1168,13 @@ export class ArsipDinamisService {
     const { search, page = 1, limit = 20 } = options;
 
     // Scope posisi: sekretaris → seluruh posisi divisi/unit; lainnya → posisi
-    // pribadi (subquery pa_personal, perilaku lama).
+    // pribadi user (om_relation_sp: relasi person → position aktif hari ini).
+    // NOTE: JANGAN pakai subquery pa_personal — tabel itu tidak punya kolom
+    // position, dan MySQL me-resolve 'position' sebagai kolom outer (ns.position)
+    // sehingga ns.position = ns.position selalu TRUE → semua naskah bocor.
     const positionClause = positions?.length
       ? `ns.position IN (${positions.map(() => '?').join(',')})`
-      : `ns.position = (SELECT position FROM pa_personal WHERE persnum = ?)`;
+      : `ns.position IN (SELECT position FROM om_relation_sp WHERE relation_persnum = ? AND end_date >= CURDATE())`;
     const positionParams: any[] = positions?.length
       ? positions.map(String)
       : [String(userId)];
@@ -1118,6 +1230,7 @@ export class ArsipDinamisService {
       WHERE ${positionClause}
         AND n.status IN ('final', 'final_tte')
         AND n.final_pdf IS NOT NULL
+        AND n.jenis != 'K'
         AND ns.is_konsep = 0
         AND ns.is_draft = 0
         AND ns.sirkuler IN ('penerima', 'tembusan', 'pengirim')
@@ -1179,10 +1292,13 @@ export class ArsipDinamisService {
         : `ns.sirkuler IN ('penerima', 'tembusan')`;
 
     // Scope posisi: sekretaris → seluruh posisi divisi/unit; lainnya → posisi
-    // pribadi (subquery pa_personal, perilaku lama).
+    // pribadi user (om_relation_sp: relasi person → position aktif hari ini).
+    // NOTE: JANGAN pakai subquery pa_personal — tabel itu tidak punya kolom
+    // position, dan MySQL me-resolve 'position' sebagai kolom outer (ns.position)
+    // sehingga ns.position = ns.position selalu TRUE → semua naskah bocor.
     const positionClause = positions?.length
       ? `ns.position IN (${positions.map(() => '?').join(',')})`
-      : `ns.position = (SELECT position FROM pa_personal WHERE persnum = ?)`;
+      : `ns.position IN (SELECT position FROM om_relation_sp WHERE relation_persnum = ? AND end_date >= CURDATE())`;
     const positionParams: any[] = positions?.length
       ? positions.map(String)
       : [String(userId)];
@@ -1225,6 +1341,7 @@ export class ArsipDinamisService {
       LEFT JOIN berkas b ON b.id = bn.berkas_id AND b.deleted_at IS NULL
       WHERE ${positionClause}
         AND ${sirkulerFilter}
+        AND n.jenis != 'K'
         AND ns.is_konsep = 0
     `;
     const params: any[] = positionParams;
