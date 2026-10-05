@@ -180,13 +180,11 @@ export class TransferActiveToInactiveEntity {
 
   /** Daftar pejabat tembusan BAC (khusus EVP ke atas) — JSON array. */
   @Column({ name: 'bac_tembusan', type: 'json', nullable: true })
-  bacTembusan:
-    | Array<{
-        persnum: number;
-        name: string;
-        jabatan: string;
-      }>
-    | null;
+  bacTembusan: Array<{
+    persnum: number;
+    name: string;
+    jabatan: string;
+  }> | null;
 
   /** Timestamp TTE BAC oleh pejabat pihak pertama (BSrE). */
   @Column({ name: 'bac_signed_at', type: 'datetime', nullable: true })
