@@ -277,7 +277,7 @@ export class NotaDinasService {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
         if (pos) {
-          names.push(pos.position_text);
+          names.push(delegatedRecipientFields(pos).positionText);
         }
       }
     }
@@ -492,8 +492,9 @@ export class NotaDinasService {
       const position = barisData.find((p) => p.position === numericId);
 
       if (position) {
-        // Return position_text only (without organization_text)
-        const fullName = `${position.position_text}`;
+        // Render prefix delegasi (PT./PH./PS.) bila posisi sedang didelegasikan —
+        // konsisten dengan buildPdfRecipientNames agar preview & final PDF sama.
+        const fullName = delegatedRecipientFields(position).positionText;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -1817,13 +1818,16 @@ export class NotaDinasService {
             tertuju: kepadaYthList,
             tembusan: tembusanTextList,
             perihal: dto.perihal,
-            dari: `${pengirim.position_text}`,
+            dari: delegatedRecipientFields(pengirim).positionText,
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
               year: 'numeric',
               month: 'long',
               day: 'numeric',
             }),
-            positionText: dto.nama_jabatan ?? pengirim.position_text,
+            positionText: delegatedRecipientFields({
+              ...pengirim,
+              position_text: dto.nama_jabatan ?? pengirim.position_text,
+            }).positionText,
             namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || '',
             // Dynamic nama_tempat dari sub_area_alamat.kota
             nama_tempat: dynamicNamaTempat,
@@ -2338,7 +2342,10 @@ export class NotaDinasService {
       const signerName =
         dto.nama_lengkap || pengirim.persnum_person_text || 'Penandatangan';
       const signerJabatan =
-        dto.nama_jabatan || pengirim.position_text || 'Jabatan';
+        delegatedRecipientFields({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }).positionText || 'Jabatan';
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
@@ -2387,13 +2394,16 @@ export class NotaDinasService {
           tertuju: kepadaYthList,
           tembusan: tembusanTextList,
           perihal: dto.perihal,
-          dari: `${pengirim.position_text}`,
+          dari: delegatedRecipientFields(pengirim).positionText,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
           }),
-          positionText: dto.nama_jabatan ?? pengirim.position_text,
+          positionText: delegatedRecipientFields({
+            ...pengirim,
+            position_text: dto.nama_jabatan ?? pengirim.position_text,
+          }).positionText,
           namaLengkap: dto.nama_lengkap || pengirim.persnum_person_text || '',
           nama_tempat: dynamicNamaTempat,
           headerKantor: headerInfo?.kantor,
@@ -3197,7 +3207,11 @@ export class NotaDinasService {
           );
         } else {
           kepadaYthListForPdf = penerimaListForPdf.map(
-            (p) => p.positionText || '',
+            (p) =>
+              delegatedRecipientFields({
+                position_text: p.positionText,
+                position_status: p.positionStatus,
+              }).positionText,
           );
         }
 
@@ -3220,7 +3234,11 @@ export class NotaDinasService {
           );
         } else {
           tembusanForPdfFinal = tembusanListForPdf.map(
-            (t) => t.positionText || '',
+            (t) =>
+              delegatedRecipientFields({
+                position_text: t.positionText,
+                position_status: t.positionStatus,
+              }).positionText,
           );
         }
 
@@ -3241,11 +3259,17 @@ export class NotaDinasService {
           naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
 
         // Resolve position text and nama (from pengirimPosition/sirkulasi, NOT NdEntity)
-        const resolvedPositionText =
-          dto.nama_jabatan ||
-          pengirimPosition?.position_text ||
-          pengirimSirkulasiForPdf?.positionText ||
-          '';
+        const resolvedPositionText = delegatedRecipientFields({
+          position_text:
+            dto.nama_jabatan ||
+            pengirimPosition?.position_text ||
+            pengirimSirkulasiForPdf?.positionText ||
+            '',
+          position_status:
+            pengirimPosition?.position_status ??
+            pengirimPosition?.positionStatus ??
+            pengirimSirkulasiForPdf?.positionStatus,
+        }).positionText;
         const resolvedNamaLengkap =
           dto.nama_lengkap ||
           pengirimPosition?.persnum_person_text ||
@@ -3338,10 +3362,16 @@ export class NotaDinasService {
             'utf-8',
           ).toString('base64'),
           penerima: kepadaYthListForPdf,
-          dari:
-            pengirimPosition?.position_text ||
-            pengirimSirkulasiForPdf?.positionText ||
-            '',
+          dari: delegatedRecipientFields({
+            position_text:
+              pengirimPosition?.position_text ||
+              pengirimSirkulasiForPdf?.positionText ||
+              '',
+            position_status:
+              pengirimPosition?.position_status ??
+              pengirimPosition?.positionStatus ??
+              pengirimSirkulasiForPdf?.positionStatus,
+          }).positionText,
           nama_tempat: dynamicNamaTempat,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
@@ -5255,6 +5285,7 @@ export class NotaDinasService {
       // tanda_tangan sudah tersimpan di naskah.tandaTangan
 
       // PHASE 8: Create sirkulasi pengirim
+      const pengirimFields = delegatedRecipientFields(pengirim);
       const pengirimSirkulasi = this.naskahSirkulasiRepository.create({
         id: uuidv4(),
         idNaskah: naskahId,
@@ -5269,8 +5300,8 @@ export class NotaDinasService {
         organization: String(pengirim.organization_id),
         organizationText: pengirim.organization_text,
         position: String(pengirim.position),
-        positionText: pengirim.position_text,
-        positionStatus: 'ybs',
+        positionText: pengirimFields.positionText,
+        positionStatus: pengirimFields.positionStatus as any,
         idSirkuler: pengirim.persnum_person
           ? String(pengirim.persnum_person)
           : '',
@@ -5297,8 +5328,9 @@ export class NotaDinasService {
           organization: String(penerima.organization_id),
           organizationText: penerima.organization_text,
           position: String(penerima.position),
-          positionText: penerima.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(penerima).positionText,
+          positionStatus: delegatedRecipientFields(penerima)
+            .positionStatus as any,
           idSirkuler: penerima.persnum_person
             ? String(penerima.persnum_person)
             : '',
@@ -5314,8 +5346,8 @@ export class NotaDinasService {
           nama: penerima.persnum_person_text || '',
           position_id: String(penerima.position),
           abbreviation: '', // TODO: implement if needed
-          position_status: 'ybs',
-          positionText: penerima.position_text,
+          position_status: delegatedRecipientFields(penerima).positionStatus,
+          positionText: delegatedRecipientFields(penerima).positionText,
           organizationText: penerima.organization_text,
           subAreaText: penerima.sub_area_text || '',
           areaText: penerima.area_text || '',
@@ -5340,8 +5372,9 @@ export class NotaDinasService {
           organization: String(tembusan.organization_id),
           organizationText: tembusan.organization_text,
           position: String(tembusan.position),
-          positionText: tembusan.position_text,
-          positionStatus: 'ybs',
+          positionText: delegatedRecipientFields(tembusan).positionText,
+          positionStatus: delegatedRecipientFields(tembusan)
+            .positionStatus as any,
           idSirkuler: tembusan.persnum_person
             ? String(tembusan.persnum_person)
             : '',
@@ -5357,8 +5390,8 @@ export class NotaDinasService {
           nama: tembusan.persnum_person_text || '',
           position_id: String(tembusan.position),
           abbreviation: '',
-          position_status: 'ybs',
-          positionText: tembusan.position_text,
+          position_status: delegatedRecipientFields(tembusan).positionStatus,
+          positionText: delegatedRecipientFields(tembusan).positionText,
           organizationText: tembusan.organization_text,
           subAreaText: tembusan.sub_area_text || '',
           areaText: tembusan.area_text || '',
@@ -5426,8 +5459,13 @@ export class NotaDinasService {
 
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
       // Define variables for PDF generation
-      const kepadaYthList = penerimaList.map((p) => p.position_text || '');
-      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
+      const kepadaYthList = penerimaList.map(
+        (p) => delegatedRecipientFields(p).positionText,
+      );
+      const namaJabatan = delegatedRecipientFields({
+        ...pengirim,
+        position_text: dto.nama_jabatan || pengirim.position_text,
+      }).positionText;
       const namaLengkap =
         dto.nama_lengkap || pengirim.persnum_person_text || '';
       const namaTempat =
@@ -5454,11 +5492,12 @@ export class NotaDinasService {
           tembusan:
             tembusanList.length > 0
               ? tembusanList.map(
-                  (t) => `${t.position_text} ${t.organization_text}`,
+                  (t) =>
+                    `${delegatedRecipientFields(t).positionText} ${t.organization_text}`,
                 )
               : [],
           perihal: perihal,
-          dari: `${pengirim.position_text}`,
+          dari: namaJabatan,
           tanggal: tanggalNaskah.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
@@ -5541,8 +5580,8 @@ export class NotaDinasService {
             nama: pengirim.persnum_person_text || '',
             position_id: String(pengirim.position),
             abbreviation: '',
-            position_status: 'ybs',
-            positionText: pengirim.position_text,
+            position_status: pengirimFields.positionStatus,
+            positionText: pengirimFields.positionText,
             organizationText: pengirim.organization_text,
             subAreaText: pengirim.sub_area_text || '',
             areaText: pengirim.area_text || '',
