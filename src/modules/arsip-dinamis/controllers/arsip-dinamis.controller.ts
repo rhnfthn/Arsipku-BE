@@ -111,7 +111,7 @@ export class ArsipDinamisController {
     @Body() dto: CreateArsipDinamisBerkasDto,
     @CurrentUser() user: any,
   ) {
-    return this.arsipDinamisService.createBerkas(dto, user.persnum);
+    return this.arsipDinamisService.createBerkas(dto, user);
   }
 
   /**
@@ -190,17 +190,21 @@ export class ArsipDinamisController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
-    return this.arsipDinamisService.findAllBerkas(user.persnum, this.isTu(user), {
-      status,
-      klasifikasi,
-      kategori,
-      tahun,
-      search,
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 20,
-      sortBy,
-      sortDir,
-    });
+    return this.arsipDinamisService.findAllBerkas(
+      user.persnum,
+      this.isTu(user),
+      {
+        status,
+        klasifikasi,
+        kategori,
+        tahun,
+        search,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+        sortBy,
+        sortDir,
+      },
+    );
   }
 
   /**
@@ -281,10 +285,7 @@ export class ArsipDinamisController {
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
   @RequirePermission('pemeliharaan.pemberkasan', 'delete')
-  async softDeleteBerkas(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  async softDeleteBerkas(@Param('id') id: string, @CurrentUser() user: any) {
     return this.arsipDinamisService.softDeleteBerkas(id, user.persnum);
   }
 
@@ -320,10 +321,21 @@ export class ArsipDinamisController {
     @Param('id') id: string,
     @Param('naskahId') naskahId: string,
   ) {
-    return this.arsipDinamisService.getNaskahDetailInBerkas(
-      id,
-      naskahId,
-    );
+    return this.arsipDinamisService.getNaskahDetailInBerkas(id, naskahId);
+  }
+
+  /**
+   * Presigned URL PDF final naskah (untuk preview di modal Tambah Naskah,
+   * sebelum naskah masuk berkas).
+   * GET /arsip-dinamis/naskah/:naskahId/pdf
+   */
+  @Get('naskah/:naskahId/pdf')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
+  async getNaskahPdfUrl(@Param('naskahId') naskahId: string) {
+    return {
+      success: true,
+      data: await this.arsipDinamisService.getNaskahPdfUrl(naskahId),
+    };
   }
 
   /**
@@ -522,12 +534,15 @@ export class ArsipDinamisController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.arsipDinamisService.getRiwayatPersetujuan(String(user.persnum), {
-      search,
-      status,
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 20,
-    });
+    return this.arsipDinamisService.getRiwayatPersetujuan(
+      String(user.persnum),
+      {
+        search,
+        status,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      },
+    );
   }
 
   /**

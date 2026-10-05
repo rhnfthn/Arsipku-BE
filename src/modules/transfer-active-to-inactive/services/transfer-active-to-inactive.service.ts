@@ -34,6 +34,8 @@ import { Berkas, StatusBerkas } from '../../berkas/entities/berkas.entity';
 import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
+import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
+import { StorageService } from '../../storage/services/storage.service';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -61,6 +63,8 @@ export class TransferActiveToInactiveService {
     private readonly arsipDinamisService: ArsipDinamisService,
     private readonly orgDataService: OrgDataService,
     private readonly organizationTuService: OrganizationTuService,
+    private readonly generatePdfService: GeneratePdfService,
+    private readonly storageService: StorageService,
   ) {}
 
   // ─── CREATE ────────────────────────────────────────────────────────────
@@ -175,6 +179,15 @@ export class TransferActiveToInactiveService {
         tanggalRetensiHabis: a.tanggalRetensiHabis ?? null,
       })),
       keterangan: dto.keterangan ?? null,
+      // Pejabat BAC (Berita Acara)
+      bacPihakPertamaPersnum: dto.bacPihakPertamaPersnum ?? null,
+      bacPihakPertamaName: dto.bacPihakPertamaName ?? null,
+      bacPihakPertamaJabatan: dto.bacPihakPertamaJabatan ?? null,
+      bacTembusan: (dto.bacTembusan ?? []).map((t) => ({
+        persnum: Number(t.persnum),
+        name: t.name ?? '',
+        jabatan: t.jabatan ?? '',
+      })),
       status,
     });
 
@@ -266,6 +279,19 @@ export class TransferActiveToInactiveService {
 
     // Update kolom utama
     item.keterangan = dto.keterangan ?? null;
+    // Pejabat BAC (Berita Acara)
+    if (dto.bacPihakPertamaPersnum !== undefined) {
+      item.bacPihakPertamaPersnum = dto.bacPihakPertamaPersnum ?? null;
+      item.bacPihakPertamaName = dto.bacPihakPertamaName ?? null;
+      item.bacPihakPertamaJabatan = dto.bacPihakPertamaJabatan ?? null;
+    }
+    if (dto.bacTembusan !== undefined) {
+      item.bacTembusan = (dto.bacTembusan ?? []).map((t) => ({
+        persnum: Number(t.persnum),
+        name: t.name ?? '',
+        jabatan: t.jabatan ?? '',
+      }));
+    }
     // Kolom legacy (dari atasan pertama)
     item.atasanPersnum = Number(firstAtasan.persnum);
     item.atasanName = firstAtasan.name ?? String(firstAtasan.persnum);
@@ -659,6 +685,8 @@ export class TransferActiveToInactiveService {
         atasanName: null,
         status: 'DRAFT',
         tanggal: b.createdAt,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
         lokasiFisik: b.lokasi,
         berkasStatus: b.status,
       });
@@ -703,9 +731,15 @@ export class TransferActiveToInactiveService {
         atasanName: u.atasanName,
         status: u.status,
         tanggal: u.tanggalUsulan,
+        createdAt: u.createdAt,
         updatedAt: u.updatedAt,
         currentApprovalLevel: u.currentApprovalLevel,
         totalApprovalLevels: u.totalApprovalLevels,
+        // Pejabat BAC — untuk tombol Tanda Tangan (EVP pihak pertama)
+        bacPihakPertamaPersnum: u.bacPihakPertamaPersnum,
+        bacPihakPertamaName: u.bacPihakPertamaName,
+        bacSignedAt: u.bacSignedAt,
+        beritaAcaraUrl: u.beritaAcaraUrl,
       });
     }
 
@@ -1677,6 +1711,245 @@ export class TransferActiveToInactiveService {
   }
 
   // ─── BERITA ACARA ─────────────────────────────────────────────────────
+
+  /**
+   * Generate PDF Berita Acara lengkap (BAC + Daftar Berkas + Daftar Isi)
+   * lalu merge dengan PDF final naskah-naskah dalam berkas.
+   * Hasil di-upload ke MinIO → simpan key di beritaAcaraUrl.
+   */
+  async generateBacPdf(id: string, user: any): Promise<{ url: string }> {
+    const item = await this.getItem(id);
+    const baData = await this.getBeritaAcaraData(id);
+    const daftarIsi = await this.getDaftarIsi(id);
+
+    // 1. Build HTML BAC (Times New Roman, template resmi)
+    const html = this.buildBacHtml(item, baData, daftarIsi);
+
+    // 2. Render HTML → PDF via puppeteer (GeneratePdfService)
+    const bacBuffer = await this.generatePdfService.generatePdf({
+      html: Buffer.from(html, 'utf-8').toString('base64'),
+    });
+
+    // 3. Merge: BAC + PDF final naskah dalam berkas (pdf-lib)
+    const merged = await this.mergeBacWithNaskah(bacBuffer, item);
+
+    // 4. Upload ke MinIO
+    const upload = await this.storageService.uploadBuffer(
+      merged,
+      `BAC-${item.nomorUsulan}.pdf`,
+      'application/pdf',
+      'transfer-active-to-inactive/bac',
+    );
+
+    // 5. Simpan key + nomor BA
+    item.beritaAcaraNomor = `BA/${item.nomorUsulan}`;
+    item.beritaAcaraUrl = upload.key;
+    await this.repo.save(item);
+
+    this.auditTrailService.createAsync({
+      action: AuditAction.GENERATE,
+      module: AuditModule.USULAN_PINDAH,
+      entityType: 'berita_acara',
+      entityId: id,
+      description: `Generate berita acara PDF ${item.beritaAcaraNomor}`,
+      newValue: { beritaAcaraNomor: item.beritaAcaraNomor, key: upload.key },
+      status: AuditStatus.SUCCESS,
+      persnum: Number(user.persnum),
+      userName: user.nama,
+    });
+
+    return { url: upload.url };
+  }
+
+  /** Build HTML Berita Acara (template resmi, Times New Roman). */
+  private buildBacHtml(
+    item: TransferActiveToInactiveEntity,
+    baData: any,
+    daftarIsi: any,
+  ): string {
+    const fmt = (d: any): string => {
+      if (!d) return '-';
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return String(d);
+      const bulan = [
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
+      ];
+      return `${date.getDate()} ${bulan[date.getMonth()]} ${date.getFullYear()}`;
+    };
+    const hari = (d: any): string => {
+      if (!d) return '-';
+      const days = [
+        'Minggu',
+        'Senin',
+        'Selasa',
+        'Rabu',
+        'Kamis',
+        'Jumat',
+        'Sabtu',
+      ];
+      return days[new Date(d).getDay()];
+    };
+
+    const pihakPertama = {
+      nama: item.bacPihakPertamaName ?? baData?.atasan?.nama ?? '-',
+      jabatan: item.bacPihakPertamaJabatan ?? baData?.atasan?.jabatan ?? '-',
+    };
+    const tembusanList: any[] = item.bacTembusan ?? [];
+
+    const arsipList: any[] = baData?.daftarArsip ?? [];
+    const daftarIsiRows: any[] = daftarIsi?.daftarIsi ?? [];
+
+    const arsipItems = arsipList
+      .map((a, i) => `<li>${a.kode ?? '-'} — ${a.perihal ?? '-'}</li>`)
+      .join('');
+
+    const daftarIsiTable = daftarIsiRows
+      .map(
+        (r) =>
+          `<tr><td style="padding:4px 8px;border:1px solid #444;text-align:center;">${r.no}</td>` +
+          `<td style="padding:4px 8px;border:1px solid #444;">${r.kode ?? '-'}</td>` +
+          `<td style="padding:4px 8px;border:1px solid #444;">${r.namaBerkas ?? '-'}</td>` +
+          `<td style="padding:4px 8px;border:1px solid #444;">${r.keterangan ?? '-'}</td></tr>`,
+      )
+      .join('');
+
+    const tembusanHtml =
+      tembusanList.length > 0
+        ? `<p style="margin:24px 0 4px;"><b>Tembusan:</b></p><ol style="margin:0;padding-left:24px;">${tembusanList
+            .map(
+              (t) =>
+                `<li>${t.name ?? '-'}${t.jabatan ? ` — ${t.jabatan}` : ''}</li>`,
+            )
+            .join('')}</ol>`
+        : '';
+
+    return `
+      <div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.6;">
+        <p style="text-align:center;font-weight:bold;font-size:14pt;margin:0 0 4px;">BERITA ACARA SERAH TERIMA PEKERJAAN</p>
+        <p style="text-align:center;font-size:11pt;margin:0 0 2px;">Pemindahan Arsip Aktif ke Inaktif</p>
+        <p style="text-align:center;font-size:11pt;margin:0 0 16px;">Nomor: ${item.beritaAcaraNomor ?? `BA/${item.nomorUsulan}`}</p>
+
+        <p style="margin:0 0 12px;">Pada hari ini ${hari(item.tanggalUsulan)} tanggal ${fmt(item.tanggalUsulan)}, yang bertanda tangan di bawah ini:</p>
+
+        <div style="margin:0 0 12px;">
+          <p style="margin:0;"><b>1. Nama&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:</b> ${pihakPertama.nama}</p>
+          <p style="margin:0;"><b>&nbsp;&nbsp;&nbsp;Jabatan :</b> ${pihakPertama.jabatan}</p>
+          <p style="margin:0;font-style:italic;">Selanjutnya disebut pihak pertama</p>
+        </div>
+        <div style="margin:0 0 12px;">
+          <p style="margin:0;"><b>2. Nama&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:</b> ${baData?.pengirim?.nama ?? '-'}</p>
+          <p style="margin:0;"><b>&nbsp;&nbsp;&nbsp;Jabatan :</b> ${baData?.pengirim?.jabatan ?? '-'}</p>
+          <p style="margin:0;font-style:italic;">Selanjutnya disebut pihak kedua</p>
+        </div>
+
+        <p style="margin:0 0 8px;">Dengan ini menerangkan bahwa:</p>
+        <p style="margin:0 0 8px;">Pihak pertama telah menyerahkan kepada pihak kedua berupa:</p>
+        <ol style="margin:0 0 12px;padding-left:24px;">${arsipItems}</ol>
+
+        <p style="margin:0 0 16px;"><b>Daftar Isi Berkas:</b></p>
+        <table style="width:100%;border-collapse:collapse;font-size:10pt;margin:0 0 16px;">
+          <thead>
+            <tr>
+              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">No</th>
+              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Kode Berkas</th>
+              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Nama Berkas</th>
+              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Keterangan</th>
+            </tr>
+          </thead>
+          <tbody>${daftarIsiTable}</tbody>
+        </table>
+
+        <p style="margin:0 0 24px;">Demikian Berita Acara serah terima ini dibuat rangkap 2 untuk dapat digunakan sebagaimana mestinya.</p>
+
+        <table style="width:100%;border:0;margin:0 0 24px;">
+          <tr>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 64px;"><b>Pihak Pertama</b></p>
+              <p style="margin:0;border-top:1px solid #444;padding-top:4px;font-weight:bold;">${pihakPertama.nama}</p>
+              <p style="margin:0;font-size:10pt;">${pihakPertama.jabatan}</p>
+            </td>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 64px;"><b>Pihak Kedua</b></p>
+              <p style="margin:0;border-top:1px solid #444;padding-top:4px;font-weight:bold;">${baData?.pengirim?.nama ?? '-'}</p>
+              <p style="margin:0;font-size:10pt;">${baData?.pengirim?.jabatan ?? '-'}</p>
+            </td>
+          </tr>
+        </table>
+
+        ${tembusanHtml}
+      </div>
+    `;
+  }
+
+  /** Merge BAC PDF dengan PDF final naskah dalam berkas (pdf-lib). */
+  private async mergeBacWithNaskah(
+    bacBuffer: Buffer,
+    item: TransferActiveToInactiveEntity,
+  ): Promise<Buffer> {
+    try {
+      const { PDFDocument } = await import('pdf-lib');
+      const pdfDoc = await PDFDocument.load(bacBuffer);
+
+      const arsipIds = item.arsipIds ?? [
+        {
+          id: item.arsipId,
+          perihal: item.arsipPerihal,
+          kode: item.arsipKode,
+          tanggalRetensiHabis: null,
+        },
+      ];
+
+      for (const a of arsipIds) {
+        // Ambil naskah dalam berkas
+        const naskahRows: any[] = await this.berkasRepo.manager
+          .createQueryBuilder()
+          .select('bn.naskah_id', 'naskahId')
+          .from('berkas_naskah', 'bn')
+          .where('bn.berkas_id = :bid', { bid: a.id })
+          .orderBy('bn.urutan', 'ASC')
+          .getRawMany();
+
+        for (const n of naskahRows) {
+          try {
+            // Ambil final_pdf key dari tabel naskah
+            const rows: any[] = await this.berkasRepo.manager.query(
+              `SELECT final_pdf FROM naskah WHERE id = ? LIMIT 1`,
+              [n.naskahId],
+            );
+            const key = rows?.[0]?.final_pdf;
+            if (!key) continue;
+
+            const fileBuffer = await this.storageService.getFile(key);
+            const naskahPdf = await PDFDocument.load(fileBuffer);
+            const pages = await pdfDoc.copyPages(
+              naskahPdf,
+              naskahPdf.getPageIndices(),
+            );
+            pages.forEach((p) => pdfDoc.addPage(p));
+          } catch {
+            // Skip naskah yang PDF-nya tidak tersedia
+          }
+        }
+      }
+
+      const merged = await pdfDoc.save();
+      return Buffer.from(merged);
+    } catch (e) {
+      this.logger.warn(`mergeBacWithNaskah gagal, pakai BAC saja: ${e}`);
+      return bacBuffer;
+    }
+  }
 
   async generateBeritaAcara(
     id: string,
