@@ -46,6 +46,21 @@ export class ArsipItemDto {
   tanggalRetensiHabis?: string;
 }
 
+/** Item pejabat tembusan BAC (khusus EVP ke atas). */
+export class TembusanItemDto {
+  @IsInt()
+  @Type(() => Number)
+  persnum: number;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  jabatan?: string;
+}
+
 /** DTO untuk membuat usulan pemindahan arsip aktif ke inaktif. */
 export class CreateTransferDto {
   @IsOptional()
@@ -73,6 +88,27 @@ export class CreateTransferDto {
   /** Jika true, langsung kirim ke atasan. */
   @IsOptional()
   submit?: boolean;
+
+  /** Pejabat pihak pertama BAC (pengirim) — TTD di sisi pengirim. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  bacPihakPertamaPersnum?: number;
+
+  @IsOptional()
+  @IsString()
+  bacPihakPertamaName?: string;
+
+  @IsOptional()
+  @IsString()
+  bacPihakPertamaJabatan?: string;
+
+  /** Daftar pejabat tembusan BAC (khusus EVP ke atas). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TembusanItemDto)
+  bacTembusan?: TembusanItemDto[];
 }
 
 /** DTO catatan verifikasi. */

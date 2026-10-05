@@ -14,6 +14,7 @@ import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity
 import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { Session } from '../../auth/entities/session.entity';
+import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
 import {
   formatSignatureData,
   generateSignatureId,
@@ -154,6 +155,8 @@ export class DigsigService {
     private readonly sessionRepository: Repository<Session>,
     @InjectRepository(NaskahSirkulasi)
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
+    @InjectRepository(TransferActiveToInactiveEntity)
+    private readonly transferRepository: Repository<TransferActiveToInactiveEntity>,
   ) {}
 
   /**
@@ -796,6 +799,97 @@ export class DigsigService {
   // ============================================
   // SIGN DENGAN BSrE - NIK dan no_wa dari JWT
   // ============================================
+
+  /**
+   * Sign Berita Acara (BAC) pemindahan arsip dengan BSrE.
+   * Dipanggil oleh pejabat pihak pertama BAC (EVP) dari halaman pemindahan.
+   * Alur sama dengan naskah lain: BSrE v2 → upload signed PDF → update key.
+   */
+  async signBacBsre(
+    transferId: string,
+    dto: { passphrase: string },
+    user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    console.log(
+      `[DigsigService] signBacBsre - transferId: ${transferId}, persnum: ${user.persnum}`,
+    );
+
+    const nik = DEFAULT_BSRE_NIK;
+    const noWa = user.noWa || '';
+
+    // 1. Ambil usulan + validasi BAC PDF sudah di-generate
+    const transfer = await this.transferRepository.findOne({
+      where: { id: transferId },
+    });
+    if (!transfer) {
+      throw new NotFoundException(
+        `Usulan pemindahan dengan ID ${transferId} tidak ditemukan`,
+      );
+    }
+    if (!transfer.beritaAcaraUrl) {
+      throw new BadRequestException(
+        'Berita Acara belum di-generate. Klik "Generate BAC" terlebih dahulu',
+      );
+    }
+
+    // Validasi: hanya pejabat pihak pertama BAC yang boleh TTE
+    if (
+      transfer.bacPihakPertamaPersnum &&
+      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+    ) {
+      throw new BadRequestException(
+        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+      );
+    }
+
+    const key = transfer.beritaAcaraUrl;
+    const filename = key.split('/').pop() || `BAC-${transfer.nomorUsulan}.pdf`;
+
+    // 2. Prepare params untuk digsig
+    const params: DigsigParams = {
+      key: key,
+      filename: filename,
+      nomorDokumen: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      tanggalDokumen: transfer.tanggalUsulan
+        ? new Date(transfer.tanggalUsulan).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
+      klasifikasi: 'Biasa',
+      jenisNaskah: 'Berita Acara',
+      perihal: `Berita Acara Serah Terima — ${transfer.arsipPerihal}`,
+      nik: nik,
+      passphrase: dto.passphrase,
+      path_dokumen: 'transfer-active-to-inactive/bac-signed/',
+      no_wa: noWa,
+    };
+
+    // 3. Hit digsig endpoint (BSrE v2 + upload signed PDF ke MinIO)
+    const response = await this.hitDigsigEndpoint(params, {
+      userPersnum: Number(user.persnum),
+      userName: user.nama,
+      jenisNaskah: 'BAC',
+    });
+
+    // 4. Update beritaAcaraUrl ke signed PDF (key hasil upload BSrE)
+    const signedKey = (response as any)?.name_doc;
+    if (signedKey) {
+      transfer.beritaAcaraUrl = `transfer-active-to-inactive/bac-signed/${signedKey}`;
+    }
+    transfer.bacSignedAt = new Date();
+    transfer.bacSignedBy = Number(user.persnum);
+    await this.transferRepository.save(transfer);
+
+    return {
+      message: 'Berita Acara berhasil ditandatangani dengan BSrE',
+      data: response,
+      signature_metadata: {
+        type: 'digsig',
+        doc_id: (response as any)?.doc_id ?? null,
+        signed_at: new Date().toISOString(),
+        signer_nik: nik,
+        path: transfer.beritaAcaraUrl,
+      },
+    };
+  }
 
   /**
    * Sign Nota Dinas dengan BSrE (NIK dan no_wa dari JWT payload)

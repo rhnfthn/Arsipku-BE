@@ -17,6 +17,9 @@ export enum JenisNaskah {
   /** Naskah Lainnya (workflow: LPD, BV, dll) — juga meng-cover Naskah Umum
    * (template UND, PER, KEP, dll) untuk konfigurasi TTE */
   NL = 'NL',
+  /** Berita Acara (BAC) — pemindahan arsip aktif ke inaktif.
+   * TTE untuk pejabat pihak pertama BAC (EVP) di halaman pemindahan. */
+  BAC = 'BAC',
 }
 
 export enum TtdMode {
