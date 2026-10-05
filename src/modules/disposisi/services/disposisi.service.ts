@@ -76,6 +76,7 @@ import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partitio
 import {
   delegatedPengirimFields,
   delegatedRecipientFields,
+  formatDelegatedPositionText,
 } from '../../../common/helpers/delegasi-rendering.helper';
 import { QRCodeService } from '../../digsig/services/qrcode.service';
 import { DigsigService } from '../../digsig/services/digsig.service';
@@ -377,8 +378,13 @@ export class DisposisiService {
       const position = barisData.find((p) => p.position === numericId);
 
       if (position) {
-        // Return position_text with organization_text
-        const fullName = `${position.position_text} - ${position.organization_text}`;
+        // Render prefix delegasi (PT./PH./PS.) bila posisi sedang didelegasikan —
+        // konsisten dengan helper PDF agar preview & final PDF sama.
+        const positionText = formatDelegatedPositionText(
+          position.position_text,
+          (position as any).position_status ?? (position as any).positionStatus,
+        );
+        const fullName = `${positionText} - ${position.organization_text}`;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -636,6 +642,8 @@ export class DisposisiService {
       catatan?: string;
       qrCodeHtml?: string;
       signOption?: SignOption | string;
+      /** Jabatan (position_text) pembuat disposisi — subjudul header kanan. */
+      jabatanPembuat?: string;
     },
   ): Promise<Buffer> {
     try {
@@ -674,6 +682,7 @@ export class DisposisiService {
         disposisi: finalDisposisi,
         sifat: sifat || 'Biasa',
         pengirim: pengirim,
+        jabatanPembuat: options?.jabatanPembuat || pengirim,
         tembusan: tembusan,
         perihal: options?.refPerihal || '',
         nomorAgenda: options?.nomorAgenda || '',
@@ -1914,7 +1923,9 @@ export class DisposisiService {
         idNaskah: naskahId,
         kopLogo: dto.kop_logo ?? null,
         kopJudul: dto.kop_judul ?? 'DISPOSISI',
-        namaJabatan: dto.nama_jabatan ?? pengirimData.position_text,
+        namaJabatan:
+          dto.nama_jabatan ??
+          delegatedRecipientFields(pengirimData).positionText,
         nomorAgenda: dto.nomor_agenda ?? null,
         tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
         suratDari: dto.surat_dari ?? null,
@@ -1963,7 +1974,7 @@ export class DisposisiService {
         // - Tanggal: tanggal disposisi saat ini
         // - Nomor: dari input form (dto.ref_nomor_surat)
         // - Perihal: dari input form (dto.perihal)
-        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refPengirim = delegatedRecipientFields(pengirimData).positionText; // Jabatan pengirim saat ini
         const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
           year: 'numeric',
           month: 'long',
@@ -1999,7 +2010,8 @@ export class DisposisiService {
           penerima: kepadaYthList,
           disposisi: disposisiArray, // Now properly parsed as array
           sifat: dto.sifat || 'Biasa',
-          pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
+          pengirim: `${delegatedRecipientFields(pengirimData).positionText} ${pengirimData.organization_text}`,
+          jabatanPembuat: delegatedRecipientFields(pengirimData).positionText,
           tembusan: [],
           perihal: dto.perihal || dto.ref_perihal || '',
           nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
@@ -2420,7 +2432,9 @@ export class DisposisiService {
         idNaskah: naskahId,
         kopLogo: dto.kop_logo ?? null,
         kopJudul: dto.kop_judul ?? 'DISPOSISI',
-        namaJabatan: dto.nama_jabatan ?? pengirimData.position_text,
+        namaJabatan:
+          dto.nama_jabatan ??
+          delegatedRecipientFields(pengirimData).positionText,
         nomorAgenda: dto.nomor_agenda ?? null,
         tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
         suratDari: dto.surat_dari ?? null,
@@ -3277,8 +3291,16 @@ export class DisposisiService {
 
           const nomorDokumen =
             naskah.nomor || dto.ref_nomor_surat || `DI-${naskahId}`;
-          const refPengirim =
-            currentPengirim?.positionText || pengirimData?.position_text || '';
+          const refPengirim = delegatedRecipientFields({
+            position_text:
+              currentPengirim?.positionText ||
+              pengirimData?.position_text ||
+              '',
+            position_status:
+              currentPengirim?.positionStatus ||
+              pengirimData?.position_status ||
+              pengirimData?.positionStatus,
+          }).positionText;
           const refPerihal = naskah.perihal || dto.perihal || '';
           const refTanggal = tanggalNaskah.toLocaleDateString('id-ID', {
             year: 'numeric',
@@ -3317,6 +3339,7 @@ export class DisposisiService {
             disposisi: disposisiArray,
             sifat: naskah.sifat || dto.sifat || 'Biasa',
             pengirim: refPengirim,
+            jabatanPembuat: refPengirim,
             tembusan: [],
             perihal: refPerihal,
             nomorAgenda: nomorDokumen,
@@ -3933,7 +3956,9 @@ export class DisposisiService {
         idNaskah: naskahId,
         kopLogo: dto.kop_logo ?? null,
         kopJudul: dto.kop_judul ?? 'DISPOSISI',
-        namaJabatan: dto.nama_jabatan ?? pengirimData.position_text,
+        namaJabatan:
+          dto.nama_jabatan ??
+          delegatedRecipientFields(pengirimData).positionText,
         nomorAgenda: dto.nomor_agenda ?? null,
         tanggalAgenda: dto.tanggal_agenda ? new Date(dto.tanggal_agenda) : null,
         suratDari: dto.surat_dari ?? null,
@@ -3980,7 +4005,7 @@ export class DisposisiService {
         // - Tanggal: tanggal disposisi saat ini
         // - Nomor: dari input form (dto.ref_nomor_surat)
         // - Perihal: dari input form (perihal)
-        const refPengirim = pengirimData.position_text; // Jabatan pengirim saat ini
+        const refPengirim = delegatedRecipientFields(pengirimData).positionText; // Jabatan pengirim saat ini
         const refTanggal = tanggalDisposisi.toLocaleDateString('id-ID', {
           year: 'numeric',
           month: 'long',
@@ -3995,7 +4020,8 @@ export class DisposisiService {
           penerima: kepadaYthList,
           disposisi: disposisiArray,
           sifat: dto.sifat || 'Biasa',
-          pengirim: `${pengirimData.position_text} ${pengirimData.organization_text}`,
+          pengirim: `${delegatedRecipientFields(pengirimData).positionText} ${pengirimData.organization_text}`,
+          jabatanPembuat: delegatedRecipientFields(pengirimData).positionText,
           tembusan: [],
           perihal: perihal,
           nomorAgenda: generatedNomor, // Set No. Agenda dengan nomor surat yang baru di-generate
