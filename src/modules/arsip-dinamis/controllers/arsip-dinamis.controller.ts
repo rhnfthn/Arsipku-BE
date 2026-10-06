@@ -26,6 +26,7 @@ import { PemeliharaanAccess } from '../../../common/decorators/pemeliharaan-acce
 import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
 import {
   CreateArsipDinamisBerkasDto,
   UpdateArsipDinamisBerkasDto,
@@ -338,6 +339,27 @@ export class ArsipDinamisController {
     };
   }
 
+  // Proxy binary PDF for clients that cannot access MinIO directly.
+  // The pemberkasan list uses the established presigned-URL flow, but this
+  // endpoint remains available for direct/API consumers.
+  @Get('naskah/:naskahId/pdf/file')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
+  @SkipTransform()
+  async getNaskahPdfFile(
+    @Param('naskahId') naskahId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer } = await this.arsipDinamisService.getNaskahPdfFile(naskahId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="naskah-${naskahId}.pdf"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.status(HttpStatus.OK).end(buffer);
+  }
+
   /**
    * Tambah naskah ke berkas
    * POST /arsip-dinamis/berkas/:id/naskah
@@ -412,6 +434,32 @@ export class ArsipDinamisController {
         scopeDivisi: await this.arsipDinamisService.getScopeDivisi(user),
       },
     };
+  }
+
+  /**
+   * Kandidat Naskah Lainnya (PER/KEP/INS/...) untuk tab "Naskah Lainnya"
+   * di modal Tambah Naskah ke Berkas.
+   * GET /arsip-dinamis/berkas/:id/naskah-lainnya-kandidat
+   */
+  @Get('berkas/:id/naskah-lainnya-kandidat')
+  @PemeliharaanAccess('pemberkasan')
+  async getNaskahLainnyaKandidat(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.arsipDinamisService.getNaskahLainnyaKandidat(
+      this.effectivePersnum(user),
+      id,
+      {
+        search,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      },
+      await this.arsipDinamisService.resolveScopePositions(user),
+    );
   }
 
   /**

@@ -74,6 +74,15 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Daftar BAC yang menunggu tanda tangan pejabat pihak pertama. */
+  @Get('signing-list')
+  async getSigningList(@CurrentUser() user: JwtPayload) {
+    return {
+      success: true,
+      data: await this.service.getSigningList(user),
+    };
+  }
+
   /**
    * Auto-sync: berkas Tertutup dengan retensi aktif habis → buat usulan DRAFT
    * otomatis. Dipanggil dari halaman pemberkasan agar berkas yang retensinya

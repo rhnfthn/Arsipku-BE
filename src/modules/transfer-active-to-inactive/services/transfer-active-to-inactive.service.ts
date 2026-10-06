@@ -754,6 +754,39 @@ export class TransferActiveToInactiveService {
     return rows;
   }
 
+  /**
+   * BAC yang memang ditugaskan kepada user login sebagai pihak pertama.
+   * Endpoint ini menjadi sumber data menu Penandatanganan, sehingga pejabat
+   * tidak perlu menjadi sekretaris pengusul untuk melihat BAC yang harus TTE.
+   */
+  async getSigningList(user: any) {
+    const items = await this.repo
+      .createQueryBuilder('t')
+      .where('t.bac_pihak_pertama_persnum = :persnum', {
+        persnum: Number(user.persnum),
+      })
+      .andWhere('t.berita_acara_url IS NOT NULL')
+      .andWhere('t.bac_signed_at IS NULL')
+      .orderBy('t.tgl_usulan', 'DESC')
+      .getMany();
+
+    return items.map((item) => ({
+      id: item.id,
+      nomorUsulan: item.nomorUsulan,
+      arsipPerihal: item.arsipPerihal,
+      arsipKode: item.arsipKode,
+      tanggalUsulan: item.tanggalUsulan,
+      status: item.status,
+      beritaAcaraNomor: item.beritaAcaraNomor,
+      beritaAcaraUrl: item.beritaAcaraUrl,
+      bacPihakPertamaName: item.bacPihakPertamaName,
+      bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
+      bacTembusanCount: Array.isArray(item.bacTembusan)
+        ? item.bacTembusan.length
+        : 0,
+    }));
+  }
+
   async findAll(filter: TransferFilterDto, user: any) {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 10;
@@ -921,10 +954,17 @@ export class TransferActiveToInactiveService {
       const isAtasan = levels.some(
         (l) => l.atasanPersnum === Number(user.persnum),
       );
+      const isBacSigner =
+        item.bacPihakPertamaPersnum === Number(user.persnum);
+      const isBacCopy = Array.isArray(item.bacTembusan)
+        ? item.bacTembusan.some(
+            (t) => Number(t?.persnum) === Number(user.persnum),
+          )
+        : false;
       // Atasan Managerial TU (HERMANA 10010123 / PRIYO 10010970) juga boleh
       // akses detail usulan — mereka verifikasi penerimaan dari TU.
       const isAtasanTu = [10010123, 10010970].includes(Number(user.persnum));
-      if (!isSekretaris && !isAtasan && !isAtasanTu) {
+      if (!isSekretaris && !isAtasan && !isAtasanTu && !isBacSigner && !isBacCopy) {
         throw new BadRequestException(
           'Anda tidak memiliki akses ke usulan ini',
         );
@@ -1719,6 +1759,7 @@ export class TransferActiveToInactiveService {
    */
   async generateBacPdf(id: string, user: any): Promise<{ url: string }> {
     const item = await this.getItem(id);
+    const isFirstGeneration = !item.beritaAcaraUrl;
     const baData = await this.getBeritaAcaraData(id);
     const daftarIsi = await this.getDaftarIsi(id);
 
@@ -1745,6 +1786,30 @@ export class TransferActiveToInactiveService {
     item.beritaAcaraNomor = `BA/${item.nomorUsulan}`;
     item.beritaAcaraUrl = upload.key;
     await this.repo.save(item);
+
+    // BAC baru tersedia setelah PDF selesai dibuat. Kirim pemberitahuan
+    // kepada penandatangan dan seluruh tembusan satu kali pada generasi awal.
+    if (isFirstGeneration) {
+      if (item.bacPihakPertamaPersnum) {
+        await this.notify(
+          item,
+          null,
+          item.bacPihakPertamaPersnum,
+          'Penandatanganan Berita Acara Pemindahan Arsip',
+          'OPEN_TRANSFER_BAC_SIGNING',
+        );
+      }
+      for (const tembusan of item.bacTembusan ?? []) {
+        if (!tembusan?.persnum) continue;
+        await this.notify(
+          item,
+          null,
+          Number(tembusan.persnum),
+          'Tembusan Berita Acara Pemindahan Arsip',
+          'OPEN_TRANSFER_BAC_COPY',
+        );
+      }
+    }
 
     this.auditTrailService.createAsync({
       action: AuditAction.GENERATE,
@@ -2352,6 +2417,7 @@ export class TransferActiveToInactiveService {
     positionId: string | null,
     persnum: number | null,
     title: string,
+    action = 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
   ) {
     try {
       await this.notificationService.createNotification({
@@ -2361,7 +2427,7 @@ export class TransferActiveToInactiveService {
         title,
         body: `Usulan ${item.nomorUsulan} — ${item.arsipPerihal}`,
         data: {
-          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          action,
           id: item.id,
           nomorUsulan: item.nomorUsulan,
         },

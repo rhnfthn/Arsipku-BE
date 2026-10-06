@@ -7,8 +7,8 @@ export class AddNaskahToBerkasDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Sumber wajib diisi' })
-  @IsEnum(['kotak_masuk', 'terkirim', 'siap_arsip'], {
-    message: 'Sumber harus kotak_masuk, terkirim, atau siap_arsip',
+  @IsEnum(['kotak_masuk', 'terkirim', 'siap_arsip', 'naskah_lainnya'], {
+    message: 'Sumber harus kotak_masuk, terkirim, siap_arsip, atau naskah_lainnya',
   })
-  sumber: 'kotak_masuk' | 'terkirim' | 'siap_arsip';
+  sumber: 'kotak_masuk' | 'terkirim' | 'siap_arsip' | 'naskah_lainnya';
 }
