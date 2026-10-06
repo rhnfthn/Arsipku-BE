@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -971,6 +972,11 @@ export class KonsepService {
   ): Promise<string[]> {
     const grupIds: string[] = [];
     const individualNames: string[] = [];
+    const org = sirkulasiList.some(
+      (item) => formatGmRecipientLabel(item) !== undefined,
+    )
+      ? await this.getPositionData()
+      : [];
 
     for (const item of sirkulasiList) {
       if (item.idGrupPenerima) {
@@ -978,18 +984,26 @@ export class KonsepService {
           grupIds.push(item.idGrupPenerima);
         }
       } else {
+        const gmLabel = formatGmRecipientLabel({
+          ...org.find((row) => String(row.position) === String(item.position)),
+          ...item,
+          position_text: item.positionText,
+        });
         const name =
-          jenis === 'SDI'
+          gmLabel ??
+          (jenis === 'SDI'
             ? formatSdiPdfRecipientLabel({
+                namaSirkuler: item.namaSirkuler,
                 position_text: item.positionText,
                 position_status: item.positionStatus,
                 subAreaText: item.subAreaText,
                 areaText: item.areaText,
               })
-            : delegatedRecipientFields({
+            : (formatGmRecipientLabel(item) ??
+              delegatedRecipientFields({
                 position_text: item.positionText || item.namaSirkuler,
                 position_status: item.positionStatus,
-              }).positionText.trim();
+              }).positionText.trim()));
         if (name && !individualNames.includes(name)) {
           individualNames.push(name);
         }
@@ -4918,7 +4932,8 @@ export class KonsepService {
           names.push(
             jenis === 'SDI'
               ? formatSdiPdfRecipientLabel(found)
-              : delegatedRecipientFields(found).positionText,
+              : (formatGmRecipientLabel(found) ??
+                  delegatedRecipientFields(found).positionText),
           );
         } else {
           names.push(String(posId));

@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -277,7 +278,10 @@ export class NotaDinasService {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
         if (pos) {
-          names.push(delegatedRecipientFields(pos).positionText);
+          names.push(
+            formatGmRecipientLabel(pos) ??
+              delegatedRecipientFields(pos).positionText,
+          );
         }
       }
     }
@@ -494,7 +498,9 @@ export class NotaDinasService {
       if (position) {
         // Render prefix delegasi (PT./PH./PS.) bila posisi sedang didelegasikan —
         // konsisten dengan buildPdfRecipientNames agar preview & final PDF sama.
-        const fullName = delegatedRecipientFields(position).positionText;
+        const fullName =
+          formatGmRecipientLabel(position) ??
+          delegatedRecipientFields(position).positionText;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -3243,6 +3249,12 @@ export class NotaDinasService {
         } else {
           kepadaYthListForPdf = penerimaListForPdf.map(
             (p) =>
+              formatGmRecipientLabel({
+                ...barisData.find(
+                  (row) => String(row.position) === String(p.position),
+                ),
+                ...p,
+              }) ??
               delegatedRecipientFields({
                 position_text: p.positionText,
                 position_status: p.positionStatus,
@@ -3270,6 +3282,12 @@ export class NotaDinasService {
         } else {
           tembusanForPdfFinal = tembusanListForPdf.map(
             (t) =>
+              formatGmRecipientLabel({
+                ...barisData.find(
+                  (row) => String(row.position) === String(t.position),
+                ),
+                ...t,
+              }) ??
               delegatedRecipientFields({
                 position_text: t.positionText,
                 position_status: t.positionStatus,
@@ -5495,7 +5513,8 @@ export class NotaDinasService {
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
       // Define variables for PDF generation
       const kepadaYthList = penerimaList.map(
-        (p) => delegatedRecipientFields(p).positionText,
+        (p) =>
+          formatGmRecipientLabel(p) ?? delegatedRecipientFields(p).positionText,
       );
       const namaJabatan = delegatedRecipientFields({
         ...pengirim,
@@ -5528,6 +5547,7 @@ export class NotaDinasService {
             tembusanList.length > 0
               ? tembusanList.map(
                   (t) =>
+                    formatGmRecipientLabel(t) ??
                     `${delegatedRecipientFields(t).positionText} ${t.organization_text}`,
                 )
               : [],
