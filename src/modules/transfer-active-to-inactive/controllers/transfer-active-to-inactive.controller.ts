@@ -83,6 +83,15 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Daftar BAC yang diterima user sebagai tembusan (read-only). */
+  @Get('tembusan-list')
+  async getTembusanList(@CurrentUser() user: JwtPayload) {
+    return {
+      success: true,
+      data: await this.service.getTembusanList(user),
+    };
+  }
+
   /**
    * Auto-sync: berkas Tertutup dengan retensi aktif habis → buat usulan DRAFT
    * otomatis. Dipanggil dari halaman pemberkasan agar berkas yang retensinya

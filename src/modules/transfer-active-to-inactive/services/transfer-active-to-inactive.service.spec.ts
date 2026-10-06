@@ -9,6 +9,8 @@ import { NotificationService } from '../../notification/services';
 import { ArsipDinamisService } from '../../arsip-dinamis/services/arsip-dinamis.service';
 import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
+import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
+import { StorageService } from '../../storage/services/storage.service';
 
 describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
   let service: TransferActiveToInactiveService;
@@ -52,6 +54,8 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
         { provide: ArsipDinamisService, useValue: arsipDinamisService },
         { provide: OrgDataService, useValue: {} },
         { provide: OrganizationTuService, useValue: {} },
+        { provide: GeneratePdfService, useValue: {} },
+        { provide: StorageService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(TransferActiveToInactiveService);
