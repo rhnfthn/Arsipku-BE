@@ -9,6 +9,10 @@ export function formatGmRecipientLabel(source: {
   namaSirkuler?: string | null;
   nama_sirkuler?: string | null;
   nama?: string | null;
+  area_text?: string | null;
+  areaText?: string | null;
+  sub_area_text?: string | null;
+  subAreaText?: string | null;
   position_status?: string | null;
   positionStatus?: string | null;
 }): string | undefined {
@@ -32,6 +36,22 @@ export function formatGmRecipientLabel(source: {
       source.nama ??
       '',
   ).trim();
+  const branch =
+    [
+      source.area_text,
+      source.areaText,
+      source.sub_area_text,
+      source.subAreaText,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .find(Boolean) || '';
+  const positionWithBranch =
+    branch &&
+    !position
+      .toLocaleLowerCase('id-ID')
+      .endsWith(branch.toLocaleLowerCase('id-ID'))
+      ? `${position} - ${branch}`
+      : position;
   return [
     name
       .toLocaleLowerCase('id-ID')
@@ -40,7 +60,7 @@ export function formatGmRecipientLabel(source: {
       ),
     abbreviation || 'GM',
     formatDelegatedPositionText(
-      position,
+      positionWithBranch,
       source.position_status ?? source.positionStatus,
     ),
   ]
