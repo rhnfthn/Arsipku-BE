@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -36,6 +37,8 @@ import { OrgDataService } from '../../master-data/org_data/org_data.service';
 import { OrganizationTuService } from '../../organization-tu/organization-tu.service';
 import { GeneratePdfService } from '../../generate_pdf/generate_pdf.service';
 import { StorageService } from '../../storage/services/storage.service';
+import { isEvpOrAbovePosition } from '../../../common/helpers/evp-access.helper';
+import { isDivisionSecretary } from '../../../common/helpers/division-secretary-access.helper';
 
 /** Status per-level approval. */
 const LEVEL_MENUNGGU = 'MENUNGGU';
@@ -105,10 +108,19 @@ export class TransferActiveToInactiveService {
     }
   }
 
+  private assertDivisionSecretary(user: any): void {
+    if (!isDivisionSecretary(user)) {
+      throw new ForbiddenException(
+        'Pemindahan arsip hanya dapat diakses oleh Sekretaris Divisi',
+      );
+    }
+  }
+
   async create(
     dto: CreateTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
+    this.assertDivisionSecretary(user);
     // ── Validasi ──────────────────────────────────────────────────────
     if (!dto.atasanList || dto.atasanList.length === 0) {
       throw new BadRequestException('Minimal pilih 1 atasan');
@@ -237,6 +249,7 @@ export class TransferActiveToInactiveService {
     dto: CreateTransferDto,
     user: any,
   ): Promise<TransferActiveToInactiveEntity> {
+    this.assertDivisionSecretary(user);
     const item = await this.getItem(id);
     if (
       item.status !== TransferActiveToInactiveStatus.DRAFT &&
@@ -395,6 +408,7 @@ export class TransferActiveToInactiveService {
    * Filter: status Tertutup, retensi aktif habis, belum masuk usulan aktif.
    */
   async getArsipTersedia(user: any) {
+    this.assertDivisionSecretary(user);
     const userId = Number(user.persnum);
     const today = new Date().toISOString().split('T')[0];
 
@@ -402,26 +416,17 @@ export class TransferActiveToInactiveService {
     // tersedia untuk dipindahkan, tanpa menunggu cron 2AM.
     await this.arsipDinamisService.tutupBerkasRetensiHabis();
 
-    // Cek role: ADMIN/SUPERADMIN lihat semua berkas, USER hanya miliknya.
-    // Konsisten dengan getGabungan() — tanpa bypass ini, admin/superadmin
-    // yang login sebagai sekretaris tidak melihat arsip dummy (persnum ≠
-    // 10011066) sehingga dropdown arsip di form usulan pindah kosong.
-    const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
-    const isPrivileged = roleName === 'ADMIN' || roleName === 'SUPERADMIN';
-
     // 1. Ambil berkas milik user, status Tertutup, retensi aktif habis
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
-    if (!isPrivileged) {
-      berkasQb.andWhere(
-        '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
-        {
-          userId,
-          userPersnum: String(userId),
-        },
-      );
-    }
+    berkasQb.andWhere(
+      '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+      {
+        userId,
+        userPersnum: String(userId),
+      },
+    );
     const berkasList = await berkasQb
       .andWhere('(b.status = :closed OR b.status = :inaktif)', {
         closed: 'closed_retensi_aktif',
@@ -567,6 +572,7 @@ export class TransferActiveToInactiveService {
       tahun?: string;
     },
   ) {
+    this.assertDivisionSecretary(user);
     const userId = Number(user.persnum);
     const today = new Date().toISOString().split('T')[0];
     const search = filter?.search?.trim() || '';
@@ -578,17 +584,11 @@ export class TransferActiveToInactiveService {
     // Auto-integrasi: berkas yang retensinya habis langsung jadi usulan DRAFT.
     await this.syncDraftUsulanOtomatis();
 
-    // Cek role: ADMIN/SUPERADMIN lihat semua, USER hanya miliknya
-    const roleName = (user.activeRole?.name ?? user.role ?? '').toUpperCase();
-    const isPrivileged = roleName === 'ADMIN' || roleName === 'SUPERADMIN';
-
-    // 1. Ambil usulan (semua untuk ADMIN/SUPERADMIN, milik sekretaris login untuk USER)
+    // 1. Ambil hanya usulan milik sekretaris yang sedang login.
     const usulanQb = this.repo
       .createQueryBuilder('t')
+      .where('t.sekretaris_persnum = :p', { p: userId })
       .orderBy('t.created_at', 'DESC');
-    if (!isPrivileged) {
-      usulanQb.where('t.sekretaris_persnum = :p', { p: userId });
-    }
     const usulanList = await usulanQb.getMany();
 
     // Kumpulkan arsip id yang sudah masuk usulan (semua status)
@@ -624,16 +624,13 @@ export class TransferActiveToInactiveService {
     const berkasQb = this.berkasRepo
       .createQueryBuilder('b')
       .where('b.deleted_at IS NULL');
-    // USER hanya lihat berkas miliknya, ADMIN/SUPERADMIN lihat semua
-    if (!isPrivileged) {
-      berkasQb.andWhere(
-        '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
-        {
-          userId,
-          userPersnum: String(userId),
-        },
-      );
-    }
+    berkasQb.andWhere(
+      '(b.created_by = :userId OR b.pic_persnum = :userPersnum)',
+      {
+        userId,
+        userPersnum: String(userId),
+      },
+    );
     berkasQb
       .andWhere('(b.status = :closed OR b.status = :inaktif)', {
         closed: 'closed_retensi_aktif',
@@ -760,6 +757,12 @@ export class TransferActiveToInactiveService {
    * tidak perlu menjadi sekretaris pengusul untuk melihat BAC yang harus TTE.
    */
   async getSigningList(user: any) {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Halaman penandatanganan hanya tersedia untuk EVP dan jabatan di atasnya',
+      );
+    }
+
     const items = await this.repo
       .createQueryBuilder('t')
       .where('t.bac_pihak_pertama_persnum = :persnum', {
@@ -785,6 +788,70 @@ export class TransferActiveToInactiveService {
         ? item.bacTembusan.length
         : 0,
     }));
+  }
+
+  /**
+   * Daftar BAC yang diterima user sebagai tembusan.
+   * Tembusan bersifat read-only: tidak ikut approval dan tidak dapat TTE.
+   */
+  async getTembusanList(user: any) {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Halaman tembusan BAC hanya tersedia untuk EVP dan jabatan di atasnya',
+      );
+    }
+
+    const items = await this.repo
+      .createQueryBuilder('t')
+      .where('t.bac_tembusan IS NOT NULL')
+      .andWhere('t.berita_acara_url IS NOT NULL')
+      .orderBy('t.updated_at', 'DESC')
+      .getMany();
+
+    const persnum = Number(user.persnum);
+    const copies = items.filter((item) =>
+      Array.isArray(item.bacTembusan)
+        ? item.bacTembusan.some((copy) => Number(copy?.persnum) === persnum)
+        : false,
+    );
+
+    return Promise.all(
+      copies.map(async (item) => ({
+        id: item.id,
+        nomorUsulan: item.nomorUsulan,
+        arsipPerihal: item.arsipPerihal,
+        arsipKode: item.arsipKode,
+        tanggalUsulan: item.tanggalUsulan,
+        status: item.status,
+        beritaAcaraNomor: item.beritaAcaraNomor,
+        bacPihakPertamaName: item.bacPihakPertamaName,
+        bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
+        bacSignedAt: item.bacSignedAt,
+        bacStatus: item.bacSignedAt
+          ? 'SUDAH_DITANDATANGANI'
+          : 'MENUNGGU_TANDA_TANGAN',
+        beritaAcaraUrl: item.bacSignedAt
+          ? await this.getBacPreviewUrl(item)
+          : null,
+      })),
+    );
+  }
+
+  private async getBacPreviewUrl(
+    item: TransferActiveToInactiveEntity,
+  ): Promise<string | null> {
+    const key = item.beritaAcaraUrl;
+    if (!key) return null;
+
+    // Data lama dapat menyimpan URL endpoint/path, sedangkan generator baru
+    // menyimpan object key MinIO. Keduanya tetap didukung.
+    if (/^(https?:\/\/|\/)/i.test(key)) return key;
+
+    return this.storageService.getPreviewUrl(
+      key,
+      86_400,
+      `BAC-${item.nomorUsulan}.pdf`,
+    );
   }
 
   async findAll(filter: TransferFilterDto, user: any) {
@@ -954,8 +1021,7 @@ export class TransferActiveToInactiveService {
       const isAtasan = levels.some(
         (l) => l.atasanPersnum === Number(user.persnum),
       );
-      const isBacSigner =
-        item.bacPihakPertamaPersnum === Number(user.persnum);
+      const isBacSigner = item.bacPihakPertamaPersnum === Number(user.persnum);
       const isBacCopy = Array.isArray(item.bacTembusan)
         ? item.bacTembusan.some(
             (t) => Number(t?.persnum) === Number(user.persnum),
@@ -964,7 +1030,13 @@ export class TransferActiveToInactiveService {
       // Atasan Managerial TU (HERMANA 10010123 / PRIYO 10010970) juga boleh
       // akses detail usulan — mereka verifikasi penerimaan dari TU.
       const isAtasanTu = [10010123, 10010970].includes(Number(user.persnum));
-      if (!isSekretaris && !isAtasan && !isAtasanTu && !isBacSigner && !isBacCopy) {
+      if (
+        !isSekretaris &&
+        !isAtasan &&
+        !isAtasanTu &&
+        !isBacSigner &&
+        !isBacCopy
+      ) {
         throw new BadRequestException(
           'Anda tidak memiliki akses ke usulan ini',
         );
@@ -1873,19 +1945,29 @@ export class TransferActiveToInactiveService {
     const tembusanList: any[] = item.bacTembusan ?? [];
 
     const arsipList: any[] = baData?.daftarArsip ?? [];
-    const daftarIsiRows: any[] = daftarIsi?.daftarIsi ?? [];
+    // BAC memakai format ringkasan resmi "Daftar Berkas".
+    // Format item-level "Daftar Isi Berkas" tetap dikirim untuk halaman verifikasi.
+    const daftarBerkasRows: any[] =
+      daftarIsi?.daftarBerkas ?? daftarIsi?.daftarIsi ?? [];
 
     const arsipItems = arsipList
       .map((a, i) => `<li>${a.kode ?? '-'} — ${a.perihal ?? '-'}</li>`)
       .join('');
 
-    const daftarIsiTable = daftarIsiRows
+    const daftarBerkasTable = daftarBerkasRows
       .map(
         (r) =>
-          `<tr><td style="padding:4px 8px;border:1px solid #444;text-align:center;">${r.no}</td>` +
-          `<td style="padding:4px 8px;border:1px solid #444;">${r.kode ?? '-'}</td>` +
-          `<td style="padding:4px 8px;border:1px solid #444;">${r.namaBerkas ?? '-'}</td>` +
-          `<td style="padding:4px 8px;border:1px solid #444;">${r.keterangan ?? '-'}</td></tr>`,
+          `<tr>` +
+          `<td style="padding:5px 4px;border:1px solid #444;text-align:center;vertical-align:top;">${r.no}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;vertical-align:top;">${r.kodeKlasifikasi ?? r.kode ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;vertical-align:top;">${r.uraianInformasi ?? r.namaBerkas ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;text-align:center;vertical-align:top;">${r.kurunWaktu ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;text-align:center;vertical-align:top;">${r.jumlahBerkas ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;text-align:center;vertical-align:top;">${r.tingkatPerkembangan ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;vertical-align:top;">${r.lokasiSimpan ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;vertical-align:top;">${r.klasifikasiKeamanan ?? '-'}</td>` +
+          `<td style="padding:5px 4px;border:1px solid #444;text-align:center;vertical-align:top;">${r.retensiArsipAktif ?? '-'}</td>` +
+          `</tr>`,
       )
       .join('');
 
@@ -1922,18 +2004,50 @@ export class TransferActiveToInactiveService {
         <p style="margin:0 0 8px;">Pihak pertama telah menyerahkan kepada pihak kedua berupa:</p>
         <ol style="margin:0 0 12px;padding-left:24px;">${arsipItems}</ol>
 
-        <p style="margin:0 0 16px;"><b>Daftar Isi Berkas:</b></p>
-        <table style="width:100%;border-collapse:collapse;font-size:10pt;margin:0 0 16px;">
+        <section style="page-break-before:always;">
+        <p style="text-align:center;font-weight:bold;font-size:16pt;margin:0 0 12px;">Daftar Berkas</p>
+        <p style="text-align:center;font-size:13pt;margin:0 0 28px;">Unit Kerja: ${baData?.pengirim?.divisi ?? item.divisiName ?? '.........'}</p>
+        <table style="width:100%;border-collapse:collapse;font-size:8pt;margin:0 0 16px;table-layout:fixed;">
+          <colgroup>
+            <col style="width:5%;" />
+            <col style="width:10%;" />
+            <col style="width:25%;" />
+            <col style="width:10%;" />
+            <col style="width:8%;" />
+            <col style="width:10%;" />
+            <col style="width:12%;" />
+            <col style="width:10%;" />
+            <col style="width:10%;" />
+          </colgroup>
           <thead>
             <tr>
-              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">No</th>
-              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Kode Berkas</th>
-              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Nama Berkas</th>
-              <th style="padding:4px 8px;border:1px solid #444;background:#eee;">Keterangan</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">No<br/>Berkas</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Kode<br/>Klasifikasi</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Uraian Informasi Berkas</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Kurun<br/>Waktu</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Jumlah<br/>Berkas</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Tingkat<br/>Perkembangan</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Lokasi<br/>Simpan</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Klasifikasi<br/>Keamanan</th>
+              <th style="padding:6px 3px;border:1px solid #444;background:#eee;">Retensi<br/>Arsip Aktif</th>
+            </tr>
+            <tr>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(1)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(2)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(3)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(4)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(5)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(6)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(7)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(8)</th>
+              <th style="padding:5px 3px;border:1px solid #444;font-weight:normal;">(9)</th>
             </tr>
           </thead>
-          <tbody>${daftarIsiTable}</tbody>
+          <tbody>
+            ${daftarBerkasTable}
+          </tbody>
         </table>
+        </section>
 
         <p style="margin:0 0 24px;">Demikian Berita Acara serah terima ini dibuat rangkap 2 untuk dapat digunakan sebagaimana mestinya.</p>
 
@@ -2287,18 +2401,162 @@ export class TransferActiveToInactiveService {
         tanggalRetensiHabis: null,
       },
     ];
-    return {
-      nomorUsulan: item.nomorUsulan,
-      tanggalUsulan: item.tanggalUsulan,
-      daftarIsi: arsipIds.map((a, idx) => ({
+
+    const ids = arsipIds.map((a) => a.id).filter(Boolean);
+    if (ids.length === 0) {
+      return {
+        nomorUsulan: item.nomorUsulan,
+        tanggalUsulan: item.tanggalUsulan,
+        daftarIsi: [],
+        daftarBerkas: [],
+      };
+    }
+
+    // Metadata berkas dipakai bersama oleh dua format daftar:
+    // - Daftar Berkas: satu baris untuk setiap berkas.
+    // - Daftar Isi Berkas: satu baris untuk setiap item/naskah dalam berkas.
+    const berkasList = await this.berkasRepo
+      .createQueryBuilder('b')
+      .select([
+        'b.id',
+        'b.kodeBerkas',
+        'b.klasifikasi',
+        'b.judulBerkas',
+        'b.isiRingkas',
+        'b.lokasi',
+        'b.retensiAktifTahun',
+        'b.tanggalDibuat',
+        'b.tanggalDitutup',
+      ])
+      .where('b.id IN (:...ids)', { ids })
+      .getMany();
+
+    const berkasMap = new Map(berkasList.map((b) => [b.id, b]));
+
+    // Satu baris Daftar Berkas mewakili satu berkas; jumlahnya adalah jumlah
+    // naskah yang benar-benar terhubung ke berkas tersebut.
+    const jumlahRows = await this.berkasRepo.manager
+      .createQueryBuilder()
+      .select('bn.berkas_id', 'id')
+      .addSelect('COUNT(*)', 'jumlah')
+      .from('berkas_naskah', 'bn')
+      .where('bn.berkas_id IN (:...ids)', { ids })
+      .groupBy('bn.berkas_id')
+      .getRawMany();
+    const jumlahMap = new Map(
+      jumlahRows.map((row: any) => [String(row.id), Number(row.jumlah)]),
+    );
+
+    const naskahRows = await this.berkasRepo.manager
+      .createQueryBuilder()
+      .select('bn.berkas_id', 'berkasId')
+      .addSelect('bn.naskah_id', 'naskahId')
+      .addSelect('bn.perihal', 'perihal')
+      .addSelect('bn.nomor_surat', 'nomorSurat')
+      .addSelect('bn.tanggal_naskah', 'tanggalNaskah')
+      .addSelect('bn.urutan', 'urutan')
+      .from('berkas_naskah', 'bn')
+      .where('bn.berkas_id IN (:...ids)', { ids })
+      .orderBy('bn.berkas_id', 'ASC')
+      .addOrderBy('bn.urutan', 'ASC')
+      .getRawMany();
+    const naskahMap = new Map<string, any[]>();
+    for (const row of naskahRows) {
+      const key = String(row.berkasId);
+      const rows = naskahMap.get(key) ?? [];
+      rows.push(row);
+      naskahMap.set(key, rows);
+    }
+
+    // Keamanan disimpan di master klasifikasi, sedangkan berkas menyimpan
+    // kode klasifikasinya.
+    const klasifikasiCodes = berkasList
+      .map((b) => b.klasifikasi)
+      .filter(Boolean);
+    const keamananRows =
+      klasifikasiCodes.length > 0
+        ? await this.berkasRepo.manager
+            .createQueryBuilder()
+            .select('k.klasifikasi', 'kode')
+            .addSelect('k.keamanan', 'keamanan')
+            .from('klasifikasi', 'k')
+            .where('k.klasifikasi IN (:...codes)', {
+              codes: klasifikasiCodes,
+            })
+            .getRawMany()
+        : [];
+    const keamananMap = new Map(
+      keamananRows.map((row: any) => [String(row.kode), row.keamanan]),
+    );
+
+    const year = (value: unknown): string | null => {
+      if (!value) return null;
+      const match = String(value).match(/\d{4}/);
+      return match?.[0] ?? null;
+    };
+
+    const daftarBerkas = arsipIds.map((a, idx) => {
+      const berkas = berkasMap.get(a.id);
+      const years = [year(berkas?.tanggalDibuat), year(berkas?.tanggalDitutup)]
+        .filter((v, i, values) => v && values.indexOf(v) === i);
+
+      return {
         no: idx + 1,
         id: a.id,
         namaBerkas: a.perihal,
-        kode: a.kode,
+        kode: berkas?.kodeBerkas ?? a.kode,
         keterangan: a.tanggalRetensiHabis
           ? `Retensi habis: ${a.tanggalRetensiHabis}`
           : '-',
-      })),
+        kodeKlasifikasi: berkas?.klasifikasi ?? '-',
+        uraianInformasi: berkas?.isiRingkas ?? berkas?.judulBerkas ?? a.perihal ?? '-',
+        kurunWaktu: years.join(' - ') || '-',
+        jumlahBerkas: jumlahMap.get(String(a.id)) ?? 0,
+        tingkatPerkembangan: '-',
+        lokasiSimpan: berkas?.lokasi ?? '-',
+        klasifikasiKeamanan: keamananMap.get(String(berkas?.klasifikasi ?? '')) ?? '-',
+        retensiArsipAktif:
+          berkas?.retensiAktifTahun != null
+            ? `${berkas.retensiAktifTahun} tahun`
+            : '-',
+      };
+    });
+
+    const daftarIsi: any[] = [];
+    for (const [berkasIndex, a] of arsipIds.entries()) {
+      const berkas = berkasMap.get(a.id);
+      const summary = daftarBerkas[berkasIndex];
+      const rows = naskahMap.get(String(a.id)) ?? [];
+
+      // Berkas tetap tampil meskipun belum memiliki relasi naskah.
+      const itemRows = rows.length > 0 ? rows : [null];
+      itemRows.forEach((naskah: any, itemIndex: number) => {
+        daftarIsi.push({
+          no: daftarIsi.length + 1,
+          id: a.id,
+          naskahId: naskah?.naskahId ?? null,
+          namaBerkas: a.perihal,
+          kode: summary.kode,
+          keterangan: summary.keterangan,
+          nomorItem: itemIndex + 1,
+          tanggal: naskah?.tanggalNaskah ?? berkas?.tanggalDibuat ?? null,
+          kodeKlasifikasi: summary.kodeKlasifikasi,
+          uraianInformasi:
+            naskah?.perihal ?? naskah?.nomorSurat ?? summary.uraianInformasi ?? '-',
+          jumlah: 1,
+          jumlahBerkas: 1,
+          tingkatPerkembangan: '-',
+          lokasiSimpan: summary.lokasiSimpan,
+          klasifikasiKeamanan: summary.klasifikasiKeamanan,
+        });
+      });
+    }
+
+    return {
+      nomorUsulan: item.nomorUsulan,
+      tanggalUsulan: item.tanggalUsulan,
+      daftarIsi,
+      daftarBerkas,
     };
   }
 

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   HttpException,
   BadRequestException,
+  ForbiddenException,
   HttpStatus,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -26,6 +27,7 @@ import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pd
 import { SubAreaAlamatService } from '../../sub-area-alamat/services/sub_area_alamat.service';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
+import { isEvpOrAbovePosition } from '../../../common/helpers/evp-access.helper';
 import axios, { AxiosError } from 'axios';
 
 export interface DigsigParams {
@@ -813,6 +815,12 @@ export class DigsigService {
     dto: { passphrase: string },
     user: JwtPayload,
   ): Promise<SignResultResponse> {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Penandatanganan BAC hanya dapat dilakukan oleh EVP dan jabatan di atasnya',
+      );
+    }
+
     console.log(
       `[DigsigService] signBacBsre - transferId: ${transferId}, persnum: ${user.persnum}`,
     );
