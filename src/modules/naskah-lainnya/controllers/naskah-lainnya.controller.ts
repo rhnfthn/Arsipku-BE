@@ -124,8 +124,8 @@ export class NaskahLainnyaController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.deleteDraft(id);
+  remove(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+    return this.service.deleteDraft(id, user);
   }
 
   @Post(':id/kirim')

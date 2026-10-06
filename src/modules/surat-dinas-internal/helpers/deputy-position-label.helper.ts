@@ -1,3 +1,5 @@
+import { formatDelegatedPositionText } from '../../../common/helpers/delegasi-rendering.helper';
+
 type DeputyPositionLabelSource = {
   position_text?: string | null;
   positionText?: string | null;
@@ -5,6 +7,8 @@ type DeputyPositionLabelSource = {
   areaText?: string | null;
   sub_area_text?: string | null;
   subAreaText?: string | null;
+  position_status?: string | null;
+  positionStatus?: string | null;
 };
 
 const DGM_PEO_PATTERN =
@@ -20,7 +24,7 @@ export function formatDeputyPositionLabel(
   const positionText = String(
     source.position_text ?? source.positionText ?? '',
   ).trim();
-  if (!positionText || !DGM_PEO_PATTERN.test(positionText)) return positionText;
+  if (!positionText) return positionText;
 
   const areaText = String(
     source.area_text ??
@@ -29,11 +33,16 @@ export function formatDeputyPositionLabel(
       source.subAreaText ??
       '',
   ).trim();
-  if (!areaText) return positionText;
+  let withArea = positionText;
+  if (DGM_PEO_PATTERN.test(positionText) && areaText) {
+    const escapedArea = areaText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`(?:^|\\s-\\s)${escapedArea}$`, 'i').test(positionText)) {
+      withArea = `${positionText} - ${areaText}`;
+    }
+  }
 
-  const escapedArea = areaText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(`(?:^|\\s-\\s)${escapedArea}$`, 'i').test(positionText))
-    return positionText;
-
-  return `${positionText} - ${areaText}`;
+  return formatDelegatedPositionText(
+    withArea,
+    source.position_status ?? source.positionStatus,
+  );
 }

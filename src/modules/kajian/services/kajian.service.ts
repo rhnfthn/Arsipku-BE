@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -1191,10 +1192,10 @@ export class KajianService {
       )}`;
 
       // Build tertuju (penerima) list
-      const tertujuList = penerimaResponses.map((p) => p.position_text);
+      const tertujuList = penerimaResponses.map((p) => formatGmRecipientLabel(p) ?? p.position_text);
 
       // Build tembusan list
-      const tembusanList = tembusanResponses.map((t) => t.position_text);
+      const tembusanList = tembusanResponses.map((t) => formatGmRecipientLabel(t) ?? t.position_text);
 
       // Generate PDF with nomor surat
       let pdfBuffer = await this.generatePdfKajianService.generatePdf({
@@ -1204,9 +1205,10 @@ export class KajianService {
         tertuju: tertujuList,
         tembusan: tembusanList,
         perihal: dto.perihal,
-        dari: pengirimData.position_text,
+        dari: this.pengirimSirkulasiFields(dto, pengirimData).positionText,
         tanggal: formattedTanggal,
-        positionText: dto.nama_jabatan || pengirimData.position_text,
+        positionText: this.pengirimSirkulasiFields(dto, pengirimData)
+          .positionText,
         namaLengkap: dto.nama_lengkap || pengirimData.persnum_person_text || '',
         nama_tempat: dynamicNamaTempat,
         headerKantor: headerInfo?.kantor,
@@ -1556,10 +1558,10 @@ export class KajianService {
 
       // Prepare signing data BEFORE generating PDF (untuk embed QR di template)
       const signerName = dto.nama_lengkap || pengirim.persnum_person_text || '';
-      const signerJabatan =
-        dto.nama_jabatan && dto.nama_jabatan.trim()
-          ? dto.nama_jabatan
-          : pengirim.position_text;
+      const signerJabatan = this.pengirimSirkulasiFields(
+        dto,
+        pengirim,
+      ).positionText;
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
@@ -1627,12 +1629,12 @@ export class KajianService {
 
         // Build tertuju (penerima) list
         const tertujuList = penerimaList.map(
-          (p) => delegatedRecipientFields(p).positionText,
+          (p) => formatGmRecipientLabel(p) ?? delegatedRecipientFields(p).positionText,
         );
 
         // Build tembusan text list
         const tembusanTextList = tembusanList.map(
-          (t) => delegatedRecipientFields(t).positionText,
+          (t) => formatGmRecipientLabel(t) ?? delegatedRecipientFields(t).positionText,
         );
 
         // Generate PDF dengan QR code di template (jika ada)
@@ -1645,7 +1647,7 @@ export class KajianService {
           tertuju: tertujuList,
           tembusan: tembusanTextList,
           perihal: dto.perihal,
-          dari: pengirim.position_text,
+          dari: this.pengirimSirkulasiFields(dto, pengirim).positionText,
           tanggal: formattedTanggal,
           positionText: signerJabatan,
           namaLengkap: signerName,
@@ -2922,7 +2924,7 @@ export class KajianService {
         const posData = this.findByPosition(barisData, Number(posId));
         if (posData) {
           names.push(
-            delegatedRecipientFields(posData).positionText || String(posId),
+            formatGmRecipientLabel(posData) ?? (delegatedRecipientFields(posData).positionText || String(posId)),
           );
         } else {
           names.push(String(posId));
@@ -3743,31 +3745,55 @@ export class KajianService {
 
       // Build tertuju (penerima) list - filter out null values
       const tertujuList = penerimaSirkulasiList
-        .map((p) => p.positionText || '')
+        .map(
+          (p) =>
+            formatGmRecipientLabel({ ...barisData.find((row) => String(row.position) === String(p.position)), ...p }) ?? delegatedRecipientFields({
+              position_text: p.positionText,
+              position_status: p.positionStatus,
+            }).positionText,
+        )
         .filter(Boolean);
 
       // Build tembusan list - filter out null values
       const tembusanList = tembusanSirkulasiList
-        .map((t) => t.positionText || '')
+        .map(
+          (t) =>
+            formatGmRecipientLabel({ ...barisData.find((row) => String(row.position) === String(t.position)), ...t }) ?? delegatedRecipientFields({
+              position_text: t.positionText,
+              position_status: t.positionStatus,
+            }).positionText,
+        )
         .filter(Boolean);
 
       // Determine konten and perihal for PDF
       const kontenForPdf = dto.konten || naskah.konten || '';
       const perihalForPdf = dto.perihal || naskah.perihal || '';
-      const signerJabatan =
-        dto.nama_jabatan && dto.nama_jabatan.trim()
-          ? dto.nama_jabatan
-          : pengirimData?.position_text ||
-            pengirimSirkulasi?.positionText ||
-            '';
+      const signerJabatan = delegatedRecipientFields({
+        position_text:
+          dto.nama_jabatan && dto.nama_jabatan.trim()
+            ? dto.nama_jabatan
+            : pengirimData?.position_text ||
+              pengirimSirkulasi?.positionText ||
+              '',
+        position_status:
+          pengirimData?.position_status ??
+          pengirimData?.positionStatus ??
+          pengirimSirkulasi?.positionStatus,
+      }).positionText;
       const signerName =
         dto.nama_lengkap ||
         pengirimData?.persnum_person_text ||
         pengirimSirkulasi?.namaSirkuler ||
         '';
-      const dariForPdf = pengirimData
-        ? pengirimData.position_text
-        : pengirimSirkulasi?.positionText || '';
+      const dariForPdf = delegatedRecipientFields({
+        position_text: pengirimData
+          ? pengirimData.position_text
+          : pengirimSirkulasi?.positionText || '',
+        position_status:
+          pengirimData?.position_status ??
+          pengirimData?.positionStatus ??
+          pengirimSirkulasi?.positionStatus,
+      }).positionText;
 
       // Prepare QR Code for signing
       let qrCodeHtml: string | undefined = undefined;
