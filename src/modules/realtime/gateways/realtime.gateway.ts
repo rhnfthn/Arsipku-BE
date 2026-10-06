@@ -419,6 +419,18 @@ export class RealtimeGateway
       .emit('naskah-lainnya:legal-drafting-count', { positionId, waiting });
   }
 
+  /**
+   * Emit sinyal perubahan draft (create/update/delete) ke room posisi.
+   * FE sidebar memakai ini untuk refresh badge count draf secara realtime —
+   * payload hanya sinyal, FE yang refetch count (BE tidak hitung ulang).
+   */
+  emitDraftChanged(positionId: string, source: 'korespondensi' | 'naskah-lainnya') {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('draft:changed', { positionId, source, occurredAt: new Date().toISOString() });
+  }
+
   emitNaskahLainnyaUpdated(payload: { naskahId: string; occurredAt: string }) {
     if (!this.server) return;
     this.server

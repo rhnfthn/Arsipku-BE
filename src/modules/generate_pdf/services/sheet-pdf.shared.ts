@@ -72,14 +72,15 @@ td, th { border: 1px solid #000; padding: 4px 7px; vertical-align: top; font-siz
 .center-text { text-align: center; }
 .signature-block { text-align: center; padding: 6px 4px 4px 4px; }
 .signature-person { margin-bottom: 12px; }
-.signature-name { text-decoration: underline; display: inline-block; margin-top: 55px; }
+.signature-name { text-decoration: underline; display: inline-block; margin-top: 4px; }
 .director-item { margin-bottom: 4px; }
 .director-divider { border-bottom: 1px solid #000; margin: 0 -7px 6px; padding: 0 7px 6px; }
-.director-name { text-decoration: underline; display: block; }
+.director-name { text-decoration: underline; display: block; margin: 2px 0 8px; }
 /* ponytail: visualisasi digsig diperkecil ~45% (skala 0.55) agar tidak menimpa
    digsig signer/paraf lain di lembar blanko-verbal & persetujuan-direksi. */
-.visible-digsig { width: 100%; max-width: 143px; min-height: 29px; border: 1.5px solid #1f2937; display: flex; align-items: center; gap: 4px; padding: 3px 4px; margin: 3px 0 2px; background: #fff; break-inside: avoid; }
+.visible-digsig { width: 100%; max-width: 143px; min-height: 29px; border: 1.5px solid #1f2937; display: flex; align-items: center; gap: 4px; padding: 3px 4px; margin: 3px auto 2px; background: #fff; break-inside: avoid; }
 .visible-digsig.wide { max-width: 176px; min-height: 32px; margin-left: auto; margin-right: auto; }
+.director-item .visible-digsig { margin-left: 0; margin-right: auto; }
 .visible-digsig-logo { width: 23px; height: 23px; object-fit: contain; flex: 0 0 auto; }
 .visible-digsig-text { min-width: 0; flex: 1 1 auto; text-align: left; font-family: "Times New Roman", Times, serif; line-height: 1.12; color: #000; }
 .visible-digsig-title { font-size: 4.5px; font-weight: 400; margin-bottom: 1px; }

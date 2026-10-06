@@ -562,7 +562,12 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
-    headerInfo?: { kantor: string; gedung: string; alamat: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota?: string;
+    },
     qrCodeHtml?: string,
     signOption?: SignOption | string,
   ): Promise<Buffer> {
@@ -580,7 +585,7 @@ export class SuratDinasInternalService {
       const pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
-        nama_tempat: nama_tempat,
+        nama_tempat: headerInfo?.kota || nama_tempat,
         tanggal: tanggal,
         positionText: nama_jabatan,
         namaLengkap: nama_lengkap,
@@ -621,7 +626,12 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
-    headerInfo?: { kantor: string; gedung: string; alamat: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota?: string;
+    },
     signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
@@ -631,7 +641,11 @@ export class SuratDinasInternalService {
 
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
-        if (lampiranFiles && lampiranFiles.length > 0) {
+        if (
+          lampiranFiles &&
+          lampiranFiles.length > 0 &&
+          (!lampiran.trim() || lampiran === '-')
+        ) {
           // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran")
           const count = lampiranFiles.length;
           lampiranText = `${count} Lampiran`;
@@ -1212,7 +1226,7 @@ export class SuratDinasInternalService {
   private toSirkulasiInfo(pos: SdiOrgDataPositionDto): SirkulasiInfoDto {
     return {
       position: pos.position,
-      position_text: formatSdiPdfRecipientLabel(pos),
+      position_text: formatDeputyPositionLabel(pos),
       persnum: pos.persnum_person ?? pos.persnum ?? null,
       nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
@@ -3098,10 +3112,43 @@ export class SuratDinasInternalService {
             message: 'Naskah sudah final dan terkirim via konsep workflow',
           } as any,
         };
+      } else if (naskah.status === 'pending_tte' && persnum) {
+        // Finalisasi Portal TTE sedang berjalan (menunggu callback portal).
+        // Bila transaksi masih hidup → redirect ke signing_url yang sama;
+        // bila sudah terminal/expired → reset ke draf agar bisa dikirim ulang.
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahId,
+            persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          const tgl =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || '').split('T')[0];
+          return {
+            success: true,
+            data: {
+              id: naskahId,
+              jenis: 'SDI',
+              nomor: naskah.nomor || '',
+              tanggal: tgl,
+              status: naskah.status,
+              tte_redirect: {
+                transactionId: pendingTte.transactionId,
+                signingUrl: pendingTte.signingUrl,
+              },
+            } as any,
+          };
+        }
+        // Transaksi sudah mati → izinkan finalisasi ulang dari status draf.
+        naskah.status = 'draf';
       }
-      throw new BadRequestException(
-        `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
-      );
+      if (naskah.status !== 'draf') {
+        throw new BadRequestException(
+          `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
+        );
+      }
     }
 
     if (naskah.jenis !== 'SDI') {
@@ -3531,6 +3578,9 @@ export class SuratDinasInternalService {
           kepadaYthList = penerimaListForPdf.map((p) =>
             formatSdiPdfRecipientLabel({
               position_text: p.positionText,
+              abbreviation: barisData.find(
+                (row) => String(row.position) === String(p.position),
+              )?.position_abbreviation,
               position_status: p.positionStatus,
               namaSirkuler: p.namaSirkuler,
               subAreaText: p.subAreaText,
@@ -3560,6 +3610,9 @@ export class SuratDinasInternalService {
           tembusanTextList = tembusanListForPdf.map((t) =>
             formatSdiPdfRecipientLabel({
               position_text: t.positionText,
+              abbreviation: barisData.find(
+                (row) => String(row.position) === String(t.position),
+              )?.position_abbreviation,
               position_status: t.positionStatus,
               namaSirkuler: t.namaSirkuler,
               subAreaText: t.subAreaText,
@@ -5323,9 +5376,6 @@ export class SuratDinasInternalService {
       });
       const namaLengkap =
         dto.nama_lengkap || pengirim.persnum_person_text || '';
-      const namaTempat =
-        dto.nama_tempat || pengirim.sub_area_text || 'Tangerang';
-
       // Get dynamic header info
       const headerInfo = await this.getHeaderInfoByUser(
         {
@@ -5336,6 +5386,8 @@ export class SuratDinasInternalService {
         },
         tanggal,
       );
+
+      const namaTempat = headerInfo?.kota || dto.nama_tempat || 'Tangerang';
 
       let finalPdfPath: string | undefined = undefined;
       try {

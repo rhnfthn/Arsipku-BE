@@ -218,6 +218,38 @@ export class DocxQrInlineService {
       // Marker berada di dalam <w:t>...&lt;&lt;QRIMG_i&gt;&gt;...</w:t>. Tutup text+run,
       // sisip drawing run, buka kembali run+text untuk teks sisa.
       const replacement = `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:t xml:space="preserve">`;
+      // Pusatkan slot tanda tangan yang berada pada paragraf tersendiri.
+      // Paragraf campuran tetap mengikuti tata letak template naskah.
+      docXml = docXml.replace(
+        /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g,
+        (paragraph) => {
+          const text = [
+            ...paragraph.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g),
+          ]
+            .map((match) => match[1])
+            .join('')
+            .trim();
+          if (text !== marker) return paragraph;
+          const alignment = '<w:jc w:val="center"/>';
+          if (/<w:pPr\s*\/>/.test(paragraph)) {
+            return paragraph.replace(
+              /<w:pPr\s*\/>/,
+              `<w:pPr>${alignment}</w:pPr>`,
+            );
+          }
+          if (/<w:pPr[\s>]/.test(paragraph)) {
+            return paragraph.replace(
+              /<w:pPr(?:\s[^>]*)?>([\s\S]*?)<\/w:pPr>/,
+              (_, properties) =>
+                `<w:pPr>${properties.replace(/<w:jc\b[^>]*(?:\/>|>[\s\S]*?<\/w:jc>)/g, '')}${alignment}</w:pPr>`,
+            );
+          }
+          return paragraph.replace(
+            /(<w:p(?:\s[^>]*)?>)/,
+            `$1<w:pPr>${alignment}</w:pPr>`,
+          );
+        },
+      );
       docXml = docXml.split(marker).join(replacement);
     }
 
@@ -289,14 +321,20 @@ export class DocxQrInlineService {
     ctx.fillStyle = '#000000';
     ctx.textBaseline = 'top';
     ctx.font = '22px "Times New Roman"';
-    ctx.fillText('Ditandatangani secara elektronik oleh', textX, 52);
+    ctx.fillText(
+      'Ditandatangani secara elektronik oleh',
+      textX,
+      52,
+      width - textX - 28,
+    );
     ctx.font = 'bold 22px "Times New Roman"';
-    ctx.fillText(signer.jabatan || 'JABATAN', textX, 84);
+    ctx.fillText(signer.jabatan || 'JABATAN', textX, 84, width - textX - 28);
     ctx.font = 'bold 33px "Times New Roman"';
     ctx.fillText(
       (signer.nama || 'NAMA LENGKAP TANPA GELAR').toUpperCase(),
       textX,
       142,
+      width - textX - 28,
     );
     return canvas.toBuffer('image/png');
   }

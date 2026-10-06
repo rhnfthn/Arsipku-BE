@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -277,7 +278,10 @@ export class NotaDinasService {
       for (const posId of individualPositionIds) {
         const pos = barisData.find((p) => Number(p.position) === Number(posId));
         if (pos) {
-          names.push(delegatedRecipientFields(pos).positionText);
+          names.push(
+            formatGmRecipientLabel(pos) ??
+              delegatedRecipientFields(pos).positionText,
+          );
         }
       }
     }
@@ -494,7 +498,9 @@ export class NotaDinasService {
       if (position) {
         // Render prefix delegasi (PT./PH./PS.) bila posisi sedang didelegasikan —
         // konsisten dengan buildPdfRecipientNames agar preview & final PDF sama.
-        const fullName = delegatedRecipientFields(position).positionText;
+        const fullName =
+          formatGmRecipientLabel(position) ??
+          delegatedRecipientFields(position).positionText;
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -2787,10 +2793,45 @@ export class NotaDinasService {
           } as any,
           message: 'Naskah sudah final dan terkirim via konsep workflow',
         };
+      } else if (naskah.status === 'pending_tte' && persnum) {
+        // Finalisasi Portal TTE sedang berjalan (menunggu callback portal).
+        // Bila transaksi masih hidup → redirect ke signing_url yang sama;
+        // bila sudah terminal/expired → reset ke draf agar bisa dikirim ulang.
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahId,
+            persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          const tgl =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || '').split('T')[0];
+          return {
+            success: true,
+            data: {
+              id: naskahId,
+              jenis: 'ND',
+              nomor: naskah.nomor || '',
+              tanggal: tgl,
+              status: naskah.status,
+              tte_redirect: {
+                transactionId: pendingTte.transactionId,
+                signingUrl: pendingTte.signingUrl,
+              },
+            } as any,
+            message:
+              'Naskah masih menunggu penandatanganan di Portal TTE — melanjutkan sesi yang sama',
+          };
+        }
+        // Transaksi sudah mati → izinkan finalisasi ulang dari status draf.
+        naskah.status = 'draf';
       }
-      throw new BadRequestException(
-        `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
-      );
+      if (naskah.status !== 'draf') {
+        throw new BadRequestException(
+          `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
+        );
+      }
     }
 
     if (naskah.jenis !== 'ND') {
@@ -3208,6 +3249,12 @@ export class NotaDinasService {
         } else {
           kepadaYthListForPdf = penerimaListForPdf.map(
             (p) =>
+              formatGmRecipientLabel({
+                ...barisData.find(
+                  (row) => String(row.position) === String(p.position),
+                ),
+                ...p,
+              }) ??
               delegatedRecipientFields({
                 position_text: p.positionText,
                 position_status: p.positionStatus,
@@ -3235,6 +3282,12 @@ export class NotaDinasService {
         } else {
           tembusanForPdfFinal = tembusanListForPdf.map(
             (t) =>
+              formatGmRecipientLabel({
+                ...barisData.find(
+                  (row) => String(row.position) === String(t.position),
+                ),
+                ...t,
+              }) ??
               delegatedRecipientFields({
                 position_text: t.positionText,
                 position_status: t.positionStatus,
@@ -5460,7 +5513,8 @@ export class NotaDinasService {
       // PHASE 12: Generate PDF dengan lampiran (status selalu 'final')
       // Define variables for PDF generation
       const kepadaYthList = penerimaList.map(
-        (p) => delegatedRecipientFields(p).positionText,
+        (p) =>
+          formatGmRecipientLabel(p) ?? delegatedRecipientFields(p).positionText,
       );
       const namaJabatan = delegatedRecipientFields({
         ...pengirim,
@@ -5493,6 +5547,7 @@ export class NotaDinasService {
             tembusanList.length > 0
               ? tembusanList.map(
                   (t) =>
+                    formatGmRecipientLabel(t) ??
                     `${delegatedRecipientFields(t).positionText} ${t.organization_text}`,
                 )
               : [],
