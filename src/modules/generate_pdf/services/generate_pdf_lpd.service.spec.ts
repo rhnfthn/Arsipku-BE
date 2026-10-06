@@ -47,7 +47,7 @@ describe('GeneratePdfLpdService.buildHtml', () => {
 
   it('memuat field terstruktur: tanggal, nomor, perihal, diusulkan, klasifikasi, lampiran', () => {
     const html = service.buildHtml(data());
-    expect(html).toContain('21 Agustus 2026');
+    expect(html).toContain('21/08/2026');
     expect(html).toContain('N-001');
     expect(html).toContain('Perihal Test');
     expect(html).toContain('Citra');

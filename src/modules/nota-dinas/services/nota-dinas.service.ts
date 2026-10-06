@@ -2787,10 +2787,45 @@ export class NotaDinasService {
           } as any,
           message: 'Naskah sudah final dan terkirim via konsep workflow',
         };
+      } else if (naskah.status === 'pending_tte' && persnum) {
+        // Finalisasi Portal TTE sedang berjalan (menunggu callback portal).
+        // Bila transaksi masih hidup → redirect ke signing_url yang sama;
+        // bila sudah terminal/expired → reset ke draf agar bisa dikirim ulang.
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahId,
+            persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          const tgl =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || '').split('T')[0];
+          return {
+            success: true,
+            data: {
+              id: naskahId,
+              jenis: 'ND',
+              nomor: naskah.nomor || '',
+              tanggal: tgl,
+              status: naskah.status,
+              tte_redirect: {
+                transactionId: pendingTte.transactionId,
+                signingUrl: pendingTte.signingUrl,
+              },
+            } as any,
+            message:
+              'Naskah masih menunggu penandatanganan di Portal TTE — melanjutkan sesi yang sama',
+          };
+        }
+        // Transaksi sudah mati → izinkan finalisasi ulang dari status draf.
+        naskah.status = 'draf';
       }
-      throw new BadRequestException(
-        `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
-      );
+      if (naskah.status !== 'draf') {
+        throw new BadRequestException(
+          `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
+        );
+      }
     }
 
     if (naskah.jenis !== 'ND') {

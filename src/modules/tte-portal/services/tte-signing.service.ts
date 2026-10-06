@@ -864,6 +864,102 @@ export class TteSigningService {
     return transaction;
   }
 
+  /**
+   * Resolve naskah berstatus pending_tte saat user mencoba finalize ulang.
+   *
+   * Return:
+   * - { kind: 'redirect' }  → transaksi masih hidup (belum terminal & belum
+   *   expired): FE harus redirect ke signingUrl transaksi yang sama, JANGAN
+   *   buat request baru (request lama masih berlaku di portal).
+   * - { kind: 'reset' }     → transaksi sudah terminal (SIGNED/PARTIAL gagal
+   *   diselesaikan, FAILED, CANCELLED, EXPIRED, atau sudah expired tapi belum
+   *   direkonsiliasi): tandai EXPIRED bila perlu dan izinkan caller me-reset
+   *   naskah ke 'draf' agar bisa difinalisasi ulang.
+   * - null                  → tidak ada transaksi untuk naskah ini (data lama):
+   *   perlakukan seperti 'reset'.
+   */
+  async resolvePendingTteForRefinalize(
+    idNaskah: string,
+    userPersnum: number,
+  ): Promise<
+    | {
+        kind: 'redirect';
+        transactionId: string;
+        signingUrl: string;
+      }
+    | { kind: 'reset'; transactionId: string | null }
+    | null
+  > {
+    const transaction = await this.transactionRepository.findOne({
+      where: { idNaskah, userPersnum },
+      order: { createdAt: 'DESC' },
+    });
+    if (!transaction) return null;
+
+    const terminalStatuses = [
+      'SIGNED',
+      'PARTIAL',
+      'FAILED',
+      'CANCELLED',
+      'EXPIRED',
+    ];
+    const now = new Date();
+
+    // Transaksi selesai sukses tapi completion naskah belum jalan — pulihkan
+    // lewat jalur recovery yang sama dengan polling FE.
+    if (
+      transaction.status === 'SIGNED' &&
+      !transaction.completedAt &&
+      transaction.signedFilePath
+    ) {
+      try {
+        await this.ensureSignedArtifactsAndCompletion(transaction);
+      } catch (error) {
+        this.logger.warn(
+          `Recovery completion pending_tte ${transaction.id} gagal: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    const fresh = (await this.transactionRepository.findOne({
+      where: { id: transaction.id },
+    }))!;
+
+    if (
+      !terminalStatuses.includes(fresh.status) &&
+      fresh.signedFilePath === null &&
+      (!fresh.expiresAt || new Date(fresh.expiresAt) > now)
+    ) {
+      if (fresh.signingUrl) {
+        return {
+          kind: 'redirect',
+          transactionId: fresh.id,
+          signingUrl: fresh.signingUrl,
+        };
+      }
+    }
+
+    // Request portal sudah tidak bisa dipakai. Tandai EXPIRED bila portal
+    // belum melaporkan status terminal (TTL request 900s).
+    if (
+      !terminalStatuses.includes(fresh.status) &&
+      !fresh.completedAt &&
+      !fresh.callbackProcessed
+    ) {
+      await this.transactionRepository.update(fresh.id, {
+        status: 'EXPIRED',
+        errorCode: fresh.errorCode || 'REQUEST_EXPIRED',
+        errorMessage:
+          fresh.errorMessage ||
+          'Signing request kedaluwarsa sebelum diselesaikan di Portal TTE',
+      });
+    }
+
+    return { kind: 'reset', transactionId: fresh.id };
+  }
+
   /** Hapus presigned URL dari response sebelum disimpan ke DB (keamanan §16.3) */
   private sanitizeExchangeResponse(
     exchange: TteExchangeResponse,
