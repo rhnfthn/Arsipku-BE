@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Like, In } from 'typeorm';
+import { Repository, DataSource, Like, In, Raw } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { NaskahShareEntity } from '../entities/naskah-share.entity';
 import { NaskahShareRecipientEntity } from '../entities/naskah-share-recipient.entity';
@@ -26,6 +26,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { ConfigNaskahLainnyaService } from '../../config/services';
 import { NaskahLainnyaDokumenEntity } from '../../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
+import { MailServiceService } from '../../mail-service/services/mail-service.service';
 
 @Injectable()
 export class NaskahShareService {
@@ -51,6 +52,7 @@ export class NaskahShareService {
     private readonly storageService: StorageService,
     private readonly dataSource: DataSource,
     private readonly configNaskahLainnyaService: ConfigNaskahLainnyaService,
+    private readonly mailServiceService: MailServiceService,
   ) {}
 
   // ────────────────────────────────────────────────────────────────
@@ -1026,6 +1028,96 @@ export class NaskahShareService {
   }
 
   /**
+   * Kirim naskah via email ke alamat email eksternal (diketik manual pengirim).
+   * Menggunakan service email yang sama dengan fitur "Kirim Email" (mail-service),
+   * dengan lampiran PDF final naskah.
+   */
+  async sendShareEmail(
+    user: JwtPayload,
+    naskahId: string,
+    dto: {
+      to: string;
+      cc?: string;
+      bcc?: string;
+      from_as?: string;
+    },
+  ) {
+    const naskah = await this.naskahRepo.findOne({ where: { id: naskahId } });
+    if (!naskah) {
+      throw new NotFoundException(
+        `Naskah dengan id ${naskahId} tidak ditemukan`,
+      );
+    }
+
+    // Resolve PDF final (naskah dinas reguler & naskah lainnya)
+    const pdfKey = await this.resolveFinalPdfKey(naskah);
+    if (!pdfKey) {
+      throw new BadRequestException(
+        'Naskah belum memiliki PDF final. Pastikan naskah sudah difinalisasi atau ditandatangani.',
+      );
+    }
+
+    // Ambil PDF final sebagai buffer dari S3
+    let pdfBase64: string;
+    try {
+      const pdfBuffer = await this.storageService.getFile(pdfKey);
+      pdfBase64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ Failed to fetch PDF for naskah ${naskahId}: ${err?.message}`,
+      );
+      throw new BadRequestException(
+        'Gagal mengambil dokumen naskah. Silakan coba lagi.',
+      );
+    }
+
+    const lampiran = [
+      {
+        filename: `${naskah.nomor || naskah.perihal || 'Naskah'}.pdf`.replace(
+          /[/\\?%*:|"<>]/g,
+          '_',
+        ),
+        filebase64: pdfBase64,
+      },
+    ];
+
+    const emailPayload = {
+      subjek: `${naskah.perihal || naskah.nomor || naskahId}`,
+      from_as: dto.from_as || 'ARSIPKU',
+      to: dto.to,
+      konten:
+        `<p>Yth. Bapak/Ibu,</p><br>` +
+        `<p>Bersama email ini kami sampaikan dokumen korespondensi dari AirNav Indonesia.</p>` +
+        `<p>Untuk informasi lebih lanjut, mohon dapat mengacu pada dokumen terlampir sesuai kebutuhan tindak lanjut.</p>` +
+        `<p>Email ini dikirim secara otomatis melalui sistem korespondensi AirNav Indonesia dan tidak memerlukan balasan. (No Reply)</p>` +
+        `<p>Atas perhatian dan kerja sama yang diberikan, kami ucapkan terima kasih.</p><br>` +
+        `<p>Hormat kami,</p><p>AirNav Indonesia</p>`,
+      cc: dto.cc || '',
+      bcc: dto.bcc || '',
+      lampiran,
+    };
+
+    const result = await this.mailServiceService.sendMailBase64(
+      emailPayload,
+      user.persnum,
+      {
+        naskah_id: naskahId,
+        jenis_naskah: naskah.jenis || undefined,
+        nomor_surat: naskah.nomor || undefined,
+        perihal: naskah.perihal || undefined,
+        sender_persnum: String(user.persnum),
+        sender_nama: user.nama || undefined,
+      },
+    );
+
+    return {
+      success: true,
+      message: 'Email berhasil dikirim',
+      data: result,
+    };
+  }
+
+  /**
    * Naskah dinas reguler menyimpan PDF di `naskah.final_pdf`, sedangkan
    * Naskah Lainnya menyimpan artifact final di tabel versi dokumen. Resolver
    * ini menyatukan kedua pola penyimpanan untuk fitur berbagi.
@@ -1136,23 +1228,50 @@ export class NaskahShareService {
     }
 
     const searchTerm = `%${query}%`;
-    const persnumSearch = isNaN(Number(query)) ? null : Number(query);
+    const trimmed = query.trim();
 
-    // Find persons
-    const persons = await this.personRepo.find({
-      where: persnumSearch
-        ? [
-            { persnum: persnumSearch, endDate: '9999-12-31' },
-            { name: Like(searchTerm), endDate: '9999-12-31' },
-            { uname: Like(searchTerm), endDate: '9999-12-31' },
-          ]
-        : [
-            { name: Like(searchTerm), endDate: '9999-12-31' },
-            { uname: Like(searchTerm), endDate: '9999-12-31' },
-          ],
-      order: { name: 'ASC' },
-      take: 20,
-    });
+    // Deteksi apakah query adalah e-NIK (semua digit, panjang >= 2).
+    // Jika iya, gunakan exact-match OR prefix-match pada kolom persnum saja
+    // (tidak ikut-ikutan mencari di name/uname), sehingga:
+    //   • "10010105" → hanya match persnum persis (1 hasil) atau prefix-match.
+    //   • "10010"   → LIKE '%50210%' persnum → tetap beberapa hasil.
+    // Untuk query non-digit (nama/uname), gunakan LIKE pada name/uname.
+    const isNikQuery = /^\d+$/.test(trimmed);
+
+    let persons: Person[] = [];
+    if (isNikQuery) {
+      // Exact match (prioritas utama) + prefix match untuk e-NIK panjang.
+      // Tidak ikut-ikut mencari di name/uname karena akan mengembalikan nama
+      // yang kebetulan mengandung substring angka tersebut.
+      persons = await this.personRepo.find({
+        where: [
+          {
+            persnum: Number(trimmed),
+            endDate: '9999-12-31',
+          },
+          {
+            persnum: Raw(
+              (alias) =>
+                `CAST(${alias} AS CHAR) LIKE :persnumPrefix`,
+              { persnumPrefix: `${trimmed}%` },
+            ),
+            endDate: '9999-12-31',
+          },
+        ],
+        order: { persnum: 'ASC' },
+        take: 20,
+      });
+    } else {
+      // Pencarian nama/uname (substring match).
+      persons = await this.personRepo.find({
+        where: [
+          { name: Like(searchTerm), endDate: '9999-12-31' },
+          { uname: Like(searchTerm), endDate: '9999-12-31' },
+        ],
+        order: { name: 'ASC' },
+        take: 20,
+      });
+    }
 
     if (persons.length === 0) {
       return { success: true, data: [] };
@@ -1204,7 +1323,15 @@ export class NaskahShareService {
       })
       .filter(Boolean);
 
-    return { success: true, data: results };
+    // Dedupe by persnum (exact + prefix OR query dapat mengembalikan baris duplikat).
+    const seen = new Set<number>();
+    const dedupedResults = results.filter((r: any) => {
+      if (seen.has(r.persnum)) return false;
+      seen.add(r.persnum);
+      return true;
+    });
+
+    return { success: true, data: dedupedResults };
   }
 
   // ────────────────────────────────────────────────────────────────

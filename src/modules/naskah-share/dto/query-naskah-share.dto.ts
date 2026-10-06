@@ -23,7 +23,7 @@ export class NaskahShareQueryDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(100)
+  @Max(9999)
   limit?: number = 20;
 
   @IsOptional()
