@@ -1,8 +1,10 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
   HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -319,7 +321,8 @@ export class KonsepService {
         nomor: '-', // Konsep tidak perlu nomor, will be replaced on finalize
         tanggal: dto.tgl ? new Date(dto.tgl) : tanggalHariIni,
         lampiran:
-          jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined,
+          dto.lampiran_text ??
+          (jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined),
         perihal: dto.perihal,
         konten: dto.konten,
         tempat: dto.nama_tempat || fromPos.sub_area_text || 'Tangerang',
@@ -617,8 +620,8 @@ export class KonsepService {
       }
 
       // Update naskah dengan info lampiran
-      if (jumlahLampiran > 0) {
-        naskahAsli.lampiran = `${jumlahLampiran} file`;
+      if (dto.lampiran_text !== undefined || jumlahLampiran > 0) {
+        naskahAsli.lampiran = dto.lampiran_text ?? `${jumlahLampiran} file`;
       }
 
       // ==========================================
@@ -969,6 +972,11 @@ export class KonsepService {
   ): Promise<string[]> {
     const grupIds: string[] = [];
     const individualNames: string[] = [];
+    const org = sirkulasiList.some(
+      (item) => formatGmRecipientLabel(item) !== undefined,
+    )
+      ? await this.getPositionData()
+      : [];
 
     for (const item of sirkulasiList) {
       if (item.idGrupPenerima) {
@@ -976,18 +984,26 @@ export class KonsepService {
           grupIds.push(item.idGrupPenerima);
         }
       } else {
+        const gmLabel = formatGmRecipientLabel({
+          ...org.find((row) => String(row.position) === String(item.position)),
+          ...item,
+          position_text: item.positionText,
+        });
         const name =
-          jenis === 'SDI'
+          gmLabel ??
+          (jenis === 'SDI'
             ? formatSdiPdfRecipientLabel({
+                namaSirkuler: item.namaSirkuler,
                 position_text: item.positionText,
                 position_status: item.positionStatus,
                 subAreaText: item.subAreaText,
                 areaText: item.areaText,
               })
-            : delegatedRecipientFields({
+            : (formatGmRecipientLabel(item) ??
+              delegatedRecipientFields({
                 position_text: item.positionText || item.namaSirkuler,
                 position_status: item.positionStatus,
-              }).positionText.trim();
+              }).positionText.trim()));
         if (name && !individualNames.includes(name)) {
           individualNames.push(name);
         }
@@ -1564,6 +1580,7 @@ export class KonsepService {
       id_disposisi_referensi: body.id_disposisi_referensi || undefined,
       perihal: body.perihal,
       konten: body.konten,
+      lampiran_text: body.lampiran_text,
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
       sifat: body.sifat || 'biasa',
@@ -1665,6 +1682,7 @@ export class KonsepService {
       ),
       perihal: body.perihal,
       konten: body.konten,
+      lampiran_text: body.lampiran_text,
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
       sifat: body.sifat,
@@ -1778,6 +1796,7 @@ export class KonsepService {
         : undefined,
       perihal: body.perihal,
       konten: body.konten,
+      lampiran_text: body.lampiran_text,
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
       sifat: body.sifat,
@@ -1941,14 +1960,10 @@ export class KonsepService {
     const toPos = this.findByPosition(barisData, toPositionId);
 
     if (!fromPos) {
-      throw new NotFoundException(
-        `Position ${fromPositionId} tidak ditemukan`,
-      );
+      throw new NotFoundException(`Position ${fromPositionId} tidak ditemukan`);
     }
     if (!toPos) {
-      throw new NotFoundException(
-        `Position ${toPositionId} tidak ditemukan`,
-      );
+      throw new NotFoundException(`Position ${toPositionId} tidak ditemukan`);
     }
 
     dto.from_position_id = fromPositionId;
@@ -2091,6 +2106,8 @@ export class KonsepService {
         if (dto.klasifikasi_text)
           naskahAsli.klasifikasi_text = dto.klasifikasi_text;
         if (dto.sifat) naskahAsli.sifat = dto.sifat;
+        if (dto.lampiran_text !== undefined)
+          naskahAsli.lampiran = dto.lampiran_text;
         await updatePartitionedNaskah(
           queryRunner.manager,
           NaskahEntity,
@@ -2101,6 +2118,7 @@ export class KonsepService {
             klasifikasi: naskahAsli.klasifikasi,
             klasifikasi_text: naskahAsli.klasifikasi_text,
             sifat: naskahAsli.sifat,
+            lampiran: naskahAsli.lampiran,
           },
         );
 
@@ -2424,6 +2442,23 @@ export class KonsepService {
         );
       }
 
+      // Guard: naskah asli yang masih menunggu Portal TTE tidak boleh
+      // difinalisasi ulang (transaksi signing lama masih berlaku / harus
+      // diselesaikan dulu). Bila transaksi sudah mati, reset ke draf.
+      if (naskahAsli.status === 'pending_tte' && user?.persnum) {
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahAsliId,
+            user.persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          throw new ConflictException(
+            'Naskah masih menunggu penandatanganan di Portal TTE. Selesaikan sesi signing yang sedang berjalan sebelum memfinalisasi ulang.',
+          );
+        }
+        naskahAsli.status = 'draf';
+      }
+
       // 4. Get pengirim naskah asli (untuk generate nomor)
       const pengirimSirkulasi = await queryRunner.manager.findOne(
         NaskahSirkulasi,
@@ -2524,6 +2559,8 @@ export class KonsepService {
       if (dto.klasifikasi_text)
         naskahAsli.klasifikasi_text = dto.klasifikasi_text;
       if (dto.sifat) naskahAsli.sifat = dto.sifat;
+      if (dto.lampiran_text !== undefined)
+        naskahAsli.lampiran = dto.lampiran_text;
 
       // 9. Update is_konsep=0 untuk sirkulasi naskah asli (sudah final)
       await queryRunner.manager.update(
@@ -2682,8 +2719,8 @@ export class KonsepService {
       }
 
       // Update naskah dengan info lampiran
-      if (totalLampiran > 0) {
-        naskahAsli.lampiran = `${totalLampiran} file`;
+      if (dto.lampiran_text !== undefined || totalLampiran > 0) {
+        naskahAsli.lampiran = dto.lampiran_text ?? `${totalLampiran} file`;
       }
 
       // 11. Update ALL konsep workflow status to final (including new K)
@@ -4404,6 +4441,7 @@ export class KonsepService {
                 klasifikasi: naskahAsli.klasifikasi,
                 klasifikasi_text: naskahAsli.klasifikasi_text,
                 sifat: naskahAsli.sifat,
+                lampiran: naskahAsli.lampiran,
                 status: naskahAsli.status,
                 content: naskahContent,
               }
@@ -4894,7 +4932,8 @@ export class KonsepService {
           names.push(
             jenis === 'SDI'
               ? formatSdiPdfRecipientLabel(found)
-              : delegatedRecipientFields(found).positionText,
+              : (formatGmRecipientLabel(found) ??
+                  delegatedRecipientFields(found).positionText),
           );
         } else {
           names.push(String(posId));
@@ -5526,7 +5565,8 @@ export class KonsepService {
           : null,
         tandaTangan: dto.tanda_tangan || null,
         lampiran:
-          jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined,
+          dto.lampiran_text ??
+          (jumlahLampiranAwal > 0 ? `${jumlahLampiranAwal} file` : undefined),
       });
 
       await queryRunner.manager.save(naskahDraft);
@@ -5684,8 +5724,8 @@ export class KonsepService {
         jumlahLampiran = dto.lampiran.length;
       }
 
-      if (jumlahLampiran > 0) {
-        naskahDraft.lampiran = `${jumlahLampiran} file`;
+      if (dto.lampiran_text !== undefined || jumlahLampiran > 0) {
+        naskahDraft.lampiran = dto.lampiran_text ?? `${jumlahLampiran} file`;
       }
 
       // Simpan referensi disposisi jika ada
@@ -6223,6 +6263,7 @@ export class KonsepService {
           ),
         lampiran: lampiran.length > 0 ? lampiran : undefined,
         lampiran_files: lampiran.length > 0 ? lampiran : undefined,
+        lampiran_text: naskah.lampiran || undefined,
         disposisi_referensi: disposisiReferensi,
         catatan: naskah.catatanKonsep || null,
         status: 'draf',
@@ -6328,6 +6369,8 @@ export class KonsepService {
         if (dto.klasifikasi_text)
           naskah.klasifikasi_text = dto.klasifikasi_text;
         if (dto.sifat) naskah.sifat = dto.sifat;
+        if (dto.lampiran_text !== undefined)
+          naskah.lampiran = dto.lampiran_text;
         if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
         if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
         // Yang dikirim ke pemeriksa adalah node workflow K di bawah ini.
@@ -6355,7 +6398,7 @@ export class KonsepService {
             { where: { id_naskah: idDraft } },
           );
           if (lampiranCount > 0) {
-            naskah.lampiran = `${lampiranCount} file`;
+            naskah.lampiran = dto.lampiran_text ?? `${lampiranCount} file`;
           }
         }
 
@@ -6499,6 +6542,7 @@ export class KonsepService {
       if (dto.klasifikasi_text !== undefined)
         naskah.klasifikasi_text = dto.klasifikasi_text;
       if (dto.sifat) naskah.sifat = dto.sifat;
+      if (dto.lampiran_text !== undefined) naskah.lampiran = dto.lampiran_text;
       if (dto.tgl) naskah.tanggal = new Date(dto.tgl);
       if (dto.tanda_tangan) naskah.tandaTangan = dto.tanda_tangan;
       if (dto.english !== undefined) {
@@ -6529,6 +6573,7 @@ export class KonsepService {
           klasifikasi: naskah.klasifikasi,
           klasifikasi_text: naskah.klasifikasi_text,
           sifat: naskah.sifat,
+          lampiran: naskah.lampiran,
           tanggal: naskah.tanggal,
           tandaTangan: naskah.tandaTangan,
           english: naskah.english,
@@ -6730,7 +6775,10 @@ export class KonsepService {
           await queryRunner.manager.update(
             NaskahEntity,
             { id: idDraft },
-            { lampiran: `${lampiranCount} file` },
+            {
+              lampiran:
+                dto.lampiran_text ?? naskah.lampiran ?? `${lampiranCount} file`,
+            },
           );
         }
       }
@@ -6895,6 +6943,7 @@ export class KonsepService {
       id_disposisi_referensi: body.id_disposisi_referensi,
       perihal: body.perihal,
       konten: body.konten,
+      lampiran_text: body.lampiran_text,
       klasifikasi: body.klasifikasi,
       klasifikasi_text: body.klasifikasi_text,
       sifat: body.sifat,

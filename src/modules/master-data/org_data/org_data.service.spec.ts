@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { OrgDataService } from './org_data.service';
 import { OrgDatum } from './entities/org_datum.entity';
+import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
 
 describe('OrgDataService', () => {
   let service: OrgDataService;
@@ -12,6 +13,10 @@ describe('OrgDataService', () => {
       providers: [
         OrgDataService,
         { provide: getRepositoryToken(OrgDatum), useValue: {} },
+        {
+          provide: getRepositoryToken(DelegasiEntity),
+          useValue: { find: jest.fn(async () => []) },
+        },
       ],
     }).compile();
 

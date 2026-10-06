@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -254,10 +255,12 @@ export class SuratDinasEksternalService {
 
       if (position) {
         // Return position_text only (without organization_text) - sama seperti SDI
-        const fullName = formatDelegatedPositionText(
-          position.position_text,
-          position.position_status ?? position.positionStatus,
-        );
+        const fullName =
+          formatGmRecipientLabel(position) ??
+          formatDelegatedPositionText(
+            position.position_text,
+            position.position_status ?? position.positionStatus,
+          );
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -2408,11 +2411,13 @@ export class SuratDinasEksternalService {
       // Data sudah tersimpan di naskah dan naskah_sirkulasi
       const kepadaYthList = penerimaList.map((p) => p.nama);
       const kepadaYth = kepadaYthList.join('; ');
-      const tembusanTextList = tembusanList.map((t) =>
-        formatDelegatedPositionText(
-          t.position_text,
-          t.position_status ?? t.positionStatus,
-        ),
+      const tembusanTextList = tembusanList.map(
+        (t) =>
+          formatGmRecipientLabel(t) ??
+          formatDelegatedPositionText(
+            t.position_text,
+            t.position_status ?? t.positionStatus,
+          ),
       );
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
@@ -3515,10 +3520,43 @@ export class SuratDinasEksternalService {
             message: 'Naskah sudah final dan terkirim via konsep workflow',
           } as any,
         };
+      } else if (naskah.status === 'pending_tte' && persnum) {
+        // Finalisasi Portal TTE sedang berjalan (menunggu callback portal).
+        // Bila transaksi masih hidup → redirect ke signing_url yang sama;
+        // bila sudah terminal/expired → reset ke draf agar bisa dikirim ulang.
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahId,
+            persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          const tgl =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || '').split('T')[0];
+          return {
+            success: true,
+            data: {
+              id: naskahId,
+              jenis: 'SDE',
+              nomor: naskah.nomor || '',
+              tanggal: tgl,
+              status: naskah.status,
+              tte_redirect: {
+                transactionId: pendingTte.transactionId,
+                signingUrl: pendingTte.signingUrl,
+              },
+            } as any,
+          };
+        }
+        // Transaksi sudah mati → izinkan finalisasi ulang dari status draf.
+        naskah.status = 'draf';
       }
-      throw new BadRequestException(
-        `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
-      );
+      if (naskah.status !== 'draf') {
+        throw new BadRequestException(
+          `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
+        );
+      }
     }
 
     if (naskah.jenis !== 'SDE') {
@@ -3867,13 +3905,20 @@ export class SuratDinasEksternalService {
             order: { urutan: 'ASC', createdAt: 'ASC' },
           },
         );
-        const tembusanForPdfFinal = tembusanListForPdf.map((t) =>
-          `${
-            delegatedRecipientFields({
-              position_text: t.positionText,
-              position_status: t.positionStatus,
-            }).positionText
-          } ${t.organizationText}`.trim(),
+        const tembusanForPdfFinal = tembusanListForPdf.map(
+          (t) =>
+            formatGmRecipientLabel({
+              ...barisData.find(
+                (row) => String(row.position) === String(t.position),
+              ),
+              ...t,
+            }) ??
+            `${
+              delegatedRecipientFields({
+                position_text: t.positionText,
+                position_status: t.positionStatus,
+              }).positionText
+            } ${t.organizationText}`.trim(),
         );
 
         // Get lampiran files for merging
@@ -5334,7 +5379,9 @@ export class SuratDinasEksternalService {
           tembusan:
             tembusanList.length > 0
               ? tembusanList.map(
-                  (t) => `${t.position_text} ${t.organization_text}`,
+                  (t) =>
+                    formatGmRecipientLabel(t) ??
+                    `${t.position_text} ${t.organization_text}`,
                 )
               : [],
           perihal: perihal,

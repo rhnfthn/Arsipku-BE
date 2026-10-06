@@ -210,8 +210,10 @@ export class GeneratePdfBlankoVerbalService {
       <td style="vertical-align:top;">${slot(4)}</td>
     </tr>
     <tr>
-      <td colspan="3" class="footer-note">Setelah selesai di proses, harap diteruskan kepada (unit yang membidangi hukum)</td>
-      <td class="catatan-cell">Catatan : ${data.catatan || ''}</td>
+      <td colspan="4" class="footer-note">Setelah selesai di proses, harap diteruskan kepada (unit yang membidangi hukum)</td>
+    </tr>
+    <tr>
+      <td colspan="4" class="catatan-cell">Catatan : ${data.catatan || ''}</td>
     </tr>
   </table>
 </div>

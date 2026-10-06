@@ -108,6 +108,11 @@ export class CreateDraftKonsepDto {
   @IsString({ each: true })
   lampiran_temp_ids?: string[]; // RECOMMENDED: Array of lampiran IDs dari POST /upload-temporary-konsep
 
+  /** Keterangan lampiran pada naskah, terpisah dari daftar file. */
+  @IsOptional()
+  @IsString()
+  lampiran_text?: string;
+
   // ============ PENERIMA SURAT FINAL ============
 
   @IsOptional()
@@ -283,6 +288,11 @@ export class UpdateDraftKonsepDto {
   @IsArray()
   @IsString({ each: true })
   lampiran_temp_ids?: string[];
+
+  /** Keterangan lampiran pada naskah, terpisah dari daftar file. */
+  @IsOptional()
+  @IsString()
+  lampiran_text?: string;
 
   @IsOptional()
   @IsArray()
@@ -481,6 +491,7 @@ export class GetDraftKonsepListResponseDto {
  * Response DTO untuk detail draft konsep
  */
 export class DraftKonsepDetailDataDto {
+  lampiran_text?: string;
   id_draft: string;
   jenis: 'ND' | 'SDI' | 'SDE';
   jenis_text: string;

@@ -920,6 +920,7 @@ export class DigsigDocumentService {
           organization: v.organization || null,
           organizationText: v.organization_text || null,
           abbreviation: v.abbreviation || null,
+          positionStatus: v.position_status || v.positionStatus || null,
           bodTag: v.bod_tag || null,
           isChief: v.chief === 1,
         };
