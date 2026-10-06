@@ -316,7 +316,7 @@ export class GeneratePdfSudinService {
     } else {
       if (penerimaArr.length > 1) {
         penerimaHtml =
-          "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
+          "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${extractPositionText(item)}</li>`;
         });
@@ -327,17 +327,18 @@ export class GeneratePdfSudinService {
     }
 
     // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
-    // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
+    // Nomor hanya untuk daftar yang memuat lebih dari satu penerima.
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       tembusanHtml = 'Please See Attached Address List';
-    } else if (tembusanArr.length > 0) {
-      tembusanHtml =
-        "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+    } else if (tembusanArr.length > 1) {
+      tembusanHtml = "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
       tembusanArr.forEach((item) => {
         tembusanHtml += `<li>${extractPositionText(item)}</li>`;
       });
       tembusanHtml += '</ol>';
+    } else if (tembusanArr.length === 1) {
+      tembusanHtml = extractPositionText(tembusanArr[0]);
     }
 
     // Tembusan section English
@@ -347,7 +348,7 @@ export class GeneratePdfSudinService {
         <table style="width:100%;margin-top:20px;">
           <tbody>
             <tr>
-              <td style="vertical-align:top;">Copy to:<br>${tembusanHtml}</td>
+              <td style="vertical-align:top;padding:0;">Copy to:<br>${tembusanHtml}</td>
             </tr>
           </tbody>
         </table>`;
@@ -369,6 +370,7 @@ export class GeneratePdfSudinService {
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
             <td style='font-size:9px; text-align:left;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
+          <tr><td colspan='3' style='font-size:2px;'>&nbsp;</td></tr>
         </tbody>
       </table>
     `;
@@ -407,7 +409,7 @@ export class GeneratePdfSudinService {
                   <tr>
                     <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
                       Dear,<br>
-                      <div style="width:55%;">
+                      <div style="width:100%;margin:0;padding:0;">
                         ${penerimaHtml}
                       </div>
                     </td>
@@ -799,7 +801,7 @@ export class GeneratePdfSudinService {
       // <= 5 items, tampilkan semua normal
       if (penerimaArr.length > 1) {
         penerimaHtml =
-          "<ol style='margin-top:0px;margin-left:0px;margin-bottom:0px;padding-left:25px;'>";
+          "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
         penerimaArr.forEach((item) => {
           penerimaHtml += `<li>${item}</li>`;
         });
@@ -810,18 +812,19 @@ export class GeneratePdfSudinService {
     }
 
     // Process tembusan
-    // Selalu pakai nomor (1. 2. ...) meski hanya 1 item
+    // Nomor hanya untuk daftar yang memuat lebih dari satu penerima.
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
       // Jika tembusan > 5, ganti dengan "Periksa Alamat Terlampir"
       tembusanHtml = 'Periksa Alamat Terlampir';
-    } else if (tembusanArr.length > 0) {
-      tembusanHtml =
-        "<ol style='margin-top:0px;margin-left:0px;padding-left:25px;'>";
+    } else if (tembusanArr.length > 1) {
+      tembusanHtml = "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
       tembusanArr.forEach((item) => {
         tembusanHtml += `<li>${item}</li>`;
       });
       tembusanHtml += '</ol>';
+    } else if (tembusanArr.length === 1) {
+      tembusanHtml = tembusanArr[0];
     }
 
     // Tembusan section (only show if tembusan exists)
@@ -831,7 +834,7 @@ export class GeneratePdfSudinService {
         <table style="width:100%;margin-top:20px;">
           <tbody>
             <tr>
-              <td style="vertical-align:top;">Tembusan Yth:<br>${tembusanHtml}</td>
+              <td style="vertical-align:top;padding:0;">Tembusan Yth:<br>${tembusanHtml}</td>
             </tr>
           </tbody>
         </table>`;
@@ -853,6 +856,7 @@ export class GeneratePdfSudinService {
             <td width='65%' style='vertical-align:bottom;'><b style='font-size:18px;'>AirNav Indonesia</b></td>
             <td style='font-size:9px; text-align:left;'>${headerKantor}<br>${headerGedung}<br>${headerAlamat}</td>
           </tr>
+          <tr><td colspan='3' style='font-size:2px;'>&nbsp;</td></tr>
         </tbody>
       </table>
     `;
@@ -891,7 +895,7 @@ export class GeneratePdfSudinService {
                   <tr>
                     <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
                       Kepada Yth.<br>
-                      <div style="width:55%;">
+                      <div style="width:100%;margin:0;padding:0;">
                         ${penerimaHtml}<br>
                         Di Tempat
                       </div>

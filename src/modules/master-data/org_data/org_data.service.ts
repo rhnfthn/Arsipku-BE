@@ -170,6 +170,8 @@ export class OrgDataService {
     nama: string;
     jabatan: string;
     bodTag: string;
+    positionStatus?: string;
+    abbreviation?: string;
   }> {
     void company;
     // rows = OrgDatum[] (findAll, createAt DESC). BOD bukan kolom OrgDatum —
@@ -207,6 +209,8 @@ export class OrgDataService {
         nama: x.persnum_person_text || '',
         jabatan: x.position_text || '',
         bodTag: String(x.bod_tag || '').toUpperCase().trim(),
+        ...(x.position_status || x.positionStatus ? { positionStatus: x.position_status || x.positionStatus } : {}),
+        ...(x.abbreviation ? { abbreviation: x.abbreviation } : {}),
       }))
       .sort((a, b) => rankBod(a.jabatan) - rankBod(b.jabatan) || a.jabatan.localeCompare(b.jabatan));
   }

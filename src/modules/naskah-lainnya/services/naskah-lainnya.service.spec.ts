@@ -2439,6 +2439,44 @@ describe('NaskahLainnyaService', () => {
     expect(andWhereCalls.some((s) => s.includes('MIN(a2.urutan)'))).toBe(false);
   });
 
+  it.each([
+    ' per.007 ', 'pengadaan', 'konseptor budi', 'staf teknik',
+    'pejabat ani', 'direktur operasi', 'PER', 'legal drafting', '2026-08-18',
+  ])('getList: search %s mencakup nomor, identitas dan kolom tabel', async (search) => {
+    const qb = makeQb([
+      {
+        id: 'n-search', nomor: 'PER.007', jenis: 'PER',
+        perihal: 'Pengadaan Peralatan', tahapan: 'legal_drafting',
+        dikirimOleh: { nama: 'Konseptor Budi', position_text: 'Staf Teknik' },
+        tanggal: new Date('2026-08-18'), createdAt: new Date('2026-08-18'),
+      },
+      {
+        id: 'n-other', nomor: 'KEP.008', jenis: 'KEP',
+        perihal: 'Anggaran', tahapan: 'selesai',
+        dikirimOleh: { nama: 'Konseptor Citra', position_text: 'Staf Keuangan' },
+        tanggal: new Date('2026-08-19'), createdAt: new Date('2026-08-19'),
+      },
+    ]);
+    (svc as any).naskahRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+    (svc as any).approvalRepo.find.mockResolvedValue([
+      {
+        naskahId: 'n-search', tahap: 'persetujuan', positionId: 'DIR_OP',
+        nama: 'Pejabat Ani', jabatan: 'Direktur Operasi', urutan: 1,
+      },
+    ]);
+    const result = await svc.getList({ search }, {
+      positionId: 'AUTHOR', persnum: 123,
+    } as any);
+    expect(result.data.map((item) => item.id)).toEqual(['n-search']);
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('JSON_EXTRACT(n.dikirim_oleh'),
+      expect.objectContaining({ posId: 'AUTHOR', persnum: 123 }),
+    );
+    expect(qb.andWhere).not.toHaveBeenCalledWith(
+      'n.perihal LIKE :s', expect.anything(),
+    );
+  });
+
   it('getList: legal-role user → exclude legal_drafting & blanko_verbal dari Daftar', async () => {
     const legalRole = ((await svc) as any).legalRoleService as any;
     legalRole.getActivePositionIds.mockResolvedValue(['POS_LEGAL']);
@@ -3660,7 +3698,14 @@ describe('NaskahLainnyaService', () => {
 
     const res = await svc.kirimLembarPersetujuanDireksi(
       'n-sheet',
-      { perihal: 'p', bodyHtml: '<p>LPD</p>' } as any,
+      {
+        perihal: 'p',
+        bodyHtml: '<p>LPD</p>',
+        diketahuiOleh: [
+          { positionId: 'POS_DIR1', nama: 'Direktur Satu' },
+          { positionId: 'POS_DIR2', nama: 'Direktur Dua' },
+        ],
+      } as any,
       { nama: 'Pemrakarsa', positionText: 'Kabag' } as any,
     );
 
@@ -4102,7 +4147,14 @@ describe('NaskahLainnyaService', () => {
 
     const res = await svc.kirimBlankoVerbal(
       'n-sheet',
-      { perihal: 'p', bodyHtml: '<p>Blanko</p>' } as any,
+      {
+        perihal: 'p',
+        bodyHtml: '<p>Blanko</p>',
+        diketahuiOleh: [
+          { positionId: 'POS_DIR1', nama: 'Direktur Satu' },
+          { positionId: 'POS_DIR2', nama: 'Direktur Dua' },
+        ],
+      } as any,
       {
         nama: 'Legal',
         positionId: 'POS_LEGAL',
@@ -4714,31 +4766,107 @@ describe('NaskahLainnyaService', () => {
     ]);
   });
 
-  it('keputusanEvaluasi selalu langsung menuju blanko walau payload lama masih mengirim penerima', async () => {
+  it.each(['evaluasi', 'evaluasi_final'])(
+    'keputusanEvaluasi %s meneruskan kepada penerima yang dipilih',
+    async (stage) => {
+      (svc as any).naskahRepo.findOne.mockResolvedValue({
+        id: 'n-eval-direct-blanko',
+        tanggal: new Date('2026-08-31'),
+        tahapan: stage,
+      });
+      (svc as any).approvalRepo.find.mockResolvedValue([
+        {
+          id: 'evp-active',
+          tahap: stage,
+          positionId: '200',
+          nama: 'EVP Operasi',
+          jabatan: 'EVP',
+          urutan: 1,
+          status: 'waiting',
+        },
+      ]);
+      orgDataMock.getManagerialSameUnit.mockClear();
+      orgDataMock.getManagerialSameUnit.mockResolvedValueOnce({
+        data: [
+          {
+            position: '300',
+            persnum_person_text: 'Penerima Resmi',
+            position_text: 'VP',
+            position_status: 'PT',
+          },
+        ],
+      } as any);
+      const txManager = {
+        save: jest.fn((entity) => entity),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      (svc as any).dataSource.transaction.mockImplementationOnce((cb: any) =>
+        cb(txManager),
+      );
+      jest
+        .spyOn(svc as any, 'publishWorkflowUpdate')
+        .mockResolvedValueOnce(undefined);
+      jest
+        .spyOn(svc, 'getDetail')
+        .mockResolvedValueOnce({ success: true } as any);
+
+      await svc.keputusanEvaluasi(
+        'n-eval-direct-blanko',
+        {
+          keputusan: 'lanjut_persetujuan',
+          penerimaPertama: {
+            positionId: '300',
+            nama: 'Penerima Lama',
+            jabatan: 'VP',
+          },
+        },
+        { nama: 'EVP Operasi', positionId: '200' } as any,
+      );
+
+      expect(orgDataMock.getManagerialSameUnit).toHaveBeenCalledWith(200);
+      expect(txManager.update).toHaveBeenCalledWith(
+        NaskahEntity,
+        expect.anything(),
+        { tahapan: 'persetujuan_lanjutan' },
+      );
+      expect(txManager.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tahap: 'persetujuan_lanjutan',
+          positionId: '300',
+          nama: 'Penerima Resmi',
+          jabatan: 'PT. VP',
+          status: 'waiting',
+        }),
+      );
+      expect(txManager.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keputusanEvaluasi tanpa penerima mengirim langsung ke blanko', async () => {
     (svc as any).naskahRepo.findOne.mockResolvedValue({
-      id: 'n-eval-direct-blanko',
-      tanggal: new Date('2026-08-31'),
+      id: 'eval-send',
+      tanggal: new Date(),
       tahapan: 'evaluasi',
     });
     (svc as any).approvalRepo.find.mockResolvedValue([
       {
-        id: 'evp-active',
+        id: 'evp',
         tahap: 'evaluasi',
         positionId: '200',
-        nama: 'EVP Operasi',
+        nama: 'EVP',
         jabatan: 'EVP',
         urutan: 1,
         status: 'waiting',
       },
     ]);
-    orgDataMock.getManagerialSameUnit.mockClear();
-    const txManager = {
-      save: jest.fn((entity) => entity),
+    const manager = {
+      save: jest.fn((e) => e),
       update: jest.fn(),
       delete: jest.fn(),
     };
     (svc as any).dataSource.transaction.mockImplementationOnce((cb: any) =>
-      cb(txManager),
+      cb(manager),
     );
     jest
       .spyOn(svc as any, 'publishWorkflowUpdate')
@@ -4746,33 +4874,322 @@ describe('NaskahLainnyaService', () => {
     jest
       .spyOn(svc, 'getDetail')
       .mockResolvedValueOnce({ success: true } as any);
-
     await svc.keputusanEvaluasi(
-      'n-eval-direct-blanko',
-      {
-        keputusan: 'lanjut_persetujuan',
-        penerimaPertama: {
-          positionId: '300',
-          nama: 'Penerima Lama',
-          jabatan: 'VP',
-        },
-      },
-      { nama: 'EVP Operasi', positionId: '200' } as any,
+      'eval-send',
+      { keputusan: 'lanjut_persetujuan' },
+      { positionId: '200', nama: 'EVP' } as any,
     );
-
-    expect(orgDataMock.getManagerialSameUnit).not.toHaveBeenCalled();
-    expect(txManager.update).toHaveBeenCalledWith(
+    expect(manager.update).toHaveBeenCalledWith(
       NaskahEntity,
       expect.anything(),
       { tahapan: 'blanko_verbal' },
     );
-    expect(txManager.save).not.toHaveBeenCalledWith(
+    expect(manager.save).not.toHaveBeenCalledWith(
       expect.objectContaining({ tahap: 'persetujuan_lanjutan' }),
     );
-    expect(txManager.delete).toHaveBeenCalledWith(NaskahLainnyaApprovalEntity, {
-      naskahId: 'n-eval-direct-blanko',
-      tahap: In(['persetujuan_lanjutan', 'evaluasi_final']),
+  });
+
+  it('kandidat evaluasi menggunakan posisi tanpa memasukkannya sebagai tanggal', async () => {
+    (svc as any).naskahRepo.findOne.mockResolvedValue({
+      id: 'eval-candidate',
+      tahapan: 'evaluasi_final',
     });
+    (svc as any).approvalRepo.find.mockResolvedValue([
+      {
+        id: 'evp',
+        tahap: 'evaluasi_final',
+        positionId: '200',
+        nama: 'EVP',
+        urutan: 1,
+        status: 'waiting',
+      },
+    ]);
+    orgDataMock.getManagerialSameUnit.mockClear();
+    orgDataMock.getManagerialSameUnit.mockResolvedValueOnce({
+      data: [{ position: '200' }, { position: '300' }],
+    } as any);
+    const result = await svc.getKandidatPersetujuanLanjutan('eval-candidate', {
+      positionId: '200',
+      nama: 'EVP',
+    } as any);
+    expect(orgDataMock.getManagerialSameUnit).toHaveBeenCalledWith(200);
+    expect(result.data).toEqual([{ position: '300' }]);
+  });
+
+  it('jabatan kandidat delegasi pada evaluasi dipertahankan tanpa prefix nama', () => {
+    expect(
+      (svc as any).orgRecipientPosition(
+        { position_text: 'VP Operasi', position_status: 'PH' },
+        '',
+      ),
+    ).toBe('PH. VP Operasi');
+    expect(
+      (svc as any).orgRecipientPosition(
+        { position_text: 'PH. VP Operasi', position_status: 'PH' },
+        '',
+      ),
+    ).toBe('PH. VP Operasi');
+  });
+
+  it('approval legal menempatkan prefix delegasi pada jabatan', () => {
+    const row = (svc as any).toApprovalRow(
+      {
+        id: 'legal',
+        tahap: 'legal_drafting',
+        positionId: '200',
+        nama: 'Pejabat Asli',
+        jabatan: 'VP Legal',
+        status: 'waiting',
+      },
+      new Map([['200', { nama: 'Pengganti', positionStatus: 'PT' }]]),
+    );
+    expect(row.nama).toBe('Pengganti');
+    expect(row.jabatan).toBe('PT. VP Legal');
+  });
+
+  it.each([false, true])(
+    'sheet pemrakarsa merangkap signer memerlukan direktur lain: %s',
+    async (hasOther) => {
+      const initiator = {
+        positionId: 'POS_DIR1',
+        nama: 'Direktur Satu',
+        jabatan: 'Direktur Operasi',
+      };
+      const other = {
+        positionId: 'POS_DIR2',
+        nama: 'Direktur Dua',
+        jabatan: 'Direktur Utama',
+      };
+      (svc as any).approvalRepo.find.mockResolvedValue([]);
+      const promise = (svc as any).getSheetDirectorGroups(
+        '10000',
+        {
+          direkturPemrakarsa: [initiator],
+          ditetapkanOleh: [other],
+          diketahuiOleh: hasOther ? [initiator, other] : [initiator],
+        },
+        undefined,
+        undefined,
+        { id: 'sheet-validation', penandatanganChain: [initiator] },
+      );
+      if (hasOther)
+        await expect(promise).resolves.toEqual(
+          expect.objectContaining({
+            diketahuiOleh: [
+              expect.objectContaining({ positionId: 'POS_DIR1' }),
+              expect.objectContaining({ positionId: 'POS_DIR2' }),
+            ],
+          }),
+        );
+      else
+        await expect(promise).rejects.toThrow(
+          'Pilih direktur lain yang relevan',
+        );
+    },
+  );
+
+  it.each(['blanko_verbal', 'persetujuan_direksi'])(
+    '%s menolak Diketahui Oleh tanpa direktur pemrakarsa',
+    async (tahap) => {
+      const initiator = {
+        positionId: 'POS_DIR1',
+        nama: 'Direktur Satu',
+        jabatan: 'Direktur Operasi',
+      };
+      const other = {
+        positionId: 'POS_DIR2',
+        nama: 'Direktur Dua',
+        jabatan: 'Direktur Utama',
+      };
+      await expect(
+        (svc as any).getSheetDirectorGroups(
+          '10000',
+          {
+            direkturPemrakarsa: [initiator],
+            ditetapkanOleh: [other],
+            diketahuiOleh: [other],
+          },
+          tahap,
+          'sheet-required',
+        ),
+      ).rejects.toThrow('Direktur Pemrakarsa wajib ada pada Diketahui Oleh');
+    },
+  );
+
+  it.each(['blanko_verbal', 'persetujuan_direksi'])(
+    '%s default Diketahui Oleh berisi semua direktur selain penandatangan',
+    async (tahap) => {
+      const directors = [
+        {
+          positionId: 'POS_DIR1',
+          nama: 'Direktur Satu',
+          jabatan: 'Direktur Operasi',
+        },
+        {
+          positionId: 'POS_DIR2',
+          nama: 'Direktur Dua',
+          jabatan: 'Direktur Utama',
+        },
+        {
+          positionId: 'POS_DIR3',
+          nama: 'Direktur Tiga',
+          jabatan: 'Direktur Keuangan',
+        },
+        {
+          positionId: 'POS_DIR4',
+          nama: 'Direktur Empat',
+          jabatan: 'Direktur SDM',
+        },
+      ];
+      jest.spyOn(svc as any, 'getBodDirectors').mockResolvedValue(directors);
+      (svc as any).approvalRepo.find.mockResolvedValue([]);
+      const result = await (svc as any).getSheetDirectorGroups(
+        '10000',
+        {
+          direkturPemrakarsa: [directors[0]],
+          ditetapkanOleh: [directors[1]],
+        },
+        tahap,
+        'sheet-default',
+        {
+          id: 'sheet-default',
+          penandatanganChain: [directors[1], directors[2]],
+        },
+      );
+      expect(
+        result.diketahuiOleh.map((director: any) => director.positionId),
+      ).toEqual(['POS_DIR1', 'POS_DIR4']);
+    },
+  );
+
+  it.each([
+    ['kirimBlankoVerbal', 'blanko_verbal'],
+    ['kirimLembarPersetujuanDireksi', 'persetujuan_direksi'],
+  ])(
+    '%s membuat approval hanya untuk direktur yang dipilih legal',
+    async (method, tahap) => {
+      const directors = [
+        {
+          positionId: '70016579',
+          nama: 'Direktur Utama',
+          jabatan: 'Direktur Utama',
+        },
+        {
+          positionId: '70016581',
+          nama: 'Direktur Operasi',
+          jabatan: 'Direktur Operasi',
+        },
+        {
+          positionId: '70016582',
+          nama: 'Direktur Teknik',
+          jabatan: 'Direktur Teknik',
+        },
+        {
+          positionId: '70016583',
+          nama: 'Direktur Keselamatan',
+          jabatan: 'Direktur Keselamatan',
+        },
+        {
+          positionId: '70016580',
+          nama: 'Direktur Keuangan',
+          jabatan: 'Direktur Keuangan',
+        },
+        {
+          positionId: '70016584',
+          nama: 'Direktur SDM',
+          jabatan: 'Direktur SDM dan Umum',
+        },
+      ];
+      jest.spyOn(svc as any, 'getBodDirectors').mockResolvedValue(directors);
+      jest
+        .spyOn(svc as any, 'renderSheetPdf')
+        .mockResolvedValue({ pdfUrl: 'pdf' });
+      jest
+        .spyOn(svc as any, 'publishWorkflowUpdate')
+        .mockResolvedValue(undefined);
+      jest.spyOn(svc, 'getDetail').mockResolvedValue({ success: true } as any);
+      (svc as any).naskahRepo.findOne.mockResolvedValue({
+        id: 'selected-sheet',
+        tanggal: new Date(),
+        tahapan: 'blanko_verbal',
+      });
+      (svc as any).approvalRepo.find.mockResolvedValue([]);
+      const manager = {
+        save: jest.fn((row) => row),
+        delete: jest.fn(),
+        update: jest.fn(),
+      };
+      (svc as any).dataSource.transaction.mockImplementation((callback: any) =>
+        callback(manager),
+      );
+      await (svc as any)[method](
+        'selected-sheet',
+        {
+          direkturPemrakarsa: [directors[2]],
+          ditetapkanOleh: [directors[0]],
+          diketahuiOleh: [directors[2], directors[5]],
+        },
+        { nama: 'Unit Legal' },
+      );
+      const approval = manager.save.mock.calls
+        .map(([row]) => row)
+        .filter((row) => row.tahap === tahap);
+      expect(approval.map((row) => row.positionId)).toEqual([
+        '70016582',
+        '70016584',
+      ]);
+      expect(approval.every((row) => row.status === 'pending')).toBe(true);
+      expect(manager.delete).toHaveBeenCalledWith(NaskahLainnyaApprovalEntity, {
+        naskahId: 'selected-sheet',
+        tahap,
+      });
+    },
+  );
+
+  it.each(['kirimBlankoVerbal', 'kirimLembarPersetujuanDireksi'])(
+    '%s menolak payload tanpa pilihan Diketahui Oleh daripada memakai seluruh direksi',
+    async (method) => {
+      (svc as any).naskahRepo.findOne.mockResolvedValue({
+        id: 'missing-selection',
+        tahapan: 'blanko_verbal',
+      });
+      for (const diketahuiOleh of [undefined, []]) {
+        await expect(
+          (svc as any)[method](
+            'missing-selection',
+            { diketahuiOleh },
+            { nama: 'Legal' },
+          ),
+        ).rejects.toThrow(
+          'Daftar Diketahui Oleh wajib dikirim sesuai direktur yang dipilih',
+        );
+      }
+      expect((svc as any).dataSource.transaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('Diketahui Oleh mempertahankan posisi direktur pemrakarsa saat didelegasikan', async () => {
+    const initiator = {
+      positionId: 'POS_DIR1',
+      nama: 'Direktur Satu',
+      jabatan: 'Direktur Operasi',
+    };
+    const result = await (svc as any).getSheetDirectorGroups('10000', {
+      direkturPemrakarsa: [initiator],
+      ditetapkanOleh: [{ positionId: 'POS_DIR2', nama: 'Direktur Dua' }],
+      diketahuiOleh: [
+        {
+          ...initiator,
+          nama: 'Pengganti',
+          delegator: 'PT',
+          delegatePersnum: 777,
+          delegateName: 'Pengganti',
+        },
+      ],
+    });
+    expect(result.diketahuiOleh).toEqual([
+      expect.objectContaining({ positionId: 'POS_DIR1', delegatePersnum: 777 }),
+    ]);
   });
 
   it('keputusanEvaluasi batalkan → dibatalkan dan menjadi tahap terminal', async () => {
@@ -4872,6 +5289,105 @@ describe('NaskahLainnyaService', () => {
         positionId: '200',
       } as any),
     ).rejects.toThrow('Alasan penolakan wajib diisi');
+  });
+
+  it('rantai evaluasi kembali berjenjang dan dapat diteruskan lagi saat naik', async () => {
+    const naskah = {
+      id: 'eval-chain',
+      tanggal: new Date(),
+      tahapan: 'persetujuan_lanjutan',
+    };
+    const rows: any[] = [
+      {
+        id: 'evp',
+        tahap: 'evaluasi',
+        positionId: '200',
+        nama: 'EVP',
+        jabatan: 'EVP',
+        urutan: 1,
+        status: 'verified',
+      },
+      {
+        id: 'vp',
+        tahap: 'persetujuan_lanjutan',
+        positionId: '300',
+        nama: 'VP',
+        jabatan: 'VP',
+        urutan: 1,
+        status: 'waiting',
+      },
+    ];
+    (svc as any).naskahRepo.findOne.mockResolvedValue(naskah);
+    (svc as any).approvalRepo.find.mockImplementation(async () => rows);
+    const manager = {
+      save: jest.fn((row) => {
+        if (row.positionId && !rows.some((existing) => existing.id === row.id))
+          rows.push(row);
+        return row;
+      }),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+    (svc as any).dataSource.transaction.mockImplementation(
+      async (callback: any) => callback(manager),
+    );
+    jest
+      .spyOn(svc as any, 'publishWorkflowUpdate')
+      .mockResolvedValue(undefined);
+    jest.spyOn(svc, 'getDetail').mockResolvedValue({ success: true } as any);
+    const forward = async (sender: string, receiver: string) => {
+      orgDataMock.getManagerialSameUnit.mockResolvedValueOnce({
+        data: [
+          {
+            position: receiver,
+            persnum_person_text: receiver,
+            position_text: 'Manager',
+          },
+        ],
+      } as any);
+      await svc.teruskanPersetujuan(
+        'eval-chain',
+        {
+          penerima: {
+            positionId: receiver,
+            nama: receiver,
+            jabatan: 'Manager',
+          },
+        },
+        { positionId: sender, nama: sender } as any,
+      );
+    };
+    const finish = async (positionId: string) =>
+      svc.selesaiPersetujuan('eval-chain', 'Selesai', {
+        positionId,
+        nama: positionId,
+      } as any);
+    const waiting = () =>
+      rows
+        .filter(
+          (row) =>
+            row.tahap === 'persetujuan_lanjutan' && row.status === 'waiting',
+        )
+        .map((row) => row.positionId);
+    await forward('300', '301');
+    await forward('301', '302');
+    expect(waiting()).toEqual(['302']);
+    await finish('302');
+    expect(waiting()).toEqual(['301']);
+    await forward('301', '303');
+    await finish('303');
+    expect(waiting()).toEqual(['301']);
+    await finish('301');
+    expect(waiting()).toEqual(['300']);
+    await finish('300');
+    expect(naskah.tahapan).toBe('evaluasi_final');
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        tahap: 'evaluasi_final',
+        positionId: '200',
+        status: 'waiting',
+      }),
+    );
   });
 
   it('selesaiPersetujuan mengembalikan tugas final kepada EVP awal', async () => {
