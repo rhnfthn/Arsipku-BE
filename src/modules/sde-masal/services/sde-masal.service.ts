@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   BadRequestException,
   ForbiddenException,
@@ -2821,7 +2822,7 @@ export class SdeMasalService {
         ? []
         : tembusanNames.length > 0
           ? tembusanNames
-          : tembusan.map((row) => row.positionText || row.namaSirkuler || ''),
+          : tembusan.map((row) => formatGmRecipientLabel(row) ?? row.positionText ?? row.namaSirkuler ?? ''),
       [],
       naskah.perihal || recipient.perihal || '',
       naskah.sifat || folder.sifat || 'biasa',
@@ -3668,7 +3669,7 @@ export class SdeMasalService {
       const pos = positionJson.find(
         (p) => String(p.position) === String(posId),
       );
-      return pos?.position_text || pos?.persnum_person_text || posId;
+      return (pos ? formatGmRecipientLabel(pos) : undefined) ?? pos?.position_text ?? pos?.persnum_person_text ?? posId;
     };
 
     // 1. Resolve tembusan eksternal (kode → nama).

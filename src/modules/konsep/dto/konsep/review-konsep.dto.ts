@@ -222,6 +222,11 @@ export class FinalizeKonsepDto {
   @IsString({ each: true })
   lampiran_temp_ids?: string[]; // RECOMMENDED: Array of lampiran IDs dari POST /upload-temporary-konsep
 
+  /** Keterangan lampiran pada naskah, terpisah dari daftar file. */
+  @IsOptional()
+  @IsString()
+  lampiran_text?: string;
+
   // ============ CATATAN ============
 
   @IsOptional()

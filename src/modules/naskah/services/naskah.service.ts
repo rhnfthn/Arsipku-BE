@@ -1065,6 +1065,8 @@ export class NaskahService {
             position_id: pengirimSirkulasi.position || '',
             position_text: pengirimSirkulasi.positionText || '',
             organization_text: pengirimSirkulasi.organizationText || '',
+            area_text: pengirimSirkulasi.areaText || '',
+            sub_area_text: pengirimSirkulasi.subAreaText || '',
             nama: pengirimSirkulasi.namaSirkuler || null,
             persnum: pengirimSirkulasi.idSirkuler
               ? parseInt(pengirimSirkulasi.idSirkuler, 10) || 0

@@ -17,6 +17,7 @@ import { NaskahLabelEntity } from '../../label/entities/naskah-label.entity';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { OrgDataService } from 'src/modules/master-data/org_data/org_data.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import {
   GetDraftListResponseDto,
   DraftListItemDto,
@@ -113,6 +114,7 @@ export class DraftService {
     private readonly meilisearchSyncService: MeilisearchSyncService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly orgDataService: OrgDataService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   /**
@@ -967,6 +969,8 @@ export class DraftService {
 
       // Bust cache list draft user supaya item yang dihapus tidak muncul lagi
       this.invalidateDraftListCache(positionId);
+      // Realtime: refresh badge count draf di sidebar posisi ini
+      this.realtimeEmitService.emitDraftChanged(positionId, 'korespondensi');
 
       return {
         success: true,
@@ -1041,6 +1045,8 @@ export class DraftService {
 
     // Bust cache list draft user — naskah ini sudah pindah dari draf ke final_tte
     this.invalidateDraftListCache(positionId);
+    // Realtime: refresh badge count draf di sidebar posisi ini
+    this.realtimeEmitService.emitDraftChanged(positionId, 'korespondensi');
 
     return {
       success: true,
@@ -1150,6 +1156,8 @@ export class DraftService {
         // Bust cache list draft user — beberapa item sudah dihapus
         if (totalDeleted > 0) {
           this.invalidateDraftListCache(positionId);
+          // Realtime: refresh badge count draf di sidebar posisi ini
+          this.realtimeEmitService.emitDraftChanged(positionId, 'korespondensi');
         }
       }
     }

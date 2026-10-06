@@ -1103,7 +1103,7 @@ export class DisposisiController {
         basePositionText,
         body.penandatangan || '',
       );
-      body.pengirim = basePositionText; // header PDF: plain delegator jabatan
+      body.pengirim = _pf.positionText; // header PDF: jabatan dengan prefix delegasi
       body.penandatangan = _pf.namaSirkuler; // delegate name (saat delegated)
 
       // Helper function untuk format tanggal ke DD-MM-YYYY
@@ -1261,6 +1261,9 @@ export class DisposisiController {
           tanggalDisposisi: formattedDate,
           catatan: dto.catatan || '',
           signOption: dto.sign_option,
+          // Jabatan pembuat: position_text LENGKAP (tanpa dipotong ' - ') —
+          // identik dengan preview FE (user.positionText).
+          jabatanPembuat: pengirimName,
         },
       );
 
@@ -1510,6 +1513,9 @@ export class DisposisiController {
           tanggalDisposisi: formattedDate,
           isFinal: dto.final_pdf === 'true' || dto.final_pdf === '1',
           catatan: dto.catatan || '',
+          // Jabatan pembuat: position_text LENGKAP (tanpa dipotong ' - ') —
+          // identik dengan preview FE (user.positionText).
+          jabatanPembuat: pengirimName,
         },
       );
 

@@ -41,4 +41,17 @@ describe('formatDeputyPositionLabel', () => {
       }),
     ).toBe('General Manager');
   });
+
+  it('keeps the delegation prefix when formatting the PDF position label', () => {
+    expect(
+      formatDeputyPositionLabel({
+        position_text:
+          'Deputy General Manager Perencanaan dan Evaluasi Operasi',
+        area_text: 'Cabang MATSC',
+        position_status: 'PT',
+      }),
+    ).toBe(
+      'PT. Deputy General Manager Perencanaan dan Evaluasi Operasi - Cabang MATSC',
+    );
+  });
 });
