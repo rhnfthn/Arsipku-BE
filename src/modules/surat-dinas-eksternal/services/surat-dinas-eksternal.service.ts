@@ -92,6 +92,7 @@ const formatLampiranCount = (
   fallback?: string,
   english = false,
 ): string | undefined => {
+  if (fallback?.trim() && fallback.trim() !== '-') return fallback;
   if (count <= 0) return fallback;
   if (english) return `${count} ${count === 1 ? 'Attachment' : 'Attachments'}`;
   return `${count} Lampiran`;
@@ -385,7 +386,7 @@ export class SuratDinasEksternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
-    headerInfo?: { kantor: string; gedung: string; alamat: string },
+    headerInfo?: { kantor: string; gedung: string; alamat: string; kota?: string },
     english: boolean = false,
     atasNama: string = '',
     lampiranDirectRefs: Array<{ fileName: string; key: string }> = [],
@@ -398,7 +399,11 @@ export class SuratDinasEksternalService {
 
       if (lampiranTempIds && lampiranTempIds.length > 0) {
         lampiranFiles = await this.getTemporaryLampiranFiles(lampiranTempIds);
-        if (lampiranFiles && lampiranFiles.length > 0) {
+        if (
+          lampiranFiles &&
+          lampiranFiles.length > 0 &&
+          (!lampiran.trim() || lampiran.trim() === '-')
+        ) {
           // Auto-fill lampiran field with count format (e.g., "1 Lampiran", "2 Lampiran" or "1 Attachment")
           const count = lampiranFiles.length;
           lampiranText = english
@@ -415,7 +420,10 @@ export class SuratDinasEksternalService {
             filePath: ref.key,
           })),
         ];
-        if (lampiranFiles.length > 0) {
+        if (
+          lampiranFiles.length > 0 &&
+          (!lampiran.trim() || lampiran.trim() === '-')
+        ) {
           lampiranText = english
             ? `${lampiranFiles.length} Attachment${lampiranFiles.length > 1 ? 's' : ''}`
             : `${lampiranFiles.length} Lampiran`;
@@ -433,7 +441,7 @@ export class SuratDinasEksternalService {
       let pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
         penerima: penerima,
-        nama_tempat: namaTempat,
+        nama_tempat: headerInfo?.kota || namaTempat,
         tanggal: tanggal,
         positionText: namaJabatan,
         namaLengkap: namaLengkap,
@@ -2757,7 +2765,11 @@ export class SuratDinasEksternalService {
 
         // Format lampiran text
         const lampiranText =
-          formatLampiranCount(lampiranFileNames.length, '', dto.english) || '';
+          formatLampiranCount(
+            lampiranFileNames.length,
+            dto.lampiran,
+            dto.english,
+          ) || '';
 
         // Return response
         return {
@@ -3351,7 +3363,7 @@ export class SuratDinasEksternalService {
     });
     const lampiranText = formatLampiranCount(
       lampiranList.length,
-      undefined,
+      naskah.lampiran,
       naskah.english,
     );
 
@@ -4364,7 +4376,7 @@ export class SuratDinasEksternalService {
     });
     const lampiranText = formatLampiranCount(
       lampiranList.length,
-      undefined,
+      naskah.lampiran,
       naskah.english,
     );
 
@@ -5138,7 +5150,8 @@ export class SuratDinasEksternalService {
         konten: konten,
         status: 'final',
         lampiran:
-          totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined,
+          dto.lampiran ??
+          (totalLampiranCount > 0 ? `${totalLampiranCount} file` : undefined),
         english: dto.english || false,
       });
 
@@ -5183,7 +5196,7 @@ export class SuratDinasEksternalService {
         headerInfo?.alamat ||
         DEFAULT_ALAMAT_PERUSAHAAN;
       const namaTempat =
-        dto.nama_tempat || headerInfo?.gedung || pengirim.sub_area_text || '';
+        headerInfo?.kota || dto.nama_tempat || pengirim.sub_area_text || '';
       const namaJabatan =
         delegatedRecipientFields({
           ...pengirim,
@@ -5392,11 +5405,12 @@ export class SuratDinasEksternalService {
           }),
           positionText: namaJabatan,
           namaLengkap: namaLengkap,
-          nama_tempat: namaTempat,
+          nama_tempat: headerInfo?.kota || namaTempat,
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,
           headerAlamat: headerInfo?.alamat,
           sifat: dto.sifat,
+          lampiran: dto.lampiran || formatLampiranCount(totalLampiranCount),
           // English format flag
           english: dto.english === true,
         });
