@@ -12,6 +12,7 @@ export function isDivisionSecretary(
         positionStatus?: string | null;
         positionText?: string | null;
         tuRoles?: string[] | null;
+        active_profile?: string | null;
       }
     | null
     | undefined,
@@ -29,5 +30,9 @@ export function isDivisionSecretary(
   // while the legacy JWT still contains YBS/null in position_status.
   if (/^\s*SE(?:\.|\s|$)/i.test(String(user?.positionText ?? ''))) return true;
 
-  return Array.isArray(user?.tuRoles) && user.tuRoles.includes('sekretaris');
+  return (
+    Array.isArray(user?.tuRoles) &&
+    user.tuRoles.includes('sekretaris') &&
+    (user?.active_profile == null || user.active_profile === 'sekretaris')
+  );
 }

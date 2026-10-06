@@ -7,7 +7,22 @@ describe('isDivisionSecretary', () => {
 
   it('supports legacy secretary assignments', () => {
     expect(isDivisionSecretary({ tuRoles: ['sekretaris'] })).toBe(true);
+    expect(
+      isDivisionSecretary({
+        active_profile: 'sekretaris',
+        tuRoles: ['sekretaris'],
+      }),
+    ).toBe(true);
     expect(isDivisionSecretary({ positionText: 'SE. EVP of Technology' })).toBe(true);
+  });
+
+  it('hides the workspace while the original profile is active', () => {
+    expect(
+      isDivisionSecretary({
+        active_profile: 'akun_asli',
+        tuRoles: ['sekretaris'],
+      }),
+    ).toBe(false);
   });
 
   it('rejects managerial and non-secretary users', () => {

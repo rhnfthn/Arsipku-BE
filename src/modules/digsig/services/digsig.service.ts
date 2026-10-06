@@ -16,11 +16,13 @@ import { NaskahEntity } from '../../../shared/entities/naskah.entity';
 import { NaskahSirkulasi } from '../../../shared/entities/naskah_sirkulasi.entity';
 import { Session } from '../../auth/entities/session.entity';
 import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
+import { TransferActiveToInactiveService } from '../../transfer-active-to-inactive/services/transfer-active-to-inactive.service';
 import {
   formatSignatureData,
   generateSignatureId,
 } from '../../../common/helpers/signature.helper';
 import { QRCodeService, QRCodeData } from './qrcode.service';
+import { PdfQrEmbedService } from './pdf-qr-embed.service';
 import { DigsigLogService } from './digsig-log.service';
 import { GeneratePdfNodinService } from '../../generate_pdf/services/generate_pdf_nodin.service';
 import { GeneratePdfSudinService } from '../../generate_pdf/services/generate_pdf_sudin.service';
@@ -143,6 +145,7 @@ export class DigsigService {
   constructor(
     private readonly storageService: StorageService,
     private readonly qrCodeService: QRCodeService,
+    private readonly pdfQrEmbedService: PdfQrEmbedService,
     private readonly digsigLogService: DigsigLogService,
     private readonly generatePdfNodinService: GeneratePdfNodinService,
     private readonly generatePdfSudinService: GeneratePdfSudinService,
@@ -159,6 +162,7 @@ export class DigsigService {
     private readonly naskahSirkulasiRepository: Repository<NaskahSirkulasi>,
     @InjectRepository(TransferActiveToInactiveEntity)
     private readonly transferRepository: Repository<TransferActiveToInactiveEntity>,
+    private readonly transferActiveToInactiveService: TransferActiveToInactiveService,
   ) {}
 
   /**
@@ -842,6 +846,9 @@ export class DigsigService {
         'Berita Acara belum di-generate. Klik "Generate BAC" terlebih dahulu',
       );
     }
+    if (transfer.bacSignedAt) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
 
     // Validasi: hanya pejabat pihak pertama BAC yang boleh TTE
     if (
@@ -880,14 +887,78 @@ export class DigsigService {
       jenisNaskah: 'BAC',
     });
 
-    // 4. Update beritaAcaraUrl ke signed PDF (key hasil upload BSrE)
-    const signedKey = (response as any)?.name_doc;
+    // 4. BSrE mengembalikan key file signed di data.name_doc (adapter v2),
+    // bukan selalu di root response. Gunakan key aktual agar QR dan preview
+    // tidak menunjuk kembali ke PDF BAC sebelum TTE.
+    const signedKey =
+      (response as any)?.signed_file_path ??
+      (response as any)?.data?.name_doc?.[0] ??
+      (response as any)?.name_doc?.[0] ??
+      null;
+    let finalSignedKey = signedKey;
+
+    // BSrE memberi tanda tangan digital, sedangkan QR verifikasi adalah bagian
+    // dari alur ArsipKu. Sematkan QR ke PDF hasil BSrE seperti alur naskah
+    // digital lain, lalu simpan PDF finalnya sebagai object baru.
     if (signedKey) {
-      transfer.beritaAcaraUrl = `transfer-active-to-inactive/bac-signed/${signedKey}`;
+      try {
+        const signedAt = new Date().toISOString();
+        const signatureId = generateSignatureId();
+        const qrData: QRCodeData = {
+          signature_id: signatureId,
+          document_number:
+            transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+          signed_at: signedAt,
+          signer_name: transfer.bacPihakPertamaName || user.nama || 'Penandatangan',
+          signer_jabatan: transfer.bacPihakPertamaJabatan || 'Pejabat Pihak Pertama',
+          document_type: 'Berita Acara Pemindahan Arsip',
+          verification_url: `${VERIFICATION_BASE_URL}/${signatureId}`,
+        };
+        const signedBuffer = await this.storageService.getFile(signedKey);
+        const qrResult = await this.pdfQrEmbedService.embedQRCodeToPdf(
+          signedBuffer,
+          qrData,
+          // Kolom tanda tangan Pihak Pertama berada di sisi kiri BAC.
+          // Jangan memakai posisi default 2/3 halaman karena QR dapat masuk
+          // ke area Pihak Kedua.
+          {
+            // Letakkan pada halaman tanda tangan terakhir. BAC tetap satu
+            // halaman pada kondisi normal, tetapi ini aman bila teks meluber
+            // menjadi dua halaman.
+            useLastPage: true,
+            useFixedPosition: true,
+            fixedX: 74,
+            fixedY: 86,
+            qrSize: 82,
+          },
+        );
+        if (qrResult.success) {
+          const qrUpload = await this.storageService.uploadBuffer(
+            qrResult.pdfBuffer,
+            `BAC-${transfer.nomorUsulan}-signed.pdf`,
+            'application/pdf',
+            'transfer-active-to-inactive/bac-signed',
+          );
+          finalSignedKey = qrUpload.key;
+          transfer.bacSignatureQr = await this.qrCodeService.generateQRCodeBase64(qrData);
+        }
+      } catch (qrError) {
+        // TTE tetap dianggap berhasil bila BSrE sudah mengembalikan PDF.
+        // Simpan versi BSrE sebagai fallback agar dokumen tidak hilang.
+        console.error('[DigsigService] Gagal menyematkan QR BAC:', qrError);
+      }
+    }
+
+    if (finalSignedKey) {
+      transfer.beritaAcaraUrl = finalSignedKey;
     }
     transfer.bacSignedAt = new Date();
     transfer.bacSignedBy = Number(user.persnum);
     await this.transferRepository.save(transfer);
+    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+      transfer.id,
+      user,
+    );
 
     return {
       message: 'Berita Acara berhasil ditandatangani dengan BSrE',
@@ -898,6 +969,315 @@ export class DigsigService {
         signed_at: new Date().toISOString(),
         signer_nik: nik,
         path: transfer.beritaAcaraUrl,
+      },
+    };
+  }
+
+  /**
+   * Tandatangani BAC dengan QR internal.
+   * QR ditempel ke PDF BAC hasil generate sehingga sekretaris, atasan, dan
+   * halaman penandatangan selalu membaca file final yang sama.
+   */
+  async signBacQr(
+    transferId: string,
+    user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Penandatanganan BAC hanya dapat dilakukan oleh EVP dan jabatan di atasnya',
+      );
+    }
+
+    const transfer = await this.transferRepository.findOne({
+      where: { id: transferId },
+    });
+    if (!transfer) {
+      throw new NotFoundException(
+        `Usulan pemindahan dengan ID ${transferId} tidak ditemukan`,
+      );
+    }
+    if (!transfer.beritaAcaraUrl || transfer.beritaAcaraUrl.endsWith('/berita-acara.pdf')) {
+      throw new BadRequestException(
+        'Berita Acara belum di-generate. Klik "Generate BAC" terlebih dahulu',
+      );
+    }
+    if (transfer.bacSignedAt) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
+    if (
+      transfer.bacPihakPertamaPersnum &&
+      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+    ) {
+      throw new BadRequestException(
+        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+      );
+    }
+    if (/^(https?:\/\/|\/)/i.test(transfer.beritaAcaraUrl)) {
+      throw new BadRequestException(
+        'PDF BAC lama tidak dapat ditandatangani. Generate ulang BAC terlebih dahulu',
+      );
+    }
+
+    const signedAt = new Date();
+    const signatureId = generateSignatureId();
+    const qrData: QRCodeData = {
+      signature_id: signatureId,
+      document_number: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      signed_at: signedAt.toISOString(),
+      signer_name: transfer.bacPihakPertamaName || user.nama || 'Penandatangan',
+      signer_jabatan: transfer.bacPihakPertamaJabatan || 'Pejabat Pihak Pertama',
+      document_type: 'Berita Acara Pemindahan Arsip',
+      verification_url: `${VERIFICATION_BASE_URL}/${signatureId}`,
+    };
+
+    // QR dirender melalui anchor template BAC setelah label Ttd dan sebelum
+    // nama jabatan Pihak Pertama. Ini menghindari posisi QR yang bergeser
+    // ketika PDF diberi koordinat berdasarkan halaman secara global.
+    const qrCodeDataUrl = await this.qrCodeService.generateQRCodeBase64(qrData);
+    const upload = await this.transferActiveToInactiveService.generateSignedBacPdfWithQr(
+      transferId,
+      qrCodeDataUrl,
+    );
+    transfer.beritaAcaraUrl = upload.key;
+    transfer.bacSignatureQr = qrCodeDataUrl;
+    transfer.bacSignedAt = signedAt;
+    transfer.bacSignedBy = Number(user.persnum);
+    await this.transferRepository.save(transfer);
+
+    await this.digsigLogService.logSignActivity({
+      userPersnum: Number(user.persnum),
+      userName: user.nama,
+      idNaskah: transfer.id,
+      nomorNaskah: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      jenisNaskah: 'BAC',
+      apiEndpoint: '/digsig/bac/:transferId/sign-qr',
+      status: 'sukses',
+      note: 'BAC ditandatangani dengan QR internal',
+    });
+    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+      transfer.id,
+      user,
+    );
+
+    return {
+      message: 'Berita Acara berhasil ditandatangani dengan QR',
+      data: {
+        status: 'success',
+        message: 'QR BAC berhasil dibuat',
+        signature_id: signatureId,
+        signed_file_path: upload.key,
+      },
+      signature_metadata: {
+        type: 'qr_only',
+        doc_id: null,
+        signed_at: signedAt.toISOString(),
+        signer_nik: String(transfer.bacPihakPertamaPersnum || user.persnum),
+        path: upload.key,
+      },
+    };
+  }
+
+  /**
+   * Perbaiki BAC QR yang sudah tersimpan dengan layout lama.
+   * File lama ditempatkan ulang ke template BAC yang sama, dengan urutan
+   * slot tanda tangan: Pihak Pertama -> QR -> jabatan.
+   */
+  async repairBacQrLayout(
+    transferId: string,
+    user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    const transfer = await this.transferRepository.findOne({
+      where: { id: transferId },
+    });
+    if (!transfer) {
+      throw new NotFoundException(
+        `Usulan pemindahan dengan ID ${transferId} tidak ditemukan`,
+      );
+    }
+    if (!transfer.bacSignedAt) {
+      throw new BadRequestException('BAC belum ditandatangani');
+    }
+    if (
+      !transfer.beritaAcaraUrl ||
+      !/qr-signed/i.test(transfer.beritaAcaraUrl)
+    ) {
+      throw new BadRequestException(
+        'Perbaikan ini hanya berlaku untuk BAC yang ditandatangani dengan QR',
+      );
+    }
+    const userPersnum = Number(user.persnum);
+    const isBacSigner =
+      !!transfer.bacPihakPertamaPersnum &&
+      Number(transfer.bacPihakPertamaPersnum) === userPersnum;
+    const isAssignedManager = [
+      transfer.atasanPersnum,
+      transfer.approvedBy,
+      transfer.finalVerifiedBy,
+    ].some((persnum) => Number(persnum) === userPersnum);
+    if (!isBacSigner && !isAssignedManager) {
+      throw new ForbiddenException(
+        'Perbaikan layout BAC hanya dapat dilakukan oleh pejabat penandatangan atau atasan managerial yang ditugaskan',
+      );
+    }
+    if (
+      /qr-signed-layout-v6\.pdf$/i.test(transfer.beritaAcaraUrl) &&
+      transfer.bacSignatureQr
+    ) {
+      return {
+        message: 'Layout BAC QR sudah sesuai',
+        data: {
+          status: 'already_normalized',
+          message: 'Layout BAC QR sudah sesuai',
+          signed_file_path: transfer.beritaAcaraUrl,
+        },
+        signature_metadata: {
+          type: 'qr_only',
+          doc_id: null,
+          signed_at: transfer.bacSignedAt.toISOString(),
+          signer_nik: String(
+            transfer.bacPihakPertamaPersnum || transfer.bacSignedBy || '',
+          ),
+          path: transfer.beritaAcaraUrl,
+        },
+      };
+    }
+    const signatureId = generateSignatureId();
+    const qrData: QRCodeData = {
+      signature_id: signatureId,
+      document_number: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      signed_at: transfer.bacSignedAt.toISOString(),
+      signer_name: transfer.bacPihakPertamaName || 'Penandatangan',
+      signer_jabatan:
+        transfer.bacPihakPertamaJabatan || 'Pejabat Pihak Pertama',
+      document_type: 'Berita Acara Pemindahan Arsip',
+      verification_url: `${VERIFICATION_BASE_URL}/${signatureId}`,
+    };
+    const qrCodeDataUrl = await this.qrCodeService.generateQRCodeBase64(qrData);
+    const upload = await this.transferActiveToInactiveService.generateSignedBacPdfWithQr(
+      transferId,
+      qrCodeDataUrl,
+    );
+
+    transfer.beritaAcaraUrl = upload.key;
+    transfer.bacSignatureQr = qrCodeDataUrl;
+    await this.transferRepository.save(transfer);
+
+    await this.digsigLogService.logSignActivity({
+      userPersnum: Number(user.persnum),
+      userName: user.nama,
+      idNaskah: transfer.id,
+      nomorNaskah: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      jenisNaskah: 'BAC',
+      apiEndpoint: '/digsig/bac/:transferId/repair-qr-layout',
+      status: 'sukses',
+      note: 'Layout QR BAC dinormalisasi ke template tanda tangan',
+    });
+
+    return {
+      message: 'Layout BAC QR berhasil diperbaiki',
+      data: {
+        status: 'success',
+        message: 'BAC QR berhasil dirender ulang',
+        signature_id: signatureId,
+        signed_file_path: upload.key,
+      },
+      signature_metadata: {
+        type: 'qr_only',
+        doc_id: null,
+        signed_at: transfer.bacSignedAt.toISOString(),
+        signer_nik: String(
+          transfer.bacPihakPertamaPersnum || transfer.bacSignedBy || '',
+        ),
+        path: upload.key,
+      },
+    };
+  }
+
+  /**
+   * Simpan PDF hasil scan tanda tangan basah sebagai BAC final.
+   * File asli tetap dipakai agar tanda tangan fisik benar-benar tercermin pada
+   * dokumen yang kemudian dilihat Sekretaris dan Unit Tata Naskah.
+   */
+  async signBacPhysical(
+    transferId: string,
+    file: Express.Multer.File,
+    user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Penandatanganan BAC hanya dapat dilakukan oleh EVP dan jabatan di atasnya',
+      );
+    }
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('File tanda tangan basah harus berformat PDF');
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      throw new BadRequestException('Ukuran PDF tanda tangan basah maksimal 20 MB');
+    }
+
+    const transfer = await this.transferRepository.findOne({
+      where: { id: transferId },
+    });
+    if (!transfer) {
+      throw new NotFoundException(
+        `Usulan pemindahan dengan ID ${transferId} tidak ditemukan`,
+      );
+    }
+    if (!transfer.beritaAcaraUrl) {
+      throw new BadRequestException('Berita Acara belum di-generate');
+    }
+    if (transfer.bacSignedAt) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
+    if (
+      transfer.bacPihakPertamaPersnum &&
+      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+    ) {
+      throw new BadRequestException(
+        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+      );
+    }
+
+    const upload = await this.storageService.uploadBuffer(
+      file.buffer,
+      `BAC-${transfer.nomorUsulan}-physical-signed.pdf`,
+      'application/pdf',
+      'transfer-active-to-inactive/bac-signed',
+    );
+    const signedAt = new Date();
+    transfer.beritaAcaraUrl = upload.key;
+    transfer.bacSignedAt = signedAt;
+    transfer.bacSignedBy = Number(user.persnum);
+    await this.transferRepository.save(transfer);
+
+    await this.digsigLogService.logSignActivity({
+      userPersnum: Number(user.persnum),
+      userName: user.nama,
+      idNaskah: transfer.id,
+      nomorNaskah: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
+      jenisNaskah: 'BAC',
+      apiEndpoint: '/digsig/bac/:transferId/sign-physical',
+      status: 'sukses',
+      note: 'BAC ditandatangani dengan tanda tangan basah',
+    });
+    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+      transfer.id,
+      user,
+    );
+
+    return {
+      message: 'Berita Acara berhasil ditandatangani dengan tanda tangan basah',
+      data: {
+        status: 'success',
+        message: 'PDF tanda tangan basah tersimpan',
+        signed_file_path: upload.key,
+      },
+      signature_metadata: {
+        type: 'ttd_basah',
+        doc_id: null,
+        signed_at: signedAt.toISOString(),
+        signer_nik: String(transfer.bacPihakPertamaPersnum || user.persnum),
+        path: upload.key,
       },
     };
   }

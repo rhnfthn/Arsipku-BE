@@ -6,8 +6,12 @@ import {
   Param,
   Body,
   Query,
+  Header,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TransferActiveToInactiveService } from '../services/transfer-active-to-inactive.service';
 import { CreateTransferDto } from '../dto/transfer.dto';
@@ -21,7 +25,7 @@ import {
 } from '../dto/transfer.dto';
 import { TransferFilterDto } from '../dto/transfer-filter.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
-import { CurrentUser, Roles } from '../../../common/decorators';
+import { CurrentUser, Roles, SkipTransform } from '../../../common/decorators';
 import { RoleName } from '../../../common/enums';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
@@ -271,6 +275,19 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Sekretaris dapat menyinkronkan data BAC lama yang sudah signed ke TU. */
+  @Patch(':id/dispatch-signed-bac-to-tu')
+  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  async dispatchSignedBacToTu(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.dispatchSignedBacToTu(id, user),
+    };
+  }
+
   /** Atasan Managerial TU menyetujui penerimaan → SELESAI */
   @Patch(':id/approve-receipt')
   @Roles(RoleName.ADMIN, RoleName.SUPERADMIN)
@@ -393,5 +410,23 @@ export class TransferActiveToInactiveController {
       success: true,
       data: await this.service.generateBacPdf(id, user),
     };
+  }
+
+  /**
+   * Preview/download BAC terbaru melalui backend. Setelah TTE, file yang
+   * dikirim sudah berupa PDF signed yang memuat QR verifikasi pejabat BAC.
+  */
+  @Get(':id/berita-acara.pdf')
+  @SkipTransform()
+  @Header('Content-Type', 'application/pdf')
+  @Header('Content-Disposition', 'inline')
+  async previewBacPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.service.getBeritaAcaraPdf(id, user);
+    response.setHeader('Content-Length', buffer.length);
+    return new StreamableFile(buffer);
   }
 }

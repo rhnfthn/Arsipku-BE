@@ -338,7 +338,7 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
       expect(repo.save).toHaveBeenCalledTimes(1);
     });
 
-    it('hanya mengizinkan verifikator terakhir mengirim usulan ke TU', async () => {
+    it('hanya mengizinkan verifikator terakhir memindahkan usulan ke tahap TTD BAC', async () => {
       const item: any = {
         id: 'transfer-1',
         status: 'DISETUJUI_VERIFIKASI_TERAKHIR',
@@ -358,7 +358,7 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
 
       await expect(
         service.dispatch('transfer-1', { persnum: 303 }),
-      ).resolves.toMatchObject({ status: 'DIKIRIM' });
+      ).resolves.toMatchObject({ status: 'USUL_PINDAH_DIKIRIM' });
     });
 
     it('menggunakan verifikator terakhir sebagai pihak pertama berita acara', async () => {
@@ -386,5 +386,67 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
         persnum: 303,
       });
     });
+  });
+
+  it('mengganti token {{ttd}} dengan QR tepat di antara Pihak Pertama dan jabatan', () => {
+    const html = (service as any).buildBacHtml(
+      {
+        nomorUsulan: 'UPAI/001/2026',
+        beritaAcaraNomor: 'BA/UPAI/001/2026',
+        tanggalUsulan: new Date('2026-10-06'),
+        divisiName: 'Divisi Teknologi',
+        bacPihakPertamaName: 'MADE GEDE NUGRAHA DEWANTARA',
+        bacPihakPertamaPersnum: 10010105,
+        bacPihakPertamaJabatan: 'EVP of Technology Solution',
+      },
+      { daftarArsip: [], pengirim: { divisi: 'Divisi Teknologi' } },
+      'data:image/png;base64,qr-test',
+    );
+
+    const pihakPertamaIndex = html.indexOf('Pihak Pertama');
+    const qrIndex = html.indexOf('data:image/png;base64,qr-test');
+    const jabatanIndex = html.indexOf('(EVP of Technology Solution)');
+    const pihakKeduaIndex = html.indexOf('Pihak Kedua');
+    const firstSignatureBlock = html.slice(
+      pihakPertamaIndex,
+      pihakKeduaIndex,
+    );
+
+    expect(pihakPertamaIndex).toBeGreaterThanOrEqual(0);
+    expect(qrIndex).toBeGreaterThan(pihakPertamaIndex);
+    expect(jabatanIndex).toBeGreaterThan(qrIndex);
+    expect(firstSignatureBlock).not.toContain('{{ttd}}');
+    expect(firstSignatureBlock).not.toContain('<b>');
+    expect(html).not.toContain('<b>');
+    expect(html.indexOf('Ttd', pihakKeduaIndex)).toBeGreaterThan(
+      html.indexOf('Pihak Kedua', pihakKeduaIndex),
+    );
+  });
+
+  it('otomatis meneruskan usulan ke TU setelah BAC ditandatangani', async () => {
+    const item: any = {
+      id: 'transfer-1',
+      nomorUsulan: 'UPAI/001/2026',
+      arsipPerihal: 'Berkas A',
+      sekretarisPersnum: 111,
+      status: 'USUL_PINDAH_DIKIRIM',
+      bacSignedAt: new Date('2026-10-06T10:00:00Z'),
+    };
+    repo.findOne.mockResolvedValue(item);
+    repo.save.mockImplementation(async (saved: any) => saved);
+
+    const result = await service.dispatchToTuAfterBacSignature('transfer-1', {
+      persnum: 10010105,
+      nama: 'Pejabat Pihak Pertama',
+    });
+
+    expect(result.status).toBe('DIKIRIM');
+    expect(result.tanggalDikirim).toBeInstanceOf(Date);
+    expect(repo.save).toHaveBeenCalledWith(item);
+    expect(notificationService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Usulan pemindahan arsip menunggu penerimaan TU',
+      }),
+    );
   });
 });

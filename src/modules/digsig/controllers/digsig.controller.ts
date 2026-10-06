@@ -8,8 +8,11 @@ import {
   Param,
   ParseUUIDPipe,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import {
   DigsigService,
@@ -49,6 +52,52 @@ export class DigsigController {
       );
     }
     return this.digsigService.signBacBsre(transferId, dto, user);
+  }
+
+  /**
+   * POST /digsig/bac/:transferId/sign-qr
+   * Tanda tangan internal BAC dengan QR. BAC dirender ulang memakai template
+   * yang sama agar QR berada di slot tanda tangan Pihak Pertama.
+   */
+  @Post('bac/:transferId/sign-qr')
+  @HttpCode(HttpStatus.OK)
+  async signBacQr(
+    @Param('transferId') transferId: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    return this.digsigService.signBacQr(transferId, user);
+  }
+
+  /**
+   * Normalisasi BAC QR lama yang dibuat sebelum slot QR memakai anchor template.
+   * Endpoint ini dipanggil saat detail BAC lama dibuka dan idempotent.
+   */
+  @Post('bac/:transferId/repair-qr-layout')
+  @HttpCode(HttpStatus.OK)
+  async repairBacQrLayout(
+    @Param('transferId') transferId: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    return this.digsigService.repairBacQrLayout(transferId, user);
+  }
+
+  /**
+   * POST /digsig/bac/:transferId/sign-physical
+   * Selesaikan tanda tangan BAC setelah pejabat mengunggah PDF hasil scan
+   * tanda tangan basah.
+   */
+  @Post('bac/:transferId/sign-physical')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  async signBacPhysical(
+    @Param('transferId') transferId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    if (!file) {
+      throw new BadRequestException('PDF hasil tanda tangan basah wajib diunggah');
+    }
+    return this.digsigService.signBacPhysical(transferId, file, user);
   }
 
   // ============================================
