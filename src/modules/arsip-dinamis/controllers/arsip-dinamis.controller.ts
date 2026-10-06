@@ -338,6 +338,24 @@ export class ArsipDinamisController {
     };
   }
 
+  // Proxy binary PDF so the browser does not need direct access to internal storage.
+  @Get('naskah/:naskahId/pdf/file')
+  @PemeliharaanAccess('pemberkasan', 'persetujuan')
+  async getNaskahPdfFile(
+    @Param('naskahId') naskahId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, contentLength } =
+      await this.arsipDinamisService.getNaskahPdfFile(naskahId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline',
+      'Content-Length': String(contentLength || buffer.length),
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
+  }
+
   /**
    * Tambah naskah ke berkas
    * POST /arsip-dinamis/berkas/:id/naskah
@@ -412,6 +430,32 @@ export class ArsipDinamisController {
         scopeDivisi: await this.arsipDinamisService.getScopeDivisi(user),
       },
     };
+  }
+
+  /**
+   * Kandidat Naskah Lainnya (PER/KEP/INS/...) untuk tab "Naskah Lainnya"
+   * di modal Tambah Naskah ke Berkas.
+   * GET /arsip-dinamis/berkas/:id/naskah-lainnya-kandidat
+   */
+  @Get('berkas/:id/naskah-lainnya-kandidat')
+  @PemeliharaanAccess('pemberkasan')
+  async getNaskahLainnyaKandidat(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.arsipDinamisService.getNaskahLainnyaKandidat(
+      this.effectivePersnum(user),
+      id,
+      {
+        search,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      },
+      await this.arsipDinamisService.resolveScopePositions(user),
+    );
   }
 
   /**

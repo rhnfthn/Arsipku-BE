@@ -31,6 +31,7 @@ import { DigsigLogEntity } from './entities/digsig-log.entity';
 import { DigsigDocumentEntity } from './entities/digsig-document.entity';
 import { DigsigDocumentSignerEntity } from './entities/digsig-document-signer.entity';
 import { BsreAlertEntity } from './entities/bsre-alert.entity';
+import { TransferActiveToInactiveModule } from '../transfer-active-to-inactive/transfer-active-to-inactive.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { BsreAlertEntity } from './entities/bsre-alert.entity';
       DigsigDocumentSignerEntity,
       BsreAlertEntity,
     ]),
+    TransferActiveToInactiveModule,
     StorageModule,
     GeneratePdfModule,
     SubAreaAlamatModule,
