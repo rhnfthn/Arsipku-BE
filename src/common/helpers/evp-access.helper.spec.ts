@@ -3,10 +3,17 @@ import { isEvpOrAbovePosition } from './evp-access.helper';
 describe('isEvpOrAbovePosition', () => {
   it('allows EVP and higher positions from position text', () => {
     expect(isEvpOrAbovePosition({ positionText: 'EVP Technology' })).toBe(true);
+    expect(
+      isEvpOrAbovePosition({ positionText: 'Executive Vice President Technology' }),
+    ).toBe(true);
     expect(isEvpOrAbovePosition({ positionText: 'Direktur Utama' })).toBe(true);
     expect(isEvpOrAbovePosition({ positionText: 'PT. EVP Technology' })).toBe(
       true,
     );
+  });
+
+  it('allows profiles whose senior position is available as abbreviation', () => {
+    expect(isEvpOrAbovePosition({ abbreviation: 'EVP', positionText: 'Pejabat' })).toBe(true);
   });
 
   it('allows director BOD tags only', () => {

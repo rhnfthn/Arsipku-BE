@@ -26,7 +26,6 @@ import { PemeliharaanAccess } from '../../../common/decorators/pemeliharaan-acce
 import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { SkipTransform } from '../../../common/decorators/skip-transform.decorator';
 import {
   CreateArsipDinamisBerkasDto,
   UpdateArsipDinamisBerkasDto,
@@ -339,25 +338,22 @@ export class ArsipDinamisController {
     };
   }
 
-  // Proxy binary PDF for clients that cannot access MinIO directly.
-  // The pemberkasan list uses the established presigned-URL flow, but this
-  // endpoint remains available for direct/API consumers.
+  // Proxy binary PDF so the browser does not need direct access to internal storage.
   @Get('naskah/:naskahId/pdf/file')
   @PemeliharaanAccess('pemberkasan', 'persetujuan')
-  @SkipTransform()
   async getNaskahPdfFile(
     @Param('naskahId') naskahId: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer } = await this.arsipDinamisService.getNaskahPdfFile(naskahId);
+    const { buffer, contentLength } =
+      await this.arsipDinamisService.getNaskahPdfFile(naskahId);
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="naskah-${naskahId}.pdf"`,
-      'Content-Length': String(buffer.length),
+      'Content-Disposition': 'inline',
+      'Content-Length': String(contentLength || buffer.length),
       'Cache-Control': 'private, no-store',
-      'X-Content-Type-Options': 'nosniff',
     });
-    res.status(HttpStatus.OK).end(buffer);
+    res.send(buffer);
   }
 
   /**
