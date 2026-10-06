@@ -988,7 +988,7 @@ export class KonsepService {
           ...org.find((row) => String(row.position) === String(item.position)),
           ...item,
           position_text: item.positionText,
-        });
+        }, jenis !== 'SDI');
         const name =
           gmLabel ??
           (jenis === 'SDI'

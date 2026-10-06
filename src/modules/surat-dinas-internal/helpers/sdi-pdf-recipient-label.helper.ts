@@ -17,9 +17,11 @@ type SdiPdfRecipientSource = {
   positionStatus?: string | null;
 };
 
-/** Format GM sama di seluruh korespondensi; penerima lain mempertahankan label jabatan. */
+/** SDI menampilkan GM tanpa abbreviation; penerima lain mempertahankan label jabatan. */
 export function formatSdiPdfRecipientLabel(
   source: SdiPdfRecipientSource,
 ): string {
-  return formatGmRecipientLabel(source) ?? formatDeputyPositionLabel(source);
+  return (
+    formatGmRecipientLabel(source, false) ?? formatDeputyPositionLabel(source)
+  );
 }
