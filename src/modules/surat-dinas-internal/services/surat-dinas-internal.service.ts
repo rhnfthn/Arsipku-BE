@@ -562,7 +562,12 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
-    headerInfo?: { kantor: string; gedung: string; alamat: string; kota?: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota?: string;
+    },
     qrCodeHtml?: string,
     signOption?: SignOption | string,
   ): Promise<Buffer> {
@@ -621,7 +626,12 @@ export class SuratDinasInternalService {
     sifat: string = 'Biasa',
     nomor: string = '',
     lampiran: string = '-',
-    headerInfo?: { kantor: string; gedung: string; alamat: string; kota?: string },
+    headerInfo?: {
+      kantor: string;
+      gedung: string;
+      alamat: string;
+      kota?: string;
+    },
     signOption?: SignOption | string,
   ): Promise<Buffer> {
     try {
@@ -1216,7 +1226,7 @@ export class SuratDinasInternalService {
   private toSirkulasiInfo(pos: SdiOrgDataPositionDto): SirkulasiInfoDto {
     return {
       position: pos.position,
-      position_text: formatSdiPdfRecipientLabel(pos),
+      position_text: formatDeputyPositionLabel(pos),
       persnum: pos.persnum_person ?? pos.persnum ?? null,
       nama: pos.persnum_person_text ?? pos.nama ?? null,
       organization_id: pos.organization_id,
@@ -3568,6 +3578,9 @@ export class SuratDinasInternalService {
           kepadaYthList = penerimaListForPdf.map((p) =>
             formatSdiPdfRecipientLabel({
               position_text: p.positionText,
+              abbreviation: barisData.find(
+                (row) => String(row.position) === String(p.position),
+              )?.position_abbreviation,
               position_status: p.positionStatus,
               namaSirkuler: p.namaSirkuler,
               subAreaText: p.subAreaText,
@@ -3597,6 +3610,9 @@ export class SuratDinasInternalService {
           tembusanTextList = tembusanListForPdf.map((t) =>
             formatSdiPdfRecipientLabel({
               position_text: t.positionText,
+              abbreviation: barisData.find(
+                (row) => String(row.position) === String(t.position),
+              )?.position_abbreviation,
               position_status: t.positionStatus,
               namaSirkuler: t.namaSirkuler,
               subAreaText: t.subAreaText,

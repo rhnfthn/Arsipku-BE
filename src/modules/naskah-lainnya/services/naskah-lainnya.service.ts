@@ -1236,6 +1236,15 @@ export class NaskahLainnyaService {
       },
     } as unknown as NaskahEntity);
     const saved = await this.naskahRepo.save(naskah);
+    // Realtime: refresh badge count draf di sidebar pembuat draft
+    const creatorPosition =
+      user.position ?? (user as any).positionId ?? (user as any).position_id;
+    if (creatorPosition) {
+      this.realtimeEmitService.emitDraftChanged(
+        creatorPosition,
+        'naskah-lainnya',
+      );
+    }
     return { success: true, data: { id: saved.id } };
   }
 
@@ -2225,7 +2234,7 @@ export class NaskahLainnyaService {
     }
   }
 
-  async deleteDraft(id: string) {
+  async deleteDraft(id: string, user?: CurrentUser) {
     const n = await this.findNaskah(id);
     // Hanya bisa hapus draft yang masih konsep/perlu_perbaikan
     if (
@@ -2262,6 +2271,15 @@ export class NaskahLainnyaService {
     await this.dokumenRepo.delete({ naskahId: id });
     // Hapus naskah
     await this.naskahRepo.delete({ id, tanggal: n.tanggal as any });
+    // Realtime: refresh badge count draf di sidebar penghapus (bila diketahui)
+    const actorPosition =
+      user?.position ?? (user as any)?.positionId ?? (user as any)?.position_id;
+    if (actorPosition) {
+      this.realtimeEmitService.emitDraftChanged(
+        actorPosition,
+        'naskah-lainnya',
+      );
+    }
     return { success: true, data: { id } };
   }
 

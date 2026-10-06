@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -1191,10 +1192,10 @@ export class KajianService {
       )}`;
 
       // Build tertuju (penerima) list
-      const tertujuList = penerimaResponses.map((p) => p.position_text);
+      const tertujuList = penerimaResponses.map((p) => formatGmRecipientLabel(p) ?? p.position_text);
 
       // Build tembusan list
-      const tembusanList = tembusanResponses.map((t) => t.position_text);
+      const tembusanList = tembusanResponses.map((t) => formatGmRecipientLabel(t) ?? t.position_text);
 
       // Generate PDF with nomor surat
       let pdfBuffer = await this.generatePdfKajianService.generatePdf({
@@ -1628,12 +1629,12 @@ export class KajianService {
 
         // Build tertuju (penerima) list
         const tertujuList = penerimaList.map(
-          (p) => delegatedRecipientFields(p).positionText,
+          (p) => formatGmRecipientLabel(p) ?? delegatedRecipientFields(p).positionText,
         );
 
         // Build tembusan text list
         const tembusanTextList = tembusanList.map(
-          (t) => delegatedRecipientFields(t).positionText,
+          (t) => formatGmRecipientLabel(t) ?? delegatedRecipientFields(t).positionText,
         );
 
         // Generate PDF dengan QR code di template (jika ada)
@@ -2923,7 +2924,7 @@ export class KajianService {
         const posData = this.findByPosition(barisData, Number(posId));
         if (posData) {
           names.push(
-            delegatedRecipientFields(posData).positionText || String(posId),
+            formatGmRecipientLabel(posData) ?? (delegatedRecipientFields(posData).positionText || String(posId)),
           );
         } else {
           names.push(String(posId));
@@ -3746,7 +3747,7 @@ export class KajianService {
       const tertujuList = penerimaSirkulasiList
         .map(
           (p) =>
-            delegatedRecipientFields({
+            formatGmRecipientLabel({ ...barisData.find((row) => String(row.position) === String(p.position)), ...p }) ?? delegatedRecipientFields({
               position_text: p.positionText,
               position_status: p.positionStatus,
             }).positionText,
@@ -3757,7 +3758,7 @@ export class KajianService {
       const tembusanList = tembusanSirkulasiList
         .map(
           (t) =>
-            delegatedRecipientFields({
+            formatGmRecipientLabel({ ...barisData.find((row) => String(row.position) === String(t.position)), ...t }) ?? delegatedRecipientFields({
               position_text: t.positionText,
               position_status: t.positionStatus,
             }).positionText,
