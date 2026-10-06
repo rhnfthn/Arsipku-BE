@@ -194,6 +194,10 @@ export class TransferActiveToInactiveEntity {
   @Column({ name: 'bac_signed_by', type: 'int', nullable: true })
   bacSignedBy: number | null;
 
+  /** QR tanda tangan untuk ditampilkan pada preview BAC sekretaris. */
+  @Column({ name: 'bac_signature_qr', type: 'longtext', nullable: true })
+  bacSignatureQr: string | null;
+
   @Column({
     name: 'berita_acara_nomor',
     type: 'varchar',

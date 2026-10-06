@@ -45,8 +45,6 @@ export class TuVerifikasiService {
   /** Status yang relevan untuk TU (notifikasi usulan masuk).
    *  Mencakup SELURUH siklus TU: dari diterima sampai selesai penataan. */
   private readonly TU_STATUSES = [
-    TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
-    TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
     TransferActiveToInactiveStatus.DIKIRIM,
     TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK,
     TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
@@ -70,8 +68,6 @@ export class TuVerifikasiService {
     switch (status) {
       case 'MENUNGGU_VERIFIKASI':
         return [
-          TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
-          TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
           TransferActiveToInactiveStatus.DIKIRIM,
           TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_BERKAS_FISIK,
           TransferActiveToInactiveStatus.BERKAS_FISIK_SESUAI,
@@ -118,6 +114,23 @@ export class TuVerifikasiService {
     } else {
       qb.andWhere('t.status IN (:...statuses)', { statuses: this.TU_STATUSES });
     }
+
+    // Setelah atasan managerial menekan "Pindah Usulan", usulan masih berada
+    // pada tahap TTD pejabat pihak pertama. Jangan tampilkan ke Unit Dokumen
+    // sebelum BAC benar-benar signed, agar penerimaan baru terbuka setelah QR
+    // tanda tangan tersedia.
+    qb.andWhere(
+      `NOT (
+        t.status IN (:...bacSigningStatuses)
+        AND t.bac_signed_at IS NULL
+      )`,
+      {
+        bacSigningStatuses: [
+          TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
+          TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
+        ],
+      },
+    );
 
     if (filter.search) {
       qb.andWhere(
@@ -304,6 +317,17 @@ export class TuVerifikasiService {
     const transfer = await this.transferRepo.findOne({ where: { id } });
     if (!transfer) {
       throw new NotFoundException('Usulan tidak ditemukan');
+    }
+    if (
+      [
+        TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
+        TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
+      ].includes(transfer.status) &&
+      !transfer.bacSignedAt
+    ) {
+      throw new NotFoundException(
+        'Usulan belum tersedia di Unit Dokumen karena Berita Acara belum ditandatangani',
+      );
     }
     // Load approval levels (daftar atasan verifikasi berjenjang)
     const levels = await this.levelRepo.find({

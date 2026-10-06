@@ -764,8 +764,27 @@ export class ArsipDinamisService {
       }
     }
 
-    const allowedIds = requestedIds.filter((id) => sirkulasiByNaskah.has(id));
-    const rejectedIds = requestedIds.filter((id) => !sirkulasiByNaskah.has(id));
+    // ── Sumber naskah_lainnya: tidak lewat naskah_sirkulasi ──
+    // Pemrakarsa disimpan di dikirim_oleh (JSON snapshot). Validasi: HANYA
+    // persnum user = pemrakarsa (naskah pribadi — sekretaris pun tidak boleh
+    // menambahkan naskah lainnya milik anggota divisi lain).
+    let nlIds: string[] = [];
+    if (dto.sumber === 'naskah_lainnya') {
+      const placeholders = requestedIds.map(() => '?').join(',');
+      const nlRows: any[] = await this.dataSource.query(
+        `SELECT n.id FROM naskah n
+         WHERE n.id IN (${placeholders})
+           AND n.jenis IN ('PER','KEP','INS','SPR','EDR','SOP','MOU','PKS','PROC','PJJ','LOA','SKU','BAC','KET','SPE','RPT','PEN','PGM','LAP')
+           AND JSON_EXTRACT(n.dikirim_oleh, '$.persnum') = ?`,
+        [...requestedIds, String(userId)],
+      );
+      nlIds = nlRows.map((r: any) => r.id);
+    }
+
+    const allowedIds = requestedIds.filter(
+      (id) => sirkulasiByNaskah.has(id) || nlIds.includes(id),
+    );
+    const rejectedIds = requestedIds.filter((id) => !allowedIds.includes(id));
 
     if (allowedIds.length === 0) {
       return {
@@ -788,8 +807,8 @@ export class ArsipDinamisService {
     );
     const newEntries = allowedIds
       .map((naskahId) => {
-        const s = sirkulasiByNaskah.get(naskahId)!;
-        return { naskahId, s, key: `${naskahId}|${s.idSirkuler ?? ''}` };
+        const s = sirkulasiByNaskah.get(naskahId);
+        return { naskahId, s, key: `${naskahId}|${s?.idSirkuler ?? ''}` };
       })
       .filter((e) => !existingKeys.has(e.key));
 
@@ -815,8 +834,9 @@ export class ArsipDinamisService {
         tanggal: this.tanggalBerkas(berkas),
         naskahId,
         naskahTipe: meta?.jenis || 'unknown',
-        sirkuler: s.sirkuler as 'pengirim' | 'penerima', // query filter sirkuler IN (pengirim,penerima)
-        idSirkuler: s.idSirkuler,
+        // Naskah Lainnya tidak punya sirkulasi → default 'pengirim' (pemrakarsa)
+        sirkuler: (s?.sirkuler ?? 'pengirim') as 'pengirim' | 'penerima',
+        idSirkuler: s?.idSirkuler ?? null,
         sumber: dto.sumber,
         perihal: meta?.perihal || null,
         nomorSurat: meta?.nomor || null,
@@ -984,6 +1004,24 @@ export class ArsipDinamisService {
     }
     const url = await this.storageService.getPreviewUrl(naskah.final_pdf);
     return { url };
+  }
+
+  async getNaskahPdfFile(
+    naskahId: string,
+  ): Promise<{ buffer: Buffer; contentLength: number }> {
+    const rows: any[] = await this.dataSource.query(
+      `SELECT final_pdf FROM naskah WHERE id = ? LIMIT 1`,
+      [naskahId],
+    );
+    const naskah = rows?.[0];
+    if (!naskah) throw new NotFoundException('Naskah tidak ditemukan');
+    if (!naskah.final_pdf) {
+      throw new NotFoundException('Naskah tidak memiliki PDF final');
+    }
+
+    const { buffer, contentLength } =
+      await this.storageService.getFileWithMetadata(naskah.final_pdf);
+    return { buffer, contentLength };
   }
 
   // ── Naskah Siap Arsip (Tab Filtering) ───────────────────────────
@@ -1157,6 +1195,162 @@ export class ArsipDinamisService {
     }
     const position = Number(user?.position);
     return Number.isFinite(position) && position > 0 ? position : 0;
+  }
+
+  /**
+   * Kandidat Naskah Lainnya (jenis PER/KEP/INS/... — workflow Naskah Lainnya)
+   * untuk tab "Naskah Lainnya" di modal Tambah Naskah ke Berkas.
+   * Naskah Lainnya tidak lewat naskah_sirkulasi — pemrakarsa disimpan di
+   * dikirim_oleh (JSON snapshot). Hanya naskah final/final_tte dengan PDF.
+   */
+  async getNaskahLainnyaKandidat(
+    userId: number,
+    berkasId: string,
+    options: { search?: string; page?: number; limit?: number } = {},
+    positions?: number[],
+  ) {
+    const { search, page = 1, limit = 20 } = options;
+
+    const jenisList = [
+      'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC',
+      'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP',
+    ];
+    const jenisPlaceholders = jenisList.map(() => '?').join(',');
+
+    // Scope posisi: sekretaris → seluruh posisi divisi/unit; lainnya → posisi pribadi.
+    const positionClause = positions?.length
+      ? `n.dikirim_oleh LIKE ? OR n.dikirim_oleh LIKE ?`
+      : `n.dikirim_oleh LIKE ? OR n.dikirim_oleh LIKE ?`;
+    // Match position_id ATAU persnum di JSON dikirim_oleh (sama dengan getList NL).
+    const posId = positions?.length ? positions.map(String) : [String(userId)];
+
+    let query = `
+      SELECT
+        n.id,
+        n.nomor AS nomor_surat,
+        n.perihal,
+        n.tanggal AS tanggal_naskah,
+        n.jenis AS naskah_tipe,
+        n.status,
+        COALESCE(n.signed_lampiran, n.final_pdf) AS final_pdf,
+        COALESCE(
+          JSON_UNQUOTE(JSON_EXTRACT(n.dikirim_oleh, '$.position_text')),
+          n.created_by_position
+        ) AS jabatan,
+        COALESCE(
+          JSON_UNQUOTE(JSON_EXTRACT(n.dikirim_oleh, '$.nama')),
+          n.created_by_position
+        ) AS nama,
+        JSON_UNQUOTE(JSON_EXTRACT(n.dikirim_oleh, '$.organization')) AS divisi_id,
+        'naskah_lainnya' AS sumber,
+        0 AS sudah_masuk_berkas,
+        NULL AS kode_berkas,
+        NULL AS berkas_status
+      FROM naskah n
+      WHERE n.jenis IN (${jenisPlaceholders})
+        AND n.status IN ('final', 'final_tte')
+        AND (n.signed_lampiran IS NOT NULL OR n.final_pdf IS NOT NULL)
+        AND (n.tahapan IS NULL OR n.tahapan NOT IN ('konsep', 'legal_drafting', 'blanko_verbal'))
+    `;
+    const params: any[] = [...jenisList];
+
+    // Scope: HANYA pemrakarsa = user itu sendiri (persnum). Naskah Lainnya
+    // adalah naskah pribadi pemrakarsa — tidak di-share ke divisi seperti
+    // naskah dinas (kotak masuk/terkirim). Sekretaris pun tidak boleh melihat
+    // naskah lainnya milik anggota divisi lain.
+    query += ` AND JSON_EXTRACT(n.dikirim_oleh, '$.persnum') = ?`;
+    params.push(String(userId));
+
+    // Exclude naskah yang sudah di berkas ini
+    const existingNaskah = await this.berkasNaskahRepository.find({
+      where: { berkasId },
+      select: ['naskahId'],
+    });
+    const excludeIds = existingNaskah.map((n) => n.naskahId);
+    if (excludeIds.length > 0) {
+      const placeholders = excludeIds.map(() => '?').join(',');
+      query += ` AND n.id NOT IN (${placeholders})`;
+      params.push(...excludeIds);
+    }
+
+    if (search) {
+      query += ` AND (n.perihal LIKE ? OR n.nomor LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Count total
+    const countQuery = `SELECT COUNT(*) as total FROM (${query}) AS sub`;
+    const [{ total }] = await this.dataSource.query(countQuery, params);
+
+    // Paginate
+    query += ` ORDER BY n.tanggal DESC LIMIT ? OFFSET ?`;
+    params.push(limit, (page - 1) * limit);
+
+    const data = await this.dataSource.query(query, params);
+
+    // Tandai naskah yang sudah masuk berkas lain (konsisten dengan tab Siap Arsip)
+    let rows = data;
+    if (rows.length) {
+      const statusMap: any[] = await this.dataSource.query(
+        `SELECT DISTINCT bn.naskah_id, b.kode_berkas, b.status AS berkas_status
+         FROM berkas_naskah bn
+         INNER JOIN berkas b ON b.id = bn.berkas_id
+         WHERE bn.naskah_id IN (${rows.map(() => '?').join(',')})
+           AND b.deleted_at IS NULL`,
+        rows.map((r: any) => r.id),
+      );
+      const byId = new Map(statusMap.map((x: any) => [x.naskah_id, x]));
+      rows = rows.map((r: any) => {
+        const s = byId.get(r.id);
+        return {
+          ...r,
+          sudah_masuk_berkas: s ? 1 : 0,
+          kode_berkas: s?.kode_berkas || null,
+          berkas_status: s?.berkas_status || null,
+        };
+      });
+    }
+
+    // Resolve nama divisi dari org_data (dikirim_oleh hanya menyimpan kode
+    // organization, bukan nama — sama seperti kolom lain di modal).
+    if (rows.length) {
+      try {
+        const orgData = await this.orgDataService.findLatestOrg();
+        const barisData: any[] = Array.isArray(orgData?.position_json)
+          ? orgData.position_json
+          : [];
+        // Map organization_id → organization_text (baris position_json punya
+        // organization_id + organization_text per posisi).
+        const orgNameMap = new Map<string, string>();
+        for (const p of barisData) {
+          const orgId = String(p.organization_id ?? '');
+          const orgText = p.organization_text ?? '';
+          if (orgId && orgText && !orgNameMap.has(orgId)) {
+            orgNameMap.set(orgId, orgText);
+          }
+        }
+        rows = rows.map((r: any) => ({
+          ...r,
+          divisi: orgNameMap.get(String(r.divisi_id ?? '')) ?? r.divisi_id ?? null,
+        }));
+      } catch {
+        // Fallback: tampilkan kode apa adanya
+        rows = rows.map((r: any) => ({
+          ...r,
+          divisi: r.divisi_id ?? null,
+        }));
+      }
+    }
+
+    return {
+      data: rows,
+      meta: {
+        page,
+        limit,
+        total: Number(total),
+        totalPages: Math.ceil(Number(total) / limit),
+      },
+    };
   }
 
   async getNaskahSiapArsip(
