@@ -191,4 +191,20 @@ describe('DocxQrInlineService.injectQrSigners', () => {
     expect(docXml).toContain('<w:drawing');
     expect(docXml).not.toContain('NAMA LENGKAP');
   });
+  it('memusatkan slot visualisasi tersendiri tanpa mengubah paragraf campuran', async () => {
+    const centered = await service.injectQrSigners(
+      await docxWith('{{tanda_tangan_1}}'),
+      [{ index: 1, nama: 'Direktur Utama' }],
+    );
+    expect(xmlOf(centered, 'word/document.xml')).toContain(
+      '<w:jc w:val="center"/>',
+    );
+    const mixed = await service.injectQrSigners(
+      await docxWith('Tanda tangan: {{tanda_tangan_1}}'),
+      [{ index: 1, nama: 'Direktur Utama' }],
+    );
+    expect(xmlOf(mixed, 'word/document.xml')).not.toContain(
+      '<w:jc w:val="center"/>',
+    );
+  });
 });

@@ -9,6 +9,8 @@ import { Berkas } from '../berkas/entities/berkas.entity';
 import { ArsipDinamisModule } from '../arsip-dinamis/arsip-dinamis.module';
 import { OrgDataModule } from '../master-data/org_data/org_data.module';
 import { OrganizationTuModule } from '../organization-tu/organization-tu.module';
+import { GeneratePdfModule } from '../generate_pdf/generate_pdf.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { OrganizationTuModule } from '../organization-tu/organization-tu.module'
     ArsipDinamisModule,
     OrgDataModule,
     OrganizationTuModule,
+    GeneratePdfModule,
+    StorageModule,
   ],
   controllers: [TransferActiveToInactiveController],
   providers: [TransferActiveToInactiveService],

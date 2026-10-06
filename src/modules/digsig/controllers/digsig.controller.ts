@@ -31,6 +31,26 @@ export class DigsigController {
     private readonly storageService: StorageService,
   ) {}
 
+  /**
+   * POST /digsig/bac/:transferId/sign
+   * TTE Berita Acara pemindahan arsip oleh pejabat pihak pertama (EVP).
+   * Alur sama dengan naskah lain: BSrE v2 + passphrase.
+   */
+  @Post('bac/:transferId/sign')
+  @HttpCode(HttpStatus.OK)
+  async signBac(
+    @Param('transferId') transferId: string,
+    @Body() dto: SignBsreDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SignResultResponse> {
+    if (!dto.passphrase) {
+      throw new BadRequestException(
+        'Passphrase wajib diisi — input passphrase BSrE Anda',
+      );
+    }
+    return this.digsigService.signBacBsre(transferId, dto, user);
+  }
+
   // ============================================
   // SIGN DENGAN DIGSIG (BSrE) - v2 dengan Auto-fetch NIK
   // Passphrase diinput oleh user (bukan hardcoded) — sama seperti alur produksi.

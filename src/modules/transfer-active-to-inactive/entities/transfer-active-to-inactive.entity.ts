@@ -157,6 +157,43 @@ export class TransferActiveToInactiveEntity {
   })
   beritaAcaraUrl: string | null;
 
+  // ─── Pejabat BAC (Berita Acara) ───────────────────────────────────────
+  /** Pejabat pihak pertama BAC (pengirim) — TTD di sisi pengirim. */
+  @Column({ name: 'bac_pihak_pertama_persnum', type: 'int', nullable: true })
+  bacPihakPertamaPersnum: number | null;
+
+  @Column({
+    name: 'bac_pihak_pertama_name',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  bacPihakPertamaName: string | null;
+
+  @Column({
+    name: 'bac_pihak_pertama_jabatan',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  bacPihakPertamaJabatan: string | null;
+
+  /** Daftar pejabat tembusan BAC (khusus EVP ke atas) — JSON array. */
+  @Column({ name: 'bac_tembusan', type: 'json', nullable: true })
+  bacTembusan: Array<{
+    persnum: number;
+    name: string;
+    jabatan: string;
+  }> | null;
+
+  /** Timestamp TTE BAC oleh pejabat pihak pertama (BSrE). */
+  @Column({ name: 'bac_signed_at', type: 'datetime', nullable: true })
+  bacSignedAt: Date | null;
+
+  /** Persnum pejabat yang menandatangani BAC (TTE). */
+  @Column({ name: 'bac_signed_by', type: 'int', nullable: true })
+  bacSignedBy: number | null;
+
   @Column({
     name: 'berita_acara_nomor',
     type: 'varchar',

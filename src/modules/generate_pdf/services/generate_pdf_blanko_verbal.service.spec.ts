@@ -56,7 +56,7 @@ describe('GeneratePdfBlankoVerbalService.buildHtml', () => {
 
   it('memuat field terstruktur + slot legalDrafter/legalChecker', () => {
     const html = service.buildHtml(data());
-    expect(html).toContain('21 Agustus 2026');
+    expect(html).toContain('21/08/2026');
     expect(html).toContain('B-001');
     expect(html).toContain('Drafter');
     expect(html).toContain('Legal Officer');
