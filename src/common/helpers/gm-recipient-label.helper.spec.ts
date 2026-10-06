@@ -22,6 +22,7 @@ describe('GM correspondence recipient label', () => {
           persnum_person_text: 'BUDI',
           position_abbreviation: 'GM-LMB',
           position_text: 'General Manager',
+          area_text: 'Cabang Lombok',
         },
       ];
       const service = Object.assign(Object.create(Service.prototype), {
@@ -32,20 +33,41 @@ describe('GM correspondence recipient label', () => {
       });
       expect(
         await service.convertPositionIdsToNames([123], '2026-10-06'),
-      ).toEqual(['Budi - GM-LMB - General Manager']);
+      ).toEqual(['Budi - GM-LMB - General Manager - Cabang Lombok']);
     },
   );
-  it('renders name, abbreviation, position without appending area', () => {
+  it('renders name, abbreviation, position and branch', () => {
     const source = {
       persnum_person_text: 'BUDI',
       position_abbreviation: 'GM',
       position_text: 'General Manager',
       area_text: 'Cabang Lombok',
     };
-    expect(formatGmRecipientLabel(source)).toBe('Budi - GM - General Manager');
-    expect(formatSdiPdfRecipientLabel(source)).toBe(
-      'Budi - GM - General Manager',
+    expect(formatGmRecipientLabel(source)).toBe(
+      'Budi - GM - General Manager - Cabang Lombok',
     );
+    expect(formatSdiPdfRecipientLabel(source)).toBe(
+      'Budi - GM - General Manager - Cabang Lombok',
+    );
+  });
+  it('uses saved branch aliases and does not duplicate an existing branch', () => {
+    expect(
+      formatGmRecipientLabel({
+        namaSirkuler: 'BUDI SANTOSO',
+        positionText: 'General Manager',
+        areaText: '',
+        subAreaText: 'Cabang JATSC',
+        positionStatus: 'PT',
+      }),
+    ).toBe('Budi Santoso - GM - PT. General Manager - Cabang JATSC');
+    expect(
+      formatGmRecipientLabel({
+        nama: 'BUDI',
+        position_text: 'General Manager - Cabang Lombok',
+        area_text: 'Cabang Lombok',
+        sub_area_text: 'Lombok',
+      }),
+    ).toBe('Budi - GM - General Manager - Cabang Lombok');
   });
   it('keeps delegation prefix on the position and snapshot name', () => {
     expect(
