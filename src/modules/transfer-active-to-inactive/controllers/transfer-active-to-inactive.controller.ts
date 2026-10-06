@@ -361,4 +361,19 @@ export class TransferActiveToInactiveController {
       data: await this.service.generateBeritaAcara(id, user),
     };
   }
+
+  /**
+   * Generate PDF Berita Acara lengkap (BAC + Daftar Berkas + Daftar Isi
+   * + merge PDF naskah) → upload ke MinIO → return presigned URL.
+   */
+  @Post(':id/berita-acara-pdf')
+  async generateBacPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.generateBacPdf(id, user),
+    };
+  }
 }

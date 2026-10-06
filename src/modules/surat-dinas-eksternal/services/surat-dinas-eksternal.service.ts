@@ -1,3 +1,4 @@
+import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
   NotFoundException,
@@ -254,10 +255,12 @@ export class SuratDinasEksternalService {
 
       if (position) {
         // Return position_text only (without organization_text) - sama seperti SDI
-        const fullName = formatDelegatedPositionText(
-          position.position_text,
-          position.position_status ?? position.positionStatus,
-        );
+        const fullName =
+          formatGmRecipientLabel(position) ??
+          formatDelegatedPositionText(
+            position.position_text,
+            position.position_status ?? position.positionStatus,
+          );
         names.push(fullName);
       } else {
         // Fallback if position not found
@@ -1935,7 +1938,10 @@ export class SuratDinasEksternalService {
               month: 'long',
               day: 'numeric',
             }),
-            positionText: dto.nama_jabatan || pengirim.position_text,
+            positionText: delegatedRecipientFields({
+              ...pengirim,
+              position_text: dto.nama_jabatan || pengirim.position_text,
+            }).positionText,
             namaLengkap:
               dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
             // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
@@ -2405,11 +2411,13 @@ export class SuratDinasEksternalService {
       // Data sudah tersimpan di naskah dan naskah_sirkulasi
       const kepadaYthList = penerimaList.map((p) => p.nama);
       const kepadaYth = kepadaYthList.join('; ');
-      const tembusanTextList = tembusanList.map((t) =>
-        formatDelegatedPositionText(
-          t.position_text,
-          t.position_status ?? t.positionStatus,
-        ),
+      const tembusanTextList = tembusanList.map(
+        (t) =>
+          formatGmRecipientLabel(t) ??
+          formatDelegatedPositionText(
+            t.position_text,
+            t.position_status ?? t.positionStatus,
+          ),
       );
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
@@ -2441,7 +2449,10 @@ export class SuratDinasEksternalService {
       const signerName =
         dto.nama_lengkap || pengirim.persnum_person_text || 'Penandatangan';
       const signerJabatan =
-        dto.nama_jabatan || pengirim.position_text || 'Jabatan';
+        delegatedRecipientFields({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }).positionText || 'Jabatan';
       let qrCodeHtml: string | undefined = undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
@@ -2486,10 +2497,13 @@ export class SuratDinasEksternalService {
         );
 
         // Use fallback for empty string, not just undefined/null
-        const finalPositionText =
-          dto.nama_jabatan && dto.nama_jabatan.trim()
-            ? dto.nama_jabatan
-            : pengirim.position_text;
+        const finalPositionText = delegatedRecipientFields({
+          ...pengirim,
+          position_text:
+            dto.nama_jabatan && dto.nama_jabatan.trim()
+              ? dto.nama_jabatan
+              : pengirim.position_text,
+        }).positionText;
         const finalNamaLengkap =
           dto.nama_lengkap && dto.nama_lengkap.trim()
             ? dto.nama_lengkap
@@ -3506,10 +3520,43 @@ export class SuratDinasEksternalService {
             message: 'Naskah sudah final dan terkirim via konsep workflow',
           } as any,
         };
+      } else if (naskah.status === 'pending_tte' && persnum) {
+        // Finalisasi Portal TTE sedang berjalan (menunggu callback portal).
+        // Bila transaksi masih hidup → redirect ke signing_url yang sama;
+        // bila sudah terminal/expired → reset ke draf agar bisa dikirim ulang.
+        const pendingTte =
+          await this.tteSigningService.resolvePendingTteForRefinalize(
+            naskahId,
+            persnum,
+          );
+        if (pendingTte?.kind === 'redirect') {
+          const tgl =
+            naskah.tanggal instanceof Date
+              ? naskah.tanggal.toISOString().split('T')[0]
+              : String(naskah.tanggal || '').split('T')[0];
+          return {
+            success: true,
+            data: {
+              id: naskahId,
+              jenis: 'SDE',
+              nomor: naskah.nomor || '',
+              tanggal: tgl,
+              status: naskah.status,
+              tte_redirect: {
+                transactionId: pendingTte.transactionId,
+                signingUrl: pendingTte.signingUrl,
+              },
+            } as any,
+          };
+        }
+        // Transaksi sudah mati → izinkan finalisasi ulang dari status draf.
+        naskah.status = 'draf';
       }
-      throw new BadRequestException(
-        `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
-      );
+      if (naskah.status !== 'draf') {
+        throw new BadRequestException(
+          `Naskah sudah berstatus ${naskah.status}, tidak dapat difinalize`,
+        );
+      }
     }
 
     if (naskah.jenis !== 'SDE') {
@@ -3858,8 +3905,20 @@ export class SuratDinasEksternalService {
             order: { urutan: 'ASC', createdAt: 'ASC' },
           },
         );
-        const tembusanForPdfFinal = tembusanListForPdf.map((t) =>
-          `${t.positionText} ${t.organizationText}`.trim(),
+        const tembusanForPdfFinal = tembusanListForPdf.map(
+          (t) =>
+            formatGmRecipientLabel({
+              ...barisData.find(
+                (row) => String(row.position) === String(t.position),
+              ),
+              ...t,
+            }) ??
+            `${
+              delegatedRecipientFields({
+                position_text: t.positionText,
+                position_status: t.positionStatus,
+              }).positionText
+            } ${t.organizationText}`.trim(),
         );
 
         // Get lampiran files for merging
@@ -3880,11 +3939,17 @@ export class SuratDinasEksternalService {
           naskah.tanggal instanceof Date ? naskah.tanggal : new Date();
 
         // Resolve position text and nama (from pengirimSirkulasiForPdf, no more sdeData)
-        const resolvedPositionText =
-          dto.nama_jabatan ||
-          finalPengirimPosition?.position_text ||
-          pengirimSirkulasiForPdf?.positionText ||
-          '';
+        const resolvedPositionText = delegatedRecipientFields({
+          position_text:
+            dto.nama_jabatan ||
+            finalPengirimPosition?.position_text ||
+            pengirimSirkulasiForPdf?.positionText ||
+            '',
+          position_status:
+            finalPengirimPosition?.position_status ??
+            finalPengirimPosition?.positionStatus ??
+            pengirimSirkulasiForPdf?.positionStatus,
+        }).positionText;
         const resolvedNamaLengkap =
           dto.nama_lengkap ||
           finalPengirimPosition?.persnum_person_text ||
@@ -5119,7 +5184,11 @@ export class SuratDinasEksternalService {
         DEFAULT_ALAMAT_PERUSAHAAN;
       const namaTempat =
         dto.nama_tempat || headerInfo?.gedung || pengirim.sub_area_text || '';
-      const namaJabatan = dto.nama_jabatan || pengirim.position_text || '';
+      const namaJabatan =
+        delegatedRecipientFields({
+          ...pengirim,
+          position_text: dto.nama_jabatan || pengirim.position_text,
+        }).positionText || '';
       const namaLengkap =
         dto.nama_lengkap || pengirim.persnum_person_text || '';
 
@@ -5142,8 +5211,9 @@ export class SuratDinasEksternalService {
         organization: String(pengirim.organization_id),
         organizationText: pengirim.organization_text,
         position: String(pengirim.position),
-        positionText: pengirim.position_text,
-        positionStatus: 'ybs',
+        positionText: namaJabatan,
+        positionStatus: delegatedRecipientFields(pengirim)
+          .positionStatus as any,
         idSirkuler: pengirim.persnum_person
           ? String(pengirim.persnum_person)
           : '',
@@ -5309,7 +5379,9 @@ export class SuratDinasEksternalService {
           tembusan:
             tembusanList.length > 0
               ? tembusanList.map(
-                  (t) => `${t.position_text} ${t.organization_text}`,
+                  (t) =>
+                    formatGmRecipientLabel(t) ??
+                    `${t.position_text} ${t.organization_text}`,
                 )
               : [],
           perihal: perihal,

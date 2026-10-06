@@ -47,6 +47,46 @@ describe('PDF address page document number', () => {
     (_, index) => `Tembusan ${index + 1}`,
   );
 
+  it.each([false, true])(
+    'SDI/SDE single recipient and copy are unnumbered (english=%s)',
+    async (english) => {
+      await new GeneratePdfSudinService().generatePdf({
+        html: '<p><a href="https://airnavindonesia.co.id">Tautan</a></p>',
+        penerima: ['Direktur Teknik'],
+        tembusan: ['Direktur SDM'],
+        nama_tempat: 'Tangerang',
+        tanggal: '6 Oktober 2026',
+        lampiran: 'Satu berkas pendukung',
+        english,
+        headerKantor: 'Kantor Pusat',
+        headerGedung: 'Gedung AirNav',
+        headerAlamat: 'Alamat kantor',
+      });
+      expect(renderedHtml).not.toContain('<li>Direktur Teknik</li>');
+      expect(renderedHtml).not.toContain('<li>Direktur SDM</li>');
+      expect(renderedHtml).toContain('Tangerang');
+      expect(renderedHtml).toContain('Satu berkas pendukung');
+      expect(renderedHtml).toContain('href="https://airnavindonesia.co.id"');
+      expect(renderedHtml).toMatch(
+        /(?:Tembusan Yth:|Copy to:)<br>Direktur SDM/,
+      );
+      expect(renderedHtml).toContain('Alamat kantor');
+    },
+  );
+
+  it('numbers multiple SDI recipients and copies', async () => {
+    await new GeneratePdfSudinService().generatePdf({
+      html: '<p>Konten</p>',
+      penerima: ['Penerima A', 'Penerima B'],
+      tembusan: ['Tembusan A', 'Tembusan B'],
+    });
+    expect(renderedHtml).toContain('<li>Penerima A</li><li>Penerima B</li>');
+    expect(renderedHtml).toContain("<ol style='margin:0;padding-left:0;list-style-position:inside;'><li>Penerima A</li>");
+    expect(renderedHtml).toContain('<div style="width:100%;margin:0;padding:0;">');
+    expect(renderedHtml).toContain('<li>Tembusan A</li><li>Tembusan B</li>');
+    expect(renderedHtml).toContain("Tembusan Yth:<br><ol style='margin:0;padding-left:0;list-style-position:inside;'>");
+  });
+
   it('renders nomor surat on Nota Dinas address page', async () => {
     await new GeneratePdfNodinService().generatePdf({
       html: '<p>Konten</p>',

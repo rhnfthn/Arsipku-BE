@@ -252,6 +252,23 @@ export class RealtimeEmitService {
     }
   }
 
+  /**
+   * Sinyal perubahan draft ke posisi — FE sidebar refresh badge count draf.
+   * Fire-and-forget: kegagalan emit tidak boleh mengganggu mutasi draft.
+   */
+  emitDraftChanged(
+    positionId: string | number,
+    source: 'korespondensi' | 'naskah-lainnya',
+  ) {
+    try {
+      this.gateway.emitDraftChanged(String(positionId), source);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitDraftChanged] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
   emitNaskahLainnyaUpdated(naskahId: string) {
     try {
       this.gateway.emitNaskahLainnyaUpdated({
