@@ -13,6 +13,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ConfigAdminModule } from '../config/config.module';
 import { NaskahLainnyaDokumenEntity } from '../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
+import { MailServiceModule } from '../mail-service/mail-service.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { NaskahLainnyaDokumenEntity } from '../naskah-lainnya/entities/naskah-la
     NotificationModule,
     RealtimeModule,
     ConfigAdminModule,
+    MailServiceModule,
   ],
   controllers: [NaskahShareController],
   providers: [NaskahShareService],
