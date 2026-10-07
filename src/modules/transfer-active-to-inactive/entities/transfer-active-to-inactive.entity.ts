@@ -178,6 +178,26 @@ export class TransferActiveToInactiveEntity {
   })
   bacPihakPertamaJabatan: string | null;
 
+  /** Pejabat pihak kedua BAC (Unit Dokumen) — TTD di sisi penerima. */
+  @Column({ name: 'bac_pihak_kedua_persnum', type: 'int', nullable: true })
+  bacPihakKeduaPersnum: number | null;
+
+  @Column({
+    name: 'bac_pihak_kedua_name',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  bacPihakKeduaName: string | null;
+
+  @Column({
+    name: 'bac_pihak_kedua_jabatan',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  bacPihakKeduaJabatan: string | null;
+
   /** Daftar pejabat tembusan BAC (khusus EVP ke atas) — JSON array. */
   @Column({ name: 'bac_tembusan', type: 'json', nullable: true })
   bacTembusan: Array<{
@@ -197,6 +217,16 @@ export class TransferActiveToInactiveEntity {
   /** QR tanda tangan untuk ditampilkan pada preview BAC sekretaris. */
   @Column({ name: 'bac_signature_qr', type: 'longtext', nullable: true })
   bacSignatureQr: string | null;
+
+  /** Tanda tangan pihak kedua BAC. */
+  @Column({ name: 'bac_pihak_kedua_signed_at', type: 'datetime', nullable: true })
+  bacPihakKeduaSignedAt: Date | null;
+
+  @Column({ name: 'bac_pihak_kedua_signed_by', type: 'int', nullable: true })
+  bacPihakKeduaSignedBy: number | null;
+
+  @Column({ name: 'bac_pihak_kedua_signature_qr', type: 'longtext', nullable: true })
+  bacPihakKeduaSignatureQr: string | null;
 
   @Column({
     name: 'berita_acara_nomor',
@@ -279,6 +309,9 @@ export class TransferActiveToInactiveEntity {
 
   @Column({ name: 'kolom', type: 'varchar', length: 50, nullable: true })
   kolom: string | null;
+
+  @Column({ name: 'label_penataan', type: 'varchar', length: 255, nullable: true })
+  labelPenataan: string | null;
 
   @Column({ name: 'keterangan_penataan', type: 'text', nullable: true })
   keteranganPenataan: string | null;

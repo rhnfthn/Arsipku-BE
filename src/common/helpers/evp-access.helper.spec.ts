@@ -28,4 +28,23 @@ describe('isEvpOrAbovePosition', () => {
     expect(isEvpOrAbovePosition({ positionText: 'AVP Finance' })).toBe(false);
     expect(isEvpOrAbovePosition({ positionText: 'Staff' })).toBe(false);
   });
+
+  it('rejects delegated secretary context even when delegated text contains EVP', () => {
+    expect(
+      isEvpOrAbovePosition({
+        position_status: 'SE',
+        positionText: 'SE. EVP of Technology Solution',
+        bodTag: 'BOD-2',
+        abbreviation: 'EVP',
+      }),
+    ).toBe(false);
+    expect(
+      isEvpOrAbovePosition({
+        active_profile: 'sekretaris',
+        positionText: 'EVP of Technology Solution',
+        bodTag: 'BOD-2',
+        abbreviation: 'EVP',
+      }),
+    ).toBe(false);
+  });
 });

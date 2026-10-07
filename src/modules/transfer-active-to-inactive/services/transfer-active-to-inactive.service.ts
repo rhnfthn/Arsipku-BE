@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
 import { TransferActiveToInactiveEntity } from '../entities/transfer-active-to-inactive.entity';
 import { TransferApprovalLevelEntity } from '../entities/approval-level.entity';
 import { TransferActiveToInactiveStatus } from '../enums/transfer-status.enum';
@@ -765,9 +766,9 @@ export class TransferActiveToInactiveService {
   }
 
   /**
-   * BAC yang memang ditugaskan kepada user login sebagai pihak pertama.
-   * Endpoint ini menjadi sumber data menu Penandatanganan, sehingga pejabat
-   * tidak perlu menjadi sekretaris pengusul untuk melihat BAC yang harus TTE.
+   * BAC yang ditugaskan kepada user sebagai pihak pertama/kedua, baik masih
+   * menunggu tanda tangan maupun sudah ditandatangani agar tetap terlihat di
+   * riwayat menu Penandatanganan.
    */
   async getSigningList(user: any) {
     if (!isEvpOrAbovePosition(user)) {
@@ -783,20 +784,35 @@ export class TransferActiveToInactiveService {
 
     const items = await this.repo
       .createQueryBuilder('t')
-      .where('t.bac_pihak_pertama_persnum = :persnum', {
-        persnum: signerPersnum,
-      })
-      .andWhere('t.status IN (:...signingStatuses)', {
-        signingStatuses: [
+      .where(
+        '((t.bac_pihak_pertama_persnum = :persnum '
+          + 'AND (t.bac_signed_at IS NOT NULL OR '
+          + '(t.bac_signed_at IS NULL AND t.status IN (:...firstPartyStatuses)))) OR '
+          + '(t.bac_pihak_kedua_persnum = :persnum '
+          + 'AND t.bac_signed_at IS NOT NULL '
+          + 'AND (t.bac_pihak_kedua_signed_at IS NOT NULL '
+          + 'OR t.status = :secondPartyStatus)))',
+        {
+          persnum: signerPersnum,
+          firstPartyStatuses: [
           TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
           TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
-          TransferActiveToInactiveStatus.DIKIRIM,
-        ],
-      })
+          ],
+          secondPartyStatus:
+            TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA,
+        },
+      )
       .orderBy('t.tgl_usulan', 'DESC')
       .getMany();
 
-    return items.map((item) => ({
+    return items.map((item) => {
+      const isPihakKedua =
+        Number(item.bacPihakKeduaPersnum) === signerPersnum &&
+        !!item.bacSignedAt;
+      const signerSignedAt = isPihakKedua
+        ? item.bacPihakKeduaSignedAt
+        : item.bacSignedAt;
+      return {
       id: item.id,
       nomorUsulan: item.nomorUsulan,
       arsipPerihal: item.arsipPerihal,
@@ -807,13 +823,19 @@ export class TransferActiveToInactiveService {
       beritaAcaraUrl: item.beritaAcaraUrl,
       bacPihakPertamaName: item.bacPihakPertamaName,
       bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
-      bacSignedAt: item.bacSignedAt,
-      bacSignedBy: item.bacSignedBy,
-      bacStatus: item.bacSignedAt ? 'SELESAI' : 'MENUNGGU_TTD',
+      bacPihakKeduaName: item.bacPihakKeduaName,
+      bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
+      bacSignedAt: signerSignedAt,
+      bacSignedBy: isPihakKedua ? item.bacPihakKeduaSignedBy : item.bacSignedBy,
+      bacStatus: signerSignedAt ? 'SELESAI' : 'MENUNGGU_TTD',
+      signerType: isPihakKedua ? 'pihak_kedua' : 'pihak_pertama',
+      pihakPertamaSignedAt: item.bacSignedAt,
+      pihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
       bacTembusanCount: Array.isArray(item.bacTembusan)
         ? item.bacTembusan.length
         : 0,
-    }));
+      };
+    });
   }
 
   /**
@@ -844,43 +866,28 @@ export class TransferActiveToInactiveService {
         : false,
     );
 
-    return Promise.all(
-      copies.map(async (item) => ({
-        id: item.id,
-        nomorUsulan: item.nomorUsulan,
-        arsipPerihal: item.arsipPerihal,
-        arsipKode: item.arsipKode,
-        tanggalUsulan: item.tanggalUsulan,
-        status: item.status,
-        beritaAcaraNomor: item.beritaAcaraNomor,
-        bacPihakPertamaName: item.bacPihakPertamaName,
-        bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
-        bacSignedAt: item.bacSignedAt,
-        bacStatus: item.bacSignedAt
-          ? 'SUDAH_DITANDATANGANI'
-          : 'MENUNGGU_TANDA_TANGAN',
-        beritaAcaraUrl: item.bacSignedAt
-          ? await this.getBacPreviewUrl(item)
-          : null,
-      })),
-    );
-  }
-
-  private async getBacPreviewUrl(
-    item: TransferActiveToInactiveEntity,
-  ): Promise<string | null> {
-    const key = item.beritaAcaraUrl;
-    if (!key) return null;
-
-    // Data lama dapat menyimpan URL endpoint/path, sedangkan generator baru
-    // menyimpan object key MinIO. Keduanya tetap didukung.
-    if (/^(https?:\/\/|\/)/i.test(key)) return key;
-
-    return this.storageService.getPreviewUrl(
-      key,
-      86_400,
-      `BAC-${item.nomorUsulan}.pdf`,
-    );
+    return copies.map((item) => ({
+      id: item.id,
+      nomorUsulan: item.nomorUsulan,
+      arsipPerihal: item.arsipPerihal,
+      arsipKode: item.arsipKode,
+      tanggalUsulan: item.tanggalUsulan,
+      status: item.status,
+      beritaAcaraNomor: item.beritaAcaraNomor,
+      bacPihakPertamaName: item.bacPihakPertamaName,
+      bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
+      bacPihakKeduaName: item.bacPihakKeduaName,
+      bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
+      bacPihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
+      bacSignedAt: item.bacSignedAt,
+      bacStatus: item.bacSignedAt
+        ? 'SUDAH_DITANDATANGANI'
+        : 'MENUNGGU_TANDA_TANGAN',
+      // Preview memakai endpoint proxy /:id/berita-acara.pdf. Jangan
+      // membuat presigned URL MinIO saat memuat daftar: kegagalan MinIO
+      // sebelumnya membuat seluruh halaman tembusan ikut gagal 500.
+      beritaAcaraUrl: null,
+    }));
   }
 
   /**
@@ -893,26 +900,61 @@ export class TransferActiveToInactiveService {
    */
   async getBeritaAcaraPdf(id: string, user: any): Promise<Buffer> {
     const item = await this.findOne(id, user);
-    if (
-      !item.beritaAcaraUrl ||
-      item.beritaAcaraUrl.endsWith('/berita-acara.pdf')
-    ) {
-      throw new NotFoundException('PDF Berita Acara belum tersedia');
+    const storedValue = item.beritaAcaraUrl;
+
+    if (storedValue && !storedValue.endsWith('/berita-acara.pdf')) {
+      try {
+        let objectKey = storedValue;
+
+        // Data lama dapat menyimpan URL MinIO lengkap. Ambil kembali object
+        // key-nya supaya file tetap diproxy melalui API dan browser tidak perlu
+        // mengakses host MinIO internal.
+        if (/^https?:\/\//i.test(storedValue)) {
+          const pathname = decodeURIComponent(new URL(storedValue).pathname);
+          const knownFolders = [
+            'transfer-active-to-inactive/bac-signed/',
+            'transfer-active-to-inactive/bac/',
+          ];
+          const marker = knownFolders.find((folder) => pathname.includes(folder));
+          if (!marker) throw new Error('Object key BAC tidak dikenali');
+          objectKey = pathname.slice(pathname.indexOf(marker));
+        }
+
+        if (!objectKey.startsWith('/')) {
+          const storedPdf = await this.storageService.getFile(objectKey);
+          if (storedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+            throw new Error('File BAC di storage bukan PDF yang valid');
+          }
+          return storedPdf;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `PDF BAC tersimpan ${id} tidak dapat dibaca, membuat preview ulang: ${error?.message ?? error}`,
+        );
+      }
     }
 
-    // Generator baru menyimpan object key MinIO. Endpoint/path lama sengaja
-    // tidak diteruskan sebagai URL agar tidak terjadi redirect berulang.
-    if (/^(https?:\/\/|\/)/i.test(item.beritaAcaraUrl)) {
-      throw new NotFoundException('PDF Berita Acara lama tidak dapat dipreview');
-    }
-
+    // Fallback untuk data lama yang hanya menyimpan endpoint placeholder atau
+    // file storage-nya sudah tidak tersedia. Render ulang template BAC sebagai
+    // PDF agar preview tetap dapat dibuka dari seluruh halaman.
     try {
-      return await this.storageService.getFile(item.beritaAcaraUrl);
+      const baData = await this.getBeritaAcaraData(id);
+      const html = this.buildBacHtml(
+        item,
+        baData,
+        item.bacSignatureQr ?? undefined,
+        'pihak_pertama',
+      );
+      const generatedPdf = await this.generatePdfService.generateRawPdf(html);
+      if (generatedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new Error('Hasil generate BAC bukan PDF yang valid');
+      }
+      return generatedPdf;
     } catch (error) {
       this.logger.error(
-        `Gagal mengambil PDF BAC ${id} dari storage: ${error?.message ?? error}`,
+        `Gagal membuat preview PDF BAC ${id}: ${error?.message ?? error}`,
       );
-      throw new NotFoundException('File PDF Berita Acara tidak ditemukan');
+      throw new NotFoundException('PDF Berita Acara tidak dapat dipreview');
     }
   }
 
@@ -1684,6 +1726,43 @@ export class TransferActiveToInactiveService {
     return this.moveSignedBacToTu(item, signer);
   }
 
+  /** Setelah pihak kedua menandatangani, kembalikan usulan ke TU untuk penataan. */
+  async dispatchToTuAfterSecondBacSignature(
+    id: string,
+    signer: any,
+  ): Promise<TransferActiveToInactiveEntity> {
+    const item = await this.getItem(id);
+    if (
+      item.status !== TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA
+    ) {
+      throw new BadRequestException(
+        `Status ${item.status} belum menunggu tanda tangan pihak kedua`,
+      );
+    }
+    if (!item.bacPihakKeduaSignedAt) {
+      throw new BadRequestException('Berita Acara pihak kedua belum ditandatangani');
+    }
+
+    const oldStatus = item.status;
+    item.status = TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
+    item.receivedAt = item.bacPihakKeduaSignedAt;
+    const saved = await this.repo.save(item);
+    this.logAudit(
+      signer,
+      saved,
+      oldStatus,
+      saved.status,
+      'Pihak kedua menandatangani BAC — usulan dikembalikan ke TU untuk penataan',
+    );
+    await this.notify(
+      saved,
+      '0',
+      saved.tuPersnum,
+      'Arsip diterima — siap penataan arsip inaktif',
+    );
+    return saved;
+  }
+
   private async moveSignedBacToTu(
     item: TransferActiveToInactiveEntity,
     actor: any,
@@ -1708,6 +1787,9 @@ export class TransferActiveToInactiveService {
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.DIKIRIM;
     item.tanggalDikirim = new Date();
+    // Tembusan BAC dari Sekretaris Divisi hanya berlaku pada tahap pihak pertama.
+    // TU memilih ulang penerima salinan saat mengajukan ke atasan managerial TU.
+    item.bacTembusan = [];
     const saved = await this.repo.save(item);
     this.logAudit(
       actor,
@@ -2144,10 +2226,11 @@ export class TransferActiveToInactiveService {
     id: string,
     qrCodeDataUrl: string,
     filenameSuffix = 'qr-signed-layout-v6',
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
   ): Promise<{ key: string; url: string }> {
     const item = await this.getItem(id);
     const baData = await this.getBeritaAcaraData(id);
-    const html = this.buildBacHtml(item, baData, qrCodeDataUrl);
+    const html = this.buildBacHtml(item, baData, qrCodeDataUrl, signerType);
     const bacBuffer = await this.generatePdfService.generateRawPdf(html);
     const upload = await this.storageService.uploadBuffer(
       bacBuffer,
@@ -2164,6 +2247,7 @@ export class TransferActiveToInactiveService {
     item: TransferActiveToInactiveEntity,
     baData: any,
     qrCodeDataUrl?: string,
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
   ): string {
     const escapeHtml = (value: any): string =>
       String(value ?? '-')
@@ -2253,11 +2337,17 @@ export class TransferActiveToInactiveService {
       item.beritaAcaraNomor ?? `BA/${item.nomorUsulan}`,
     );
     const ttdTokenRegex = /\{\{\s*ttd\s*\}\}/gi;
-    const ttdMarkup = qrCodeDataUrl
-      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${qrCodeDataUrl}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
+    const pihakPertamaQr = signerType === 'pihak_pertama'
+      ? qrCodeDataUrl
+      : item.bacSignatureQr ?? undefined;
+    const pihakKeduaQr = signerType === 'pihak_kedua'
+      ? qrCodeDataUrl
+      : item.bacPihakKeduaSignatureQr ?? undefined;
+    const ttdMarkup = pihakPertamaQr
+      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakPertamaQr}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
       : '<p style="margin:0 0 58px;">Ttd</p>';
-    const pihakKeduaTtdMarkup = qrCodeDataUrl
-      ? '<p style="height:92px;margin:0;">Ttd</p>'
+    const pihakKeduaTtdMarkup = pihakKeduaQr
+      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
       : '<p style="margin:0 0 58px;">Ttd</p>';
 
     return `
@@ -2337,7 +2427,7 @@ export class TransferActiveToInactiveService {
             <td style="width:50%;text-align:left;vertical-align:top;">
               <p style="margin:0 0 16px;">Pihak Kedua</p>
               ${pihakKeduaTtdMarkup}
-              <p style="margin:0;">(jabatan)</p>
+              <p style="margin:0;">(${escapeHtml(pihakKedua.jabatan || 'Jabatan')})</p>
             </td>
           </tr>
         </table>
@@ -2662,19 +2752,42 @@ export class TransferActiveToInactiveService {
       jumlahRows.map((row: any) => [String(row.id), Number(row.jumlah)]),
     );
 
-    const naskahRows = await this.berkasRepo.manager
-      .createQueryBuilder()
-      .select('bn.berkas_id', 'berkasId')
-      .addSelect('bn.naskah_id', 'naskahId')
-      .addSelect('bn.perihal', 'perihal')
-      .addSelect('bn.nomor_surat', 'nomorSurat')
-      .addSelect('bn.tanggal_naskah', 'tanggalNaskah')
-      .addSelect('bn.urutan', 'urutan')
-      .from('berkas_naskah', 'bn')
-      .where('bn.berkas_id IN (:...ids)', { ids })
-      .orderBy('bn.berkas_id', 'ASC')
-      .addOrderBy('bn.urutan', 'ASC')
-      .getRawMany();
+    const placeholders = ids.map(() => '?').join(',');
+    const naskahRows: any[] = await this.berkasRepo.manager.query(
+      `SELECT
+         bn.berkas_id AS berkasId,
+         bn.naskah_id AS naskahId,
+         COALESCE(NULLIF(bn.perihal, ''), n.perihal) AS perihal,
+         COALESCE(NULLIF(bn.nomor_surat, ''), n.nomor) AS nomorSurat,
+         COALESCE(bn.tanggal_naskah, n.tanggal) AS tanggalNaskah,
+         bn.urutan AS urutan,
+         COALESCE(n.final_pdf, n.signed_lampiran) AS pdfKey
+       FROM berkas_naskah bn
+       LEFT JOIN naskah n ON n.id = bn.naskah_id
+       WHERE bn.berkas_id IN (${placeholders})
+       ORDER BY bn.berkas_id ASC, bn.urutan ASC`,
+      ids,
+    );
+
+    // Kolom jumlah pada daftar isi menunjukkan jumlah halaman PDF final.
+    const jumlahHalamanMap = new Map<string, number | null>();
+    await Promise.all(
+      naskahRows.map(async (row) => {
+        const naskahId = String(row.naskahId);
+        if (jumlahHalamanMap.has(naskahId)) return;
+        if (!row.pdfKey) {
+          jumlahHalamanMap.set(naskahId, null);
+          return;
+        }
+        try {
+          const { buffer } = await this.storageService.getFileWithMetadata(row.pdfKey);
+          const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true });
+          jumlahHalamanMap.set(naskahId, pdf.getPageCount());
+        } catch {
+          jumlahHalamanMap.set(naskahId, null);
+        }
+      }),
+    );
     const naskahMap = new Map<string, any[]>();
     for (const row of naskahRows) {
       const key = String(row.berkasId);
@@ -2725,7 +2838,12 @@ export class TransferActiveToInactiveService {
           : '-',
         kodeKlasifikasi: berkas?.klasifikasi ?? '-',
         uraianInformasi: berkas?.isiRingkas ?? berkas?.judulBerkas ?? a.perihal ?? '-',
+        // Tanggal pada daftar pemindahan adalah tanggal usulan, bukan tanggal
+        // pembuatan berkas. Metadata berkas lainnya tetap diambil dari
+        // pemberkasan awal.
+        tanggal: item.tanggalUsulan ?? null,
         kurunWaktu: years.join(' - ') || '-',
+        jumlah: jumlahMap.get(String(a.id)) ?? 0,
         jumlahBerkas: jumlahMap.get(String(a.id)) ?? 0,
         tingkatPerkembangan: '-',
         lokasiSimpan: berkas?.lokasi ?? '-',
@@ -2754,12 +2872,13 @@ export class TransferActiveToInactiveService {
           kode: summary.kode,
           keterangan: summary.keterangan,
           nomorItem: itemIndex + 1,
+          nomorSurat: naskah?.nomorSurat ?? null,
           tanggal: naskah?.tanggalNaskah ?? berkas?.tanggalDibuat ?? null,
           kodeKlasifikasi: summary.kodeKlasifikasi,
           uraianInformasi:
             naskah?.perihal ?? naskah?.nomorSurat ?? summary.uraianInformasi ?? '-',
-          jumlah: 1,
-          jumlahBerkas: 1,
+          jumlah: naskah ? jumlahHalamanMap.get(String(naskah.naskahId)) ?? null : null,
+          jumlahBerkas: naskah ? jumlahHalamanMap.get(String(naskah.naskahId)) ?? null : null,
           tingkatPerkembangan: '-',
           lokasiSimpan: summary.lokasiSimpan,
           klasifikasiKeamanan: summary.klasifikasiKeamanan,
@@ -2842,14 +2961,11 @@ export class TransferActiveToInactiveService {
       unitKerja:
         organization?.pihakPertamaUnitKerja ?? unitKerjaPengusul,
     };
-    // Pihak Kedua baru ditentukan Unit Dokumen pada tahap penerimaan TU.
-    // Sebelum tahap tersebut, identitasnya harus tetap kosong dan tidak boleh
-    // ditebak dari rantai EVP atau diisi dengan pejabat hardcode.
     const pihakKedua = {
-      nama: '',
-      enik: '',
-      jabatan: '',
-      unitKerja: '',
+      nama: item.bacPihakKeduaName ?? '',
+      enik: item.bacPihakKeduaPersnum ?? '',
+      jabatan: item.bacPihakKeduaJabatan ?? '',
+      unitKerja: item.bacPihakKeduaPersnum ? 'UC' : '',
     };
     return {
       nomorUsulan: item.nomorUsulan,

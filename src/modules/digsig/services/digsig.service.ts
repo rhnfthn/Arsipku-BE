@@ -818,6 +818,7 @@ export class DigsigService {
     transferId: string,
     dto: { passphrase: string },
     user: JwtPayload,
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
   ): Promise<SignResultResponse> {
     if (!isEvpOrAbovePosition(user)) {
       throw new ForbiddenException(
@@ -846,17 +847,33 @@ export class DigsigService {
         'Berita Acara belum di-generate. Klik "Generate BAC" terlebih dahulu',
       );
     }
-    if (transfer.bacSignedAt) {
-      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    const isPihakKedua = signerType === 'pihak_kedua';
+    if (isPihakKedua && !transfer.bacSignedAt) {
+      throw new BadRequestException('Pihak pertama belum menandatangani BAC');
     }
-
-    // Validasi: hanya pejabat pihak pertama BAC yang boleh TTE
     if (
-      transfer.bacPihakPertamaPersnum &&
-      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+      isPihakKedua &&
+      transfer.status !== 'MENUNGGU_TTD_PIHAK_KEDUA'
     ) {
       throw new BadRequestException(
-        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+        'Tanda tangan pihak kedua baru dapat dilakukan setelah seluruh verifikasi TU selesai',
+      );
+    }
+    const assignedPersnum = isPihakKedua
+      ? transfer.bacPihakKeduaPersnum
+      : transfer.bacPihakPertamaPersnum;
+    if (isPihakKedua && !assignedPersnum) {
+      throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
+    }
+    const alreadySigned = isPihakKedua
+      ? transfer.bacPihakKeduaSignedAt
+      : transfer.bacSignedAt;
+    if (alreadySigned) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
+    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new BadRequestException(
+        `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
 
@@ -909,8 +926,8 @@ export class DigsigService {
           document_number:
             transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
           signed_at: signedAt,
-          signer_name: transfer.bacPihakPertamaName || user.nama || 'Penandatangan',
-          signer_jabatan: transfer.bacPihakPertamaJabatan || 'Pejabat Pihak Pertama',
+          signer_name: (isPihakKedua ? transfer.bacPihakKeduaName : transfer.bacPihakPertamaName) || user.nama || 'Penandatangan',
+          signer_jabatan: (isPihakKedua ? transfer.bacPihakKeduaJabatan : transfer.bacPihakPertamaJabatan) || (isPihakKedua ? 'Pejabat Pihak Kedua' : 'Pejabat Pihak Pertama'),
           document_type: 'Berita Acara Pemindahan Arsip',
           verification_url: `${VERIFICATION_BASE_URL}/${signatureId}`,
         };
@@ -927,7 +944,7 @@ export class DigsigService {
             // menjadi dua halaman.
             useLastPage: true,
             useFixedPosition: true,
-            fixedX: 74,
+            fixedX: isPihakKedua ? 430 : 74,
             fixedY: 86,
             qrSize: 82,
           },
@@ -940,7 +957,9 @@ export class DigsigService {
             'transfer-active-to-inactive/bac-signed',
           );
           finalSignedKey = qrUpload.key;
-          transfer.bacSignatureQr = await this.qrCodeService.generateQRCodeBase64(qrData);
+          const qr = await this.qrCodeService.generateQRCodeBase64(qrData);
+          if (isPihakKedua) transfer.bacPihakKeduaSignatureQr = qr;
+          else transfer.bacSignatureQr = qr;
         }
       } catch (qrError) {
         // TTE tetap dianggap berhasil bila BSrE sudah mengembalikan PDF.
@@ -952,13 +971,25 @@ export class DigsigService {
     if (finalSignedKey) {
       transfer.beritaAcaraUrl = finalSignedKey;
     }
-    transfer.bacSignedAt = new Date();
-    transfer.bacSignedBy = Number(user.persnum);
+    if (isPihakKedua) {
+      transfer.bacPihakKeduaSignedAt = new Date();
+      transfer.bacPihakKeduaSignedBy = Number(user.persnum);
+    } else {
+      transfer.bacSignedAt = new Date();
+      transfer.bacSignedBy = Number(user.persnum);
+    }
     await this.transferRepository.save(transfer);
-    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
-      transfer.id,
-      user,
-    );
+    if (!isPihakKedua) {
+      await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+        transfer.id,
+        user,
+      );
+    } else {
+      await this.transferActiveToInactiveService.dispatchToTuAfterSecondBacSignature(
+        transfer.id,
+        user,
+      );
+    }
 
     return {
       message: 'Berita Acara berhasil ditandatangani dengan BSrE',
@@ -981,6 +1012,7 @@ export class DigsigService {
   async signBacQr(
     transferId: string,
     user: JwtPayload,
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
   ): Promise<SignResultResponse> {
     if (!isEvpOrAbovePosition(user)) {
       throw new ForbiddenException(
@@ -1001,15 +1033,33 @@ export class DigsigService {
         'Berita Acara belum di-generate. Klik "Generate BAC" terlebih dahulu',
       );
     }
-    if (transfer.bacSignedAt) {
-      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    const isPihakKedua = signerType === 'pihak_kedua';
+    if (isPihakKedua && !transfer.bacSignedAt) {
+      throw new BadRequestException('Pihak pertama belum menandatangani BAC');
     }
     if (
-      transfer.bacPihakPertamaPersnum &&
-      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+      isPihakKedua &&
+      transfer.status !== 'MENUNGGU_TTD_PIHAK_KEDUA'
     ) {
       throw new BadRequestException(
-        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+        'Tanda tangan pihak kedua baru dapat dilakukan setelah seluruh verifikasi TU selesai',
+      );
+    }
+    const alreadySigned = isPihakKedua
+      ? transfer.bacPihakKeduaSignedAt
+      : transfer.bacSignedAt;
+    if (alreadySigned) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
+    const assignedPersnum = isPihakKedua
+      ? transfer.bacPihakKeduaPersnum
+      : transfer.bacPihakPertamaPersnum;
+    if (isPihakKedua && !assignedPersnum) {
+      throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
+    }
+    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new BadRequestException(
+        `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
     if (/^(https?:\/\/|\/)/i.test(transfer.beritaAcaraUrl)) {
@@ -1024,8 +1074,8 @@ export class DigsigService {
       signature_id: signatureId,
       document_number: transfer.beritaAcaraNomor || `BA/${transfer.nomorUsulan}`,
       signed_at: signedAt.toISOString(),
-      signer_name: transfer.bacPihakPertamaName || user.nama || 'Penandatangan',
-      signer_jabatan: transfer.bacPihakPertamaJabatan || 'Pejabat Pihak Pertama',
+      signer_name: (isPihakKedua ? transfer.bacPihakKeduaName : transfer.bacPihakPertamaName) || user.nama || 'Penandatangan',
+      signer_jabatan: (isPihakKedua ? transfer.bacPihakKeduaJabatan : transfer.bacPihakPertamaJabatan) || (isPihakKedua ? 'Pejabat Pihak Kedua' : 'Pejabat Pihak Pertama'),
       document_type: 'Berita Acara Pemindahan Arsip',
       verification_url: `${VERIFICATION_BASE_URL}/${signatureId}`,
     };
@@ -1037,11 +1087,19 @@ export class DigsigService {
     const upload = await this.transferActiveToInactiveService.generateSignedBacPdfWithQr(
       transferId,
       qrCodeDataUrl,
+      `qr-signed-layout-v6-${isPihakKedua ? 'pihak-kedua' : 'pihak-pertama'}`,
+      signerType,
     );
     transfer.beritaAcaraUrl = upload.key;
-    transfer.bacSignatureQr = qrCodeDataUrl;
-    transfer.bacSignedAt = signedAt;
-    transfer.bacSignedBy = Number(user.persnum);
+    if (isPihakKedua) {
+      transfer.bacPihakKeduaSignatureQr = qrCodeDataUrl;
+      transfer.bacPihakKeduaSignedAt = signedAt;
+      transfer.bacPihakKeduaSignedBy = Number(user.persnum);
+    } else {
+      transfer.bacSignatureQr = qrCodeDataUrl;
+      transfer.bacSignedAt = signedAt;
+      transfer.bacSignedBy = Number(user.persnum);
+    }
     await this.transferRepository.save(transfer);
 
     await this.digsigLogService.logSignActivity({
@@ -1054,10 +1112,17 @@ export class DigsigService {
       status: 'sukses',
       note: 'BAC ditandatangani dengan QR internal',
     });
-    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
-      transfer.id,
-      user,
-    );
+    if (!isPihakKedua) {
+      await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+        transfer.id,
+        user,
+      );
+    } else {
+      await this.transferActiveToInactiveService.dispatchToTuAfterSecondBacSignature(
+        transfer.id,
+        user,
+      );
+    }
 
     return {
       message: 'Berita Acara berhasil ditandatangani dengan QR',
@@ -1202,6 +1267,7 @@ export class DigsigService {
     transferId: string,
     file: Express.Multer.File,
     user: JwtPayload,
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
   ): Promise<SignResultResponse> {
     if (!isEvpOrAbovePosition(user)) {
       throw new ForbiddenException(
@@ -1226,15 +1292,33 @@ export class DigsigService {
     if (!transfer.beritaAcaraUrl) {
       throw new BadRequestException('Berita Acara belum di-generate');
     }
-    if (transfer.bacSignedAt) {
-      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    const isPihakKedua = signerType === 'pihak_kedua';
+    if (isPihakKedua && !transfer.bacSignedAt) {
+      throw new BadRequestException('Pihak pertama belum menandatangani BAC');
     }
     if (
-      transfer.bacPihakPertamaPersnum &&
-      Number(transfer.bacPihakPertamaPersnum) !== Number(user.persnum)
+      isPihakKedua &&
+      transfer.status !== 'MENUNGGU_TTD_PIHAK_KEDUA'
     ) {
       throw new BadRequestException(
-        'Hanya pejabat pihak pertama BAC yang dapat menandatangani berita acara ini',
+        'Tanda tangan pihak kedua baru dapat dilakukan setelah seluruh verifikasi TU selesai',
+      );
+    }
+    const alreadySigned = isPihakKedua
+      ? transfer.bacPihakKeduaSignedAt
+      : transfer.bacSignedAt;
+    if (alreadySigned) {
+      throw new BadRequestException('Berita Acara ini sudah ditandatangani');
+    }
+    const assignedPersnum = isPihakKedua
+      ? transfer.bacPihakKeduaPersnum
+      : transfer.bacPihakPertamaPersnum;
+    if (isPihakKedua && !assignedPersnum) {
+      throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
+    }
+    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new BadRequestException(
+        `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
 
@@ -1246,8 +1330,13 @@ export class DigsigService {
     );
     const signedAt = new Date();
     transfer.beritaAcaraUrl = upload.key;
-    transfer.bacSignedAt = signedAt;
-    transfer.bacSignedBy = Number(user.persnum);
+    if (isPihakKedua) {
+      transfer.bacPihakKeduaSignedAt = signedAt;
+      transfer.bacPihakKeduaSignedBy = Number(user.persnum);
+    } else {
+      transfer.bacSignedAt = signedAt;
+      transfer.bacSignedBy = Number(user.persnum);
+    }
     await this.transferRepository.save(transfer);
 
     await this.digsigLogService.logSignActivity({
@@ -1260,10 +1349,17 @@ export class DigsigService {
       status: 'sukses',
       note: 'BAC ditandatangani dengan tanda tangan basah',
     });
-    await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
-      transfer.id,
-      user,
-    );
+    if (!isPihakKedua) {
+      await this.transferActiveToInactiveService.dispatchToTuAfterBacSignature(
+        transfer.id,
+        user,
+      );
+    } else {
+      await this.transferActiveToInactiveService.dispatchToTuAfterSecondBacSignature(
+        transfer.id,
+        user,
+      );
+    }
 
     return {
       message: 'Berita Acara berhasil ditandatangani dengan tanda tangan basah',

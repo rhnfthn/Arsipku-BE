@@ -251,11 +251,20 @@ export class RbacService {
     permissionIds: string[],
     matrixPermissionIds?: string[],
   ): Promise<void> {
+    // Browser matrix dapat mengirim ID yang sama lebih dari sekali karena
+    // satu permission dipakai oleh lebih dari satu node tampilan. Normalisasi
+    // di backend membuat PUT ini idempotent dan mencegah duplicate assignment.
+    const normalizedPermissionIds = [...new Set(permissionIds ?? [])];
+    const normalizedMatrixPermissionIds = matrixPermissionIds
+      ? [...new Set(matrixPermissionIds)]
+      : undefined;
+
     // Permission Naskah Lainnya sebelumnya memakai satu resource gabungan.
     // Hapus assignment legacy saat matrix baru disimpan agar permission lama
     // tidak membuat semua tombol tetap dianggap memiliki akses.
     const legacyNaskahPermissionIds = new Set<string>();
-    if (matrixPermissionIds?.length) {
+    const legacyPenyusutanPermissionIds = new Set<string>();
+    if (normalizedMatrixPermissionIds?.length) {
       const resourceRepo = this.resourceRepo as any;
       const permissionRepo = this.permissionRepo as any;
       if (
@@ -277,6 +286,22 @@ export class RbacService {
             legacyNaskahPermissionIds.add(permission.id);
           }
         }
+
+        // Penyusutan sekarang dikendalikan oleh tiga resource granular.
+        // Assignment dari resource lama tidak boleh tetap menjadi jalur akses
+        // setelah Read submenu dicabut dari matrix RBAC.
+        const legacyPenyusutanResource = await resourceRepo.findOne({
+          where: { name: 'pemeliharaan.penyusutan' },
+        });
+        if (legacyPenyusutanResource) {
+          const legacyPermissions = await permissionRepo.find({
+            where: { resourceId: legacyPenyusutanResource.id },
+            select: ['id'],
+          });
+          for (const permission of legacyPermissions) {
+            legacyPenyusutanPermissionIds.add(permission.id);
+          }
+        }
       }
     }
 
@@ -284,17 +309,18 @@ export class RbacService {
       const rolePermRepo = manager.getRepository(RolePermissionEntity);
       const existing = await rolePermRepo.find({ where: { roleId } });
       const existingIds = new Set(existing.map((rp) => rp.permissionId));
-      const newIds = new Set(permissionIds);
+      const newIds = new Set(normalizedPermissionIds);
 
       const toAdd = [
-        ...new Set(permissionIds.filter((id) => !existingIds.has(id))),
+        ...new Set(normalizedPermissionIds.filter((id) => !existingIds.has(id))),
       ];
 
-      const scopeSet = matrixPermissionIds
-        ? new Set(matrixPermissionIds)
+      const scopeSet = normalizedMatrixPermissionIds
+        ? new Set(normalizedMatrixPermissionIds)
         : null;
       const toRemove = existing.filter((rp) => {
         if (legacyNaskahPermissionIds.has(rp.permissionId)) return true;
+        if (legacyPenyusutanPermissionIds.has(rp.permissionId)) return true;
         if (newIds.has(rp.permissionId)) return false; // masih dipilih
         if (scopeSet && !scopeSet.has(rp.permissionId)) return false; // di luar scope matrix — keep
         return true; // dalam scope matrix & tidak dipilih — remove

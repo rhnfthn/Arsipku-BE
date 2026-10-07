@@ -830,6 +830,76 @@ async function main() {
         where: { roleId: role.id },
       });
       if (existingAssignments > 0) {
+        // Migrasikan permission lama Penyusutan ke tiga submenu granular.
+        // Permission lain yang sudah dikurasi melalui halaman RBAC tidak
+        // ditimpa atau diaktifkan kembali.
+        const existingRolePermissions = await rpRepo.find({
+          where: { roleId: role.id },
+        });
+        const existingPermissionIds = new Set(
+          existingRolePermissions.map((assignment) => assignment.permissionId),
+        );
+        const legacyActionTargets: Record<string, string[]> = {
+          read: [
+            'pemeliharaan.penyusutan.pengajuan.read',
+            'pemeliharaan.penyusutan.penataan-pemusnahan.read',
+            'pemeliharaan.penyusutan.verifikasi.read',
+          ],
+          create: ['pemeliharaan.penyusutan.pengajuan.create'],
+          update: [
+            'pemeliharaan.penyusutan.pengajuan.update',
+            'pemeliharaan.penyusutan.penataan-pemusnahan.update',
+          ],
+          // Permission approve/reject lama tetap dipertahankan pada submenu
+          // pengajuan untuk kompatibilitas, lalu ditambahkan juga ke scope
+          // verifikasi yang sekarang dipakai endpoint atasan managerial TU.
+          approve: [
+            'pemeliharaan.penyusutan.pengajuan.approve',
+            'pemeliharaan.penyusutan.verifikasi.approve',
+          ],
+          reject: [
+            'pemeliharaan.penyusutan.pengajuan.reject',
+            'pemeliharaan.penyusutan.verifikasi.reject',
+          ],
+          complete: ['pemeliharaan.penyusutan.penataan-pemusnahan.complete'],
+        };
+        const permissionNameById = new Map(
+          Array.from(permIdByName.entries()).map(([name, id]) => [id, name]),
+        );
+        // Jangan otomatis mengaktifkan semua Read granular. Migrasi hanya
+        // memindahkan permission legacy yang memang masih dimiliki role;
+        // checkbox Read yang sudah dicabut harus tetap nonaktif.
+        const permissionNamesToAdd = new Set<string>();
+
+        for (const assignment of existingRolePermissions) {
+          const permissionName = permissionNameById.get(assignment.permissionId);
+          if (permissionName === 'pemeliharaan.penyusutan.pengajuan.approve') {
+            permissionNamesToAdd.add('pemeliharaan.penyusutan.verifikasi.approve');
+          }
+          if (permissionName === 'pemeliharaan.penyusutan.pengajuan.reject') {
+            permissionNamesToAdd.add('pemeliharaan.penyusutan.verifikasi.reject');
+          }
+          const legacyPrefix = 'pemeliharaan.penyusutan.';
+          if (!permissionName?.startsWith(legacyPrefix)) continue;
+          const action = permissionName.slice(legacyPrefix.length);
+          for (const target of legacyActionTargets[action] ?? []) {
+            permissionNamesToAdd.add(target);
+          }
+        }
+
+        for (const permissionName of permissionNamesToAdd) {
+          const permissionId = permIdByName.get(permissionName);
+          if (!permissionId || existingPermissionIds.has(permissionId)) continue;
+          await rpRepo.save(
+            rpRepo.create({
+              id: uuidv4(),
+              roleId: role.id,
+              permissionId,
+            }),
+          );
+          existingPermissionIds.add(permissionId);
+          console.log(`✅ Added ${permissionName} to ${roleName}`);
+        }
         console.log(
           `ℹ️ ${roleName} assignments preserved (${existingAssignments} existing)`,
         );

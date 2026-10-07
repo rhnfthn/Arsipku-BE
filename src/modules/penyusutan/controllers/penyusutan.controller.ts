@@ -7,6 +7,7 @@ import {
   Body,
   Query,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { PenyusutanService } from '../services/penyusutan.service';
@@ -19,6 +20,10 @@ import {
 } from '../dto/penyusutan.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { CurrentUser, Roles, Public } from '../../../common/decorators';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../../common/decorators/require-permission.decorator';
 import { AllowViewerWrite } from '../../../common/decorators/allow-viewer-write.decorator';
 import { RoleName } from '../../../common/enums';
 import { PositionStatus } from '../../../common/enums/position-status.enum';
@@ -47,6 +52,7 @@ export class PenyusutanController {
   /** Daftar pengajuan penyusutan untuk Unit Dokumen (TU). */
   @Get('pengajuan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.pengajuan', 'read')
   async findAllForTu(
     @Query('status') status?: string,
     @Query('search') search?: string,
@@ -61,11 +67,13 @@ export class PenyusutanController {
   /** Daftar pengajuan untuk verifikasi oleh Atasan Managerial TU. */
   @Get('verifikasi')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.verifikasi', 'read')
   async findAllForAtasan(
     @Query('status') status?: string,
     @Query('search') search?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
+    await this.assertPenyusutanVerifier(user);
     return {
       success: true,
       data: await this.service.findAllForAtasan(user, { status, search }),
@@ -75,6 +83,7 @@ export class PenyusutanController {
   /** Daftar untuk penataan/pemusnahan (status DITERIMA atau SELESAI). */
   @Get('penataan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'read')
   async findAllForPenataan(
     @Query('search') search?: string,
     @CurrentUser() user?: JwtPayload,
@@ -87,6 +96,11 @@ export class PenyusutanController {
 
   /** Get fresh presigned URLs for berita acara and foto dokumentasi. */
   @Get(':id/file-urls')
+  @RequireAnyPermission(
+    { resource: 'pemeliharaan.penyusutan.pengajuan', action: 'read' },
+    { resource: 'pemeliharaan.penyusutan.penataan-pemusnahan', action: 'read' },
+    { resource: 'pemeliharaan.penyusutan.verifikasi', action: 'read' },
+  )
   async getFileUrls(@Param('id') id: string) {
     return {
       success: true,
@@ -96,12 +110,21 @@ export class PenyusutanController {
 
   /** Detail pengajuan penyusutan + verifikator. */
   @Get(':id')
+  @RequireAnyPermission(
+    { resource: 'pemeliharaan.penyusutan.pengajuan', action: 'read' },
+    { resource: 'pemeliharaan.penyusutan.penataan-pemusnahan', action: 'read' },
+    { resource: 'pemeliharaan.penyusutan.verifikasi', action: 'read' },
+  )
   async findOne(@Param('id') id: string) {
     return { success: true, data: await this.service.findOne(id) };
   }
 
   /** Ambil daftar verifikator untuk penyusutan. */
   @Get(':id/verifikators')
+  @RequireAnyPermission(
+    { resource: 'pemeliharaan.penyusutan.pengajuan', action: 'read' },
+    { resource: 'pemeliharaan.penyusutan.verifikasi', action: 'read' },
+  )
   async getVerifikators(@Param('id') id: string) {
     return {
       success: true,
@@ -112,6 +135,7 @@ export class PenyusutanController {
   /** Ajukan penyusutan (dari halaman Ajukan Penyusutan). */
   @Post('ajukan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.pengajuan', 'create')
   // Sekretaris TU dapat mengajukan penyusutan saat bekerja melalui profil SE.
   // Pengecualian ini sengaja hanya dipasang pada endpoint pengajuan; aksi
   // verifikasi, penataan, pemusnahan, dan backup tetap read-only untuk SE.
@@ -126,11 +150,13 @@ export class PenyusutanController {
   /** Verifikasi: setujui. */
   @Patch(':id/approve')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.verifikasi', 'approve')
   async approve(
     @Param('id') id: string,
     @Body() dto: VerifyPenyusutanDto,
     @CurrentUser() user: JwtPayload,
   ) {
+    await this.assertPenyusutanVerifier(user);
     return {
       success: true,
       data: await this.service.verify(id, dto, user, true),
@@ -140,11 +166,13 @@ export class PenyusutanController {
   /** Verifikasi: tolak. */
   @Patch(':id/reject')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.verifikasi', 'reject')
   async reject(
     @Param('id') id: string,
     @Body() dto: VerifyPenyusutanDto,
     @CurrentUser() user: JwtPayload,
   ) {
+    await this.assertPenyusutanVerifier(user);
     return {
       success: true,
       data: await this.service.verify(id, dto, user, false),
@@ -154,6 +182,7 @@ export class PenyusutanController {
   /** Simpan penataan arsip permanen. */
   @Patch(':id/penataan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'complete')
   @UseGuards(TuGuard)
   @AllowViewerWrite(PositionStatus.SE)
   async simpanPenataan(
@@ -170,6 +199,7 @@ export class PenyusutanController {
   /** Pemusnahan arsip. */
   @Patch(':id/pemusnahan')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'complete')
   @UseGuards(TuGuard)
   @AllowViewerWrite(PositionStatus.SE)
   async pemusnahan(
@@ -186,6 +216,7 @@ export class PenyusutanController {
   /** Backup data arsip musnah ke DB arsip + hapus master berkas dari DB inti. */
   @Post(':id/backup-data')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'complete')
   @UseGuards(TuGuard)
   @AllowViewerWrite(PositionStatus.SE)
   async backupData(
@@ -203,6 +234,7 @@ export class PenyusutanController {
   /** Update foto dokumentasi (untuk edit setelah penataan selesai). */
   @Patch(':id/foto-dokumentasi')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'update')
   @UseGuards(TuGuard)
   @AllowViewerWrite(PositionStatus.SE)
   async updateFotoDokumentasi(
@@ -223,6 +255,7 @@ export class PenyusutanController {
   /** Update berita acara (untuk edit setelah penataan/pemusnahan selesai). */
   @Patch(':id/berita-acara')
   @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.penataan-pemusnahan', 'update')
   @UseGuards(TuGuard)
   @AllowViewerWrite(PositionStatus.SE)
   async updateBeritaAcara(
@@ -234,5 +267,13 @@ export class PenyusutanController {
       success: true,
       data: await this.service.updateBeritaAcara(id, dto.beritaAcara, user),
     };
+  }
+
+  private async assertPenyusutanVerifier(user?: JwtPayload): Promise<void> {
+    if (!(await this.service.isAtasanManagerialTu(user))) {
+      throw new ForbiddenException(
+        'Verifikasi Penyusutan hanya dapat dilakukan oleh Atasan Unit Dokumen atau Sekretaris TU',
+      );
+    }
   }
 }
