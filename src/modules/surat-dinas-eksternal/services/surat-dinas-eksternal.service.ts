@@ -1,3 +1,5 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
@@ -2458,7 +2460,7 @@ export class SuratDinasEksternalService {
           ...pengirim,
           position_text: dto.nama_jabatan || pengirim.position_text,
         }).positionText || 'Jabatan';
-      let qrCodeHtml: string | undefined = undefined;
+      let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'SDE') : undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
@@ -2728,6 +2730,7 @@ export class SuratDinasEksternalService {
           .execute();
 
         // COMMIT TRANSACTION
+        await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
         await queryRunner.commitTransaction();
         console.log(`[SDE] Transaction committed successfully`);
 
@@ -2746,6 +2749,7 @@ export class SuratDinasEksternalService {
             pathDokumen: 'surat-dinas-eksternal/digsig/',
             idNaskah: naskahId,
             jenisNaskah: 'SDE',
+            ...portalCorrespondenceSignatureOptions('SDE'),
             nomorNaskah: nomorSurat,
             location: dto.nama_tempat || 'Indonesia',
             reason: `Penandatanganan Surat Dinas Eksternal ${nomorSurat}`,
@@ -4000,7 +4004,7 @@ export class SuratDinasEksternalService {
         // ========================================
         const signerName = resolvedNamaLengkap || 'Penandatangan';
         const signerJabatan = resolvedPositionText || 'Jabatan';
-        let qrCodeHtml: string | undefined = undefined;
+        let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'SDE') : undefined;
         let signatureId: string | undefined = undefined;
         let signedAt: string | undefined = undefined;
         let verificationUrl: string | undefined = undefined;
@@ -4294,6 +4298,7 @@ export class SuratDinasEksternalService {
       await this.konsepService.closeKonsepWorkflow(naskahId, queryRunner);
 
       // Commit transaction
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -4317,6 +4322,7 @@ export class SuratDinasEksternalService {
         pathDokumen: 'surat-dinas-eksternal/digsig/',
         idNaskah: naskahId,
         jenisNaskah: 'SDE',
+            ...portalCorrespondenceSignatureOptions('SDE'),
         nomorNaskah: nomorSurat,
         location: dto.nama_tempat || naskah.tempat || 'Indonesia',
         reason: `Penandatanganan Surat Dinas Eksternal ${nomorSurat}`,

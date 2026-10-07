@@ -1,3 +1,4 @@
+import { portalCorrespondenceSignatureId } from '../../tte-portal/helpers/portal-correspondence-signature';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -86,7 +87,10 @@ export class NotaDinasTteCompletionHandler implements TteCompletionHandler {
       mode: 'portal',
       transaction_id: transaction.id,
       request_id: transaction.requestId,
-      signature_id: transaction.requestId, // request_id portal sebagai signature ref
+      signature_id: portalCorrespondenceSignatureId(
+        naskah.id,
+        transaction.nomorNaskah || naskah.nomor || '',
+      ),
       signed_at:
         transaction.signedAt?.toISOString() ?? new Date().toISOString(),
       signer_nik: transaction.signerNik,

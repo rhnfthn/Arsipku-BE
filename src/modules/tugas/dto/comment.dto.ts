@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -49,4 +50,21 @@ export class DeleteTaskCommentScopeDto {
   @IsOptional()
   @IsIn(['me', 'everyone'])
   scope: 'me' | 'everyone' = 'me';
+}
+export const FORUM_REACTION_EMOJIS = [
+  '👍',
+  '❤️',
+  '😂',
+  '🎉',
+  '😮',
+  '😢',
+  '🙏',
+] as const;
+
+export class SetCommentReactionDto {
+  @IsIn(FORUM_REACTION_EMOJIS)
+  emoji: string;
+
+  @IsBoolean()
+  active: boolean;
 }

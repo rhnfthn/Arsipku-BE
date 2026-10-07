@@ -2,7 +2,18 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
 import { Repository } from 'typeorm';
+import { DEFAULT_BSRE_NIK } from '../../../common/constants/bsre.constants';
 import { Session } from '../../auth/entities/session.entity';
+
+export type TteDigsigMode = 'DEV' | 'PRD';
+
+export function resolveTteDigsigMode(): TteDigsigMode {
+  const mode = process.env.TTE_DIGSIG_MODE?.trim().toUpperCase() || 'DEV';
+  if (mode !== 'DEV' && mode !== 'PRD') {
+    throw new BadRequestException('TTE_DIGSIG_MODE harus DEV atau PRD');
+  }
+  return mode;
+}
 
 interface HrPersonalIdentity {
   subType?: string;
@@ -28,7 +39,14 @@ export class TteSignerIdentityService {
     private readonly sessionRepository: Repository<Session>,
   ) {}
 
-  async getNik(persnum: number, sessionId?: string): Promise<string> {
+  async getNik(
+    persnum: number,
+    sessionId?: string,
+    mode: TteDigsigMode = resolveTteDigsigMode(),
+  ): Promise<string> {
+    // Portal development uses the test identity; production always resolves HR KTP.
+    if (mode === 'DEV') return DEFAULT_BSRE_NIK;
+
     const session = await this.sessionRepository.findOne({
       where: sessionId
         ? { id: sessionId, userPersnum: persnum }

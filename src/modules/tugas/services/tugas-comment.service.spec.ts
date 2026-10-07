@@ -137,16 +137,15 @@ describe('TugasCommentService', () => {
     };
 
     dataSource = {
-      transaction: jest.fn(
-        (callback: (manager: EntityManager) => unknown) =>
-          callback({
-            getRepository: (entity: unknown) =>
-              entity === TugasTaskCommentHideEntity
-                ? hideRepository
-                : entity === TugasTaskEntity
-                  ? taskRepository
-                  : commentRepository,
-          } as unknown as EntityManager),
+      transaction: jest.fn((callback: (manager: EntityManager) => unknown) =>
+        callback({
+          getRepository: (entity: unknown) =>
+            entity === TugasTaskCommentHideEntity
+              ? hideRepository
+              : entity === TugasTaskEntity
+                ? taskRepository
+                : commentRepository,
+        } as unknown as EntityManager),
       ),
       getRepository: jest.fn((entity: unknown) =>
         entity === TugasTaskCommentHideEntity
@@ -302,11 +301,7 @@ describe('TugasCommentService', () => {
         buildComment({ isi: 'Mohon dicek @Budi Santoso' }),
       );
 
-      await service.add(
-        'board-1',
-        { isi: 'Mohon dicek @Budi Santoso' },
-        actor,
-      );
+      await service.add('board-1', { isi: 'Mohon dicek @Budi Santoso' }, actor);
 
       expect(notification.notifyTagged).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -417,6 +412,7 @@ describe('TugasCommentService', () => {
       const comments = [buildComment(), buildComment()];
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         addOrderBy: jest.fn().mockReturnThis(),
@@ -449,6 +445,7 @@ describe('TugasCommentService', () => {
       });
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         addOrderBy: jest.fn().mockReturnThis(),

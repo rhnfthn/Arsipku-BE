@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Optional,
   BadRequestException,
   ConflictException,
   NotFoundException,
@@ -18,7 +19,12 @@ import {
 } from './tte-portal-client.service';
 import { TteCompletionDispatcher } from './tte-completion-dispatcher.service';
 import { TteSigningTransactionEntity } from '../entities/tte-signing-transaction.entity';
-import { TteSignerIdentityService } from './tte-signer-identity.service';
+import {
+  TteSignerIdentityService,
+  resolveTteDigsigMode,
+} from './tte-signer-identity.service';
+
+import { TteCorrespondenceLifecycleService } from './tte-correspondence-lifecycle.service';
 
 /**
  * Contract completion handler — dipanggil setelah callback portal sukses &
@@ -76,7 +82,7 @@ export interface CreateSigningTransactionParams {
   jenisTtdVisual?: 'image' | 'qrcode' | 'qrcode_image';
   signatureWidth?: number;
   signatureHeight?: number;
-  /** User dari JWT — NIK per-user wajib ada */
+  /** User dari JWT — identitas aktor tetap mengikuti pengguna login */
   user: JwtPayload;
   ipAddress?: string;
 }
@@ -130,6 +136,8 @@ export class TteSigningService {
     @InjectRepository(TteSigningTransactionEntity)
     private readonly transactionRepository: Repository<TteSigningTransactionEntity>,
     private readonly completionDispatcher: TteCompletionDispatcher,
+    @Optional()
+    private readonly correspondenceLifecycle?: TteCorrespondenceLifecycleService,
   ) {}
 
   /**
@@ -141,12 +149,12 @@ export class TteSigningService {
   ): Promise<CreateSigningTransactionResult> {
     const user = params.user;
 
-    // NIK asli per-user — mode portal TIDAK memakai NIK shared.
-    // JWT masih membawa DEFAULT_BSRE_NIK (era bsre_direct), jadi NIK asli
-    // selalu di-fetch fresh dari HR API (sumber sama dengan /digsig/ktp).
+    // Resolve once so identity and the Portal payload use the same mode.
+    const digsigMode = resolveTteDigsigMode();
     const signerNik = await this.signerIdentityService.getNik(
       user.persnum,
       user.sessionId,
+      digsigMode,
     );
 
     const redirectUrl = process.env.TTE_REDIRECT_URL;
@@ -155,7 +163,6 @@ export class TteSigningService {
         'TTE_REDIRECT_URL belum dikonfigurasi di server',
       );
     }
-    const digsigMode = (process.env.TTE_DIGSIG_MODE as 'DEV' | 'PRD') || 'DEV';
 
     // 1. Ambil PDF asli dari MinIO Arsipku
     const pdfBuffer = await this.storageService.getFile(params.sourceKey);
@@ -303,9 +310,11 @@ export class TteSigningService {
     }
 
     const user = params.user;
+    const digsigMode = resolveTteDigsigMode();
     const signerNik = await this.signerIdentityService.getNik(
       user.persnum,
       user.sessionId,
+      digsigMode,
     );
     const redirectUrl = process.env.TTE_REDIRECT_URL;
     if (!redirectUrl) {
@@ -313,7 +322,6 @@ export class TteSigningService {
         'TTE_REDIRECT_URL belum dikonfigurasi di server',
       );
     }
-    const digsigMode = (process.env.TTE_DIGSIG_MODE as 'DEV' | 'PRD') || 'DEV';
     const state = TtePortalClientService.generateState();
     const batchIdempotencyKey = TtePortalClientService.generateIdempotencyKey();
     const transactions: TteSigningTransactionEntity[] = [];
@@ -380,6 +388,14 @@ export class TteSigningService {
           documents: transactions.map((transaction, index) => ({
             upload_id: transaction.uploadId!,
             tampilan: params.documents[index].tampilan || 'INVISIBLE',
+            ...(params.documents[index].tampilan === 'VISIBLE'
+              ? {
+                  tag: params.documents[index].tag,
+                  jenis_ttd_visual: params.documents[index].jenisTtdVisual,
+                  signature_width: params.documents[index].signatureWidth,
+                  signature_height: params.documents[index].signatureHeight,
+                }
+              : {}),
             location: params.documents[index].location,
             reason: params.documents[index].reason,
           })),
@@ -717,6 +733,9 @@ export class TteSigningService {
         completedAt: new Date(),
         completionError: null,
       });
+      await this.correspondenceLifecycle?.reconcile(
+        await this.getTransactionOrThrow(current.id, current.userPersnum),
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Completion naskah gagal';
@@ -810,7 +829,43 @@ export class TteSigningService {
       }
     }
 
+    await this.correspondenceLifecycle?.reconcile(transaction);
     return this.toStatusResult(transaction);
+  }
+
+  async getPendingCorrespondence(
+    idNaskah: string,
+    userPersnum: number,
+    position?: string,
+  ) {
+    const transaction = await this.transactionRepository.findOne({
+      where: { idNaskah },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
+    if (!transaction)
+      throw new NotFoundException(
+        'Transaksi TTE pengguna untuk naskah ini tidak ditemukan',
+      );
+    const isSigner = transaction.userPersnum === userPersnum;
+    if (
+      !isSigner &&
+      (!position ||
+        !(await this.correspondenceLifecycle?.canReadPending(
+          idNaskah,
+          position,
+        )))
+    ) {
+      throw new NotFoundException('Transaksi signing tidak ditemukan');
+    }
+    const status = await this.getTransactionStatus(
+      transaction.id,
+      transaction.userPersnum,
+    );
+    const resumable =
+      isSigner &&
+      ['PENDING', 'OPENED'].includes(status.status) &&
+      (!status.expiresAt || new Date(status.expiresAt) > new Date());
+    return { ...status, signingUrl: resumable ? transaction.signingUrl : null };
   }
 
   private async getTransactionOrThrow(
@@ -894,70 +949,42 @@ export class TteSigningService {
       where: { idNaskah, userPersnum },
       order: { createdAt: 'DESC' },
     });
-    if (!transaction) return null;
+    if (!transaction)
+      throw new ConflictException(
+        'Transaksi TTE belum teridentifikasi. Naskah tetap disimpan di Draf untuk pemeriksaan.',
+      );
 
-    const terminalStatuses = [
-      'SIGNED',
-      'PARTIAL',
-      'FAILED',
-      'CANCELLED',
-      'EXPIRED',
-    ];
-    const now = new Date();
-
-    // Transaksi selesai sukses tapi completion naskah belum jalan — pulihkan
-    // lewat jalur recovery yang sama dengan polling FE.
-    if (
-      transaction.status === 'SIGNED' &&
-      !transaction.completedAt &&
-      transaction.signedFilePath
-    ) {
-      try {
-        await this.ensureSignedArtifactsAndCompletion(transaction);
-      } catch (error) {
-        this.logger.warn(
-          `Recovery completion pending_tte ${transaction.id} gagal: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    const fresh = (await this.transactionRepository.findOne({
+    await this.getTransactionStatus(transaction.id, userPersnum);
+    const fresh = await this.transactionRepository.findOneOrFail({
       where: { id: transaction.id },
-    }))!;
-
+    });
     if (
-      !terminalStatuses.includes(fresh.status) &&
-      fresh.signedFilePath === null &&
-      (!fresh.expiresAt || new Date(fresh.expiresAt) > now)
-    ) {
-      if (fresh.signingUrl) {
-        return {
-          kind: 'redirect',
-          transactionId: fresh.id,
-          signingUrl: fresh.signingUrl,
-        };
-      }
-    }
-
-    // Request portal sudah tidak bisa dipakai. Tandai EXPIRED bila portal
-    // belum melaporkan status terminal (TTL request 900s).
-    if (
-      !terminalStatuses.includes(fresh.status) &&
+      ['CANCELLED', 'EXPIRED', 'FAILED'].includes(fresh.status) &&
+      !fresh.signedAt &&
+      !fresh.signedFilePath &&
       !fresh.completedAt &&
-      !fresh.callbackProcessed
+      !fresh.completionProcessing &&
+      !(
+        fresh.errorCode === 'PREPARATION_FAILED' &&
+        fresh.uploadStatus === 'VERIFIED'
+      )
     ) {
-      await this.transactionRepository.update(fresh.id, {
-        status: 'EXPIRED',
-        errorCode: fresh.errorCode || 'REQUEST_EXPIRED',
-        errorMessage:
-          fresh.errorMessage ||
-          'Signing request kedaluwarsa sebelum diselesaikan di Portal TTE',
-      });
+      return { kind: 'reset', transactionId: fresh.id };
     }
-
-    return { kind: 'reset', transactionId: fresh.id };
+    if (
+      ['PENDING', 'OPENED'].includes(fresh.status) &&
+      fresh.signingUrl &&
+      (!fresh.expiresAt || new Date(fresh.expiresAt) > new Date())
+    ) {
+      return {
+        kind: 'redirect',
+        transactionId: fresh.id,
+        signingUrl: fresh.signingUrl,
+      };
+    }
+    throw new ConflictException(
+      'Transaksi TTE belum dapat diulang. Periksa status naskah di Draf atau Terkirim.',
+    );
   }
 
   /** Hapus presigned URL dari response sebelum disimpan ke DB (keamanan §16.3) */

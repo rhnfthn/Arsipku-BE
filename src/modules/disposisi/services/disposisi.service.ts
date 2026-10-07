@@ -1,3 +1,5 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import {
   Injectable,
@@ -1981,7 +1983,7 @@ export class DisposisiService {
         const refPerihal = dto.perihal || dto.ref_perihal || ''; // Dari input form
 
         // Generate QR Code untuk sign_option qr_only atau digsig
-        let qrCodeHtml = '';
+        let qrCodeHtml = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, generatedNomor, 'DI') : '';
         if (
           dto.sign_option === SignOption.QR_ONLY ||
           (dto.sign_option === SignOption.DIGSIG && !isPortalMode)
@@ -2081,6 +2083,7 @@ export class DisposisiService {
       }
 
       // Commit transaction
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
 
       let portalRedirect:
@@ -2098,6 +2101,7 @@ export class DisposisiService {
           pathDokumen: 'disposisi/digsig/',
           idNaskah: naskahId,
           jenisNaskah: 'DI',
+            ...portalCorrespondenceSignatureOptions('DI'),
           nomorNaskah: generatedNomor,
           location: 'Indonesia',
           reason: `Penandatanganan Disposisi Internal ${generatedNomor}`,

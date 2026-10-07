@@ -8,7 +8,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Like, Repository } from 'typeorm';
 import { StorageService } from '../../storage/services/storage.service';
 import { NdEntity } from '../../nota-dinas/entities/nd.entity';
 import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
@@ -2333,6 +2333,29 @@ export class DigsigService {
     message: string;
   }> {
     try {
+      if (/^portal-[a-f0-9]{64}$/.test(signatureId)) {
+        const naskah = await this.naskahRepository.findOne({
+          where: { tandaTangan: Like(`%"signature_id":"${signatureId}"%`) },
+        });
+        if (!naskah || naskah.status !== 'final_tte' || !naskah.final_pdf || !naskah.tandaTangan) {
+          return { valid: false, message: 'Naskah belum selesai ditandatangani atau referensi QR tidak ditemukan' };
+        }
+        const metadata = JSON.parse(naskah.tandaTangan) as Record<string, unknown>;
+        if (metadata.mode !== 'portal' || metadata.signature_id !== signatureId || !metadata.signed_at) {
+          return { valid: false, message: 'Referensi tanda tangan Portal TTE tidak valid' };
+        }
+        return {
+          valid: true,
+          document: {
+            type: naskah.jenis, nomor: naskah.nomor || '', perihal: naskah.perihal || '',
+            tanggal: naskah.tanggal instanceof Date ? naskah.tanggal.toISOString().split('T')[0] : String(naskah.tanggal),
+            signed_at: String(metadata.signed_at), signer_name: String(metadata.signer_name || ''),
+            signer_jabatan: String(metadata.signer_jabatan || ''), status: naskah.status,
+          },
+          message: 'Naskah telah selesai ditandatangani melalui Portal TTE',
+        };
+      }
+
       // Search in ND table
       const ndList = await this.ndRepository
         .createQueryBuilder('nd')
