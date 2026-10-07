@@ -14,6 +14,8 @@ export interface QRPositionConfig {
   qrSize?: number;
   // Page number (0-indexed, default: 0 = halaman pertama)
   pageIndex?: number;
+  // Gunakan halaman terakhir, tempat blok tanda tangan BAC berada.
+  useLastPage?: boolean;
   // Apakah mencari placeholder atau menggunakan posisi fixed
   useFixedPosition?: boolean;
   // Posisi X fixed (dari kiri)
@@ -93,10 +95,10 @@ export class PdfQrEmbedService {
 
       // 2. Determine target page (halaman utama surat, sebelum lampiran)
       // Biasanya halaman pertama untuk SDI, atau bisa dikonfigurasi
-      const targetPageIndex = Math.min(
-        finalConfig.pageIndex || 0,
-        pages.length - 1,
-      );
+      const targetPageIndex =
+        finalConfig.useLastPage
+          ? pages.length - 1
+          : Math.min(finalConfig.pageIndex || 0, pages.length - 1);
       const targetPage = pages[targetPageIndex];
       const { width: pageWidth, height: pageHeight } = targetPage.getSize();
 
@@ -200,10 +202,10 @@ export class PdfQrEmbedService {
       }
 
       // 2. Get target page
-      const targetPageIndex = Math.min(
-        finalConfig.pageIndex || 0,
-        pages.length - 1,
-      );
+      const targetPageIndex =
+        finalConfig.useLastPage
+          ? pages.length - 1
+          : Math.min(finalConfig.pageIndex || 0, pages.length - 1);
       const targetPage = pages[targetPageIndex];
       const { width: pageWidth } = targetPage.getSize();
 

@@ -57,7 +57,6 @@ export class ConfigController {
    */
   @Get('digsig/:jenis')
   @UseGuards(JwtAuthGuard)
-  @RequirePermission('konfigurasi', 'read')
   async getDigsigConfig(
     @Param('jenis') jenis: JenisNaskah,
   ): Promise<ConfigDigsig> {
