@@ -1,21 +1,24 @@
 import { formatDelegatedPositionText } from './delegasi-rendering.helper';
 
-export function formatGmRecipientLabel(source: {
-  position_text?: string | null;
-  positionText?: string | null;
-  position_abbreviation?: string | null;
-  abbreviation?: string | null;
-  persnum_person_text?: string | null;
-  namaSirkuler?: string | null;
-  nama_sirkuler?: string | null;
-  nama?: string | null;
-  area_text?: string | null;
-  areaText?: string | null;
-  sub_area_text?: string | null;
-  subAreaText?: string | null;
-  position_status?: string | null;
-  positionStatus?: string | null;
-}): string | undefined {
+export function formatGmRecipientLabel(
+  source: {
+    position_text?: string | null;
+    positionText?: string | null;
+    position_abbreviation?: string | null;
+    abbreviation?: string | null;
+    persnum_person_text?: string | null;
+    namaSirkuler?: string | null;
+    nama_sirkuler?: string | null;
+    nama?: string | null;
+    area_text?: string | null;
+    areaText?: string | null;
+    sub_area_text?: string | null;
+    subAreaText?: string | null;
+    position_status?: string | null;
+    positionStatus?: string | null;
+  },
+  includeAbbreviation = true,
+): string | undefined {
   const position = String(
     source.position_text ?? source.positionText ?? '',
   ).trim();
@@ -58,7 +61,7 @@ export function formatGmRecipientLabel(source: {
       .replace(/(^|[\s/.-])\p{L}/gu, (letter) =>
         letter.toLocaleUpperCase('id-ID'),
       ),
-    abbreviation || 'GM',
+    includeAbbreviation ? abbreviation || 'GM' : '',
     formatDelegatedPositionText(
       positionWithBranch,
       source.position_status ?? source.positionStatus,

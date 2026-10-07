@@ -25,6 +25,24 @@ export class GeneratePdfService implements OnModuleInit {
     return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
   }
 
+  /**
+   * Render HTML apa adanya tanpa header Nota Dinas.
+   *
+   * Jalur ini dipakai oleh dokumen khusus seperti BAC. Method generatePdf()
+   * di atas sengaja tidak diubah karena dipakai oleh generator Nota Dinas.
+   */
+  async generateRawPdf(html: string): Promise<Buffer> {
+    const result = await pdfQueue.add(() => this._renderHtmlToPdf(html), {
+      timeout: 90000,
+    });
+
+    if (!result) {
+      throw new Error('PDF generation timeout/empty result');
+    }
+
+    return Buffer.isBuffer(result) ? result : Buffer.from(result as any);
+  }
+
   private async _generatePdfInternal(body: any): Promise<Buffer> {
     let logoBase64 = '';
 
@@ -297,6 +315,10 @@ export class GeneratePdfService implements OnModuleInit {
 
     const finalKonten = konten + addressPageContent;
 
+    return this._renderHtmlToPdf(finalKonten);
+  }
+
+  private async _renderHtmlToPdf(finalKonten: string): Promise<Buffer> {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
