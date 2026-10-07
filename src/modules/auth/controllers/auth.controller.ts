@@ -204,7 +204,13 @@ export class AuthController {
       );
       res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
       if (result.frontendOrigin === 'mobile') {
-        return res.redirect(`/auth/session?sid=${encodeURIComponent(result.sessionId)}`);
+        // RFC 8252: kembalikan ke aplikasi native via custom scheme.
+        // App menangkap URL ini dengan system browser (ASWebAuthenticationSession /
+        // Custom Tabs), lalu mengambil sesi final via /auth/session?sid=.
+        const mobileCallback = new URL(
+          `arsipku://sso/callback?sid=${encodeURIComponent(result.sessionId)}`,
+        );
+        return res.redirect(mobileCallback.toString());
       }
       const destination = new URL(
         result.returnTo,
@@ -213,14 +219,19 @@ export class AuthController {
       return res.redirect(destination.toString());
     } catch (error) {
       res.clearCookie(this.oidcCookieName, { path: '/' });
+      const errorMessage =
+        error instanceof Error ? error.message : 'Login Auth v2 gagal';
+      // Flow mobile (system browser): kembalikan error ke app via custom scheme.
+      if (state?.startsWith('mobile.')) {
+        const mobileError = new URL('arsipku://sso/callback');
+        mobileError.searchParams.set('error', errorMessage);
+        return res.redirect(mobileError.toString());
+      }
       const callbackOrigin = state?.startsWith('local.')
         ? 'http://localhost:3000'
         : this.serverFrontendUrl();
       const callback = new URL('/auth/callback', `${callbackOrigin}/`);
-      callback.searchParams.set(
-        'error',
-        error instanceof Error ? error.message : 'Login Auth v2 gagal',
-      );
+      callback.searchParams.set('error', errorMessage);
       return res.redirect(callback.toString());
     }
   }
