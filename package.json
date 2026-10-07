@@ -29,7 +29,8 @@
     "db:preflight": "ts-node -r tsconfig-paths/register scripts/db-reset/preflight.ts",
     "db:reset": "ts-node -r tsconfig-paths/register scripts/db-reset/reset.ts",
     "db:minio-manifest": "ts-node -r tsconfig-paths/register scripts/db-reset/minio-manifest.ts",
-    "db:mongo-audit": "ts-node -r tsconfig-paths/register scripts/db-reset/mongo-audit.ts"
+    "db:mongo-audit": "ts-node -r tsconfig-paths/register scripts/db-reset/mongo-audit.ts",
+    "tugas:encrypt-comments": "ts-node -r tsconfig-paths/register scripts/encrypt-tugas-comments.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.943.0",

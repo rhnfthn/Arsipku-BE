@@ -1,3 +1,5 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import {
   Injectable,
@@ -2703,7 +2705,7 @@ export class SuratDinasInternalService {
           ...pengirim,
           position_text: dto.nama_jabatan || pengirim.position_text,
         }) || 'Jabatan';
-      let qrCodeHtml: string | undefined = undefined;
+      let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'SDI') : undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
@@ -2967,6 +2969,7 @@ export class SuratDinasInternalService {
       }
 
       // Commit transaction
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
 
       let portalRedirect:
@@ -2984,6 +2987,7 @@ export class SuratDinasInternalService {
           pathDokumen: 'surat-dinas-internal/digsig/',
           idNaskah: naskahId,
           jenisNaskah: 'SDI',
+            ...portalCorrespondenceSignatureOptions('SDI'),
           nomorNaskah: nomorSurat,
           location: dto.nama_tempat || 'Indonesia',
           reason: `Penandatanganan Surat Dinas Internal ${nomorSurat}`,
@@ -3700,6 +3704,8 @@ export class SuratDinasInternalService {
           sifat: dto.sifat || updatedNaskahForPdf?.sifat || 'Biasa',
           nomor: nomorSurat,
           lampiran: dto.lampiran || updatedNaskahForPdf?.lampiran || '-',
+          qrCodeHtml: isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'SDI') : undefined,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
           // Dynamic header info dari sub_area_alamat
           headerKantor: headerInfo?.kantor,
           headerGedung: headerInfo?.gedung,
@@ -3956,6 +3962,7 @@ export class SuratDinasInternalService {
       await this.konsepService.closeKonsepWorkflow(naskahId, queryRunner);
 
       // Commit transaction
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -3979,6 +3986,7 @@ export class SuratDinasInternalService {
         pathDokumen: 'surat-dinas-internal/digsig/',
         idNaskah: naskahId,
         jenisNaskah: 'SDI',
+            ...portalCorrespondenceSignatureOptions('SDI'),
         nomorNaskah: nomorSurat,
         location: dto.nama_tempat || naskah.tempat || 'Indonesia',
         reason: `Penandatanganan Surat Dinas Internal ${nomorSurat}`,

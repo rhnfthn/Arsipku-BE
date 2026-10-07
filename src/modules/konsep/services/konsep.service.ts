@@ -1,3 +1,5 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
@@ -2801,6 +2803,7 @@ export class KonsepService {
         dto.from_position_id,
       );
 
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahAsliId);
       await queryRunner.commitTransaction();
 
       let tteRedirect:
@@ -2835,7 +2838,7 @@ export class KonsepService {
           nomorNaskah: nomorSurat,
           location: pengirimPosData.sub_area_text || 'KANTOR PUSAT',
           reason: `${nomorSurat} - ${naskahAsli.perihal || ''}`.slice(0, 2000),
-          tampilan: 'INVISIBLE',
+          ...portalCorrespondenceSignatureOptions(naskahAsli.jenis),
           user,
         });
         tteRedirect = {
@@ -5175,7 +5178,9 @@ export class KonsepService {
       // tanda tangan berhasil. QR placeholder hanya untuk mode non-BSrE.
       const isBsre =
         String(naskahAsli.signOption || '').toLowerCase() === 'digsig';
-      const previewQrHtml = isBsre
+      const previewQrHtml = ['ND', 'SDI', 'SDE'].includes(jenis) && naskahAsli.status === 'pending_tte' && aksi === 'finalize'
+        ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahAsli.id, naskahAsli.nomor || '', jenis)
+        : isBsre
         ? undefined
         : await this.qrCodeService.generatePreviewQRCodeHtml();
 

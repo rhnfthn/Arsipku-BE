@@ -1,3 +1,4 @@
+import { tteFooterPdfOptions } from '../utils/tte-footer.util';
 import { Injectable } from '@nestjs/common';
 import { getBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
@@ -402,7 +403,6 @@ export class GeneratePdfDispoService {
             ${catatan || htmlCatatan || ''}
           </div>
           ${qrCodeHtml ? `<div style="display: flex; justify-content: flex-end; padding: 12px;"><div style="margin: 10px 0;">${qrCodeHtml}</div></div>` : ''}
-          ${body.bsreFooter ? `<div style="padding:12px;font-size:9pt;line-height:1.25;text-align:left;">Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara</div>` : ''}
         </div>
 
         <!-- Footer -->
@@ -441,6 +441,7 @@ export class GeneratePdfDispoService {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        ...tteFooterPdfOptions(body.bsreFooter),
         timeout: 60000,
         margin: {
           top: '30mm',

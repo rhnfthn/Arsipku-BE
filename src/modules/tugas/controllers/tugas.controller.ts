@@ -29,6 +29,7 @@ import {
   AddTaskReferenceDto,
   CreateBoardDto,
   CreateTaskCommentDto,
+  SetCommentReactionDto,
   CreateTaskDto,
   DeleteTaskCommentScopeDto,
   MoveTaskDto,
@@ -407,6 +408,27 @@ export class TugasController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.commentService.list(boardId, query, user);
+  }
+
+  @Get('boards/:boardId/comments/:commentId/reactions')
+  @RequirePermission('tugas', 'read-board')
+  getCommentReactions(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.getReactions(boardId, commentId, user);
+  }
+
+  @Post('boards/:boardId/comments/:commentId/reactions')
+  @RequirePermission('tugas', 'read-board')
+  setCommentReaction(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: SetCommentReactionDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.setReaction(boardId, commentId, dto, user);
   }
 
   /** POST /tugas/boards/:boardId/comments — tambah komentar forum papan. */
