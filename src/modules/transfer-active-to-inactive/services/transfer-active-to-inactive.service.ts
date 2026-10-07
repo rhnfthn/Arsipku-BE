@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { PDFDocument } from 'pdf-lib';
 import { TransferActiveToInactiveEntity } from '../entities/transfer-active-to-inactive.entity';
 import { TransferApprovalLevelEntity } from '../entities/approval-level.entity';
 import { TransferActiveToInactiveStatus } from '../enums/transfer-status.enum';
@@ -2751,19 +2752,42 @@ export class TransferActiveToInactiveService {
       jumlahRows.map((row: any) => [String(row.id), Number(row.jumlah)]),
     );
 
-    const naskahRows = await this.berkasRepo.manager
-      .createQueryBuilder()
-      .select('bn.berkas_id', 'berkasId')
-      .addSelect('bn.naskah_id', 'naskahId')
-      .addSelect('bn.perihal', 'perihal')
-      .addSelect('bn.nomor_surat', 'nomorSurat')
-      .addSelect('bn.tanggal_naskah', 'tanggalNaskah')
-      .addSelect('bn.urutan', 'urutan')
-      .from('berkas_naskah', 'bn')
-      .where('bn.berkas_id IN (:...ids)', { ids })
-      .orderBy('bn.berkas_id', 'ASC')
-      .addOrderBy('bn.urutan', 'ASC')
-      .getRawMany();
+    const placeholders = ids.map(() => '?').join(',');
+    const naskahRows: any[] = await this.berkasRepo.manager.query(
+      `SELECT
+         bn.berkas_id AS berkasId,
+         bn.naskah_id AS naskahId,
+         COALESCE(NULLIF(bn.perihal, ''), n.perihal) AS perihal,
+         COALESCE(NULLIF(bn.nomor_surat, ''), n.nomor) AS nomorSurat,
+         COALESCE(bn.tanggal_naskah, n.tanggal) AS tanggalNaskah,
+         bn.urutan AS urutan,
+         COALESCE(n.final_pdf, n.signed_lampiran) AS pdfKey
+       FROM berkas_naskah bn
+       LEFT JOIN naskah n ON n.id = bn.naskah_id
+       WHERE bn.berkas_id IN (${placeholders})
+       ORDER BY bn.berkas_id ASC, bn.urutan ASC`,
+      ids,
+    );
+
+    // Kolom jumlah pada daftar isi menunjukkan jumlah halaman PDF final.
+    const jumlahHalamanMap = new Map<string, number | null>();
+    await Promise.all(
+      naskahRows.map(async (row) => {
+        const naskahId = String(row.naskahId);
+        if (jumlahHalamanMap.has(naskahId)) return;
+        if (!row.pdfKey) {
+          jumlahHalamanMap.set(naskahId, null);
+          return;
+        }
+        try {
+          const { buffer } = await this.storageService.getFileWithMetadata(row.pdfKey);
+          const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true });
+          jumlahHalamanMap.set(naskahId, pdf.getPageCount());
+        } catch {
+          jumlahHalamanMap.set(naskahId, null);
+        }
+      }),
+    );
     const naskahMap = new Map<string, any[]>();
     for (const row of naskahRows) {
       const key = String(row.berkasId);
@@ -2848,12 +2872,13 @@ export class TransferActiveToInactiveService {
           kode: summary.kode,
           keterangan: summary.keterangan,
           nomorItem: itemIndex + 1,
+          nomorSurat: naskah?.nomorSurat ?? null,
           tanggal: naskah?.tanggalNaskah ?? berkas?.tanggalDibuat ?? null,
           kodeKlasifikasi: summary.kodeKlasifikasi,
           uraianInformasi:
             naskah?.perihal ?? naskah?.nomorSurat ?? summary.uraianInformasi ?? '-',
-          jumlah: 1,
-          jumlahBerkas: 1,
+          jumlah: naskah ? jumlahHalamanMap.get(String(naskah.naskahId)) ?? null : null,
+          jumlahBerkas: naskah ? jumlahHalamanMap.get(String(naskah.naskahId)) ?? null : null,
           tingkatPerkembangan: '-',
           lokasiSimpan: summary.lokasiSimpan,
           klasifikasiKeamanan: summary.klasifikasiKeamanan,
