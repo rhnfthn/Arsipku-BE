@@ -4,7 +4,7 @@
  *  {TIPE}        → kode jenis (escape regex)
  *  {NO_URUT}     → \d{3}
  *  {JABATAN}     → [^/]+
- *  {LOKASI}      → \d{2}
+ *  {LOKASI}      → TNG atau \d{2} (termasuk nomor lama)
  *  {INSTANSI}    → LPPNPI
  *  {KLASIFIKASI} → [^/]+
  *  {BULAN}       → [IVXLCDM]+
@@ -18,7 +18,7 @@ export function buildNomorRegex(format: string, jenis: string): RegExp {
     .replace(/{TIPE}/g, escapeRegex(jenis))
     .replace(/{NO_URUT}/g, '\\d{3}')
     .replace(/{JABATAN}/g, '[^/]+')
-    .replace(/{LOKASI}/g, '\\d{2}')
+    .replace(/{LOKASI}/g, '(?:TNG|\\d{2})')
     .replace(/{INSTANSI}/g, 'LPPNPI')
     .replace(/{KLASIFIKASI}/g, '[^/]+')
     .replace(/{BULAN}/g, '[IVXLCDM]+')

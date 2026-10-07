@@ -23,7 +23,9 @@ describe('buildNomorRegex', () => {
       'INS',
     );
     expect(re.test('INS.001/P/00/LPPNPI/PER.07/VIII/2026')).toBe(true);
-    expect(re.test('INS.001/P/00/LPPNPI/PER.07/VIII/2026')).toBe(true);
+    expect(re.test('INS.001/P/TNG/LPPNPI/DS.00.02/VIII/2026')).toBe(true);
+    expect(re.test('INS.001/P/01/LPPNPI/PER.07/VIII/2026')).toBe(true);
+    expect(re.test('INS.001/P/ABC/LPPNPI/PER.07/VIII/2026')).toBe(false);
   });
 
   it('anchor penuh — tidak boleh ada char tambahan', () => {
