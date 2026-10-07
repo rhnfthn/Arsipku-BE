@@ -7,12 +7,14 @@ import { PenyusutanController } from './controllers/penyusutan.controller';
 import { AuditModule } from '../audit/audit.module';
 import { ArsipModule } from '../arsip/arsip.module';
 import { TuGuard } from '../tu-verifikasi/guards/tu-guard';
+import { TuVerifikasiModule } from '../tu-verifikasi/tu-verifikasi.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PenyusutanEntity, PenyusutanVerifikatorEntity]),
     AuditModule,
     ArsipModule,
+    TuVerifikasiModule,
   ],
   controllers: [PenyusutanController],
   providers: [PenyusutanService, TuGuard],

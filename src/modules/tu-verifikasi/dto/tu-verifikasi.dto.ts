@@ -16,6 +16,20 @@ export class AtasanTuItemDto {
   jabatan: string;
 }
 
+export class BacTembusanItemDto {
+  @ApiProperty()
+  @IsString()
+  persnum: string;
+
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
+  jabatan: string;
+}
+
 export class TuFilterDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -68,6 +82,25 @@ export class AjukanAtasanTuDto {
   })
   @IsOptional()
   atasanTuList?: AtasanTuItemDto[];
+
+  @ApiPropertyOptional({ description: 'Pejabat penandatangan pihak kedua BAC' })
+  @IsOptional()
+  @IsString()
+  bacPihakKeduaPersnum?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bacPihakKeduaName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bacPihakKeduaJabatan?: string;
+
+  @ApiPropertyOptional({ type: [BacTembusanItemDto] })
+  @IsOptional()
+  bacTembusan?: BacTembusanItemDto[];
 }
 
 export class KembalikanDto {
