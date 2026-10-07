@@ -181,9 +181,14 @@ export class AuthController {
     @Query('error') providerError?: string,
     @Query('error_description') providerErrorDescription?: string,
   ) {
-    const pendingSessionId =
-      readCookie(req, this.oidcCookieName) ||
-      (state?.startsWith('mobile.') ? state.split('.')[2] : undefined);
+    // Untuk flow mobile, sessionId di state adalah sumber kebenaran (selalu fresh
+    // dari /auth/login-url terbaru). Cookie bisa stale — sisa sesi sebelum logout
+    // yang belum ter-clear di cookie jar app, dan akan membuat callback memakai
+    // pending session yang salah. Jadi state diprioritaskan untuk mobile.
+    const mobileSessionId = state?.startsWith('mobile.')
+      ? state.split('.')[2]
+      : undefined;
+    const pendingSessionId = mobileSessionId || readCookie(req, this.oidcCookieName);
     try {
       if (providerError) {
         throw new UnauthorizedException(
