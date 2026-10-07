@@ -93,6 +93,32 @@ import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
 import { ArsipModule } from './modules/arsip/arsip.module';
 import { TugasModule } from './modules/tugas/tugas.module';
 
+/**
+ * Keep the total number of MySQL connections predictable.
+ *
+ * mysql2 defaults to 10 connections per pool. This application has two
+ * pools, and that default is multiplied again when more than one app
+ * process/replica is running. A small, configurable pool is safer because
+ * concurrent dashboard queries can wait in the pool queue instead of
+ * exhausting MySQL's max_connections.
+ */
+function getPoolSize(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function mysqlPoolOptions(connectionLimit: number) {
+  return {
+    connectionLimit,
+    maxIdle: connectionLimit,
+    idleTimeout: 60_000,
+    waitForConnections: true,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+  };
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -147,6 +173,9 @@ import { TugasModule } from './modules/tugas/tugas.module';
         migrationsRun: true,
         synchronize: false,
         timezone: '+07:00', // Force WIB timezone untuk konsistensi timestamp
+        extra: mysqlPoolOptions(
+          getPoolSize(config.get<string>('DB_POOL_SIZE'), 5),
+        ),
       }),
     }),
     // ─── Archive DB (MySQL: arsipku_arsip_local) ──────────────────────────
@@ -182,6 +211,13 @@ import { TugasModule } from './modules/tugas/tugas.module';
         entities: [__dirname + '/**/*.archive-entity{.ts,.js}'],
         synchronize: false,
         timezone: '+07:00',
+        extra: mysqlPoolOptions(
+          getPoolSize(
+            config.get<string>('ARCHIVE_DB_POOL_SIZE') ??
+              config.get<string>('ARCHIVE_DATABASE_POOL_SIZE'),
+            2,
+          ),
+        ),
       }),
     }),
     // ─── Audit Trail DB (MongoDB: arsipku_audit) ────────────────────────────

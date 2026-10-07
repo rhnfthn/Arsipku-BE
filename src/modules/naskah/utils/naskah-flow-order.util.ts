@@ -1,6 +1,7 @@
 interface NaskahFlowNode {
   jenis?: string | null;
   nomor?: string | null;
+  konsep_sequence?: number | null;
   level?: number | null;
   tanggal?: string | Date | null;
   created_at?: string | Date | null;
@@ -8,6 +9,8 @@ interface NaskahFlowNode {
 
 const getKonsepSequence = (node: NaskahFlowNode): number | null => {
   if (String(node.jenis || '').toUpperCase() !== 'K') return null;
+
+  if (node.konsep_sequence != null) return Number(node.konsep_sequence);
 
   const match = String(node.nomor || '').match(/^KONSEP-(\d+)$/i);
   return match ? Number(match[1]) : null;
