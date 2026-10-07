@@ -34,6 +34,8 @@ import {
   ReferensiDetailDto,
   DisposisiDetailDto,
 } from '../dto/naskah/naskah-detail.dto';
+import { KonsepRiwayatEntity } from '../../konsep/entities/konsep-riwayat.entity';
+import { buildKonsepHistoryNode } from '../utils/konsep-history-node.util';
 import { compareNaskahFlow } from '../utils/naskah-flow-order.util';
 import { createCorrespondenceFinalFileName } from '../../../common/utils/correspondence-file-name.util';
 import { DelegasiEntity } from '../../delegasi/entities/delegasi.entity';
@@ -863,6 +865,7 @@ export class NaskahService {
     // sehingga konsep drafts si asli bocor ke riwayat forward turunannya
     // (viewer = pengirim asli + penerima forward → konsep muncul di riwayat
     // forward). Konsep drafts = riwayat si asli, bukan riwayat forward.
+    const konsepKinds = new Map<string, string | null>();
     const asliIdsForKonsep = [...allNaskahInChain];
     for (const asliId of asliIdsForKonsep) {
       if (asliId !== naskahId) continue; // hanya naskah yang sedang dilihat
@@ -889,10 +892,18 @@ export class NaskahService {
       });
       const asliLevel = naskahIdToLevel.get(asliId) ?? 0;
       for (const k of konsepKs) {
+        konsepKinds.set(k.id, asliNaskah.jenis);
         if (!allNaskahInChain.has(k.id)) allNaskahInChain.add(k.id);
         if (!naskahIdToLevel.has(k.id)) naskahIdToLevel.set(k.id, asliLevel);
       }
     }
+
+    const konsepHistory = konsepKinds.size
+      ? await this.dataSource.getRepository(KonsepRiwayatEntity).find({
+          where: { idNaskahKonsep: In([...konsepKinds.keys()]) },
+          order: { urutan: 'ASC', createdAt: 'ASC' },
+        })
+      : [];
 
     // STEP 3: Build flow dengan level yang sudah dihitung
     const flow: any[] = [];
@@ -1137,6 +1148,7 @@ export class NaskahService {
 
       return {
         id: naskahData.id,
+        id_naskah_asli: naskahData.id_naskah_asli,
         jenis: naskahData.jenis,
         jenis_label: JENIS_LABELS[naskahData.jenis || ''] || naskahData.jenis,
         nomor: naskahData.nomor,
@@ -1196,7 +1208,25 @@ export class NaskahService {
       if (naskahData) {
         const level = naskahIdToLevel.get(naskahIdInChain) || 0;
         const node = await buildFlowNode(naskahData, level);
-        if (node) flow.push(node);
+        if (node) {
+          const history = konsepHistory.filter(
+            (item) => item.idNaskahKonsep === naskahData.id,
+          );
+          if (!history.length) flow.push(node);
+          else {
+            for (const item of history) {
+              const snapshotUrl = item.pdfSnapshot
+                ? await this.storageService.getPreviewUrl(item.pdfSnapshot, 86400)
+                : null;
+              flow.push(buildKonsepHistoryNode(
+                node,
+                item,
+                konsepKinds.get(naskahData.id) || null,
+                snapshotUrl,
+              ));
+            }
+          }
+        }
       }
     }
 
