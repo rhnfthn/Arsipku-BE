@@ -1,3 +1,4 @@
+import { portalCorrespondenceSignatureOptions } from '../../tte-portal/helpers/portal-correspondence-signature';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   BadRequestException,
@@ -1316,7 +1317,7 @@ export class SdeMasalService {
         nomorNaskah: result.nomor,
         location: portalUser?.areaText || 'Indonesia',
         reason: `Penandatanganan SDE Massal ${folder.judul || folder.id}`,
-        tampilan: 'INVISIBLE' as const,
+        ...portalCorrespondenceSignatureOptions('SDE'),
       }));
       try {
         const portal =

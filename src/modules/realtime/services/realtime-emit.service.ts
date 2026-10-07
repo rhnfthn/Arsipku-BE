@@ -431,6 +431,14 @@ export class RealtimeEmitService {
    * Emit komentar task baru ke room board — client menambahkan komentar
    * secara realtime tanpa refetch penuh.
    */
+  emitTugasCommentReactionChanged(payload: { boardId: string; commentId: string }) {
+    try {
+      this.gateway.emitTugasCommentReactionChanged({ ...payload, occurredAt: new Date().toISOString() });
+    } catch {
+      this.logger.warn('Forum reaction realtime event failed');
+    }
+  }
+
   emitTugasCommentAdded(payload: {
     boardId: string;
     taskId: string | null;

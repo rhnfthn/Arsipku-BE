@@ -441,7 +441,9 @@ export class AuditInterceptor implements NestInterceptor {
           timestamp: new Date().toISOString(),
         };
       } else {
-        extractedNewValue = this.sanitizeResponse(response);
+        extractedNewValue = /\/tugas\/boards\/[^/]+\/comments(?:\/[^/]+)?\/?$/.test(path)
+          ? { content: '[ENCRYPTED FORUM CONTENT OMITTED]' }
+          : this.sanitizeResponse(response);
       }
     }
 

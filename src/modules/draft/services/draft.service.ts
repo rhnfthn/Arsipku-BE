@@ -1,3 +1,4 @@
+import { TteSigningTransactionEntity } from '../../tte-portal/entities/tte-signing-transaction.entity';
 import {
   Injectable,
   NotFoundException,
@@ -73,12 +74,10 @@ interface DraftListCacheEntry {
   expires: number;
 }
 
-const DRAFT_LIST_CACHE_TTL_MS = 30_000; // 30 detik
-const DRAFT_LIST_MAX_CACHE = 2_000;
-
 @Injectable()
 export class DraftService {
-  // Cache list draft per kombinasi filter — TTL 30s
+  // Retained invalidation hook for domain services. List reads are uncached
+  // so Portal completion and cancellation are immediately reflected.
   private readonly draftListCache = new Map<string, DraftListCacheEntry>();
 
   /** Bust cache draft list (panggil saat ada perubahan draft yang harus reflect cepat) */
@@ -227,17 +226,8 @@ export class DraftService {
     sort: 'terbaru' | 'terlama' = 'terbaru',
     page: number = 1,
     limit: number = 10,
+    userPersnum?: number,
   ): Promise<GetDraftListResponseDto> {
-    // ==========================================
-    // CACHE CHECK (TTL 30s per filter combo)
-    // ==========================================
-    const cacheKey = `draft:${positionId}:${jenis ?? ''}:${favorite ?? ''}:${lock ?? ''}:${note ?? ''}:${arsip ?? ''}:${priority ?? ''}:${search ?? ''}:${days ?? ''}:${startDate ?? ''}:${endDate ?? ''}:${preset ?? ''}:${sort}:${page}:${limit}`;
-    const nowTs = Date.now();
-    const cached = this.draftListCache.get(cacheKey);
-    if (cached && cached.expires > nowTs) {
-      return cached.data;
-    }
-
     // Calculate date range
     const dateRange = this.getDateRangeFromQuery(
       startDate,
@@ -250,7 +240,7 @@ export class DraftService {
     const baseQueryBuilder = this.naskahRepository
       .createQueryBuilder('naskah')
       .where('1 = 1')
-      .andWhere('naskah.status = :status', { status: 'draf' });
+      .andWhere('naskah.status IN (:...statuses)', { statuses: ['draf', 'pending_tte'] });
 
     // Ownership rule:
     // - Primary: creator ownership via naskah.created_by_position
@@ -259,7 +249,7 @@ export class DraftService {
       `(
         naskah.created_by_position = :position
         OR (
-          naskah.created_by_position IS NULL
+          (naskah.created_by_position IS NULL OR naskah.status = 'pending_tte')
           AND EXISTS (
             SELECT 1
             FROM naskah_sirkulasi ns_owner
@@ -443,6 +433,15 @@ export class DraftService {
 
     const [naskahs, total] = await queryBuilder.getManyAndCount();
     const totalPages = Math.ceil(total / limit);
+    const pendingIds = naskahs.filter(n => n.status === 'pending_tte').map(n => n.id);
+    const portalTransactions = pendingIds.length ? await this.dataSource.getRepository(TteSigningTransactionEntity).find({
+      where: { idNaskah: In(pendingIds) }, order: { createdAt: 'DESC', id: 'DESC' },
+    }) : [];
+    const portalMap = new Map<string, TteSigningTransactionEntity>();
+    for (const transaction of portalTransactions) {
+      if (transaction.idNaskah && !portalMap.has(transaction.idNaskah)) portalMap.set(transaction.idNaskah, transaction);
+    }
+
 
     // Get all naskah IDs untuk query labels
     const naskahIds = naskahs.map((n) => n.id);
@@ -653,6 +652,11 @@ export class DraftService {
 
         items.push({
           id_naskah: naskah.id,
+          status: naskah.status === 'pending_tte' ? 'pending_tte' : 'draf',
+          tte_status: portalMap.get(naskah.id)?.status ?? null,
+          tte_expires_at: portalMap.get(naskah.id)?.expiresAt ?? null,
+          can_resume_tte: portalMap.get(naskah.id)?.userPersnum === userPersnum,
+
           id_sirkulasi: pengirimSirkulasi?.id || null,
           jenis: naskah.jenis,
           jenis_text: JENIS_TEXT_MAP[naskah.jenis] || naskah.jenis,
@@ -682,15 +686,6 @@ export class DraftService {
       },
       summary,
     };
-
-    // Simpan ke cache (TTL 30s)
-    if (this.draftListCache.size >= DRAFT_LIST_MAX_CACHE) {
-      this.draftListCache.clear();
-    }
-    this.draftListCache.set(cacheKey, {
-      data: response,
-      expires: Date.now() + DRAFT_LIST_CACHE_TTL_MS,
-    });
 
     return response;
   }
