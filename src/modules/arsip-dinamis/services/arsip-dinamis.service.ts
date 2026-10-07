@@ -984,7 +984,9 @@ export class ArsipDinamisService {
             const { buffer } = await this.storageService.getFileWithMetadata(
               fileRow.file_key,
             );
-            const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true });
+            const pdf = await PDFDocument.load(buffer, {
+              ignoreEncryption: true,
+            });
             jumlahHalamanMap.set(fileRow.id, pdf.getPageCount());
           } catch {
             jumlahHalamanMap.set(fileRow.id, null);
@@ -1248,8 +1250,25 @@ export class ArsipDinamisService {
     const { search, page = 1, limit = 20 } = options;
 
     const jenisList = [
-      'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC',
-      'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP',
+      'PER',
+      'KEP',
+      'INS',
+      'SPR',
+      'EDR',
+      'SOP',
+      'MOU',
+      'PKS',
+      'PROC',
+      'PJJ',
+      'LOA',
+      'SKU',
+      'BAC',
+      'KET',
+      'SPE',
+      'RPT',
+      'PEN',
+      'PGM',
+      'LAP',
     ];
     const jenisPlaceholders = jenisList.map(() => '?').join(',');
 
@@ -1367,7 +1386,8 @@ export class ArsipDinamisService {
         }
         rows = rows.map((r: any) => ({
           ...r,
-          divisi: orgNameMap.get(String(r.divisi_id ?? '')) ?? r.divisi_id ?? null,
+          divisi:
+            orgNameMap.get(String(r.divisi_id ?? '')) ?? r.divisi_id ?? null,
         }));
       } catch {
         // Fallback: tampilkan kode apa adanya
