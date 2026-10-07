@@ -18,6 +18,9 @@ export class TugasTaskEvidenceEntity {
   @Column('char', { name: 'task_id', length: 36 })
   taskId: string;
 
+  @Column('varchar', { length: 20, default: 'evidence' })
+  purpose: 'evidence' | 'reference';
+
   @Column('varchar', { name: 'storage_key', length: 500, unique: true })
   storageKey: string;
 

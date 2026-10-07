@@ -22,6 +22,7 @@ import {
 } from '../entities';
 import {
   TugasActivityAction,
+  TugasReferenceType,
   TugasMyTaskScope,
   TugasTaskPriority,
   TugasTaskStatus,
@@ -65,6 +66,18 @@ export class TugasTaskService {
         actor.position,
         manager,
       );
+      if (
+        dto.referenceType &&
+        ![
+          TugasReferenceType.NASKAH_MASUK,
+          TugasReferenceType.NASKAH_TERKIRIM,
+          TugasReferenceType.DISPOSISI,
+        ].includes(dto.referenceType)
+      ) {
+        throw new BadRequestException(
+          'Referensi naskah harus berasal dari Kotak Masuk atau Terkirim',
+        );
+      }
       await this.lockBoard(manager, board.id);
       const repository = manager.getRepository(TugasTaskEntity);
       const maximum = await repository
