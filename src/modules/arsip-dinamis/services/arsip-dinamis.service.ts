@@ -24,6 +24,7 @@ import {
   AjukanTutupBerkasDto,
   VerifikasiBerkasDto,
 } from '../dto';
+import { PDFDocument } from 'pdf-lib';
 
 @Injectable()
 export class ArsipDinamisService {
@@ -960,8 +961,45 @@ export class ArsipDinamisService {
 
     const [data, total] = await qb.getManyAndCount();
 
+    // Jumlah pada daftar isi adalah jumlah halaman PDF final masing-masing naskah.
+    // Gagal membaca satu PDF tidak boleh menggagalkan seluruh daftar naskah.
+    const naskahIds = data.map((item) => item.naskahId).filter(Boolean);
+    const jumlahHalamanMap = new Map<string, number | null>();
+    if (naskahIds.length > 0) {
+      const placeholders = naskahIds.map(() => '?').join(',');
+      const fileRows: Array<{ id: string; file_key: string | null }> =
+        await this.dataSource.query(
+          `SELECT id, COALESCE(final_pdf, signed_lampiran) AS file_key
+           FROM naskah WHERE id IN (${placeholders})`,
+          naskahIds,
+        );
+
+      await Promise.all(
+        fileRows.map(async (fileRow) => {
+          if (!fileRow.file_key) {
+            jumlahHalamanMap.set(fileRow.id, null);
+            return;
+          }
+          try {
+            const { buffer } = await this.storageService.getFileWithMetadata(
+              fileRow.file_key,
+            );
+            const pdf = await PDFDocument.load(buffer, {
+              ignoreEncryption: true,
+            });
+            jumlahHalamanMap.set(fileRow.id, pdf.getPageCount());
+          } catch {
+            jumlahHalamanMap.set(fileRow.id, null);
+          }
+        }),
+      );
+    }
+
     return {
-      data,
+      data: data.map((item) => ({
+        ...item,
+        jumlahHalaman: jumlahHalamanMap.get(item.naskahId) ?? null,
+      })),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -1212,8 +1250,25 @@ export class ArsipDinamisService {
     const { search, page = 1, limit = 20 } = options;
 
     const jenisList = [
-      'PER', 'KEP', 'INS', 'SPR', 'EDR', 'SOP', 'MOU', 'PKS', 'PROC',
-      'PJJ', 'LOA', 'SKU', 'BAC', 'KET', 'SPE', 'RPT', 'PEN', 'PGM', 'LAP',
+      'PER',
+      'KEP',
+      'INS',
+      'SPR',
+      'EDR',
+      'SOP',
+      'MOU',
+      'PKS',
+      'PROC',
+      'PJJ',
+      'LOA',
+      'SKU',
+      'BAC',
+      'KET',
+      'SPE',
+      'RPT',
+      'PEN',
+      'PGM',
+      'LAP',
     ];
     const jenisPlaceholders = jenisList.map(() => '?').join(',');
 
@@ -1331,7 +1386,8 @@ export class ArsipDinamisService {
         }
         rows = rows.map((r: any) => ({
           ...r,
-          divisi: orgNameMap.get(String(r.divisi_id ?? '')) ?? r.divisi_id ?? null,
+          divisi:
+            orgNameMap.get(String(r.divisi_id ?? '')) ?? r.divisi_id ?? null,
         }));
       } catch {
         // Fallback: tampilkan kode apa adanya

@@ -53,6 +53,7 @@ export class TuVerifikasiService {
     TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
     TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
     TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA,
     TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
     TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF,
     TransferActiveToInactiveStatus.SELESAI,
@@ -77,6 +78,7 @@ export class TuVerifikasiService {
           TransferActiveToInactiveStatus.MENUNGGU_VERIFIKASI_PERSETUJUAN_TU,
           TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
           TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
+          TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA,
         ];
       case 'SELESAI':
         return [
@@ -243,8 +245,8 @@ export class TuVerifikasiService {
   }
 
   /**
-   * Attach klasifikasi berkas ke setiap usulan (lookup by arsipId).
-   * Dipakai di findAllNotifikasi agar kolom Klasifikasi tampil di frontend.
+   * Attach metadata berkas awal ke setiap usulan (lookup by arsipId), termasuk
+   * klasifikasi dan lokasi fisik yang dicatat saat pemberkasan.
    */
   private async attachKlasifikasi(
     items: TransferActiveToInactiveEntity[],
@@ -257,20 +259,22 @@ export class TuVerifikasiService {
     try {
       const berkasList = await this.berkasRepo
         .createQueryBuilder('b')
-        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks', 'b.lokasi'])
         .where('b.id IN (:...ids)', { ids: arsipIds })
         .getMany();
-      const map = new Map<string, { kode: string; teks: string }>();
+      const map = new Map<string, { kode: string; teks: string; lokasi: string | null }>();
       for (const b of berkasList) {
         map.set(b.id, {
           kode: b.klasifikasi ?? '',
           teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+          lokasi: b.lokasi ?? null,
         });
       }
       for (const item of items) {
         const entry = map.get(item.arsipId);
         (item as any).arsipKlasifikasi = entry?.teks ?? '-';
         (item as any).arsipKlasifikasiKode = entry?.kode ?? '';
+        (item as any).lokasiAwal = entry?.lokasi ?? null;
       }
     } catch (e) {
       this.logger.warn(`Failed to attach klasifikasi: ${e?.message}`);
@@ -443,6 +447,22 @@ export class TuVerifikasiService {
     transfer.tuApprovedBy = Number(user.persnum);
     transfer.tuApprovedAt = new Date();
 
+    if (!dto.bacPihakKeduaPersnum) {
+      throw new BadRequestException(
+        'Pejabat penandatangan pihak kedua wajib dipilih',
+      );
+    }
+    transfer.bacPihakKeduaPersnum = Number(dto.bacPihakKeduaPersnum);
+    transfer.bacPihakKeduaName = dto.bacPihakKeduaName ?? null;
+    transfer.bacPihakKeduaJabatan = dto.bacPihakKeduaJabatan ?? null;
+    if (dto.bacTembusan !== undefined) {
+      transfer.bacTembusan = dto.bacTembusan.map((copy) => ({
+        persnum: Number(copy.persnum),
+        name: copy.name,
+        jabatan: copy.jabatan,
+      }));
+    }
+
     // Multi-level TU approval: simpan daftar atasan TU berjenjang
     if (dto.atasanTuList && dto.atasanTuList.length > 0) {
       transfer.tuApprovalLevels = dto.atasanTuList.map((a, idx) => ({
@@ -563,6 +583,14 @@ export class TuVerifikasiService {
       const persnum = Number(user.persnum);
       if (!persnum) return { isAtasanTu: false };
 
+      // Sumber utama adalah struktur organisasi. Jangan menunggu user pernah
+      // dipilih pada tuApprovalLevels; jika demikian menu atasan baru muncul
+      // setelah ada pengajuan sebelumnya.
+      const structuralAtasan = await this.getAtasanTuList();
+      if (structuralAtasan.some((item) => Number(item.persnum) === persnum)) {
+        return { isAtasanTu: true };
+      }
+
       // Cek di kolom JSON tu_approval_levels: cari semua usulan yang
       // tu_approval_levels tidak NULL, lalu filter di aplikasi (JSON array).
       // NOTE: jangan pakai .select() terbatas — JSON column bisa gagal
@@ -606,18 +634,15 @@ export class TuVerifikasiService {
   async getAtasanTuList() {
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
-      if (
-        !latestOrgData?.position_json ||
-        !Array.isArray(latestOrgData.position_json)
-      ) {
-        return [];
-      }
-
-      const positions = latestOrgData.position_json as any[];
+      // Tetap lanjutkan dengan array kosong agar fallback pejabat TU tetap
+      // dipakai ketika sinkronisasi struktur organisasi sedang tidak tersedia.
+      const positions = Array.isArray(latestOrgData?.position_json)
+        ? (latestOrgData.position_json as any[])
+        : [];
 
       // Corporate Secretary Division org ID (sama dengan yang dipakai modul
-      // usulan-akses-berkas). Filter semua position yang divisi-nya Corporate
-      // Secretary, ambil yang punya persnum (termasuk staff, bukan hanya BOD).
+      // usulan-akses-berkas). Hanya posisi managerial (chief=1) yang boleh
+      // menjadi Atasan TU; staff/staf biasa tidak ikut masuk daftar.
       const CORPORATE_SECRETARY_DIVISI_ID = 10002098;
       const atasanTu = positions
         .filter((p) => {
@@ -628,6 +653,7 @@ export class TuVerifikasiService {
               orgText.includes('CORPORATE SECRETARY') ||
               orgText.includes('TATA NASKAH') ||
               orgText.includes('CORPORATE SEC')) &&
+            Number(p.chief) === 1 &&
             p.persnum_person
           );
         })
@@ -693,7 +719,12 @@ export class TuVerifikasiService {
     TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU,
     TransferActiveToInactiveStatus.MENUNGGU_PERSETUJUAN_TERAKHIR_TU,
     TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TU,
+    TransferActiveToInactiveStatus.DITOLAK_PERSETUJUAN_TERAKHIR_TU,
+    TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA,
     TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA,
+    TransferActiveToInactiveStatus.PENATAAN_ARSIP_INAKTIF,
+    TransferActiveToInactiveStatus.SELESAI,
   ];
 
   /** Daftar usulan untuk Atasan Managerial TU (berjenjang). */
@@ -758,21 +789,23 @@ export class TuVerifikasiService {
           // Legacy: tidak ada multi-level → cek atasan_tu_persnum
           return Number(d.atasanTuPersnum) === userPersnum;
         }
-        // Multi-level: cek apakah user ada di levels dan giliran dia
+        // Multi-level: tampilkan giliran aktif dan simpan usulan yang sudah
+        // disetujui user sebagai riwayat di daftar verifikasi miliknya.
         const myLevel = levels.find(
           (l: any) => Number(l.persnum) === userPersnum,
         );
         if (!myLevel) return false; // User bukan atasan TU di usulan ini
-        // Untuk DISETUJUI_PERSETUJUAN_TU (persetujuan terakhir), giliran berada pada verifikator terakhir.
-        if (
-          d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU
-        ) {
-          const finalLevel = levels.reduce((latest: any, level: any) =>
-            level.urutan > latest.urutan ? level : latest,
-          );
-          return myLevel.urutan === finalLevel.urutan;
-        }
-        return Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
+        const finalLevel = levels.reduce((latest: any, level: any) =>
+          level.urutan > latest.urutan ? level : latest,
+        );
+        const isFinalApprovalTurn =
+          d.status === TransferActiveToInactiveStatus.DISETUJUI_PERSETUJUAN_TU &&
+          myLevel.urutan === finalLevel.urutan;
+        const hasAlreadyApproved = myLevel.status === 'DISETUJUI';
+        const isCurrentTurn =
+          Number(d.currentTuApprovalLevel) === Number(myLevel.urutan);
+
+        return isFinalApprovalTurn || hasAlreadyApproved || isCurrentTurn;
       });
       total = data.length;
 
@@ -1000,7 +1033,7 @@ export class TuVerifikasiService {
     return saved;
   }
 
-  /** Setujui persetujuan terakhir oleh verifikator TU terakhir → ARSIP_INAKTIF_DITERIMA. */
+  /** Verifikator TU terakhir menyelesaikan verifikasi → menunggu tanda tangan pihak kedua. */
   async setujuiTerakhir(
     id: string,
     user: JwtPayload,
@@ -1032,25 +1065,36 @@ export class TuVerifikasiService {
       }
     }
 
-    transfer.status = TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA;
+    if (!transfer.bacSignedAt) {
+      throw new BadRequestException(
+        'Berita Acara pihak pertama belum ditandatangani',
+      );
+    }
+    if (!transfer.bacPihakKeduaPersnum) {
+      throw new BadRequestException(
+        'Pejabat penandatangan pihak kedua belum dipilih',
+      );
+    }
+
+    transfer.status = TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA;
     transfer.tuFinalApprovedBy = Number(user.persnum);
     transfer.tuFinalApprovedAt = new Date();
-    transfer.receivedAt = new Date();
 
     const saved = await this.transferRepo.save(transfer);
 
-    // Notifikasi ke TU untuk penataan arsip
+    // Pihak kedua baru diminta menandatangani setelah seluruh verifikasi TU selesai.
     try {
       await this.notificationService.createNotification({
         positionId: '0',
-        userPersnum: transfer.tuPersnum ?? undefined,
+        userPersnum: transfer.bacPihakKeduaPersnum ?? undefined,
         type: NotificationType.SYSTEM,
-        title: 'Arsip Diterima — Siap Penataan',
-        body: `Usulan ${saved.nomorUsulan} disetujui terakhir oleh Atasan TU. Silakan lakukan penataan arsip.`,
+        title: 'Penandatanganan Berita Acara Pihak Kedua',
+        body: `Verifikasi usulan ${saved.nomorUsulan} telah selesai. Berita Acara menunggu tanda tangan Anda sebagai pihak kedua.`,
         data: {
-          action: 'OPEN_TRANSFER_ACTIVE_TO_INACTIVE',
+          action: 'OPEN_TRANSFER_BAC_SIGNING',
           id: saved.id,
           nomorUsulan: saved.nomorUsulan,
+          signerType: 'pihak_kedua',
         },
       });
     } catch (e) {
@@ -1217,6 +1261,10 @@ export class TuVerifikasiService {
     transfer.rak = dto.rak ?? null;
     transfer.baris = dto.baris ?? null;
     transfer.kolom = dto.kolom ?? null;
+    transfer.labelPenataan = [dto.rak, dto.baris, dto.kolom]
+      .map((part) => String(part ?? '').trim())
+      .filter(Boolean)
+      .join('.') || null;
     transfer.keteranganPenataan = dto.keterangan ?? null;
     // Simpan signed URL (bukan key) agar frontend bisa langsung tampilkan
     if (dto.fotoPenataan) {
