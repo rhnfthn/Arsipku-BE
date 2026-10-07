@@ -5,11 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { CreateTaskCommentDto, QueryTaskCommentDto } from '../dto';
 import {
-  TugasBoardEntity,
+  CreateTaskCommentDto,
+  QueryTaskCommentDto,
+  SetCommentReactionDto,
+} from '../dto';
+import {
+  TugasCommentReactionEntity,
   TugasBoardMemberEntity,
   TugasTaskCommentEntity,
   TugasTaskCommentHideEntity,
@@ -40,6 +44,7 @@ export interface TugasTaskCommentItem {
   taskJudul: string | null;
   memberId: string;
   isi: string;
+  reactions: { emoji: string; count: number; reacted: boolean }[];
   actorPersnum: number;
   actorPositionId: string;
   isDeletedForEveryone: boolean;
@@ -81,11 +86,7 @@ export class TugasCommentService {
    * GET /tugas/boards/:boardId/comments — daftar komentar forum papan.
    * Filter opsional taskId untuk melihat diskusi yang men-tag task tertentu.
    */
-  async list(
-    boardId: string,
-    query: QueryTaskCommentDto,
-    actor: TugasActor,
-  ) {
+  async list(boardId: string, query: QueryTaskCommentDto, actor: TugasActor) {
     const access = await this.access.assertBoardMember(
       boardId,
       actor.company,
@@ -103,6 +104,7 @@ export class TugasCommentService {
 
     const commentQuery = repository
       .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.reactions', 'reaction')
       .where('comment.board_id = :boardId', { boardId });
     if (query.taskId) {
       commentQuery.andWhere('comment.task_id = :taskId', {
@@ -129,7 +131,7 @@ export class TugasCommentService {
 
     return {
       data: comments.map((comment) =>
-        this.mapComment(comment, members, tasks),
+        this.mapComment(comment, members, tasks, access.member.id),
       ),
       meta: {
         page,
@@ -146,11 +148,7 @@ export class TugasCommentService {
    * Mention "@Nama" di isi komentar memicu notifikasi TUGAS_TAGGED
    * ke anggota papan yang cocok (kecuali actor sendiri).
    */
-  async add(
-    boardId: string,
-    dto: CreateTaskCommentDto,
-    actor: TugasActor,
-  ) {
+  async add(boardId: string, dto: CreateTaskCommentDto, actor: TugasActor) {
     const result = await this.dataSource.transaction(async (manager) => {
       const access = await this.access.assertBoardMember(
         boardId,
@@ -169,19 +167,17 @@ export class TugasCommentService {
         }
         taskJudul = task.judul;
       }
-      const comment = await manager
-        .getRepository(TugasTaskCommentEntity)
-        .save(
-          manager.getRepository(TugasTaskCommentEntity).create({
-            id: uuidv4(),
-            boardId,
-            taskId: dto.taskId ?? null,
-            memberId: access.member.id,
-            isi: dto.isi,
-            actorPersnum: actor.persnum,
-            actorPositionId: actor.position,
-          }),
-        );
+      const comment = await manager.getRepository(TugasTaskCommentEntity).save(
+        manager.getRepository(TugasTaskCommentEntity).create({
+          id: uuidv4(),
+          boardId,
+          taskId: dto.taskId ?? null,
+          memberId: access.member.id,
+          isi: dto.isi,
+          actorPersnum: actor.persnum,
+          actorPositionId: actor.position,
+        }),
+      );
       await this.activity.record(manager, {
         boardId,
         taskId: dto.taskId ?? null,
@@ -274,7 +270,9 @@ export class TugasCommentService {
 
     return eligibleMembers
       .filter((member) =>
-        mentionedNames.has(member.namaSnapshot.trim().toLocaleLowerCase('id-ID')),
+        mentionedNames.has(
+          member.namaSnapshot.trim().toLocaleLowerCase('id-ID'),
+        ),
       )
       .map((member) => ({
         memberId: member.id,
@@ -304,11 +302,13 @@ export class TugasCommentService {
         actor.position,
         manager,
       );
-      const comment = await this.findComment(manager, boardId, commentId);
+      const comment = await this.findComment(manager, boardId, commentId, true);
 
       if (scope === 'me') {
         // "Hapus untuk saya": insert baris hide (idempoten via unique key).
-        const hideRepository = manager.getRepository(TugasTaskCommentHideEntity);
+        const hideRepository = manager.getRepository(
+          TugasTaskCommentHideEntity,
+        );
         const existing = await hideRepository.findOne({
           where: { commentId, memberId: access.member.id },
         });
@@ -374,31 +374,133 @@ export class TugasCommentService {
     manager: EntityManager,
     boardId: string,
     commentId: string,
+    lock = false,
   ): Promise<TugasTaskCommentEntity> {
     return manager
       .getRepository(TugasTaskCommentEntity)
-      .findOneOrFail({ where: { id: commentId, boardId } })
+      .findOneOrFail({
+        where: { id: commentId, boardId },
+        ...(lock ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+      })
       .catch(() => {
         throw new NotFoundException('Komentar tidak ditemukan');
       });
   }
 
+  private summarizeReactions(
+    reactions: TugasCommentReactionEntity[],
+    memberId?: string,
+  ) {
+    const groups = new Map<
+      string,
+      { emoji: string; count: number; reacted: boolean }
+    >();
+    for (const reaction of reactions) {
+      const group = groups.get(reaction.emoji) ?? {
+        emoji: reaction.emoji,
+        count: 0,
+        reacted: false,
+      };
+      group.count++;
+      group.reacted ||= reaction.memberId === memberId;
+      groups.set(reaction.emoji, group);
+    }
+    return [...groups.values()].sort((a, b) => a.emoji.localeCompare(b.emoji));
+  }
+
+  async getReactions(boardId: string, commentId: string, actor: TugasActor) {
+    const access = await this.access.assertBoardMember(
+      boardId,
+      actor.company,
+      actor.position,
+    );
+    const comment = await this.findComment(
+      this.dataSource.manager,
+      boardId,
+      commentId,
+    );
+    const hidden = await this.dataSource
+      .getRepository(TugasTaskCommentHideEntity)
+      .findOne({ where: { commentId, memberId: access.member.id } });
+    if (hidden) throw new NotFoundException('Komentar tidak ditemukan');
+    const reactions =
+      comment.isi === COMMENT_DELETED_TOMBSTONE
+        ? []
+        : await this.dataSource
+            .getRepository(TugasCommentReactionEntity)
+            .find({ where: { commentId } });
+    return { data: this.summarizeReactions(reactions, access.member.id) };
+  }
+
+  async setReaction(
+    boardId: string,
+    commentId: string,
+    dto: SetCommentReactionDto,
+    actor: TugasActor,
+  ) {
+    await this.dataSource.transaction(async (manager) => {
+      const access = await this.access.assertBoardMember(
+        boardId,
+        actor.company,
+        actor.position,
+        manager,
+      );
+      const comment = await manager
+        .getRepository(TugasTaskCommentEntity)
+        .findOne({
+          where: { id: commentId, boardId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!comment) throw new NotFoundException('Komentar tidak ditemukan');
+      if (comment.isi === COMMENT_DELETED_TOMBSTONE)
+        throw new BadRequestException('Pesan sudah dihapus');
+      const hidden = await manager
+        .getRepository(TugasTaskCommentHideEntity)
+        .findOne({ where: { commentId, memberId: access.member.id } });
+      if (hidden) throw new NotFoundException('Komentar tidak ditemukan');
+      const repository = manager.getRepository(TugasCommentReactionEntity);
+      const where = { commentId, memberId: access.member.id, emoji: dto.emoji };
+      if (dto.active) {
+        if (!(await repository.findOne({ where })))
+          await repository.save(repository.create({ id: uuidv4(), ...where }));
+      } else {
+        await repository.delete(where);
+      }
+    });
+    this.tugasNotification.emitCommentReactionChangedSafe({
+      boardId,
+      commentId,
+    });
+    return this.getReactions(boardId, commentId, actor);
+  }
+
   private mapComment(
     comment: TugasTaskCommentEntity,
-    members: { id: string; namaSnapshot: string; positionTextSnapshot: string | null }[],
+    members: {
+      id: string;
+      namaSnapshot: string;
+      positionTextSnapshot: string | null;
+    }[],
     tasks: { id: string; judul: string }[],
+    activeMemberId?: string,
   ): TugasTaskCommentItem {
-    const member = members.find((candidate) => candidate.id === comment.memberId);
+    const member = members.find(
+      (candidate) => candidate.id === comment.memberId,
+    );
     const isDeletedForEveryone = comment.isi === COMMENT_DELETED_TOMBSTONE;
-    const task = !isDeletedForEveryone && comment.taskId
-      ? tasks.find((candidate) => candidate.id === comment.taskId)
-      : undefined;
+    const task =
+      !isDeletedForEveryone && comment.taskId
+        ? tasks.find((candidate) => candidate.id === comment.taskId)
+        : undefined;
     return {
       id: comment.id,
       boardId: comment.boardId,
       taskId: isDeletedForEveryone ? null : comment.taskId,
       taskJudul: task?.judul ?? null,
       memberId: comment.memberId,
+      reactions: isDeletedForEveryone
+        ? []
+        : this.summarizeReactions(comment.reactions ?? [], activeMemberId),
       isi: isDeletedForEveryone ? '' : comment.isi,
       actorPersnum: comment.actorPersnum,
       actorPositionId: comment.actorPositionId,

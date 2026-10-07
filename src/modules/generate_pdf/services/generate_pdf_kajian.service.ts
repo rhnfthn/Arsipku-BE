@@ -1,3 +1,4 @@
+import { tteFooterPdfOptions } from '../utils/tte-footer.util';
 import { Injectable } from '@nestjs/common';
 import { getBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
@@ -254,12 +255,6 @@ export class GeneratePdfKajianService {
 
     // Tanda tangan dengan QR code dinamis
     const qrCodeHtml = body.qrCodeHtml || '';
-    const bsreFooter = body.bsreFooter
-      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
-          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
-          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
-        </div>`
-      : '';
     const ttd = `<table style="margin:auto;width:90%;">
         <tbody><tr>
             <td style="width:50%;">
@@ -323,8 +318,7 @@ export class GeneratePdfKajianService {
       header3 +
       bodyContent +
       ttdWrapped +
-      tembusanKonten +
-      bsreFooter;
+      tembusanKonten;
 
     // Generate halaman alamat jika ada field yang > 5
     let addressPageContent = '';
@@ -416,6 +410,7 @@ export class GeneratePdfKajianService {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        ...tteFooterPdfOptions(body.bsreFooter),
         timeout: 60000,
         margin: {
           top: '15mm',

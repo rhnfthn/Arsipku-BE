@@ -226,7 +226,7 @@ export class DashboardService {
            INNER JOIN naskah n ON ns.id_naskah = n.id
            WHERE ns.position = ?
              AND ns.sirkuler = 'pengirim'
-             AND n.status = 'draf'`,
+             AND n.status IN ('draf', 'pending_tte')`,
           [positionIdStr],
         )
         .then((rows: any[]) => parseInt(rows[0]?.count || '0', 10)),

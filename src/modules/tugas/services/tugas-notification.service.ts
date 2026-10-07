@@ -261,6 +261,10 @@ export class TugasNotificationService {
    * realtime tanpa refetch penuh. Tidak menaikkan revision papan karena
    * komentar tidak mengubah state task.
    */
+  emitCommentReactionChangedSafe(payload: { boardId: string; commentId: string }) {
+    this.realtimeEmitService.emitTugasCommentReactionChanged(payload);
+  }
+
   emitCommentAddedSafe(payload: {
     boardId: string;
     taskId: string | null;

@@ -11,7 +11,9 @@ import {
 import { TugasBoardEntity } from './tugas-board.entity';
 import { TugasBoardMemberEntity } from './tugas-board-member.entity';
 import { TugasTaskCommentHideEntity } from './tugas-task-comment-hide.entity';
+import { TugasCommentReactionEntity } from './tugas-comment-reaction.entity';
 import { TugasTaskEntity } from './tugas-task.entity';
+import { tugasCommentEncryptionTransformer } from '../helpers/tugas-comment-encryption';
 
 /**
  * Komentar forum papan — diskusi umum seluruh anggota papan.
@@ -34,7 +36,7 @@ export class TugasTaskCommentEntity {
   @Column('char', { name: 'member_id', length: 36 })
   memberId: string;
 
-  @Column('text')
+  @Column('text', { transformer: tugasCommentEncryptionTransformer })
   isi: string;
 
   @Column('int', { name: 'actor_persnum' })
@@ -81,6 +83,9 @@ export class TugasTaskCommentEntity {
     foreignKeyConstraintName: 'fk_tugas_comment_member',
   })
   member: TugasBoardMemberEntity;
+
+  @OneToMany(() => TugasCommentReactionEntity, (reaction) => reaction.comment)
+  reactions: TugasCommentReactionEntity[];
 
   @OneToMany(() => TugasTaskCommentHideEntity, (hide) => hide.comment)
   hides: TugasTaskCommentHideEntity[];
