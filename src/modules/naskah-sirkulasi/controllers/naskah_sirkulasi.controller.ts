@@ -310,6 +310,7 @@ export class NaskahSirkulasiController {
       dto.flag_type,
       dto.action,
       dto.note_text,
+      dto.new_value,
     );
   }
 
