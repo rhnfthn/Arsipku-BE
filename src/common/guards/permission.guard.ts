@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import {
   PERMISSION_KEY,
   RequiredPermission,
+  RequiredPermissionMetadata,
 } from '../decorators/require-permission.decorator';
 import { ALLOW_VIEWER_WRITE_KEY } from '../decorators/allow-viewer-write.decorator';
 import { RoleName } from '../enums/role-name.enum';
@@ -153,12 +154,18 @@ export class PermissionGuard implements CanActivate {
     >(ALLOW_VIEWER_WRITE_KEY, [context.getHandler(), context.getClass()]);
     this.blockViewerWrite(req.user, req, allowedViewerStatuses);
 
-    const permission = this.reflector.get<RequiredPermission>(
+    const permissionMetadata = this.reflector.get<RequiredPermissionMetadata>(
       PERMISSION_KEY,
       context.getHandler(),
     );
 
-    if (!permission) return true;
+    const requiredPermissions = !permissionMetadata
+      ? []
+      : Array.isArray(permissionMetadata)
+        ? permissionMetadata
+        : [permissionMetadata];
+
+    if (requiredPermissions.length === 0) return true;
 
     const request = context.switchToHttp().getRequest<{
       user?: JwtPayload;
@@ -181,10 +188,15 @@ export class PermissionGuard implements CanActivate {
     //
     // `naskah-share` resource: SE juga aktor utama (membagikan/mencabut akses
     // naskah). Sama — pakai delegate's OWN persnum.
-    const isDelegasiResource = permission.resource === 'delegasi';
-    const isUsulanAksesBerkasResource =
-      permission.resource === 'usulan-akses-berkas';
-    const isNaskahShareResource = permission.resource === 'naskah-share';
+    const isDelegasiResource = requiredPermissions.some(
+      (required) => required.resource === 'delegasi',
+    );
+    const isUsulanAksesBerkasResource = requiredPermissions.some(
+      (required) => required.resource === 'usulan-akses-berkas',
+    );
+    const isNaskahShareResource = requiredPermissions.some(
+      (required) => required.resource === 'naskah-share',
+    );
     const useOwnPersnum =
       isDelegasiResource || isUsulanAksesBerkasResource || isNaskahShareResource;
     const persnum: number = useOwnPersnum
@@ -232,17 +244,20 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('User has no permissions assigned');
     }
 
-    const hasPermission = effectivePermissions.some(
-      (p: { resource: string; actions: string[] }) =>
-        p.resource === permission.resource &&
-        p.actions.includes(permission.action),
+    const hasPermission = requiredPermissions.some((required) =>
+      effectivePermissions.some(
+        (p: { resource: string; actions: string[] }) =>
+          p.resource === required.resource && p.actions.includes(required.action),
+      ),
     );
 
-    const requiresSdeRead =
-      permission.resource === 'sde-masal' &&
-      ['create', 'update', 'delete', 'finalize', 'read-detail'].includes(
-        permission.action,
-      );
+    const requiresSdeRead = requiredPermissions.some(
+      (required) =>
+        required.resource === 'sde-masal' &&
+        ['create', 'update', 'delete', 'finalize', 'read-detail'].includes(
+          required.action,
+        ),
+    );
     const hasSdeRead = effectivePermissions.some(
       (p: { resource: string; actions: string[] }) =>
         p.resource === 'sde-masal' && p.actions.includes('read'),
@@ -253,11 +268,14 @@ export class PermissionGuard implements CanActivate {
     }
 
     if (!hasPermission) {
+      const requiredLabel = requiredPermissions
+        .map((required) => `${required.resource}.${required.action}`)
+        .join(' OR ');
       this.logger.warn(
-        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${permission.resource}.${permission.action} — effectivePermissions: ${JSON.stringify(effectivePermissions.map((p) => p.resource + ':' + p.actions.join(',')))}`,
+        `Access denied for persnum=${persnum} position_status=${user.position_status} resource=${requiredLabel} — effectivePermissions: ${JSON.stringify(effectivePermissions.map((p) => p.resource + ':' + p.actions.join(',')))}`,
       );
       throw new ForbiddenException(
-        `Access denied. Required: ${permission.resource}.${permission.action}`,
+        `Access denied. Required: ${requiredLabel}`,
       );
     }
     return true;

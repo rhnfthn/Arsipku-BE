@@ -107,6 +107,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.CREATED)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'create')
   async createBerkas(
     @Body() dto: CreateArsipDinamisBerkasDto,
     @CurrentUser() user: any,
@@ -122,6 +123,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.CREATED)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'create')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -257,6 +259,7 @@ export class ArsipDinamisController {
   @Put('berkas/:id')
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'update')
   async updateBerkas(
     @Param('id') id: string,
     @Body() dto: UpdateArsipDinamisBerkasDto,
@@ -272,6 +275,7 @@ export class ArsipDinamisController {
   @Patch('berkas/:id/activate')
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'update')
   async activateBerkas(@Param('id') id: string, @CurrentUser() user: any) {
     return this.arsipDinamisService.activateBerkas(id, user.persnum);
   }
@@ -364,6 +368,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.CREATED)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'add-naskah')
   async addNaskahToBerkas(
     @Param('id') id: string,
     @Body() dto: AddNaskahToBerkasDto,
@@ -386,6 +391,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.OK)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'add-naskah')
   async removeNaskahFromBerkas(
     @Param('id') id: string,
     @Param('naskahId') naskahId: string,
@@ -495,6 +501,7 @@ export class ArsipDinamisController {
   @HttpCode(HttpStatus.OK)
   @PemeliharaanAccess('pemberkasan')
   @AllowViewerWrite(PositionStatus.SE)
+  @RequirePermission('pemeliharaan.pemberkasan', 'ajukan-tutup')
   async ajukanTutupBerkas(
     @Param('id') id: string,
     @Body() dto: AjukanTutupBerkasDto,
@@ -520,6 +527,7 @@ export class ArsipDinamisController {
   @Post('berkas/:id/approve')
   @HttpCode(HttpStatus.OK)
   @PemeliharaanAccess('persetujuan')
+  @RequirePermission('pemeliharaan.verifikasi', 'approve')
   async approveVerifikasi(
     @Param('id') id: string,
     @Body() dto: VerifikasiBerkasDto,
@@ -539,6 +547,7 @@ export class ArsipDinamisController {
   @Post('berkas/:id/reject')
   @HttpCode(HttpStatus.OK)
   @PemeliharaanAccess('persetujuan')
+  @RequirePermission('pemeliharaan.verifikasi', 'reject')
   async rejectVerifikasi(
     @Param('id') id: string,
     @Body() dto: VerifikasiBerkasDto,

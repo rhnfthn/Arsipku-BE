@@ -24,6 +24,7 @@ import { NotificationService } from '../../notification/services';
 import { NotificationType } from '../../notification/entities/notification.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { ArsipService } from '../../arsip/services/arsip.service';
+import { TuVerifikasiService } from '../../tu-verifikasi/services/tu-verifikasi.service';
 
 const LEVEL_MENUNGGU = 'MENUNGGU';
 const LEVEL_DISETUJUI = 'DISETUJUI';
@@ -47,6 +48,7 @@ export class PenyusutanService {
     private readonly notificationService: NotificationService,
     private readonly storageService: StorageService,
     private readonly arsipService: ArsipService,
+    private readonly tuVerifikasiService: TuVerifikasiService,
   ) {}
 
   // ─── AJUKAN (CREATE) ──────────────────────────────────────────────
@@ -799,6 +801,17 @@ export class PenyusutanService {
     try {
       const persnum = Number(user?.persnum);
       if (!persnum || isNaN(persnum)) return false;
+
+      // Sumber otoritas atasan TU adalah penugasan approval TU, bukan
+      // keberadaan pengajuan Penyusutan. Dengan begitu menu tetap tampil
+      // ketika belum ada pengajuan yang masuk ke tahap verifikasi. Atasan
+      // managerial tidak harus memiliki tuRoles karena tuRoles hanya
+      // menandai aktor TU/Sekretaris TU, bukan pejabat atasannya.
+      const atasanTu = await this.tuVerifikasiService.isAtasanTu(user);
+      if (atasanTu.isAtasanTu) return true;
+
+      // Fallback untuk data lama yang sudah memiliki level verifikator
+      // Penyusutan tetapi belum tersinkron ke tuApprovalLevels.
       const count = await this.levelRepo
         .createQueryBuilder('l')
         .where('l.atasan_persnum = :p', { p: persnum })

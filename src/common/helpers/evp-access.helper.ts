@@ -9,7 +9,29 @@ export function isEvpOrAbovePosition(user: {
   bodTag?: unknown;
   positionText?: unknown;
   abbreviation?: unknown;
+  position_status?: unknown;
+  positionStatus?: unknown;
+  active_profile?: unknown;
+  activeProfile?: unknown;
 }): boolean {
+  // Jabatan pada token dapat berasal dari konteks delegasi (misalnya
+  // `SE. EVP ...`). Konteks tersebut tidak boleh menaikkan hak akses staff
+  // menjadi EVP. BAC hanya boleh diakses dari akun asli, bukan profile
+  // Sekretaris atau aktor delegasi.
+  const positionStatus = String(
+    user.position_status ?? user.positionStatus ?? '',
+  )
+    .trim()
+    .toUpperCase();
+  const activeProfile = String(
+    user.active_profile ?? user.activeProfile ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  if (activeProfile === 'sekretaris' || (positionStatus && positionStatus !== 'YBS')) {
+    return false;
+  }
+
   const bodTag = String(user.bodTag ?? '')
     .trim()
     .toUpperCase();
