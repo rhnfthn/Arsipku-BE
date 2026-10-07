@@ -1,3 +1,4 @@
+import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import {
   Injectable,
   NotFoundException,
@@ -275,18 +276,11 @@ export class NomorService {
   }
 
   /**
-   * Helper: Extract last 2 characters dari area code
-   * Contoh: "00" untuk Pusat, "01" untuk Cabang
+   * Helper: Kode lokasi penomoran (pusat: TNG, cabang: kode area)
+   * Contoh: "TNG" untuk Pusat, "01" untuk Cabang
    */
   private extractAreaCode(area: string | null | undefined): string {
-    if (!area) return '';
-
-    // Ambil 2 karakter terakhir
-    if (area.length >= 2) {
-      return area.slice(-2);
-    }
-
-    return area.padStart(2, '0');
+    return formatNomorLocation(area);
   }
 
   /**

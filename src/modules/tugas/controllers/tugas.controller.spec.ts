@@ -70,6 +70,7 @@ describe('TugasController contract', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     const user = {
       persnum: 10,

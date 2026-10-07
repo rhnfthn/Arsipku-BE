@@ -1,5 +1,6 @@
 import {
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -47,4 +48,15 @@ export class CreateTaskWithReferenceDto {
   @IsOptional()
   @IsUUID()
   referenceId?: string | null;
+}
+
+export class QueryReferenceCandidateDto {
+  @IsIn(['inbox', 'sent'])
+  source: 'inbox' | 'sent' = 'inbox';
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q: string = '';
 }

@@ -1,3 +1,4 @@
+import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
@@ -1353,14 +1354,10 @@ export class KonsepService {
   }
 
   /**
-   * Extract area code (2 digit terakhir)
+   * Kode lokasi penomoran (pusat: TNG, cabang: kode area)
    */
   private extractAreaCode(area: string | null | undefined): string {
-    if (!area) return '';
-    if (area.length >= 2) {
-      return area.slice(-2);
-    }
-    return area.padStart(2, '0');
+    return formatNomorLocation(area);
   }
 
   /**

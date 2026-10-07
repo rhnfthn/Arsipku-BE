@@ -77,6 +77,48 @@ describe('TugasReferenceResolver (Phase 7)', () => {
     penandatanganChain: null,
   } as unknown as NaskahEntity;
 
+  it('membuka referensi Terkirim hanya dari sirkulasi pengirim aktif', async () => {
+    const final = { ...naskah, status: 'final' } as NaskahEntity;
+    const { resolver, sirkulasiRepository } = createResolver({
+      naskah: final,
+      circulation: { id: 'sent' } as NaskahSirkulasi,
+    });
+    const result = await resolver.resolve(
+      TugasReferenceType.NASKAH_TERKIRIM,
+      final.id,
+      actor,
+    );
+    expect(sirkulasiRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          position: actor.position,
+          company: actor.company,
+          sirkuler: 'pengirim',
+          isDraft: false,
+        }),
+      }),
+    );
+    expect(result.route).toBe(`/korespondensi/terkirim/${final.id}?jenis=ND`);
+  });
+
+  it('tidak membaca metadata Terkirim milik posisi lain', async () => {
+    const { resolver, naskahRepository } = createResolver({ naskah });
+    await expect(
+      resolver.resolve(TugasReferenceType.NASKAH_TERKIRIM, naskah.id, actor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(naskahRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  it('menolak naskah Terkirim yang masih draf', async () => {
+    const { resolver } = createResolver({
+      naskah: { ...naskah, status: 'draf' } as NaskahEntity,
+      circulation: { id: 'sent' } as NaskahSirkulasi,
+    });
+    await expect(
+      resolver.resolve(TugasReferenceType.NASKAH_TERKIRIM, naskah.id, actor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('membentuk snapshot dan route setelah akses posisi/company terbukti', async () => {
     const { resolver, sirkulasiRepository } = createResolver({
       naskah,
@@ -180,31 +222,34 @@ describe('TugasReferenceResolver (Phase 7)', () => {
     );
   });
 
-  it('mencari nomor disposisi lalu menyimpan naskah.id sebagai ID kanonis', async () => {
-    const disposisiNaskah = { ...naskah, jenis: 'DI' } as NaskahEntity;
-    const disposisi = {
-      id: '22222222-2222-4222-8222-222222222222',
-      idNaskah: disposisiNaskah.id,
-      nomor: 'DI-456',
-      perihal: 'Tindak lanjut laporan',
-    } as DiEntity;
-    const { resolver, diRepository } = createResolver({
-      naskah: disposisiNaskah,
-      disposisi,
-      circulation: { id: 'circulation' } as NaskahSirkulasi,
-    });
+  it.each([TugasReferenceType.DISPOSISI, TugasReferenceType.NASKAH_MASUK])(
+    'mencari nomor disposisi melalui %s dan menyimpan ID kanonis',
+    async (referenceType) => {
+      const disposisiNaskah = { ...naskah, jenis: 'DI' } as NaskahEntity;
+      const disposisi = {
+        id: '22222222-2222-4222-8222-222222222222',
+        idNaskah: disposisiNaskah.id,
+        nomor: 'DI-456',
+        perihal: 'Tindak lanjut laporan',
+      } as DiEntity;
+      const { resolver, diRepository } = createResolver({
+        naskah: disposisiNaskah,
+        disposisi,
+        circulation: { id: 'circulation' } as NaskahSirkulasi,
+      });
 
-    const result = await resolver.resolveByNumber(
-      TugasReferenceType.DISPOSISI,
-      disposisi.nomor!,
-      actor,
-    );
+      const result = await resolver.resolveByNumber(
+        referenceType,
+        disposisi.nomor!,
+        actor,
+      );
 
-    expect(diRepository.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { nomor: disposisi.nomor } }),
-    );
-    expect(result.referenceId).toBe(disposisiNaskah.id);
-  });
+      expect(diRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { nomor: disposisi.nomor } }),
+      );
+      expect(result.referenceId).toBe(disposisiNaskah.id);
+    },
+  );
 
   it('menolak disposisi yang tidak dapat diakses tanpa membaca metadata', async () => {
     const { resolver, naskahRepository } = createResolver({

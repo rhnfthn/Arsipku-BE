@@ -30,16 +30,25 @@ export class TugasEvidenceService {
     private readonly tugasNotification: TugasNotificationService,
   ) {}
 
-  async list(taskId: string, actor: TugasActor) {
+  async list(
+    taskId: string,
+    actor: TugasActor,
+    purpose: 'evidence' | 'reference' = 'evidence',
+  ) {
     await this.access.assertTaskMember(taskId, actor.company, actor.position);
     const evidences = await this.access.repositories.task.manager
       .getRepository(TugasTaskEvidenceEntity)
-      .find({ where: { taskId }, order: { createdAt: 'ASC' } });
+      .find({ where: { taskId, purpose }, order: { createdAt: 'ASC' } });
 
     return Promise.all(evidences.map((evidence) => this.mapEvidence(evidence)));
   }
 
-  async add(taskId: string, file: Express.Multer.File, actor: TugasActor) {
+  async add(
+    taskId: string,
+    file: Express.Multer.File,
+    actor: TugasActor,
+    purpose: 'evidence' | 'reference' = 'evidence',
+  ) {
     this.assertValidEvidence(file);
     const initialAccess = await this.access.assertTaskMember(
       taskId,
@@ -47,10 +56,9 @@ export class TugasEvidenceService {
       actor.position,
     );
     this.access.assertTaskEditor(initialAccess);
-
     const uploaded = await this.storage.uploadFile(
       file,
-      `tugas/${initialAccess.board.id}/${taskId}/evidence`,
+      `tugas/${initialAccess.board.id}/${taskId}/${purpose}`,
     );
 
     try {
@@ -68,6 +76,7 @@ export class TugasEvidenceService {
           .save({
             id: uuidv4(),
             taskId,
+            purpose,
             storageKey: uploaded.key,
             originalName: file.originalname,
             mimeType: file.mimetype,
@@ -80,11 +89,15 @@ export class TugasEvidenceService {
         await this.activity.record(manager, {
           boardId: board.id,
           taskId,
-          aksi: TugasActivityAction.ADD_EVIDENCE,
+          aksi:
+            purpose === 'reference'
+              ? TugasActivityAction.ADD_REFERENCE
+              : TugasActivityAction.ADD_EVIDENCE,
           detail: {
             judul: access.task.judul,
             evidenceId: evidence.id,
             fileName: evidence.originalName,
+            label: evidence.originalName,
           },
           actor,
         });
@@ -94,14 +107,17 @@ export class TugasEvidenceService {
       this.tugasNotification?.emitBoardUpdatedSafe({
         boardId: result.boardId,
         revision: result.revision,
-        action: 'add_evidence',
+        action: purpose === 'reference' ? 'add_reference' : 'add_evidence',
         taskId,
         actor,
       });
 
       return {
         status: 'success',
-        message: 'Evidence berhasil ditambahkan',
+        message:
+          purpose === 'reference'
+            ? 'Referensi berhasil ditambahkan'
+            : 'Evidence berhasil ditambahkan',
         data: {
           ...(await this.mapEvidence(result.evidence)),
           revision: result.revision,
@@ -113,7 +129,12 @@ export class TugasEvidenceService {
     }
   }
 
-  async remove(taskId: string, evidenceId: string, actor: TugasActor) {
+  async remove(
+    taskId: string,
+    evidenceId: string,
+    actor: TugasActor,
+    purpose: 'evidence' | 'reference' = 'evidence',
+  ) {
     const result = await this.dataSource.transaction(async (manager) => {
       const access = await this.access.assertTaskMember(
         taskId,
@@ -125,18 +146,22 @@ export class TugasEvidenceService {
       const board = await this.lockBoard(manager, access.board.id);
       const repository = manager.getRepository(TugasTaskEvidenceEntity);
       const evidence = await repository.findOne({
-        where: { id: evidenceId, taskId },
+        where: { id: evidenceId, taskId, purpose },
       });
       if (!evidence) throw new NotFoundException('Evidence tidak ditemukan');
 
       await this.activity.record(manager, {
         boardId: board.id,
         taskId,
-        aksi: TugasActivityAction.REMOVE_EVIDENCE,
+        aksi:
+          purpose === 'reference'
+            ? TugasActivityAction.REMOVE_REFERENCE
+            : TugasActivityAction.REMOVE_EVIDENCE,
         detail: {
           judul: access.task.judul,
           evidenceId: evidence.id,
           fileName: evidence.originalName,
+          label: evidence.originalName,
         },
         actor,
       });
@@ -161,14 +186,17 @@ export class TugasEvidenceService {
     this.tugasNotification?.emitBoardUpdatedSafe({
       boardId: result.boardId,
       revision: result.revision,
-      action: 'remove_evidence',
+      action: purpose === 'reference' ? 'remove_reference' : 'remove_evidence',
       taskId,
       actor,
     });
 
     return {
       status: 'success',
-      message: 'Evidence berhasil dihapus',
+      message:
+        purpose === 'reference'
+          ? 'Referensi berhasil dihapus'
+          : 'Evidence berhasil dihapus',
       data: { id: evidenceId, revision: result.revision },
     };
   }

@@ -1,3 +1,4 @@
+import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import {
   Injectable,
   NotFoundException,
@@ -349,14 +350,10 @@ export class SuratDinasInternalService {
   }
 
   /**
-   * Helper: Extract last 2 characters dari area code
+   * Helper: Kode lokasi penomoran (pusat: TNG, cabang: kode area)
    */
   private extractAreaCode(area: string | null | undefined): string {
-    if (!area) return '';
-    if (area.length >= 2) {
-      return area.slice(-2);
-    }
-    return area.padStart(2, '0');
+    return formatNomorLocation(area);
   }
 
   /**
