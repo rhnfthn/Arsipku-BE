@@ -14,7 +14,7 @@ import { NaskahShareService } from '../services/naskah-share.service';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
-import { CreateNaskahShareDto, NaskahShareQueryDto } from '../dto';
+import { CreateNaskahShareDto, NaskahShareQueryDto, SendShareEmailDto } from '../dto';
 
 @Controller('naskah-share')
 export class NaskahShareController {
@@ -37,6 +37,30 @@ export class NaskahShareController {
         {
           success: false,
           message: 'Gagal membagikan naskah',
+          error: error.message,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /** POST /naskah-share/:id/send-email — Kirim naskah via email ke alamat eksternal */
+  @Post(':id/send-email')
+  @RequirePermission('naskah-share', 'create')
+  async sendShareEmail(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SendShareEmailDto,
+  ) {
+    try {
+      return await this.shareService.sendShareEmail(user, id, dto);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error('[NaskahShareController] sendShareEmail error:', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Gagal mengirim email',
           error: error.message,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

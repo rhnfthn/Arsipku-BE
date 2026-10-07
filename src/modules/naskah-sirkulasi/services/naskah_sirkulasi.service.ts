@@ -545,6 +545,7 @@ export class NaskahSirkulasiService {
     // Filter by favorite
     if (query.favorite === true) {
       whereClause += ` AND s.flag_favorit = 1`;
+      summaryWhereClause += ` AND s.flag_favorit = 1`;
     }
 
     // Filter by tindak lanjut
@@ -566,11 +567,13 @@ export class NaskahSirkulasiService {
     // Filter by lock
     if (query.lock === true) {
       whereClause += ` AND s.is_locked = 1`;
+      summaryWhereClause += ` AND s.is_locked = 1`;
     }
 
     // Filter by note
     if (query.note === true) {
       whereClause += ` AND s.flag_note = 1`;
+      summaryWhereClause += ` AND s.flag_note = 1`;
     }
 
     // Filter by arsip (default: exclude archived items)
@@ -586,6 +589,7 @@ export class NaskahSirkulasiService {
     // Filter by priority (khusus disposisi)
     if (query.priority === true) {
       whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
     }
 
     // Date Range Filter
@@ -1494,6 +1498,7 @@ export class NaskahSirkulasiService {
     // Filter by favorite
     if (query.favorite === true) {
       whereClause += ` AND s.flag_favorit = 1`;
+      summaryWhereClause += ` AND s.flag_favorit = 1`;
     }
 
     // Filter by tindak lanjut
@@ -1515,11 +1520,13 @@ export class NaskahSirkulasiService {
     // Filter by lock
     if (query.lock === true) {
       whereClause += ` AND s.is_locked = 1`;
+      summaryWhereClause += ` AND s.is_locked = 1`;
     }
 
     // Filter by note
     if (query.note === true) {
       whereClause += ` AND s.flag_note = 1`;
+      summaryWhereClause += ` AND s.flag_note = 1`;
     }
 
     // Filter by arsip (default: exclude archived items)
@@ -1534,6 +1541,7 @@ export class NaskahSirkulasiService {
     // Filter by priority (khusus disposisi)
     if (query.priority === true) {
       whereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
+      summaryWhereClause += ` AND n.jenis = 'DI' AND EXISTS (SELECT 1 FROM di WHERE di.id_naskah = n.id AND di.is_priority = 1)`;
     }
 
     // Date Range Filter
@@ -2445,6 +2453,7 @@ export class NaskahSirkulasiService {
     flagType: 'favorit' | 'note' | 'arsip' | 'tindak_lanjut' | 'lock',
     action: 'toggle' | 'delete' = 'toggle',
     noteText?: string,
+    new_value?: boolean,
   ): Promise<ToggleFlagResponseDto> {
     // Cari record
     const sirkulasi = await this.naskahSirkulasiRepo.findOne({
@@ -2490,7 +2499,10 @@ export class NaskahSirkulasiService {
     let newValue: number;
     let message: string;
 
-    if (action === 'delete') {
+    if (new_value !== undefined) {
+      newValue = new_value ? 1 : 0;
+      message = `Flag ${flagType} berhasil diubah`;
+    } else if (action === 'delete') {
       // Delete: Set value to 0 (remove flag)
       newValue = 0;
       message = `Flag ${flagType} berhasil dihapus`;

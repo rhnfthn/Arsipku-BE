@@ -31,6 +31,9 @@ export class ToggleFlagDto {
   @IsOptional()
   @IsString()
   note_text?: string;
+
+  @IsOptional()
+  new_value?: boolean;
 }
 
 /**
