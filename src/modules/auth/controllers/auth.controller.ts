@@ -205,12 +205,12 @@ export class AuthController {
       res.cookie(this.oidcCookieName, result.sessionId, this.oidcCookieOptions);
       if (result.frontendOrigin === 'mobile') {
         // RFC 8252: kembalikan ke aplikasi native via custom scheme.
-        // App menangkap URL ini dengan system browser (ASWebAuthenticationSession /
-        // Custom Tabs), lalu mengambil sesi final via /auth/session?sid=.
+        // Pakai halaman HTML + JS redirect (bukan 302) karena ASWebAuthenticationSession
+        // di beberapa versi iOS tidak menutup sheet saat redirect 302 ke custom scheme.
         const mobileCallback = new URL(
           `arsipku://sso/callback?sid=${encodeURIComponent(result.sessionId)}`,
         );
-        return res.redirect(mobileCallback.toString());
+        return this.sendMobileCallbackPage(res, mobileCallback.toString());
       }
       const destination = new URL(
         result.returnTo,
@@ -225,7 +225,7 @@ export class AuthController {
       if (state?.startsWith('mobile.')) {
         const mobileError = new URL('arsipku://sso/callback');
         mobileError.searchParams.set('error', errorMessage);
-        return res.redirect(mobileError.toString());
+        return this.sendMobileCallbackPage(res, mobileError.toString());
       }
       const callbackOrigin = state?.startsWith('local.')
         ? 'http://localhost:3000'
@@ -234,6 +234,28 @@ export class AuthController {
       callback.searchParams.set('error', errorMessage);
       return res.redirect(callback.toString());
     }
+  }
+
+  /**
+   * Halaman HTML ringan yang mengarahkan ke custom scheme aplikasi mobile.
+   * ASWebAuthenticationSession (iOS) menutup sheet saat navigasi ke scheme
+   * terjadi via JS location.href — lebih reliable daripada 302 langsung.
+   */
+  private sendMobileCallbackPage(res: Response, callbackUrl: string) {
+    const safeUrl = callbackUrl.replace(/"/g, '&quot;');
+    return res
+      .status(200)
+      .type('html')
+      .send(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Login ArsipKu</title></head>
+<body>
+<p>Menutup sesi login...</p>
+<script>
+  window.location.href = "${safeUrl}";
+</script>
+</body>
+</html>`);
   }
 
   /** Ambil JWT aplikasi ArsipKu dari sesi HttpOnly Auth v2 (atau parameter sid untuk mobile). */
