@@ -36,6 +36,7 @@ export enum TugasMyTaskScope {
 
 export enum TugasReferenceType {
   NASKAH_MASUK = 'naskah_masuk',
+  NASKAH_TERKIRIM = 'naskah_terkirim',
   DISPOSISI = 'disposisi',
   NASKAH_LAINNYA = 'naskah_lainnya',
 }

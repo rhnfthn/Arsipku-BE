@@ -8,6 +8,7 @@ import {
   TugasTaskEntity,
   TugasTaskEvidenceEntity,
 } from '../entities';
+import { TugasBoardType } from '../enums';
 import { TugasActor } from '../tugas.types';
 import { TugasAccessReader } from './tugas-access.reader';
 import { TugasActivityService } from './tugas-activity.service';
@@ -54,7 +55,8 @@ const pdfFile = (): Express.Multer.File => {
   } as Express.Multer.File;
 };
 
-function createHarness() {
+function createHarness(tipe = TugasBoardType.PERSONAL) {
+  const board = { id: 'board-1', revision: 2, tipe } as TugasBoardEntity;
   const evidenceRepository = {
     save: jest.fn((value) =>
       Promise.resolve({
@@ -101,10 +103,40 @@ function createHarness() {
     storage,
     notification,
   );
-  return { service, access, activity, storage, notification };
+  return {
+    service,
+    access,
+    activity,
+    storage,
+    notification,
+    evidenceRepository,
+  };
 }
 
 describe('TugasEvidenceService', () => {
+  it.each([TugasBoardType.PERSONAL, TugasBoardType.BERSAMA])(
+    'menyimpan referensi unggahan %s terpisah dari bukti penyelesaian',
+    async (tipe) => {
+      const harness = createHarness(tipe);
+      await harness.service.add(task.id, pdfFile(), actor, 'reference');
+      expect(harness.access.assertTaskEditor).toHaveBeenCalledTimes(2);
+      expect(harness.storage.uploadFile).toHaveBeenCalledWith(
+        expect.anything(),
+        'tugas/board-1/task-1/reference',
+      );
+      expect(harness.evidenceRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ purpose: 'reference' }),
+      );
+      expect(harness.activity.record).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ aksi: 'add_reference' }),
+      );
+      expect(harness.notification.emitBoardUpdatedSafe).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'add_reference', revision: 3 }),
+      );
+    },
+  );
+
   it('menolak file berkedok PNG ketika signature tidak valid', async () => {
     const harness = createHarness();
     const fake = {
