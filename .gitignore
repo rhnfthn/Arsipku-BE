@@ -75,6 +75,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 !/src/migrations/1791400000000-AddBacSignedColumns.ts
 !/src/migrations/1791800000000-AddPenataanLabel.ts
 !/src/migrations/1791700000000-AddWaitingSecondBacSignatureStatus.ts
+!/src/migrations/1791900000000-CreateUsulanTertujuEksternal.ts
 /scripts/*
 !/scripts/preflight-correspondence-routing.ts
 
