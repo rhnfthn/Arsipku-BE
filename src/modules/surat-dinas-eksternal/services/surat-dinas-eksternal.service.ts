@@ -76,6 +76,8 @@ import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partitio
 import { MailServiceService } from '../../mail-service/services/mail-service.service';
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { TitelaturTranslateService } from '../../titelatur-en/services/titelatur-translate.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 const COMPANY_ID = 10000; // PERUM LPPNPI
@@ -137,6 +139,8 @@ export class SuratDinasEksternalService {
     private readonly konsepService: KonsepService,
     private readonly tteSigningGateway: TteSigningGateway,
     private readonly tteSigningService: TteSigningService,
+    private readonly realtimeEmitService: RealtimeEmitService,
+    private readonly titelaturTranslateService: TitelaturTranslateService,
   ) {}
 
   // ============================================================
@@ -438,15 +442,29 @@ export class SuratDinasEksternalService {
         : await this.qrCodeService.generatePreviewQRCodeHtml();
 
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
+
+      // Titelatur: saat English, jabatan diterjemahkan via titelatur_en.
+      const [positionTextEn5, penerimaEn5, tembusanEn5] = english
+        ? await Promise.all([
+            this.titelaturTranslateService.translateCombined(namaJabatan),
+            Promise.all(
+              (penerima || []).map((p) => this.titelaturTranslateService.translateCombined(p)),
+            ),
+            Promise.all(
+              (tembusan || []).map((t) => this.titelaturTranslateService.translateCombined(t)),
+            ),
+          ])
+        : [namaJabatan, penerima, tembusan];
+
       let pdfBuffer = await this.generatePdfSudinService.generatePdf({
         html: htmlBase64,
-        penerima: penerima,
+        penerima: penerimaEn5,
         nama_tempat: headerInfo?.kota || namaTempat,
         tanggal: tanggal,
-        positionText: namaJabatan,
+        positionText: positionTextEn5,
         namaLengkap: namaLengkap,
         atasNama: atasNama || null,
-        tembusan: tembusan,
+        tembusan: tembusanEn5,
         perihal: perihal,
         sifat: sifat,
         nomor: nomor,
@@ -1936,25 +1954,41 @@ export class SuratDinasEksternalService {
             dto.english,
           );
 
+          // Titelatur: saat English, jabatan (pengirim/penerima/tembusan)
+          // diterjemahkan via tabel titelatur_en (long_text → long_text_en).
+          const isEnglish = dto.english === true;
+          const positionTextForPdf = delegatedRecipientFields({
+            ...pengirim,
+            position_text: dto.nama_jabatan || pengirim.position_text,
+          }).positionText;
+          const [positionTextEn, penerimaEn, tembusanEn] = isEnglish
+            ? await Promise.all([
+                this.titelaturTranslateService.translateCombined(positionTextForPdf),
+                Promise.all(
+                  kepadaYthList.map((p) => this.titelaturTranslateService.translateCombined(p)),
+                ),
+                Promise.all(
+                  tembusanNames.map((t) => this.titelaturTranslateService.translateCombined(t)),
+                ),
+              ])
+            : [positionTextForPdf, kepadaYthList, tembusanNames];
+
           // Generate PDF with nomor already included (using same approach as preview-pdf)
           let pdfBuffer = await this.generatePdfSudinService.generatePdf({
             html: Buffer.from(dto.konten || '', 'utf-8').toString('base64'),
-            penerima: kepadaYthList,
+            penerima: penerimaEn,
             nama_tempat: dynamicNamaTempat,
             tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
               year: 'numeric',
               month: 'long',
               day: 'numeric',
             }),
-            positionText: delegatedRecipientFields({
-              ...pengirim,
-              position_text: dto.nama_jabatan || pengirim.position_text,
-            }).positionText,
+            positionText: positionTextEn,
             namaLengkap:
               dto.nama_lengkap || pengirim.persnum_person_text || pengirim.nama,
             // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
             atasNama: dto.atas_nama || null,
-            tembusan: tembusanNames, // Include tembusan in PDF (same as preview-pdf)
+            tembusan: tembusanEn, // Include tembusan in PDF (same as preview-pdf)
             perihal: dto.perihal,
             sifat: dto.sifat || 'Biasa',
             nomor: nomorSurat,
@@ -1964,7 +1998,7 @@ export class SuratDinasEksternalService {
             headerGedung: headerInfo?.gedung,
             headerAlamat: headerInfo?.alamat,
             // English format flag
-            english: dto.english === true,
+            english: isEnglish,
           });
 
           // Merge with lampiran if any
@@ -2520,12 +2554,26 @@ export class SuratDinasEksternalService {
         console.log(`[SDE] positionText for PDF: ${finalPositionText}`);
         console.log(`[SDE] namaLengkap for PDF: ${finalNamaLengkap}`);
 
+        // Titelatur: saat English, jabatan diterjemahkan via titelatur_en.
+        const isEnglishHere = dto.english === true;
+        const [positionTextEn2, penerimaEn2, tembusanEn2] = isEnglishHere
+          ? await Promise.all([
+              this.titelaturTranslateService.translateCombined(finalPositionText),
+              Promise.all(
+                kepadaYthList.map((p) => this.titelaturTranslateService.translateCombined(p)),
+              ),
+              Promise.all(
+                tembusanTextList.map((t) => this.titelaturTranslateService.translateCombined(t)),
+              ),
+            ])
+          : [finalPositionText, kepadaYthList, tembusanTextList];
+
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: renderedKonten,
           htmlContent: renderedKonten,
           nomor: nomorSurat,
-          penerima: kepadaYthList,
-          tembusan: tembusanTextList,
+          penerima: penerimaEn2,
+          tembusan: tembusanEn2,
           perihal: dto.perihal,
           lampiran: formatLampiranCount(
             lampiranFileNames.length,
@@ -2537,7 +2585,7 @@ export class SuratDinasEksternalService {
             month: 'long',
             day: 'numeric',
           }),
-          positionText: finalPositionText,
+          positionText: positionTextEn2,
           namaLengkap: finalNamaLengkap,
           // Garis Kewenangan (a.n.) — label pemberi kuasa untuk signature block.
           atasNama: dto.atas_nama || null,
@@ -2549,7 +2597,7 @@ export class SuratDinasEksternalService {
           qrCodeHtml: qrCodeHtml,
           bsreFooter: dto.sign_option === SignOption.DIGSIG,
           // English format flag
-          english: dto.english === true,
+          english: isEnglishHere,
         });
         console.log(`[SDE] PDF generated successfully`);
 
@@ -2733,6 +2781,14 @@ export class SuratDinasEksternalService {
         // COMMIT TRANSACTION
         await queryRunner.commitTransaction();
         console.log(`[SDE] Transaction committed successfully`);
+
+        // Naskah TTD basah masuk daftar tertunda — emit badge count baru ke
+        // pengirim agar sidebar langsung update tanpa refresh.
+        if (status === 'pending' && pengirim?.position) {
+          this.realtimeEmitService
+            .emitTertundaCountForPosition(this.dataSource, String(pengirim.position))
+            .catch(() => {});
+        }
 
         let portalRedirect:
           | { transactionId: string; signingUrl: string }
@@ -4051,21 +4107,36 @@ export class SuratDinasEksternalService {
         console.log(
           `[SDE finalizeDraft] Generating PDF with qrCodeHtml: ${qrCodeHtml ? 'YES' : 'NO'}`,
         );
+
+        // Titelatur: saat English, jabatan diterjemahkan via titelatur_en.
+        const isEnglishFinalize = dto.english === true;
+        const [positionTextEn3, penerimaEn3, tembusanEn3] = isEnglishFinalize
+          ? await Promise.all([
+              this.titelaturTranslateService.translateCombined(resolvedPositionText),
+              Promise.all(
+                kepadaYthListForPdf.map((p) => this.titelaturTranslateService.translateCombined(p)),
+              ),
+              Promise.all(
+                tembusanForPdfFinal.map((t) => this.titelaturTranslateService.translateCombined(t)),
+              ),
+            ])
+          : [resolvedPositionText, kepadaYthListForPdf, tembusanForPdfFinal];
+
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: Buffer.from(
             dto.konten || updatedNaskahForPdf?.konten || naskah.konten || '',
             'utf-8',
           ).toString('base64'),
-          penerima: kepadaYthListForPdf,
+          penerima: penerimaEn3,
           nama_tempat: dynamicNamaTempat,
           tanggal: tanggalHariIni.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
           }),
-          positionText: resolvedPositionText,
+          positionText: positionTextEn3,
           namaLengkap: resolvedNamaLengkap,
-          tembusan: tembusanForPdfFinal, // Include tembusan in PDF (from sirkulasi with proper urutan)
+          tembusan: tembusanEn3, // Include tembusan in PDF (from sirkulasi with proper urutan)
           perihal:
             dto.perihal || updatedNaskahForPdf?.perihal || naskah.perihal || '',
           sifat: dto.sifat || updatedNaskahForPdf?.sifat || 'Biasa',
@@ -4079,7 +4150,7 @@ export class SuratDinasEksternalService {
           qrCodeHtml: qrCodeHtml,
           bsreFooter: dto.sign_option === SignOption.DIGSIG,
           // English format flag
-          english: dto.english === true,
+          english: isEnglishFinalize,
         });
         console.log(`[SDE finalizeDraft] PDF generated successfully`);
 
@@ -5383,27 +5454,42 @@ export class SuratDinasEksternalService {
       // PHASE 11: Generate PDF dengan lampiran
       let finalPdfPath: string | undefined = undefined;
       try {
+        // Titelatur: saat English, jabatan diterjemahkan via titelatur_en.
+        const isEnglishLegacy = dto.english === true;
+        const tembusanLabels =
+          tembusanList.length > 0
+            ? tembusanList.map(
+                (t) =>
+                  formatGmRecipientLabel(t) ??
+                  `${t.position_text} ${t.organization_text}`,
+              )
+            : [];
+        const [positionTextEn4, penerimaEn4, tembusanEn4] = isEnglishLegacy
+          ? await Promise.all([
+              this.titelaturTranslateService.translateCombined(namaJabatan),
+              Promise.all(
+                kepadaYthList.map((p) => this.titelaturTranslateService.translateCombined(p)),
+              ),
+              Promise.all(
+                tembusanLabels.map((t) => this.titelaturTranslateService.translateCombined(t)),
+              ),
+            ])
+          : [namaJabatan, kepadaYthList, tembusanLabels];
+
         // Generate PDF
         let pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: konten,
           htmlContent: konten,
           nomor: nomorSurat,
-          penerima: kepadaYthList,
-          tembusan:
-            tembusanList.length > 0
-              ? tembusanList.map(
-                  (t) =>
-                    formatGmRecipientLabel(t) ??
-                    `${t.position_text} ${t.organization_text}`,
-                )
-              : [],
+          penerima: penerimaEn4,
+          tembusan: tembusanEn4,
           perihal: perihal,
           tanggal: tanggalNaskah.toLocaleDateString('id-ID', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
           }),
-          positionText: namaJabatan,
+          positionText: positionTextEn4,
           namaLengkap: namaLengkap,
           nama_tempat: headerInfo?.kota || namaTempat,
           headerKantor: headerInfo?.kantor,
@@ -5412,7 +5498,7 @@ export class SuratDinasEksternalService {
           sifat: dto.sifat,
           lampiran: dto.lampiran || formatLampiranCount(totalLampiranCount),
           // English format flag
-          english: dto.english === true,
+          english: isEnglishLegacy,
         });
 
         // Merge with lampiran if any
