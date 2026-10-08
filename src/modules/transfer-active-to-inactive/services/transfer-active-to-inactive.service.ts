@@ -1052,25 +1052,62 @@ export class TransferActiveToInactiveService {
     // Resolve sekretarisName dari org_data jika tersimpan sebagai persnum.
     await this.resolveSekretarisNames(data);
 
-    // Load klasifikasi berkas untuk setiap usulan (lookup by arsipId)
-    const arsipIds = data.map((d) => d.arsipId).filter(Boolean);
+    // Load metadata per berkas untuk daftar penyusutan. Usulan transfer dapat
+    // memuat beberapa berkas; tanggal yang menentukan kelayakan penyusutan
+    // adalah akhir retensi INAKTIF masing-masing berkas.
+    const arsipIds = Array.from(
+      new Set(
+        data.flatMap((d) => {
+          const ids = Array.isArray(d.arsipIds)
+            ? d.arsipIds.map((archive) => archive?.id)
+            : [];
+          return [...ids, d.arsipId].filter(Boolean);
+        }),
+      ),
+    );
     if (arsipIds.length > 0) {
       const berkasList = await this.berkasRepo
         .createQueryBuilder('b')
-        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .select([
+          'b.id',
+          'b.klasifikasi',
+          'b.klasifikasiTeks',
+          'b.tanggalRetensiInaktifBerakhir',
+        ])
         .where('b.id IN (:...ids)', { ids: arsipIds })
         .getMany();
-      const klasifikasiMap = new Map<string, { kode: string; teks: string }>();
+      const klasifikasiMap = new Map<
+        string,
+        {
+          kode: string;
+          teks: string;
+          tanggalRetensiInaktifBerakhir: Date | string | null;
+        }
+      >();
       for (const b of berkasList) {
         klasifikasiMap.set(b.id, {
           kode: b.klasifikasi ?? '',
           teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+          tanggalRetensiInaktifBerakhir:
+            b.tanggalRetensiInaktifBerakhir ?? null,
         });
       }
       for (const d of data) {
         const k = klasifikasiMap.get(d.arsipId);
         (d as any).arsipKlasifikasi = k?.teks ?? null;
         (d as any).arsipKlasifikasiKode = k?.kode ?? null;
+        (d as any).arsipRows = (Array.isArray(d.arsipIds) ? d.arsipIds : []).map(
+          (archive) => {
+            const metadata = klasifikasiMap.get(archive.id);
+            return {
+              ...archive,
+              klasifikasi: metadata?.kode ?? '',
+              klasifikasiTeks: metadata?.teks ?? '',
+              tanggalRetensiInaktifBerakhir:
+                metadata?.tanggalRetensiInaktifBerakhir ?? null,
+            };
+          },
+        );
       }
     }
 
@@ -2726,10 +2763,13 @@ export class TransferActiveToInactiveService {
         'b.id',
         'b.kodeBerkas',
         'b.klasifikasi',
+        'b.klasifikasiTeks',
         'b.judulBerkas',
         'b.isiRingkas',
         'b.lokasi',
         'b.retensiAktifTahun',
+        'b.retensiInaktifTahun',
+        'b.tanggalRetensiInaktifBerakhir',
         'b.tanggalDibuat',
         'b.tanggalDitutup',
       ])
@@ -2806,27 +2846,31 @@ export class TransferActiveToInactiveService {
         ? await this.berkasRepo.manager
             .createQueryBuilder()
             .select('k.klasifikasi', 'kode')
+            .addSelect('k.klasifikasi_text', 'klasifikasi')
             .addSelect('k.keamanan', 'keamanan')
+            .addSelect('k.retensi_inaktif_tahun', 'retensiInaktifTahun')
             .from('klasifikasi', 'k')
             .where('k.klasifikasi IN (:...codes)', {
               codes: klasifikasiCodes,
             })
             .getRawMany()
         : [];
-    const keamananMap = new Map(
-      keamananRows.map((row: any) => [String(row.kode), row.keamanan]),
+    const klasifikasiMap = new Map(
+      keamananRows.map((row: any) => [String(row.kode), row]),
     );
 
-    const year = (value: unknown): string | null => {
-      if (!value) return null;
-      const match = String(value).match(/\d{4}/);
-      return match?.[0] ?? null;
+    const formatArchiveCreationDate = (value: unknown): string => {
+      if (!value) return '-';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return `${String(value.getDate()).padStart(2, '0')}/${String(value.getMonth() + 1).padStart(2, '0')}/${value.getFullYear()}`;
+      }
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
     };
 
     const daftarBerkas = arsipIds.map((a, idx) => {
       const berkas = berkasMap.get(a.id);
-      const years = [year(berkas?.tanggalDibuat), year(berkas?.tanggalDitutup)]
-        .filter((v, i, values) => v && values.indexOf(v) === i);
+      const tanggalDibuat = formatArchiveCreationDate(berkas?.tanggalDibuat);
 
       return {
         no: idx + 1,
@@ -2842,12 +2886,27 @@ export class TransferActiveToInactiveService {
         // pembuatan berkas. Metadata berkas lainnya tetap diambil dari
         // pemberkasan awal.
         tanggal: item.tanggalUsulan ?? null,
-        kurunWaktu: years.join(' - ') || '-',
+        kurunWaktu: tanggalDibuat,
         jumlah: jumlahMap.get(String(a.id)) ?? 0,
         jumlahBerkas: jumlahMap.get(String(a.id)) ?? 0,
         tingkatPerkembangan: '-',
         lokasiSimpan: berkas?.lokasi ?? '-',
-        klasifikasiKeamanan: keamananMap.get(String(berkas?.klasifikasi ?? '')) ?? '-',
+        klasifikasi: berkas?.klasifikasiTeks
+          ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.klasifikasi
+          ?? '-',
+        klasifikasiKeamanan:
+          klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.keamanan ?? '-',
+        retensiArsipInaktifTahun:
+          berkas?.retensiInaktifTahun
+          ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.retensiInaktifTahun
+          ?? null,
+        retensiArsipInaktif: (() => {
+          const years = berkas?.retensiInaktifTahun
+            ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.retensiInaktifTahun;
+          return years != null ? `${years} tahun` : '-';
+        })(),
+        tanggalRetensiInaktifBerakhir:
+          berkas?.tanggalRetensiInaktifBerakhir ?? null,
         retensiArsipAktif:
           berkas?.retensiAktifTahun != null
             ? `${berkas.retensiAktifTahun} tahun`
@@ -2894,6 +2953,176 @@ export class TransferActiveToInactiveService {
     };
   }
 
+  /** Gabungkan BAC, Daftar Berkas, dan Daftar Isi Berkas untuk lampiran penataan. */
+  async getPenataanLampiranPdf(
+    id: string,
+    user: any,
+  ): Promise<{ buffer: Buffer; fileName: string }> {
+    const item = await this.findOne(id, user);
+    if (item.status !== TransferActiveToInactiveStatus.SELESAI) {
+      throw new BadRequestException(
+        'Lampiran penataan tersedia setelah penataan arsip selesai',
+      );
+    }
+
+    const [bacPdf, daftar, beritaAcaraData] = await Promise.all([
+      this.getBeritaAcaraPdf(id, user),
+      this.getDaftarIsi(id),
+      this.getBeritaAcaraData(id),
+    ]);
+    const unitKerja = String(
+      beritaAcaraData?.unitKerjaPengusul || item.divisiName || '',
+    ).trim() || '-';
+    const archiveRows = (daftar.daftarBerkas ?? []).map((row: any) => ({
+      ...row,
+      lokasiSimpan: item.lokasiPenataan || row.lokasiSimpan || '-',
+    }));
+    const locationByArchiveId = new Map(
+      archiveRows.map((row: any) => [String(row.id), row.lokasiSimpan]),
+    );
+    const contentRows = (daftar.daftarIsi ?? []).map((row: any) => ({
+      ...row,
+      lokasiSimpan:
+        locationByArchiveId.get(String(row.id)) ??
+        item.lokasiPenataan ??
+        row.lokasiSimpan ??
+        '-',
+    }));
+
+    const escapeHtml = (value: unknown): string =>
+      String(value ?? '-')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+        .replace(/\n/g, '<br>');
+    const formatDate = (value: unknown): string => {
+      if (!value) return '-';
+      const raw = String(value);
+      const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+      const date = new Date(raw);
+      return Number.isNaN(date.getTime())
+        ? raw
+        : `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+    };
+    const tableHtml = (
+      title: string,
+      headers: string[],
+      rows: unknown[][],
+      widths: number[],
+      nextPage = false,
+    ) => `
+      <section class="${nextPage ? 'new-page' : ''}">
+        <h1>${escapeHtml(title)}</h1>
+        <p class="unit">Unit Kerja: ${escapeHtml(unitKerja)}</p>
+        <table>
+          <colgroup>${widths.map((width) => `<col style="width:${width}%">`).join('')}</colgroup>
+          <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+          <tbody>${rows.length
+            ? rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')
+            : `<tr><td colspan="${headers.length}" class="empty">Tidak ada data.</td></tr>`}</tbody>
+        </table>
+      </section>`;
+
+    const berkasTable = tableHtml(
+      'Daftar Berkas',
+      [
+        'No Berkas',
+        'Kode Klasifikasi',
+        'Uraian Informasi Berkas',
+        'Kurun Waktu',
+        'Jumlah Berkas',
+        'Lokasi Simpan',
+        'Klasifikasi Keamanan',
+        'Retensi Arsip Inaktif',
+      ],
+      archiveRows.map((row: any) => [
+        row.kode ?? '-',
+        [row.klasifikasi, row.kodeKlasifikasi].filter(Boolean).join('\n') || '-',
+        row.uraianInformasi ?? row.namaBerkas ?? '-',
+        row.kurunWaktu ?? '-',
+        row.jumlahBerkas ?? row.jumlah ?? '-',
+        row.lokasiSimpan ?? '-',
+        row.klasifikasiKeamanan ?? '-',
+        formatDate(row.tanggalRetensiInaktifBerakhir),
+      ]),
+      [10, 14, 22, 9, 9, 11, 12, 13],
+    );
+    const berkasById = new Map(
+      archiveRows.map((row: any) => [String(row.id), row]),
+    );
+    const daftarIsiTable = tableHtml(
+      'Daftar Isi Berkas',
+      [
+        'No',
+        'Nomor Naskah',
+        'Kode Berkas',
+        'Kode Klasifikasi',
+        'Uraian Informasi Isi Berkas',
+        'Tanggal',
+        'Jumlah',
+        'Lokasi Simpan',
+        'Klasifikasi Keamanan',
+      ],
+      contentRows.map((row: any, index: number) => {
+        const archive = berkasById.get(String(row.id));
+        return [
+          row.no ?? index + 1,
+          row.nomorSurat ?? '-',
+          row.kode ?? '-',
+          [archive?.klasifikasi, row.kodeKlasifikasi].filter(Boolean).join('\n') || '-',
+          row.uraianInformasi ?? row.perihal ?? '-',
+          formatDate(row.tanggal),
+          row.jumlah ?? row.jumlahBerkas ?? '-',
+          row.lokasiSimpan ?? '-',
+          row.klasifikasiKeamanan ?? archive?.klasifikasiKeamanan ?? '-',
+        ];
+      }),
+      [4, 14, 10, 13, 21, 9, 6, 11, 12],
+      true,
+    );
+    const appendixHtml = `<!doctype html><html><head><meta charset="utf-8"><style>
+      @page { size: A4 landscape; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: "Times New Roman", Times, serif; color: #111; font-size: 12px; }
+      section { width: 100%; }
+      section.new-page { break-before: page; page-break-before: always; }
+      h1 { margin: 0 0 8px; text-align: center; font-size: 20px; }
+      .unit { margin: 0 0 32px; text-align: center; font-size: 14px; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      thead { display: table-header-group; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      th, td { border: 1px solid #333; padding: 9px 6px; vertical-align: middle; overflow-wrap: anywhere; }
+      th { background-color: #fff !important; background-image: none !important; text-align: center; font-weight: bold; }
+      td { text-align: center; }
+      .empty { text-align: center; }
+    </style></head><body>${berkasTable}${daftarIsiTable}</body></html>`;
+
+    const appendixPdf = await this.generatePdfService.generateRawPdf(
+      appendixHtml,
+      {
+        landscape: true,
+        margin: { top: '10mm', right: '8mm', bottom: '10mm', left: '8mm' },
+      },
+    );
+    const combinedPdf = await PDFDocument.load(bacPdf, { ignoreEncryption: true });
+    const appendixDocument = await PDFDocument.load(appendixPdf, {
+      ignoreEncryption: true,
+    });
+    const appendixPages = await combinedPdf.copyPages(
+      appendixDocument,
+      appendixDocument.getPageIndices(),
+    );
+    appendixPages.forEach((page) => combinedPdf.addPage(page));
+    const safeNumber = String(item.nomorUsulan || id).replace(/[^a-zA-Z0-9._-]+/g, '-');
+    return {
+      buffer: Buffer.from(await combinedPdf.save()),
+      fileName: `Lampiran-${safeNumber}.pdf`,
+    };
+  }
+
   /**
    * Ambil snapshot jabatan/unit dari org_data untuk kebutuhan BAC.
    * Jangan mengandalkan abbreviation dari JWT karena pada beberapa profil
@@ -2918,9 +3147,11 @@ export class TransferActiveToInactiveService {
             Number(row.persnum_person) === Number(persnum),
         ) ?? null;
       const unitName = (row: any): string | null =>
-        row?.divisi_name ??
-        row?.organization_text ??
-        row?.organization_abbreviation ??
+        [
+          row?.divisi_name,
+          row?.organization_text,
+          row?.organization_abbreviation,
+        ].find((value) => typeof value === 'string' && value.trim())?.trim() ??
         null;
       const positionName = (row: any): string | null =>
         row?.position_text ?? row?.positionText ?? null;
@@ -2950,7 +3181,7 @@ export class TransferActiveToInactiveService {
     const finalAtasan = levels[levels.length - 1] ?? null;
     const organization = await this.resolveBacOrganizationData(item);
     const unitKerjaPengusul =
-      organization?.unitKerjaPengusul ?? item.divisiName ?? '.........';
+      organization?.unitKerjaPengusul || item.divisiName || '.........';
     const pihakPertama = {
       nama: item.bacPihakPertamaName ?? '-',
       enik: item.bacPihakPertamaPersnum ?? '-',
