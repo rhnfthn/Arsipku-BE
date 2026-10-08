@@ -93,12 +93,14 @@ export class EksternalService {
 
   async create(
     createEksternalDto: CreateEksternalDto,
+    kodeOverride?: string,
   ): Promise<EksternalEntity> {
     // Selalu generate kode baru — abaikan `kode` apapun dari payload
     // agar FE tidak bisa menimpa / mengirim string kosong yang akan
-    // disimpan null di DB.
+    // disimpan null di DB. Kecuali ada kodeOverride (dari usulan tertuju
+    // yang sudah punya kode unik global).
     const { kode: _ignored, ...dtoWithoutKode } = createEksternalDto;
-    const kode = await this.generateKode();
+    const kode = kodeOverride || (await this.generateKode());
     const eksternal = this.eksternalRepository.create({
       id: uuidv4(),
       kode,
