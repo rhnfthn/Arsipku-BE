@@ -69,6 +69,7 @@ export class PersonController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('scope') scope?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.personService.findAllWithPosition(
@@ -76,6 +77,7 @@ export class PersonController {
       page ? Number(page) : undefined,
       limit ? Number(limit) : undefined,
       user,
+      scope === 'same-unit',
     );
   }
 
