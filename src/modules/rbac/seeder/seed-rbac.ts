@@ -387,6 +387,14 @@ const resourcesWithPermissions: ResourceDef[] = [
       },
       { action: 'delete-tertuju', description: 'Button Hapus Data Tertuju' },
       { action: 'export-tertuju', description: 'Button Export Tertuju' },
+      {
+        action: 'create-usulan-tertuju',
+        description: 'Ajukan usulan tertuju eksternal (semua user)',
+      },
+      {
+        action: 'verify-usulan-tertuju',
+        description: 'Verifikasi usulan tertuju eksternal (TU)',
+      },
       { action: 'read-perusahaan', description: 'Halaman Perusahaan' },
       { action: 'create-perusahaan', description: 'Button Tambah Perusahaan' },
       { action: 'update-perusahaan', description: 'Button Edit Perusahaan' },
@@ -653,7 +661,13 @@ const userLegacyNonKelolaPermissions = legacyNonKelolaPermissions;
 // Pada sidebar ADMIN, Data Master tidak dibuka sebagai menu penuh. Fitur yang
 // tersedia hanya halaman Tertuju dan sifatnya read-only. Jangan membawa
 // permission master-data lain dari baseline lama ke role ADMIN.
-const adminMasterDataPermissions = new Set(['master-data.read-tertuju']);
+// Pengecualian: verify-usulan-tertuju — ADMIN/TU memverifikasi usulan tertuju
+// eksternal dari user (halaman Verifikasi Tertuju di Administrasi).
+const adminMasterDataPermissions = new Set([
+  'master-data.read-tertuju',
+  'master-data.verify-usulan-tertuju',
+  'master-data.create-usulan-tertuju',
+]);
 const adminNonKelolaPermissions = legacyNonKelolaPermissions.filter(
   (permission) =>
     !permission.startsWith('master-data.') ||
@@ -870,6 +884,19 @@ async function main() {
         // memindahkan permission legacy yang memang masih dimiliki role;
         // checkbox Read yang sudah dicabut harus tetap nonaktif.
         const permissionNamesToAdd = new Set<string>();
+
+        // Permission baru yang harus tersedia di role ADMIN/USER meskipun
+        // assignment sudah dikurasi via RBAC UI (fitur baru butuh baseline).
+        const baselineNewPermissions: Record<string, string[]> = {
+          ADMIN: [
+            'master-data.verify-usulan-tertuju',
+            'master-data.create-usulan-tertuju',
+          ],
+          USER: ['master-data.create-usulan-tertuju'],
+        };
+        for (const p of baselineNewPermissions[roleName] ?? []) {
+          permissionNamesToAdd.add(p);
+        }
 
         for (const assignment of existingRolePermissions) {
           const permissionName = permissionNameById.get(assignment.permissionId);
