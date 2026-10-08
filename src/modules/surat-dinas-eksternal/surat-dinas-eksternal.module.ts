@@ -24,6 +24,7 @@ import { SearchModule } from '../search/search.module';
 import { MailServiceModule } from '../mail-service/mail-service.module';
 import { KonsepModule } from '../konsep/konsep.module';
 import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.module';
+import { TitelaturEnModule } from '../titelatur-en/titelatur-en.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { NaskahSirkulasiModule } from '../naskah-sirkulasi/naskah-sirkulasi.modu
     MailServiceModule,
     KonsepModule,
     NaskahSirkulasiModule,
+    TitelaturEnModule,
   ],
   controllers: [SuratDinasEksternalController],
   providers: [SuratDinasEksternalService, NomorSuratService],
