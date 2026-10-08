@@ -5,7 +5,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Brackets, Repository, In } from 'typeorm';
+import { TransferActiveToInactiveEntity } from '../../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
+import { TransferActiveToInactiveService } from '../../transfer-active-to-inactive/services/transfer-active-to-inactive.service';
 import { PenyusutanEntity } from '../entities/penyusutan.entity';
 import { PenyusutanVerifikatorEntity } from '../entities/penyusutan-verifikator.entity';
 import { PenyusutanStatus } from '../enums/penyusutan-status.enum';
@@ -15,6 +17,7 @@ import {
   SimpanPenataanDto,
   PemusnahanDto,
   BackupDataDto,
+  SimpanDraftPenyusutanDto,
 } from '../dto/penyusutan.dto';
 import { AuditTrailService } from '../../audit/services/audit-trail.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
@@ -44,6 +47,9 @@ export class PenyusutanService {
     private readonly repo: Repository<PenyusutanEntity>,
     @InjectRepository(PenyusutanVerifikatorEntity)
     private readonly levelRepo: Repository<PenyusutanVerifikatorEntity>,
+    @InjectRepository(TransferActiveToInactiveEntity)
+    private readonly transferRepo: Repository<TransferActiveToInactiveEntity>,
+    private readonly transferService: TransferActiveToInactiveService,
     private readonly auditTrailService: AuditTrailService,
     private readonly notificationService: NotificationService,
     private readonly storageService: StorageService,
@@ -52,6 +58,54 @@ export class PenyusutanService {
   ) {}
 
   // ─── AJUKAN (CREATE) ──────────────────────────────────────────────
+
+  async simpanDraft(
+    dto: SimpanDraftPenyusutanDto,
+    user: any,
+  ): Promise<PenyusutanEntity> {
+    const tanggalKey = String(dto.tanggalRetensiHabis ?? '').slice(0, 10);
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggalKey) || tanggalKey > todayKey) {
+      throw new BadRequestException(
+        'Berkas belum siap penyusutan karena retensi inaktif belum berakhir',
+      );
+    }
+
+    const existing = await this.repo.findOne({
+      where: { berkasId: dto.berkasId },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing && existing.status !== PenyusutanStatus.SELESAI && existing.status !== PenyusutanStatus.DITOLAK) {
+      if (existing.status === PenyusutanStatus.DRAFT && Number(existing.tuPersnum) === Number(user.persnum)) {
+        existing.catatan = null;
+        return this.repo.save(existing);
+      }
+      throw new BadRequestException(
+        'Berkas ini sudah memiliki pengajuan penyusutan yang masih aktif',
+      );
+    }
+
+    const draft = this.repo.create({
+      nomorUsulan: await this.generateNomorUsulan(),
+      tanggalUsulan: new Date(),
+      tuPersnum: Number(user.persnum),
+      tuName: user.nama ?? String(user.persnum),
+      berkasId: dto.berkasId,
+      kodeBerkas: dto.kodeBerkas ?? null,
+      namaBerkas: dto.namaBerkas ?? '-',
+      klasifikasi: dto.klasifikasi ?? null,
+      klasifikasiText: dto.klasifikasiText ?? null,
+      tanggalRetensiHabis: new Date(tanggalKey),
+      jenisPenyusutan: dto.jenisPenyusutan ?? 'permanen',
+      catatan: null,
+      daftarArsip: dto.daftarArsip ?? null,
+      currentVerifikatorUrutan: 1,
+      totalVerifikator: 0,
+      status: PenyusutanStatus.DRAFT,
+    });
+    return this.repo.save(draft);
+  }
 
   async ajukan(dto: AjukanPenyusutanDto, user: any): Promise<PenyusutanEntity> {
     if (!dto.atasanList || dto.atasanList.length === 0) {
@@ -72,21 +126,38 @@ export class PenyusutanService {
       where: { berkasId: dto.berkasId },
       order: { createdAt: 'DESC' },
     });
-    if (
-      existing &&
-      existing.status !== PenyusutanStatus.SELESAI &&
-      existing.status !== PenyusutanStatus.DITOLAK
-    ) {
+    if (existing && existing.status !== PenyusutanStatus.SELESAI && existing.status !== PenyusutanStatus.DITOLAK && existing.status !== PenyusutanStatus.DRAFT) {
       throw new BadRequestException(
         'Berkas ini sudah memiliki pengajuan penyusutan yang masih aktif',
       );
     }
 
-    const nomorUsulan = await this.generateNomorUsulan();
+    if (existing?.status === PenyusutanStatus.DRAFT && Number(existing.tuPersnum) !== Number(user.persnum)) {
+      throw new BadRequestException('Draft penyusutan ini bukan milik Anda');
+    }
+
     const firstAtasan = dto.atasanList[0];
 
-    const entity = this.repo.create({
-      nomorUsulan,
+    const entity = existing?.status === PenyusutanStatus.DRAFT
+      ? this.repo.merge(existing, {
+      tanggalUsulan: new Date(),
+      berkasId: dto.berkasId,
+      kodeBerkas: dto.kodeBerkas ?? null,
+      namaBerkas: dto.namaBerkas ?? '-',
+      klasifikasi: dto.klasifikasi ?? null,
+      klasifikasiText: dto.klasifikasiText ?? null,
+      tanggalRetensiHabis: dto.tanggalRetensiHabis
+        ? new Date(dto.tanggalRetensiHabis)
+        : null,
+      jenisPenyusutan: dto.jenisPenyusutan,
+      catatan: dto.catatan ?? null,
+      daftarArsip: dto.daftarArsip ?? null,
+      currentVerifikatorUrutan: 1,
+      totalVerifikator: dto.atasanList.length,
+      status: PenyusutanStatus.DIAJUKAN,
+    })
+      : this.repo.create({
+      nomorUsulan: await this.generateNomorUsulan(),
       tanggalUsulan: new Date(),
       tuPersnum: Number(user.persnum),
       tuName: user.nama ?? String(user.persnum),
@@ -742,7 +813,10 @@ export class PenyusutanService {
     });
 
     const result = await this.attachVerifikators(visibleItems);
-    return result;
+    return Promise.all(result.map(async (item) => ({
+      ...item,
+      penataanData: await this.loadPenataanData(item.berkasId),
+    })));
   }
 
   /** Daftar untuk penataan/pemusnahan (status DITERIMA atau SELESAI). */
@@ -785,7 +859,78 @@ export class PenyusutanService {
     } catch {
       isBackedUp = false;
     }
-    return { ...item, verifikators: levels, isBackedUp };
+
+    const penataanData = await this.loadPenataanData(item.berkasId, id);
+
+    return { ...item, verifikators: levels, isBackedUp, penataanData };
+  }
+
+  /** Muat metadata penataan tanpa melewati endpoint TU yang dibatasi role. */
+  private async loadPenataanData(berkasId?: string | null, penyusutanId?: string) {
+    if (!berkasId) return null;
+    try {
+      const transfer = await this.transferRepo
+        .createQueryBuilder('transfer')
+        .where(new Brackets((query) => {
+          query
+            .where('transfer.arsipId = :berkasId', { berkasId })
+            .orWhere(
+              "JSON_CONTAINS(transfer.arsipIds, :archiveJson, '$')",
+              { archiveJson: JSON.stringify({ id: berkasId }) },
+            );
+        }))
+        .andWhere('transfer.status = :status', { status: 'SELESAI' })
+        .orderBy('transfer.createdAt', 'DESC')
+        .getOne();
+
+      if (!transfer) return null;
+      const daftar = await this.transferService.getDaftarIsi(transfer.id);
+      const lokasiSimpan = transfer.lokasiPenataan ?? null;
+      return {
+        transferId: transfer.id,
+        nomorUsulan: transfer.nomorUsulan,
+        lokasiPenataan: lokasiSimpan,
+        transfer: {
+          id: transfer.id,
+          nomorUsulan: transfer.nomorUsulan,
+          tanggalUsulan: transfer.tanggalUsulan,
+          divisiName: transfer.divisiName,
+          beritaAcaraNomor: transfer.beritaAcaraNomor,
+          bacPihakPertamaPersnum: transfer.bacPihakPertamaPersnum,
+          bacPihakPertamaName: transfer.bacPihakPertamaName,
+          bacPihakPertamaJabatan: transfer.bacPihakPertamaJabatan,
+          bacPihakKeduaPersnum: transfer.bacPihakKeduaPersnum,
+          bacPihakKeduaName: transfer.bacPihakKeduaName,
+          bacPihakKeduaJabatan: transfer.bacPihakKeduaJabatan,
+          bacSignedAt: transfer.bacSignedAt,
+          bacSignatureQr: transfer.bacSignatureQr,
+          bacPihakKeduaSignedAt: transfer.bacPihakKeduaSignedAt,
+          bacPihakKeduaSignatureQr: transfer.bacPihakKeduaSignatureQr,
+          bacTembusan: transfer.bacTembusan,
+          beritaAcaraUrl: transfer.beritaAcaraUrl,
+          lokasiPenataan: transfer.lokasiPenataan,
+          rak: transfer.rak,
+          baris: transfer.baris,
+          kolom: transfer.kolom,
+          labelPenataan: transfer.labelPenataan,
+          keteranganPenataan: transfer.keteranganPenataan,
+          fotoPenataan: transfer.fotoPenataan,
+        },
+        daftarBerkas: (daftar.daftarBerkas ?? []).map((row: any) => ({
+          ...row,
+          lokasiSimpan: lokasiSimpan ?? row.lokasiSimpan ?? '-',
+        })),
+        daftarIsi: (daftar.daftarIsi ?? []).map((row: any) => ({
+          ...row,
+          lokasiSimpan: lokasiSimpan ?? row.lokasiSimpan ?? '-',
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Metadata penataan${penyusutanId ? ` untuk penyusutan ${penyusutanId}` : ''} tidak dapat dimuat: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
   }
 
   /** Ambil daftar verifikator untuk penyusutan. */

@@ -46,6 +46,11 @@ export class TuFilterDto {
   @IsString()
   klasifikasi?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by final archive action' })
+  @IsOptional()
+  @IsString()
+  nasibAkhir?: string;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)
