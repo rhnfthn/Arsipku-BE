@@ -77,6 +77,66 @@ export class KlasifikasiService {
     return klasifikasi;
   }
 
+  async findOptions(
+    company?: string,
+    search?: string,
+    page?: number,
+    limit?: number,
+  ) {
+    const currentPage = Math.max(
+      1,
+      Math.floor(Number.isFinite(page) ? page! : 1),
+    );
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Math.floor(Number.isFinite(limit) ? limit! : 50)),
+    );
+    const query = this.klasifikasiRepository
+      .createQueryBuilder('klasifikasi')
+      .select([
+        'klasifikasi.id',
+        'klasifikasi.klasifikasi',
+        'klasifikasi.klasifikasi_text',
+        'klasifikasi.deskripsi',
+        'klasifikasi.id_parent',
+        'klasifikasi.is_select',
+      ])
+      .where('klasifikasi.active = :active', { active: 1 });
+    if (company) query.andWhere('klasifikasi.company = :company', { company });
+    if (search?.trim())
+      query.andWhere(
+        `(LOWER(klasifikasi.klasifikasi) LIKE :search ESCAPE '!' OR
+      LOWER(klasifikasi.klasifikasi_text) LIKE :search ESCAPE '!' OR
+      LOWER(klasifikasi.deskripsi) LIKE :search ESCAPE '!')`,
+        {
+          search: `%${search.trim().toLowerCase().replace(/[!%_]/g, '!$&')}%`,
+        },
+      );
+    const total = await query.clone().getCount();
+    const { entities: data, raw } = await query
+      .addSelect(
+        'EXISTS (SELECT 1 FROM klasifikasi child WHERE child.id_parent = klasifikasi.id)',
+        'has_children',
+      )
+      .orderBy('klasifikasi.klasifikasi', 'ASC')
+      .addOrderBy('klasifikasi.id', 'ASC')
+      .skip((currentPage - 1) * pageSize)
+      .take(pageSize)
+      .getRawAndEntities<{ has_children: number }>();
+    const options = data.map((item, index) => ({
+      ...item,
+      has_children: Boolean(Number(raw[index]?.has_children)),
+      is_select: Number(raw[index]?.has_children) ? 0 : item.is_select,
+    }));
+    return {
+      data: options,
+      total,
+      page: currentPage,
+      limit: pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
   async findByCode(company: string, kode: string): Promise<KlasifikasiEntity> {
     const klasifikasi = await this.klasifikasiRepository.findOne({
       where: {
@@ -132,9 +192,11 @@ export class KlasifikasiService {
     if (updateKlasifikasiDto.is_select !== undefined)
       klasifikasi.is_select = updateKlasifikasiDto.is_select;
     if (updateKlasifikasiDto.retensi_aktif_tahun !== undefined)
-      klasifikasi.retensi_aktif_tahun = updateKlasifikasiDto.retensi_aktif_tahun;
+      klasifikasi.retensi_aktif_tahun =
+        updateKlasifikasiDto.retensi_aktif_tahun;
     if (updateKlasifikasiDto.retensi_inaktif_tahun !== undefined)
-      klasifikasi.retensi_inaktif_tahun = updateKlasifikasiDto.retensi_inaktif_tahun;
+      klasifikasi.retensi_inaktif_tahun =
+        updateKlasifikasiDto.retensi_inaktif_tahun;
     if (updateKlasifikasiDto.penyusutan !== undefined)
       klasifikasi.penyusutan = updateKlasifikasiDto.penyusutan;
     if (updateKlasifikasiDto.keamanan !== undefined)
@@ -148,7 +210,9 @@ export class KlasifikasiService {
   /**
    * Mengambil semua id dan kode klasifikasi turunan (recursive)
    */
-  private async getAllDescendantKlasifikasi(id: string): Promise<{ ids: string[]; codes: string[] }> {
+  private async getAllDescendantKlasifikasi(
+    id: string,
+  ): Promise<{ ids: string[]; codes: string[] }> {
     const ids: string[] = [id];
     const target = await this.klasifikasiRepository.findOne({ where: { id } });
     const codes: string[] = target ? [target.klasifikasi] : [];
@@ -212,8 +276,10 @@ export class KlasifikasiService {
 
     if (usedInNaskahCount > 0 || usedInBerkasCount > 0) {
       const usageList: string[] = [];
-      if (usedInNaskahCount > 0) usageList.push(`${usedInNaskahCount} Naskah Surat`);
-      if (usedInBerkasCount > 0) usageList.push(`${usedInBerkasCount} Berkas Arsip`);
+      if (usedInNaskahCount > 0)
+        usageList.push(`${usedInNaskahCount} Naskah Surat`);
+      if (usedInBerkasCount > 0)
+        usageList.push(`${usedInBerkasCount} Berkas Arsip`);
 
       return {
         canDelete: false,

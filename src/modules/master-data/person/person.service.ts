@@ -71,6 +71,10 @@ export interface PersonWithDetailsRow {
 /** Shape of each entry in org_data.position_json */
 interface PositionJsonEntry {
   chief?: number;
+  company?: number | string;
+  divisi_id?: number | null;
+  direktorat_id?: number | null;
+  organization_id?: number | null;
   area?: string;
   persnum?: number;
   persnum_person?: number;
@@ -78,6 +82,8 @@ interface PositionJsonEntry {
   nama?: string;
   position?: number;
   position_text?: string;
+  position_abbreviation?: string | null;
+  abbreviation?: string | null;
   sub_area?: number | null;
   sub_area_text?: string | null;
 }
@@ -90,6 +96,8 @@ export interface PositionMapValue {
   position_text: string | undefined;
   sub_area: number | null;
   sub_area_text: string | null;
+  abbreviation?: string | null;
+  area?: string;
 }
 
 @Injectable()
@@ -228,7 +236,11 @@ export class PersonService {
    * @param positionId - Position ID
    * @param search - Optional search query to filter persons by name
    */
-  async findByPosition(positionId: number, companyId?: number, search?: string) {
+  async findByPosition(
+    positionId: number,
+    companyId?: number,
+    search?: string,
+  ) {
     let query = `
       SELECT DISTINCT p.*, rsp.id as id_relation_sp, rsp.position, pos.short_text as position_name,
              rsp.start_date, rsp.end_date
@@ -519,20 +531,20 @@ export class PersonService {
     page?: number,
     limit?: number,
     user?: JwtPayload,
+    sameUnit = false,
   ) {
     const scopedAreaCode = this.getScopedAreaCode(user);
-    const persons = await this.cRepo.find({
-      order: { createAt: 'DESC' },
-    });
+    const paginated = page !== undefined && limit !== undefined;
 
     // Get org data to enrich person data with position information
     // Use findLatestOrg() (cached, limit 1) instead of findAll() to avoid
     // loading all org_data records which can be very large and cause timeouts
-    const latestOrgData = await this.orgDataService.findLatestOrg();
+    const latestOrgData =
+      await this.orgDataService.findLatestPositionSnapshot();
 
     if (!latestOrgData || !latestOrgData.position_json) {
       // Return empty array or paginated response if org data is not available
-      if (page && limit) {
+      if (paginated) {
         return {
           data: [],
           total: 0,
@@ -555,9 +567,37 @@ export class PersonService {
       ? (latestOrgData.position_json as PositionJsonEntry[])
       : [];
 
+    const current = sameUnit
+      ? positionJsonData.find(
+          (row) => Number(row.position) === Number(user?.position),
+        )
+      : undefined;
+    if (sameUnit && !current)
+      throw new NotFoundException(
+        'Posisi aktif tidak ditemukan untuk menentukan unit penandatangan',
+      );
+    const division = Number(current?.divisi_id);
+    const directorate = Number(current?.direktorat_id);
+    const organization = Number(current?.organization_id);
+
     for (const position of positionJsonData) {
+      if (sameUnit && current) {
+        const matchesUnit =
+          division > 0
+            ? Number(position.divisi_id) === division
+            : directorate > 0
+              ? Number(position.direktorat_id) === directorate
+              : organization > 0
+                ? Number(position.organization_id) === organization
+                : false;
+        if (
+          !matchesUnit ||
+          Number(position.company) !== Number(current.company)
+        )
+          continue;
+      }
       // Filter only managerial positions (chief=1)
-      if (position.chief !== 1) {
+      if (Number(position.chief) !== 1) {
         continue;
       }
 
@@ -580,50 +620,59 @@ export class PersonService {
           position_text: position.position_text,
           sub_area: position.sub_area ?? null,
           sub_area_text: position.sub_area_text ?? null,
+          abbreviation:
+            position.position_abbreviation || position.abbreviation || null,
+          area: position.area,
         });
       }
     }
 
-    // Map persons to DTOs with position data
-    let filtered: PositionMapValue[] = persons
-      .filter((person) => person.persnum && positionMap.has(person.persnum))
-      .map((person) => {
-        const posData = positionMap.get(person.persnum!)!;
-        return {
-          persnum: posData.persnum,
-          nama: posData.nama,
-          position: posData.position,
-          position_text: posData.position_text,
-          sub_area: posData.sub_area,
-          sub_area_text: posData.sub_area_text,
-        };
-      });
-
-    // Apply search filter if provided
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter(
-        (item) =>
-          (item.nama ?? '').toLowerCase().includes(searchLower) ||
-          item.persnum.toString().includes(search),
-      );
+    const searchLower = search?.trim().toLowerCase();
+    const entries = [...positionMap.values()].filter(
+      (item) =>
+        !searchLower ||
+        [item.nama, item.persnum, item.position_text, item.sub_area_text].some(
+          (value) =>
+            value != null && String(value).toLowerCase().includes(searchLower),
+        ),
+    );
+    const ids = entries.map((item) => Number(item.persnum));
+    const safePage = Math.max(1, Math.floor(Number.isFinite(page) ? page! : 1));
+    const safeLimit = Math.min(
+      100,
+      Math.max(1, Math.floor(Number.isFinite(limit) ? limit! : 50)),
+    );
+    if (!ids.length)
+      return paginated
+        ? {
+            data: [],
+            total: 0,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: 0,
+          }
+        : [];
+    const query = this.cRepo
+      .createQueryBuilder('person')
+      .select(['person.id', 'person.persnum'])
+      .where('person.persnum IN (:...ids)', { ids })
+      .orderBy('person.createAt', 'DESC')
+      .addOrderBy('person.id', 'DESC');
+    if (!paginated) {
+      const persons = await query.getMany();
+      return persons.map((person) => positionMap.get(person.persnum!)!);
     }
-
-    // Return all results without pagination if page/limit not provided
-    if (!page || !limit) {
-      return filtered;
-    }
-
-    // Return paginated results if page/limit provided
-    const total = filtered.length;
-    const data = filtered.slice((page - 1) * limit, page * limit);
-
+    const total = await query.clone().getCount();
+    const persons = await query
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getMany();
     return {
-      data,
+      data: persons.map((person) => positionMap.get(person.persnum!)!),
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
     };
   }
 
@@ -688,7 +737,9 @@ export class PersonService {
       position: dto.position,
       position_text: positionText,
       relation_persnum: dto.persnum,
-      relation_persnum_text: person.name ? person.name.toUpperCase() : person.name,
+      relation_persnum_text: person.name
+        ? person.name.toUpperCase()
+        : person.name,
       startDate: dto.startDate || '2025-01-01',
       endDate: dto.endDate || '9999-12-31',
       uname: dto.uname,
