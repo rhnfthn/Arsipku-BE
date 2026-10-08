@@ -83,6 +83,7 @@ import {
 import type { RoutingPosition } from '../../correspondence-routing/services/routing-config-validation';
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { formatDeputyPositionLabel } from '../helpers/deputy-position-label.helper';
 import { formatSdiPdfRecipientLabel } from '../helpers/sdi-pdf-recipient-label.helper';
@@ -135,6 +136,7 @@ export class SuratDinasInternalService {
     private readonly konsepService: KonsepService,
     private readonly tteSigningGateway: TteSigningGateway,
     private readonly tteSigningService: TteSigningService,
+    private readonly realtimeEmitService: RealtimeEmitService,
     @Optional()
     private readonly correspondenceRoutingResolver?: CorrespondenceRoutingResolverService,
   ) {}
@@ -2971,6 +2973,14 @@ export class SuratDinasInternalService {
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      // Naskah TTD basah masuk daftar tertunda — emit badge count baru ke
+      // pengirim agar sidebar langsung update tanpa refresh.
+      if (status === 'pending' && pengirim?.position) {
+        this.realtimeEmitService
+          .emitTertundaCountForPosition(this.dataSource, String(pengirim.position))
+          .catch(() => {});
+      }
 
       let portalRedirect:
         | { transactionId: string; signingUrl: string }
