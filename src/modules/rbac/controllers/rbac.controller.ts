@@ -224,7 +224,9 @@ export class RbacController {
 
   @Put('roles/:id/permissions')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(RoleName.SUPERADMIN)
+  // Akses pengaturan permission dikendalikan oleh permission granular ini.
+  // Jangan mengunci endpoint hanya ke nama role agar role admin yang memang
+  // diberi hak `role.assign-permission` dapat menjalankan RBAC.
   @RequirePermission('role', 'assign-permission')
   @AuditLog({
     module: AuditModule.RBAC,

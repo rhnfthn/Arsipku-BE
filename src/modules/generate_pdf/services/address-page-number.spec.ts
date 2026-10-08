@@ -1,3 +1,4 @@
+import { GeneratePdfDispoService } from './generate_pdf_dispo.service';
 import { getBrowser } from '../puppeteer.provider';
 import { GeneratePdfKajianService } from './generate_pdf_kajian.service';
 import { GeneratePdfNodinService } from './generate_pdf_nodin.service';
@@ -174,4 +175,21 @@ describe('PDF address page document number', () => {
     expect(renderedHtml).toContain('<b>TEMBUSAN :</b>');
     expect(renderedHtml).toContain(`Nomor : ${documentNumber}`);
   });
+  it.each([
+    ['ND', new GeneratePdfNodinService()],
+    ['SDI/SDE', new GeneratePdfSudinService()],
+    ['DI', new GeneratePdfDispoService()],
+    ['KA', new GeneratePdfKajianService()],
+  ] as const)('%s prints TTE text only in the page footer for digital signing', async (_jenis, renderer) => {
+    await renderer.generatePdf({ html: '<p>Uji footer</p>', bsreFooter: true });
+    expect(page.pdf).toHaveBeenLastCalledWith(expect.objectContaining({
+      displayHeaderFooter: true,
+      headerTemplate: '<span></span>',
+      footerTemplate: expect.stringContaining('Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara'),
+    }));
+    expect(renderedHtml).not.toContain('Dokumen ini telah ditandatangani secara elektronik');
+    await renderer.generatePdf({ html: '<p>Uji non TTE</p>', bsreFooter: false });
+    expect(page.pdf.mock.calls.at(-1)[0]).not.toHaveProperty('footerTemplate');
+  });
+
 });

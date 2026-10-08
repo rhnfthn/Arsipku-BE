@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Query,
   ParseUUIDPipe,
   UseGuards,
   UseInterceptors,
@@ -44,6 +45,7 @@ export class DigsigController {
   async signBac(
     @Param('transferId') transferId: string,
     @Body() dto: SignBsreDto,
+    @Query('signer') signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
     if (!dto.passphrase) {
@@ -51,7 +53,7 @@ export class DigsigController {
         'Passphrase wajib diisi — input passphrase BSrE Anda',
       );
     }
-    return this.digsigService.signBacBsre(transferId, dto, user);
+    return this.digsigService.signBacBsre(transferId, dto, user, signerType);
   }
 
   /**
@@ -63,9 +65,10 @@ export class DigsigController {
   @HttpCode(HttpStatus.OK)
   async signBacQr(
     @Param('transferId') transferId: string,
+    @Query('signer') signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
-    return this.digsigService.signBacQr(transferId, user);
+    return this.digsigService.signBacQr(transferId, user, signerType);
   }
 
   /**
@@ -92,12 +95,13 @@ export class DigsigController {
   async signBacPhysical(
     @Param('transferId') transferId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Query('signer') signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
     @CurrentUser() user: JwtPayload,
   ): Promise<SignResultResponse> {
     if (!file) {
       throw new BadRequestException('PDF hasil tanda tangan basah wajib diunggah');
     }
-    return this.digsigService.signBacPhysical(transferId, file, user);
+    return this.digsigService.signBacPhysical(transferId, file, user, signerType);
   }
 
   // ============================================

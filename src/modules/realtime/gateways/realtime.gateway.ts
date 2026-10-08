@@ -538,6 +538,10 @@ export class RealtimeGateway
   }
 
   /** Emit komentar task baru ke room board (forum diskusi realtime). */
+  emitTugasCommentReactionChanged(payload: { boardId: string; commentId: string; occurredAt: string }) {
+    this.server?.to(`tugas:board:${payload.boardId}`).emit('tugas:comment-reaction-changed', payload);
+  }
+
   emitTugasCommentAdded(payload: {
     boardId: string;
     taskId: string | null;

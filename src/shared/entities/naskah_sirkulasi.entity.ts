@@ -64,7 +64,7 @@ export class NaskahSirkulasi {
   @Column('varchar', { name: 'nama_sirkuler', nullable: true, length: 150 })
   namaSirkuler: string | null;
 
-  @Column('varchar', { name: 'alamat', nullable: true, length: 255 })
+  @Column('text', { name: 'alamat', nullable: true })
   alamat: string | null;
 
   @Column('varchar', { name: 'telepon', nullable: true, length: 50 })

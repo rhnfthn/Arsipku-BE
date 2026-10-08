@@ -1,3 +1,4 @@
+import { tteFooterPdfOptions } from '../utils/tte-footer.util';
 import { Injectable } from '@nestjs/common';
 import { getBrowser, resetBrowser } from '../puppeteer.provider';
 import * as fs from 'fs';
@@ -421,12 +422,6 @@ export class GeneratePdfSudinService {
 
     // QR Code section
     const qrCodeHtml = body.qrCodeHtml || '';
-    const bsreFooter = body.bsreFooter
-      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
-          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
-          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
-        </div>`
-      : '';
 
     // TTD section (English) — selaras template Indonesia: rata kiri,
     // tanpa tanggal dobel (tanggal sudah tampil di header info surat).
@@ -468,8 +463,7 @@ export class GeneratePdfSudinService {
       headerInfo +
       bodyKonten +
       ttd +
-      tembusanKonten +
-      bsreFooter;
+      tembusanKonten;
 
     // Generate address page if needed (English)
     let addressPageContent = '';
@@ -560,6 +554,7 @@ export class GeneratePdfSudinService {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        ...tteFooterPdfOptions(body.bsreFooter),
         timeout: 60000,
         margin: {
           top: '15mm',
@@ -906,12 +901,6 @@ export class GeneratePdfSudinService {
 
     // QR Code section (optional - passed from digsig signing)
     const qrCodeHtml = body.qrCodeHtml || '';
-    const bsreFooter = body.bsreFooter
-      ? `<div style="margin-top:20px;font-size:9pt;line-height:1.25;text-align:left;">
-          Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br>
-          yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara
-        </div>`
-      : '';
 
     // TTD section - tanggal, jabatan, QR, lalu nama penandatangan.
     const ttd = `
@@ -952,8 +941,7 @@ export class GeneratePdfSudinService {
       headerInfo +
       bodyKonten +
       ttd +
-      tembusanKonten +
-      bsreFooter;
+      tembusanKonten;
 
     // Generate address page if needed (penerima or tembusan > 5)
     let addressPageContent = '';
@@ -1045,6 +1033,7 @@ export class GeneratePdfSudinService {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        ...tteFooterPdfOptions(body.bsreFooter),
         timeout: 60000,
         margin: {
           top: '15mm',

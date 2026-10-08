@@ -114,6 +114,10 @@ export class DraftListPenerimaDto {
 }
 
 export class DraftListItemDto {
+  status: 'draf' | 'pending_tte';
+  tte_status: string | null;
+  tte_expires_at: Date | null;
+  can_resume_tte: boolean;
   id_naskah: string;
   id_sirkulasi: string | null;
   jenis: 'ND' | 'DI' | 'SDI' | 'SDE' | 'KA' | 'K' | 'UND';

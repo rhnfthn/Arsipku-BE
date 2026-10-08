@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NaskahEntity } from '../entities/naskah.entity';
+import { formatNomorLocation } from '../../common/helpers/nomor-location.helper';
 
 /**
  * Mapping Kode Jabatan berdasarkan position/organization
@@ -155,12 +156,12 @@ export class NomorSuratService {
     // Check mapping
     for (const [key, value] of Object.entries(LOKASI_MAPPING)) {
       if (lowerText.includes(key)) {
-        return value;
+        return formatNomorLocation(value);
       }
     }
 
-    // Default: 00 (Pusat)
-    return '00';
+    // Default lokasi penomoran: TNG (Pusat)
+    return formatNomorLocation('00');
   }
 
   /**
@@ -190,7 +191,10 @@ export class NomorSuratService {
       .createQueryBuilder('n')
       .select('n.nomor', 'nomor')
       .where('n.jenis = :jenis', { jenis })
-      .andWhere('n.nomor LIKE :pattern', { pattern })
+      .andWhere('(n.nomor LIKE :pattern OR n.nomor LIKE :legacyPattern)', {
+        pattern,
+        legacyPattern: pattern.replace('/TNG/', '/00/'),
+      })
       .orderBy('n.nomor', 'DESC')
       .limit(10)
       .getRawMany<{ nomor: string | null }>();
@@ -219,7 +223,7 @@ export class NomorSuratService {
    * Generate nomor surat untuk Disposisi
    *
    * Format: {NO_URUT}/{JABATAN}/{LOKASI}/{BULAN}/{TAHUN}
-   * Contoh: 001/P/00/XII/2025
+   * Contoh: 001/P/TNG/XII/2025
    *
    * JABATAN diambil dari position_abbreviation di org_data
    */
@@ -298,7 +302,7 @@ export class NomorSuratService {
    * Generate nomor surat untuk Surat Dinas Internal
    *
    * Format: {NO_URUT}/{JABATAN}/{LOKASI}/{KLASIFIKASI}/{BULAN}/{TAHUN}
-   * Contoh: 001/P/00/PER.07/XII/2025
+   * Contoh: 001/P/TNG/PER.07/XII/2025
    *
    * Ada lokasi, tidak ada instansi
    * JABATAN diambil dari position_abbreviation di org_data
@@ -346,7 +350,7 @@ export class NomorSuratService {
    * Generate nomor surat untuk Surat Dinas Eksternal
    *
    * Format: {NO_URUT}/{JABATAN}/{LOKASI}/{INSTANSI}/{KLASIFIKASI}/{BULAN}/{TAHUN}
-   * Contoh: 001/G/01/KRT.01.02/II/2019 atau 001/P/00/LPPNPI/PER.07/XII/2025
+   * Contoh: 001/G/01/KRT.01.02/II/2019 atau 001/P/TNG/LPPNPI/PER.07/XII/2025
    *
    * Format lengkap dengan lokasi, instansi, dan klasifikasi
    * JABATAN diambil dari position_abbreviation di org_data
@@ -397,7 +401,7 @@ export class NomorSuratService {
    * Menggunakan format yang sama dengan Disposisi
    *
    * Format: {NO_URUT}/{JABATAN}/{LOKASI}/{BULAN}/{TAHUN}
-   * Contoh: 001/P/00/XII/2025
+   * Contoh: 001/P/TNG/XII/2025
    */
   async generateNomorKajian(
     params: GenerateNomorParams,

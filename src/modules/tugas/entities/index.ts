@@ -6,3 +6,4 @@ export * from './tugas-task-comment-hide.entity';
 export * from './tugas-task-reference.entity';
 export * from './tugas-task-evidence.entity';
 export * from './tugas-task.entity';
+export * from './tugas-comment-reaction.entity';

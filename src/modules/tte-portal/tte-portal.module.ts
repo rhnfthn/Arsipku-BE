@@ -1,3 +1,5 @@
+import { TteCorrespondenceLifecycleService } from './services/tte-correspondence-lifecycle.service';
+import { TtePendingCorrespondenceWorker } from './services/tte-pending-correspondence.worker';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TtePortalController } from './controllers/tte-portal.controller';
@@ -40,6 +42,8 @@ import { SearchModule } from '../search/search.module';
   ],
   controllers: [TtePortalController],
   providers: [
+    TteCorrespondenceLifecycleService,
+    TtePendingCorrespondenceWorker,
     TtePortalClientService,
     TteSigningService,
     TteSigningGateway,

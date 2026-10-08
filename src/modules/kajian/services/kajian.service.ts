@@ -1,3 +1,5 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
@@ -1562,7 +1564,7 @@ export class KajianService {
         dto,
         pengirim,
       ).positionText;
-      let qrCodeHtml: string | undefined = undefined;
+      let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, generatedNomor.nomor, 'KA') : undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
@@ -1814,6 +1816,7 @@ export class KajianService {
       }
 
       // Commit transaction
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
 
       let portalRedirect:
@@ -1831,6 +1834,7 @@ export class KajianService {
           pathDokumen: 'kajian/digsig/',
           idNaskah: naskahId,
           jenisNaskah: 'KA',
+            ...portalCorrespondenceSignatureOptions('KA'),
           nomorNaskah: generatedNomor.nomor,
           location: dto.nama_tempat || 'Indonesia',
           reason: `Penandatanganan Kajian ${generatedNomor.nomor}`,
@@ -3796,7 +3800,7 @@ export class KajianService {
       }).positionText;
 
       // Prepare QR Code for signing
-      let qrCodeHtml: string | undefined = undefined;
+      let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, naskah.nomor || '', 'KA') : undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
@@ -3995,6 +3999,7 @@ export class KajianService {
         { final_pdf: finalPdfPath },
       );
 
+      await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
       await queryRunner.commitTransaction();
 
       let portalRedirect:
@@ -4012,6 +4017,7 @@ export class KajianService {
           pathDokumen: 'kajian/digsig/',
           idNaskah: naskahId,
           jenisNaskah: 'KA',
+            ...portalCorrespondenceSignatureOptions('KA'),
           nomorNaskah: naskah.nomor || undefined,
           location: 'Indonesia',
           reason: `Penandatanganan Kajian ${naskah.nomor || naskahId}`,

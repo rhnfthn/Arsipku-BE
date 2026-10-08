@@ -1,3 +1,6 @@
+import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
+import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
+import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
 import {
   Injectable,
@@ -317,14 +320,10 @@ export class NotaDinasService {
   }
 
   /**
-   * Helper: Extract last 2 characters dari area code
+   * Helper: Kode lokasi penomoran (pusat: TNG, cabang: kode area)
    */
   private extractAreaCode(area: string | null | undefined): string {
-    if (!area) return '';
-    if (area.length >= 2) {
-      return area.slice(-2);
-    }
-    return area.padStart(2, '0');
+    return formatNomorLocation(area);
   }
 
   /**
@@ -2354,7 +2353,7 @@ export class NotaDinasService {
           ...pengirim,
           position_text: dto.nama_jabatan || pengirim.position_text,
         }).positionText || 'Jabatan';
-      let qrCodeHtml: string | undefined = undefined;
+      let qrCodeHtml: string | undefined = status === 'pending_tte' ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'ND') : undefined;
       let signatureId: string | undefined = undefined;
       let signedAt: string | undefined = undefined;
       let verificationUrl: string | undefined = undefined;
@@ -2365,7 +2364,7 @@ export class NotaDinasService {
 
       // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
       if (
-        (dto.sign_option === SignOption.DIGSIG && persnum) ||
+        (dto.sign_option === SignOption.DIGSIG && persnum && status !== 'pending_tte') ||
         dto.sign_option === SignOption.QR_ONLY
       ) {
         signedAt = new Date().toISOString();
@@ -2419,6 +2418,7 @@ export class NotaDinasService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
         });
         console.log(`[ND] PDF generated successfully`);
 
@@ -2447,7 +2447,7 @@ export class NotaDinasService {
             console.log(
               `[ND] Mode Portal TTE aktif — buat signing request untuk naskah ${naskahId}`,
             );
-            // Upload PDF (dengan QR) ke temp sebagai sumber signing portal
+            // Upload unsigned PDF with the QR anchor for Portal signing
             const tempTimestamp = Date.now();
             const tempFileName = `temp-${naskahId}-${tempTimestamp}.pdf`;
             const tempUpload = await this.storageService.uploadBuffer(
@@ -2456,6 +2456,7 @@ export class NotaDinasService {
               'application/pdf',
               'nota-dinas/temp',
             );
+            await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
             const tteResult =
               await this.tteSigningService.createSigningTransaction({
                 sourceKey: tempUpload.key,
@@ -2466,11 +2467,12 @@ export class NotaDinasService {
                 nomorNaskah: nomorSurat,
                 location: pengirim.sub_area_text || 'KANTOR PUSAT',
                 reason: `${nomorSurat} - ${dto.perihal || ''}`.slice(0, 2000),
-                tampilan: 'INVISIBLE',
+                ...portalCorrespondenceSignatureOptions('ND'),
                 user: {
                   persnum,
                   nama: signerName,
                   nik: user?.nik,
+                  sessionId: user?.sessionId,
                 } as any,
               });
             // Cleanup temp file (sudah ter-upload ke portal storage)
@@ -3373,7 +3375,7 @@ export class NotaDinasService {
         // ========================================
         const signerName = resolvedNamaLengkap || 'Penandatangan';
         const signerJabatan = resolvedPositionText || 'Jabatan';
-        let qrCodeHtml: string | undefined = undefined;
+        let qrCodeHtml: string | undefined = isPortalMode ? await portalCorrespondenceQrHtml(this.qrCodeService, naskahId, nomorSurat, 'ND') : undefined;
         let signatureId: string | undefined = undefined;
         let signedAt: string | undefined = undefined;
         let verificationUrl: string | undefined = undefined;
@@ -3384,7 +3386,7 @@ export class NotaDinasService {
 
         // Pre-generate QR code untuk digsig atau qr_only SEBELUM generate PDF
         if (
-          (dto.sign_option === SignOption.DIGSIG && persnum) ||
+          (dto.sign_option === SignOption.DIGSIG && persnum && !isPortalMode) ||
           dto.sign_option === SignOption.QR_ONLY
         ) {
           signedAt = new Date().toISOString();
@@ -3453,6 +3455,7 @@ export class NotaDinasService {
           headerAlamat: headerInfo?.alamat,
           // QR Code HTML - akan ditampilkan di template di antara jabatan dan nama
           qrCodeHtml: qrCodeHtml,
+          bsreFooter: dto.sign_option === SignOption.DIGSIG,
         });
         console.log(`[ND finalizeDraft] PDF generated successfully`);
 
@@ -3495,6 +3498,7 @@ export class NotaDinasService {
               'application/pdf',
               'nota-dinas/temp',
             );
+            await reservePortalCorrespondenceNumber(queryRunner.manager, naskahId);
             const tteResult =
               await this.tteSigningService.createSigningTransaction({
                 sourceKey: tempUpload.key,
@@ -3510,11 +3514,12 @@ export class NotaDinasService {
                     0,
                     2000,
                   ),
-                tampilan: 'INVISIBLE',
+                ...portalCorrespondenceSignatureOptions('ND'),
                 user: {
                   persnum,
                   nama: signerName,
                   nik: user?.nik,
+                  sessionId: user?.sessionId,
                 } as any,
               });
             try {

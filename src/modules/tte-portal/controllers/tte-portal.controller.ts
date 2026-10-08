@@ -1,5 +1,6 @@
 import {
   Controller,
+  ParseUUIDPipe,
   Post,
   Get,
   Body,
@@ -67,6 +68,19 @@ export class TtePortalController {
       state: dto.state,
       user,
     });
+  }
+
+  @Get('naskah/:idNaskah/pending')
+  @HttpCode(HttpStatus.OK)
+  async getPendingCorrespondence(
+    @Param('idNaskah', ParseUUIDPipe) idNaskah: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.tteSigningService.getPendingCorrespondence(
+      idNaskah,
+      user.persnum,
+      user.position,
+    );
   }
 
   /**

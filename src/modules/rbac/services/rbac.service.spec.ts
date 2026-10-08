@@ -15,6 +15,7 @@ import { Person } from '../../master-data/person/entities/person.entity';
 import { RbacService } from './rbac.service';
 import { NotificationGateway } from '../../notification/gateways/notification.gateway';
 import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
+import { kelolaMatrix, kelolaResources } from '../seeder/kelola-matrix';
 
 describe('RbacService', () => {
   let service: RbacService;
@@ -126,6 +127,49 @@ describe('RbacService', () => {
     expect(service).toBeDefined();
   });
 
+  it('should expose Penyusutan in the Kelola RBAC matrix', () => {
+    const pengajuanResource = kelolaResources.find(
+      (item) => item.name === 'pemeliharaan.penyusutan.pengajuan',
+    );
+    expect(pengajuanResource?.permissions.map((permission) => permission.action)).toEqual([
+      'read',
+      'create',
+      'update',
+      'approve',
+      'reject',
+    ]);
+
+    const penataanResource = kelolaResources.find(
+      (item) => item.name === 'pemeliharaan.penyusutan.penataan-pemusnahan',
+    );
+    expect(penataanResource?.permissions.map((permission) => permission.action)).toEqual([
+      'read',
+      'update',
+      'complete',
+    ]);
+
+    const verifikasiResource = kelolaResources.find(
+      (item) => item.name === 'pemeliharaan.penyusutan.verifikasi',
+    );
+    expect(verifikasiResource?.permissions.map((permission) => permission.action)).toEqual([
+      'read',
+      'approve',
+      'reject',
+    ]);
+
+    const penyusutan = kelolaMatrix.menus.find(
+      (menu) => menu.key === 'penyusutan',
+    );
+    expect(penyusutan?.subMenus.map((subMenu) => subMenu.label)).toEqual([
+      'Pengajuan Penyusutan',
+      'Penataan dan Pemusnahan',
+      'Verifikasi Penyusutan',
+    ]);
+    expect(penyusutan?.subMenus[0].fiturs[0].permissions).toHaveLength(5);
+    expect(penyusutan?.subMenus[1].fiturs[0].permissions).toHaveLength(3);
+    expect(penyusutan?.subMenus[2].fiturs[0].permissions).toHaveLength(3);
+  });
+
   describe('assignPermissionsToRole (B5: transaction + diff)', () => {
     it('should add only new permissions (diff)', async () => {
       rolePermissionRepo.find.mockResolvedValue([
@@ -181,6 +225,46 @@ describe('RbacService', () => {
       rolePermissionRepo.find.mockResolvedValue([]);
       await service.assignPermissionsToRole('role-1', ['perm-1']);
       expect(dataSource.transaction).toHaveBeenCalled();
+    });
+
+    it('should remove unchecked permissions only inside the matrix scope', async () => {
+      rolePermissionRepo.find.mockResolvedValue([
+        { id: 'rp-checked', roleId: 'role-1', permissionId: 'perm-checked' },
+        { id: 'rp-unchecked', roleId: 'role-1', permissionId: 'perm-unchecked' },
+        { id: 'rp-outside', roleId: 'role-1', permissionId: 'perm-outside' },
+      ]);
+
+      // Simulasi tombol checkbox: perm-checked tetap dicentang,
+      // perm-unchecked dilepas, sedangkan permission di luar tab matrix
+      // harus tetap dipertahankan.
+      await service.assignPermissionsToRole(
+        'role-1',
+        ['perm-checked'],
+        ['perm-checked', 'perm-unchecked'],
+      );
+
+      expect(rolePermissionRepo.delete).toHaveBeenCalledWith(['rp-unchecked']);
+      expect(rolePermissionRepo.delete).not.toHaveBeenCalledWith([
+        'rp-outside',
+      ]);
+    });
+
+    it('should remove every unchecked permission when all matrix checkboxes are cleared', async () => {
+      rolePermissionRepo.find.mockResolvedValue([
+        { id: 'rp-read', roleId: 'role-1', permissionId: 'perm-read' },
+        { id: 'rp-create', roleId: 'role-1', permissionId: 'perm-create' },
+      ]);
+
+      await service.assignPermissionsToRole(
+        'role-1',
+        [],
+        ['perm-read', 'perm-create'],
+      );
+
+      expect(rolePermissionRepo.delete).toHaveBeenCalledWith([
+        'rp-read',
+        'rp-create',
+      ]);
     });
   });
 
