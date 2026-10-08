@@ -2726,10 +2726,13 @@ export class TransferActiveToInactiveService {
         'b.id',
         'b.kodeBerkas',
         'b.klasifikasi',
+        'b.klasifikasiTeks',
         'b.judulBerkas',
         'b.isiRingkas',
         'b.lokasi',
         'b.retensiAktifTahun',
+        'b.retensiInaktifTahun',
+        'b.tanggalRetensiInaktifBerakhir',
         'b.tanggalDibuat',
         'b.tanggalDitutup',
       ])
@@ -2806,15 +2809,17 @@ export class TransferActiveToInactiveService {
         ? await this.berkasRepo.manager
             .createQueryBuilder()
             .select('k.klasifikasi', 'kode')
+            .addSelect('k.klasifikasi_text', 'klasifikasi')
             .addSelect('k.keamanan', 'keamanan')
+            .addSelect('k.retensi_inaktif_tahun', 'retensiInaktifTahun')
             .from('klasifikasi', 'k')
             .where('k.klasifikasi IN (:...codes)', {
               codes: klasifikasiCodes,
             })
             .getRawMany()
         : [];
-    const keamananMap = new Map(
-      keamananRows.map((row: any) => [String(row.kode), row.keamanan]),
+    const klasifikasiMap = new Map(
+      keamananRows.map((row: any) => [String(row.kode), row]),
     );
 
     const year = (value: unknown): string | null => {
@@ -2847,7 +2852,22 @@ export class TransferActiveToInactiveService {
         jumlahBerkas: jumlahMap.get(String(a.id)) ?? 0,
         tingkatPerkembangan: '-',
         lokasiSimpan: berkas?.lokasi ?? '-',
-        klasifikasiKeamanan: keamananMap.get(String(berkas?.klasifikasi ?? '')) ?? '-',
+        klasifikasi: berkas?.klasifikasiTeks
+          ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.klasifikasi
+          ?? '-',
+        klasifikasiKeamanan:
+          klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.keamanan ?? '-',
+        retensiArsipInaktifTahun:
+          berkas?.retensiInaktifTahun
+          ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.retensiInaktifTahun
+          ?? null,
+        retensiArsipInaktif: (() => {
+          const years = berkas?.retensiInaktifTahun
+            ?? klasifikasiMap.get(String(berkas?.klasifikasi ?? ''))?.retensiInaktifTahun;
+          return years != null ? `${years} tahun` : '-';
+        })(),
+        tanggalRetensiInaktifBerakhir:
+          berkas?.tanggalRetensiInaktifBerakhir ?? null,
         retensiArsipAktif:
           berkas?.retensiAktifTahun != null
             ? `${berkas.retensiAktifTahun} tahun`
